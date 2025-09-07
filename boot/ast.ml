@@ -27,3 +27,7 @@ let pprint_token = function
   | TokDef -> "TokDef"
   | TokDot -> "TokDot"
   | TokIdent(s) -> sprintf "TokIdent('%s')" s
+
+let pprint_info = function
+    Info(x, r1, c1, r2, c2) ->
+    sprintf "'%s' %d:%d-%d:%d" x r1 c1 r2 c2
