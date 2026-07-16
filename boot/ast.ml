@@ -9,23 +9,47 @@ type info =
 (* Token types *)
 type token =
   | TokInt of int
+  | TokString of string
+  | TokAdd         (* '+' user defined *)
+  | TokSub         (* '-' user defined *)
+  | TokMul         (* '*' user defined *)
+  | TokDiv         (* '/' user defined *)
+  | TokLessThanEq  (* '<=' *)
+  | TokLessThan    (* '<' *)
+  | TokGreatThanEq (* '>=' *)
+  | TokGreatThan   (* '>' *)
+  | TokEqEq        (* '==' *)
   | TokColon       (* ':' *)
   | TokEq          (* '=' *)
   | TokLParen      (* '(' *)
   | TokRParen      (* ')' *)
-  | TokDef         (* 'def' *)
   | TokDot         (* '.' *)
+  | TokComma       (* ',' *)
+  | TokDef         (* 'def' *)
+  | TokReturn         (* 'return' *)
   | TokIdent of string
 
 
 let pprint_token = function
   | TokInt(x) -> sprintf "TokInt(%d)" x
+  | TokString(s) -> sprintf "TokString('%s')" s
+  | TokAdd -> "TokAdd"
+  | TokSub -> "TokSub"
+  | TokMul -> "TokMul"
+  | TokDiv -> "TokDiv"
+  | TokLessThanEq -> "TokLessThanEq"
+  | TokLessThan -> "TokLessThan"
+  | TokGreatThanEq -> "TokGreatThanEq"
+  | TokGreatThan -> "TokGreatThan"
+  | TokEqEq -> "TokEqEq"
   | TokColon -> "TokColon"
   | TokEq -> "TokEq"
   | TokLParen -> "TokLParen"
   | TokRParen -> "TokRParen"
-  | TokDef -> "TokDef"
   | TokDot -> "TokDot"
+  | TokComma -> "TokComma"
+  | TokDef -> "TokDef"
+  | TokReturn -> "TokReturn"
   | TokIdent(s) -> sprintf "TokIdent('%s')" s
 
 let pprint_info = function
