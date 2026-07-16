@@ -136,6 +136,16 @@ class TokReturn(Token):     # 'return'
 
 
 @dataclass(frozen=True)
+class TokFor(Token):        # 'for'
+    pass
+
+
+@dataclass(frozen=True)
+class TokIn(Token):         # 'in'
+    pass
+
+
+@dataclass(frozen=True)
 class TokIdent(Token):
     value: str
 
@@ -184,6 +194,10 @@ def pprint_token(tok):
             return "TokDef"
         case TokReturn():
             return "TokReturn"
+        case TokFor():
+            return "TokFor"
+        case TokIn():
+            return "TokIn"
         case TokIdent(s):
             return f"TokIdent('{s}')"
 
@@ -200,6 +214,17 @@ def is_letter(x):
 
 def is_digit_letter(x):
     return is_digit(x) or is_letter(x)
+
+
+keywords = ["for", "in"]
+
+
+def keyword_token(name):
+    match name:
+        case "for":
+            return TokFor()
+        case "in":
+            return TokIn()
 
 
 def string_until(pred, chars):
@@ -342,6 +367,8 @@ def lexing(file, chars):
                         tokens.append((fi(r, c, length), TokDef()))
                     case "return":
                         tokens.append((fi(r, c, length), TokReturn()))
+                    case k if k in keywords:
+                        tokens.append((fi(r, c, length), keyword_token(k)))
                     case _:
                         tokens.append((fi(r, c, length), TokIdent(y)))
                 c = c + length
