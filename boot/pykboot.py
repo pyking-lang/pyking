@@ -1,7 +1,6 @@
 
 import sys
 from dataclasses import dataclass
-from typing import Callable, List, Tuple
 
 
 class LexError(Exception):
@@ -19,7 +18,7 @@ class Info:
     col2: int
 
 
-def pprint_info(info: Info) -> str:
+def pprint_info(info):
     match info:
         case Info(file, r1, c1, r2, c2):
             return f"'{file}' {r1}:{c1}-{r2}:{c2}"
@@ -131,7 +130,7 @@ class TokIdent(Token):
     value: str
 
 
-def pprint_token(tok: Token) -> str:
+def pprint_token(tok):
     match tok:
         case TokInt(x):
             return f"TokInt({x})"
@@ -177,19 +176,19 @@ def pprint_token(tok: Token) -> str:
 
 # --- lexer ---
 
-def is_digit(x: str) -> bool:
+def is_digit(x):
     return "0" <= x <= "9"
 
 
-def is_letter(x: str) -> bool:
+def is_letter(x):
     return x == "_" or ("a" <= x <= "z") or ("A" <= x <= "Z")
 
 
-def is_digit_letter(x: str) -> bool:
+def is_digit_letter(x):
     return is_digit(x) or is_letter(x)
 
 
-def string_until(pred: Callable[[str], bool], chars: List[str]) -> Tuple[str, List[str]]:
+def string_until(pred, chars):
     """Returns the longest prefix of `chars` matching `pred`, and the rest."""
     i = 0
     while i < len(chars) and pred(chars[i]):
@@ -197,7 +196,7 @@ def string_until(pred: Callable[[str], bool], chars: List[str]) -> Tuple[str, Li
     return "".join(chars[:i]), chars[i:]
 
 
-def skip(chars: List[str]) -> List[str]:
+def skip(chars):
     match chars:
         case [_, *xs]:
             return xs
@@ -205,13 +204,13 @@ def skip(chars: List[str]) -> List[str]:
             raise LexError("Unexpected end")
 
 
-def lexing(file: str, chars: List[str]) -> List[Tuple[Info, Token]]:
+def lexing(file, chars):
     """Lexes a list of characters into a list of (info, token) pairs."""
 
-    def fi(r: int, c: int, length: int) -> Info:
+    def fi(r, c, length):
         return Info(file, r, c, r, c + length)
 
-    tokens: List[Tuple[Info, Token]] = []
+    tokens = []
     r, c = 1, 0
     rest = chars
 
@@ -314,6 +313,7 @@ def lexing(file: str, chars: List[str]) -> List[Tuple[Info, Token]]:
 
     return tokens
 
+# Main
 
 if len(sys.argv) != 2:
     print("Usage: pykboot <filename>")
