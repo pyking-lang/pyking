@@ -33,121 +33,124 @@ class Token:
 @dataclass(frozen=True)
 class TokInt(Token):
     value: int
+    info: Info
 
 
 @dataclass(frozen=True)
 class TokString(Token):
     value: str
+    info: Info
 
 
 @dataclass(frozen=True)
 class TokAdd(Token):        # '+' user defined
-    pass
+    info: Info
 
 
 @dataclass(frozen=True)
 class TokSub(Token):        # '-' user defined
-    pass
+    info: Info
 
 
 @dataclass(frozen=True)
 class TokMul(Token):        # '*' user defined
-    pass
+    info: Info
 
 
 @dataclass(frozen=True)
 class TokDiv(Token):        # '/' user defined
-    pass
+    info: Info
 
 
 @dataclass(frozen=True)
 class TokLessThanEq(Token):  # '<='
-    pass
+    info: Info
 
 
 @dataclass(frozen=True)
 class TokLessThan(Token):   # '<'
-    pass
+    info: Info
 
 
 @dataclass(frozen=True)
 class TokGreatThanEq(Token):  # '>='
-    pass
+    info: Info
 
 
 @dataclass(frozen=True)
 class TokGreatThan(Token):  # '>'
-    pass
+    info: Info
 
 
 @dataclass(frozen=True)
 class TokEqEq(Token):       # '=='
-    pass
+    info: Info
 
 
 @dataclass(frozen=True)
 class TokColon(Token):      # ':'
-    pass
+    info: Info
 
 
 @dataclass(frozen=True)
 class TokIndent(Token):     # start of an indented scope
-    pass
+    info: Info
 
 
 @dataclass(frozen=True)
 class TokDedent(Token):     # end of an indented scope
-    pass
+    info: Info
 
 
 @dataclass(frozen=True)
 class TokEq(Token):         # '='
-    pass
+    info: Info
 
 
 @dataclass(frozen=True)
 class TokLParen(Token):     # '('
-    pass
+    info: Info
 
 
 @dataclass(frozen=True)
 class TokRParen(Token):     # ')'
-    pass
+    info: Info
 
 
 @dataclass(frozen=True)
 class TokDot(Token):        # '.'
-    pass
+    info: Info
 
 
 @dataclass(frozen=True)
 class TokComma(Token):      # ','
-    pass
+    info: Info
 
 
 @dataclass(frozen=True)
 class TokDef(Token):        # 'def'
-    pass
+    info: Info
 
 
 @dataclass(frozen=True)
 class TokReturn(Token):     # 'return'
-    pass
+    info: Info
 
 
 @dataclass(frozen=True)
 class TokFor(Token):        # 'for'
-    pass
+    info: Info
 
 
 @dataclass(frozen=True)
 class TokIn(Token):         # 'in'
-    pass
+    info: Info
 
 
 @dataclass(frozen=True)
 class TokIdent(Token):
     value: str
+    info: Info
 
 
 def pprint_token(tok):
@@ -219,12 +222,12 @@ def is_digit_letter(x):
 keywords = ["for", "in"]
 
 
-def keyword_token(name):
+def keyword_token(name, info):
     match name:
         case "for":
-            return TokFor()
+            return TokFor(info)
         case "in":
-            return TokIn()
+            return TokIn(info)
 
 
 def string_until(pred, chars):
@@ -244,7 +247,7 @@ def skip(chars):
 
 
 def lexing(file, chars):
-    """Lexes a list of characters into a list of (info, token) pairs."""
+    """Lexes a list of characters into a list of tokens."""
 
     def fi(r, c, length):
         return Info(file, r, c, r, c + length)
@@ -268,11 +271,11 @@ def lexing(file, chars):
                     level = len(spaces) // 4
                     if level > indent_stack[-1]:
                         indent_stack.append(level)
-                        tokens.append((fi(r, c, 0), TokIndent()))
+                        tokens.append(TokIndent(fi(r, c, 0)))
                     else:
                         while level < indent_stack[-1]:
                             indent_stack.pop()
-                            tokens.append((fi(r, c, 0), TokDedent()))
+                            tokens.append(TokDedent(fi(r, c, 0)))
                         if level != indent_stack[-1]:
                             raise LexError(
                                 f"{pprint_info(fi(r, c, len(spaces)))}: "
@@ -286,7 +289,7 @@ def lexing(file, chars):
             # Integer
             case [x, *_] if is_digit(x):
                 y, ys = string_until(is_digit, rest)
-                tokens.append((fi(r, c, len(y)), TokInt(int(y))))
+                tokens.append(TokInt(int(y), fi(r, c, len(y))))
                 c = c + len(y)
                 rest = ys
 
@@ -300,57 +303,57 @@ def lexing(file, chars):
             case [s, *xs] if s in ("'", '"'):
                 text, ys = string_until(lambda ch: ch != s, xs)
                 length = 2 + len(text)
-                tokens.append((fi(r, c, length), TokString(text)))
+                tokens.append(TokString(text, fi(r, c, length)))
                 c = c + length
                 rest = skip(ys)
 
             # Operators that are user defined in real pyking
             case ["+", *xs]:
-                tokens.append((fi(r, c, 1), TokAdd()))
+                tokens.append(TokAdd(fi(r, c, 1)))
                 c, rest = c + 1, xs
             case ["-", *xs]:
-                tokens.append((fi(r, c, 1), TokSub()))
+                tokens.append(TokSub(fi(r, c, 1)))
                 c, rest = c + 1, xs
             case ["*", *xs]:
-                tokens.append((fi(r, c, 1), TokMul()))
+                tokens.append(TokMul(fi(r, c, 1)))
                 c, rest = c + 1, xs
             case ["/", *xs]:
-                tokens.append((fi(r, c, 1), TokDiv()))
+                tokens.append(TokDiv(fi(r, c, 1)))
                 c, rest = c + 1, xs
             case ["<", "=", *xs]:
-                tokens.append((fi(r, c, 2), TokLessThanEq()))
+                tokens.append(TokLessThanEq(fi(r, c, 2)))
                 c, rest = c + 2, xs
             case ["<", *xs]:
-                tokens.append((fi(r, c, 1), TokLessThan()))
+                tokens.append(TokLessThan(fi(r, c, 1)))
                 c, rest = c + 1, xs
             case [">", "=", *xs]:
-                tokens.append((fi(r, c, 2), TokGreatThanEq()))
+                tokens.append(TokGreatThanEq(fi(r, c, 2)))
                 c, rest = c + 2, xs
             case [">", *xs]:
-                tokens.append((fi(r, c, 1), TokGreatThan()))
+                tokens.append(TokGreatThan(fi(r, c, 1)))
                 c, rest = c + 1, xs
             case ["=", "=", *xs]:
-                tokens.append((fi(r, c, 2), TokEqEq()))
+                tokens.append(TokEqEq(fi(r, c, 2)))
                 c, rest = c + 2, xs
 
             # Language lex items
             case [":", *xs]:
-                tokens.append((fi(r, c, 1), TokColon()))
+                tokens.append(TokColon(fi(r, c, 1)))
                 c, rest = c + 1, xs
             case ["=", *xs]:
-                tokens.append((fi(r, c, 1), TokEq()))
+                tokens.append(TokEq(fi(r, c, 1)))
                 c, rest = c + 1, xs
             case ["(", *xs]:
-                tokens.append((fi(r, c, 1), TokLParen()))
+                tokens.append(TokLParen(fi(r, c, 1)))
                 c, rest = c + 1, xs
             case [")", *xs]:
-                tokens.append((fi(r, c, 1), TokRParen()))
+                tokens.append(TokRParen(fi(r, c, 1)))
                 c, rest = c + 1, xs
             case [".", *xs]:
-                tokens.append((fi(r, c, 1), TokDot()))
+                tokens.append(TokDot(fi(r, c, 1)))
                 c, rest = c + 1, xs
             case [",", *xs]:
-                tokens.append((fi(r, c, 1), TokComma()))
+                tokens.append(TokComma(fi(r, c, 1)))
                 c, rest = c + 1, xs
             case [" ", *xs]:
                 c, rest = c + 1, xs
@@ -364,26 +367,33 @@ def lexing(file, chars):
                 length = len(y)
                 match y:
                     case "def":
-                        tokens.append((fi(r, c, length), TokDef()))
+                        tokens.append(TokDef(fi(r, c, length)))
                     case "return":
-                        tokens.append((fi(r, c, length), TokReturn()))
+                        tokens.append(TokReturn(fi(r, c, length)))
                     case k if k in keywords:
-                        tokens.append((fi(r, c, length), keyword_token(k)))
+                        tokens.append(keyword_token(k, fi(r, c, length)))
                     case _:
-                        tokens.append((fi(r, c, length), TokIdent(y)))
+                        tokens.append(TokIdent(y, fi(r, c, length)))
                 c = c + length
                 rest = ys
 
             case []:
                 while indent_stack[-1] > 0:
                     indent_stack.pop()
-                    tokens.append((fi(r, c, 0), TokDedent()))
+                    tokens.append(TokDedent(fi(r, c, 0)))
                 break
 
             case [x, *_]:
                 raise LexError(f"Toking error: unknown character '{x}'.")
 
     return tokens
+
+#def parse_statement(ts):
+#    match ts:
+#        case [(_,TokIdent), (_,TokEq, Tok*ts]
+#
+#def parse(tokens):
+
 
 # Main
 
@@ -396,4 +406,4 @@ with open(filename, "r") as f:
     data = f.read()
 
 tokens = lexing(filename, list(data))
-print("\n".join(f"{pprint_info(fi)} {pprint_token(t)}" for fi, t in tokens))
+print("\n".join(f"{pprint_info(t.info)} {pprint_token(t)}" for t in tokens))
