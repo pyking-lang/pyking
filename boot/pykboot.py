@@ -91,6 +91,16 @@ class TokColon(Token):      # ':'
 
 
 @dataclass(frozen=True)
+class TokIndent(Token):     # start of an indented scope
+    pass
+
+
+@dataclass(frozen=True)
+class TokDedent(Token):     # end of an indented scope
+    pass
+
+
+@dataclass(frozen=True)
 class TokEq(Token):         # '='
     pass
 
@@ -156,6 +166,10 @@ def pprint_token(tok):
             return "TokEqEq"
         case TokColon():
             return "TokColon"
+        case TokIndent():
+            return "TokIndent"
+        case TokDedent():
+            return "TokDedent"
         case TokEq():
             return "TokEq"
         case TokLParen():
@@ -213,9 +227,37 @@ def lexing(file, chars):
     tokens = []
     r, c = 1, 0
     rest = chars
+    indent_stack = [0]
+    line_start = True
 
     while True:
         match rest:
+            case [x, *_] if line_start and x != "\n" and x != "#":
+                spaces, ys = string_until(lambda ch: ch == " ", rest)
+                if ys and ys[0] not in ("\n", "#"):
+                    if len(spaces) % 4 != 0:
+                        raise LexError(
+                            f"{pprint_info(fi(r, c, len(spaces)))}: "
+                            "indentation must be a multiple of 4 spaces."
+                        )
+                    level = len(spaces) // 4
+                    if level > indent_stack[-1]:
+                        indent_stack.append(level)
+                        tokens.append((fi(r, c, 0), TokIndent()))
+                    else:
+                        while level < indent_stack[-1]:
+                            indent_stack.pop()
+                            tokens.append((fi(r, c, 0), TokDedent()))
+                        if level != indent_stack[-1]:
+                            raise LexError(
+                                f"{pprint_info(fi(r, c, len(spaces)))}: "
+                                "unindent does not match any outer "
+                                "indentation level."
+                            )
+                    line_start = False
+                c = c + len(spaces)
+                rest = ys
+
             # Integer
             case [x, *_] if is_digit(x):
                 y, ys = string_until(is_digit, rest)
@@ -225,9 +267,8 @@ def lexing(file, chars):
 
             # Line comment
             case ["#", *xs]:
-                _, ys = string_until(lambda ch: ch != "\n", xs)
-                r = r + 1
-                c = 0
+                text, ys = string_until(lambda ch: ch != "\n", xs)
+                c = c + 1 + len(text)
                 rest = ys
 
             # String
@@ -290,6 +331,7 @@ def lexing(file, chars):
                 c, rest = c + 1, xs
             case ["\n", *xs]:
                 r, c, rest = r + 1, 0, xs
+                line_start = True
 
             # Keywords and identifiers
             case [x, *_] if is_letter(x):
@@ -306,6 +348,9 @@ def lexing(file, chars):
                 rest = ys
 
             case []:
+                while indent_stack[-1] > 0:
+                    indent_stack.pop()
+                    tokens.append((fi(r, c, 0), TokDedent()))
                 break
 
             case [x, *_]:
