@@ -32,14 +32,14 @@ class Token:
 
 @dataclass(frozen=True)
 class TokInt(Token):
-    value: int
     info: Info
+    value: int
 
 
 @dataclass(frozen=True)
 class TokString(Token):
-    value: str
     info: Info
+    value: str
 
 
 @dataclass(frozen=True)
@@ -149,15 +149,15 @@ class TokIn(Token):         # 'in'
 
 @dataclass(frozen=True)
 class TokIdent(Token):
-    value: str
     info: Info
+    value: str
 
 
 def pprint_token(tok):
     match tok:
-        case TokInt(x):
+        case TokInt(_,x):
             return f"TokInt({x})"
-        case TokString(s):
+        case TokString(_,s):
             return f"TokString('{s}')"
         case TokAdd():
             return "TokAdd"
@@ -201,7 +201,7 @@ def pprint_token(tok):
             return "TokFor"
         case TokIn():
             return "TokIn"
-        case TokIdent(s):
+        case TokIdent(_,s):
             return f"TokIdent('{s}')"
 
 
@@ -289,7 +289,7 @@ def lexing(file, chars):
             # Integer
             case [x, *_] if is_digit(x):
                 y, ys = string_until(is_digit, rest)
-                tokens.append(TokInt(int(y), fi(r, c, len(y))))
+                tokens.append(TokInt(fi(r, c, len(y)), int(y)))
                 c = c + len(y)
                 rest = ys
 
@@ -303,7 +303,7 @@ def lexing(file, chars):
             case [s, *xs] if s in ("'", '"'):
                 text, ys = string_until(lambda ch: ch != s, xs)
                 length = 2 + len(text)
-                tokens.append(TokString(text, fi(r, c, length)))
+                tokens.append(TokString(fi(r, c, length), text))
                 c = c + length
                 rest = skip(ys)
 
@@ -373,7 +373,7 @@ def lexing(file, chars):
                     case k if k in keywords:
                         tokens.append(keyword_token(k, fi(r, c, length)))
                     case _:
-                        tokens.append(TokIdent(y, fi(r, c, length)))
+                        tokens.append(TokIdent(fi(r, c, length), y))
                 c = c + length
                 rest = ys
 
@@ -390,8 +390,8 @@ def lexing(file, chars):
 
 #def parse_statement(ts):
 #    match ts:
-#        case [(_,TokIdent), (_,TokEq, Tok*ts]
-#
+#        case [TokIdent(fi,x), (_,TokEq, Tok*ts]
+
 #def parse(tokens):
 
 
