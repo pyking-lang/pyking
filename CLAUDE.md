@@ -69,3 +69,17 @@ Requires Python 3.10+ for `match`/`case` statements.
   `.gitignore~`) and the `src/` directory are untracked/gitignored scratch
   content — don't treat them as authoritative source, and don't assume
   they should be committed.
+
+
+# Pyking
+
+We have developed a new language called Pyking (file ending .pyk) which is very
+similar to Python, but with a few differences.
+
+* statements with = is only binding names, in an immutable way. That is, this is not
+  for mutation assignment.
+
+* A variable that can be muted must be declared, using "var" for instance a line
+   var x = 1
+  shows that that we have a new variable, initated to 1.
+  If a mutable variable should be updated, the operator := is used instead.

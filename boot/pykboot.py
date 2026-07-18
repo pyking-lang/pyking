@@ -390,7 +390,8 @@ def lexing(file, chars):
 
 #def parse_statement(ts):
 #    match ts:
-#        case [TokIdent(fi,x), (_,TokEq, Tok*ts]
+#        case [TokIdent(fi,x), TokEq(_), TokInt(fi,k), *ts]:
+
 
 #def parse(tokens):
 
