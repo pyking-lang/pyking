@@ -276,12 +276,41 @@ def string_until(pred, chars):
     return "".join(chars[:i]), chars[i:]
 
 
-def skip(chars):
-    match chars:
-        case [_, *xs]:
-            return xs
-        case _:
-            raise LexError("Unexpected end")
+_ESCAPES = {
+    "n": "\n",
+    "t": "\t",
+    "r": "\r",
+    "\\": "\\",
+    "'": "'",
+    '"': '"',
+}
+
+
+def scan_string(quote, chars):
+    """Consumes a string body up to and including the closing `quote`,
+    decoding backslash escapes as it goes. Returns `(value, length, rest)`
+    where `length` is the number of source characters consumed (including
+    the closing quote, excluding the opening one already consumed by the
+    caller)."""
+    value = []
+    length = 0
+    rest = chars
+    while True:
+        match rest:
+            case []:
+                raise LexError("Unexpected end of string literal")
+            case ["\\", e, *xs] if e in _ESCAPES:
+                value.append(_ESCAPES[e])
+                length += 2
+                rest = xs
+            case ["\\", e, *_]:
+                raise LexError(f"Unknown escape sequence '\\{e}' in string literal")
+            case [c, *xs] if c == quote:
+                return "".join(value), length + 1, xs
+            case [c, *xs]:
+                value.append(c)
+                length += 1
+                rest = xs
 
 
 def lexing(file, chars):
@@ -339,11 +368,11 @@ def lexing(file, chars):
 
             # String
             case [s, *xs] if s in ("'", '"'):
-                text, ys = string_until(lambda ch: ch != s, xs)
-                length = 2 + len(text)
+                text, body_length, ys = scan_string(s, xs)
+                length = 1 + body_length
                 tokens.append(TokString(fi(r, c, length), text))
                 c = c + length
-                rest = skip(ys)
+                rest = ys
 
             # Operators that are user defined in real pyking
             case ["+", *xs]:
@@ -527,6 +556,23 @@ def _wrap(prec, min_prec, s):
     return f"({s})" if prec < min_prec else s
 
 
+_PRINT_ESCAPES = {
+    "\\": "\\\\",
+    "'": "\\'",
+    "\n": "\\n",
+    "\t": "\\t",
+    "\r": "\\r",
+}
+
+
+def _quote_string(s):
+    # Always delimit with single quotes and escape whatever the lexer's
+    # `scan_string` can decode back (backslash, the quote itself, and the
+    # non-printable escapes), so the output round-trips through the lexer.
+    body = "".join(_PRINT_ESCAPES.get(ch, ch) for ch in s)
+    return f"'{body}'"
+
+
 def pprint_expr(e, min_prec=0):
     # min_prec is the precedence required by the surrounding context; a
     # sub-expression built from a lower-precedence operator is parenthesized
@@ -535,7 +581,7 @@ def pprint_expr(e, min_prec=0):
         case EInt(_, v):
             return str(v)
         case EString(_, s):
-            return f"'{s}'"
+            return _quote_string(s)
         case EVar(_, name):
             return name
         case EAdd(_, l, r):

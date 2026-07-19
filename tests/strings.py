@@ -1,0 +1,3 @@
+message = "it's a test"
+other = 'she said "hi"'
+print(message, other)
