@@ -21,10 +21,11 @@ compiler in the target/meta language itself. Concretely:
   Python rewrite — don't reintroduce `.ml` files unless asked.
 - `src/` is reserved for the eventual self-hosted implementation written in
   Miking (`.mc` files). It's currently empty of tracked content.
-- `tests/` contains sample source programs (not a pytest suite), exercised
-  by `test.py`/`make test` (see "Running" below) and usable standalone via:
+- `tests/` contains sample Pyking source programs (`.pyk`, not a pytest
+  suite), each with a sibling `.out` file holding its expected stdout (see
+  "Running" below for how `test.py` uses these), and usable standalone via:
   ```
-  python3 boot/pykboot.py tests/test1.py
+  python3 boot/pykboot.py tests/test1.pyk
   ```
 
 ## Pyking language reference
@@ -34,9 +35,9 @@ feature summary, a full EBNF grammar, and a worked example for every
 supported construct (literals, operators, `var`/`:=` mutation vs. `=`
 immutable binding, `for`/`while`/`if`, functions, indentation rules, error
 message format, etc.). Read it before writing or editing any Pyking source
-(`.pyk` or the Python-subset `.py` files under `tests/`) — it reflects
-exactly what the current bootstrap parser accepts, which is not the same as
-full Python. Keep it in sync whenever `boot/`'s language support changes.
+(e.g. the `.pyk` files under `tests/`) — it reflects exactly what the
+current bootstrap parser accepts, which is not the same as full Python.
+Keep it in sync whenever `boot/`'s language support changes.
 
 ## Architecture of `boot/`
 
@@ -74,10 +75,30 @@ The bootstrap is split into one module per compiler stage:
    `combine_info(start, end)` — when adding a new grammar rule, combine
    infos the same way rather than reusing a single token's span. Parse
    errors raise `ParseError(info, message)`.
-4. **`boot/pykboot.py`** — the entry point: parses `--tokens`/the filename
-   from argv, calls `lexer.lexing` and `parser.parse`, catches `LexError`/
-   `ParseError` to print a `'file' row:col-row:col ...` message to stderr,
-   and prints the pretty-printed AST via `syntax.pprint_program`.
+4. **`boot/target_python.py`** — the Python code-generation backend: its
+   own `Py*` AST (`PyInt`, `PyAssign`, `PyFor`, ... — structurally the same
+   shape as `boot/syntax.py`'s `E*`/`S*`, except Pyking's `SLet`/`SVar`/
+   `SMutate` all collapse into one `PyAssign`, since Python has no
+   mutable-vs-immutable-binding distinction), `translate_program`/
+   `translate_stmt`/`translate_expr` (Pyking AST → `Py*` AST; each `match`
+   ends in a `case _: raise NotImplementedError(...)` so a future Pyking
+   construct without a translation fails loudly rather than silently
+   returning `None`), and `pprint_py_expr`/`pprint_py_stmt`/
+   `pprint_py_program` (Py* AST → Python source text). This is the first
+   of what should eventually be multiple interchangeable backends — keep
+   it independent of `syntax.py`'s pretty-printing internals so future
+   backends (e.g. `target_ocaml.py`) can be added the same way, without
+   entangling target-specific logic into the Pyking AST/pretty-printer.
+5. **`boot/pykboot.py`** — the entry point: parses `--tokens`/`--ast`/the
+   filename from argv, calls `lexer.lexing` and `parser.parse`, catches
+   `LexError`/`ParseError` to print a `'file' row:col-row:col ...` message
+   to stderr. With `--ast`, prints the pretty-printed *Pyking* AST via
+   `syntax.pprint_program` (this used to be the only/default behavior).
+   Otherwise (the default), it compiles: translates to the Python target
+   AST and writes the pretty-printed Python source to `<basename>.py` in
+   the *current working directory* (not next to the input file) — e.g.
+   running it on `some/dir/hello.pyk` writes `./hello.py`, refusing to run
+   if that would overwrite the input itself.
 
 When extending the lexer (new operators, keywords, string escapes, etc.),
 follow the existing pattern: add a `case [...]:` arm in the `match rest:`
@@ -87,27 +108,37 @@ block inside `lexing`, add a corresponding `Tok*` dataclass, and add a
 ## Running
 
 ```
-python3 boot/pykboot.py [--tokens] <filename>
+python3 boot/pykboot.py [--tokens] [--ast] <filename>
 ```
 
 or equivalently, via the `pykboot` wrapper script at the repository root:
 
 ```
-./pykboot [--tokens] <filename>
+./pykboot [--tokens] [--ast] <filename>
 ```
 
-`--tokens` additionally prints the token stream before the pretty-printed
-AST; without it, only the AST is printed. `make test` runs `test.py`, which
-lexes/parses/pretty-prints every `tests/*.py` file and checks that running
-the original and the regenerated source with `python3` produces identical
-stdout.
+`--tokens` prints the token stream first (in addition to whatever else
+happens). `--ast` stops after parsing and prints the pretty-printed
+*Pyking* AST instead of compiling. The default (neither flag, or
+`--tokens` alone) compiles: `<name>.pyk` produces `<name>.py`, written to
+the current working directory (not next to the input file), translated
+via `boot/target_python.py`. There's no `--target` flag yet — Python is
+the only backend, so a target-selection flag would be
+speculative; add one if/when a second backend is implemented.
+
+`make test` runs `test.py`, which compiles every `tests/*.pyk` file (the
+generated `.py` lands in the repository root, since that's `test.py`'s own
+working directory), executes it with `python3`, and compares its stdout
+against the sibling `tests/*.out` file (captured once, ahead of time, as
+the expected output) — then deletes the generated `.py` again so the
+repository root stays free of build artifacts between runs.
 
 No dependencies beyond the Python standard library (`dataclasses`, `sys`).
 Requires Python 3.10+ for `match`/`case` statements.
 
 ## Repository housekeeping
 
-- Editor backup files ending in `~` (e.g. `boot/tests/variables.py~`,
+- Editor backup files ending in `~` (e.g. `tests/arithmetic.py~`,
   `.gitignore~`) and the `src/` directory are untracked/gitignored scratch
   content — don't treat them as authoritative source, and don't assume
   they should be committed.

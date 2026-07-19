@@ -2,7 +2,6 @@ import glob
 import os
 import subprocess
 import sys
-import tempfile
 
 PYKBOOT = os.path.join("boot", "pykboot.py")
 
@@ -12,41 +11,44 @@ def run(cmd):
 
 
 def main():
-    test_files = sorted(glob.glob(os.path.join("tests", "*.py")))
+    test_files = sorted(glob.glob(os.path.join("tests", "*.pyk")))
     passed = 0
     failed = 0
 
     for path in test_files:
-        original_output = run([sys.executable, path]).stdout
+        out_path = os.path.splitext(path)[0] + ".out"
+        with open(out_path, "r") as f:
+            expected_output = f.read()
 
-        generated = run([sys.executable, PYKBOOT, path])
-        if generated.returncode != 0:
-            print(f"{path} FAILED")
-            print("--- original output ---")
-            print(original_output, end="")
-            print("--- pykboot.py error ---")
-            print(generated.stderr, end="")
-            failed += 1
-            continue
-
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as tmp:
-            tmp.write(generated.stdout)
-            tmp_path = tmp.name
+        # pykboot.py writes its output to the current working directory
+        # (this script's cwd), not next to the .pyk input.
+        generated_path = os.path.splitext(os.path.basename(path))[0] + ".py"
         try:
-            generated_output = run([sys.executable, tmp_path]).stdout
-        finally:
-            os.remove(tmp_path)
+            compiled = run([sys.executable, PYKBOOT, path])
+            if compiled.returncode != 0:
+                print(f"{path} FAILED")
+                print("--- expected output ---")
+                print(expected_output, end="")
+                print("--- pykboot.py error ---")
+                print(compiled.stderr, end="")
+                failed += 1
+                continue
 
-        if original_output == generated_output:
-            print(f"{path} OK.")
-            passed += 1
-        else:
-            print(f"{path} FAILED")
-            print("--- original output ---")
-            print(original_output, end="")
-            print("--- generated output ---")
-            print(generated_output, end="")
-            failed += 1
+            generated_output = run([sys.executable, generated_path]).stdout
+
+            if generated_output == expected_output:
+                print(f"{path} OK.")
+                passed += 1
+            else:
+                print(f"{path} FAILED")
+                print("--- expected output ---")
+                print(expected_output, end="")
+                print("--- generated output ---")
+                print(generated_output, end="")
+                failed += 1
+        finally:
+            if os.path.exists(generated_path):
+                os.remove(generated_path)
 
     total = passed + failed
     print()

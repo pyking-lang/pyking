@@ -10,15 +10,21 @@ can change over time, it must first be introduced with `var`, and it is
 updated afterwards with the `:=` operator rather than `=`.
 
 This document describes the subset of the language currently understood by
-the bootstrap implementation in `boot/` (`lexer.py`, `syntax.py`, `parser.py`,
-`pykboot.py`). It has no evaluator yet, so nothing in this document is
-actually *executed* — running `python3 boot/pykboot.py <file>` (or the
-equivalent `./pykboot <file>` wrapper script at the repository root) lexes
-the file, parses it into an AST, and pretty-prints that AST back out as a
-sanity check; add `--tokens` to also print the raw token stream first. A
-file that fails to lex or parse reports a `Lexing error` / `Parsing error`
-to stderr with the offending file, row, and column (start and end) instead
-of printing anything.
+the bootstrap implementation in `boot/` (`lexer.py`, `syntax.py`,
+`parser.py`, `target_python.py`, `pykboot.py`). Pyking itself has no
+evaluator — instead, `boot/pykboot.py` *compiles* by default: running
+`python3 boot/pykboot.py <file>` (or the equivalent `./pykboot <file>`
+wrapper script at the repository root) lexes and parses `<file>`,
+translates the result to Python, and writes it as `<basename>.py` in the
+current working directory — not next to `<file>` itself, so compiling
+`some/dir/hello.pyk` from elsewhere writes `./hello.py` — which can then be
+run directly with `python3 hello.py`. Two flags select earlier stages
+instead, for inspection: `--tokens` prints the raw token stream, and
+`--ast` prints the pretty-printed *Pyking* AST (in Pyking's own syntax,
+e.g. still showing `var`/`:=`) without compiling. A file that fails to lex
+or parse reports a `Lexing error` / `Parsing error` to stderr with the
+offending file, row, and column (start and end) instead of producing any
+output.
 
 ## Feature summary
 

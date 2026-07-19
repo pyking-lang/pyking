@@ -3,3 +3,6 @@ _build/
 *.native
 *~
 .claude/settings.local.json
+.idea/
+.vscode/
+__pycache__
