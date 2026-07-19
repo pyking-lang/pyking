@@ -199,6 +199,13 @@ class SFor(Stmt):           # for name in iterable: body
 
 
 @dataclass(frozen=True)
+class SWhile(Stmt):         # while cond: body
+    info: Info
+    cond: Expr
+    body: list
+
+
+@dataclass(frozen=True)
 class SIf(Stmt):            # if cond: then_body [else: else_body]
     info: Info
     cond: Expr
@@ -229,6 +236,10 @@ def pprint_stmt(s, level=0):
             return f"{pad}{pprint_expr(expr)}"
         case SFor(_, name, iterable, body):
             lines = [f"{pad}for {name} in {pprint_expr(iterable)}:"]
+            lines += [pprint_stmt(st, level + 1) for st in body]
+            return "\n".join(lines)
+        case SWhile(_, cond, body):
+            lines = [f"{pad}while {pprint_expr(cond)}:"]
             lines += [pprint_stmt(st, level + 1) for st in body]
             return "\n".join(lines)
         case SIf(_, cond, then_body, else_body):

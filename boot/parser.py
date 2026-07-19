@@ -6,13 +6,13 @@ from lexer import (
     TokAdd, TokSub, TokMul, TokDiv,
     TokLessThanEq, TokLessThan, TokGreatThanEq, TokGreatThan, TokEqEq,
     TokColon, TokIndent, TokDedent, TokEq, TokLParen, TokRParen, TokComma,
-    TokDef, TokReturn, TokFor, TokIn, TokIf, TokElse, TokVar, TokAssign,
+    TokDef, TokReturn, TokFor, TokIn, TokIf, TokWhile, TokElse, TokVar, TokAssign,
 )
 from syntax import (
     EInt, EString, EVar,
     EAdd, ESub, EMul, EDiv,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall,
-    SLet, SVar, SMutate, SReturn, SExprStmt, SFor, SIf, SFunctionDef,
+    SLet, SVar, SMutate, SReturn, SExprStmt, SFor, SWhile, SIf, SFunctionDef,
 )
 
 
@@ -205,6 +205,16 @@ def parse_statement(tokens):
                     return SFor(for_info, name, iterable, body), rest
                 case _:
                     raise ParseError(_here(rest), "expected ':' after for header")
+
+        case [TokWhile(info), *rest]:
+            cond, rest = parse_expr(rest)
+            match rest:
+                case [TokColon(_), *rest]:
+                    body, rest = parse_block(rest)
+                    while_info = combine_info(info, _block_end_info(info, body))
+                    return SWhile(while_info, cond, body), rest
+                case _:
+                    raise ParseError(_here(rest), "expected ':' after while header")
 
         case [TokIf(info), *rest]:
             cond, rest = parse_expr(rest)

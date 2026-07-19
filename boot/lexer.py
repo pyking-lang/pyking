@@ -156,6 +156,11 @@ class TokIf(Token):         # 'if'
 
 
 @dataclass(frozen=True)
+class TokWhile(Token):      # 'while'
+    info: Info
+
+
+@dataclass(frozen=True)
 class TokElse(Token):       # 'else'
     info: Info
 
@@ -226,6 +231,8 @@ def pprint_token(tok):
             return "TokIn"
         case TokIf():
             return "TokIf"
+        case TokWhile():
+            return "TokWhile"
         case TokElse():
             return "TokElse"
         case TokVar():
@@ -250,7 +257,7 @@ def is_digit_letter(x):
     return is_digit(x) or is_letter(x)
 
 
-keywords = ["for", "in", "if", "else", "var", "def", "return"]
+keywords = ["for", "in", "if", "while", "else", "var", "def", "return"]
 
 
 def keyword_token(name, info):
@@ -261,6 +268,8 @@ def keyword_token(name, info):
             return TokIn(info)
         case "if":
             return TokIf(info)
+        case "while":
+            return TokWhile(info)
         case "else":
             return TokElse(info)
         case "var":

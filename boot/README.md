@@ -2,7 +2,7 @@
 
 Pyking is a small, statically-scoped, Python-like language. Its syntax and
 core expression/statement forms are borrowed directly from Python (literals,
-arithmetic and comparison operators, function definitions, `for`/`if`
+arithmetic and comparison operators, function definitions, `for`/`while`/`if`
 control flow, indentation-based blocks). Pyking's one deliberate departure
 from Python is around variable mutation: plain `=` only introduces an
 *immutable* binding for a name, never a mutation. To declare a variable that
@@ -12,16 +12,20 @@ updated afterwards with the `:=` operator rather than `=`.
 This document describes the subset of the language currently understood by
 the bootstrap implementation in `boot/` (`lexer.py`, `syntax.py`, `parser.py`,
 `pykboot.py`). It has no evaluator yet, so nothing in this document is
-actually *executed* — running `python3 boot/pykboot.py <file>` lexes the
-file, parses it into an AST, and pretty-prints that AST back out as a
-sanity check.
+actually *executed* — running `python3 boot/pykboot.py <file>` (or the
+equivalent `./pykboot <file>` wrapper script at the repository root) lexes
+the file, parses it into an AST, and pretty-prints that AST back out as a
+sanity check; add `--tokens` to also print the raw token stream first. A
+file that fails to lex or parse reports a `Lexing error` / `Parsing error`
+to stderr with the offending file, row, and column (start and end) instead
+of printing anything.
 
 ## Feature summary
 
 Expressions:
 
 - Comments
-- Integer and string literals
+- Integer and string literals (with backslash escapes)
 - Variables (identifier references)
 - Arithmetic operators (`+`, `-`, `*`, `/`) and parenthesized expressions
 - Comparison operators (`<`, `<=`, `>`, `>=`, `==`)
@@ -34,6 +38,7 @@ Statements:
 - Function definitions (`def`)
 - `return` statements
 - `for`/`in` loops
+- `while` loops
 - `if`/`else` statements
 - Expression statements
 
@@ -56,6 +61,7 @@ block       = INDENT , { statement } , DEDENT ;
 statement   = function_def
             | return_stmt
             | for_stmt
+            | while_stmt
             | if_stmt
             | var_decl
             | assignment
@@ -68,6 +74,8 @@ params       = ident , { "," , ident } ;
 return_stmt = "return" , expr ;
 
 for_stmt    = "for" , ident , "in" , expr , ":" , block ;
+
+while_stmt  = "while" , expr , ":" , block ;
 
 if_stmt     = "if" , expr , ":" , block , [ "else" , ":" , block ] ;
 
@@ -89,14 +97,18 @@ args        = expr , { "," , expr } ;
 
 ident       = letter , { letter | digit } ;
 int         = digit , { digit } ;
-string      = "'" , { any_char_except_quote } , "'"
-            | '"' , { any_char_except_quote } , '"' ;
+string      = "'" , { string_char } , "'"
+            | '"' , { string_char } , '"' ;
+string_char = any_char_except_quote_or_backslash
+            | "\" , escape ;
+escape      = "n" | "t" | "r" | "\" | "'" | '"' ;
 ```
 
 Notes that don't fall out of the grammar alone:
 
 - `comp_op` does not repeat — `1 < 2 < 3` is not a valid `expr` (comparisons
   don't chain).
+- `while_stmt` has no `else` clause (unlike Python's `while`/`else`).
 - `additive` and `multiplicative` are left-associative.
 - `call_tail` can repeat after any atom, so `f(1)(2)` parses (a call
   result can itself be called), even though no example in this document
@@ -119,13 +131,16 @@ print(x)
 ### Integer and string literals
 
 Integers are sequences of digits. Strings are delimited by either single or
-double quotes; there is no escape-character syntax yet, so a quote
-character cannot appear inside a string of the same kind.
+double quotes, and support backslash escapes: `\n`, `\t`, `\r`, `\\`, `\'`,
+and `\"` (so a string can contain its own delimiter, or the other quote
+character, once escaped).
 
 ```python
 count = 42
 message = "hello, pyking"
+quoted = 'it\'s a test with a "quoted" word\nand a second line'
 print(count, message)
+print(quoted)
 ```
 
 ### Variables (identifier references)
@@ -233,6 +248,18 @@ by `iterable`, running the indented body once per element.
 ```python
 for i in range(3):
     print(i)
+```
+
+### `while` loops
+
+`while cond:` runs its indented body repeatedly for as long as `cond`
+holds. There is no `else` clause on `while` (unlike Python).
+
+```python
+var i = 0
+while i < 3:
+    print(i)
+    i := i + 1
 ```
 
 ### `if`/`else` statements

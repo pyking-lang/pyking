@@ -1,0 +1,12 @@
+count = 0
+for i in range(4):
+    for j in range(4):
+        if i < j:
+            count = count + 1
+        else:
+            count = count - 1
+
+    if i == 2:
+        count = count + 10
+
+print(count)
