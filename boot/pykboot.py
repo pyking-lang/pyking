@@ -247,7 +247,7 @@ def is_digit_letter(x):
     return is_digit(x) or is_letter(x)
 
 
-keywords = ["for", "in", "if", "else", "var"]
+keywords = ["for", "in", "if", "else", "var", "def", "return"]
 
 
 def keyword_token(name, info):
@@ -262,6 +262,10 @@ def keyword_token(name, info):
             return TokElse(info)
         case "var":
             return TokVar(info)
+        case "def":
+            return TokDef(info)
+        case "return":
+            return TokReturn(info)
 
 
 def string_until(pred, chars):
@@ -403,10 +407,6 @@ def lexing(file, chars):
                 y, ys = string_until(is_digit_letter, rest)
                 length = len(y)
                 match y:
-                    case "def":
-                        tokens.append(TokDef(fi(r, c, length)))
-                    case "return":
-                        tokens.append(TokReturn(fi(r, c, length)))
                     case k if k in keywords:
                         tokens.append(keyword_token(k, fi(r, c, length)))
                     case _:
@@ -854,6 +854,10 @@ def parse(tokens):
 
 
 # Main
+
+x = 5
+print("hello", x)
+
 
 if len(sys.argv) != 2:
     print("Usage: pykboot <filename>")
