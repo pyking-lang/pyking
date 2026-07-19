@@ -10,11 +10,11 @@ can change over time, it must first be introduced with `var`, and it is
 updated afterwards with the `:=` operator rather than `=`.
 
 This document describes the subset of the language currently understood by
-the bootstrap implementation, `boot/pykboot.py`. That file implements a
-lexer, a recursive-descent parser, and a pretty printer; it has no
-evaluator yet, so nothing in this document is actually *executed* — running
-`python3 boot/pykboot.py <file>` lexes the file, parses it into an AST, and
-pretty-prints that AST back out as a sanity check.
+the bootstrap implementation in `boot/` (`lexer.py`, `syntax.py`, `parser.py`,
+`pykboot.py`). It has no evaluator yet, so nothing in this document is
+actually *executed* — running `python3 boot/pykboot.py <file>` lexes the
+file, parses it into an AST, and pretty-prints that AST back out as a
+sanity check.
 
 ## Feature summary
 
@@ -43,7 +43,7 @@ Structure:
 
 ## Grammar
 
-EBNF for the subset currently accepted by `parse()` in `boot/pykboot.py`.
+EBNF for the subset currently accepted by `parse()` in `boot/parser.py`.
 `INDENT`/`DEDENT` are not literal characters — they are synthesized by the
 lexer from 4-space indentation changes (see "Indentation-based blocks"
 below). Comments are stripped by the lexer and don't appear here.
