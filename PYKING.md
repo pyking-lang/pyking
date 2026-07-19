@@ -18,7 +18,9 @@ wrapper script at the repository root) lexes and parses `<file>`,
 translates the result to Python, and writes it as `<basename>.py` in the
 current working directory — not next to `<file>` itself, so compiling
 `some/dir/hello.pyk` from elsewhere writes `./hello.py` — which can then be
-run directly with `python3 hello.py`. Two flags select earlier stages
+run directly with `python3 hello.py`. Pass `--stdout` to print the
+generated Python source to stdout instead of writing the file (handy for
+piping straight into `python3`). Two more flags select earlier stages
 instead, for inspection: `--tokens` prints the raw token stream, and
 `--ast` prints the pretty-printed *Pyking* AST (in Pyking's own syntax,
 e.g. still showing `var`/`:=`) without compiling. A file that fails to lex

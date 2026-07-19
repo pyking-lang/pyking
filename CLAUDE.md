@@ -89,16 +89,18 @@ The bootstrap is split into one module per compiler stage:
    it independent of `syntax.py`'s pretty-printing internals so future
    backends (e.g. `target_ocaml.py`) can be added the same way, without
    entangling target-specific logic into the Pyking AST/pretty-printer.
-5. **`boot/pykboot.py`** — the entry point: parses `--tokens`/`--ast`/the
-   filename from argv, calls `lexer.lexing` and `parser.parse`, catches
-   `LexError`/`ParseError` to print a `'file' row:col-row:col ...` message
-   to stderr. With `--ast`, prints the pretty-printed *Pyking* AST via
-   `syntax.pprint_program` (this used to be the only/default behavior).
-   Otherwise (the default), it compiles: translates to the Python target
-   AST and writes the pretty-printed Python source to `<basename>.py` in
-   the *current working directory* (not next to the input file) — e.g.
-   running it on `some/dir/hello.pyk` writes `./hello.py`, refusing to run
-   if that would overwrite the input itself.
+5. **`boot/pykboot.py`** — the entry point: parses `--tokens`/`--ast`/
+   `--stdout`/the filename from argv, calls `lexer.lexing` and
+   `parser.parse`, catches `LexError`/`ParseError` to print a `'file'
+   row:col-row:col ...` message to stderr. With `--ast`, prints the
+   pretty-printed *Pyking* AST via `syntax.pprint_program` (this used to be
+   the only/default behavior). Otherwise (the default), it compiles:
+   translates to the Python target AST and pretty-prints it. With
+   `--stdout`, that Python source is printed to stdout and no file is
+   written; otherwise it's written to `<basename>.py` in the *current
+   working directory* (not next to the input file) — e.g. running it on
+   `some/dir/hello.pyk` writes `./hello.py`, refusing to run if that would
+   overwrite the input itself.
 
 When extending the lexer (new operators, keywords, string escapes, etc.),
 follow the existing pattern: add a `case [...]:` arm in the `match rest:`
@@ -108,13 +110,13 @@ block inside `lexing`, add a corresponding `Tok*` dataclass, and add a
 ## Running
 
 ```
-python3 boot/pykboot.py [--tokens] [--ast] <filename>
+python3 boot/pykboot.py [--tokens] [--ast] [--stdout] <filename>
 ```
 
 or equivalently, via the `pykboot` wrapper script at the repository root:
 
 ```
-./pykboot [--tokens] [--ast] <filename>
+./pykboot [--tokens] [--ast] [--stdout] <filename>
 ```
 
 `--tokens` prints the token stream first (in addition to whatever else
@@ -122,9 +124,11 @@ happens). `--ast` stops after parsing and prints the pretty-printed
 *Pyking* AST instead of compiling. The default (neither flag, or
 `--tokens` alone) compiles: `<name>.pyk` produces `<name>.py`, written to
 the current working directory (not next to the input file), translated
-via `boot/target_python.py`. There's no `--target` flag yet — Python is
-the only backend, so a target-selection flag would be
-speculative; add one if/when a second backend is implemented.
+via `boot/target_python.py`. Add `--stdout` to print that generated Python
+source to stdout instead of writing the file (e.g. for piping straight
+into `python3`). There's no `--target` flag yet — Python is the only
+backend, so a target-selection flag would be speculative; add one if/when
+a second backend is implemented.
 
 `make test` runs `test.py`, which compiles every `tests/*.pyk` file (the
 generated `.py` lands in the repository root, since that's `test.py`'s own
