@@ -855,21 +855,22 @@ def parse(tokens):
 
 # Main
 
-x = 5
-print("hello", x)
+args = sys.argv[1:]
+show_tokens = "--tokens" in args
+positional = [a for a in args if a != "--tokens"]
 
-
-if len(sys.argv) != 2:
-    print("Usage: pykboot <filename>")
+if len(positional) != 1:
+    print("Usage: pykboot [--tokens] <filename>")
     sys.exit(1)
 
-filename = sys.argv[1]
+filename = positional[0]
 with open(filename, "r") as f:
     data = f.read()
 
 tokens = lexing(filename, list(data))
-print("\n".join(f"{pprint_info(t.info)} {pprint_token(t)}" for t in tokens))
+if show_tokens:
+    print("\n".join(f"{pprint_info(t.info)} {pprint_token(t)}" for t in tokens))
+    print("")
 
 ast = parse(tokens)
-print("--- AST ---")
 print(pprint_program(ast))
