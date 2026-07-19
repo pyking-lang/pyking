@@ -1,10 +1,15 @@
 
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 
 class LexError(Exception):
-    """Raised for lexical errors (mirrors OCaml's `failwith`)."""
+    """Raised for lexical errors; carries the source position of the error."""
+
+    def __init__(self, info, message):
+        super().__init__(message)
+        self.info = info
+        self.message = message
 
 
 # --- info ---
@@ -22,6 +27,13 @@ def pprint_info(info):
     match info:
         case Info(file, r1, c1, r2, c2):
             return f"'{file}' {r1}:{c1}-{r2}:{c2}"
+
+
+def combine_info(start, end):
+    """Builds an Info spanning from the start of `start` to the end of `end`,
+    e.g. for an AST node built from several tokens: the first token's start
+    position and the last token's end position."""
+    return Info(start.file, start.row1, start.col1, end.row2, end.col2)
 
 
 # --- token ADT ---
@@ -286,29 +298,32 @@ _ESCAPES = {
 }
 
 
-def scan_string(quote, chars):
+def scan_string(file, r, c, quote, chars):
     """Consumes a string body up to and including the closing `quote`,
-    decoding backslash escapes as it goes. Returns `(value, length, rest)`
-    where `length` is the number of source characters consumed (including
-    the closing quote, excluding the opening one already consumed by the
-    caller)."""
+    decoding backslash escapes as it goes. `r`/`c` is the position of the
+    opening quote, used to build precise Info for any error raised here.
+    Returns `(value, length, rest)` where `length` is the number of source
+    characters consumed (including the closing quote, excluding the opening
+    one already consumed by the caller)."""
     value = []
     length = 0
     rest = chars
     while True:
         match rest:
             case []:
-                raise LexError("Unexpected end of string literal")
+                info = Info(file, r, c + 1 + length, r, c + 1 + length)
+                raise LexError(info, "unexpected end of string literal")
             case ["\\", e, *xs] if e in _ESCAPES:
                 value.append(_ESCAPES[e])
                 length += 2
                 rest = xs
             case ["\\", e, *_]:
-                raise LexError(f"Unknown escape sequence '\\{e}' in string literal")
-            case [c, *xs] if c == quote:
+                info = Info(file, r, c + 1 + length, r, c + 3 + length)
+                raise LexError(info, f"unknown escape sequence '\\{e}'")
+            case [c2, *xs] if c2 == quote:
                 return "".join(value), length + 1, xs
-            case [c, *xs]:
-                value.append(c)
+            case [c2, *xs]:
+                value.append(c2)
                 length += 1
                 rest = xs
 
@@ -332,8 +347,8 @@ def lexing(file, chars):
                 if ys and ys[0] not in ("\n", "#"):
                     if len(spaces) % 4 != 0:
                         raise LexError(
-                            f"{pprint_info(fi(r, c, len(spaces)))}: "
-                            "indentation must be a multiple of 4 spaces."
+                            fi(r, c, len(spaces)),
+                            "indentation must be a multiple of 4 spaces",
                         )
                     level = len(spaces) // 4
                     if level > indent_stack[-1]:
@@ -345,9 +360,9 @@ def lexing(file, chars):
                             tokens.append(TokDedent(fi(r, c, 0)))
                         if level != indent_stack[-1]:
                             raise LexError(
-                                f"{pprint_info(fi(r, c, len(spaces)))}: "
+                                fi(r, c, len(spaces)),
                                 "unindent does not match any outer "
-                                "indentation level."
+                                "indentation level",
                             )
                     line_start = False
                 c = c + len(spaces)
@@ -368,7 +383,7 @@ def lexing(file, chars):
 
             # String
             case [s, *xs] if s in ("'", '"'):
-                text, body_length, ys = scan_string(s, xs)
+                text, body_length, ys = scan_string(file, r, c, s, xs)
                 length = 1 + body_length
                 tokens.append(TokString(fi(r, c, length), text))
                 c = c + length
@@ -450,12 +465,26 @@ def lexing(file, chars):
                 break
 
             case [x, *_]:
-                raise LexError(f"Toking error: unknown character '{x}'.")
+                raise LexError(fi(r, c, 1), f"unexpected character '{x}'")
 
     return tokens
 
 class ParseError(Exception):
-    """Raised for syntax errors."""
+    """Raised for syntax errors; carries the source position of the error."""
+
+    def __init__(self, info, message):
+        super().__init__(message)
+        self.info = info
+        self.message = message
+
+
+_eof_info = None
+
+
+def _here(tokens):
+    """Returns the Info to blame for a parse error at the current position:
+    the next token's info if there is one, otherwise the end of the file."""
+    return tokens[0].info if tokens else _eof_info
 
 
 # --- expression AST ---
@@ -718,54 +747,56 @@ def parse_atom(tokens):
             return parse_call_tail(EString(info, s), rest)
         case [TokIdent(info, name), *rest]:
             return parse_call_tail(EVar(info, name), rest)
-        case [TokLParen(_), *rest]:
+        case [TokLParen(lp_info), *rest]:
             expr, rest = parse_expr(rest)
             match rest:
-                case [TokRParen(_), *rest]:
-                    return parse_call_tail(expr, rest)
+                case [TokRParen(rp_info), *rest]:
+                    wrapped = replace(expr, info=combine_info(lp_info, rp_info))
+                    return parse_call_tail(wrapped, rest)
                 case _:
-                    raise ParseError("expected ')'")
+                    raise ParseError(_here(rest), "expected ')'")
         case [t, *_]:
-            raise ParseError(f"{pprint_info(t.info)}: unexpected token in expression")
+            raise ParseError(t.info, "unexpected token in expression")
         case []:
-            raise ParseError("unexpected end of input in expression")
+            raise ParseError(_here(tokens), "unexpected end of input in expression")
 
 
 def parse_call_tail(expr, tokens):
     match tokens:
-        case [TokLParen(info), *rest]:
-            args, rest = parse_args(rest)
-            return parse_call_tail(ECall(info, expr, args), rest)
+        case [TokLParen(_), *rest]:
+            args, rparen_info, rest = parse_args(rest)
+            call_info = combine_info(expr.info, rparen_info)
+            return parse_call_tail(ECall(call_info, expr, args), rest)
         case _:
             return expr, tokens
 
 
 def parse_args(tokens):
     match tokens:
-        case [TokRParen(_), *rest]:
-            return [], rest
+        case [TokRParen(info), *rest]:
+            return [], info, rest
         case _:
             arg, rest = parse_expr(tokens)
             match rest:
                 case [TokComma(_), *rest]:
-                    args, rest = parse_args(rest)
-                    return [arg] + args, rest
-                case [TokRParen(_), *rest]:
-                    return [arg], rest
+                    args, rparen_info, rest = parse_args(rest)
+                    return [arg] + args, rparen_info, rest
+                case [TokRParen(info), *rest]:
+                    return [arg], info, rest
                 case _:
-                    raise ParseError("expected ',' or ')' in call arguments")
+                    raise ParseError(_here(rest), "expected ',' or ')' in call arguments")
 
 
 def parse_multiplicative(tokens):
     left, rest = parse_atom(tokens)
     while True:
         match rest:
-            case [TokMul(info), *rest2]:
+            case [TokMul(_), *rest2]:
                 right, rest2 = parse_atom(rest2)
-                left, rest = EMul(info, left, right), rest2
-            case [TokDiv(info), *rest2]:
+                left, rest = EMul(combine_info(left.info, right.info), left, right), rest2
+            case [TokDiv(_), *rest2]:
                 right, rest2 = parse_atom(rest2)
-                left, rest = EDiv(info, left, right), rest2
+                left, rest = EDiv(combine_info(left.info, right.info), left, right), rest2
             case _:
                 return left, rest
 
@@ -774,12 +805,12 @@ def parse_additive(tokens):
     left, rest = parse_multiplicative(tokens)
     while True:
         match rest:
-            case [TokAdd(info), *rest2]:
+            case [TokAdd(_), *rest2]:
                 right, rest2 = parse_multiplicative(rest2)
-                left, rest = EAdd(info, left, right), rest2
-            case [TokSub(info), *rest2]:
+                left, rest = EAdd(combine_info(left.info, right.info), left, right), rest2
+            case [TokSub(_), *rest2]:
                 right, rest2 = parse_multiplicative(rest2)
-                left, rest = ESub(info, left, right), rest2
+                left, rest = ESub(combine_info(left.info, right.info), left, right), rest2
             case _:
                 return left, rest
 
@@ -787,21 +818,21 @@ def parse_additive(tokens):
 def parse_expr(tokens):
     left, rest = parse_additive(tokens)
     match rest:
-        case [TokLessThan(info), *rest]:
+        case [TokLessThan(_), *rest]:
             right, rest = parse_additive(rest)
-            return ELessThan(info, left, right), rest
-        case [TokLessThanEq(info), *rest]:
+            return ELessThan(combine_info(left.info, right.info), left, right), rest
+        case [TokLessThanEq(_), *rest]:
             right, rest = parse_additive(rest)
-            return ELessThanEq(info, left, right), rest
-        case [TokGreatThan(info), *rest]:
+            return ELessThanEq(combine_info(left.info, right.info), left, right), rest
+        case [TokGreatThan(_), *rest]:
             right, rest = parse_additive(rest)
-            return EGreatThan(info, left, right), rest
-        case [TokGreatThanEq(info), *rest]:
+            return EGreatThan(combine_info(left.info, right.info), left, right), rest
+        case [TokGreatThanEq(_), *rest]:
             right, rest = parse_additive(rest)
-            return EGreatThanEq(info, left, right), rest
-        case [TokEqEq(info), *rest]:
+            return EGreatThanEq(combine_info(left.info, right.info), left, right), rest
+        case [TokEqEq(_), *rest]:
             right, rest = parse_additive(rest)
-            return EEq(info, left, right), rest
+            return EEq(combine_info(left.info, right.info), left, right), rest
         case _:
             return left, rest
 
@@ -816,7 +847,7 @@ def parse_params(tokens):
         case [TokIdent(_, name), TokRParen(_), *rest]:
             return [name], rest
         case _:
-            raise ParseError("expected parameter list")
+            raise ParseError(_here(tokens), "expected parameter list")
 
 
 def parse_block(tokens):
@@ -831,7 +862,13 @@ def parse_block(tokens):
                         stmt, rest = parse_statement(rest)
                         stmts.append(stmt)
         case _:
-            raise ParseError("expected an indented block")
+            raise ParseError(_here(tokens), "expected an indented block")
+
+
+def _block_end_info(header_info, body):
+    """The Info to use as the end of a header+block construct: the last
+    statement's info, or the header's own info if the block is empty."""
+    return body[-1].info if body else header_info
 
 
 def parse_statement(tokens):
@@ -841,22 +878,24 @@ def parse_statement(tokens):
             match rest:
                 case [TokColon(_), *rest]:
                     body, rest = parse_block(rest)
-                    return SFunctionDef(info, name, params, body), rest
+                    def_info = combine_info(info, _block_end_info(info, body))
+                    return SFunctionDef(def_info, name, params, body), rest
                 case _:
-                    raise ParseError(f"{pprint_info(info)}: expected ':' after def header")
+                    raise ParseError(_here(rest), "expected ':' after def header")
 
         case [TokReturn(info), *rest]:
             expr, rest = parse_expr(rest)
-            return SReturn(info, expr), rest
+            return SReturn(combine_info(info, expr.info), expr), rest
 
         case [TokFor(info), TokIdent(_, name), TokIn(_), *rest]:
             iterable, rest = parse_expr(rest)
             match rest:
                 case [TokColon(_), *rest]:
                     body, rest = parse_block(rest)
-                    return SFor(info, name, iterable, body), rest
+                    for_info = combine_info(info, _block_end_info(info, body))
+                    return SFor(for_info, name, iterable, body), rest
                 case _:
-                    raise ParseError(f"{pprint_info(info)}: expected ':' after for header")
+                    raise ParseError(_here(rest), "expected ':' after for header")
 
         case [TokIf(info), *rest]:
             cond, rest = parse_expr(rest)
@@ -866,23 +905,25 @@ def parse_statement(tokens):
                     match rest:
                         case [TokElse(_), TokColon(_), *rest]:
                             else_body, rest = parse_block(rest)
-                            return SIf(info, cond, then_body, else_body), rest
+                            if_info = combine_info(info, _block_end_info(info, else_body))
+                            return SIf(if_info, cond, then_body, else_body), rest
                         case _:
-                            return SIf(info, cond, then_body, None), rest
+                            if_info = combine_info(info, _block_end_info(info, then_body))
+                            return SIf(if_info, cond, then_body, None), rest
                 case _:
-                    raise ParseError(f"{pprint_info(info)}: expected ':' after if header")
+                    raise ParseError(_here(rest), "expected ':' after if header")
 
         case [TokVar(info), TokIdent(_, name), TokEq(_), *rest]:
             expr, rest = parse_expr(rest)
-            return SVar(info, name, expr), rest
+            return SVar(combine_info(info, expr.info), name, expr), rest
 
         case [TokIdent(info, name), TokEq(_), *rest]:
             expr, rest = parse_expr(rest)
-            return SLet(info, name, expr), rest
+            return SLet(combine_info(info, expr.info), name, expr), rest
 
         case [TokIdent(info, name), TokAssign(_), *rest]:
             expr, rest = parse_expr(rest)
-            return SMutate(info, name, expr), rest
+            return SMutate(combine_info(info, expr.info), name, expr), rest
 
         case _:
             expr, rest = parse_expr(tokens)
@@ -891,6 +932,8 @@ def parse_statement(tokens):
 
 def parse(tokens):
     """Parses a full token stream into a list of top-level statements."""
+    global _eof_info
+    _eof_info = tokens[-1].info if tokens else Info("<empty>", 1, 0, 1, 0)
     stmts = []
     rest = tokens
     while rest:
@@ -913,10 +956,20 @@ filename = positional[0]
 with open(filename, "r") as f:
     data = f.read()
 
-tokens = lexing(filename, list(data))
+try:
+    tokens = lexing(filename, list(data))
+except LexError as e:
+    print(f"{pprint_info(e.info)} Lexing error: {e.message}", file=sys.stderr)
+    sys.exit(1)
+
 if show_tokens:
     print("\n".join(f"{pprint_info(t.info)} {pprint_token(t)}" for t in tokens))
     print("")
 
-ast = parse(tokens)
+try:
+    ast = parse(tokens)
+except ParseError as e:
+    print(f"{pprint_info(e.info)} Parsing error: {e.message}", file=sys.stderr)
+    sys.exit(1)
+
 print(pprint_program(ast))
