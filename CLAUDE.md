@@ -27,6 +27,17 @@ compiler in the target/meta language itself. Concretely:
   python3 boot/pykboot.py tests/test1.py
   ```
 
+## Pyking language reference
+
+**`PYKING.md`** (repository root) is the language design reference: a
+feature summary, a full EBNF grammar, and a worked example for every
+supported construct (literals, operators, `var`/`:=` mutation vs. `=`
+immutable binding, `for`/`while`/`if`, functions, indentation rules, error
+message format, etc.). Read it before writing or editing any Pyking source
+(`.pyk` or the Python-subset `.py` files under `tests/`) — it reflects
+exactly what the current bootstrap parser accepts, which is not the same as
+full Python. Keep it in sync whenever `boot/`'s language support changes.
+
 ## Architecture of `boot/`
 
 The bootstrap is split into one module per compiler stage:
@@ -79,6 +90,12 @@ block inside `lexing`, add a corresponding `Tok*` dataclass, and add a
 python3 boot/pykboot.py [--tokens] <filename>
 ```
 
+or equivalently, via the `pykboot` wrapper script at the repository root:
+
+```
+./pykboot [--tokens] <filename>
+```
+
 `--tokens` additionally prints the token stream before the pretty-printed
 AST; without it, only the AST is printed. `make test` runs `test.py`, which
 lexes/parses/pretty-prints every `tests/*.py` file and checks that running
@@ -94,17 +111,3 @@ Requires Python 3.10+ for `match`/`case` statements.
   `.gitignore~`) and the `src/` directory are untracked/gitignored scratch
   content — don't treat them as authoritative source, and don't assume
   they should be committed.
-
-
-# Pyking
-
-We have developed a new language called Pyking (file ending .pyk) which is very
-similar to Python, but with a few differences.
-
-* statements with = is only binding names, in an immutable way. That is, this is not
-  for mutation assignment.
-
-* A variable that can be muted must be declared, using "var" for instance a line
-   var x = 1
-  shows that that we have a new variable, initated to 1.
-  If a mutable variable should be updated, the operator := is used instead.
