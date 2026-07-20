@@ -1,0 +1,119 @@
+;;; pyking-mode.el --- Major mode for editing Pyking (.pyk) source -*- lexical-binding: t; -*-
+
+;; This file is part of the Pyking project.
+
+;;; Commentary:
+
+;; A syntax-highlighting major mode for Pyking, the small Python-like
+;; language defined by this repository. The keyword list and grammar
+;; used below are taken directly from `boot/lexer.py' / `boot/parser.py'
+;; and documented in `PYKING.md' at the repository root; keep the two in
+;; sync if the grammar changes.
+;;
+;; This mode provides syntax highlighting only -- no indentation support.
+;; Pyking requires strict 4-space indentation (see "Indentation-based
+;; blocks" in PYKING.md), so `indent-tabs-mode' is disabled and
+;; `tab-width' set to 4, but no `indent-line-function' is defined.
+;;
+;; Usage: put this file on your `load-path' and add
+;;
+;;   (require 'pyking-mode)
+;;
+;; to your init file (or `M-x load-file' it directly). Files ending in
+;; `.pyk' are then associated with `pyking-mode' automatically.
+
+;;; Code:
+
+(defconst pyking-mode-keywords
+  '("for" "in" "if" "while" "else" "var" "def" "return" "match" "case")
+  "Reserved keywords in Pyking.
+Mirrors the `keywords' list in boot/lexer.py. Unlike Python, `match' and
+`case' are always reserved here, not context-sensitive (\"soft\")
+keywords.")
+
+(defconst pyking-mode-keywords-regexp
+  (regexp-opt pyking-mode-keywords 'symbols)
+  "Regexp matching any Pyking keyword as a whole symbol.")
+
+(defconst pyking-mode-font-lock-keywords
+  (list
+   ;; function_def = "def" , ident , "(" ... -- the declared function name.
+   '("\\_<def\\_>[ \t]+\\(\\sw+\\)"
+     1 font-lock-function-name-face)
+   ;; var_decl = "var" , ident , "=" , expr -- the declared variable name.
+   '("\\_<var\\_>[ \t]+\\(\\sw+\\)"
+     1 font-lock-variable-name-face)
+   ;; for_stmt = "for" , ident , "in" , expr , ":" , block -- loop variable.
+   '("\\_<for\\_>[ \t]+\\(\\sw+\\)[ \t]+\\_<in\\_>"
+     1 font-lock-variable-name-face)
+   ;; mutation = ident , ":=" , expr -- Pyking's one deliberate departure
+   ;; from plain Python assignment (see PYKING.md), worth calling out.
+   '(":=" . font-lock-keyword-face)
+   ;; int = digit , { digit } ; identifiers can't start with a digit, so
+   ;; a symbol-boundary match is exactly the integer-literal case.
+   '("\\_<[0-9]+\\_>" . font-lock-constant-face)
+   ;; Every other reserved keyword.
+   (cons pyking-mode-keywords-regexp 'font-lock-keyword-face))
+  "Font-lock keyword table for `pyking-mode'.
+Strings and comments are handled by the syntax table
+\(`pyking-mode-syntax-table'), not listed here.")
+
+(defvar pyking-mode-syntax-table
+  (let ((table (make-syntax-table)))
+    ;; ident = letter , { letter | digit } ; where `letter' includes `_'
+    ;; (see `is_letter' in boot/lexer.py) -- `_' is part of the word,
+    ;; not a symbol separator.
+    (modify-syntax-entry ?_ "w" table)
+    ;; Comments: "#" runs to end of line.
+    (modify-syntax-entry ?# "<" table)
+    (modify-syntax-entry ?\n ">" table)
+    ;; string = "'" , { string_char } , "'" | '"' , { string_char } , '"' ;
+    ;; both quote characters delimit strings, and "\\" is the escape
+    ;; character for both (see `scan_string'/`_ESCAPES' in boot/lexer.py).
+    (modify-syntax-entry ?\" "\"" table)
+    (modify-syntax-entry ?\' "\"" table)
+    (modify-syntax-entry ?\\ "\\" table)
+    ;; call_tail = "(" , [ args ] , ")" ; list_lit = "[" , [ args ] , "]" ;
+    (modify-syntax-entry ?\( "()" table)
+    (modify-syntax-entry ?\) ")(" table)
+    (modify-syntax-entry ?\[ "(]" table)
+    (modify-syntax-entry ?\] ")[" table)
+    ;; Punctuation and operators with no special pairing.
+    (modify-syntax-entry ?, "." table)
+    (modify-syntax-entry ?: "." table)
+    (modify-syntax-entry ?. "." table)
+    (modify-syntax-entry ?+ "." table)
+    (modify-syntax-entry ?- "." table)
+    (modify-syntax-entry ?* "." table)
+    (modify-syntax-entry ?/ "." table)
+    (modify-syntax-entry ?< "." table)
+    (modify-syntax-entry ?> "." table)
+    (modify-syntax-entry ?= "." table)
+    table)
+  "Syntax table for `pyking-mode'.")
+
+;;;###autoload
+(define-derived-mode pyking-mode prog-mode "Pyking"
+  "Major mode for editing Pyking (.pyk) source files.
+
+Provides syntax highlighting for Pyking's keywords (`for', `in', `if',
+`while', `else', `var', `def', `return', `match', `case'), the `:='
+mutation operator, string literals (with backslash escapes), `#'
+comments, and integer literals, consistent with the grammar documented
+in PYKING.md and implemented in boot/lexer.py and boot/parser.py.
+
+This mode does not implement indentation support."
+  :syntax-table pyking-mode-syntax-table
+  (setq-local font-lock-defaults '(pyking-mode-font-lock-keywords nil nil))
+  (setq-local comment-start "# ")
+  (setq-local comment-start-skip "#+[ \t]*")
+  (setq-local comment-end "")
+  (setq-local indent-tabs-mode nil)
+  (setq-local tab-width 4))
+
+;;;###autoload
+(add-to-list 'auto-mode-alist '("\\.pyk\\'" . pyking-mode))
+
+(provide 'pyking-mode)
+
+;;; pyking-mode.el ends here
