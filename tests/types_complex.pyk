@@ -1,0 +1,30 @@
+def classify(n:Int) -> String:
+    match n:
+        case 0 -> "zero"
+        case _ -> "nonzero"
+
+
+def make_pairs(xs:[Int], ys:[Int]) -> [(Int, Int)]:
+    var result = []
+    for x in xs:
+        result := result + [x]
+    return result
+
+
+def summarize(matrix:[[Int]], label:String) -> (String, Int):
+    var total = 0
+    for row in matrix:
+        for x in row:
+            total := total + x
+    return label
+
+
+def report(data:(String, [Int], Bool)) -> String:
+    return "ok: " + data
+
+
+print(classify(0))
+print(classify(5))
+print(make_pairs([1, 2, 3], [4, 5, 6]))
+print(summarize([[1, 2], [3, 4]], "grid"))
+print(report("done"))

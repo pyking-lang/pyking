@@ -1,0 +1,19 @@
+def add(a:Int, b:Int) -> Int:
+    return a + b
+
+
+def greet(name:String) -> String:
+    return "hello, " + name
+
+
+def negate(flag:Bool) -> Bool:
+    if flag:
+        return 1 == 2
+    else:
+        return 1 == 1
+
+
+print(add(2, 3))
+print(greet("pyking"))
+print(negate(1 < 2))
+print(negate(3 < 2))

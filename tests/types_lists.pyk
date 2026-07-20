@@ -1,0 +1,25 @@
+def sum_list(xs:[Int]) -> Int:
+    var total = 0
+    for x in xs:
+        total := total + x
+    return total
+
+
+def join_all(words:[String]) -> String:
+    var result = ""
+    for w in words:
+        result := result + w
+    return result
+
+
+def flatten(rows:[[Int]]) -> [Int]:
+    var result = []
+    for row in rows:
+        for x in row:
+            result := result + [x]
+    return result
+
+
+print(sum_list([1, 2, 3, 4]))
+print(join_all(["py", "king"]))
+print(flatten([[1, 2], [3], [4, 5, 6]]))

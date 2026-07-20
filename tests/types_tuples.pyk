@@ -1,0 +1,30 @@
+# Pyking has no tuple *literal* syntax yet, and type annotations aren't
+# enforced by anything -- so these functions just demonstrate that every
+# shape of tuple type (0, 1, 2, and 4 elements, nested) parses, pretty
+# prints, and compiles; they don't destructure their tuple-typed params.
+
+def describe_pair(p:(Int, Bool)) -> String:
+    return "pair"
+
+
+def describe_single(p:(Int)) -> String:
+    return "single"
+
+
+def describe_unit(u:()) -> String:
+    return "unit"
+
+
+def describe_wide(w:(Int, String, Int, (Bool, Bool))) -> String:
+    return "wide"
+
+
+def make_report() -> (String, Int):
+    return "ok"
+
+
+print(describe_pair(1))
+print(describe_single(1))
+print(describe_unit(1))
+print(describe_wide(1))
+print(make_report())

@@ -1,0 +1,15 @@
+def scale(x, factor:Int) -> Int:
+    return x * factor
+
+
+def combine(a:Int, b) -> Int:
+    return a + b
+
+
+def pure_untyped(a, b):
+    return a + b
+
+
+print(scale(3, 4))
+print(combine(2, 5))
+print(pure_untyped(1, 1))
