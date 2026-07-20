@@ -224,9 +224,9 @@ using the same syntax as call arguments.
 
 ```python
 values = [1, 2, 3]
-total = 0
+var total = 0
 for v in values:
-    total = total + v
+    total := total + v
 print(values, total)
 ```
 
