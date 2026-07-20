@@ -35,6 +35,23 @@ keywords.")
   (regexp-opt pyking-mode-keywords 'symbols)
   "Regexp matching any Pyking keyword as a whole symbol.")
 
+(defconst pyking-mode-builtins
+  '("print" "range" "str")
+  "Well-known Python builtin function names used in Pyking source.
+
+Pyking's own grammar has no notion of a builtin -- any identifier can be
+a call target (see `atom' in PYKING.md); this list exists purely so the
+generated-Python builtins actually used across this repository's Pyking
+source (tests/*.pyk and the examples in PYKING.md) get highlighted
+distinctly from ordinary calls, the same way `python-mode' highlights
+`print' et al. with `font-lock-builtin-face' instead of treating them as
+plain symbols. Extend this list if a Pyking example starts using another
+builtin (e.g. `len').")
+
+(defconst pyking-mode-builtins-regexp
+  (regexp-opt pyking-mode-builtins 'symbols)
+  "Regexp matching any name in `pyking-mode-builtins' as a whole symbol.")
+
 (defconst pyking-mode-font-lock-keywords
   (list
    ;; function_def = "def" , ident , "(" ... -- the declared function name.
@@ -52,6 +69,10 @@ keywords.")
    ;; int = digit , { digit } ; identifiers can't start with a digit, so
    ;; a symbol-boundary match is exactly the integer-literal case.
    '("\\_<[0-9]+\\_>" . font-lock-constant-face)
+   ;; Known Python builtins (see `pyking-mode-builtins'); matched as a
+   ;; plain symbol, not conditionally on being followed by "(", matching
+   ;; `python-mode's own behavior.
+   (cons pyking-mode-builtins-regexp 'font-lock-builtin-face)
    ;; Every other reserved keyword.
    (cons pyking-mode-keywords-regexp 'font-lock-keyword-face))
   "Font-lock keyword table for `pyking-mode'.
@@ -99,8 +120,9 @@ Strings and comments are handled by the syntax table
 Provides syntax highlighting for Pyking's keywords (`for', `in', `if',
 `while', `else', `var', `def', `return', `match', `case'), the `:='
 mutation operator, string literals (with backslash escapes), `#'
-comments, and integer literals, consistent with the grammar documented
-in PYKING.md and implemented in boot/lexer.py and boot/parser.py.
+comments, integer literals, and well-known builtins (see
+`pyking-mode-builtins'), consistent with the grammar documented in
+PYKING.md and implemented in boot/lexer.py and boot/parser.py.
 
 This mode does not implement indentation support."
   :syntax-table pyking-mode-syntax-table
