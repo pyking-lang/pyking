@@ -38,6 +38,7 @@ Expressions:
 - Arithmetic operators (`+`, `-`, `*`, `/`) and parenthesized expressions
 - Comparison operators (`<`, `<=`, `>`, `>=`, `==`)
 - Function calls
+- List literals (`[e1, e2, ...]`)
 
 Statements:
 
@@ -48,6 +49,7 @@ Statements:
 - `for`/`in` loops
 - `while` loops
 - `if`/`else` statements
+- `match`/`case` pattern matching
 - Expression statements
 
 Structure:
@@ -71,6 +73,7 @@ statement   = function_def
             | for_stmt
             | while_stmt
             | if_stmt
+            | match_stmt
             | var_decl
             | assignment
             | mutation
@@ -87,6 +90,10 @@ while_stmt  = "while" , expr , ":" , block ;
 
 if_stmt     = "if" , expr , ":" , block , [ "else" , ":" , block ] ;
 
+match_stmt  = "match" , expr , ":" , INDENT , case_clause , { case_clause } , DEDENT ;
+case_clause = "case" , pattern , ":" , block ;
+pattern     = int | string | "_" | ident ;
+
 var_decl    = "var" , ident , "=" , expr ;
 assignment  = ident , "=" , expr ;
 mutation    = ident , ":=" , expr ;
@@ -99,9 +106,11 @@ comp_op     = "<" | "<=" | ">" | ">=" | "==" ;
 additive    = multiplicative , { ( "+" | "-" ) , multiplicative } ;
 multiplicative = atom , { ( "*" | "/" ) , atom } ;
 
-atom        = ( int | string | ident | "(" , expr , ")" ) , { call_tail } ;
+atom        = ( int | string | ident | list_lit | "(" , expr , ")" ) , { call_tail } ;
 call_tail   = "(" , [ args ] , ")" ;
 args        = expr , { "," , expr } ;
+
+list_lit    = "[" , [ args ] , "]" ;
 
 ident       = letter , { letter | digit } ;
 int         = digit , { digit } ;
@@ -122,6 +131,15 @@ Notes that don't fall out of the grammar alone:
   result can itself be called), even though no example in this document
   uses that.
 - There is no unary minus — `-x` is not a valid atom.
+- `match_stmt` requires at least one `case_clause`.
+- Unlike Python, where `match`/`case` are context-sensitive ("soft")
+  keywords, they're always reserved in Pyking — a variable or parameter
+  can't be named `match` or `case`.
+- `pattern` is intentionally minimal: an integer or string literal matches
+  only that exact value; `_` always matches, discarding the value; a plain
+  `ident` also always matches, but binds the value to that name. There's
+  no support yet for guards (`if`), or-patterns (`|`), or structural
+  (tuple/list) patterns.
 
 ## Feature details
 
@@ -197,6 +215,19 @@ def add(a, b):
 
 
 print(add(2, 3), add(add(1, 1), 5))
+```
+
+### List literals
+
+`[e1, e2, ...]` builds a list from a comma-separated list of expressions,
+using the same syntax as call arguments.
+
+```python
+values = [1, 2, 3]
+total = 0
+for v in values:
+    total = total + v
+print(values, total)
 ```
 
 ### Immutable bindings (`=`)
@@ -284,6 +315,30 @@ def classify(x):
 
 
 print(classify(12), classify(3))
+```
+
+### `match`/`case` pattern matching
+
+`match expr:` is followed by one or more indented `case pattern:` clauses;
+the body of the first case whose pattern matches runs. A pattern is an
+integer literal, a string literal, `_` (always matches, discards the
+value), or a plain identifier (always matches, binds the value to that
+name) — see the grammar notes above for what isn't supported yet (guards,
+or-patterns, structural patterns).
+
+```python
+def describe(n):
+    match n:
+        case 0:
+            return "zero"
+        case 1:
+            return "one"
+        case value:
+            return "many: " + str(value)
+
+
+for i in [0, 1, 5]:
+    print(describe(i))
 ```
 
 ### Expression statements

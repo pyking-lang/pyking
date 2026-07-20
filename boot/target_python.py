@@ -4,8 +4,9 @@ from lexer import Info
 from syntax import (
     EInt, EString, EVar,
     EAdd, ESub, EMul, EDiv,
-    ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall,
-    SLet, SVar, SMutate, SReturn, SExprStmt, SFor, SWhile, SIf, SFunctionDef,
+    ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList,
+    PInt, PString, PWildcard, PCapture,
+    SLet, SVar, SMutate, SReturn, SExprStmt, SFor, SWhile, SIf, SFunctionDef, SMatch,
 )
 
 
@@ -109,6 +110,46 @@ class PyCall(PyExpr):       # func(args...)
     args: list
 
 
+@dataclass(frozen=True)
+class PyList(PyExpr):       # [elements...]
+    info: Info
+    elements: list
+
+
+class PyPattern:
+    """Base class for the Python-target match-case patterns."""
+
+
+@dataclass(frozen=True)
+class PyPInt(PyPattern):    # case 0:
+    info: Info
+    value: int
+
+
+@dataclass(frozen=True)
+class PyPString(PyPattern):  # case "foo":
+    info: Info
+    value: str
+
+
+@dataclass(frozen=True)
+class PyPWildcard(PyPattern):  # case _:
+    info: Info
+
+
+@dataclass(frozen=True)
+class PyPCapture(PyPattern):  # case name:
+    info: Info
+    name: str
+
+
+@dataclass(frozen=True)
+class PyMatchCase:          # case pattern: body
+    info: Info
+    pattern: PyPattern
+    body: list
+
+
 class PyStmt:
     """Base class for the Python-target statement AST."""
 
@@ -163,6 +204,13 @@ class PyFunctionDef(PyStmt):  # def name(params...): body
     body: list
 
 
+@dataclass(frozen=True)
+class PyMatch(PyStmt):      # match subject: case pattern: body ...
+    info: Info
+    subject: PyExpr
+    cases: list
+
+
 # --- translation: Pyking AST (syntax.py) -> Python target AST ---
 
 def translate_expr(e):
@@ -193,8 +241,28 @@ def translate_expr(e):
             return PyEq(info, translate_expr(l), translate_expr(r))
         case ECall(info, f, args):
             return PyCall(info, translate_expr(f), [translate_expr(a) for a in args])
+        case EList(info, elements):
+            return PyList(info, [translate_expr(el) for el in elements])
         case _:
             raise NotImplementedError(f"no Python translation for expression {e!r}")
+
+
+def translate_pattern(p):
+    match p:
+        case PInt(info, v):
+            return PyPInt(info, v)
+        case PString(info, s):
+            return PyPString(info, s)
+        case PWildcard(info):
+            return PyPWildcard(info)
+        case PCapture(info, name):
+            return PyPCapture(info, name)
+        case _:
+            raise NotImplementedError(f"no Python translation for pattern {p!r}")
+
+
+def translate_case(c):
+    return PyMatchCase(c.info, translate_pattern(c.pattern), translate_program(c.body))
 
 
 def translate_stmt(s):
@@ -218,6 +286,8 @@ def translate_stmt(s):
             return PyIf(info, translate_expr(cond), translate_program(then_body), translated_else)
         case SFunctionDef(info, name, params, body):
             return PyFunctionDef(info, name, params, translate_program(body))
+        case SMatch(info, subject, cases):
+            return PyMatch(info, translate_expr(subject), [translate_case(c) for c in cases])
         case _:
             raise NotImplementedError(f"no Python translation for statement {s!r}")
 
@@ -274,8 +344,24 @@ def pprint_py_expr(e, min_prec=0):
             return _wrap(1, min_prec, f"{pprint_py_expr(l, 2)} == {pprint_py_expr(r, 2)}")
         case PyCall(_, f, args):
             return f"{pprint_py_expr(f, 4)}({', '.join(pprint_py_expr(a) for a in args)})"
+        case PyList(_, elements):
+            return f"[{', '.join(pprint_py_expr(el) for el in elements)}]"
         case _:
             raise NotImplementedError(f"no pretty printer for Python expression {e!r}")
+
+
+def pprint_py_pattern(p):
+    match p:
+        case PyPInt(_, v):
+            return str(v)
+        case PyPString(_, s):
+            return _quote_string(s)
+        case PyPWildcard(_):
+            return "_"
+        case PyPCapture(_, name):
+            return name
+        case _:
+            raise NotImplementedError(f"no pretty printer for Python pattern {p!r}")
 
 
 def pprint_py_stmt(s, level=0):
@@ -305,6 +391,12 @@ def pprint_py_stmt(s, level=0):
         case PyFunctionDef(_, name, params, body):
             lines = [f"{pad}def {name}({', '.join(params)}):"]
             lines += [pprint_py_stmt(st, level + 1) for st in body]
+            return "\n".join(lines)
+        case PyMatch(_, subject, cases):
+            lines = [f"{pad}match {pprint_py_expr(subject)}:"]
+            for c in cases:
+                lines.append(f"{pad}    case {pprint_py_pattern(c.pattern)}:")
+                lines += [pprint_py_stmt(st, level + 2) for st in c.body]
             return "\n".join(lines)
         case _:
             raise NotImplementedError(f"no pretty printer for Python statement {s!r}")

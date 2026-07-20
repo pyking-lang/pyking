@@ -97,6 +97,12 @@ class ECall(Expr):          # func(args...)
     args: list
 
 
+@dataclass(frozen=True)
+class EList(Expr):          # [elements...]
+    info: Info
+    elements: list
+
+
 def _wrap(prec, min_prec, s):
     return f"({s})" if prec < min_prec else s
 
@@ -149,6 +155,56 @@ def pprint_expr(e, min_prec=0):
             return _wrap(1, min_prec, f"{pprint_expr(l, 2)} == {pprint_expr(r, 2)}")
         case ECall(_, f, args):
             return f"{pprint_expr(f, 4)}({', '.join(pprint_expr(a) for a in args)})"
+        case EList(_, elements):
+            return f"[{', '.join(pprint_expr(e) for e in elements)}]"
+
+
+# --- pattern AST (for `match`/`case`) ---
+
+class Pattern:
+    """Base class for match-case patterns."""
+
+
+@dataclass(frozen=True)
+class PInt(Pattern):        # case 0:
+    info: Info
+    value: int
+
+
+@dataclass(frozen=True)
+class PString(Pattern):     # case "foo":
+    info: Info
+    value: str
+
+
+@dataclass(frozen=True)
+class PWildcard(Pattern):   # case _:
+    info: Info
+
+
+@dataclass(frozen=True)
+class PCapture(Pattern):    # case name: (binds `name` to the matched value)
+    info: Info
+    name: str
+
+
+def pprint_pattern(p):
+    match p:
+        case PInt(_, v):
+            return str(v)
+        case PString(_, s):
+            return _quote_string(s)
+        case PWildcard(_):
+            return "_"
+        case PCapture(_, name):
+            return name
+
+
+@dataclass(frozen=True)
+class MatchCase:            # case pattern: body
+    info: Info
+    pattern: Pattern
+    body: list
 
 
 # --- statement AST ---
@@ -221,6 +277,13 @@ class SFunctionDef(Stmt):   # def name(params...): body
     body: list
 
 
+@dataclass(frozen=True)
+class SMatch(Stmt):         # match subject: case pattern: body ...
+    info: Info
+    subject: Expr
+    cases: list
+
+
 def pprint_stmt(s, level=0):
     pad = "    " * level
     match s:
@@ -252,6 +315,12 @@ def pprint_stmt(s, level=0):
         case SFunctionDef(_, name, params, body):
             lines = [f"{pad}def {name}({', '.join(params)}):"]
             lines += [pprint_stmt(st, level + 1) for st in body]
+            return "\n".join(lines)
+        case SMatch(_, subject, cases):
+            lines = [f"{pad}match {pprint_expr(subject)}:"]
+            for c in cases:
+                lines.append(f"{pad}    case {pprint_pattern(c.pattern)}:")
+                lines += [pprint_stmt(st, level + 2) for st in c.body]
             return "\n".join(lines)
 
 

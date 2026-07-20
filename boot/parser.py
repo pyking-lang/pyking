@@ -6,13 +6,16 @@ from lexer import (
     TokAdd, TokSub, TokMul, TokDiv,
     TokLessThanEq, TokLessThan, TokGreatThanEq, TokGreatThan, TokEqEq,
     TokColon, TokIndent, TokDedent, TokEq, TokLParen, TokRParen, TokComma,
+    TokLBracket, TokRBracket,
     TokDef, TokReturn, TokFor, TokIn, TokIf, TokWhile, TokElse, TokVar, TokAssign,
+    TokMatch, TokCase,
 )
 from syntax import (
     EInt, EString, EVar,
     EAdd, ESub, EMul, EDiv,
-    ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall,
-    SLet, SVar, SMutate, SReturn, SExprStmt, SFor, SWhile, SIf, SFunctionDef,
+    ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList,
+    PInt, PString, PWildcard, PCapture, MatchCase,
+    SLet, SVar, SMutate, SReturn, SExprStmt, SFor, SWhile, SIf, SFunctionDef, SMatch,
 )
 
 
@@ -64,6 +67,10 @@ def parse_atom(tokens):
                     return parse_call_tail(wrapped, rest)
                 case _:
                     raise ParseError(_here(rest), "expected ')'")
+        case [TokLBracket(lb_info), *rest]:
+            elements, rb_info, rest = parse_list_elements(rest)
+            list_info = combine_info(lb_info, rb_info)
+            return parse_call_tail(EList(list_info, elements), rest)
         case [t, *_]:
             raise ParseError(t.info, "unexpected token in expression")
         case []:
@@ -94,6 +101,22 @@ def parse_args(tokens):
                     return [arg], info, rest
                 case _:
                     raise ParseError(_here(rest), "expected ',' or ')' in call arguments")
+
+
+def parse_list_elements(tokens):
+    match tokens:
+        case [TokRBracket(info), *rest]:
+            return [], info, rest
+        case _:
+            elem, rest = parse_expr(tokens)
+            match rest:
+                case [TokComma(_), *rest]:
+                    elems, rb_info, rest = parse_list_elements(rest)
+                    return [elem] + elems, rb_info, rest
+                case [TokRBracket(info), *rest]:
+                    return [elem], info, rest
+                case _:
+                    raise ParseError(_here(rest), "expected ',' or ']' in list literal")
 
 
 def parse_multiplicative(tokens):
@@ -180,6 +203,57 @@ def _block_end_info(header_info, body):
     return body[-1].info if body else header_info
 
 
+def parse_pattern(tokens):
+    match tokens:
+        case [TokInt(info, v), *rest]:
+            return PInt(info, v), rest
+        case [TokString(info, s), *rest]:
+            return PString(info, s), rest
+        case [TokIdent(info, "_"), *rest]:
+            return PWildcard(info), rest
+        case [TokIdent(info, name), *rest]:
+            return PCapture(info, name), rest
+        case _:
+            raise ParseError(
+                _here(tokens),
+                "expected a pattern (integer, string, '_', or identifier)",
+            )
+
+
+def parse_case(tokens):
+    match tokens:
+        case [TokCase(info), *rest]:
+            pattern, rest = parse_pattern(rest)
+            match rest:
+                case [TokColon(_), *rest]:
+                    body, rest = parse_block(rest)
+                    case_info = combine_info(info, _block_end_info(info, body))
+                    return MatchCase(case_info, pattern, body), rest
+                case _:
+                    raise ParseError(_here(rest), "expected ':' after case pattern")
+        case _:
+            raise ParseError(_here(tokens), "expected a 'case' clause")
+
+
+def parse_cases(tokens):
+    match tokens:
+        case [TokIndent(_), *rest]:
+            cases = []
+            while True:
+                match rest:
+                    case [TokDedent(_), *rest]:
+                        if not cases:
+                            raise ParseError(
+                                _here(rest), "match statement requires at least one case"
+                            )
+                        return cases, rest
+                    case _:
+                        case_clause, rest = parse_case(rest)
+                        cases.append(case_clause)
+        case _:
+            raise ParseError(_here(tokens), "expected an indented block of 'case' clauses")
+
+
 def parse_statement(tokens):
     match tokens:
         case [TokDef(info), TokIdent(_, name), TokLParen(_), *rest]:
@@ -215,6 +289,16 @@ def parse_statement(tokens):
                     return SWhile(while_info, cond, body), rest
                 case _:
                     raise ParseError(_here(rest), "expected ':' after while header")
+
+        case [TokMatch(info), *rest]:
+            subject, rest = parse_expr(rest)
+            match rest:
+                case [TokColon(_), *rest]:
+                    cases, rest = parse_cases(rest)
+                    match_info = combine_info(info, cases[-1].info)
+                    return SMatch(match_info, subject, cases), rest
+                case _:
+                    raise ParseError(_here(rest), "expected ':' after match header")
 
         case [TokIf(info), *rest]:
             cond, rest = parse_expr(rest)

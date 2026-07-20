@@ -131,6 +131,16 @@ class TokComma(Token):      # ','
 
 
 @dataclass(frozen=True)
+class TokLBracket(Token):   # '['
+    info: Info
+
+
+@dataclass(frozen=True)
+class TokRBracket(Token):   # ']'
+    info: Info
+
+
+@dataclass(frozen=True)
 class TokDef(Token):        # 'def'
     info: Info
 
@@ -167,6 +177,16 @@ class TokElse(Token):       # 'else'
 
 @dataclass(frozen=True)
 class TokVar(Token):        # 'var'
+    info: Info
+
+
+@dataclass(frozen=True)
+class TokMatch(Token):      # 'match'
+    info: Info
+
+
+@dataclass(frozen=True)
+class TokCase(Token):       # 'case'
     info: Info
 
 
@@ -221,6 +241,10 @@ def pprint_token(tok):
             return "TokDot"
         case TokComma():
             return "TokComma"
+        case TokLBracket():
+            return "TokLBracket"
+        case TokRBracket():
+            return "TokRBracket"
         case TokDef():
             return "TokDef"
         case TokReturn():
@@ -237,6 +261,10 @@ def pprint_token(tok):
             return "TokElse"
         case TokVar():
             return "TokVar"
+        case TokMatch():
+            return "TokMatch"
+        case TokCase():
+            return "TokCase"
         case TokAssign():
             return "TokAssign"
         case TokIdent(_,s):
@@ -257,7 +285,10 @@ def is_digit_letter(x):
     return is_digit(x) or is_letter(x)
 
 
-keywords = ["for", "in", "if", "while", "else", "var", "def", "return"]
+keywords = [
+    "for", "in", "if", "while", "else", "var", "def", "return",
+    "match", "case",
+]
 
 
 def keyword_token(name, info):
@@ -278,6 +309,10 @@ def keyword_token(name, info):
             return TokDef(info)
         case "return":
             return TokReturn(info)
+        case "match":
+            return TokMatch(info)
+        case "case":
+            return TokCase(info)
 
 
 def string_until(pred, chars):
@@ -433,6 +468,12 @@ def lexing(file, chars):
                 c, rest = c + 1, xs
             case [")", *xs]:
                 tokens.append(TokRParen(fi(r, c, 1)))
+                c, rest = c + 1, xs
+            case ["[", *xs]:
+                tokens.append(TokLBracket(fi(r, c, 1)))
+                c, rest = c + 1, xs
+            case ["]", *xs]:
+                tokens.append(TokRBracket(fi(r, c, 1)))
                 c, rest = c + 1, xs
             case [".", *xs]:
                 tokens.append(TokDot(fi(r, c, 1)))
