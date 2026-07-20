@@ -9,6 +9,7 @@ from lexer import (
     TokLBracket, TokRBracket,
     TokDef, TokReturn, TokFor, TokIn, TokIf, TokWhile, TokElse, TokVar, TokAssign,
     TokMatch, TokCase, TokArrow,
+    TokTypeInt, TokTypeString, TokTypeBool,
 )
 from syntax import (
     EInt, EString, EVar,
@@ -16,6 +17,7 @@ from syntax import (
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList,
     PInt, PString, PWildcard, PCapture, MatchCase,
     SLet, SVar, SMutate, SReturn, SExprStmt, SFor, SWhile, SIf, SFunctionDef, SMatch,
+    TInt, TString, TBool, TList, TTuple, Param,
 )
 
 
@@ -169,17 +171,71 @@ def parse_expr(tokens):
             return left, rest
 
 
+def parse_type(tokens):
+    match tokens:
+        case [TokTypeInt(info), *rest]:
+            return TInt(info), rest
+        case [TokTypeString(info), *rest]:
+            return TString(info), rest
+        case [TokTypeBool(info), *rest]:
+            return TBool(info), rest
+        case [TokLBracket(lb_info), *rest]:
+            element, rest = parse_type(rest)
+            match rest:
+                case [TokRBracket(rb_info), *rest]:
+                    return TList(combine_info(lb_info, rb_info), element), rest
+                case _:
+                    raise ParseError(_here(rest), "expected ']' in list type")
+        case [TokLParen(lp_info), *rest]:
+            elements, rp_info, rest = parse_type_elements(rest)
+            return TTuple(combine_info(lp_info, rp_info), elements), rest
+        case [t, *_]:
+            raise ParseError(t.info, "expected a type")
+        case []:
+            raise ParseError(_here(tokens), "unexpected end of input in type")
+
+
+def parse_type_elements(tokens):
+    match tokens:
+        case [TokRParen(info), *rest]:
+            return [], info, rest
+        case _:
+            elem, rest = parse_type(tokens)
+            match rest:
+                case [TokComma(_), *rest]:
+                    elems, rp_info, rest = parse_type_elements(rest)
+                    return [elem] + elems, rp_info, rest
+                case [TokRParen(info), *rest]:
+                    return [elem], info, rest
+                case _:
+                    raise ParseError(_here(rest), "expected ',' or ')' in tuple type")
+
+
+def parse_param(tokens):
+    match tokens:
+        case [TokIdent(info, name), TokColon(_), *rest]:
+            type_, rest = parse_type(rest)
+            return Param(combine_info(info, type_.info), name, type_), rest
+        case [TokIdent(info, name), *rest]:
+            return Param(info, name, None), rest
+        case _:
+            raise ParseError(_here(tokens), "expected a parameter")
+
+
 def parse_params(tokens):
     match tokens:
         case [TokRParen(_), *rest]:
             return [], rest
-        case [TokIdent(_, name), TokComma(_), *rest]:
-            params, rest = parse_params(rest)
-            return [name] + params, rest
-        case [TokIdent(_, name), TokRParen(_), *rest]:
-            return [name], rest
         case _:
-            raise ParseError(_here(tokens), "expected parameter list")
+            param, rest = parse_param(tokens)
+            match rest:
+                case [TokComma(_), *rest]:
+                    params, rest = parse_params(rest)
+                    return [param] + params, rest
+                case [TokRParen(_), *rest]:
+                    return [param], rest
+                case _:
+                    raise ParseError(_here(rest), "expected ',' or ')' in parameter list")
 
 
 def parse_block(tokens):
@@ -266,11 +322,17 @@ def parse_statement(tokens):
     match tokens:
         case [TokDef(info), TokIdent(_, name), TokLParen(_), *rest]:
             params, rest = parse_params(rest)
+            return_type = None
+            match rest:
+                case [TokArrow(_), *rest2]:
+                    return_type, rest = parse_type(rest2)
+                case _:
+                    pass
             match rest:
                 case [TokColon(_), *rest]:
                     body, rest = parse_block(rest)
                     def_info = combine_info(info, _block_end_info(info, body))
-                    return SFunctionDef(def_info, name, params, body), rest
+                    return SFunctionDef(def_info, name, params, body, return_type), rest
                 case _:
                     raise ParseError(_here(rest), "expected ':' after def header")
 

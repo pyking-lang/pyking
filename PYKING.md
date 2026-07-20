@@ -53,7 +53,11 @@ Statements:
 
 - Immutable bindings (`=`)
 - Mutable variables (`var` and `:=`) — Pyking extension
-- Function definitions (`def`)
+- Function definitions (`def`), with optional parameter and return type
+  annotations (`Int`, `String`, `Bool`, list types `[T]`, tuple types
+  `(T1, T2, ...)` including the unit type `()`, and nesting of any of
+  these) — annotations are pretty-printed in Pyking's own syntax but
+  erased entirely when compiling to Python
 - `return` statements
 - `for`/`in` loops
 - `while` loops
@@ -88,8 +92,13 @@ statement   = function_def
             | mutation
             | expr_stmt ;
 
-function_def = "def" , ident , "(" , [ params ] , ")" , ":" , block ;
-params       = ident , { "," , ident } ;
+function_def = "def" , ident , "(" , [ params ] , ")" , [ "->" , type ] , ":" , block ;
+params       = param , { "," , param } ;
+param        = ident , [ ":" , type ] ;
+
+type         = "Int" | "String" | "Bool"
+             | "[" , type , "]"
+             | "(" , [ type , { "," , type } ] , ")" ;
 
 return_stmt = "return" , expr ;
 
@@ -144,7 +153,22 @@ Notes that don't fall out of the grammar alone:
 - `match_stmt` requires at least one `case_clause`.
 - Unlike Python, where `match`/`case` are context-sensitive ("soft")
   keywords, they're always reserved in Pyking — a variable or parameter
-  can't be named `match` or `case`.
+  can't be named `match` or `case`. The same is true of `Int`, `String`,
+  and `Bool` (the atomic type names): they're reserved everywhere, not
+  just in type position, so no identifier may be named after one of them
+  either.
+- `param`'s `[ ":" , type ]` and `function_def`'s `[ "->" , type ]` are
+  both optional and independent — a function may annotate none, some, or
+  all of its parameters, with or without a return type. Annotations are
+  purely syntactic: they're parsed, stored in the AST, and pretty-printed
+  back out, but there is no type checker yet, so nothing is verified
+  against them, and `target_python.py` erases them completely (generated
+  Python carries no type syntax at all).
+- A tuple `type` with zero elements, `()`, is the Unit type. One with a
+  single element, e.g. `(Int)`, is a genuine 1-element tuple type, not a
+  parenthesized `Int` — Pyking's type grammar has no parenthesization for
+  grouping, so there's no ambiguity to resolve. Tuple and list types can
+  nest arbitrarily, e.g. `[(Int, Bool)]` or `(Int, [String], (Bool, Bool))`.
 - `pattern` is intentionally minimal: an integer or string literal matches
   only that exact value; `_` always matches, discarding the value; a plain
   `ident` also always matches, but binds the value to that name. There's
@@ -284,6 +308,42 @@ def average(a, b):
 
 print(average(4, 8))
 ```
+
+### Type annotations
+
+Parameters and the return value may optionally be annotated with a type:
+`Int`, `String`, `Bool`, a list type `[T]`, or a tuple type
+`(T1, T2, ...)` (nesting freely, e.g. `[(Int, Bool)]`). `()`, the
+zero-element tuple type, is the Unit type. Annotations are entirely
+optional and independent per parameter/return value — a function can mix
+annotated and unannotated parameters freely.
+
+```python
+def add(a:Int, b:Int) -> Int:
+    return a + b
+
+
+def sum_list(xs:[Int]) -> Int:
+    var total = 0
+    for x in xs:
+        total := total + x
+    return total
+
+
+def scale(x, factor:Int) -> Int:
+    return x * factor
+
+
+print(add(2, 3))
+print(sum_list([1, 2, 3, 4]))
+print(scale(3, 4))
+```
+
+There is no type checker yet — annotations are parsed and stored in the
+AST (see `Param`/`SFunctionDef.return_type` in `boot/syntax.py`) and
+pretty-printed back out in Pyking's own syntax, but nothing is verified
+against them. Compiling to Python (`boot/target_python.py`) erases every
+annotation: the generated Python source carries no type syntax at all.
 
 ### `return` statements
 

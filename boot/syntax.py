@@ -103,6 +103,66 @@ class EList(Expr):          # [elements...]
     elements: list
 
 
+# --- type AST (for optional parameter/return type annotations) ---
+
+class Type:
+    """Base class for the type-annotation AST."""
+
+
+@dataclass(frozen=True)
+class TInt(Type):           # Int
+    info: Info
+
+
+@dataclass(frozen=True)
+class TString(Type):        # String
+    info: Info
+
+
+@dataclass(frozen=True)
+class TBool(Type):          # Bool
+    info: Info
+
+
+@dataclass(frozen=True)
+class TList(Type):          # [element]
+    info: Info
+    element: Type
+
+
+@dataclass(frozen=True)
+class TTuple(Type):         # (e1, e2, ...); zero elements is the Unit type "()"
+    info: Info
+    elements: list
+
+
+def pprint_type(t):
+    match t:
+        case TInt(_):
+            return "Int"
+        case TString(_):
+            return "String"
+        case TBool(_):
+            return "Bool"
+        case TList(_, element):
+            return f"[{pprint_type(element)}]"
+        case TTuple(_, elements):
+            return f"({', '.join(pprint_type(e) for e in elements)})"
+
+
+@dataclass(frozen=True)
+class Param:                # name[:type]
+    info: Info
+    name: str
+    type: Type = None
+
+
+def pprint_param(p):
+    if p.type is None:
+        return p.name
+    return f"{p.name}:{pprint_type(p.type)}"
+
+
 def _wrap(prec, min_prec, s):
     return f"({s})" if prec < min_prec else s
 
@@ -275,11 +335,12 @@ class SIf(Stmt):            # if cond: then_body [else: else_body]
 
 
 @dataclass(frozen=True)
-class SFunctionDef(Stmt):   # def name(params...): body
+class SFunctionDef(Stmt):   # def name(params...) [-> return_type]: body
     info: Info
     name: str
-    params: list
+    params: list         # list[Param]
     body: list
+    return_type: Type = None
 
 
 @dataclass(frozen=True)
@@ -317,8 +378,11 @@ def pprint_stmt(s, level=0):
                 lines.append(f"{pad}else:")
                 lines += [pprint_stmt(st, level + 1) for st in else_body]
             return "\n".join(lines)
-        case SFunctionDef(_, name, params, body):
-            lines = [f"{pad}def {name}({', '.join(params)}):"]
+        case SFunctionDef(_, name, params, body, return_type):
+            header = f"{pad}def {name}({', '.join(pprint_param(p) for p in params)})"
+            if return_type is not None:
+                header += f" -> {pprint_type(return_type)}"
+            lines = [header + ":"]
             lines += [pprint_stmt(st, level + 1) for st in body]
             return "\n".join(lines)
         case SMatch(_, subject, cases):

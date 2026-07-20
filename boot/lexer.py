@@ -201,6 +201,21 @@ class TokAssign(Token):     # ':=' (mutation of a `var`)
 
 
 @dataclass(frozen=True)
+class TokTypeInt(Token):    # 'Int' (type annotation)
+    info: Info
+
+
+@dataclass(frozen=True)
+class TokTypeString(Token):  # 'String' (type annotation)
+    info: Info
+
+
+@dataclass(frozen=True)
+class TokTypeBool(Token):   # 'Bool' (type annotation)
+    info: Info
+
+
+@dataclass(frozen=True)
 class TokIdent(Token):
     info: Info
     value: str
@@ -274,6 +289,12 @@ def pprint_token(tok):
             return "TokCase"
         case TokAssign():
             return "TokAssign"
+        case TokTypeInt():
+            return "TokTypeInt"
+        case TokTypeString():
+            return "TokTypeString"
+        case TokTypeBool():
+            return "TokTypeBool"
         case TokIdent(_,s):
             return f"TokIdent('{s}')"
 
@@ -294,7 +315,7 @@ def is_digit_letter(x):
 
 keywords = [
     "for", "in", "if", "while", "else", "var", "def", "return",
-    "match", "case",
+    "match", "case", "Int", "String", "Bool",
 ]
 
 
@@ -320,6 +341,12 @@ def keyword_token(name, info):
             return TokMatch(info)
         case "case":
             return TokCase(info)
+        case "Int":
+            return TokTypeInt(info)
+        case "String":
+            return TokTypeString(info)
+        case "Bool":
+            return TokTypeBool(info)
 
 
 def string_until(pred, chars):

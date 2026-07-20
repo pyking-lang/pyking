@@ -35,6 +35,21 @@ keywords.")
   (regexp-opt pyking-mode-keywords 'symbols)
   "Regexp matching any Pyking keyword as a whole symbol.")
 
+(defconst pyking-mode-types
+  '("Int" "String" "Bool")
+  "Reserved type names usable in parameter/return type annotations.
+Mirrors the `keywords' list in boot/lexer.py: like `match'/`case', these
+are always-reserved keywords, not identifiers the parser special-cases
+only in type position -- see PYKING.md's \"Type annotations\" section.
+Kept as a separate list (rather than folded into
+`pyking-mode-keywords') so they get `font-lock-type-face' instead of
+`font-lock-keyword-face', matching how other language modes distinguish
+type names from control-flow/declaration keywords.")
+
+(defconst pyking-mode-types-regexp
+  (regexp-opt pyking-mode-types 'symbols)
+  "Regexp matching any name in `pyking-mode-types' as a whole symbol.")
+
 (defconst pyking-mode-builtins
   '("print" "range" "str")
   "Well-known Python builtin function names used in Pyking source.
@@ -73,6 +88,9 @@ builtin (e.g. `len').")
    ;; plain symbol, not conditionally on being followed by "(", matching
    ;; `python-mode's own behavior.
    (cons pyking-mode-builtins-regexp 'font-lock-builtin-face)
+   ;; Type annotation names (see `pyking-mode-types') -- highlighted with
+   ;; the conventional type face, distinct from other keywords.
+   (cons pyking-mode-types-regexp 'font-lock-type-face)
    ;; Every other reserved keyword.
    (cons pyking-mode-keywords-regexp 'font-lock-keyword-face))
   "Font-lock keyword table for `pyking-mode'.
@@ -120,7 +138,8 @@ Strings and comments are handled by the syntax table
 Provides syntax highlighting for Pyking's keywords (`for', `in', `if',
 `while', `else', `var', `def', `return', `match', `case'), the `:='
 mutation operator, string literals (with backslash escapes), `#'
-comments, integer literals, and well-known builtins (see
+comments, integer literals, type annotation names (`Int', `String',
+`Bool', see `pyking-mode-types'), and well-known builtins (see
 `pyking-mode-builtins'), consistent with the grammar documented in
 PYKING.md and implemented in boot/lexer.py and boot/parser.py.
 

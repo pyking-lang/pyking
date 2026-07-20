@@ -293,8 +293,9 @@ def translate_stmt(s):
         case SIf(info, cond, then_body, else_body):
             translated_else = translate_program(else_body) if else_body is not None else None
             return PyIf(info, translate_expr(cond), translate_program(then_body), translated_else)
-        case SFunctionDef(info, name, params, body):
-            return PyFunctionDef(info, name, params, translate_program(body))
+        case SFunctionDef(info, name, params, body, _return_type):
+            param_names = [p.name for p in params]
+            return PyFunctionDef(info, name, param_names, translate_program(body))
         case SMatch(info, subject, cases):
             return PyMatch(info, translate_expr(subject), [translate_case(c) for c in cases])
         case _:
