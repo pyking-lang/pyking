@@ -1,0 +1,28 @@
+def handle_command(command):
+    parts = command.split()
+    match parts:
+        case ["quit"]:
+            return "Goodbye!"
+        case ["go", direction] if direction in ["north", "south", "east", "west"]:
+            return f"You go {direction}."
+        case ["take", *items] if items:
+            return f"You take: {', '.join(items)}."
+        case ["look" | "inspect"]:
+            return "You see nothing special."
+        case _:
+            return "I don't understand."
+
+
+commands = [
+    "quit",
+    "go north",
+    "go up",
+    "take sword shield",
+    "take",
+    "look",
+    "inspect",
+    "dance",
+]
+
+for cmd in commands:
+    print(handle_command(cmd))

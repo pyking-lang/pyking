@@ -1,0 +1,12 @@
+def greet(name):
+    match name:
+        case "Alice":
+            return "Hi Alice!"
+        case "Bob":
+            return "Hello Bob!"
+        case _:
+            return "Hey stranger!"
+
+
+for name in ["Alice", "Bob", "Carol"]:
+    print(greet(name))

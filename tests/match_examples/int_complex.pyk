@@ -1,0 +1,33 @@
+def calculate(op, a, b):
+    match (op, a, b):
+        case ("add", x, y):
+            return x + y
+        case ("sub", x, y):
+            return x - y
+        case ("div", x, 0):
+            return "cannot divide by zero"
+        case ("div", x, y):
+            return x / y
+        case ("cmp", x, y) if x == y:
+            return "equal"
+        case ("cmp", x, y) if x > y:
+            return "greater"
+        case ("cmp", x, y):
+            return "less"
+        case _:
+            return "unknown operation"
+
+
+ops = [
+    ("add", 2, 3),
+    ("sub", 10, 4),
+    ("div", 8, 2),
+    ("div", 5, 0),
+    ("cmp", 3, 3),
+    ("cmp", 5, 2),
+    ("cmp", 2, 5),
+    ("mul", 2, 2),
+]
+
+for op, a, b in ops:
+    print(calculate(op, a, b))

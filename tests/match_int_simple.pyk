@@ -1,0 +1,12 @@
+def describe(n):
+    match n:
+        case 0:
+            return "zero"
+        case 1:
+            return "one"
+        case _:
+            return "many"
+
+
+for i in [0, 1, 5]:
+    print(describe(i))
