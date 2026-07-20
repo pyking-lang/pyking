@@ -201,10 +201,15 @@ def pprint_pattern(p):
 
 
 @dataclass(frozen=True)
-class MatchCase:            # case pattern: body
+class MatchCase:
+    # case pattern: body               (block form)
+    # case pattern -> expr             (single-expression form; Pyking extension,
+    #                                    not valid Python match syntax)
+    # Exactly one of `body`/`expr` is set.
     info: Info
     pattern: Pattern
-    body: list
+    body: list = None
+    expr: Expr = None
 
 
 # --- statement AST ---
@@ -319,8 +324,13 @@ def pprint_stmt(s, level=0):
         case SMatch(_, subject, cases):
             lines = [f"{pad}match {pprint_expr(subject)}:"]
             for c in cases:
-                lines.append(f"{pad}    case {pprint_pattern(c.pattern)}:")
-                lines += [pprint_stmt(st, level + 2) for st in c.body]
+                if c.expr is not None:
+                    lines.append(
+                        f"{pad}    case {pprint_pattern(c.pattern)} -> {pprint_expr(c.expr)}"
+                    )
+                else:
+                    lines.append(f"{pad}    case {pprint_pattern(c.pattern)}:")
+                    lines += [pprint_stmt(st, level + 2) for st in c.body]
             return "\n".join(lines)
 
 

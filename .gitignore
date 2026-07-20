@@ -6,3 +6,5 @@ _build/
 .idea/
 .vscode/
 __pycache__
+\#*
+\.\#*

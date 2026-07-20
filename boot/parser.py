@@ -8,7 +8,7 @@ from lexer import (
     TokColon, TokIndent, TokDedent, TokEq, TokLParen, TokRParen, TokComma,
     TokLBracket, TokRBracket,
     TokDef, TokReturn, TokFor, TokIn, TokIf, TokWhile, TokElse, TokVar, TokAssign,
-    TokMatch, TokCase,
+    TokMatch, TokCase, TokArrow,
 )
 from syntax import (
     EInt, EString, EVar,
@@ -228,9 +228,17 @@ def parse_case(tokens):
                 case [TokColon(_), *rest]:
                     body, rest = parse_block(rest)
                     case_info = combine_info(info, _block_end_info(info, body))
-                    return MatchCase(case_info, pattern, body), rest
+                    return MatchCase(case_info, pattern, body=body), rest
+                case [TokArrow(_), *rest]:
+                    # Pyking extension: `case pattern -> expr` is a
+                    # single-expression case, not valid Python match syntax.
+                    expr, rest = parse_expr(rest)
+                    case_info = combine_info(info, expr.info)
+                    return MatchCase(case_info, pattern, expr=expr), rest
                 case _:
-                    raise ParseError(_here(rest), "expected ':' after case pattern")
+                    raise ParseError(
+                        _here(rest), "expected ':' or '->' after case pattern"
+                    )
         case _:
             raise ParseError(_here(tokens), "expected a 'case' clause")
 

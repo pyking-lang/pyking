@@ -7,6 +7,5 @@ def describe(n):
         case _:
             return "many"
 
-
 for i in [0, 1, 5]:
     print(describe(i))

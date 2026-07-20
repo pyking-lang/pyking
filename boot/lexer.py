@@ -56,6 +56,11 @@ class TokSub(Token):        # '-' user defined
 
 
 @dataclass(frozen=True)
+class TokArrow(Token):      # '->' (single-expression `case` clause)
+    info: Info
+
+
+@dataclass(frozen=True)
 class TokMul(Token):        # '*' user defined
     info: Info
 
@@ -211,6 +216,8 @@ def pprint_token(tok):
             return "TokAdd"
         case TokSub():
             return "TokSub"
+        case TokArrow():
+            return "TokArrow"
         case TokMul():
             return "TokMul"
         case TokDiv():
@@ -428,6 +435,9 @@ def lexing(file, chars):
             case ["+", *xs]:
                 tokens.append(TokAdd(fi(r, c, 1)))
                 c, rest = c + 1, xs
+            case ["-", ">", *xs]:  # Pyking extension: single-expression `case` clauses
+                tokens.append(TokArrow(fi(r, c, 2)))
+                c, rest = c + 2, xs
             case ["-", *xs]:
                 tokens.append(TokSub(fi(r, c, 1)))
                 c, rest = c + 1, xs

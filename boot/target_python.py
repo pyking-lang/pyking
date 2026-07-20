@@ -262,7 +262,16 @@ def translate_pattern(p):
 
 
 def translate_case(c):
-    return PyMatchCase(c.info, translate_pattern(c.pattern), translate_program(c.body))
+    # Pyking's single-expression `case pattern -> expr` has no Python
+    # equivalent, so it desugars here into an ordinary case block whose
+    # body is just `return expr` -- the Python target AST itself gains no
+    # new node for this; PyMatchCase always just has a `body`.
+    if c.expr is not None:
+        translated_expr = translate_expr(c.expr)
+        body = [PyReturn(translated_expr.info, translated_expr)]
+    else:
+        body = translate_program(c.body)
+    return PyMatchCase(c.info, translate_pattern(c.pattern), body)
 
 
 def translate_stmt(s):

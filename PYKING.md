@@ -49,7 +49,7 @@ Statements:
 - `for`/`in` loops
 - `while` loops
 - `if`/`else` statements
-- `match`/`case` pattern matching
+- `match`/`case` pattern matching, including `case pattern -> expr` — Pyking extension
 - Expression statements
 
 Structure:
@@ -91,7 +91,8 @@ while_stmt  = "while" , expr , ":" , block ;
 if_stmt     = "if" , expr , ":" , block , [ "else" , ":" , block ] ;
 
 match_stmt  = "match" , expr , ":" , INDENT , case_clause , { case_clause } , DEDENT ;
-case_clause = "case" , pattern , ":" , block ;
+case_clause = "case" , pattern , ":" , block
+            | "case" , pattern , "->" , expr ;
 pattern     = int | string | "_" | ident ;
 
 var_decl    = "var" , ident , "=" , expr ;
@@ -140,6 +141,14 @@ Notes that don't fall out of the grammar alone:
   `ident` also always matches, but binds the value to that name. There's
   no support yet for guards (`if`), or-patterns (`|`), or structural
   (tuple/list) patterns.
+- The `"case" , pattern , "->" , expr` form of `case_clause` is a genuine
+  Pyking extension — it isn't valid Python `match` syntax at all (Python
+  always requires `:` and an indented block). It compiles to an ordinary
+  `case pattern:` block whose only statement is `return expr` — so, like
+  a bare `return_stmt`, it's only meaningful inside a `function_def`; the
+  parser doesn't check this, matching how `return_stmt` itself is already
+  accepted anywhere without that check.
+- The two `case_clause` forms can be freely mixed within one `match_stmt`.
 
 ## Feature details
 
@@ -335,6 +344,27 @@ def describe(n):
             return "one"
         case value:
             return "many: " + str(value)
+
+
+for i in [0, 1, 5]:
+    print(describe(i))
+```
+
+A `case` clause can alternatively use `->` followed by a single
+expression instead of `:` and an indented block — this is a Pyking-only
+extension with no Python equivalent, so (unlike every other example in
+this document) the following is Pyking source, not valid Python:
+`case pattern -> expr` compiles to an ordinary `case pattern:` block
+whose body is `return expr`, so it's only meaningful directly inside a
+function (see the grammar notes above). The two forms can be mixed
+freely within one `match`.
+
+```pyking
+def describe(n):
+    match n:
+        case 0 -> "zero"
+        case 1 -> "one"
+        case _ -> "many"
 
 
 for i in [0, 1, 5]:
