@@ -2,6 +2,7 @@ import glob
 import os
 import subprocess
 import sys
+import tempfile
 
 PYKBOOT = os.path.join("boot", "pykboot.py")
 
@@ -20,11 +21,10 @@ def main():
         with open(out_path, "r") as f:
             expected_output = f.read()
 
-        # pykboot.py writes its output to the current working directory
-        # (this script's cwd), not next to the .pyk input.
-        generated_path = os.path.splitext(os.path.basename(path))[0] + ".py"
+        with tempfile.NamedTemporaryFile(suffix=".py", delete=False) as tmp:
+            generated_path = tmp.name
         try:
-            compiled = run([sys.executable, PYKBOOT, path])
+            compiled = run([sys.executable, PYKBOOT, "--output", generated_path, path])
             if compiled.returncode != 0:
                 print(f"{path} FAILED")
                 print("--- expected output ---")

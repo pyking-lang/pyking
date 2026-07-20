@@ -7,16 +7,37 @@ from syntax import pprint_program
 from target_python import translate_program, pprint_py_program
 
 
-FLAGS = ("--tokens", "--ast", "--stdout")
+USAGE = "Usage: python3 boot/pykboot.py [--tokens] (--ast | --stdout | --output <file>) <filename>"
 
 args = sys.argv[1:]
-show_tokens = "--tokens" in args
-show_ast = "--ast" in args
-show_stdout = "--stdout" in args
-positional = [a for a in args if a not in FLAGS]
+show_tokens = False
+show_ast = False
+show_stdout = False
+output_path = None
+positional = []
+
+i = 0
+while i < len(args):
+    arg = args[i]
+    if arg == "--tokens":
+        show_tokens = True
+    elif arg == "--ast":
+        show_ast = True
+    elif arg == "--stdout":
+        show_stdout = True
+    elif arg == "--output":
+        i += 1
+        if i >= len(args):
+            print("Usage error: --output requires a <file> argument", file=sys.stderr)
+            print(USAGE, file=sys.stderr)
+            sys.exit(1)
+        output_path = args[i]
+    else:
+        positional.append(arg)
+    i += 1
 
 if len(positional) != 1:
-    print("Usage: python3 boot/pykboot.py [--tokens] [--ast] [--stdout] <filename>")
+    print(USAGE)
     sys.exit(1)
 
 filename = positional[0]
@@ -47,16 +68,21 @@ else:
 
     if show_stdout:
         print(py_source)
-    else:
-        # Written to the current working directory, not next to the input file.
-        out_path = os.path.splitext(os.path.basename(filename))[0] + ".py"
-        if os.path.abspath(out_path) == os.path.abspath(filename):
+    elif output_path is not None:
+        if os.path.abspath(output_path) == os.path.abspath(filename):
             print(
-                f"Usage error: input '{filename}' would be overwritten by its own "
-                "compiled output; pass a non-'.py' source file (e.g. a '.pyk' file).",
+                f"Usage error: --output '{output_path}' would overwrite the input "
+                "file; choose a different output path.",
                 file=sys.stderr,
             )
             sys.exit(1)
 
-        with open(out_path, "w") as f:
+        with open(output_path, "w") as f:
             f.write(py_source + "\n")
+    else:
+        print(
+            "Usage error: specify one of --ast, --stdout, or --output <file>.",
+            file=sys.stderr,
+        )
+        print(USAGE, file=sys.stderr)
+        sys.exit(1)

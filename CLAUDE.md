@@ -22,8 +22,9 @@ compiler in the target/meta language itself. Concretely:
 - `src/` is reserved for the eventual self-hosted implementation written in
   Miking (`.mc` files). It's currently empty of tracked content.
 - `tests/` contains sample Pyking source programs (`.pyk`, not a pytest
-  suite), each with a sibling `.out` file holding its expected stdout (see
-  "Running" below for how `test.py` uses these), and usable standalone via:
+  suite), each with a sibling `.out` file holding its expected stdout, plus
+  `tests/test_script.py` (see "Running" below for how it uses these), and
+  usable standalone via:
   ```
   python3 boot/pykboot.py tests/test1.pyk
   ```
@@ -90,17 +91,17 @@ The bootstrap is split into one module per compiler stage:
    backends (e.g. `target_ocaml.py`) can be added the same way, without
    entangling target-specific logic into the Pyking AST/pretty-printer.
 5. **`boot/pykboot.py`** — the entry point: parses `--tokens`/`--ast`/
-   `--stdout`/the filename from argv, calls `lexer.lexing` and
-   `parser.parse`, catches `LexError`/`ParseError` to print a `'file'
-   row:col-row:col ...` message to stderr. With `--ast`, prints the
-   pretty-printed *Pyking* AST via `syntax.pprint_program` (this used to be
-   the only/default behavior). Otherwise (the default), it compiles:
-   translates to the Python target AST and pretty-prints it. With
-   `--stdout`, that Python source is printed to stdout and no file is
-   written; otherwise it's written to `<basename>.py` in the *current
-   working directory* (not next to the input file) — e.g. running it on
-   `some/dir/hello.pyk` writes `./hello.py`, refusing to run if that would
-   overwrite the input itself.
+   `--stdout`/`--output <file>`/the filename from argv, calls
+   `lexer.lexing` and `parser.parse`, catches `LexError`/`ParseError` to
+   print a `'file' row:col-row:col ...` message to stderr. Exactly one of
+   `--ast`, `--stdout`, or `--output <file>` must be given — there is no
+   default action, and passing none of them is a usage error. With
+   `--ast`, prints the pretty-printed *Pyking* AST via
+   `syntax.pprint_program` (this used to be the only/default behavior).
+   Otherwise it compiles: translates to the Python target AST and
+   pretty-prints it, then either prints that to stdout (`--stdout`) or
+   writes it to the path given by `--output` (refusing to run if that
+   path would overwrite the input file itself).
 
 When extending the lexer (new operators, keywords, string escapes, etc.),
 follow the existing pattern: add a `case [...]:` arm in the `match rest:`
@@ -110,32 +111,40 @@ block inside `lexing`, add a corresponding `Tok*` dataclass, and add a
 ## Running
 
 ```
-python3 boot/pykboot.py [--tokens] [--ast] [--stdout] <filename>
-```
-
-or equivalently, via the `pykboot` wrapper script at the repository root:
-
-```
-./pykboot [--tokens] [--ast] [--stdout] <filename>
+python3 boot/pykboot.py [--tokens] (--ast | --stdout | --output <file>) <filename>
 ```
 
 `--tokens` prints the token stream first (in addition to whatever else
-happens). `--ast` stops after parsing and prints the pretty-printed
-*Pyking* AST instead of compiling. The default (neither flag, or
-`--tokens` alone) compiles: `<name>.pyk` produces `<name>.py`, written to
-the current working directory (not next to the input file), translated
-via `boot/target_python.py`. Add `--stdout` to print that generated Python
-source to stdout instead of writing the file (e.g. for piping straight
-into `python3`). There's no `--target` flag yet — Python is the only
-backend, so a target-selection flag would be speculative; add one if/when
-a second backend is implemented.
+happens). Exactly one of the other three flags is required — there is no
+default action:
 
-`make test` runs `test.py`, which compiles every `tests/*.pyk` file (the
-generated `.py` lands in the repository root, since that's `test.py`'s own
-working directory), executes it with `python3`, and compares its stdout
-against the sibling `tests/*.out` file (captured once, ahead of time, as
-the expected output) — then deletes the generated `.py` again so the
-repository root stays free of build artifacts between runs.
+- `--ast` stops after parsing and prints the pretty-printed *Pyking* AST
+  instead of compiling.
+- `--stdout` compiles (translating to the Python target AST via
+  `boot/target_python.py`) and prints the generated Python source to
+  stdout.
+- `--output <file>` compiles the same way and writes the generated Python
+  source to `<file>`, refusing to run if `<file>` would overwrite the
+  input.
+
+There's no `--target` flag yet — Python is the only backend, so a
+target-selection flag would be speculative; add one if/when a second
+backend is implemented.
+
+The `pykboot` wrapper script at the repository root forwards flags as-is
+(`./pykboot --ast <file>`, etc.), but adds one convenience: called with
+*only* a filename and no flags, it compiles to a temp file, runs it with
+`python3`, and removes the temp file afterward (even if compiling or
+running fails) — i.e. `./pykboot <file>` is the "just run it" shorthand
+that no longer exists as `boot/pykboot.py`'s own default.
+
+`make test` runs `tests/test_script.py` (plain `make` with no target does
+nothing — the `Makefile`'s first rule, `all`, is intentionally empty), which
+compiles every `tests/*.pyk` file via
+`--output <tempfile>` (a real temp file, from Python's `tempfile` module),
+executes the result with `python3`, and compares its stdout against the
+sibling `tests/*.out` file (captured once, ahead of time, as the expected
+output) — then deletes the temp file again.
 
 No dependencies beyond the Python standard library (`dataclasses`, `sys`).
 Requires Python 3.10+ for `match`/`case` statements.

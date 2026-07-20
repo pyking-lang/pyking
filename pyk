@@ -1,0 +1,24 @@
+#!/bin/bash
+DIR="$(cd "$(dirname "$0")" && pwd)"
+PYKBOOT_PY="$DIR/boot/pykboot.py"
+
+if [ "$#" -eq 1 ]; then
+    # No flags given: compile to a temp file, run it, then clean up -- even
+    # if compilation or the run itself fails. Uses a plain trailing-X
+    # template with no --suffix, since --suffix is GNU-only and this needs
+    # to work with both GNU (Linux) and BSD (macOS) mktemp; python3 doesn't
+    # care about the file's extension.
+    tmpfile="$(mktemp "${TMPDIR:-/tmp}/pykboot.XXXXXX")"
+    trap 'rm -f "$tmpfile"' EXIT
+
+    python3 "$PYKBOOT_PY" --output "$tmpfile" "$1"
+    status=$?
+    if [ "$status" -ne 0 ]; then
+        exit "$status"
+    fi
+
+    python3 "$tmpfile"
+    exit $?
+else
+    exec python3 "$PYKBOOT_PY" "$@"
+fi
