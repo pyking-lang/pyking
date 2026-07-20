@@ -1,0 +1,16 @@
+a, b = 1, 2
+print(a, b)
+
+(c, d) = (10, 20)
+print(c, d)
+
+(e,) = (99,)
+print(e)
+
+(f, (g, h)) = (1, (2, 3))
+print(f, g, h)
+
+var total = 0
+x, y = 3, 4
+total := x + y
+print(total)

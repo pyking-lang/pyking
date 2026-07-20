@@ -1,0 +1,31 @@
+def classify(p):
+    match p:
+        case (0, 0):
+            return "origin"
+        case (x, 0):
+            return "x-axis: " + str(x)
+        case (0, y):
+            return "y-axis: " + str(y)
+        case (x, y):
+            return "point"
+
+
+def describe_triple(t):
+    match t:
+        case 0, 0, 0 -> "all zero"
+        case a, b, c -> "sum: " + str(a + b + c)
+
+
+def first_of(pair):
+    match pair:
+        case (first, _):
+            return first
+
+
+print(classify((0, 0)))
+print(classify((5, 0)))
+print(classify((0, 5)))
+print(classify((3, 4)))
+print(describe_triple((0, 0, 0)))
+print(describe_triple((1, 2, 3)))
+print(first_of((7, 8)))

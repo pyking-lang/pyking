@@ -103,6 +103,12 @@ class EList(Expr):          # [elements...]
     elements: list
 
 
+@dataclass(frozen=True)
+class ETuple(Expr):         # (e1, e2, ...); () is the empty/Unit tuple,
+    info: Info              # (e,) is a singleton -- built from either a
+    elements: list          # parenthesized or a bare comma-separated form
+
+
 # --- type AST (for optional parameter/return type annotations) ---
 
 class Type:
@@ -217,6 +223,15 @@ def pprint_expr(e, min_prec=0):
             return f"{pprint_expr(f, 4)}({', '.join(pprint_expr(a) for a in args)})"
         case EList(_, elements):
             return f"[{', '.join(pprint_expr(e) for e in elements)}]"
+        case ETuple(_, elements):
+            # Canonical printed form is always fully parenthesized (with a
+            # trailing comma for the singleton case), regardless of
+            # whether the source used the bare or parenthesized form.
+            match elements:
+                case [single]:
+                    return f"({pprint_expr(single)},)"
+                case _:
+                    return f"({', '.join(pprint_expr(e) for e in elements)})"
 
 
 # --- pattern AST (for `match`/`case`) ---
@@ -248,6 +263,12 @@ class PCapture(Pattern):    # case name: (binds `name` to the matched value)
     name: str
 
 
+@dataclass(frozen=True)
+class PTuple(Pattern):      # case (p1, p2, ...): destructures a tuple value
+    info: Info
+    elements: list
+
+
 def pprint_pattern(p):
     match p:
         case PInt(_, v):
@@ -258,6 +279,12 @@ def pprint_pattern(p):
             return "_"
         case PCapture(_, name):
             return name
+        case PTuple(_, elements):
+            match elements:
+                case [single]:
+                    return f"({pprint_pattern(single)},)"
+                case _:
+                    return f"({', '.join(pprint_pattern(e) for e in elements)})"
 
 
 @dataclass(frozen=True)
@@ -272,6 +299,37 @@ class MatchCase:
     expr: Expr = None
 
 
+# --- assignment target AST (the left-hand side of `=`, which may
+# destructure a tuple) ---
+
+class AssignTarget:
+    """Base class for `=`-binding targets."""
+
+
+@dataclass(frozen=True)
+class TargetName(AssignTarget):   # name
+    info: Info
+    name: str
+
+
+@dataclass(frozen=True)
+class TargetTuple(AssignTarget):  # (t1, t2, ...) destructuring target
+    info: Info
+    elements: list
+
+
+def pprint_target(t):
+    match t:
+        case TargetName(_, name):
+            return name
+        case TargetTuple(_, elements):
+            match elements:
+                case [single]:
+                    return f"({pprint_target(single)},)"
+                case _:
+                    return f"({', '.join(pprint_target(e) for e in elements)})"
+
+
 # --- statement AST ---
 
 class Stmt:
@@ -279,9 +337,9 @@ class Stmt:
 
 
 @dataclass(frozen=True)
-class SLet(Stmt):           # name = expr (immutable binding)
-    info: Info
-    name: str
+class SLet(Stmt):           # target = expr (immutable binding; target may
+    info: Info               # destructure a tuple)
+    target: AssignTarget
     expr: Expr
 
 
@@ -353,8 +411,8 @@ class SMatch(Stmt):         # match subject: case pattern: body ...
 def pprint_stmt(s, level=0):
     pad = "    " * level
     match s:
-        case SLet(_, name, expr):
-            return f"{pad}{name} = {pprint_expr(expr)}"
+        case SLet(_, target, expr):
+            return f"{pad}{pprint_target(target)} = {pprint_expr(expr)}"
         case SVar(_, name, expr):
             return f"{pad}var {name} = {pprint_expr(expr)}"
         case SMutate(_, name, expr):

@@ -14,10 +14,11 @@ from lexer import (
 from syntax import (
     EInt, EString, EVar,
     EAdd, ESub, EMul, EDiv,
-    ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList,
-    PInt, PString, PWildcard, PCapture, MatchCase,
+    ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList, ETuple,
+    PInt, PString, PWildcard, PCapture, PTuple, MatchCase,
     SLet, SVar, SMutate, SReturn, SExprStmt, SFor, SWhile, SIf, SFunctionDef, SMatch,
     TInt, TString, TBool, TList, TTuple, Param,
+    TargetName, TargetTuple,
 )
 
 
@@ -61,14 +62,29 @@ def parse_atom(tokens):
             return parse_call_tail(EString(info, s), rest)
         case [TokIdent(info, name), *rest]:
             return parse_call_tail(EVar(info, name), rest)
+        case [TokLParen(lp_info), TokRParen(rp_info), *rest]:
+            # (): the empty tuple, i.e. Unit.
+            return parse_call_tail(ETuple(combine_info(lp_info, rp_info), []), rest)
         case [TokLParen(lp_info), *rest]:
-            expr, rest = parse_expr(rest)
+            first, rest = parse_expr(rest)
             match rest:
+                case [TokComma(_), TokRParen(rp_info), *rest]:
+                    # (e,): a singleton tuple.
+                    tuple_info = combine_info(lp_info, rp_info)
+                    return parse_call_tail(ETuple(tuple_info, [first]), rest)
+                case [TokComma(_), *rest]:
+                    # (e, e, ...): reuse `parse_args`'s "comma-separated
+                    # exprs up to ')', trailing comma allowed" shape --
+                    # it's exactly the tuple-tail grammar too.
+                    elements, rp_info, rest = parse_args(rest)
+                    tuple_info = combine_info(lp_info, rp_info)
+                    return parse_call_tail(ETuple(tuple_info, [first] + elements), rest)
                 case [TokRParen(rp_info), *rest]:
-                    wrapped = replace(expr, info=combine_info(lp_info, rp_info))
+                    # (e): just a parenthesized expression, not a tuple.
+                    wrapped = replace(first, info=combine_info(lp_info, rp_info))
                     return parse_call_tail(wrapped, rest)
                 case _:
-                    raise ParseError(_here(rest), "expected ')'")
+                    raise ParseError(_here(rest), "expected ',' or ')'")
         case [TokLBracket(lb_info), *rest]:
             elements, rb_info, rest = parse_list_elements(rest)
             list_info = combine_info(lb_info, rb_info)
@@ -81,7 +97,15 @@ def parse_atom(tokens):
 
 def parse_call_tail(expr, tokens):
     match tokens:
-        case [TokLParen(_), *rest]:
+        # The `row1 ==` guard restricts call-chaining (`f(1)(2)`) to a '('
+        # on the same source row as where `expr` ended. Without it, this
+        # would also (wrongly) chain onto a '(' that starts the *next*
+        # statement -- there are no statement-separator tokens in this
+        # grammar (see the module comment above), so e.g. `print(x)`
+        # followed on the next line by a parenthesized tuple statement
+        # like `(a, b) = ...` would otherwise be misparsed as one giant
+        # call `print(x)(a, b)`.
+        case [TokLParen(lp_info), *rest] if lp_info.row1 == expr.info.row2:
             args, rparen_info, rest = parse_args(rest)
             call_info = combine_info(expr.info, rparen_info)
             return parse_call_tail(ECall(call_info, expr, args), rest)
@@ -171,6 +195,32 @@ def parse_expr(tokens):
             return left, rest
 
 
+def parse_tuple_or_expr(tokens):
+    """Parses either a single `expr`, or a *bare* (unparenthesized) tuple:
+    `expr , expr , ...` -- Pyking's Python-like implicit-tuple
+    construction. Deliberately requires at least two elements and forbids
+    a trailing comma: since this grammar has no statement-separator
+    tokens (see the module comment above), a trailing comma here would be
+    indistinguishable from the start of the following statement -- a
+    singleton tuple must be written with explicit parens, `(e,)`."""
+    first, rest = parse_expr(tokens)
+    match rest:
+        case [TokComma(_), *rest]:
+            elements = [first]
+            while True:
+                elem, rest = parse_expr(rest)
+                elements.append(elem)
+                match rest:
+                    case [TokComma(_), *rest2]:
+                        rest = rest2
+                    case _:
+                        break
+            tuple_info = combine_info(first.info, elements[-1].info)
+            return ETuple(tuple_info, elements), rest
+        case _:
+            return first, rest
+
+
 def parse_type(tokens):
     match tokens:
         case [TokTypeInt(info), *rest]:
@@ -238,6 +288,93 @@ def parse_params(tokens):
                     raise ParseError(_here(rest), "expected ',' or ')' in parameter list")
 
 
+def parse_target_atom(tokens):
+    """A single assignment target: a name, or a fully parenthesized
+    tuple-target group (0, 1 [singleton, trailing comma required], or 2+
+    comma-separated targets, trailing comma optional for 2+ -- same
+    shape as a parenthesized tuple expression)."""
+    match tokens:
+        case [TokIdent(info, name), *rest]:
+            return TargetName(info, name), rest
+        case [TokLParen(lp_info), TokRParen(rp_info), *rest]:
+            return TargetTuple(combine_info(lp_info, rp_info), []), rest
+        case [TokLParen(lp_info), *rest]:
+            first, rest = parse_target_atom(rest)
+            match rest:
+                case [TokComma(_), TokRParen(rp_info), *rest]:
+                    tuple_info = combine_info(lp_info, rp_info)
+                    return TargetTuple(tuple_info, [first]), rest
+                case [TokComma(_), *rest]:
+                    elements, rp_info, rest = parse_target_paren_tail(rest)
+                    tuple_info = combine_info(lp_info, rp_info)
+                    return TargetTuple(tuple_info, [first] + elements), rest
+                case [TokRParen(rp_info), *rest]:
+                    return replace(first, info=combine_info(lp_info, rp_info)), rest
+                case _:
+                    raise ParseError(_here(rest), "expected ',' or ')' in assignment target")
+        case [t, *_]:
+            raise ParseError(t.info, "expected an identifier or '(' in assignment target")
+        case []:
+            raise ParseError(_here(tokens), "unexpected end of input in assignment target")
+
+
+def parse_target_paren_tail(tokens):
+    match tokens:
+        case [TokRParen(info), *rest]:
+            return [], info, rest
+        case _:
+            elem, rest = parse_target_atom(tokens)
+            match rest:
+                case [TokComma(_), *rest]:
+                    elems, rp_info, rest = parse_target_paren_tail(rest)
+                    return [elem] + elems, rp_info, rest
+                case [TokRParen(info), *rest]:
+                    return [elem], info, rest
+                case _:
+                    raise ParseError(_here(rest), "expected ',' or ')' in assignment target")
+
+
+def parse_target(tokens):
+    """The full assignment-target grammar: a single `parse_target_atom`,
+    or a *bare* (unparenthesized) comma-separated sequence of 2+ of them
+    -- like bare tuple expressions, deliberately with no trailing comma
+    (see `parse_tuple_or_expr`)."""
+    first, rest = parse_target_atom(tokens)
+    match rest:
+        case [TokComma(_), *rest]:
+            elements = [first]
+            while True:
+                elem, rest = parse_target_atom(rest)
+                elements.append(elem)
+                match rest:
+                    case [TokComma(_), *rest2]:
+                        rest = rest2
+                    case _:
+                        break
+            tuple_info = combine_info(first.info, elements[-1].info)
+            return TargetTuple(tuple_info, elements), rest
+        case _:
+            return first, rest
+
+
+def _try_parse_assignment_target(tokens):
+    """Speculatively parses `tokens` as `target =`, returning `(target,
+    rest)` positioned just after the '=' on success, or `None` if
+    `tokens` doesn't begin with a valid `target =` -- callers fall back
+    to parsing `tokens` as a general statement/expression instead. Since
+    this parser is purely functional over immutable token lists, a
+    failed speculative parse has no side effects to undo."""
+    try:
+        target, rest = parse_target(tokens)
+    except ParseError:
+        return None
+    match rest:
+        case [TokEq(_), *rest]:
+            return target, rest
+        case _:
+            return None
+
+
 def parse_block(tokens):
     match tokens:
         case [TokIndent(_), *rest]:
@@ -259,7 +396,11 @@ def _block_end_info(header_info, body):
     return body[-1].info if body else header_info
 
 
-def parse_pattern(tokens):
+def parse_pattern_atom(tokens):
+    """A single pattern: int/string/'_'/identifier, or a fully
+    parenthesized tuple pattern (0, 1 [singleton, trailing comma
+    required], or 2+ comma-separated patterns, trailing comma optional
+    for 2+ -- same shape as a parenthesized tuple expression)."""
     match tokens:
         case [TokInt(info, v), *rest]:
             return PInt(info, v), rest
@@ -269,11 +410,63 @@ def parse_pattern(tokens):
             return PWildcard(info), rest
         case [TokIdent(info, name), *rest]:
             return PCapture(info, name), rest
+        case [TokLParen(lp_info), TokRParen(rp_info), *rest]:
+            return PTuple(combine_info(lp_info, rp_info), []), rest
+        case [TokLParen(lp_info), *rest]:
+            first, rest = parse_pattern_atom(rest)
+            match rest:
+                case [TokComma(_), TokRParen(rp_info), *rest]:
+                    return PTuple(combine_info(lp_info, rp_info), [first]), rest
+                case [TokComma(_), *rest]:
+                    elements, rp_info, rest = parse_pattern_paren_tail(rest)
+                    return PTuple(combine_info(lp_info, rp_info), [first] + elements), rest
+                case [TokRParen(rp_info), *rest]:
+                    return replace(first, info=combine_info(lp_info, rp_info)), rest
+                case _:
+                    raise ParseError(_here(rest), "expected ',' or ')' in tuple pattern")
         case _:
             raise ParseError(
                 _here(tokens),
-                "expected a pattern (integer, string, '_', or identifier)",
+                "expected a pattern (integer, string, '_', identifier, or tuple)",
             )
+
+
+def parse_pattern_paren_tail(tokens):
+    match tokens:
+        case [TokRParen(info), *rest]:
+            return [], info, rest
+        case _:
+            elem, rest = parse_pattern_atom(tokens)
+            match rest:
+                case [TokComma(_), *rest]:
+                    elems, rp_info, rest = parse_pattern_paren_tail(rest)
+                    return [elem] + elems, rp_info, rest
+                case [TokRParen(info), *rest]:
+                    return [elem], info, rest
+                case _:
+                    raise ParseError(_here(rest), "expected ',' or ')' in tuple pattern")
+
+
+def parse_pattern(tokens):
+    """Top-level pattern grammar: `parse_pattern_atom`, or a *bare*
+    (unparenthesized) comma-separated sequence of 2+ of them -- like bare
+    tuple expressions, deliberately with no trailing comma."""
+    first, rest = parse_pattern_atom(tokens)
+    match rest:
+        case [TokComma(_), *rest]:
+            elements = [first]
+            while True:
+                elem, rest = parse_pattern_atom(rest)
+                elements.append(elem)
+                match rest:
+                    case [TokComma(_), *rest2]:
+                        rest = rest2
+                    case _:
+                        break
+            pattern_info = combine_info(first.info, elements[-1].info)
+            return PTuple(pattern_info, elements), rest
+        case _:
+            return first, rest
 
 
 def parse_case(tokens):
@@ -337,7 +530,7 @@ def parse_statement(tokens):
                     raise ParseError(_here(rest), "expected ':' after def header")
 
         case [TokReturn(info), *rest]:
-            expr, rest = parse_expr(rest)
+            expr, rest = parse_tuple_or_expr(rest)
             return SReturn(combine_info(info, expr.info), expr), rest
 
         case [TokFor(info), TokIdent(_, name), TokIn(_), *rest]:
@@ -387,19 +580,28 @@ def parse_statement(tokens):
                     raise ParseError(_here(rest), "expected ':' after if header")
 
         case [TokVar(info), TokIdent(_, name), TokEq(_), *rest]:
-            expr, rest = parse_expr(rest)
+            expr, rest = parse_tuple_or_expr(rest)
             return SVar(combine_info(info, expr.info), name, expr), rest
 
-        case [TokIdent(info, name), TokEq(_), *rest]:
-            expr, rest = parse_expr(rest)
-            return SLet(combine_info(info, expr.info), name, expr), rest
-
         case [TokIdent(info, name), TokAssign(_), *rest]:
-            expr, rest = parse_expr(rest)
+            expr, rest = parse_tuple_or_expr(rest)
             return SMutate(combine_info(info, expr.info), name, expr), rest
 
+        # `target = expr`, where `target` may destructure a tuple (e.g.
+        # `a, b = 1, 2` or `(a, b) = pair`) -- tried speculatively since,
+        # unlike the fixed-prefix cases above, a target can be an
+        # arbitrarily long comma-separated/nested prefix of tokens; if it
+        # doesn't pan out (no valid target, or no '=' after it), this
+        # falls through to the plain expression-statement case below.
+        case [TokIdent() | TokLParen(), *_] if (
+            _assign := _try_parse_assignment_target(tokens)
+        ) is not None:
+            target, rest = _assign
+            expr, rest = parse_tuple_or_expr(rest)
+            return SLet(combine_info(target.info, expr.info), target, expr), rest
+
         case _:
-            expr, rest = parse_expr(tokens)
+            expr, rest = parse_tuple_or_expr(tokens)
             return SExprStmt(expr.info, expr), rest
 
 

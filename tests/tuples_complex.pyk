@@ -1,0 +1,35 @@
+def vec_add(a:(Int, Int), b:(Int, Int)) -> (Int, Int):
+    (ax, ay) = a
+    (bx, by) = b
+    return ax + bx, ay + by
+
+
+def classify3(t:(Int, Int, Int)) -> String:
+    match t:
+        case (0, 0, 0):
+            return "zero vector"
+        case (x, 0, 0) -> "on x axis: " + str(x)
+        case (x, y, z):
+            return "general: " + str(x + y + z)
+
+
+def unpack_nested(data):
+    match data:
+        case (name, (a, b), scores):
+            var total = 0
+            for s in scores:
+                total := total + s
+            return name, a + b, total
+
+
+v1 = (1, 2)
+v2 = 3, 4
+print(vec_add(v1, v2))
+
+print(classify3((0, 0, 0)))
+print(classify3((5, 0, 0)))
+print(classify3((1, 2, 3)))
+
+result = unpack_nested(("alice", (10, 20), [1, 2, 3]))
+(who, sum_ab, sum_scores) = result
+print(who, sum_ab, sum_scores)

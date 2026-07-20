@@ -48,10 +48,14 @@ Expressions:
 - Comparison operators (`<`, `<=`, `>`, `>=`, `==`)
 - Function calls
 - List literals (`[e1, e2, ...]`)
+- Tuple literals (`(e1, e2, ...)`, the singleton `(e,)`, and the empty
+  tuple `()`), constructible with or without the enclosing parentheses
+  (`e1, e2, ...` — Python-like implicit tuples)
 
 Statements:
 
-- Immutable bindings (`=`)
+- Immutable bindings (`=`), which may destructure a tuple value into
+  several names at once (e.g. `a, b = 1, 2` or `(a, (b, c)) = pair`)
 - Mutable variables (`var` and `:=`) — Pyking extension
 - Function definitions (`def`), with optional parameter and return type
   annotations (`Int`, `String`, `Bool`, list types `[T]`, tuple types
@@ -62,7 +66,9 @@ Statements:
 - `for`/`in` loops
 - `while` loops
 - `if`/`else` statements
-- `match`/`case` pattern matching, including `case pattern -> expr` — Pyking extension
+- `match`/`case` pattern matching, including `case pattern -> expr` —
+  Pyking extension, and tuple patterns (`case (a, b):`) that destructure
+  a tuple value
 - Expression statements
 
 Structure:
@@ -111,13 +117,25 @@ if_stmt     = "if" , expr , ":" , block , [ "else" , ":" , block ] ;
 match_stmt  = "match" , expr , ":" , INDENT , case_clause , { case_clause } , DEDENT ;
 case_clause = "case" , pattern , ":" , block
             | "case" , pattern , "->" , expr ;
-pattern     = int | string | "_" | ident ;
+pattern     = pattern_atom , { "," , pattern_atom } ;
+pattern_atom = int | string | "_" | ident
+             | "(" , ")"
+             | "(" , pattern_atom , "," , ")"
+             | "(" , pattern_atom , ( "," , pattern_atom )+ , [ "," ] , ")" ;
 
-var_decl    = "var" , ident , "=" , expr ;
-assignment  = ident , "=" , expr ;
-mutation    = ident , ":=" , expr ;
+var_decl    = "var" , ident , "=" , tuple_or_expr ;
+assignment  = target , "=" , tuple_or_expr ;
+mutation    = ident , ":=" , tuple_or_expr ;
 
-expr_stmt   = expr ;
+target      = target_atom , { "," , target_atom } ;
+target_atom = ident
+            | "(" , ")"
+            | "(" , target_atom , "," , ")"
+            | "(" , target_atom , ( "," , target_atom )+ , [ "," ] , ")" ;
+
+expr_stmt   = tuple_or_expr ;
+
+tuple_or_expr = expr , { "," , expr } ;
 
 expr        = additive , [ comp_op , additive ] ;
 comp_op     = "<" | "<=" | ">" | ">=" | "==" ;
@@ -125,11 +143,16 @@ comp_op     = "<" | "<=" | ">" | ">=" | "==" ;
 additive    = multiplicative , { ( "+" | "-" ) , multiplicative } ;
 multiplicative = atom , { ( "*" | "/" ) , atom } ;
 
-atom        = ( int | string | ident | list_lit | "(" , expr , ")" ) , { call_tail } ;
+atom        = ( int | string | ident | list_lit | tuple_lit | "(" , expr , ")" ) ,
+              { call_tail } ;
 call_tail   = "(" , [ args ] , ")" ;
 args        = expr , { "," , expr } ;
 
 list_lit    = "[" , [ args ] , "]" ;
+
+tuple_lit   = "(" , ")"
+            | "(" , expr , "," , ")"
+            | "(" , expr , ( "," , expr )+ , [ "," ] , ")" ;
 
 ident       = letter , { letter | digit } ;
 int         = digit , { digit } ;
@@ -148,7 +171,14 @@ Notes that don't fall out of the grammar alone:
 - `additive` and `multiplicative` are left-associative.
 - `call_tail` can repeat after any atom, so `f(1)(2)` parses (a call
   result can itself be called), even though no example in this document
-  uses that.
+  uses that. This chaining only applies to a `(` on the *same source row*
+  as the atom it follows — a `(` that starts a new row is always treated
+  as the start of the next statement instead, never as a continuation of
+  the previous one. (There are no statement-separator tokens in this
+  grammar at all — see the parser module comment in `boot/parser.py` —
+  so without this row check, a statement immediately followed by one
+  starting with `(`, e.g. a parenthesized tuple destructuring assignment,
+  would be misparsed as one giant chained call.)
 - There is no unary minus — `-x` is not a valid atom.
 - `match_stmt` requires at least one `case_clause`.
 - Unlike Python, where `match`/`case` are context-sensitive ("soft")
@@ -169,11 +199,30 @@ Notes that don't fall out of the grammar alone:
   parenthesized `Int` — Pyking's type grammar has no parenthesization for
   grouping, so there's no ambiguity to resolve. Tuple and list types can
   nest arbitrarily, e.g. `[(Int, Bool)]` or `(Int, [String], (Bool, Bool))`.
-- `pattern` is intentionally minimal: an integer or string literal matches
-  only that exact value; `_` always matches, discarding the value; a plain
-  `ident` also always matches, but binds the value to that name. There's
-  no support yet for guards (`if`), or-patterns (`|`), or structural
-  (tuple/list) patterns.
+- The same is true of `tuple_lit`, `target_atom`, and `pattern_atom`:
+  `()` is the empty tuple, and a *parenthesized* single element followed
+  by a comma, e.g. `(1,)`, `(x,)`, or `case (p,):`, is a genuine singleton
+  tuple/target/pattern, distinct from a plain parenthesized `(1)`/`(x)`/
+  `(p)` (which is just grouping, unwrapped by the parser). Tuples nest
+  arbitrarily in all three positions.
+- `tuple_or_expr`, `target`, and `pattern` all also accept a *bare*
+  (unparenthesized) form — `1, 2`, `a, b`, `case a, b:` — but deliberately
+  require at least two elements and forbid a trailing comma there: a
+  singleton must be written with explicit parens, `(e,)`/`(name,)`/
+  `case (p,):`. This isn't just a style rule — since (as noted above)
+  there are no statement-separator tokens, a bare trailing comma is
+  genuinely ambiguous with the start of the next statement, and the
+  parser doesn't detect or reject it: `x = 1,` followed by `print(x)` on
+  the next line silently parses as the single statement
+  `x = (1, print(x))` instead of two statements. Always use the
+  parenthesized singleton form when there's any doubt.
+- `pattern_atom` is intentionally minimal beyond tuples: an integer or
+  string literal matches only that exact value; `_` always matches,
+  discarding the value; a plain `ident` also always matches, but binds
+  the value to that name; a parenthesized group destructures a tuple
+  value element-by-element, nesting arbitrarily (e.g. `case (a, (b, c)):`).
+  There's still no support for guards (`if`), or-patterns (`|`), or list
+  patterns.
 - The `"case" , pattern , "->" , expr` form of `case_clause` is a genuine
   Pyking extension — it isn't valid Python `match` syntax at all (Python
   always requires `:` and an indented block). It compiles to an ordinary
@@ -272,7 +321,29 @@ for v in values:
 print(values, total)
 ```
 
-### Immutable bindings (`=`)
+### Tuple literals
+
+`(e1, e2, ...)` builds a tuple, corresponding directly to a Python tuple.
+Three shapes need explicit parentheses: `()` is the empty tuple (also
+called Unit), `(e,)` is a singleton (the trailing comma is required — a
+plain `(e)` is just a parenthesized `e`, not a tuple), and any 2+-element
+tuple may optionally end in a trailing comma, `(e1, e2,)`. A 2+-element
+tuple can *also* be written without the enclosing parentheses at all,
+Python-style: `e1, e2, ...` — but this bare form requires at least two
+elements and never allows a trailing comma (see the grammar notes above
+for why). Tuples nest arbitrarily, with list literals or with themselves.
+
+```python
+unit = ()
+single = (1,)
+pair = (1, 2)
+bare_pair = 1, 2
+nested = (1, (2, 3), [4, 5])
+
+print(unit, single, pair, bare_pair, nested)
+```
+
+### Immutable bindings (`=`) and tuple destructuring
 
 `name = expr` binds `name` to the value of `expr`. Per the Pyking design,
 this is a binding, not a mutation — it is not meant to update an existing
@@ -283,6 +354,25 @@ is no evaluator yet to enforce the distinction at runtime).
 x = 1
 x = x + 1
 print(x)
+```
+
+The left-hand side of `=` may also *destructure* a tuple value into
+several names at once, either with or without parentheses, and nesting
+freely — this is the only place in Pyking where the two forms interact:
+the right-hand side is parsed with `tuple_or_expr` (so it may itself be a
+bare tuple), while the left-hand side is a `target`, always resolved
+independently of what the right-hand side turns out to be (there is no
+type checker to confirm the two shapes actually match — a mismatched
+tuple arity is only caught at Python runtime, when the generated
+unpacking assignment fails).
+
+```python
+a, b = 1, 2
+(c, d) = (10, 20)
+(e, (f, g)) = (1, (2, 3))
+(h,) = (99,)
+
+print(a, b, c, d, e, f, g, h)
 ```
 
 ### Mutable variables (`var` and `:=`) — Pyking extension
@@ -400,9 +490,12 @@ print(classify(12), classify(3))
 `match expr:` is followed by one or more indented `case pattern:` clauses;
 the body of the first case whose pattern matches runs. A pattern is an
 integer literal, a string literal, `_` (always matches, discards the
-value), or a plain identifier (always matches, binds the value to that
-name) — see the grammar notes above for what isn't supported yet (guards,
-or-patterns, structural patterns).
+value), a plain identifier (always matches, binds the value to that
+name), or a tuple pattern that destructures a tuple value element by
+element (with or without parentheses, nesting arbitrarily, and sub-patterns
+can themselves be literals, `_`, identifiers, or further tuple patterns)
+— see the grammar notes above for what isn't supported yet (guards,
+or-patterns, list patterns).
 
 ```python
 def describe(n):
@@ -417,6 +510,25 @@ def describe(n):
 
 for i in [0, 1, 5]:
     print(describe(i))
+```
+
+```python
+def classify_point(p):
+    match p:
+        case (0, 0):
+            return "origin"
+        case (x, 0):
+            return "on the x axis"
+        case (0, y):
+            return "on the y axis"
+        case (x, y):
+            return "elsewhere"
+
+
+print(classify_point((0, 0)))
+print(classify_point((3, 0)))
+print(classify_point((0, 3)))
+print(classify_point((3, 4)))
 ```
 
 A `case` clause can alternatively use `->` followed by a single

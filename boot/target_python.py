@@ -4,9 +4,10 @@ from lexer import Info
 from syntax import (
     EInt, EString, EVar,
     EAdd, ESub, EMul, EDiv,
-    ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList,
-    PInt, PString, PWildcard, PCapture,
+    ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList, ETuple,
+    PInt, PString, PWildcard, PCapture, PTuple,
     SLet, SVar, SMutate, SReturn, SExprStmt, SFor, SWhile, SIf, SFunctionDef, SMatch,
+    TargetName, TargetTuple,
 )
 
 
@@ -16,7 +17,9 @@ from syntax import (
 # deliberate difference: Pyking's SLet/SVar/SMutate (immutable binding vs.
 # mutable declaration vs. mutation) all collapse into a single PyAssign,
 # since Python itself has no such distinction — every one of them is just
-# `name = expr`.
+# `target = expr`. Only SLet's target can destructure a tuple in Pyking;
+# SVar/SMutate keep a plain name, wrapped in `PyTargetName` here so all
+# three still produce the same uniformly-shaped `PyAssign`.
 
 class PyExpr:
     """Base class for the Python-target expression AST."""
@@ -116,6 +119,12 @@ class PyList(PyExpr):       # [elements...]
     elements: list
 
 
+@dataclass(frozen=True)
+class PyTuple(PyExpr):      # (e1, e2, ...) / (e,) / ()
+    info: Info
+    elements: list
+
+
 class PyPattern:
     """Base class for the Python-target match-case patterns."""
 
@@ -144,10 +153,32 @@ class PyPCapture(PyPattern):  # case name:
 
 
 @dataclass(frozen=True)
+class PyPTuple(PyPattern):  # case (p1, p2, ...):
+    info: Info
+    elements: list
+
+
+@dataclass(frozen=True)
 class PyMatchCase:          # case pattern: body
     info: Info
     pattern: PyPattern
     body: list
+
+
+class PyTarget:
+    """Base class for the Python-target assignment target AST."""
+
+
+@dataclass(frozen=True)
+class PyTargetName(PyTarget):   # name
+    info: Info
+    name: str
+
+
+@dataclass(frozen=True)
+class PyTargetTuple(PyTarget):  # (t1, t2, ...)
+    info: Info
+    elements: list
 
 
 class PyStmt:
@@ -155,9 +186,9 @@ class PyStmt:
 
 
 @dataclass(frozen=True)
-class PyAssign(PyStmt):     # name = expr
+class PyAssign(PyStmt):     # target = expr
     info: Info
-    name: str
+    target: PyTarget
     expr: PyExpr
 
 
@@ -243,6 +274,8 @@ def translate_expr(e):
             return PyCall(info, translate_expr(f), [translate_expr(a) for a in args])
         case EList(info, elements):
             return PyList(info, [translate_expr(el) for el in elements])
+        case ETuple(info, elements):
+            return PyTuple(info, [translate_expr(el) for el in elements])
         case _:
             raise NotImplementedError(f"no Python translation for expression {e!r}")
 
@@ -257,8 +290,20 @@ def translate_pattern(p):
             return PyPWildcard(info)
         case PCapture(info, name):
             return PyPCapture(info, name)
+        case PTuple(info, elements):
+            return PyPTuple(info, [translate_pattern(e) for e in elements])
         case _:
             raise NotImplementedError(f"no Python translation for pattern {p!r}")
+
+
+def translate_target(t):
+    match t:
+        case TargetName(info, name):
+            return PyTargetName(info, name)
+        case TargetTuple(info, elements):
+            return PyTargetTuple(info, [translate_target(e) for e in elements])
+        case _:
+            raise NotImplementedError(f"no Python translation for assignment target {t!r}")
 
 
 def translate_case(c):
@@ -276,12 +321,12 @@ def translate_case(c):
 
 def translate_stmt(s):
     match s:
-        case SLet(info, name, expr):
-            return PyAssign(info, name, translate_expr(expr))
+        case SLet(info, target, expr):
+            return PyAssign(info, translate_target(target), translate_expr(expr))
         case SVar(info, name, expr):
-            return PyAssign(info, name, translate_expr(expr))
+            return PyAssign(info, PyTargetName(info, name), translate_expr(expr))
         case SMutate(info, name, expr):
-            return PyAssign(info, name, translate_expr(expr))
+            return PyAssign(info, PyTargetName(info, name), translate_expr(expr))
         case SReturn(info, expr):
             return PyReturn(info, translate_expr(expr))
         case SExprStmt(info, expr):
@@ -356,6 +401,12 @@ def pprint_py_expr(e, min_prec=0):
             return f"{pprint_py_expr(f, 4)}({', '.join(pprint_py_expr(a) for a in args)})"
         case PyList(_, elements):
             return f"[{', '.join(pprint_py_expr(el) for el in elements)}]"
+        case PyTuple(_, elements):
+            match elements:
+                case [single]:
+                    return f"({pprint_py_expr(single)},)"
+                case _:
+                    return f"({', '.join(pprint_py_expr(el) for el in elements)})"
         case _:
             raise NotImplementedError(f"no pretty printer for Python expression {e!r}")
 
@@ -370,15 +421,35 @@ def pprint_py_pattern(p):
             return "_"
         case PyPCapture(_, name):
             return name
+        case PyPTuple(_, elements):
+            match elements:
+                case [single]:
+                    return f"({pprint_py_pattern(single)},)"
+                case _:
+                    return f"({', '.join(pprint_py_pattern(e) for e in elements)})"
         case _:
             raise NotImplementedError(f"no pretty printer for Python pattern {p!r}")
+
+
+def pprint_py_target(t):
+    match t:
+        case PyTargetName(_, name):
+            return name
+        case PyTargetTuple(_, elements):
+            match elements:
+                case [single]:
+                    return f"({pprint_py_target(single)},)"
+                case _:
+                    return f"({', '.join(pprint_py_target(e) for e in elements)})"
+        case _:
+            raise NotImplementedError(f"no pretty printer for Python target {t!r}")
 
 
 def pprint_py_stmt(s, level=0):
     pad = "    " * level
     match s:
-        case PyAssign(_, name, expr):
-            return f"{pad}{name} = {pprint_py_expr(expr)}"
+        case PyAssign(_, target, expr):
+            return f"{pad}{pprint_py_target(target)} = {pprint_py_expr(expr)}"
         case PyReturn(_, expr):
             return f"{pad}return {pprint_py_expr(expr)}"
         case PyExprStmt(_, expr):

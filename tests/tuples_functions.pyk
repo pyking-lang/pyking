@@ -1,0 +1,21 @@
+def swap(pair):
+    (a, b) = pair
+    return (b, a)
+
+
+def make_point(x, y):
+    return x, y
+
+
+def midpoint(p1, p2):
+    (x1, y1) = p1
+    (x2, y2) = p2
+    return (x1 + x2) / 2, (y1 + y2) / 2
+
+
+point = make_point(2, 4)
+print(point)
+print(swap(point))
+
+(mx, my) = midpoint((0, 0), (4, 8))
+print(mx, my)
