@@ -659,8 +659,15 @@ def parse_statement(tokens):
                     body, rest = parse_block(rest)
                     def_info = combine_info(info, _block_end_info(info, body))
                     return SFunctionDef(def_info, name, params, body, return_type), rest
+                case [TokEq(_), *rest]:
+                    # Pyking extension: `def name(...) = expr` is a
+                    # single-expression function body, not valid Python
+                    # syntax -- mirrors `case pattern -> expr`.
+                    expr, rest = parse_tuple_or_expr(rest)
+                    def_info = combine_info(info, expr.info)
+                    return SFunctionDef(def_info, name, params, None, return_type, expr), rest
                 case _:
-                    raise ParseError(_here(rest), "expected ':' after def header")
+                    raise ParseError(_here(rest), "expected ':' or '=' after def header")
 
         case [TokReturn(info), *rest]:
             expr, rest = parse_tuple_or_expr(rest)

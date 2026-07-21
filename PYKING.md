@@ -52,6 +52,12 @@ restriction of it, but these are genuinely new.
   clause whose whole body is one expression, with no `:` or indented
   block — e.g. `case 0 -> "zero"` instead of `case 0:` followed by
   `return "zero"` on its own indented line.
+- **Single-expression function bodies**: `def name(params) = expr` is a
+  `def` whose whole body is one expression, with no `:` or indented
+  block — e.g. `def add(a, b) = a + b` instead of `def add(a, b):`
+  followed by `return a + b` on its own indented line. Just like the
+  `case`/`->` extension above, it compiles to an ordinary `def ... :`
+  whose only statement is `return expr`.
 - **`..`/`..name` list-pattern rest markers**: Python spells "match the
   rest of a list" as `*_`/`*name`; Pyking spells it `..`/`..name`, and it
   may appear anywhere in the pattern — start, middle, or end — not just
@@ -96,7 +102,8 @@ Statements:
   annotations (`Int`, `String`, `Bool`, list types `[T]`, tuple types
   `(T1, T2, ...)` including the unit type `()`, and nesting of any of
   these) — annotations are pretty-printed in Pyking's own syntax but
-  erased entirely when compiling to Python
+  erased entirely when compiling to Python; also `def name(params) = expr`,
+  a single-expression body — Pyking extension
 - `return` statements
 - `for`/`in` loops
 - `while` loops
@@ -133,7 +140,9 @@ statement   = function_def
             | mutation
             | expr_stmt ;
 
-function_def = "def" , ident , "(" , [ params ] , ")" , [ "->" , type ] , ":" , block ;
+function_def = "def" , ident , "(" , [ params ] , ")" , [ "->" , type ] ,
+               ( ":" , block
+               | "=" , tuple_or_expr ) ;
 params       = param , { "," , param } ;
 param        = ident , [ ":" , type ] ;
 
@@ -141,7 +150,7 @@ type         = "Int" | "String" | "Bool"
              | "[" , type , "]"
              | "(" , [ type , { "," , type } ] , ")" ;
 
-return_stmt = "return" , expr ;
+return_stmt = "return" , tuple_or_expr ;
 
 for_stmt    = "for" , ident , "in" , expr , ":" , block ;
 
@@ -308,6 +317,15 @@ Notes that don't fall out of the grammar alone:
   parser doesn't check this, matching how `return_stmt` itself is already
   accepted anywhere without that check.
 - The two `case_clause` forms can be freely mixed within one `match_stmt`.
+- The `"=" , tuple_or_expr` form of `function_def` is a genuine Pyking
+  extension in the same spirit as `case pattern -> expr` above — it isn't
+  valid Python syntax at all (Python's `def` always requires `:` and an
+  indented block). It compiles to an ordinary `def name(...):` block whose
+  only statement is `return expr`. Unlike `case pattern -> expr` (which
+  parses its expression with plain `expr`, not `tuple_or_expr`), the `def`
+  form uses `tuple_or_expr` — the same grammar `return_stmt` itself uses
+  in the implementation — so a bare tuple works with no extra parens,
+  e.g. `def swap(a, b) = b, a`.
 
 ## Feature details
 
@@ -561,6 +579,31 @@ def average(a, b):
 print(average(4, 8))
 ```
 
+`def name(params) = expr` is a single-expression alternative — Pyking
+extension, with no Python equivalent, so (unlike every other example in
+this document) the following is Pyking source, not valid Python. It
+compiles to an ordinary `def name(params):` whose only statement is
+`return expr`, letting short functions be written on one line. It plays
+the same role for `def` that `case pattern -> expr` plays for `match`/
+`case` (see below): both are one-expression shorthands for an implicit
+`return`. Since it's parsed with `tuple_or_expr`, a bare comma-separated
+tuple works with no extra parentheses.
+
+```pyking
+def average(a, b) = (a + b) / 2
+def swap(a, b) = b, a
+
+print(average(4, 8))
+print(swap(1, 2))
+```
+
+A return type annotation can still be given before the `=`, exactly as
+with the `:`/block form:
+
+```pyking
+def average(a:Int, b:Int) -> Int = (a + b) / 2
+```
+
 ### Type annotations
 
 Parameters and the return value may optionally be annotated with a type:
@@ -742,7 +785,9 @@ this document) the following is Pyking source, not valid Python:
 `case pattern -> expr` compiles to an ordinary `case pattern:` block
 whose body is `return expr`, so it's only meaningful directly inside a
 function (see the grammar notes above). The two forms can be mixed
-freely within one `match`.
+freely within one `match`. `def name(params) = expr` (see "Function
+definitions" above) is the same idea applied to a whole function body
+instead of a single `case` arm.
 
 ```pyking
 def describe(n):

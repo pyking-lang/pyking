@@ -452,11 +452,17 @@ class SIf(Stmt):            # if cond: then_body [else: else_body]
 
 @dataclass(frozen=True)
 class SFunctionDef(Stmt):   # def name(params...) [-> return_type]: body
+                             # def name(params...) [-> return_type] = expr
+                             #   (single-expression form; Pyking extension,
+                             #    not valid Python -- see MatchCase for the
+                             #    analogous `case pattern -> expr`)
+                             # Exactly one of `body`/`expr` is set.
     info: Info
     name: str
     params: list         # list[Param]
-    body: list
+    body: list = None
     return_type: Type = None
+    expr: Expr = None
 
 
 @dataclass(frozen=True)
@@ -494,10 +500,12 @@ def pprint_stmt(s, level=0):
                 lines.append(f"{pad}else:")
                 lines += [pprint_stmt(st, level + 1) for st in else_body]
             return "\n".join(lines)
-        case SFunctionDef(_, name, params, body, return_type):
+        case SFunctionDef(_, name, params, body, return_type, expr):
             header = f"{pad}def {name}({', '.join(pprint_param(p) for p in params)})"
             if return_type is not None:
                 header += f" -> {pprint_type(return_type)}"
+            if expr is not None:
+                return f"{header} = {pprint_expr(expr)}"
             lines = [header + ":"]
             lines += [pprint_stmt(st, level + 1) for st in body]
             return "\n".join(lines)

@@ -602,9 +602,18 @@ def translate_stmt(s):
         case SIf(info, cond, then_body, else_body):
             translated_else = _translate_stmts(else_body) if else_body is not None else None
             return PyIf(info, translate_expr(cond), _translate_stmts(then_body), translated_else)
-        case SFunctionDef(info, name, params, body, _return_type):
+        case SFunctionDef(info, name, params, body, _return_type, expr):
+            # Pyking's single-expression `def name(...) = expr` has no
+            # Python equivalent, so it desugars here into an ordinary
+            # function body of just `return expr` -- mirrors
+            # `translate_case`'s handling of `case pattern -> expr`.
             param_names = [p.name for p in params]
-            return PyFunctionDef(info, name, param_names, _translate_stmts(body))
+            if expr is not None:
+                translated_expr = translate_expr(expr)
+                py_body = [PyReturn(translated_expr.info, translated_expr)]
+            else:
+                py_body = _translate_stmts(body)
+            return PyFunctionDef(info, name, param_names, py_body)
         case SMatch(info, subject, cases):
             return PyMatch(info, translate_expr(subject), [translate_case(c) for c in cases])
         case _:

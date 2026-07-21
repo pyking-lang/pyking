@@ -1,0 +1,15 @@
+def add(a, b) = a + b
+
+def average(a:Int, b:Int) -> Int = (a + b) / 2
+
+def scale(x, factor:Int) -> Int = x * factor
+
+def swap(a, b) = b, a
+
+def square(x) = x * x
+
+print(add(2, 3))
+print(average(4, 8))
+print(scale(3, 4))
+print(swap(1, 2))
+print(square(5))
