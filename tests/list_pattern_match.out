@@ -1,0 +1,9 @@
+empty
+exactly one: 1
+exactly three
+other length
+first=1 rest=[2, 3]
+init=[1, 2] last=3
+p=1 q=2 mid=[3, 4] r=5
+u=1 v=2
+w=[2, 3]

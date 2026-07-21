@@ -1,0 +1,60 @@
+def describe_length(xs):
+    match xs:
+        case []:
+            return "empty"
+        case [x]:
+            return "exactly one: " + str(x)
+        case [a, b, c]:
+            return "exactly three"
+        case other:
+            return "other length"
+
+
+def prefix_rest(xs):
+    match xs:
+        case [first, ..rest]:
+            return "first=" + str(first) + " rest=" + str(rest)
+        case []:
+            return "empty"
+
+
+def rest_suffix(xs):
+    match xs:
+        case [..init, last]:
+            return "init=" + str(init) + " last=" + str(last)
+        case []:
+            return "empty"
+
+
+def match_middle(xs):
+    match xs:
+        case [p, q, ..mid, r]:
+            return "p=" + str(p) + " q=" + str(q) + " mid=" + str(mid) + " r=" + str(r)
+        case other:
+            return "too short"
+
+
+def ignore_rest(xs):
+    match xs:
+        case [u, v, ..] -> "u=" + str(u) + " v=" + str(v)
+        case other -> "too short"
+
+
+def wildcard_head(xs):
+    match xs:
+        case [_, ..w]:
+            return "w=" + str(w)
+        case []:
+            return "empty"
+
+
+print(describe_length([]))
+print(describe_length([1]))
+print(describe_length([1, 2, 3]))
+print(describe_length([1, 2, 3, 4]))
+
+print(prefix_rest([1, 2, 3]))
+print(rest_suffix([1, 2, 3]))
+print(match_middle([1, 2, 3, 4, 5]))
+print(ignore_rest([1, 2, 3, 4]))
+print(wildcard_head([1, 2, 3]))

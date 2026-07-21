@@ -223,6 +223,9 @@ def pprint_expr(e, min_prec=0):
             return f"{pprint_expr(f, 4)}({', '.join(pprint_expr(a) for a in args)})"
         case EList(_, elements):
             return f"[{', '.join(pprint_expr(e) for e in elements)}]"
+        case EListComp(_, expr, clauses):
+            clauses_str = " ".join(pprint_comp_clause(c) for c in clauses)
+            return f"[{pprint_expr(expr)} {clauses_str}]"
         case ETuple(_, elements):
             # Canonical printed form is always fully parenthesized (with a
             # trailing comma for the singleton case), regardless of
@@ -269,6 +272,21 @@ class PTuple(Pattern):      # case (p1, p2, ...): destructures a tuple value
     elements: list
 
 
+@dataclass(frozen=True)
+class ListRest:              # the `..` / `..name` rest marker inside a PList
+    info: Info
+    name: str = None         # None: `..` (matches and discards the rest);
+                              # otherwise `..name` (matches and binds the rest)
+
+
+@dataclass(frozen=True)
+class PList(Pattern):        # case [p1, ..., pk]: destructures a list value;
+    info: Info               # at most one `rest` marker, appearing anywhere
+    prefix: list              # among the elements (prefix/suffix split around it)
+    rest: ListRest = None    # None => exact-length list (no rest marker present)
+    suffix: list = None      # elements after `rest`; empty/None if no rest marker
+
+
 def pprint_pattern(p):
     match p:
         case PInt(_, v):
@@ -285,6 +303,46 @@ def pprint_pattern(p):
                     return f"({pprint_pattern(single)},)"
                 case _:
                     return f"({', '.join(pprint_pattern(e) for e in elements)})"
+        case PList(_, prefix, rest, suffix):
+            parts = [pprint_pattern(e) for e in prefix]
+            if rest is not None:
+                parts.append(f"..{rest.name}" if rest.name is not None else "..")
+            parts += [pprint_pattern(e) for e in (suffix or [])]
+            return f"[{', '.join(parts)}]"
+
+
+# --- list comprehension AST (depends on Pattern, so defined after it) ---
+
+class CompClause:
+    """Base class for list-comprehension clauses."""
+
+
+@dataclass(frozen=True)
+class CompFor(CompClause):   # for pattern in sequence
+    info: Info
+    pattern: Pattern
+    sequence: Expr
+
+
+@dataclass(frozen=True)
+class CompIf(CompClause):    # if condition
+    info: Info
+    condition: Expr
+
+
+@dataclass(frozen=True)
+class EListComp(Expr):       # [expr for pattern in seq {for ... | if ...}]
+    info: Info
+    expr: Expr
+    clauses: list             # list[CompClause]; first is always a CompFor
+
+
+def pprint_comp_clause(c):
+    match c:
+        case CompFor(_, pattern, sequence):
+            return f"for {pprint_pattern(pattern)} in {pprint_expr(sequence)}"
+        case CompIf(_, condition):
+            return f"if {pprint_expr(condition)}"
 
 
 @dataclass(frozen=True)

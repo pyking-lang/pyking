@@ -131,6 +131,11 @@ class TokDot(Token):        # '.'
 
 
 @dataclass(frozen=True)
+class TokDotDot(Token):     # '..' (list-pattern "rest" marker: `..`/`..name`)
+    info: Info
+
+
+@dataclass(frozen=True)
 class TokComma(Token):      # ','
     info: Info
 
@@ -261,6 +266,8 @@ def pprint_token(tok):
             return "TokRParen"
         case TokDot():
             return "TokDot"
+        case TokDotDot():
+            return "TokDotDot"
         case TokComma():
             return "TokComma"
         case TokLBracket():
@@ -512,6 +519,9 @@ def lexing(file, chars):
             case ["]", *xs]:
                 tokens.append(TokRBracket(fi(r, c, 1)))
                 c, rest = c + 1, xs
+            case [".", ".", *xs]:  # list-pattern rest marker: `..` / `..name`
+                tokens.append(TokDotDot(fi(r, c, 2)))
+                c, rest = c + 2, xs
             case [".", *xs]:
                 tokens.append(TokDot(fi(r, c, 1)))
                 c, rest = c + 1, xs

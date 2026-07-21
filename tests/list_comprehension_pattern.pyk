@@ -1,0 +1,21 @@
+# Arbitrary patterns in the `for` clause: an element the pattern doesn't
+# match is filtered out, something plain Python comprehensions can't do.
+
+readings = [0, 5, 0, 8, 0, 3, 12]
+only_zero = [1 for 0 in readings]
+print(only_zero)
+
+pairs = [(1, "a"), (2, "b"), (3, "c")]
+labels = [label for (_, label) in pairs]
+print(labels)
+
+records = [(0, "skip"), (1, "keep"), (0, "skip"), (2, "keep")]
+kept = [name for (flag, name) in records if flag > 0]
+print(kept)
+
+rows = [[1, 2], [3], [4, 5], [], [6, 7]]
+pair_sums = [a + b for [a, b] in rows]
+print(pair_sums)
+
+nonempty_heads = [h for [h, ..t] in rows]
+print(nonempty_heads)

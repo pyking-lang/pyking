@@ -5,7 +5,8 @@ from syntax import (
     EInt, EString, EVar,
     EAdd, ESub, EMul, EDiv,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList, ETuple,
-    PInt, PString, PWildcard, PCapture, PTuple,
+    EListComp, CompFor, CompIf,
+    PInt, PString, PWildcard, PCapture, PTuple, PList,
     SLet, SVar, SMutate, SReturn, SExprStmt, SFor, SWhile, SIf, SFunctionDef, SMatch,
     TargetName, TargetTuple,
 )
@@ -159,6 +160,20 @@ class PyPTuple(PyPattern):  # case (p1, p2, ...):
 
 
 @dataclass(frozen=True)
+class PyListRest:           # the `*name` / `*_` star sub-pattern of a PyPList
+    info: Info
+    name: str = None        # None => `*_` (Python's syntax for discarding)
+
+
+@dataclass(frozen=True)
+class PyPList(PyPattern):   # case [p1, ..., *rest_or_wildcard, ..., pk]:
+    info: Info
+    prefix: list
+    rest: PyListRest = None  # None => no star sub-pattern (exact-length list)
+    suffix: list = None
+
+
+@dataclass(frozen=True)
 class PyMatchCase:          # case pattern: body
     info: Info
     pattern: PyPattern
@@ -179,6 +194,32 @@ class PyTargetName(PyTarget):   # name
 class PyTargetTuple(PyTarget):  # (t1, t2, ...)
     info: Info
     elements: list
+
+
+# --- list comprehension AST (depends on PyTarget, so defined after it) ---
+
+class PyCompClause:
+    """Base class for the Python-target list-comprehension clauses."""
+
+
+@dataclass(frozen=True)
+class PyCompFor(PyCompClause):  # for target in sequence
+    info: Info
+    target: PyTarget
+    sequence: PyExpr
+
+
+@dataclass(frozen=True)
+class PyCompIf(PyCompClause):   # if condition
+    info: Info
+    condition: PyExpr
+
+
+@dataclass(frozen=True)
+class PyListComp(PyExpr):   # [expr for target in seq {for ... | if ...}]
+    info: Info
+    expr: PyExpr
+    clauses: list             # list[PyCompClause]
 
 
 class PyStmt:
@@ -243,6 +284,97 @@ class PyMatch(PyStmt):      # match subject: case pattern: body ...
 
 
 # --- translation: Pyking AST (syntax.py) -> Python target AST ---
+#
+# List comprehensions need special handling: Pyking allows an arbitrary
+# *pattern* in a comprehension's `for` clause (matching Python's own
+# comprehension grammar otherwise), with the semantics that an element
+# the pattern doesn't match is filtered out -- something Python's own
+# comprehension `for` targets can't express (they're plain assignment
+# targets, never "refutable"). Each Pyking `for pattern in seq` clause is
+# desugared into two Python comprehension clauses: iterate the raw items,
+# then run each one through an auto-generated helper function that
+# attempts the pattern match using Python's own `match` statement (which
+# _does_ support arbitrary patterns, just not inside a comprehension) and
+# returns either `[]` (no match) or a one-element list holding a tuple of
+# the bound names (match). A single Python `for <names> in helper(item)`
+# clause then does double duty as both the filter -- iterating zero times
+# drops the element -- and the bind -- iterating once unpacks the names --
+# with no extra `if`/indexing machinery needed. These helper functions are
+# pattern-only (no references to anything in the enclosing scope), so
+# they're always safe to hoist to the top of the generated file;
+# `_pending_comp_helpers` collects them during translation and
+# `translate_program` (the sole external entry point, see
+# `_translate_stmts` below) drains and prepends them once, at the very
+# end, regardless of how deeply the originating comprehension was nested.
+
+_comp_counter = 0
+_pending_comp_helpers = []
+
+
+def _fresh_comp_id():
+    global _comp_counter
+    _comp_counter += 1
+    return _comp_counter
+
+
+def pattern_captured_names(pattern):
+    """The names `pattern` would bind, in order, by walking its
+    sub-patterns (mirrors `parser.py`'s `_pattern_captures`, but this
+    copy works on top of `syntax.py` alone, with no parser dependency)."""
+    match pattern:
+        case PCapture(_, name):
+            return [name]
+        case PTuple(_, elements):
+            return [n for e in elements for n in pattern_captured_names(e)]
+        case PList(_, prefix, rest, suffix):
+            names = [n for e in prefix for n in pattern_captured_names(e)]
+            if rest is not None and rest.name is not None:
+                names.append(rest.name)
+            names += [n for e in (suffix or []) for n in pattern_captured_names(e)]
+            return names
+        case _:
+            return []
+
+
+def _build_match_helper(pattern):
+    """Synthesizes a closure-free `PyFunctionDef` that tests a single
+    value against `pattern`: returns `[(bound names...)]` if it matches,
+    or `[]` if it doesn't. Registers it in `_pending_comp_helpers` and
+    returns `(helper_name, captured_names)`."""
+    info = pattern.info
+    helper_name = f"__pyk_match_{_fresh_comp_id()}"
+    v = PyVar(info, "__pyk_v")
+    names = pattern_captured_names(pattern)
+    success = PyReturn(
+        info, PyList(info, [PyTuple(info, [PyVar(info, n) for n in names])])
+    )
+    match_stmt = PyMatch(
+        info, v, [PyMatchCase(info, translate_pattern(pattern), [success])]
+    )
+    failure = PyReturn(info, PyList(info, []))
+    helper = PyFunctionDef(info, helper_name, ["__pyk_v"], [match_stmt, failure])
+    _pending_comp_helpers.append(helper)
+    return helper_name, names
+
+
+def _translate_comp_for(clause):
+    """Expands one Pyking `CompFor(pattern, sequence)` into the two
+    Python comprehension clauses described above."""
+    info = clause.info
+    item_var = f"__pyk_item_{_fresh_comp_id()}"
+    helper_name, names = _build_match_helper(clause.pattern)
+    # The unpacking target is always a tuple target, e.g. `()` if the
+    # pattern captures nothing, `(n,)` for one name -- `PyTargetTuple`
+    # already prints the right shape (including the singleton comma) in
+    # every case, so there's no need to special-case any of them here.
+    target = PyTargetTuple(info, [PyTargetName(info, n) for n in names])
+    return [
+        PyCompFor(info, PyTargetName(info, item_var), translate_expr(clause.sequence)),
+        PyCompFor(
+            info, target, PyCall(info, PyVar(info, helper_name), [PyVar(info, item_var)])
+        ),
+    ]
+
 
 def translate_expr(e):
     match e:
@@ -276,6 +408,15 @@ def translate_expr(e):
             return PyList(info, [translate_expr(el) for el in elements])
         case ETuple(info, elements):
             return PyTuple(info, [translate_expr(el) for el in elements])
+        case EListComp(info, expr, clauses):
+            py_clauses = []
+            for clause in clauses:
+                match clause:
+                    case CompFor():
+                        py_clauses += _translate_comp_for(clause)
+                    case CompIf(_, condition):
+                        py_clauses.append(PyCompIf(clause.info, translate_expr(condition)))
+            return PyListComp(info, translate_expr(expr), py_clauses)
         case _:
             raise NotImplementedError(f"no Python translation for expression {e!r}")
 
@@ -292,6 +433,14 @@ def translate_pattern(p):
             return PyPCapture(info, name)
         case PTuple(info, elements):
             return PyPTuple(info, [translate_pattern(e) for e in elements])
+        case PList(info, prefix, rest, suffix):
+            py_rest = None if rest is None else PyListRest(rest.info, rest.name)
+            return PyPList(
+                info,
+                [translate_pattern(e) for e in prefix],
+                py_rest,
+                [translate_pattern(e) for e in (suffix or [])],
+            )
         case _:
             raise NotImplementedError(f"no Python translation for pattern {p!r}")
 
@@ -315,7 +464,7 @@ def translate_case(c):
         translated_expr = translate_expr(c.expr)
         body = [PyReturn(translated_expr.info, translated_expr)]
     else:
-        body = translate_program(c.body)
+        body = _translate_stmts(c.body)
     return PyMatchCase(c.info, translate_pattern(c.pattern), body)
 
 
@@ -332,23 +481,41 @@ def translate_stmt(s):
         case SExprStmt(info, expr):
             return PyExprStmt(info, translate_expr(expr))
         case SFor(info, name, iterable, body):
-            return PyFor(info, name, translate_expr(iterable), translate_program(body))
+            return PyFor(info, name, translate_expr(iterable), _translate_stmts(body))
         case SWhile(info, cond, body):
-            return PyWhile(info, translate_expr(cond), translate_program(body))
+            return PyWhile(info, translate_expr(cond), _translate_stmts(body))
         case SIf(info, cond, then_body, else_body):
-            translated_else = translate_program(else_body) if else_body is not None else None
-            return PyIf(info, translate_expr(cond), translate_program(then_body), translated_else)
+            translated_else = _translate_stmts(else_body) if else_body is not None else None
+            return PyIf(info, translate_expr(cond), _translate_stmts(then_body), translated_else)
         case SFunctionDef(info, name, params, body, _return_type):
             param_names = [p.name for p in params]
-            return PyFunctionDef(info, name, param_names, translate_program(body))
+            return PyFunctionDef(info, name, param_names, _translate_stmts(body))
         case SMatch(info, subject, cases):
             return PyMatch(info, translate_expr(subject), [translate_case(c) for c in cases])
         case _:
             raise NotImplementedError(f"no Python translation for statement {s!r}")
 
 
-def translate_program(stmts):
+def _translate_stmts(stmts):
+    """Translates a list of statements (a top-level program or any nested
+    block) with no side effects of its own -- used both by the external
+    entry point below and recursively for nested blocks, so that
+    hoisting comprehension-match helpers (see above) happens exactly
+    once, at the true top level, regardless of nesting."""
     return [translate_stmt(s) for s in stmts]
+
+
+def translate_program(stmts):
+    """External entry point: translates a full program, resetting the
+    comprehension-helper state first and prepending every helper
+    function synthesized along the way (see the module comment above)."""
+    global _comp_counter, _pending_comp_helpers
+    _comp_counter = 0
+    _pending_comp_helpers = []
+    translated = _translate_stmts(stmts)
+    helpers = _pending_comp_helpers
+    _pending_comp_helpers = []
+    return helpers + translated
 
 
 # --- pretty printer: Python target AST -> Python source text ---
@@ -407,8 +574,19 @@ def pprint_py_expr(e, min_prec=0):
                     return f"({pprint_py_expr(single)},)"
                 case _:
                     return f"({', '.join(pprint_py_expr(el) for el in elements)})"
+        case PyListComp(_, expr, clauses):
+            clauses_str = " ".join(pprint_py_comp_clause(c) for c in clauses)
+            return f"[{pprint_py_expr(expr)} {clauses_str}]"
         case _:
             raise NotImplementedError(f"no pretty printer for Python expression {e!r}")
+
+
+def pprint_py_comp_clause(c):
+    match c:
+        case PyCompFor(_, target, sequence):
+            return f"for {pprint_py_target(target)} in {pprint_py_expr(sequence)}"
+        case PyCompIf(_, condition):
+            return f"if {pprint_py_expr(condition)}"
 
 
 def pprint_py_pattern(p):
@@ -427,6 +605,12 @@ def pprint_py_pattern(p):
                     return f"({pprint_py_pattern(single)},)"
                 case _:
                     return f"({', '.join(pprint_py_pattern(e) for e in elements)})"
+        case PyPList(_, prefix, rest, suffix):
+            parts = [pprint_py_pattern(e) for e in prefix]
+            if rest is not None:
+                parts.append(f"*{rest.name}" if rest.name is not None else "*_")
+            parts += [pprint_py_pattern(e) for e in (suffix or [])]
+            return f"[{', '.join(parts)}]"
         case _:
             raise NotImplementedError(f"no pretty printer for Python pattern {p!r}")
 

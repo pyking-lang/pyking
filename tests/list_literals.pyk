@@ -1,0 +1,17 @@
+empty = []
+single = [1]
+values = [1, 2, 3, 4]
+trailing = [1, 2, 3,]
+strings = ["a", "b", "c"]
+nested = [[1, 2], [3, 4], []]
+of_tuples = [(1, "a"), (2, "b")]
+mixed_expr = [1 + 1, 2 * 3, 10 - 4]
+
+print(empty)
+print(single)
+print(values)
+print(trailing)
+print(strings)
+print(nested)
+print(of_tuples)
+print(mixed_expr)

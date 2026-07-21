@@ -37,6 +37,33 @@ The `pykboot` wrapper script at the repository root forwards flags as-is
 `python3`, and deletes the temp file afterward — i.e. `./pykboot <file>`
 is the "just run it" shorthand.
 
+## New in Pyking (not in Python)
+
+A quick reference for readers already familiar with Python: everything
+else in this document is either borrowed directly from Python or a
+restriction of it, but these are genuinely new.
+
+- **Immutable-by-default bindings**: plain `=` never mutates — it's
+  always a fresh binding. A name must first be declared with `var`
+  before it can be updated, and only then with `:=`: `var n = 0` then
+  `n := n + 1` (a plain `n = n + 1` would just re-bind `n`, not update it
+  in place).
+- **Single-expression `case` arms**: `case pattern -> expr` is a `case`
+  clause whose whole body is one expression, with no `:` or indented
+  block — e.g. `case 0 -> "zero"` instead of `case 0:` followed by
+  `return "zero"` on its own indented line.
+- **`..`/`..name` list-pattern rest markers**: Python spells "match the
+  rest of a list" as `*_`/`*name`; Pyking spells it `..`/`..name`, and it
+  may appear anywhere in the pattern — start, middle, or end — not just
+  once in a fixed position, e.g. `case [first, ..rest]:` or
+  `case [a, b, ..middle, z]:`.
+- **Arbitrary, refutable patterns in list comprehensions**:
+  `[expr for pattern in seq]` accepts any Pyking pattern, not just a
+  plain name or Python's simple destructuring targets — an element the
+  pattern doesn't match is silently filtered out rather than raising an
+  error, e.g. `[label for (_, label) in pairs]` or `[1 for 0 in readings]`
+  (keeps only the elements equal to `0`).
+
 ## Feature summary
 
 Expressions:
@@ -48,6 +75,11 @@ Expressions:
 - Comparison operators (`<`, `<=`, `>`, `>=`, `==`)
 - Function calls
 - List literals (`[e1, e2, ...]`)
+- List comprehensions (`[expr for pattern in seq if cond ...]`), with
+  Python-like support for multiple/nested `for`s and `if`s — but unlike
+  Python, `pattern` can be *any* Pyking pattern (not just a plain name or
+  simple destructuring target), and an element the pattern doesn't match
+  is filtered out rather than raising an error
 - Tuple literals (`(e1, e2, ...)`, the singleton `(e,)`, and the empty
   tuple `()`), constructible with or without the enclosing parentheses
   (`e1, e2, ...` — Python-like implicit tuples)
@@ -67,8 +99,8 @@ Statements:
 - `while` loops
 - `if`/`else` statements
 - `match`/`case` pattern matching, including `case pattern -> expr` —
-  Pyking extension, and tuple patterns (`case (a, b):`) that destructure
-  a tuple value
+  Pyking extension, tuple patterns (`case (a, b):`), and list patterns
+  (`case [a, ..rest]:`) that destructure a tuple or list value
 - Expression statements
 
 Structure:
@@ -121,7 +153,13 @@ pattern     = pattern_atom , { "," , pattern_atom } ;
 pattern_atom = int | string | "_" | ident
              | "(" , ")"
              | "(" , pattern_atom , "," , ")"
-             | "(" , pattern_atom , ( "," , pattern_atom )+ , [ "," ] , ")" ;
+             | "(" , pattern_atom , ( "," , pattern_atom )+ , [ "," ] , ")"
+             | list_pattern ;
+
+list_pattern = "[" , [ list_pattern_items ] , "]" ;
+list_pattern_items = list_pattern_item , { "," , list_pattern_item } ;
+list_pattern_item  = pattern_atom | rest_marker ;
+rest_marker        = ".." , [ ident ] ;
 
 var_decl    = "var" , ident , "=" , tuple_or_expr ;
 assignment  = target , "=" , tuple_or_expr ;
@@ -143,12 +181,17 @@ comp_op     = "<" | "<=" | ">" | ">=" | "==" ;
 additive    = multiplicative , { ( "+" | "-" ) , multiplicative } ;
 multiplicative = atom , { ( "*" | "/" ) , atom } ;
 
-atom        = ( int | string | ident | list_lit | tuple_lit | "(" , expr , ")" ) ,
+atom        = ( int | string | ident | list_lit | list_comp | tuple_lit
+              | "(" , expr , ")" ) ,
               { call_tail } ;
 call_tail   = "(" , [ args ] , ")" ;
 args        = expr , { "," , expr } ;
 
 list_lit    = "[" , [ args ] , "]" ;
+
+list_comp   = "[" , expr , comp_for , { comp_for | comp_if } , "]" ;
+comp_for    = "for" , pattern , "in" , expr ;
+comp_if     = "if" , expr ;
 
 tuple_lit   = "(" , ")"
             | "(" , expr , "," , ")"
@@ -216,13 +259,44 @@ Notes that don't fall out of the grammar alone:
   the next line silently parses as the single statement
   `x = (1, print(x))` instead of two statements. Always use the
   parenthesized singleton form when there's any doubt.
-- `pattern_atom` is intentionally minimal beyond tuples: an integer or
-  string literal matches only that exact value; `_` always matches,
-  discarding the value; a plain `ident` also always matches, but binds
-  the value to that name; a parenthesized group destructures a tuple
-  value element-by-element, nesting arbitrarily (e.g. `case (a, (b, c)):`).
-  There's still no support for guards (`if`), or-patterns (`|`), or list
-  patterns.
+- `pattern_atom` is intentionally minimal beyond tuples and lists: an
+  integer or string literal matches only that exact value; `_` always
+  matches, discarding the value; a plain `ident` also always matches, but
+  binds the value to that name; a parenthesized group destructures a
+  tuple value element-by-element; a `list_pattern` destructures a list
+  value. All of these nest arbitrarily (e.g. `case (a, [b, ..c]):`).
+  There's still no support for guards (`if`) or or-patterns (`|`).
+- No pattern (tuple, list, or nested combination of either) may bind the
+  same name more than once — e.g. `case [a, ..b, a]:` is rejected at
+  parse time with "duplicate binding 'a' in pattern". This mirrors
+  Python's own restriction on repeated names within one `match` pattern,
+  since both plain `match`/`case` and the list comprehension desugaring
+  (see below) ultimately compile a Pyking pattern down to a real Python
+  `case` pattern.
+- `list_pattern_items` may contain **at most one** `rest_marker`,
+  appearing anywhere among the items — patterns before it are a prefix
+  that must match the start of the list, patterns after it are a suffix
+  that must match the end, and `rest_marker` itself consumes everything
+  in between (possibly nothing). A bare `..` matches and discards that
+  middle portion; `..name` matches and binds it (as a list) to `name`.
+  With no rest marker at all, `list_pattern` matches only a list of
+  exactly that length. `[]` matches only the empty list.
+- `comp_for`'s `pattern` is `pattern` (i.e. the *full* pattern grammar,
+  same as a `case_clause`'s), not just a name or Python's assignment-like
+  targets — this is Pyking's one deliberate departure from Python's own
+  comprehension grammar. An element the pattern doesn't match (a literal
+  that doesn't equal it, or a list pattern whose shape doesn't fit) is
+  silently filtered out of the result, the same way a non-exhaustive
+  `match` simply does nothing for an unmatched value — it never raises
+  an error. `list_comp` always starts with a `comp_for`; `comp_for`/
+  `comp_if` may then repeat in any order, matching Python's own
+  multi-clause comprehensions (nested `for`s, interspersed `if`s).
+- Bracketed/parenthesized literals (`list_lit`, `list_comp`, `tuple_lit`,
+  call `args`, etc.) do not support line continuation the way Python's
+  do: this lexer has no notion of "inside brackets" and synthesizes
+  `INDENT`/`DEDENT` purely from each physical line's leading whitespace
+  (see "Indentation-based blocks" below), so a multi-element literal
+  must currently stay on one source line.
 - The `"case" , pattern , "->" , expr` form of `case_clause` is a genuine
   Pyking extension — it isn't valid Python `match` syntax at all (Python
   always requires `:` and an indented block). It compiles to an ordinary
@@ -320,6 +394,62 @@ for v in values:
     total := total + v
 print(values, total)
 ```
+
+### List comprehensions
+
+`[expr for pattern in seq if cond ...]` builds a list by running `expr`
+once for every element of `seq` that matches `pattern` (with any `if`
+conditions also holding), in order. Multiple `for`/`if` clauses can be
+mixed freely, just like Python's own comprehensions, including nested
+`for`s over multiple sequences and a comprehension nested inside another
+(the `expr`, a sequence, or a condition can itself be a comprehension).
+
+```python
+values = [1, 2, 3, 4, 5]
+doubled = [x * 2 for x in values if x > 2]
+print(doubled)
+
+rows = [1, 2, 3]
+cols = [10, 20]
+products = [r * c for r in rows for c in cols]
+print(products)
+
+table = [[r * c for c in cols] for r in rows]
+print(table)
+```
+
+Unlike Python, `pattern` is a full Pyking pattern, not just a plain name
+or a simple destructuring target — it can be a literal, `_`, a tuple
+pattern, or a list pattern (see "list patterns" below), and nests
+arbitrarily. An element the pattern doesn't match is filtered out of the
+result rather than raising an error — the same semantics as an unmatched
+`match`/`case`.
+
+```python
+pairs = [(1, "a"), (2, "b"), (3, "c")]
+labels = [label for (_, label) in pairs]
+print(labels)
+
+readings = [0, 5, 0, 8, 3]
+only_zero = [1 for 0 in readings]
+print(only_zero)
+
+rows = [[1, 2], [3], [4, 5], []]
+pair_sums = [a + b for [a, b] in rows]
+print(pair_sums)
+```
+
+`readings for 0 in readings` above only produces one `1` per element that
+literally equals `0` (filtering out everything else); `[a, b] in rows`
+only matches sub-lists of exactly two elements, filtering out `[3]` and
+`[]`. Since Python's own comprehension syntax can't express this
+("refutable") pattern matching, `boot/target_python.py` compiles each
+`for pattern in seq` clause into a small amount of extra machinery (an
+auto-generated helper function that attempts the match via a real Python
+`match` statement, plus a couple of supporting comprehension clauses) —
+see the comment above `translate_expr`'s `EListComp` case for the details.
+The generated Python is still a single ordinary list comprehension
+expression; none of this is visible from Pyking source.
 
 ### Tuple literals
 
@@ -530,6 +660,48 @@ print(classify_point((3, 0)))
 print(classify_point((0, 3)))
 print(classify_point((3, 4)))
 ```
+
+A list pattern destructures a list value, and — unlike a tuple pattern —
+may include **one** `..`/`..name` "rest" marker anywhere among its
+elements, matching a run of zero or more elements there: `..` matches and
+discards them, `..name` matches and binds them (as a list) to `name`.
+Patterns before the marker are a required prefix, patterns after it are
+a required suffix, and with no marker at all the list pattern matches
+only a list of exactly that length. A plain `_` still matches (and
+discards) a single element, exactly as in a tuple pattern.
+
+```python
+def describe(xs):
+    match xs:
+        case []:
+            return "empty"
+        case [x]:
+            return "exactly one: " + str(x)
+        case [a, b, c]:
+            return "exactly three"
+        case [first, ..rest]:
+            return "prefix + rest, first=" + str(first)
+        case [..init, last]:
+            return "rest + suffix, last=" + str(last)
+        case [p, q, ..mid, r]:
+            return "matched middle"
+        case [u, v, ..]:
+            return "two elements, rest ignored"
+        case [_, ..w]:
+            return "first ignored, rest=" + str(w)
+
+
+print(describe([]))
+print(describe([1]))
+print(describe([1, 2, 3]))
+```
+
+Since a pattern used in one function can only ever reach whichever
+`case` is textually first among the ones its shape satisfies, the
+`[p, q, ..mid, r]` / `[u, v, ..]` / `[_, ..w]` cases above are shadowed by
+the earlier, more general `[first, ..rest]` case for any list of two or
+more elements — see `tests/list_pattern_match.pyk` for each of the seven
+forms demonstrated in its own function, so every one is actually reached.
 
 A `case` clause can alternatively use `->` followed by a single
 expression instead of `:` and an indented block — this is a Pyking-only

@@ -6,7 +6,7 @@ from lexer import (
     TokAdd, TokSub, TokMul, TokDiv,
     TokLessThanEq, TokLessThan, TokGreatThanEq, TokGreatThan, TokEqEq,
     TokColon, TokIndent, TokDedent, TokEq, TokLParen, TokRParen, TokComma,
-    TokLBracket, TokRBracket,
+    TokLBracket, TokRBracket, TokDotDot,
     TokDef, TokReturn, TokFor, TokIn, TokIf, TokWhile, TokElse, TokVar, TokAssign,
     TokMatch, TokCase, TokArrow,
     TokTypeInt, TokTypeString, TokTypeBool,
@@ -15,7 +15,8 @@ from syntax import (
     EInt, EString, EVar,
     EAdd, ESub, EMul, EDiv,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList, ETuple,
-    PInt, PString, PWildcard, PCapture, PTuple, MatchCase,
+    EListComp, CompFor, CompIf,
+    PInt, PString, PWildcard, PCapture, PTuple, PList, ListRest, MatchCase,
     SLet, SVar, SMutate, SReturn, SExprStmt, SFor, SWhile, SIf, SFunctionDef, SMatch,
     TInt, TString, TBool, TList, TTuple, Param,
     TargetName, TargetTuple,
@@ -85,10 +86,28 @@ def parse_atom(tokens):
                     return parse_call_tail(wrapped, rest)
                 case _:
                     raise ParseError(_here(rest), "expected ',' or ')'")
+        case [TokLBracket(lb_info), TokRBracket(rb_info), *rest]:
+            return parse_call_tail(EList(combine_info(lb_info, rb_info), []), rest)
         case [TokLBracket(lb_info), *rest]:
-            elements, rb_info, rest = parse_list_elements(rest)
-            list_info = combine_info(lb_info, rb_info)
-            return parse_call_tail(EList(list_info, elements), rest)
+            first, rest = parse_expr(rest)
+            match rest:
+                case [TokFor(_), *_]:
+                    # [expr for pattern in seq ...]: a list comprehension,
+                    # not a plain list literal.
+                    clauses, rb_info, rest = parse_comp_clauses(rest)
+                    comp_info = combine_info(lb_info, rb_info)
+                    return parse_call_tail(EListComp(comp_info, first, clauses), rest)
+                case [TokComma(_), *rest]:
+                    elements, rb_info, rest = parse_list_elements(rest)
+                    list_info = combine_info(lb_info, rb_info)
+                    return parse_call_tail(EList(list_info, [first] + elements), rest)
+                case [TokRBracket(rb_info), *rest]:
+                    list_info = combine_info(lb_info, rb_info)
+                    return parse_call_tail(EList(list_info, [first]), rest)
+                case _:
+                    raise ParseError(
+                        _here(rest), "expected ',', 'for', or ']' in list literal"
+                    )
         case [t, *_]:
             raise ParseError(t.info, "unexpected token in expression")
         case []:
@@ -143,6 +162,39 @@ def parse_list_elements(tokens):
                     return [elem], info, rest
                 case _:
                     raise ParseError(_here(rest), "expected ',' or ']' in list literal")
+
+
+def parse_comp_clauses(tokens):
+    """Parses a list comprehension's clauses -- at least one `for`,
+    followed by any mix of further `for`/`if` clauses (the caller has
+    already peeked that `tokens` starts with `for`) -- up to and
+    including the closing ']'."""
+    clauses = []
+    rest = tokens
+    while True:
+        match rest:
+            case [TokFor(info), *rest2]:
+                pattern, rest2 = parse_pattern(rest2)
+                _check_no_duplicate_captures(pattern)
+                match rest2:
+                    case [TokIn(_), *rest2]:
+                        seq, rest2 = parse_expr(rest2)
+                        clauses.append(CompFor(combine_info(info, seq.info), pattern, seq))
+                        rest = rest2
+                    case _:
+                        raise ParseError(
+                            _here(rest2), "expected 'in' after comprehension pattern"
+                        )
+            case [TokIf(info), *rest2]:
+                cond, rest2 = parse_expr(rest2)
+                clauses.append(CompIf(combine_info(info, cond.info), cond))
+                rest = rest2
+            case [TokRBracket(info), *rest2]:
+                return clauses, info, rest2
+            case _:
+                raise ParseError(
+                    _here(rest), "expected 'for', 'if', or ']' in list comprehension"
+                )
 
 
 def parse_multiplicative(tokens):
@@ -424,11 +476,60 @@ def parse_pattern_atom(tokens):
                     return replace(first, info=combine_info(lp_info, rp_info)), rest
                 case _:
                     raise ParseError(_here(rest), "expected ',' or ')' in tuple pattern")
+        case [TokLBracket(lb_info), TokRBracket(rb_info), *rest]:
+            return PList(combine_info(lb_info, rb_info), [], None, []), rest
+        case [TokLBracket(lb_info), *rest]:
+            items, rb_info, rest = parse_list_pattern_items(rest)
+            prefix = []
+            list_rest = None
+            suffix = []
+            for item in items:
+                if isinstance(item, ListRest):
+                    if list_rest is not None:
+                        raise ParseError(
+                            item.info, "a list pattern can have at most one '..' rest"
+                        )
+                    list_rest = item
+                elif list_rest is None:
+                    prefix.append(item)
+                else:
+                    suffix.append(item)
+            return PList(combine_info(lb_info, rb_info), prefix, list_rest, suffix), rest
         case _:
             raise ParseError(
                 _here(tokens),
-                "expected a pattern (integer, string, '_', identifier, or tuple)",
+                "expected a pattern (integer, string, '_', identifier, tuple, or list)",
             )
+
+
+def parse_list_pattern_items(tokens):
+    """Parses comma-separated list-pattern items up to ']', where each
+    item is either a `..`/`..name` rest marker or an ordinary pattern.
+    Returns `(items, rbracket_info, rest)`; `items` is `Pattern | ListRest`
+    values in source order (the caller enforces "at most one `ListRest`")."""
+    match tokens:
+        case [TokRBracket(info), *rest]:
+            return [], info, rest
+        case _:
+            item, rest = parse_list_pattern_item(tokens)
+            match rest:
+                case [TokComma(_), *rest]:
+                    items, rb_info, rest = parse_list_pattern_items(rest)
+                    return [item] + items, rb_info, rest
+                case [TokRBracket(info), *rest]:
+                    return [item], info, rest
+                case _:
+                    raise ParseError(_here(rest), "expected ',' or ']' in list pattern")
+
+
+def parse_list_pattern_item(tokens):
+    match tokens:
+        case [TokDotDot(info), TokIdent(name_info, name), *rest]:
+            return ListRest(combine_info(info, name_info), name), rest
+        case [TokDotDot(info), *rest]:
+            return ListRest(info, None), rest
+        case _:
+            return parse_pattern_atom(tokens)
 
 
 def parse_pattern_paren_tail(tokens):
@@ -469,10 +570,42 @@ def parse_pattern(tokens):
             return first, rest
 
 
+def _pattern_captures(pattern):
+    """Collects every name `pattern` would bind, as `(name, info)` pairs,
+    by walking its sub-patterns (tuple/list patterns nest arbitrarily)."""
+    match pattern:
+        case PCapture(info, name):
+            return [(name, info)]
+        case PTuple(_, elements):
+            return [c for e in elements for c in _pattern_captures(e)]
+        case PList(_, prefix, rest, suffix):
+            caps = [c for e in prefix for c in _pattern_captures(e)]
+            if rest is not None and rest.name is not None:
+                caps.append((rest.name, rest.info))
+            caps += [c for e in (suffix or []) for c in _pattern_captures(e)]
+            return caps
+        case _:
+            return []
+
+
+def _check_no_duplicate_captures(pattern):
+    """Raises ParseError if `pattern` binds the same name more than once
+    -- mirroring Python's own restriction on repeated names within a
+    single `match` pattern, since both plain `match`/`case` and the list
+    comprehension desugaring in `target_python.py` compile a Pyking
+    pattern down to a real Python `case` pattern."""
+    seen = set()
+    for name, info in _pattern_captures(pattern):
+        if name in seen:
+            raise ParseError(info, f"duplicate binding '{name}' in pattern")
+        seen.add(name)
+
+
 def parse_case(tokens):
     match tokens:
         case [TokCase(info), *rest]:
             pattern, rest = parse_pattern(rest)
+            _check_no_duplicate_captures(pattern)
             match rest:
                 case [TokColon(_), *rest]:
                     body, rest = parse_block(rest)

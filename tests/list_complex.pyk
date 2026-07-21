@@ -1,0 +1,54 @@
+def total(xs):
+    match xs:
+        case []:
+            return 0
+        case [x, ..rest]:
+            return x + total(rest)
+
+
+def length(xs):
+    match xs:
+        case []:
+            return 0
+        case [_, ..rest]:
+            return 1 + length(rest)
+
+
+students = [("alice", [90, 85, 95]), ("bob", [60, 70, 65]), ("carol", [100, 95, 98])]
+
+averages = [(name, total(scores) / length(scores)) for (name, scores) in students]
+print(averages)
+
+passing = [name for (name, scores) in students if total(scores) / length(scores) >= 70]
+print(passing)
+
+honors_tally = [[1 for s in scores if s >= 90] for (name, scores) in students]
+print(honors_tally)
+
+
+def classify_path(moves):
+    match moves:
+        case []               -> "done"
+        case ["up", ..rest]   -> "up, " + classify_path(rest)
+        case ["down", ..rest] -> "down, " + classify_path(rest)
+        case [_, ..rest]      -> "side, " + classify_path(rest)
+
+
+print(classify_path(["up", "up", "down"]))
+print(classify_path([]))
+
+boards = [[[1, 0], [0, 1]], [[1, 1], [1, 1]]]
+
+board_scores = [total([total(row) for row in board]) for board in boards]
+print(board_scores)
+
+
+def flatten_scores(entries):
+    match entries:
+        case []:
+            return []
+        case [(name, scores), ..rest]:
+            return scores + flatten_scores(rest)
+
+
+print(flatten_scores(students))

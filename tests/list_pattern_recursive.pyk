@@ -1,0 +1,50 @@
+def length(xs):
+    match xs:
+        case []:
+            return 0
+        case [_, ..rest]:
+            return 1 + length(rest)
+
+
+def total(xs):
+    match xs:
+        case []:
+            return 0
+        case [x, ..rest]:
+            return x + total(rest)
+
+
+def reverse(xs):
+    match xs:
+        case []:
+            return []
+        case [x, ..rest]:
+            return reverse(rest) + [x]
+
+
+def contains(xs, target):
+    match xs:
+        case []:
+            return 1 == 2
+        case [x, ..rest]:
+            if x == target:
+                return 1 == 1
+            else:
+                return contains(rest, target)
+
+
+def double_all(xs):
+    match xs:
+        case []:
+            return []
+        case [x, ..rest]:
+            return [x * 2] + double_all(rest)
+
+
+values = [1, 2, 3, 4, 5]
+print(length(values))
+print(total(values))
+print(reverse(values))
+print(contains(values, 3))
+print(contains(values, 9))
+print(double_all(values))

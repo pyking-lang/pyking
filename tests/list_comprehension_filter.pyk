@@ -1,0 +1,11 @@
+values = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+big = [x for x in values if x > 5]
+print(big)
+
+medium = [x for x in values if x > 2 if x < 8]
+print(medium)
+
+pairs = [(1, 10), (2, 5), (3, 20), (4, 1)]
+close_pairs = [a for (a, b) in pairs if a < b if b - a < 15]
+print(close_pairs)

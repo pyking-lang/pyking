@@ -81,6 +81,11 @@ builtin (e.g. `len').")
    ;; mutation = ident , ":=" , expr -- Pyking's one deliberate departure
    ;; from plain Python assignment (see PYKING.md), worth calling out.
    '(":=" . font-lock-keyword-face)
+   ;; rest_marker = ".." , [ ident ] -- the list-pattern "rest" marker
+   ;; (`..`/`..name`), Pyking's spelling of Python's `*_'/`*name' star
+   ;; sub-pattern. Matched before any single-`.' rule could apply (there
+   ;; isn't one currently, but this keeps the ordering future-proof).
+   '("\\.\\." . font-lock-keyword-face)
    ;; int = digit , { digit } ; identifiers can't start with a digit, so
    ;; a symbol-boundary match is exactly the integer-literal case.
    '("\\_<[0-9]+\\_>" . font-lock-constant-face)
@@ -137,11 +142,12 @@ Strings and comments are handled by the syntax table
 
 Provides syntax highlighting for Pyking's keywords (`for', `in', `if',
 `while', `else', `var', `def', `return', `match', `case'), the `:='
-mutation operator, string literals (with backslash escapes), `#'
-comments, integer literals, type annotation names (`Int', `String',
-`Bool', see `pyking-mode-types'), and well-known builtins (see
-`pyking-mode-builtins'), consistent with the grammar documented in
-PYKING.md and implemented in boot/lexer.py and boot/parser.py.
+mutation operator, the `..'/`..name' list-pattern rest marker, string
+literals (with backslash escapes), `#' comments, integer literals, type
+annotation names (`Int', `String', `Bool', see `pyking-mode-types'), and
+well-known builtins (see `pyking-mode-builtins'), consistent with the
+grammar documented in PYKING.md and implemented in boot/lexer.py and
+boot/parser.py.
 
 This mode does not implement indentation support."
   :syntax-table pyking-mode-syntax-table
