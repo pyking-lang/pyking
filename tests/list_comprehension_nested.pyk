@@ -1,3 +1,9 @@
+# Every comprehension here binds an irrefutable pattern (a plain name),
+# so they all compile to straight Python comprehensions with no match
+# helper -- this file exercises nesting/multiple clauses, not filtering.
+# (Refutable patterns that DO generate helpers live in
+# list_comprehension_pattern_helper.pyk.)
+
 rows = [1, 2, 3]
 cols = [10, 20]
 
@@ -11,5 +17,5 @@ matrix = [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
 flattened = [x for row in matrix for x in row]
 print(flattened)
 
-firsts = [a for [a, ..rest] in matrix]
-print(firsts)
+deep = [[[a + b for b in col] for col in [rows, cols]] for a in [0, 100]]
+print(deep)

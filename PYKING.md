@@ -59,10 +59,13 @@ restriction of it, but these are genuinely new.
   `case [a, b, ..middle, z]:`.
 - **Arbitrary, refutable patterns in list comprehensions**:
   `[expr for pattern in seq]` accepts any Pyking pattern, not just a
-  plain name or Python's simple destructuring targets — an element the
-  pattern doesn't match is silently filtered out rather than raising an
-  error, e.g. `[label for (_, label) in pairs]` or `[1 for 0 in readings]`
-  (keeps only the elements equal to `0`).
+  plain name or Python's simple destructuring targets. When the pattern
+  is *refutable* — a literal, or a list pattern — an element that doesn't
+  match is silently filtered out rather than raising an error, e.g.
+  `[1 for 0 in readings]` (keeps only the elements equal to `0`) or
+  `[a + b for [a, b] in rows]` (skips any row that isn't a 2-element
+  list). Irrefutable patterns (names and tuple destructuring like
+  `[label for (_, label) in pairs]`) simply bind, exactly as in Python.
 
 ## Feature summary
 
@@ -421,15 +424,13 @@ print(table)
 Unlike Python, `pattern` is a full Pyking pattern, not just a plain name
 or a simple destructuring target — it can be a literal, `_`, a tuple
 pattern, or a list pattern (see "list patterns" below), and nests
-arbitrarily. An element the pattern doesn't match is filtered out of the
-result rather than raising an error — the same semantics as an unmatched
-`match`/`case`.
+arbitrarily.
+
+A *refutable* pattern — a literal, or a list pattern — may reject a value,
+and an element it doesn't match is filtered out of the result rather than
+raising an error, the same semantics as an unmatched `match`/`case`:
 
 ```python
-pairs = [(1, "a"), (2, "b"), (3, "c")]
-labels = [label for (_, label) in pairs]
-print(labels)
-
 readings = [0, 5, 0, 8, 3]
 only_zero = [1 for 0 in readings]
 print(only_zero)
@@ -439,17 +440,48 @@ pair_sums = [a + b for [a, b] in rows]
 print(pair_sums)
 ```
 
-`readings for 0 in readings` above only produces one `1` per element that
-literally equals `0` (filtering out everything else); `[a, b] in rows`
-only matches sub-lists of exactly two elements, filtering out `[3]` and
-`[]`. Since Python's own comprehension syntax can't express this
-("refutable") pattern matching, `boot/target_python.py` compiles each
-`for pattern in seq` clause into a small amount of extra machinery (an
-auto-generated helper function that attempts the match via a real Python
-`match` statement, plus a couple of supporting comprehension clauses) —
-see the comment above `translate_expr`'s `EListComp` case for the details.
-The generated Python is still a single ordinary list comprehension
-expression; none of this is visible from Pyking source.
+`0 in readings` above only produces one `1` per element that literally
+equals `0` (filtering out everything else); `[a, b] in rows` only matches
+sub-lists of exactly two elements, filtering out `[3]` and `[]`.
+
+An *irrefutable* pattern — a plain name, `_`, or a tuple destructuring
+built from those — always binds and never filters, matching how the same
+target behaves in a Python comprehension. A tuple pattern is a fixed-arity
+destructuring (like its tuple type `(T1, ..., Tn)`), so a wrong-arity
+value is a shape error that surfaces at runtime the same way Python's own
+unpacking would, rather than being silently skipped:
+
+```python
+pairs = [(1, "a"), (2, "b"), (3, "c")]
+labels = [label for (_, label) in pairs]
+print(labels)
+```
+
+Since Python's own comprehension syntax *can* express irrefutable targets
+but *can't* express refutable pattern matching, `boot/target_python.py`
+compiles the two cases differently: an irrefutable pattern becomes a plain
+native `for`-target (`for (_, label) in pairs`, reading just like the
+Pyking source), while a refutable one is compiled into a small amount of
+extra machinery (an auto-generated `__pm*` helper function that
+attempts the match via a real Python `match` statement, plus a supporting
+comprehension clause) — see the comment above `translate_expr`'s
+`EListComp` case for the details. Either way the result is still a single
+ordinary list comprehension expression; none of this is visible from
+Pyking source.
+
+The full breakdown of which comprehension `for` pattern needs a helper:
+
+| `for` pattern | Refutable? | Compiles to | Helper? |
+| --- | --- | --- | --- |
+| name `x`, wildcard `_` | no | native `for x in seq` | no |
+| tuple of irrefutables `(x, _)`, `(x, (y, z))` | no — fixed-arity destructure; wrong arity raises, as in Python | native `for (x, _) in seq` | no |
+| literal `0`, `"a"` | yes — Python can't express a value test | match helper | **yes** |
+| any list pattern `[a, b]`, `[x, ..r]` | yes — variable length is genuinely tested | match helper | **yes** |
+| tuple holding a literal/list `(x, 0)`, `(x, [a, b])` | yes — inherited from the inner pattern | match helper | **yes** |
+
+`tests/list_comprehension_pattern_helper.pyk` exercises every
+helper-generating (refutable) case; the other `list_comprehension_*`
+tests use only irrefutable patterns and so compile helper-free.
 
 ### Tuple literals
 

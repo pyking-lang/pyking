@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass
 
 from lexer import Info
 from syntax import (
@@ -286,35 +286,85 @@ class PyMatch(PyStmt):      # match subject: case pattern: body ...
 # --- translation: Pyking AST (syntax.py) -> Python target AST ---
 #
 # List comprehensions need special handling: Pyking allows an arbitrary
-# *pattern* in a comprehension's `for` clause (matching Python's own
-# comprehension grammar otherwise), with the semantics that an element
-# the pattern doesn't match is filtered out -- something Python's own
-# comprehension `for` targets can't express (they're plain assignment
-# targets, never "refutable"). Each Pyking `for pattern in seq` clause is
-# desugared into two Python comprehension clauses: iterate the raw items,
-# then run each one through an auto-generated helper function that
-# attempts the pattern match using Python's own `match` statement (which
-# _does_ support arbitrary patterns, just not inside a comprehension) and
-# returns either `[]` (no match) or a one-element list holding a tuple of
-# the bound names (match). A single Python `for <names> in helper(item)`
-# clause then does double duty as both the filter -- iterating zero times
-# drops the element -- and the bind -- iterating once unpacks the names --
-# with no extra `if`/indexing machinery needed. These helper functions are
-# pattern-only (no references to anything in the enclosing scope), so
-# they're always safe to hoist to the top of the generated file;
-# `_pending_comp_helpers` collects them during translation and
-# `translate_program` (the sole external entry point, see
-# `_translate_stmts` below) drains and prepends them once, at the very
-# end, regardless of how deeply the originating comprehension was nested.
+# *pattern* in a comprehension's `for` clause, whereas Python only allows
+# an irrefutable assignment target there. There are two cases (decided by
+# `_is_irrefutable`), so that the common ones stay as readable as the
+# Pyking source:
+#
+#  1. Irrefutable pattern (a name, `_`, or a tuple built from those) --
+#     it always binds, never filters, so it compiles straight to the
+#     equivalent native Python `for`-target with no helper at all:
+#         [x + 1 for x in xs]            ->  [x + 1 for x in xs]
+#         [x for (x, _) in pairs]        ->  [x for (x, _) in pairs]
+#
+#  2. Refutable pattern (a literal, or any list pattern -- possibly nested
+#     inside a tuple) -- it may reject some values, which Python's own
+#     `for`-target grammar can't express. Such a clause is desugared into
+#     two Python comprehension clauses: iterate the raw items, then run
+#     each through an auto-generated helper that attempts the match using
+#     Python's own `match` statement (which _does_ support arbitrary
+#     patterns, just not inside a comprehension) and returns either `[]`
+#     (no match) or a one-element list holding a tuple of the bound names
+#     (match). A single `for <names> in helper(item)` clause then does
+#     double duty as both the filter -- iterating zero times drops the
+#     element -- and the bind -- iterating once unpacks the names:
+#         [a + b for [a, b] in rows]
+#             ->  [a + b for item1 in rows for (a, b) in __pm1(item1)]
+#     These helper functions are pattern-only (no references to anything
+#     in the enclosing scope), so they're always safe to hoist to the top
+#     of the generated file; `_pending_comp_helpers` collects them during
+#     translation and `translate_program` (the sole external entry point,
+#     see `_translate_stmts` below) drains and prepends them once, at the
+#     very end, regardless of how deeply the comprehension was nested. The
+#     `item*`/`__pm*` names are allocated by `_fresh_comp_names`, which
+#     guarantees they never collide with any source identifier.
 
 _comp_counter = 0
 _pending_comp_helpers = []
+# Every identifier that appears anywhere in the source program (see
+# `_collect_identifiers`), so the synthesized comprehension names below can
+# be guaranteed never to collide with -- or shadow -- a user name, whatever
+# the program happens to call its variables.
+_used_identifiers = set()
 
 
-def _fresh_comp_id():
+def _collect_identifiers(node, acc=None):
+    """Every identifier used anywhere in the Pyking AST `node`, as a set.
+
+    Relies on an invariant of `syntax.py`: every field literally named
+    `name` holds an identifier (`EVar`, `PCapture`, `ListRest`, `Param`,
+    `TargetName`, `SVar`, `SMutate`, `SFor`, `SFunctionDef`, ...), and
+    nothing else does. So a generic walk that grabs each `name` field and
+    recurses through all other fields collects exactly the identifiers,
+    without a per-node-type case to keep in sync."""
+    if acc is None:
+        acc = set()
+    if is_dataclass(node):
+        for f in fields(node):
+            value = getattr(node, f.name)
+            if f.name == "name" and isinstance(value, str):
+                acc.add(value)
+            else:
+                _collect_identifiers(value, acc)
+    elif isinstance(node, (list, tuple)):
+        for element in node:
+            _collect_identifiers(element, acc)
+    return acc
+
+
+def _fresh_comp_names():
+    """A fresh `(item_var, helper_name)` pair for one refutable
+    comprehension clause -- e.g. `('item1', '__pm1')`. Both are checked
+    against `_used_identifiers` and the counter is bumped until neither
+    collides, so a generated name can never clash with (or shadow) any
+    identifier in the source program, no matter what it's named."""
     global _comp_counter
-    _comp_counter += 1
-    return _comp_counter
+    while True:
+        _comp_counter += 1
+        item = f"item{_comp_counter}"
+        helper = f"__pm{_comp_counter}"
+        if item not in _used_identifiers and helper not in _used_identifiers:
+            return item, helper
 
 
 def pattern_captured_names(pattern):
@@ -336,14 +386,62 @@ def pattern_captured_names(pattern):
             return []
 
 
-def _build_match_helper(pattern):
-    """Synthesizes a closure-free `PyFunctionDef` that tests a single
-    value against `pattern`: returns `[(bound names...)]` if it matches,
-    or `[]` if it doesn't. Registers it in `_pending_comp_helpers` and
-    returns `(helper_name, captured_names)`."""
+def _is_irrefutable(pattern):
+    """Whether `pattern` matches *every* value it could be given -- so, in
+    a comprehension `for` clause, it only ever binds and never filters,
+    and can compile straight to a native Python `for`-target (no match
+    helper). This holds for names, `_`, and tuples built recursively from
+    those.
+
+    Notably it does *not* hold for a `PList`: a list pattern tests the
+    runtime *length* of the value (that's the whole point of `[a, b]` vs.
+    `[a, ..rest]`), so it genuinely rejects non-matching lengths and must
+    keep the filtering match-helper. A `PTuple`, by contrast, corresponds
+    to a fixed-arity tuple type `(T1, ..., Tn)`, so like Python's own
+    unpacking it's treated as a total destructuring -- a wrong-arity value
+    is a shape error surfaced by Python at runtime, not a silent filter.
+    Literal patterns (`PInt`/`PString`) are refutable by value, which
+    Python's `for`-target grammar can't express at all."""
+    match pattern:
+        case PCapture(_, _) | PWildcard(_):
+            return True
+        case PTuple(_, elements):
+            return all(_is_irrefutable(e) for e in elements)
+        case _:
+            return False
+
+
+def _pattern_to_target(pattern):
+    """Compiles an irrefutable `pattern` (see `_is_irrefutable`) directly
+    to the equivalent Python assignment/`for` target -- e.g. `(x, _)`
+    stays `(x, _)`, so the generated comprehension reads just like the
+    Pyking source, with no helper indirection."""
+    match pattern:
+        case PCapture(info, name):
+            return PyTargetName(info, name)
+        case PWildcard(info):
+            return PyTargetName(info, "_")
+        case PTuple(info, elements):
+            return PyTargetTuple(info, [_pattern_to_target(e) for e in elements])
+        case _:
+            raise NotImplementedError(
+                f"pattern {pattern!r} is refutable; has no direct Python target"
+            )
+
+
+def _build_match_helper(pattern, helper_name):
+    """Synthesizes a closure-free `PyFunctionDef` named `helper_name` that
+    tests a single value against `pattern`: returns `[(bound names...)]`
+    if it matches, or `[]` if it doesn't. Registers it in
+    `_pending_comp_helpers` and returns the captured names.
+
+    The parameter is a fixed `v`, not a fresh name, because it needs
+    no collision protection: it's only ever referenced as the `match`
+    subject *before* `pattern` binds anything, so even a pattern that
+    itself captures a name `v` (which would then shadow the
+    parameter inside the `case` body) stays correct."""
     info = pattern.info
-    helper_name = f"__pyk_match_{_fresh_comp_id()}"
-    v = PyVar(info, "__pyk_v")
+    v = PyVar(info, "v")
     names = pattern_captured_names(pattern)
     success = PyReturn(
         info, PyList(info, [PyTuple(info, [PyVar(info, n) for n in names])])
@@ -352,24 +450,41 @@ def _build_match_helper(pattern):
         info, v, [PyMatchCase(info, translate_pattern(pattern), [success])]
     )
     failure = PyReturn(info, PyList(info, []))
-    helper = PyFunctionDef(info, helper_name, ["__pyk_v"], [match_stmt, failure])
+    helper = PyFunctionDef(info, helper_name, ["v"], [match_stmt, failure])
     _pending_comp_helpers.append(helper)
-    return helper_name, names
+    return names
 
 
 def _translate_comp_for(clause):
-    """Expands one Pyking `CompFor(pattern, sequence)` into the two
-    Python comprehension clauses described above."""
+    """Expands one Pyking `CompFor(pattern, sequence)` into Python
+    comprehension clause(s).
+
+    An *irrefutable* pattern (see `_is_irrefutable`) needs no filtering,
+    so it becomes a single, plain `for <target> in <seq>` -- the same
+    shape Python itself would use, with the pattern compiled directly to
+    a Python target. This covers plain names (`for x in seq`), wildcards,
+    and tuple destructuring (`for (x, _) in seq`).
+
+    A *refutable* pattern (a literal, or any list pattern -- possibly
+    nested inside a tuple) may reject some values, which Python's own
+    `for`-target grammar can't express, so it takes the two-clause
+    match-helper path described in the module comment above: iterate the
+    raw items, then `for <names> in helper(item)`, where the helper
+    returns `[]` (filtered out) or `[(names...)]` (matched)."""
     info = clause.info
-    item_var = f"__pyk_item_{_fresh_comp_id()}"
-    helper_name, names = _build_match_helper(clause.pattern)
+    sequence = translate_expr(clause.sequence)
+    if _is_irrefutable(clause.pattern):
+        return [PyCompFor(info, _pattern_to_target(clause.pattern), sequence)]
+
+    item_var, helper_name = _fresh_comp_names()
+    names = _build_match_helper(clause.pattern, helper_name)
     # The unpacking target is always a tuple target, e.g. `()` if the
     # pattern captures nothing, `(n,)` for one name -- `PyTargetTuple`
     # already prints the right shape (including the singleton comma) in
     # every case, so there's no need to special-case any of them here.
     target = PyTargetTuple(info, [PyTargetName(info, n) for n in names])
     return [
-        PyCompFor(info, PyTargetName(info, item_var), translate_expr(clause.sequence)),
+        PyCompFor(info, PyTargetName(info, item_var), sequence),
         PyCompFor(
             info, target, PyCall(info, PyVar(info, helper_name), [PyVar(info, item_var)])
         ),
@@ -509,9 +624,10 @@ def translate_program(stmts):
     """External entry point: translates a full program, resetting the
     comprehension-helper state first and prepending every helper
     function synthesized along the way (see the module comment above)."""
-    global _comp_counter, _pending_comp_helpers
+    global _comp_counter, _pending_comp_helpers, _used_identifiers
     _comp_counter = 0
     _pending_comp_helpers = []
+    _used_identifiers = _collect_identifiers(stmts)
     translated = _translate_stmts(stmts)
     helpers = _pending_comp_helpers
     _pending_comp_helpers = []
