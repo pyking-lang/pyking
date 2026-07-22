@@ -1,0 +1,47 @@
+def sign(x) = if x < 0 then "negative" else if x == 0 then "zero" else "positive"
+
+
+def clamp(x, lo, hi):
+    y = if x < lo then lo else x
+    return if y > hi then hi else y
+
+
+def label(n):
+    var prefix = ""
+    prefix := if n < 10 then "small " else "big "
+    return prefix + str(n)
+
+
+print(sign(0 - 5))
+print(sign(0))
+print(sign(7))
+
+print(clamp(5, 1, 10))
+print(clamp(0 - 3, 1, 10))
+print(clamp(42, 1, 10))
+
+print(label(3))
+print(label(30))
+
+# An if expression nested as the condition of another one, and as a
+# branch of another one -- both need no parentheses to parse, since
+# `else` is mandatory and so every `else` has exactly one owner.
+print(if if 1 < 2 then 1 == 1 else 1 == 2 then "yes" else "no")
+print(if 1 < 2 then if 3 < 4 then "both" else "first" else "neither")
+
+# Inside a call argument, a list, and a tuple.
+print(str(if 2 > 1 then 10 else 20))
+print([if 1 < 2 then "a" else "b", if 2 < 1 then "c" else "d"])
+print((if 1 < 2 then 1 else 2, 9))
+
+# As a list-comprehension element (no parens needed there) and as a
+# comprehension filter (parens required -- the filter's own `if` would
+# otherwise run straight into this one).
+nums = [1, 2, 3, 4, 5]
+print([if x < 3 then 0 else x for x in nums])
+print([x for x in nums if (if x < 3 then 1 == 1 else 1 == 2)])
+
+# Mixed with operators: the branches extend as far as they can, so the
+# `+ 1` below belongs to the else branch, not to the whole expression.
+print(if 1 < 2 then 100 else 200 + 1)
+print((if 1 < 2 then 100 else 200) + 1)

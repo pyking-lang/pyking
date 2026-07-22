@@ -109,6 +109,14 @@ class ETuple(Expr):         # (e1, e2, ...); () is the empty/Unit tuple,
     elements: list          # parenthesized or a bare comma-separated form
 
 
+@dataclass(frozen=True)
+class EIf(Expr):            # if cond then then_expr else else_expr
+    info: Info              # (Pyking extension; `else` is mandatory, unlike
+    cond: Expr              # the `if` *statement*, so that every `else`
+    then_expr: Expr         # has exactly one possible owner -- see the
+    else_expr: Expr         # "if expressions" notes in PYKING.md)
+
+
 # --- type AST (for optional parameter/return type annotations) ---
 
 class Type:
@@ -235,6 +243,20 @@ def pprint_expr(e, min_prec=0):
                     return f"({pprint_expr(single)},)"
                 case _:
                     return f"({', '.join(pprint_expr(e) for e in elements)})"
+        case EIf(_, cond, then_expr, else_expr):
+            # Precedence 0: lower than every operator, so an if expression
+            # used as any operand gets parenthesized. `cond`/`then_expr`
+            # print at 1 so a *nested* if expression there is parenthesized
+            # too (it would still re-parse unambiguously without the
+            # parens -- `else` being mandatory guarantees that -- but
+            # `if if p then q else r then b else c` is unreadable). The
+            # else branch prints at 0 so the common `else if ...` chain
+            # stays flat, which is both readable and right-associative,
+            # matching how it parses.
+            return _wrap(0, min_prec, (
+                f"if {pprint_expr(cond, 1)} then {pprint_expr(then_expr, 1)} "
+                f"else {pprint_expr(else_expr)}"
+            ))
 
 
 # --- pattern AST (for `match`/`case`) ---
@@ -338,11 +360,21 @@ class EListComp(Expr):       # [expr for pattern in seq {for ... | if ...}]
 
 
 def pprint_comp_clause(c):
+    # Both sub-expressions print at min_prec 1 so that an `EIf` (precedence
+    # 0) is parenthesized here. In a comprehension the surrounding grammar
+    # already spells `for`/`in`/`if`, so an unparenthesized if expression
+    # would run straight into it: `if if a then b else c` for a filter, and
+    # `for x in if a then b else c` for a sequence. The Pyking parser
+    # actually recovers from both, but the printed form is meant to be
+    # readable and to match `target_python.py`, whose equivalent parens are
+    # mandatory (Python's own comprehension grammar excludes conditional
+    # expressions in exactly these two positions -- see the comment on
+    # `pprint_py_comp_clause`).
     match c:
         case CompFor(_, pattern, sequence):
-            return f"for {pprint_pattern(pattern)} in {pprint_expr(sequence)}"
+            return f"for {pprint_pattern(pattern)} in {pprint_expr(sequence, 1)}"
         case CompIf(_, condition):
-            return f"if {pprint_expr(condition)}"
+            return f"if {pprint_expr(condition, 1)}"
 
 
 @dataclass(frozen=True)

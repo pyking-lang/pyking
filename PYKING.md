@@ -58,6 +58,14 @@ restriction of it, but these are genuinely new.
   followed by `return a + b` on its own indented line. Just like the
   `case`/`->` extension above, it compiles to an ordinary `def ... :`
   whose only statement is `return expr`.
+- **`if ... then ... else ...` expressions**: Python writes a conditional
+  expression with the condition in the middle (`e1 if cond else e2`);
+  Pyking puts it first, behind a new `then` keyword —
+  `if cond then e1 else e2`. Semantically the two are identical (only the
+  taken branch is evaluated, and `else` is mandatory), and Pyking's form
+  compiles straight to Python's. This is a genuinely new *keyword*, so
+  `then` is reserved everywhere and can no longer be used as an
+  identifier.
 - **`..`/`..name` list-pattern rest markers**: Python spells "match the
   rest of a list" as `*_`/`*name`; Pyking spells it `..`/`..name`, and it
   may appear anywhere in the pattern — start, middle, or end — not just
@@ -92,6 +100,8 @@ Expressions:
 - Tuple literals (`(e1, e2, ...)`, the singleton `(e,)`, and the empty
   tuple `()`), constructible with or without the enclosing parentheses
   (`e1, e2, ...` — Python-like implicit tuples)
+- If expressions (`if cond then e1 else e2`) — Pyking extension; note the
+  keyword order differs from Python's `e1 if cond else e2`
 
 Statements:
 
@@ -187,7 +197,11 @@ expr_stmt   = tuple_or_expr ;
 
 tuple_or_expr = expr , { "," , expr } ;
 
-expr        = additive , [ comp_op , additive ] ;
+expr        = if_expr | comparison ;
+
+if_expr     = "if" , expr , "then" , expr , "else" , expr ;
+
+comparison  = additive , [ comp_op , additive ] ;
 comp_op     = "<" | "<=" | ">" | ">=" | "==" ;
 
 additive    = multiplicative , { ( "+" | "-" ) , multiplicative } ;
@@ -223,6 +237,49 @@ Notes that don't fall out of the grammar alone:
 - `comp_op` does not repeat — `1 < 2 < 3` is not a valid `expr` (comparisons
   don't chain).
 - `while_stmt` has no `else` clause (unlike Python's `while`/`else`).
+- `if_expr` sits at the very bottom of the precedence ladder, below
+  `comparison`, and its three sub-expressions are each a full `expr`. Two
+  consequences: the branches extend as far right as they can (`if c then
+  1 else 2 + 1` has `2 + 1` as its else branch, not `(if ...) + 1`), and
+  an `if_expr` cannot be an operand without parentheses (`1 + if c then a
+  else b` is a syntax error; write `1 + (if c then a else b)`).
+- The branches are `expr`, not `tuple_or_expr`, so a comma ends the
+  `if_expr` instead of being absorbed into it: `if c then a else b, d` is
+  a two-element tuple whose first element is the `if_expr`. This matches
+  how Python reads `a if c else b, d`.
+- `if_expr` is right-associative, so an `else` branch that is itself an
+  `if_expr` chains flat and reads like an `elif` ladder:
+  `if a then 1 else if b then 2 else 3`.
+- Unlike `if_stmt`, `if_expr`'s `else` is **mandatory**, and that is what
+  makes the two `if`s coexist without ambiguity. Because every `else`
+  therefore has exactly one possible owner, even
+  `if a then if b then c else d else e` has a single valid parse (the
+  inner `if` must claim the first `else`, so the outer claims the
+  second). The classic dangling-else ambiguity comes from `else` being
+  *optional* — true of Pyking's `if_stmt`, deliberately not of its
+  `if_expr`. The two also never compete for the same token in practice:
+  an `if_stmt`'s `else` always starts a line after a DEDENT, an
+  `if_expr`'s is always inline.
+- A `statement` beginning with `if` is where the real parsing difficulty
+  lies: it may be an `if_stmt` or an `expr_stmt` holding an `if_expr`,
+  and the two share the entire `"if" , expr` prefix. Since that `expr`
+  can be arbitrarily long, no bounded lookahead separates them — the
+  grammar is not LL(1) at `statement`. `boot/parser.py` handles this
+  without backtracking by parsing the shared prefix once and then
+  dispatching on the single token that follows it: `:` means `if_stmt`,
+  `then` means `if_expr`. (An `if_stmt` whose *condition* is an `if_expr`
+  needs no special handling — `expr` already covers it, so
+  `if if a then b else c:` parses.)
+- `comp_if` and `comp_for`'s sequence are the one place an `if_expr`
+  needs parentheses: `[x for x in xs if (if a then b else c)]`. Written
+  bare, the comprehension's own `if`/`in` would run straight into the
+  `if_expr`'s keywords. Python restricts these exact two positions for
+  exactly this reason (its grammar admits only an `or_test` there,
+  excluding the conditional expression), so `[x for x in xs if b if a
+  else c]` is a syntax error in Python too. Pyking's parser is in fact
+  lenient enough to recover in some of these cases, but both
+  pretty-printers always emit the parentheses — in the Python backend
+  they are mandatory for the output to be valid Python at all.
 - `additive` and `multiplicative` are left-associative.
 - `call_tail` can repeat after any atom, so `f(1)(2)` parses (a call
   result can itself be called), even though no example in this document
@@ -241,7 +298,7 @@ Notes that don't fall out of the grammar alone:
   can't be named `match` or `case`. The same is true of `Int`, `String`,
   and `Bool` (the atomic type names): they're reserved everywhere, not
   just in type position, so no identifier may be named after one of them
-  either.
+  either, and of `then`, which has no Python counterpart at all.
 - `param`'s `[ ":" , type ]` and `function_def`'s `[ "->" , type ]` are
   both optional and independent — a function may annotate none, some, or
   all of its parameters, with or without a return type. Annotations are
@@ -688,6 +745,42 @@ def classify(x):
 
 
 print(classify(12), classify(3))
+```
+
+### `if`/`then`/`else` expressions
+
+`if cond then e1 else e2` is an *expression*: it evaluates `cond`, then
+yields `e1` or `e2`, whichever the condition selects — only the chosen
+branch is evaluated. Python writes the same thing with the condition in
+the middle, so (unlike most examples in this document) the following is
+Pyking source, not valid Python; it compiles to Python's conditional
+expression `e1 if cond else e2`.
+
+Unlike the `if` *statement*, the `else` is mandatory — an expression must
+always produce a value. The branches reach as far right as they can, so
+parenthesize when mixing with operators, and an `else` branch that is
+itself an if expression chains flat, reading like an `elif` ladder.
+
+```pyking
+def sign(x) = if x < 0 then "negative" else if x == 0 then "zero" else "positive"
+
+
+def clamp(x, lo, hi):
+    y = if x < lo then lo else x
+    return if y > hi then hi else y
+
+
+print(sign(0 - 5), sign(0), sign(7))
+print(clamp(42, 1, 10))
+
+# The `+ 1` belongs to the else branch; parenthesize to apply it to the
+# whole expression instead.
+print(if 1 < 2 then 100 else 200 + 1)
+print((if 1 < 2 then 100 else 200) + 1)
+
+# Parentheses are required around an if expression used as a
+# comprehension filter (see the grammar notes above).
+print([x for x in [1, 2, 3, 4] if (if x < 3 then 1 == 1 else 1 == 2)])
 ```
 
 ### `match`/`case` pattern matching

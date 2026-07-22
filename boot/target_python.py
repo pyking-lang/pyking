@@ -5,7 +5,7 @@ from syntax import (
     EInt, EString, EVar,
     EAdd, ESub, EMul, EDiv,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList, ETuple,
-    EListComp, CompFor, CompIf,
+    EIf, EListComp, CompFor, CompIf,
     PInt, PString, PWildcard, PCapture, PTuple, PList,
     SLet, SVar, SMutate, SReturn, SExprStmt, SFor, SWhile, SIf, SFunctionDef, SMatch,
     TargetName, TargetTuple,
@@ -124,6 +124,14 @@ class PyList(PyExpr):       # [elements...]
 class PyTuple(PyExpr):      # (e1, e2, ...) / (e,) / ()
     info: Info
     elements: list
+
+
+@dataclass(frozen=True)
+class PyIfExp(PyExpr):      # then_expr if cond else else_expr
+    info: Info              # (Python's conditional expression -- note the
+    cond: PyExpr            # operand order differs from Pyking's `EIf`,
+    then_expr: PyExpr       # which writes the condition first)
+    else_expr: PyExpr
 
 
 class PyPattern:
@@ -523,6 +531,16 @@ def translate_expr(e):
             return PyList(info, [translate_expr(el) for el in elements])
         case ETuple(info, elements):
             return PyTuple(info, [translate_expr(el) for el in elements])
+        case EIf(info, cond, then_expr, else_expr):
+            # Pyking's `if c then a else b` is exactly Python's conditional
+            # expression `a if c else b` -- same semantics (both branches
+            # lazy, `else` mandatory), only the operand order differs.
+            return PyIfExp(
+                info,
+                translate_expr(cond),
+                translate_expr(then_expr),
+                translate_expr(else_expr),
+            )
         case EListComp(info, expr, clauses):
             py_clauses = []
             for clause in clauses:
@@ -702,16 +720,34 @@ def pprint_py_expr(e, min_prec=0):
         case PyListComp(_, expr, clauses):
             clauses_str = " ".join(pprint_py_comp_clause(c) for c in clauses)
             return f"[{pprint_py_expr(expr)} {clauses_str}]"
+        case PyIfExp(_, cond, then_expr, else_expr):
+            # Python's conditional expression binds looser than every
+            # operator here, so precedence 0 -- as an operand of anything it
+            # gets parenthesized. `then_expr`/`cond` print at 1 so a nested
+            # conditional there is parenthesized; the else branch prints at
+            # 0, keeping a right-associative `else ... if ... else` chain
+            # flat, exactly as Python itself associates it.
+            return _wrap(0, min_prec, (
+                f"{pprint_py_expr(then_expr, 1)} if {pprint_py_expr(cond, 1)} "
+                f"else {pprint_py_expr(else_expr)}"
+            ))
         case _:
             raise NotImplementedError(f"no pretty printer for Python expression {e!r}")
 
 
 def pprint_py_comp_clause(c):
+    # Both sub-expressions print at min_prec 1, which parenthesizes a
+    # PyIfExp (precedence 0). These parens are *required*, not cosmetic:
+    # Python's comprehension grammar admits only an `or_test` after `in`
+    # and after a filtering `if`, deliberately excluding the conditional
+    # expression so its `if`/`else` can't be confused with the
+    # comprehension's own. Without them, `[x for x in xs if b if a else c]`
+    # and `[x for x in b if a else c]` are both Python syntax errors.
     match c:
         case PyCompFor(_, target, sequence):
-            return f"for {pprint_py_target(target)} in {pprint_py_expr(sequence)}"
+            return f"for {pprint_py_target(target)} in {pprint_py_expr(sequence, 1)}"
         case PyCompIf(_, condition):
-            return f"if {pprint_py_expr(condition)}"
+            return f"if {pprint_py_expr(condition, 1)}"
 
 
 def pprint_py_pattern(p):

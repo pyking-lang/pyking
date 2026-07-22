@@ -7,15 +7,15 @@ from lexer import (
     TokLessThanEq, TokLessThan, TokGreatThanEq, TokGreatThan, TokEqEq,
     TokColon, TokIndent, TokDedent, TokEq, TokLParen, TokRParen, TokComma,
     TokLBracket, TokRBracket, TokDotDot,
-    TokDef, TokReturn, TokFor, TokIn, TokIf, TokWhile, TokElse, TokVar, TokAssign,
-    TokMatch, TokCase, TokArrow,
+    TokDef, TokReturn, TokFor, TokIn, TokIf, TokWhile, TokThen, TokElse, TokVar,
+    TokAssign, TokMatch, TokCase, TokArrow,
     TokTypeInt, TokTypeString, TokTypeBool,
 )
 from syntax import (
     EInt, EString, EVar,
     EAdd, ESub, EMul, EDiv,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList, ETuple,
-    EListComp, CompFor, CompIf,
+    EIf, EListComp, CompFor, CompIf,
     PInt, PString, PWildcard, PCapture, PTuple, PList, ListRest, MatchCase,
     SLet, SVar, SMutate, SReturn, SExprStmt, SFor, SWhile, SIf, SFunctionDef, SMatch,
     TInt, TString, TBool, TList, TTuple, Param,
@@ -226,6 +226,56 @@ def parse_additive(tokens):
 
 
 def parse_expr(tokens):
+    """The lowest-precedence expression level: either an if expression
+    (`if e then e else e` -- Pyking extension, see PYKING.md) or a
+    comparison. Which one it is shows in the very first token, so this
+    stays LL(1); it's only at *statement* level that `if` is ambiguous
+    (see the `TokIf` case in `parse_statement`)."""
+    match tokens:
+        case [TokIf(info), *rest]:
+            # The condition is a full `expr`, so a nested if expression may
+            # appear here unparenthesized (`if if a then b else c then ...`).
+            cond, rest = parse_expr(rest)
+            return parse_if_expr_tail(info, cond, rest)
+        case _:
+            return parse_comparison(tokens)
+
+
+def parse_if_expr_tail(if_info, cond, tokens):
+    """Parses the `then expr else expr` tail of an if expression, given the
+    already-parsed `if` token info and condition. Split out from
+    `parse_expr` because `parse_statement` reaches this same point by a
+    different route: it has to consume `if` and the condition itself before
+    it can tell an if statement from an if expression.
+
+    Both branches are `expr`, not `tuple_or_expr`, so a comma ends the if
+    expression rather than being swallowed by it -- `if a then b else c, d`
+    is a 2-tuple whose first element is the if expression, matching how
+    Python reads `b if a else c, d`. The `else` branch recurses through
+    `parse_expr`, making the construct right-associative, so a chained
+    `else if ...` reads (and parses) like an `elif` ladder. Unlike the if
+    *statement*, `else` is mandatory: that is what keeps `if a then if b
+    then c else d else e` unambiguous, since each `else` then has exactly
+    one possible owner -- the classic dangling-else problem comes from the
+    `else` being *optional*, which is true of Pyking's if statement but
+    deliberately not of its if expression."""
+    match tokens:
+        case [TokThen(_), *rest]:
+            then_expr, rest = parse_expr(rest)
+            match rest:
+                case [TokElse(_), *rest]:
+                    else_expr, rest = parse_expr(rest)
+                    if_expr = EIf(
+                        combine_info(if_info, else_expr.info), cond, then_expr, else_expr
+                    )
+                    return if_expr, rest
+                case _:
+                    raise ParseError(_here(rest), "expected 'else' in if expression")
+        case _:
+            raise ParseError(_here(tokens), "expected 'then' in if expression")
+
+
+def parse_comparison(tokens):
     left, rest = parse_additive(tokens)
     match rest:
         case [TokLessThan(_), *rest]:
@@ -256,7 +306,15 @@ def parse_tuple_or_expr(tokens):
     indistinguishable from the start of the following statement -- a
     singleton tuple must be written with explicit parens, `(e,)`."""
     first, rest = parse_expr(tokens)
-    match rest:
+    return parse_tuple_tail(first, rest)
+
+
+def parse_tuple_tail(first, tokens):
+    """Given an already-parsed first `expr`, continues a bare tuple if the
+    next token is a comma, otherwise returns `first` unchanged. Split out of
+    `parse_tuple_or_expr` so `parse_statement` can reuse it after having
+    parsed the first element by a different route (see its `TokIf` case)."""
+    match tokens:
         case [TokComma(_), *rest]:
             elements = [first]
             while True:
@@ -270,7 +328,7 @@ def parse_tuple_or_expr(tokens):
             tuple_info = combine_info(first.info, elements[-1].info)
             return ETuple(tuple_info, elements), rest
         case _:
-            return first, rest
+            return first, tokens
 
 
 def parse_type(tokens):
@@ -703,6 +761,16 @@ def parse_statement(tokens):
                 case _:
                     raise ParseError(_here(rest), "expected ':' after match header")
 
+        # A statement starting with `if` is either an if *statement*
+        # (`if cond: block`) or an if *expression* used as an expression
+        # statement (`if cond then a else b`). The two share the whole
+        # `"if" , expr` prefix, and that `expr` can be arbitrarily long, so
+        # no bounded lookahead tells them apart -- the grammar is not LL(1)
+        # at this point. Rather than backtrack, parse the shared prefix once
+        # and then dispatch on the single token that follows it: ':' for the
+        # statement, 'then' for the expression. Note `parse_expr` already
+        # handles a *condition* that is itself an if expression, so
+        # `if (if a then b else c):` needs no special casing here.
         case [TokIf(info), *rest]:
             cond, rest = parse_expr(rest)
             match rest:
@@ -716,8 +784,14 @@ def parse_statement(tokens):
                         case _:
                             if_info = combine_info(info, _block_end_info(info, then_body))
                             return SIf(if_info, cond, then_body, None), rest
+                case [TokThen(_), *_]:
+                    expr, rest = parse_if_expr_tail(info, cond, rest)
+                    expr, rest = parse_tuple_tail(expr, rest)
+                    return SExprStmt(expr.info, expr), rest
                 case _:
-                    raise ParseError(_here(rest), "expected ':' after if header")
+                    raise ParseError(
+                        _here(rest), "expected ':' or 'then' after if condition"
+                    )
 
         case [TokVar(info), TokIdent(_, name), TokEq(_), *rest]:
             expr, rest = parse_tuple_or_expr(rest)

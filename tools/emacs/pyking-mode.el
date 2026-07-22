@@ -49,11 +49,12 @@ be changed, but is exposed as a customizable option the same way
   :group 'pyking)
 
 (defconst pyking-mode-keywords
-  '("for" "in" "if" "while" "else" "var" "def" "return" "match" "case")
+  '("for" "in" "if" "while" "then" "else" "var" "def" "return" "match" "case")
   "Reserved keywords in Pyking.
 Mirrors the `keywords' list in boot/lexer.py. Unlike Python, `match' and
 `case' are always reserved here, not context-sensitive (\"soft\")
-keywords.")
+keywords; `then' -- Pyking's `if cond then a else b' expression keyword --
+has no Python counterpart at all.")
 
 (defconst pyking-mode-keywords-regexp
   (regexp-opt pyking-mode-keywords 'symbols)
@@ -303,7 +304,7 @@ end of the buffer -- the standard `indent-line-function' convention
   "Major mode for editing Pyking (.pyk) source files.
 
 Provides syntax highlighting for Pyking's keywords (`for', `in', `if',
-`while', `else', `var', `def', `return', `match', `case'), the `:='
+`while', `then', `else', `var', `def', `return', `match', `case'), the `:='
 mutation operator, the `..'/`..name' list-pattern rest marker, string
 literals (with backslash escapes), `#' comments, integer literals, type
 annotation names (`Int', `String', `Bool', see `pyking-mode-types'), and
