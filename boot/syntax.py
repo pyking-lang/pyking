@@ -528,9 +528,23 @@ def pprint_stmt(s, level=0):
         case SIf(_, cond, then_body, else_body):
             lines = [f"{pad}if {pprint_expr(cond)}:"]
             lines += [pprint_stmt(st, level + 1) for st in then_body]
-            if else_body is not None:
-                lines.append(f"{pad}else:")
-                lines += [pprint_stmt(st, level + 1) for st in else_body]
+            # An else body that is exactly one if statement prints flat, as
+            # the `else if` ladder form -- which is precisely what the
+            # parser desugars an `else if` into (see `parse_if_stmt_tail`),
+            # so this re-parses to the same AST while keeping a long ladder
+            # from marching one indent level right per branch.
+            while True:
+                match else_body:
+                    case [SIf(_, elif_cond, elif_body, else_body2)]:
+                        lines.append(f"{pad}else if {pprint_expr(elif_cond)}:")
+                        lines += [pprint_stmt(st, level + 1) for st in elif_body]
+                        else_body = else_body2
+                    case None:
+                        break
+                    case _:
+                        lines.append(f"{pad}else:")
+                        lines += [pprint_stmt(st, level + 1) for st in else_body]
+                        break
             return "\n".join(lines)
         case SFunctionDef(_, name, params, body, return_type, expr):
             header = f"{pad}def {name}({', '.join(pprint_param(p) for p in params)})"

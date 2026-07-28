@@ -66,6 +66,11 @@ restriction of it, but these are genuinely new.
   compiles straight to Python's. This is a genuinely new *keyword*, so
   `then` is reserved everywhere and can no longer be used as an
   identifier.
+- **`else if` instead of `elif`**: Pyking has no `elif` keyword — an
+  `if` statement chains with the two ordinary keywords `else if`, e.g.
+  `else if n == 0:` on its own line. It means exactly what Python's
+  `elif` does (and compiles to it), so it is neither more nor less than
+  sugar for an `else:` block containing a single nested `if` statement.
 - **`..`/`..name` list-pattern rest markers**: Python spells "match the
   rest of a list" as `*_`/`*name`; Pyking spells it `..`/`..name`, and it
   may appear anywhere in the pattern — start, middle, or end — not just
@@ -117,7 +122,8 @@ Statements:
 - `return` statements
 - `for`/`in` loops
 - `while` loops
-- `if`/`else` statements
+- `if`/`else` statements, chained with `else if` — spelled as two
+  keywords; Pyking has no `elif`
 - `match`/`case` pattern matching, including `case pattern -> expr` —
   Pyking extension, tuple patterns (`case (a, b):`), and list patterns
   (`case [a, ..rest]:`) that destructure a tuple or list value
@@ -166,7 +172,9 @@ for_stmt    = "for" , ident , "in" , expr , ":" , block ;
 
 while_stmt  = "while" , expr , ":" , block ;
 
-if_stmt     = "if" , expr , ":" , block , [ "else" , ":" , block ] ;
+if_stmt     = "if" , expr , ":" , block ,
+              { "else" , "if" , expr , ":" , block } ,
+              [ "else" , ":" , block ] ;
 
 match_stmt  = "match" , expr , ":" , INDENT , case_clause , { case_clause } , DEDENT ;
 case_clause = "case" , pattern , ":" , block
@@ -237,6 +245,21 @@ Notes that don't fall out of the grammar alone:
 - `comp_op` does not repeat — `1 < 2 < 3` is not a valid `expr` (comparisons
   don't chain).
 - `while_stmt` has no `else` clause (unlike Python's `while`/`else`).
+- An `if_stmt`'s chain is written `else if`, two ordinary keywords —
+  there is no `elif` keyword to reserve. The chained header must be the
+  *statement* form, i.e. end in `:`; `else if c then a else b` is an
+  error, since an `if_expr` may not start an `else` tail. This makes
+  `else if` exactly equivalent to an `else` block holding one nested
+  `if_stmt`, and that is how it is parsed: `boot/parser.py` builds no
+  ladder node, just an `SIf` whose `else_body` is a one-element list
+  holding the next `SIf`. Both pretty-printers undo the nesting when
+  printing (as `else if` for Pyking, `elif` for the Python backend), so
+  a ladder round-trips flat instead of stepping one level right per
+  branch — and an `else:` block a program *did* write with a single
+  nested `if_stmt` inside prints as an `else if` chain, the two being
+  the same AST.
+- A trailing `else` is optional at every point in the chain, so a ladder
+  may end after its last `else if` block and run no branch at all.
 - `if_expr` sits at the very bottom of the precedence ladder, below
   `comparison`, and its three sub-expressions are each a full `expr`. Two
   consequences: the branches extend as far right as they can (`if c then
@@ -248,7 +271,8 @@ Notes that don't fall out of the grammar alone:
   a two-element tuple whose first element is the `if_expr`. This matches
   how Python reads `a if c else b, d`.
 - `if_expr` is right-associative, so an `else` branch that is itself an
-  `if_expr` chains flat and reads like an `elif` ladder:
+  `if_expr` chains flat, with the very same `else if` keyword pair the
+  `if_stmt` ladder uses, only inline:
   `if a then 1 else if b then 2 else 3`.
 - Unlike `if_stmt`, `if_expr`'s `else` is **mandatory**, and that is what
   makes the two `if`s coexist without ambiguity. Because every `else`
@@ -259,7 +283,10 @@ Notes that don't fall out of the grammar alone:
   *optional* — true of Pyking's `if_stmt`, deliberately not of its
   `if_expr`. The two also never compete for the same token in practice:
   an `if_stmt`'s `else` always starts a line after a DEDENT, an
-  `if_expr`'s is always inline.
+  `if_expr`'s is always inline. This holds for the `else if` pair too,
+  and what follows it separates the two cases the same way a leading
+  `if` is separated at `statement` (see the next note): a `:` ends an
+  `if_stmt` chain's condition, a `then` an `if_expr` chain's.
 - A `statement` beginning with `if` is where the real parsing difficulty
   lies: it may be an `if_stmt` or an `expr_stmt` holding an `if_expr`,
   and the two share the entire `"if" , expr` prefix. Since that `expr`
@@ -745,6 +772,47 @@ def classify(x):
 
 
 print(classify(12), classify(3))
+```
+
+Further conditions chain with `else if` — two ordinary keywords, since
+Pyking has no `elif`. Each `else if` takes its own condition and
+indented body, and the first branch whose condition holds is the only
+one that runs. The trailing `else:` stays optional: without it, a value
+matching none of the conditions runs no branch at all. The example below
+is therefore Pyking source, not valid Python — it compiles to Python's
+`elif`.
+
+```pyking
+def grade(score):
+    if score >= 90:
+        return "A"
+    else if score >= 80:
+        return "B"
+    else if score >= 70:
+        return "C"
+    else:
+        return "F"
+
+
+print(grade(95), grade(85), grade(75), grade(65))
+```
+
+Because `else if` is just an `else` block holding one nested `if`
+statement (see the grammar notes above), the two forms below mean
+exactly the same thing; the flat one is preferred, and is what
+`--ast` prints back for either.
+
+```pyking
+if a:
+    print(1)
+else if b:
+    print(2)
+
+if a:
+    print(1)
+else:
+    if b:
+        print(2)
 ```
 
 ### `if`/`then`/`else` expressions

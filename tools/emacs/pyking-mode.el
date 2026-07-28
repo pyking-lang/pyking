@@ -18,7 +18,9 @@
 ;; non-blank line when that line ends in `:' (opening a new `block', see
 ;; PYKING.md's grammar); a line starting with `else' or `case' instead
 ;; scans backward for the construct it dedents out of -- `else' aligns
-;; with its `if', `case' aligns with the previous sibling `case_clause'
+;; with its `if' (which covers `else if' ladders too: such a line starts
+;; with `else' like any other, and ends in `:', so its body indents from
+;; it the same way), `case' aligns with the previous sibling `case_clause'
 ;; or, failing that, one level deeper than its `match' -- since a
 ;; `case pattern -> expr' clause (see PYKING.md) has no indented body,
 ;; so consecutive `case's aren't reliably one level below the previous
@@ -190,8 +192,11 @@ OPENER-OFFSET is the answer. Falls back to 0 if neither is ever found
 
 (defun pyking--else-target-indent ()
   "Indentation for an `else' line: aligned with its `if_stmt's own `if'.
-Unlike `case', there is no sibling `else' to align with directly (each
-`if' has at most one) -- the scan always resolves via OPENER-REGEXP."
+An `else if' chain (see PYKING.md -- Pyking spells Python's `elif' with
+those two keywords) does put sibling `else' lines at the same depth, so
+unlike the single-`else' case the scan may resolve via SELF-REGEXP
+instead; either way the answer is the same column, since every line of
+one chain aligns with the `if' that opens it."
   (pyking--backward-dedent-target "\\_<else\\_>" "\\_<if\\_>" 0))
 
 (defun pyking--case-target-indent ()

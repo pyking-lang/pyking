@@ -275,6 +275,44 @@ def parse_if_expr_tail(if_info, cond, tokens):
             raise ParseError(_here(tokens), "expected 'then' in if expression")
 
 
+def parse_if_stmt_tail(if_info, cond, tokens):
+    """Parses the block and optional `else` tail of an if statement, given
+    the already-parsed `if` token info and condition; `tokens` starts just
+    after the header's ':'. The mirror image of `parse_if_expr_tail` --
+    `parse_statement` reaches one or the other only after consuming the
+    `"if" , expr` prefix the statement and the expression share.
+
+    `else if` (two keywords -- Pyking has no `elif`) recurses here and
+    becomes a nested `SIf` that is the outer statement's entire else
+    body: exactly the AST an explicit `else:` block containing a single
+    if statement produces, so a ladder needs no AST node of its own. The
+    nested header must be the *statement* form, i.e. end in ':' -- an if
+    expression is not allowed to start an `else` tail, which is what
+    keeps `else if` unambiguous."""
+    then_body, rest = parse_block(tokens)
+    match rest:
+        case [TokElse(_), TokIf(elif_info), *rest]:
+            elif_cond, rest = parse_expr(rest)
+            match rest:
+                case [TokColon(_), *rest]:
+                    nested, rest = parse_if_stmt_tail(elif_info, elif_cond, rest)
+                    if_info = combine_info(if_info, nested.info)
+                    return SIf(if_info, cond, then_body, [nested]), rest
+                case _:
+                    raise ParseError(
+                        _here(rest), "expected ':' after 'else if' condition"
+                    )
+        case [TokElse(_), TokColon(_), *rest]:
+            else_body, rest = parse_block(rest)
+            if_info = combine_info(if_info, _block_end_info(if_info, else_body))
+            return SIf(if_info, cond, then_body, else_body), rest
+        case [TokElse(else_info), *_]:
+            raise ParseError(else_info, "expected ':' or 'if' after 'else'")
+        case _:
+            if_info = combine_info(if_info, _block_end_info(if_info, then_body))
+            return SIf(if_info, cond, then_body, None), rest
+
+
 def parse_comparison(tokens):
     left, rest = parse_additive(tokens)
     match rest:
@@ -775,15 +813,7 @@ def parse_statement(tokens):
             cond, rest = parse_expr(rest)
             match rest:
                 case [TokColon(_), *rest]:
-                    then_body, rest = parse_block(rest)
-                    match rest:
-                        case [TokElse(_), TokColon(_), *rest]:
-                            else_body, rest = parse_block(rest)
-                            if_info = combine_info(info, _block_end_info(info, else_body))
-                            return SIf(if_info, cond, then_body, else_body), rest
-                        case _:
-                            if_info = combine_info(info, _block_end_info(info, then_body))
-                            return SIf(if_info, cond, then_body, None), rest
+                    return parse_if_stmt_tail(info, cond, rest)
                 case [TokThen(_), *_]:
                     expr, rest = parse_if_expr_tail(info, cond, rest)
                     expr, rest = parse_tuple_tail(expr, rest)

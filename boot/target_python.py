@@ -810,9 +810,24 @@ def pprint_py_stmt(s, level=0):
         case PyIf(_, cond, then_body, else_body):
             lines = [f"{pad}if {pprint_py_expr(cond)}:"]
             lines += [pprint_py_stmt(st, level + 1) for st in then_body]
-            if else_body is not None:
-                lines.append(f"{pad}else:")
-                lines += [pprint_py_stmt(st, level + 1) for st in else_body]
+            # An else body of exactly one `if` prints as Python's `elif`,
+            # which is defined as precisely that nesting -- same semantics,
+            # but a Pyking `else if` ladder (which translates to nested
+            # `PyIf`s, see `parse_if_stmt_tail` in parser.py) then comes out
+            # as a flat `if`/`elif`/`else` chain in the generated source
+            # instead of stepping one indent level right per branch.
+            while True:
+                match else_body:
+                    case [PyIf(_, elif_cond, elif_body, else_body2)]:
+                        lines.append(f"{pad}elif {pprint_py_expr(elif_cond)}:")
+                        lines += [pprint_py_stmt(st, level + 1) for st in elif_body]
+                        else_body = else_body2
+                    case None:
+                        break
+                    case _:
+                        lines.append(f"{pad}else:")
+                        lines += [pprint_py_stmt(st, level + 1) for st in else_body]
+                        break
             return "\n".join(lines)
         case PyFunctionDef(_, name, params, body):
             lines = [f"{pad}def {name}({', '.join(params)}):"]
