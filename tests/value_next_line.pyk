@@ -1,0 +1,102 @@
+# A bound value may start on the line *after* its `=`, indented -- useful
+# when the value is a block-form `match`/`if` whose header would otherwise
+# crowd the binding. The indented block holds exactly one value.
+
+y = 2
+
+z =
+    match y:
+        case 2 -> "hi"
+        case xx -> str(xx)
+
+print(z)
+
+# The same for a value-form `if`, including an `else if` ladder.
+w =
+    if y > 5:
+        "big"
+    else if y > 1:
+        "medium"
+    else:
+        "small"
+
+print(w)
+
+# An ordinary expression works too -- the rule is about where the value
+# starts, not about which kind of value it is.
+n =
+    1 + 2
+
+print(n)
+
+# `var` and `:=` take the next line as well; only the value *form*
+# (`if`/`match` as a statement) stays exclusive to `=`.
+var total =
+    10
+
+total :=
+    total + n
+
+print(total)
+
+# A tuple target destructures the value as usual.
+lo, hi =
+    if y < 5:
+        (y, 5)
+    else:
+        (5, y)
+
+print(lo, hi)
+
+# A single-expression function body (`def name(...) = expr`) takes the
+# next line the same way -- which is what makes the form usable once the
+# body outgrows the header's line.
+def add(a, b) =
+    a + b
+
+
+def scaled(a, b) =
+    (a + b) * 2
+
+
+print(add(1, 2), scaled(1, 2))
+
+# With a type annotation and a return type, and with an `if` *expression*
+# as the body -- the expression form, not the statement one.
+def sign(n: Int) -> String =
+    if n < 0 then "negative" else "positive"
+
+
+print(sign(0 - 3), sign(3))
+
+# A bare tuple works here too, since the body is a full `tuple_or_expr`.
+def swap(a, b) =
+    b, a
+
+
+print(swap(1, 2))
+
+# Inside a function, and nested: the branch of a next-line value form
+# binds its own next-line value.
+def describe(n):
+    text =
+        match n:
+            case 0 -> "zero"
+            case 1:
+                label =
+                    "o" + "ne"
+                label
+            case _:
+                inner =
+                    if n < 0:
+                        "negative"
+                    else:
+                        "many"
+                inner
+    return text
+
+
+print(describe(0))
+print(describe(1))
+print(describe(7))
+print(describe(0 - 7))

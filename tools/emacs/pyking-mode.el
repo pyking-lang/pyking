@@ -30,6 +30,17 @@
 ;; after a block ends, pressing TAB again cycles through the shallower
 ;; enclosing columns (`pyking--indent-levels'), also as in `python-mode'.
 ;;
+;; One case is not a guess at all: the line directly after something that
+;; opens a block -- a `:' header, or a binding whose value is missing
+;; from the line (`x =' / `def f(a) =', with the value on the next line;
+;; see PYKING.md). A block is never empty and Pyking indents in exact
+;; 4-space steps, so exactly one column can parse there. That column is
+;; forced: TAB puts the line at it and repeated TAB will not cycle it
+;; away. `indent-region' (`pyking-indent-region') likewise fixes such a
+;; line, while leaving alone any line already sitting at a column the
+;; guess-plus-cycle set allows -- so it repairs continuation lines
+;; without marching a correctly indented buffer rightward.
+;;
 ;; The header those backward scans look for may itself be a binding, as
 ;; in the value form `x = if cond:' / `x = match e:' (see PYKING.md), so
 ;; they match `pyking--if-block-opener-regexp'/
@@ -41,6 +52,15 @@
 ;; deep. Correctly resolving it needs real block structure, not a
 ;; backward scan; as everywhere else here, TAB guesses and the user
 ;; adjusts.
+;;
+;; RET is bound (in `pyking-mode-map') to `newline-and-indent', so the
+;; new line is indented by this mode itself rather than by whatever
+;; `electric-indent-mode' happens to be doing in the user's
+;; configuration; typing `:' on an `else'/`case' line reindents it the
+;; same way, through `pyking-indent-post-self-insert-function'. Between
+;; them, a whole file can be typed with no leading whitespace entered by
+;; hand -- except where a block *ends*, the one thing that cannot be
+;; derived, which is what TAB cycling is for.
 ;;
 ;; Usage: put this file on your `load-path' and add
 ;;
@@ -170,6 +190,18 @@ skipped over via `syntax-ppss' so it isn't mistaken for one."
     (skip-chars-backward " \t")
     (eq (char-before) ?:)))
 
+(defun pyking--line-ends-with-eq-p ()
+  "Return non-nil if the current line's code (sans comment) ends in `=' or `:='.
+Such a line is a binding whose value starts on the next line, indented
+\(see \"the value may start on the next line\" in PYKING.md), so it opens
+a block just as a `:' header does. `==', `<=' and `>=' are excluded --
+a line ending in a comparison operator is incomplete, not a binding."
+  (save-excursion
+    (goto-char (pyking--code-end-position))
+    (skip-chars-backward " \t")
+    (and (eq (char-before) ?=)
+         (not (memq (char-before (1- (point))) '(?= ?< ?>))))))
+
 (defun pyking--line-first-word-matches-p (regexp)
   "Return non-nil if the current line matches REGEXP from its first word.
 REGEXP is matched with `looking-at' at the line's first non-blank
@@ -252,18 +284,20 @@ necessarily one level below the previous line the way `else' always is."
   "Return non-nil if the current line is known to end its own block.
 A `return_stmt' always ends the statement sequence it's part of in
 every one of this repository's tests/*.pyk files (Pyking has no
-`pass'/`break'/`continue' to also check, unlike Python); a `case
-pattern -> expr' clause (see PYKING.md) is self-contained the same
-way, since it has no indented body at all. Mirrors `python-mode's own
-`python-indent-dedenters': after either one, the following line dedents
-one `pyking-indent-offset', matching `python-indent-line's real
-behavior (confirmed by testing it directly) of dedenting exactly one
-level after `return' -- not fully re-deriving arbitrarily many closed
-block levels, which no context-free indent heuristic can do reliably;
-the user dedents further manually same as in `python-mode'."
-  (or (pyking--line-first-word-matches-p "\\_<return\\_>")
-      (and (pyking--line-first-word-matches-p "\\_<case\\_>")
-           (not (pyking--line-ends-with-colon-p)))))
+`pass'/`break'/`continue' to also check, unlike Python), so the line
+after one dedents a `pyking-indent-offset'. Mirrors `python-mode's own
+`python-indent-dedenters', and like it dedents exactly one level, not
+however many blocks actually closed -- no context-free indent heuristic
+can derive that; repeated TAB (see `pyking-indent-line') walks the rest.
+
+A `case pattern -> expr' clause is *not* listed here, though it too has
+no indented body: what follows such a clause is far more often the next
+`case' of the same `match_stmt', at the same column, than a statement
+after the block -- in every tests/*.pyk file using the arrow form, only
+the last clause of each group is followed by a dedent. Guessing the
+same column keeps the common case correct as it is typed; the rarer
+dedent out of the block is one TAB away."
+  (pyking--line-first-word-matches-p "\\_<return\\_>"))
 
 (defun pyking-calculate-indent ()
   "Compute the indentation column for the current line.
@@ -282,18 +316,80 @@ does for a plain statement following a multi-level nested block."
      ((bobp) 0)
      ((pyking--line-first-word-matches-p "\\_<else\\_>") (pyking--else-target-indent))
      ((pyking--line-first-word-matches-p "\\_<case\\_>") (pyking--case-target-indent))
-     (t (let (prev-indent prev-ends-with-colon prev-is-dedenter)
+     (t (let (prev-indent prev-opens-block prev-is-dedenter)
           (save-excursion
             (forward-line -1)
             (while (and (not (bobp)) (pyking--blank-or-comment-line-p))
               (forward-line -1))
             (setq prev-indent (current-indentation))
-            (setq prev-ends-with-colon (pyking--line-ends-with-colon-p))
+            (setq prev-opens-block (or (pyking--line-ends-with-colon-p)
+                                       (pyking--line-ends-with-eq-p)))
             (setq prev-is-dedenter (pyking--dedenter-line-p)))
           (cond
-           (prev-ends-with-colon (+ prev-indent pyking-indent-offset))
+           (prev-opens-block (+ prev-indent pyking-indent-offset))
            (prev-is-dedenter (max 0 (- prev-indent pyking-indent-offset)))
            (t prev-indent)))))))
+
+(defun pyking-indent-post-self-insert-function ()
+  "Reindent a dedenter line as soon as its `:' is typed.
+Added to `post-self-insert-hook'. Without it, typing
+
+    else:
+
+under an `if' body leaves the line wherever RET guessed for it while it
+was still empty -- one level too deep, since the guess can only copy the
+previous line -- and nothing ever re-asks `pyking-calculate-indent',
+which had the right answer all along. Only `else'/`case' lines are
+touched: they are the forms whose correct column is a *dedent*, so the
+typist cannot have landed on it already. A block-opening header
+\(`if'/`for'/`while'/`def'/`match') is left alone, as in `python-mode'.
+
+Reindenting on a self-inserted character is exactly what
+`electric-indent-chars' would do, but this mode sets
+`electric-indent-inhibit' (Pyking indentation is a guess, so RET must
+not reindent the previous line), and `electric-indent-post-self-insert-
+function' skips *all* non-newline reindentation whenever that flag is
+set. `python-mode' resolves the same conflict the same way: keep the
+inhibit, add `?:' to `electric-indent-chars' as the opt-in flag, and do
+the colon handling in its own hook -- see
+`python-indent-post-self-insert-function'."
+  (when (and (eq ?: last-command-event)
+             (eq (char-before) last-command-event)
+             ;; The opt-out: this mode puts `?:' in `electric-indent-chars'
+             ;; itself, so removing it there disables the reindent. Not
+             ;; gated on `electric-indent-mode' -- `pyking-mode-map' binds
+             ;; RET to indent regardless of that mode, and indentation
+             ;; that half-works depending on a global toggle is worse than
+             ;; either behavior consistently.
+             (memq ?: electric-indent-chars)
+             (not current-prefix-arg)
+             ;; Only at end of line, and not on a doubled `::' -- both
+             ;; mean the user is still mid-edit, not finishing a header.
+             (eolp)
+             (not (eq ?: (char-before (1- (point)))))
+             ;; Never inside a string or comment (`nth 8' covers both).
+             (not (nth 8 (syntax-ppss)))
+             (or (pyking--line-first-word-matches-p "\\_<else\\_>")
+                 (pyking--line-first-word-matches-p "\\_<case\\_>")))
+    ;; Keep point where it is (end of line) across the reindent.
+    (let ((savep (- (point-max) (point))))
+      (indent-line-to (max (pyking-calculate-indent) 0))
+      (goto-char (- (point-max) savep)))))
+
+(defun pyking--previous-code-line-opens-block-p ()
+  "Return non-nil if the previous non-blank, non-comment line opens a block.
+That is a `:' header, or a binding whose value is missing from the line
+-- a trailing `=' or `:=', as in `x =' or `def f(a) =' with the value on
+the next line (see PYKING.md)."
+  (save-excursion
+    (beginning-of-line)
+    (unless (bobp)
+      (forward-line -1)
+      (while (and (not (bobp)) (pyking--blank-or-comment-line-p))
+        (forward-line -1))
+      (and (not (pyking--blank-or-comment-line-p))
+           (or (pyking--line-ends-with-colon-p)
+               (pyking--line-ends-with-eq-p))))))
 
 (defun pyking--indent-levels ()
   "Every column the current line could plausibly be indented to, deepest first.
@@ -301,18 +397,28 @@ That is `pyking-calculate-indent's guess, then each shallower column an
 enclosing line already sits at, then 0. Closing a block is the one thing
 the guess cannot derive -- it never knows how many blocks a line ends --
 so these are the levels repeated TAB offers instead (see
-`pyking-indent-line')."
+`pyking-indent-line').
+
+Directly after a line that opens a block, though, there is nothing to
+guess: the block cannot be empty and Pyking indents in exact 4-space
+steps (see \"Indentation-based blocks\" in PYKING.md), so exactly one
+column can parse. The single forced level is returned there, which is
+what stops TAB from cycling a continuation line -- `x =' followed by an
+indented `if'/`match'/expression -- back out to a column that is not
+Pyking at all."
   (let ((guess (max (pyking-calculate-indent) 0))
         (levels '()))
-    (save-excursion
-      (beginning-of-line)
-      (while (not (bobp))
-        (forward-line -1)
-        (unless (pyking--blank-or-comment-line-p)
-          (let ((ind (current-indentation)))
-            (when (and (< ind guess) (not (member ind levels)))
-              (setq levels (cons ind levels)))))))
-    (sort (delete-dups (cons guess (cons 0 levels))) #'>)))
+    (if (pyking--previous-code-line-opens-block-p)
+        (list guess)
+      (save-excursion
+        (beginning-of-line)
+        (while (not (bobp))
+          (forward-line -1)
+          (unless (pyking--blank-or-comment-line-p)
+            (let ((ind (current-indentation)))
+              (when (and (< ind guess) (not (member ind levels)))
+                (setq levels (cons ind levels)))))))
+      (sort (delete-dups (cons guess (cons 0 levels))) #'>))))
 
 (defun pyking--next-indent-level (current levels)
   "The level after CURRENT in LEVELS, wrapping around at the end."
@@ -354,6 +460,55 @@ end of the buffer -- the standard `indent-line-function' convention
       (save-excursion (indent-line-to target)))
     (when (> (- (point-max) savep) (point))
       (goto-char (- (point-max) savep)))))
+
+(defun pyking-indent-region (start end)
+  "Indent the region as Pyking source, leaving already-plausible lines alone.
+Plain `indent-region' applies `pyking-calculate-indent' to every line,
+and that guess keeps the previous line's depth wherever a block *ends*
+-- so running it over a correctly indented buffer marches steadily
+rightward, each over-indented line dragging the next one further. A line
+is therefore reindented only when its column is not among the ones
+`pyking--indent-levels' accepts, which makes this idempotent on
+well-indented source while still fixing a genuinely wrong line: after a
+block opener that list holds a single forced column (see
+`pyking--indent-levels'), so a continuation line such as the one under
+`x =' is always corrected."
+  (let ((end (copy-marker end)))
+    (save-excursion
+      (goto-char start)
+      (beginning-of-line)
+      (while (< (point) end)
+        (unless (pyking--blank-or-comment-line-p)
+          (let ((levels (pyking--indent-levels)))
+            ;; Only a column no `pyking--indent-levels' entry allows is
+            ;; overwritten. Notably an `else'/`case' line is *not* forced
+            ;; to its scan result even though that result is computed
+            ;; rather than inherited: the scan has a known blind spot
+            ;; (see the Commentary), and forcing a wrong answer over an
+            ;; already-correct line -- which is exactly what it does to a
+            ;; nested `if'/`else' -- is worse than leaving the author's.
+            (unless (member (current-indentation) levels)
+              (indent-line-to (car levels)))))
+        (forward-line 1)))
+    (set-marker end nil)))
+
+(defvar pyking-mode-map
+  (let ((map (make-sparse-keymap)))
+    ;; RET indents the line it opens, whatever the user's
+    ;; `electric-indent-mode' setting is. Leaving that to
+    ;; `electric-indent-mode' (as `python-mode' does) makes the mode's
+    ;; indentation vanish for anyone who turns it off, remaps RET, or
+    ;; edits through something that inserts newlines its own way -- and
+    ;; the one column this mode is certain of, the forced one after a
+    ;; block opener like `x =' (see `pyking--indent-levels'), is exactly
+    ;; the column a user is most surprised to have to type by hand.
+    ;; `newline-and-indent' also drops the whitespace left behind when
+    ;; RET splits a line mid-way, so `z = |match y:' leaves `z =' with no
+    ;; trailing space. Indenting again after `electric-indent-mode' has
+    ;; already done it is a no-op, so the two coexist.
+    (define-key map (kbd "RET") #'newline-and-indent)
+    map)
+  "Keymap for `pyking-mode'.")
 
 (defvar pyking-mode-syntax-table
   (let ((table (make-syntax-table)))
@@ -413,6 +568,15 @@ through shallower levels to close blocks."
   (setq-local indent-tabs-mode nil)
   (setq-local tab-width pyking-indent-offset)
   (setq-local indent-line-function #'pyking-indent-line)
+  (setq-local indent-region-function #'pyking-indent-region)
+  ;; Reindent an `else:'/`case ...:' line as its `:' is typed -- see
+  ;; `pyking-indent-post-self-insert-function' for why the work can't be
+  ;; left to `electric-indent-chars' alone (`electric-indent-inhibit'
+  ;; below suppresses every non-newline reindent Emacs would do itself,
+  ;; so the char list serves only as the opt-in flag the hook consults).
+  (setq-local electric-indent-chars (cons ?: electric-indent-chars))
+  (add-hook 'post-self-insert-hook
+            #'pyking-indent-post-self-insert-function 'append 'local)
   ;; Pyking indentation, like Python's, is not redundant -- the same
   ;; code can be validly indented at more than one level (see
   ;; `pyking-calculate-indent's fallback case), so `pyking-indent-line'

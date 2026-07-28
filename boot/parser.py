@@ -815,8 +815,26 @@ def parse_bound_value(tokens):
     An `if` is the same standoff `parse_statement` faces between an if
     statement and an if expression, resolved the same way: parse the
     shared `"if" , expr` prefix once, then dispatch on ':' (value form)
-    versus 'then' (an ordinary if expression)."""
+    versus 'then' (an ordinary if expression).
+
+    The value may also start on the *next* line, indented -- which the
+    lexer reports as an INDENT/DEDENT pair around it, exactly as for any
+    other block. That is the only way to write a value-form `match` whose
+    subject would otherwise crowd the '=' line, and it works for any
+    bound value (`x =` then an indented expression, if, or match).
+    Recursing keeps one rule for all of them; the block must hold exactly
+    one value, so anything left before the DEDENT is an error."""
     match tokens:
+        case [TokIndent(_), *rest]:
+            value, rest = parse_bound_value(rest)
+            match rest:
+                case [TokDedent(_), *rest]:
+                    return value, rest
+                case _:
+                    raise ParseError(
+                        _here(rest),
+                        "expected a single value in the indented block after '='",
+                    )
         case [TokMatch(info), *rest]:
             stmt, rest = parse_match_stmt(info, rest)
             _check_value_stmt(stmt)
@@ -839,16 +857,22 @@ def parse_bound_value(tokens):
             return parse_tuple_or_expr(tokens)
 
 
-def _expect_expr_value(value):
-    """Rejects a value-form if/match where only an expression is allowed.
-    The value form binds by assigning in each branch's tail, which is
-    exactly what an *immutable* binding does and what `var`/`:=` do not
-    -- see PYKING.md."""
+def _expect_expr_value(value, what):
+    """Rejects a value-form if/match in a position that takes only an
+    expression, naming that position (`what`) in the error. The value
+    form works by assigning to the target in each branch's tail, which is
+    exactly what an immutable binding does -- and what a `var`
+    declaration, a `:=` mutation, or a `def ... =` body does not (the
+    last would have to `return` from every tail instead). See PYKING.md.
+
+    Note the *indented* form is fine everywhere: `parse_bound_value`
+    handles where a value starts, this handles what kind it may be."""
     match value:
         case Stmt():
             raise ParseError(
                 value.info,
-                "a value-form 'if'/'match' can only be bound with '=', not 'var' or ':='",
+                f"{what} takes an expression; "
+                "a value-form 'if'/'match' can only be bound with '='",
             )
         case _:
             return value
@@ -872,8 +896,14 @@ def parse_statement(tokens):
                 case [TokEq(_), *rest]:
                     # Pyking extension: `def name(...) = expr` is a
                     # single-expression function body, not valid Python
-                    # syntax -- mirrors `case pattern -> expr`.
-                    expr, rest = parse_tuple_or_expr(rest)
+                    # syntax -- mirrors `case pattern -> expr`. Parsed
+                    # with `parse_bound_value` so the body may sit on the
+                    # next line, indented, exactly as a bound value may;
+                    # a value-form if/match is not a body, though (that
+                    # would have to `return` from each branch tail, not
+                    # bind), so it is rejected here.
+                    expr, rest = parse_bound_value(rest)
+                    expr = _expect_expr_value(expr, "a 'def ... =' body")
                     def_info = combine_info(info, expr.info)
                     return SFunctionDef(def_info, name, params, None, return_type, expr), rest
                 case _:
@@ -932,12 +962,12 @@ def parse_statement(tokens):
 
         case [TokVar(info), TokIdent(_, name), TokEq(_), *rest]:
             expr, rest = parse_bound_value(rest)
-            expr = _expect_expr_value(expr)
+            expr = _expect_expr_value(expr, "a 'var' declaration")
             return SVar(combine_info(info, expr.info), name, expr), rest
 
         case [TokIdent(info, name), TokAssign(_), *rest]:
             expr, rest = parse_bound_value(rest)
-            expr = _expect_expr_value(expr)
+            expr = _expect_expr_value(expr, "a ':=' mutation")
             return SMutate(combine_info(info, expr.info), name, expr), rest
 
         # `target = expr`, where `target` may destructure a tuple (e.g.

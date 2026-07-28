@@ -57,7 +57,9 @@ restriction of it, but these are genuinely new.
   block — e.g. `def add(a, b) = a + b` instead of `def add(a, b):`
   followed by `return a + b` on its own indented line. Just like the
   `case`/`->` extension above, it compiles to an ordinary `def ... :`
-  whose only statement is `return expr`.
+  whose only statement is `return expr`. The expression may also stand
+  on the line after the `=`, indented, when it no longer fits beside the
+  header.
 - **`if ... then ... else ...` expressions**: Python writes a conditional
   expression with the condition in the middle (`e1 if cond else e2`);
   Pyking puts it first, behind a new `then` keyword —
@@ -80,7 +82,9 @@ restriction of it, but these are genuinely new.
   Python has no statement that evaluates to a value (its `if`/`match`
   yield nothing, and its conditional *expression* holds no statements),
   so this compiles to the same `if`/`match` statement with the
-  assignment pushed into every branch tail.
+  assignment pushed into every branch tail. Any bound value may also
+  start on the line after its `=`, indented — a layout Python has no
+  need for, since its right-hand sides are always expressions.
 - **`..`/`..name` list-pattern rest markers**: Python spells "match the
   rest of a list" as `*_`/`*name`; Pyking spells it `..`/`..name`, and it
   may appear anywhere in the pattern — start, middle, or end — not just
@@ -130,7 +134,8 @@ Statements:
   `(T1, T2, ...)` including the unit type `()`, and nesting of any of
   these) — annotations are pretty-printed in Pyking's own syntax but
   erased entirely when compiling to Python; also `def name(params) = expr`,
-  a single-expression body — Pyking extension
+  a single-expression body, which may stand on the next line indented —
+  Pyking extension
 - `return` statements
 - `for`/`in` loops
 - `while` loops
@@ -170,7 +175,7 @@ statement   = function_def
 
 function_def = "def" , ident , "(" , [ params ] , ")" , [ "->" , type ] ,
                ( ":" , block
-               | "=" , tuple_or_expr ) ;
+               | "=" , bound_expr ) ;
 params       = param , { "," , param } ;
 param        = ident , [ ":" , type ] ;
 
@@ -203,9 +208,14 @@ list_pattern_items = list_pattern_item , { "," , list_pattern_item } ;
 list_pattern_item  = pattern_atom | rest_marker ;
 rest_marker        = ".." , [ ident ] ;
 
-var_decl    = "var" , ident , "=" , tuple_or_expr ;
-assignment  = target , "=" , ( tuple_or_expr | value_stmt ) ;
-mutation    = ident , ":=" , tuple_or_expr ;
+var_decl    = "var" , ident , "=" , bound_expr ;
+assignment  = target , "=" , bound_value ;
+mutation    = ident , ":=" , bound_expr ;
+
+(* A bound value may start on the line after its "=", indented -- the
+   lexer wraps it in the same INDENT/DEDENT any other block gets. *)
+bound_value = tuple_or_expr | value_stmt | INDENT , bound_value , DEDENT ;
+bound_expr  = tuple_or_expr | INDENT , bound_expr , DEDENT ;
 
 value_stmt  = value_if | match_stmt ;
 value_if    = "if" , expr , ":" , block ,
@@ -339,6 +349,23 @@ Notes that don't fall out of the grammar alone:
   distinguish *declaring* from *updating*, and a form that expands to
   one assignment per branch has no way to say which of the two each of
   those is.
+- The indented `bound_value`/`bound_expr` form holds exactly **one**
+  value: anything left in the block before its DEDENT is an error
+  (`expected a single value in the indented block after '='`). It exists
+  mainly for a `value_stmt` whose header would otherwise share the `=`
+  line, but nothing restricts it to those — `x =` followed by an
+  indented `1 + 2` is the same rule, as is `var`/`:=` and a
+  single-expression `function_def` body (all three take a `bound_expr`:
+  the next-line layout, but no `value_stmt`). Both pretty-printers
+  normalize it away, printing the value back on the `=` line; the two
+  spellings are the same AST.
+- A `value_stmt` is rejected in each `bound_expr` position with an error
+  naming it (`a 'def ... =' body takes an expression; a value-form
+  'if'/'match' can only be bound with '='`). For `def` the reason is not
+  just symmetry with `var`/`:=`: a value form binds its target in every
+  branch tail, whereas a function body would have to `return` from each
+  one instead — a different desugaring, not a restriction of the same
+  one. Write `def f(x):` with a block body and a `match` inside it.
 - Statements before a branch's last one are ordinary statements, run for
   their effect: a branch may bind local names, print, or update an
   enclosing `var` before yielding its value. This is a consequence of
@@ -737,6 +764,29 @@ with the `:`/block form:
 def average(a:Int, b:Int) -> Int = (a + b) / 2
 ```
 
+The body may also start on the line *after* the `=`, indented — the same
+layout any bound value may take (see "`if`/`match` statements as bound
+values" below), and what keeps the form usable once the expression stops
+fitting beside the header:
+
+```pyking
+def scaled(a, b) =
+    (a + b) * 2
+
+
+def sign(n: Int) -> String =
+    if n < 0 then "negative" else "positive"
+
+
+print(scaled(1, 2), sign(0 - 3))
+```
+
+Note the body is still an *expression*: `if ... then ... else ...` as
+above, not the block-form `if`/`match` that an `=` binding accepts. A
+function body would have to `return` from each branch rather than bind,
+which is a different desugaring — write `def name(params):` with a block
+body for that.
+
 ### Type annotations
 
 Parameters and the return value may optionally be annotated with a type:
@@ -1095,6 +1145,27 @@ The value form belongs to `=` alone: `var name = ...` and `name := ...`
 still take an ordinary expression (use `=` for the value form, or an
 `if ... then ... else ...` expression). A tuple `target` destructures the
 bound value exactly as it does in a plain binding.
+
+Finally, the bound value may begin on the line *after* the `=`, indented
+one level — which reads better when a `match` subject or `if` condition
+would otherwise crowd the binding, and is the only way to keep a long
+header off the `=` line. The indented block holds exactly one value:
+
+```pyking
+y = 2
+
+z =
+    match y:
+        case 2 -> "hi"
+        case xx -> str(xx)
+
+print(z)
+```
+
+This is just a layout choice, not a different construct: it applies to
+any bound value (an ordinary expression, and `var`/`:=` too), and both
+pretty-printers print it back on the `=` line, since the two spellings
+produce the identical AST.
 
 ### Expression statements
 
