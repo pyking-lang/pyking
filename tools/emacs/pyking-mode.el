@@ -25,8 +25,22 @@
 ;; `case pattern -> expr' clause (see PYKING.md) has no indented body,
 ;; so consecutive `case's aren't reliably one level below the previous
 ;; line the way an `if'/`else' body always is. Any other line just
-;; matches the previous line's indentation, leaving further dedents to
-;; the user -- the same fallback `python-mode' uses.
+;; matches the previous line's indentation -- the same fallback
+;; `python-mode' uses. Since that guess is always wrong on the line
+;; after a block ends, pressing TAB again cycles through the shallower
+;; enclosing columns (`pyking--indent-levels'), also as in `python-mode'.
+;;
+;; The header those backward scans look for may itself be a binding, as
+;; in the value form `x = if cond:' / `x = match e:' (see PYKING.md), so
+;; they match `pyking--if-block-opener-regexp'/
+;; `pyking--match-block-opener-regexp' rather than just a first word.
+;; Being a heuristic, the scan does have a known blind spot, unrelated to
+;; that form: it takes the first line at or above its own depth, so an
+;; `else' that closes a block whose *own* last statement was an
+;; `if'/`else' finds that inner `else' and aligns with it, one level too
+;; deep. Correctly resolving it needs real block structure, not a
+;; backward scan; as everywhere else here, TAB guesses and the user
+;; adjusts.
 ;;
 ;; Usage: put this file on your `load-path' and add
 ;;
@@ -78,7 +92,7 @@ type names from control-flow/declaration keywords.")
   "Regexp matching any name in `pyking-mode-types' as a whole symbol.")
 
 (defconst pyking-mode-builtins
-  '("print" "range" "str")
+  '("print" "range" "str" "len")
   "Well-known Python builtin function names used in Pyking source.
 
 Pyking's own grammar has no notion of a builtin -- any identifier can be
@@ -88,7 +102,7 @@ source (tests/*.pyk and the examples in PYKING.md) get highlighted
 distinctly from ordinary calls, the same way `python-mode' highlights
 `print' et al. with `font-lock-builtin-face' instead of treating them as
 plain symbols. Extend this list if a Pyking example starts using another
-builtin (e.g. `len').")
+builtin.")
 
 (defconst pyking-mode-builtins-regexp
   (regexp-opt pyking-mode-builtins 'symbols)
@@ -157,11 +171,35 @@ skipped over via `syntax-ppss' so it isn't mistaken for one."
     (eq (char-before) ?:)))
 
 (defun pyking--line-first-word-matches-p (regexp)
-  "Return non-nil if the current line's first word matches REGEXP."
+  "Return non-nil if the current line matches REGEXP from its first word.
+REGEXP is matched with `looking-at' at the line's first non-blank
+character, so it usually just tests that word (`\\_<else\\_>' et al.),
+but may describe more of the line -- see
+`pyking--if-block-opener-regexp'."
   (save-excursion
     (beginning-of-line)
     (skip-chars-forward " \t")
     (looking-at regexp)))
+
+(defconst pyking--if-block-opener-regexp
+  "\\(?:[^=\n]*=[ \t]*\\)?\\_<if\\_>.*:[ \t]*\\(?:#.*\\)?$"
+  "Regexp matching a line that opens an `if_stmt' block, from its first word.
+Covers the bare `if cond:' header and the value form `target = if cond:'
+alike (see \"`if'/`match' statements as bound values\" in PYKING.md), the
+latter being why the `if' can't simply be required to be the line's first
+word. The trailing `:' is required so an `if_expr' line -- `x = if c then
+a else b', which opens no block and so is not what an `else' below it
+dedents out of -- is never mistaken for a header. The binding prefix
+excludes newlines (`[^=\\n]', not `[^=]') because `looking-at' would
+otherwise happily run past the end of the line to find an `=' several
+lines down.")
+
+(defconst pyking--match-block-opener-regexp
+  "\\(?:[^=\n]*=[ \t]*\\)?\\_<match\\_>"
+  "Regexp matching a line that opens a `match_stmt', from its first word.
+Like `pyking--if-block-opener-regexp', this covers both the bare `match
+e:' header and the value form `target = match e:'. There is no match
+*expression* to tell it apart from, so no trailing `:' is required here.")
 
 (defun pyking--backward-dedent-target (self-regexp opener-regexp opener-offset)
   "Scan backward from point for the line a dedent keyword should align with.
@@ -197,7 +235,8 @@ those two keywords) does put sibling `else' lines at the same depth, so
 unlike the single-`else' case the scan may resolve via SELF-REGEXP
 instead; either way the answer is the same column, since every line of
 one chain aligns with the `if' that opens it."
-  (pyking--backward-dedent-target "\\_<else\\_>" "\\_<if\\_>" 0))
+  (pyking--backward-dedent-target
+   "\\_<else\\_>" pyking--if-block-opener-regexp 0))
 
 (defun pyking--case-target-indent ()
   "Indentation for a `case' line: aligned with the previous sibling
@@ -206,7 +245,8 @@ one chain aligns with the `if' that opens it."
 `match_stmt' -- needed because a `case pattern -> expr' clause (see
 PYKING.md) has no indented body of its own, so the next `case' isn't
 necessarily one level below the previous line the way `else' always is."
-  (pyking--backward-dedent-target "\\_<case\\_>" "\\_<match\\_>" pyking-indent-offset))
+  (pyking--backward-dedent-target
+   "\\_<case\\_>" pyking--match-block-opener-regexp pyking-indent-offset))
 
 (defun pyking--dedenter-line-p ()
   "Return non-nil if the current line is known to end its own block.
@@ -255,15 +295,60 @@ does for a plain statement following a multi-level nested block."
            (prev-is-dedenter (max 0 (- prev-indent pyking-indent-offset)))
            (t prev-indent)))))))
 
+(defun pyking--indent-levels ()
+  "Every column the current line could plausibly be indented to, deepest first.
+That is `pyking-calculate-indent's guess, then each shallower column an
+enclosing line already sits at, then 0. Closing a block is the one thing
+the guess cannot derive -- it never knows how many blocks a line ends --
+so these are the levels repeated TAB offers instead (see
+`pyking-indent-line')."
+  (let ((guess (max (pyking-calculate-indent) 0))
+        (levels '()))
+    (save-excursion
+      (beginning-of-line)
+      (while (not (bobp))
+        (forward-line -1)
+        (unless (pyking--blank-or-comment-line-p)
+          (let ((ind (current-indentation)))
+            (when (and (< ind guess) (not (member ind levels)))
+              (setq levels (cons ind levels)))))))
+    (sort (delete-dups (cons guess (cons 0 levels))) #'>)))
+
+(defun pyking--next-indent-level (current levels)
+  "The level after CURRENT in LEVELS, wrapping around at the end."
+  (let ((tail (cdr (member current levels))))
+    (if tail (car tail) (car levels))))
+
 (defun pyking-indent-line ()
   "Indent the current line as Pyking source.
+The first TAB indents to `pyking-calculate-indent'. Pressing TAB again
+without an intervening command cycles through `pyking--indent-levels' --
+successively shallower enclosing columns, wrapping back around to the
+first guess. This is `python-indent-line's behavior, and it is what
+makes closing a block workable: the guess can only ever keep the
+previous line's depth, which is right after most statements and wrong
+after the last line of any block -- notably every branch of a value-form
+`if'/`match' (see PYKING.md), whose branches all end in a bare
+expression, so the statement after one always needs a dedent.
+
+Cycling is deliberately restricted to an interactive TAB
+\(`indent-for-tab-command' twice in a row); `indent-region' and friends
+call this repeatedly within one command and must always get the plain
+guess, never a walk down the levels.
+
 Leaves point at the new indentation when point started within the
 line's leading whitespace, otherwise keeps it fixed relative to the
 end of the buffer -- the standard `indent-line-function' convention
 (also followed by `python-indent-line')."
   (interactive)
-  (let ((savep (- (point-max) (point)))
-        (target (max (pyking-calculate-indent) 0)))
+  (let* ((savep (- (point-max) (point)))
+         (levels (pyking--indent-levels))
+         (cycling (and (eq this-command 'indent-for-tab-command)
+                       (eq last-command 'indent-for-tab-command)
+                       (member (current-indentation) levels)))
+         (target (if cycling
+                     (pyking--next-indent-level (current-indentation) levels)
+                   (car levels))))
     (if (<= (current-column) (current-indentation))
         (indent-line-to target)
       (save-excursion (indent-line-to target)))
@@ -318,7 +403,8 @@ grammar documented in PYKING.md and implemented in boot/lexer.py and
 boot/parser.py.
 
 Also provides `python-mode'-style 4-space (`pyking-indent-offset')
-indentation via `pyking-indent-line'."
+indentation via `pyking-indent-line', including TAB-again cycling
+through shallower levels to close blocks."
   :syntax-table pyking-mode-syntax-table
   (setq-local font-lock-defaults '(pyking-mode-font-lock-keywords nil nil))
   (setq-local comment-start "# ")

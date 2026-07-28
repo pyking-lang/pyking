@@ -7,7 +7,8 @@ from syntax import (
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList, ETuple,
     EIf, EListComp, CompFor, CompIf,
     PInt, PString, PWildcard, PCapture, PTuple, PList,
-    SLet, SVar, SMutate, SReturn, SExprStmt, SFor, SWhile, SIf, SFunctionDef, SMatch,
+    SLet, SLetStmt, SVar, SMutate, SReturn, SExprStmt, SFor, SWhile, SIf,
+    SFunctionDef, SMatch,
     TargetName, TargetTuple,
 )
 
@@ -601,10 +602,73 @@ def translate_case(c):
     return PyMatchCase(c.info, translate_pattern(c.pattern), body)
 
 
+def _translate_value_stmt(s, py_target):
+    """Translates an if/match statement in *value form* -- one bound with
+    '=' (see `SLetStmt` in syntax.py) -- into the very same PyIf/PyMatch
+    the plain statement form produces, except that each branch's final
+    expression becomes an assignment of that expression to `py_target`.
+
+    Python has no statement that evaluates to a value, so the binding is
+    pushed down into the branch tails instead of the whole construct
+    being made an expression; that keeps everything else about a branch
+    (bindings, mutations of an enclosing `var`, prints) working exactly
+    as it does in the statement form, which wrapping the branches in a
+    helper function would not."""
+    match s:
+        case SIf(info, cond, then_body, else_body):
+            # The parser guarantees `else_body` is not None here.
+            return PyIf(
+                info,
+                translate_expr(cond),
+                _translate_value_block(then_body, py_target),
+                _translate_value_block(else_body, py_target),
+            )
+        case SMatch(info, subject, cases):
+            return PyMatch(
+                info,
+                translate_expr(subject),
+                [_translate_value_case(c, py_target) for c in cases],
+            )
+        case _:
+            raise NotImplementedError(f"statement {s!r} has no value form")
+
+
+def _translate_value_block(stmts, py_target):
+    """Translates one branch of a value-form if/match: every statement but
+    the last is translated normally, and the last -- which the parser has
+    checked yields a value (see `_check_value_block` there) -- either
+    becomes the assignment to `py_target`, or, when it is itself an
+    if/match, has the same treatment applied to *its* branch tails."""
+    body = _translate_stmts(stmts[:-1])
+    match stmts[-1]:
+        case SExprStmt(info, expr):
+            body.append(PyAssign(info, py_target, translate_expr(expr)))
+        case SIf() | SMatch() as nested:
+            body.append(_translate_value_stmt(nested, py_target))
+        case last:
+            raise NotImplementedError(f"statement {last!r} yields no value")
+    return body
+
+
+def _translate_value_case(c, py_target):
+    # `case pattern -> expr` binds the expression directly; the block form
+    # goes through `_translate_value_block` like an `if` branch. (Contrast
+    # `translate_case`, which desugars `->` to a `return` instead -- that
+    # is what a case arm means outside a binding.)
+    if c.expr is not None:
+        translated_expr = translate_expr(c.expr)
+        body = [PyAssign(translated_expr.info, py_target, translated_expr)]
+    else:
+        body = _translate_value_block(c.body, py_target)
+    return PyMatchCase(c.info, translate_pattern(c.pattern), body)
+
+
 def translate_stmt(s):
     match s:
         case SLet(info, target, expr):
             return PyAssign(info, translate_target(target), translate_expr(expr))
+        case SLetStmt(_, target, stmt):
+            return _translate_value_stmt(stmt, translate_target(target))
         case SVar(info, name, expr):
             return PyAssign(info, PyTargetName(info, name), translate_expr(expr))
         case SMutate(info, name, expr):

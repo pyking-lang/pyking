@@ -1,0 +1,75 @@
+# A `match` statement bound with `=`: like the `if` value form, the case
+# that matches supplies the bound value -- from its `-> expr` arm, or from
+# the last expression of its block.
+
+foo = 8
+x = match foo:
+    case 8 -> "eight"
+    case n -> str(n)
+
+print(x)
+
+# Block cases: the statements before the last run for their effect.
+w = match foo:
+    case 8:
+        a = 1
+        a + 100
+    case _:
+        0
+
+print(w)
+
+# Mixed arms, over a tuple subject, inside a function.
+def describe(point):
+    text = match point:
+        case (0, 0) -> "origin"
+        case (0, y):
+            side = if y > 0 then "up" else "down"
+            "on the y axis, " + side
+        case (x, 0) -> "on the x axis"
+        case (x, y):
+            "at " + str(x) + "," + str(y)
+    return text
+
+
+print(describe((0, 0)))
+print(describe((0, 5)))
+print(describe((0, 0 - 5)))
+print(describe((3, 0)))
+print(describe((3, 4)))
+
+# List patterns, with a value-form `if` as a case body's final statement.
+def summarize(items):
+    text = match items:
+        case [] -> "empty"
+        case [only] -> "just " + str(only)
+        case [first, ..rest]:
+            if first > 10:
+                "starts big, " + str(len(rest)) + " more"
+            else:
+                "starts small, " + str(len(rest)) + " more"
+    return text
+
+
+print(summarize([]))
+print(summarize([7]))
+print(summarize([3, 4, 5]))
+print(summarize([30, 4, 5, 0]))
+
+# A value-form `match` nested as the tail of a value-form `if` branch, and
+# a plain `match` statement afterwards to show the two forms coexist.
+n = 7
+k = if n > 5:
+    match n:
+        case 7 -> "seven"
+        case _ -> "big"
+else:
+    "small"
+
+print(k)
+
+match n:
+    case 7:
+        print("still a plain statement")
+    case _:
+        print("unreachable")

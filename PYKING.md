@@ -71,6 +71,16 @@ restriction of it, but these are genuinely new.
   `else if n == 0:` on its own line. It means exactly what Python's
   `elif` does (and compiles to it), so it is neither more nor less than
   sugar for an `else:` block containing a single nested `if` statement.
+- **`if`/`match` statements as bound values**: the right-hand side of an
+  `=` binding may be a block-form `if` or `match` instead of an
+  expression — `x = if cond:` / `x = match e:`, written over as many
+  lines as the branches need. They stay *statements*; binding one just
+  requires that it produce a value, which is the last expression of
+  whichever branch runs, and a bound `if` must therefore have an `else`.
+  Python has no statement that evaluates to a value (its `if`/`match`
+  yield nothing, and its conditional *expression* holds no statements),
+  so this compiles to the same `if`/`match` statement with the
+  assignment pushed into every branch tail.
 - **`..`/`..name` list-pattern rest markers**: Python spells "match the
   rest of a list" as `*_`/`*name`; Pyking spells it `..`/`..name`, and it
   may appear anywhere in the pattern — start, middle, or end — not just
@@ -111,7 +121,9 @@ Expressions:
 Statements:
 
 - Immutable bindings (`=`), which may destructure a tuple value into
-  several names at once (e.g. `a, b = 1, 2` or `(a, (b, c)) = pair`)
+  several names at once (e.g. `a, b = 1, 2` or `(a, (b, c)) = pair`),
+  and whose right-hand side may be an `if`/`match` *statement* in value
+  form (`x = if cond:` / `x = match e:`) — Pyking extension
 - Mutable variables (`var` and `:=`) — Pyking extension
 - Function definitions (`def`), with optional parameter and return type
   annotations (`Int`, `String`, `Bool`, list types `[T]`, tuple types
@@ -192,8 +204,13 @@ list_pattern_item  = pattern_atom | rest_marker ;
 rest_marker        = ".." , [ ident ] ;
 
 var_decl    = "var" , ident , "=" , tuple_or_expr ;
-assignment  = target , "=" , tuple_or_expr ;
+assignment  = target , "=" , ( tuple_or_expr | value_stmt ) ;
 mutation    = ident , ":=" , tuple_or_expr ;
+
+value_stmt  = value_if | match_stmt ;
+value_if    = "if" , expr , ":" , block ,
+              { "else" , "if" , expr , ":" , block } ,
+              "else" , ":" , block ;
 
 target      = target_atom , { "," , target_atom } ;
 target_atom = ident
@@ -297,6 +314,38 @@ Notes that don't fall out of the grammar alone:
   `then` means `if_expr`. (An `if_stmt` whose *condition* is an `if_expr`
   needs no special handling — `expr` already covers it, so
   `if if a then b else c:` parses.)
+- The right-hand side of an `assignment` faces that same standoff and
+  resolves it the same way: `x = if c:` is a `value_stmt`, `x = if c
+  then a else b` an ordinary `expr`, and only the token after the shared
+  `"if" , expr` prefix (`:` or `then`) tells them apart. A `match` on
+  the right of `=` needs no such care — `match` is a reserved keyword,
+  so it can never begin an `expr`.
+- Two restrictions on a `value_stmt` are not expressible in the grammar
+  and are checked by the parser instead, since the compiled Python
+  depends on both: every branch's `block` must **end in an expression**
+  (an `expr_stmt`, or a nested `value_stmt` that recursively ends in
+  one), and a `value_if`'s final `else` is **mandatory** — a binding
+  cannot be left without a value when no condition holds. A `match_stmt`
+  needs no such existence rule: it already requires at least one
+  `case_clause`, and a subject matching none of them is a runtime error,
+  not a silently skipped branch. The nested-`value_stmt` case is also
+  what makes an `else if` ladder work in value form, a ladder being
+  exactly a nested `if_stmt` as its `else` branch's only statement.
+- Only `assignment` accepts a `value_stmt` — `var_decl`, `mutation` and
+  `return_stmt` keep taking a plain `tuple_or_expr` (for the first two
+  the parser says so explicitly if you try). The value form works by
+  assigning to the target in each
+  branch's tail, which is what an immutable binding does; `var`/`:=`
+  distinguish *declaring* from *updating*, and a form that expands to
+  one assignment per branch has no way to say which of the two each of
+  those is.
+- Statements before a branch's last one are ordinary statements, run for
+  their effect: a branch may bind local names, print, or update an
+  enclosing `var` before yielding its value. This is a consequence of
+  how a `value_stmt` compiles — it stays one `if`/`match` *statement*,
+  with only the branch tails turned into assignments to the target — and
+  is why the value form is not the same as an `if_expr` spread over
+  several lines.
 - `comp_if` and `comp_for`'s sequence are the one place an `if_expr`
   needs parentheses: `[x for x in xs if (if a then b else c)]`. Written
   bare, the comprehension's own `if`/`in` would run straight into the
@@ -945,8 +994,10 @@ extension with no Python equivalent, so (unlike every other example in
 this document) the following is Pyking source, not valid Python:
 `case pattern -> expr` compiles to an ordinary `case pattern:` block
 whose body is `return expr`, so it's only meaningful directly inside a
-function (see the grammar notes above). The two forms can be mixed
-freely within one `match`. `def name(params) = expr` (see "Function
+function (see the grammar notes above) — unless the whole `match` is
+bound with `=`, where the arm supplies the bound value instead of
+returning (see "`if`/`match` statements as bound values" below). The two
+forms can be mixed freely within one `match`. `def name(params) = expr` (see "Function
 definitions" above) is the same idea applied to a whole function body
 instead of a single `case` arm.
 
@@ -961,6 +1012,89 @@ def describe(n):
 for i in [0, 1, 5]:
     print(describe(i))
 ```
+
+### `if`/`match` statements as bound values
+
+An `=` binding may take a block-form `if` or `match` on its right-hand
+side instead of an expression. The construct stays a statement — it is
+written and indented exactly as it would be on its own — but the branch
+that runs supplies the bound value, which is its **last expression**.
+Python has no statement that evaluates to a value, so the examples in
+this section are Pyking source, not valid Python.
+
+```pyking
+y = 3
+my = 2
+
+x = if 7 > my:
+    78 + y
+else:
+    tt = 5 + y
+    tt + 8
+
+print(x)
+```
+
+Only the *last* statement of a branch is its value; everything before it
+is an ordinary statement run for its effect, as `tt = 5 + y` is above. A
+branch may equally print, or update an enclosing `var` — nothing is
+hidden inside a new scope, because the compiled Python is the very same
+`if` statement with each branch's final expression assigned to `x`:
+
+```python
+if 7 > my:
+    x = 78 + y
+else:
+    tt = 5 + y
+    x = tt + 8
+```
+
+A bound `if` must have an `else` (there would otherwise be no value to
+bind when no condition holds), including at the end of an `else if`
+ladder. Every branch must end in an expression; the parser rejects both
+mistakes rather than binding something undefined.
+
+`match` works the same way, with either style of `case` arm — `-> expr`
+gives the value directly, and a block arm gives its last expression:
+
+```pyking
+def describe(point):
+    text = match point:
+        case (0, 0) -> "origin"
+        case (0, y):
+            side = if y > 0 then "up" else "down"
+            "on the y axis, " + side
+        case (x, y) -> "at " + str(x) + "," + str(y)
+    return text
+
+
+print(describe((0, 0)), describe((0, 5)), describe((3, 4)))
+```
+
+The last statement of a branch may itself be a bound-value `if`/`match`
+rather than a plain expression, in which case *its* branches supply the
+value — this is also what lets an `else if` ladder be bound, a ladder
+being a nested `if` statement in the `else` branch:
+
+```pyking
+n = 7
+
+k = if n > 5:
+    match n:
+        case 7 -> "seven"
+        case _ -> "big"
+else if n > 0:
+    "small"
+else:
+    "none"
+
+print(k)
+```
+
+The value form belongs to `=` alone: `var name = ...` and `name := ...`
+still take an ordinary expression (use `=` for the value form, or an
+`if ... then ... else ...` expression). A tuple `target` destructures the
+bound value exactly as it does in a plain binding.
 
 ### Expression statements
 

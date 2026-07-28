@@ -1,0 +1,76 @@
+# An `if` statement bound with `=`: it stays a statement, but every branch
+# ends in an expression, and the branch that runs supplies the bound value.
+
+y = 3
+my = 2
+x = if 7 > my:
+    78 + y
+else:
+    tt = 5 + y
+    tt + 3
+
+
+print(x)
+
+# The branches are ordinary blocks: statements before the last one run for
+# their effect, and only the final expression is the value.
+size = if x > 100:
+    print("large")
+    "large"
+else:
+    print("small")
+    "small"
+
+print(size)
+
+# An `else if` ladder in value form -- the final `else` is required, since
+# every path has to produce a value.
+def classify(n):
+    label = if n < 0:
+        "negative"
+    else if n == 0:
+        "zero"
+    else if n < 10:
+        "small"
+    else:
+        "big"
+    return label
+
+
+print(classify(0 - 4), classify(0), classify(7), classify(99))
+
+# A tuple target destructures the bound value, just as in a plain binding.
+lo, hi = if my < y:
+    (my, y)
+else:
+    (y, my)
+
+print(lo, hi)
+
+# A branch may mutate an enclosing `var` before yielding its value -- the
+# binding is pushed into the branches, so nothing is hidden in a new scope.
+def stepped(n):
+    var steps = 0
+    doubled = if n > 0:
+        steps := steps + 1
+        n * 2
+    else:
+        0 - n
+    return (doubled, steps)
+
+
+print(stepped(4))
+print(stepped(0 - 4))
+
+# Nesting: a value-form `if` inside a branch of another one, and a value
+# binding inside a branch's block.
+depth = if y > 0:
+    inner = if y > 2:
+        "deep"
+    else:
+        "shallow"
+    inner + "!"
+else:
+    "none"
+
+print(depth)

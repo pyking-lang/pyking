@@ -40,6 +40,38 @@ message format, etc.). Read it before writing or editing any Pyking source
 current bootstrap parser accepts, which is not the same as full Python.
 Keep it in sync whenever `boot/`'s language support changes.
 
+## Changing the language: always update all four places
+
+A change to what `boot/` accepts is not finished until **every** one of
+these is updated in the same change — none of them is optional, and the
+last two are the ones that get forgotten:
+
+1. **`boot/`** — the stage(s) implementing it (lexer → parser → syntax →
+   each `target_*.py` backend).
+2. **`tests/`** — at least one `.pyk` file exercising the new construct,
+   with its `.out` file captured from an actual run (`make test`).
+3. **`PYKING.md`** — feature summary, EBNF grammar, the grammar notes for
+   anything the EBNF can't express, and a worked example.
+4. **`tools/emacs/pyking-mode.el`** — the editor mode claims in its own
+   commentary to mirror `boot/lexer.py` and `boot/parser.py`, so it goes
+   stale silently. Check each of these against the change:
+   - `pyking-mode-keywords` / `pyking-mode-types` — must still equal the
+     `keywords` list in `boot/lexer.py`;
+   - `pyking-mode-builtins` — extend it when an example or test starts
+     calling a new Python builtin;
+   - `pyking-mode-font-lock-keywords` — new operator/marker syntax;
+   - indentation — a new block-opening or block-closing form usually
+     needs `pyking-calculate-indent` or the backward dedent scans taught
+     about it (`pyking--if-block-opener-regexp` and its `match`
+     counterpart exist because a block header stopped being a line whose
+     *first* word is `if`/`match`).
+
+   Verify it, don't eyeball it: `emacs --batch -Q -L tools/emacs -l
+   pyking-mode --eval` can compute `(pyking-calculate-indent)` line by
+   line over a correctly-indented `tests/*.pyk` file and report any line
+   it disagrees with, and `-f batch-byte-compile` must stay
+   warning-free.
+
 ## Architecture of `boot/`
 
 The bootstrap is split into one module per compiler stage:
@@ -75,12 +107,20 @@ The bootstrap is split into one module per compiler stage:
    spans from its first token's start to its last token's end, built via
    `combine_info(start, end)` — when adding a new grammar rule, combine
    infos the same way rather than reusing a single token's span. Parse
-   errors raise `ParseError(info, message)`.
+   errors raise `ParseError(info, message)`. A few restrictions that the
+   grammar can't express are checked here too, so they fail at parse time
+   with a source position rather than in a later stage: duplicate
+   bindings in a pattern (`_check_no_duplicate_captures`) and the "every
+   branch yields a value" rules of a value-form `if`/`match`
+   (`_check_value_stmt`, on which `target_python.py` relies).
 4. **`boot/target_python.py`** — the Python code-generation backend: its
    own `Py*` AST (`PyInt`, `PyAssign`, `PyFor`, ... — structurally the same
    shape as `boot/syntax.py`'s `E*`/`S*`, except Pyking's `SLet`/`SVar`/
    `SMutate` all collapse into one `PyAssign`, since Python has no
-   mutable-vs-immutable-binding distinction), `translate_program`/
+   mutable-vs-immutable-binding distinction, and `SLetStmt` — an
+   `if`/`match` statement bound with `=`, see PYKING.md — has no node of
+   its own at all, since it compiles to the ordinary `PyIf`/`PyMatch`
+   with a `PyAssign` pushed into each branch's tail), `translate_program`/
    `translate_stmt`/`translate_expr` (Pyking AST → `Py*` AST; each `match`
    ends in a `case _: raise NotImplementedError(...)` so a future Pyking
    construct without a translation fails loudly rather than silently

@@ -17,7 +17,9 @@ from syntax import (
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList, ETuple,
     EIf, EListComp, CompFor, CompIf,
     PInt, PString, PWildcard, PCapture, PTuple, PList, ListRest, MatchCase,
-    SLet, SVar, SMutate, SReturn, SExprStmt, SFor, SWhile, SIf, SFunctionDef, SMatch,
+    Stmt,
+    SLet, SLetStmt, SVar, SMutate, SReturn, SExprStmt, SFor, SWhile, SIf,
+    SFunctionDef, SMatch,
     TInt, TString, TBool, TList, TTuple, Param,
     TargetName, TargetTuple,
 )
@@ -740,6 +742,118 @@ def parse_cases(tokens):
             raise ParseError(_here(tokens), "expected an indented block of 'case' clauses")
 
 
+def parse_match_stmt(match_info, tokens):
+    """Parses a match statement from just after its `match` keyword."""
+    subject, rest = parse_expr(tokens)
+    match rest:
+        case [TokColon(_), *rest]:
+            cases, rest = parse_cases(rest)
+            match_info = combine_info(match_info, cases[-1].info)
+            return SMatch(match_info, subject, cases), rest
+        case _:
+            raise ParseError(_here(rest), "expected ':' after match header")
+
+
+# --- value-form if/match (`x = if c:` / `x = match e:`) ---
+#
+# These stay ordinary if/match *statements*; binding one with '=' just
+# additionally requires that it yield a value on every path, which the
+# two checks below enforce -- neither restriction is expressible in the
+# grammar itself, so they're checked here rather than falling out of the
+# parse. `target_python.py` relies on both holding.
+
+def _check_value_stmt(stmt):
+    """Checks that `stmt` -- the if/match statement on the right-hand side
+    of a binding -- yields a value whichever way it branches: an `if` must
+    have its `else` (there is no value to bind if the condition fails), and
+    every branch must end in a value (see `_check_value_block`). A `match`
+    needs no such existence check: `parse_cases` already requires at least
+    one case, and an unmatched subject is a runtime error, not a branch
+    that silently falls through."""
+    match stmt:
+        case SIf(info, _, then_body, else_body):
+            if else_body is None:
+                raise ParseError(info, "an 'if' bound with '=' must have an 'else' branch")
+            _check_value_block(then_body, info)
+            _check_value_block(else_body, info)
+        case SMatch(_, _, cases):
+            for case_clause in cases:
+                # `case pattern -> expr` is an expression by construction;
+                # only the block form can end in the wrong thing.
+                if case_clause.expr is None:
+                    _check_value_block(case_clause.body, case_clause.info)
+
+
+def _check_value_block(stmts, info):
+    """Checks that one branch of a value-form if/match ends in something
+    that yields a value: an expression statement, or a nested if/match
+    that recursively does the same -- which is also what makes an
+    `else if` ladder work in value form, since the ladder *is* a nested
+    if statement as the else branch's only statement (see
+    `parse_if_stmt_tail`). Every statement before the last is an ordinary
+    statement, run for its effect."""
+    match stmts:
+        case [*_, SExprStmt()]:
+            return
+        case [*_, (SIf() | SMatch()) as nested]:
+            _check_value_stmt(nested)
+        case [*_, last]:
+            raise ParseError(last.info, "a branch bound with '=' must end in an expression")
+        case _:
+            raise ParseError(info, "a branch bound with '=' must end in an expression")
+
+
+def parse_bound_value(tokens):
+    """Parses the right-hand side of a binding's '=': either an ordinary
+    `tuple_or_expr`, or -- Pyking extension -- an `if`/`match` statement
+    in *value form*. Returns `(node, rest)`, where the node is an `Expr`
+    for the ordinary case and the `SIf`/`SMatch` itself for the value
+    form; callers tell them apart by type (`Stmt` vs. `Expr`).
+
+    A `match` on the right of '=' is unambiguously the value form --
+    `match` is a reserved keyword, so it can never start an expression.
+    An `if` is the same standoff `parse_statement` faces between an if
+    statement and an if expression, resolved the same way: parse the
+    shared `"if" , expr` prefix once, then dispatch on ':' (value form)
+    versus 'then' (an ordinary if expression)."""
+    match tokens:
+        case [TokMatch(info), *rest]:
+            stmt, rest = parse_match_stmt(info, rest)
+            _check_value_stmt(stmt)
+            return stmt, rest
+        case [TokIf(info), *rest]:
+            cond, rest = parse_expr(rest)
+            match rest:
+                case [TokColon(_), *rest]:
+                    stmt, rest = parse_if_stmt_tail(info, cond, rest)
+                    _check_value_stmt(stmt)
+                    return stmt, rest
+                case [TokThen(_), *_]:
+                    expr, rest = parse_if_expr_tail(info, cond, rest)
+                    return parse_tuple_tail(expr, rest)
+                case _:
+                    raise ParseError(
+                        _here(rest), "expected ':' or 'then' after if condition"
+                    )
+        case _:
+            return parse_tuple_or_expr(tokens)
+
+
+def _expect_expr_value(value):
+    """Rejects a value-form if/match where only an expression is allowed.
+    The value form binds by assigning in each branch's tail, which is
+    exactly what an *immutable* binding does and what `var`/`:=` do not
+    -- see PYKING.md."""
+    match value:
+        case Stmt():
+            raise ParseError(
+                value.info,
+                "a value-form 'if'/'match' can only be bound with '=', not 'var' or ':='",
+            )
+        case _:
+            return value
+
+
 def parse_statement(tokens):
     match tokens:
         case [TokDef(info), TokIdent(_, name), TokLParen(_), *rest]:
@@ -790,14 +904,7 @@ def parse_statement(tokens):
                     raise ParseError(_here(rest), "expected ':' after while header")
 
         case [TokMatch(info), *rest]:
-            subject, rest = parse_expr(rest)
-            match rest:
-                case [TokColon(_), *rest]:
-                    cases, rest = parse_cases(rest)
-                    match_info = combine_info(info, cases[-1].info)
-                    return SMatch(match_info, subject, cases), rest
-                case _:
-                    raise ParseError(_here(rest), "expected ':' after match header")
+            return parse_match_stmt(info, rest)
 
         # A statement starting with `if` is either an if *statement*
         # (`if cond: block`) or an if *expression* used as an expression
@@ -824,11 +931,13 @@ def parse_statement(tokens):
                     )
 
         case [TokVar(info), TokIdent(_, name), TokEq(_), *rest]:
-            expr, rest = parse_tuple_or_expr(rest)
+            expr, rest = parse_bound_value(rest)
+            expr = _expect_expr_value(expr)
             return SVar(combine_info(info, expr.info), name, expr), rest
 
         case [TokIdent(info, name), TokAssign(_), *rest]:
-            expr, rest = parse_tuple_or_expr(rest)
+            expr, rest = parse_bound_value(rest)
+            expr = _expect_expr_value(expr)
             return SMutate(combine_info(info, expr.info), name, expr), rest
 
         # `target = expr`, where `target` may destructure a tuple (e.g.
@@ -841,8 +950,13 @@ def parse_statement(tokens):
             _assign := _try_parse_assignment_target(tokens)
         ) is not None:
             target, rest = _assign
-            expr, rest = parse_tuple_or_expr(rest)
-            return SLet(combine_info(target.info, expr.info), target, expr), rest
+            value, rest = parse_bound_value(rest)
+            let_info = combine_info(target.info, value.info)
+            match value:
+                case Stmt():
+                    return SLetStmt(let_info, target, value), rest
+                case _:
+                    return SLet(let_info, target, value), rest
 
         case _:
             expr, rest = parse_tuple_or_expr(tokens)

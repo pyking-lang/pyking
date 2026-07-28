@@ -434,6 +434,17 @@ class SLet(Stmt):           # target = expr (immutable binding; target may
 
 
 @dataclass(frozen=True)
+class SLetStmt(Stmt):       # target = <if/match statement in value form>,
+    info: Info               # e.g. `x = if c:` / `x = match e:` -- Pyking
+    target: AssignTarget     # extension. `stmt` is the SIf/SMatch itself;
+    stmt: Stmt               # the value bound is the last expression of
+                             # whichever branch runs, so every branch must
+                             # end in one (and an `if` must have its `else`)
+                             # -- checked by the parser, since neither
+                             # restriction is expressible in the grammar.
+
+
+@dataclass(frozen=True)
 class SVar(Stmt):           # var name = expr (mutable declaration)
     info: Info
     name: str
@@ -509,6 +520,11 @@ def pprint_stmt(s, level=0):
     match s:
         case SLet(_, target, expr):
             return f"{pad}{pprint_target(target)} = {pprint_expr(expr)}"
+        case SLetStmt(_, target, stmt):
+            # The bound statement prints exactly as it would on its own;
+            # only its header line gains the `target = ` prefix.
+            head, *rest = pprint_stmt(stmt, level).split("\n")
+            return "\n".join([f"{pad}{pprint_target(target)} = {head.strip()}"] + rest)
         case SVar(_, name, expr):
             return f"{pad}var {name} = {pprint_expr(expr)}"
         case SMutate(_, name, expr):
