@@ -1,0 +1,63 @@
+# `else if` ladders nested inside other blocks, and mixed with the
+# `if ... then ... else` *expression*, which spells its own chain inline.
+
+def grade(score):
+    if score >= 90:
+        return "A"
+    else if score >= 80:
+        return "B"
+    else if score >= 70:
+        return "C"
+    else:
+        return "F"
+
+
+for s in [95, 85, 75, 65]:
+    print(s, grade(s))
+
+
+# A ladder whose branches hold further if statements -- the inner `else`
+# belongs to the inner `if`, since the dedent closes its block first.
+def quadrant(x, y):
+    if x >= 0:
+        if y >= 0:
+            return 1
+        else:
+            return 4
+    else if y >= 0:
+        return 2
+    else:
+        return 3
+
+
+print(quadrant(1, 1), quadrant(0 - 1, 1), quadrant(0 - 1, 0 - 1), quadrant(1, 0 - 1))
+
+# An `else if` condition is a full expression, so it may itself be an if
+# *expression*: the ':' is what ends it, the same way it ends a plain one.
+def zero_check(n):
+    if n < 0:
+        return "negative"
+    else if if n == 0 then 1 == 1 else 1 == 2:
+        return "zero"
+    else:
+        return "positive"
+
+
+print(zero_check(0 - 2), zero_check(0), zero_check(2))
+
+# Inside a while loop, with mutation, and with an if expression (which
+# needs its parentheses to be an operand) as one branch's value.
+var i = 0
+var out = ""
+while i < 5:
+    if i == 0:
+        out := out + "z"
+    else if i == 1:
+        out := out + "o"
+    else if i == 2:
+        out := out + (if i < 3 then "t" else "?")
+    else:
+        out := out + "-"
+    i := i + 1
+
+print(out)

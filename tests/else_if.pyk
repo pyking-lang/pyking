@@ -1,0 +1,42 @@
+# `else if` -- two keywords, not `elif`. It is a *statement* form only;
+# the if expression chains inline with its own `else if` (see if_expr.pyk).
+
+def classify(n):
+    if n < 0:
+        return "negative"
+    else if n == 0:
+        return "zero"
+    else if n < 10:
+        return "small"
+    else:
+        return "big"
+
+
+print(classify(0 - 4))
+print(classify(0))
+print(classify(7))
+print(classify(99))
+
+
+# A ladder with no trailing `else`: when no branch holds, none of them runs.
+def describe(n):
+    var out = "none"
+    if n == 1:
+        out := "one"
+    else if n == 2:
+        out := "two"
+    else if n == 3:
+        out := "three"
+    return out
+
+
+print(describe(1), describe(2), describe(3), describe(4))
+
+# A single `else if` branch, at the top level rather than inside a function.
+x = 5
+if x > 10:
+    print("big")
+else if x > 3:
+    print("medium")
+else:
+    print("small")
