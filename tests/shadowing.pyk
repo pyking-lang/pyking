@@ -1,0 +1,85 @@
+# Lexical shadowing. Every binding form may reuse a name that is already
+# in scope, as long as that name is not a mutable variable: the innermost
+# binding wins for the rest of its scope, and vanishes with it.
+
+n = "outer"
+value = 10
+
+# A parameter shadows the module-level `n` throughout the body.
+def describe(n) =
+    "param " + str(n)
+
+
+print(describe(1), n)
+
+
+# A binding may in turn shadow the parameter it reads.
+def twice(value):
+    value = value * 2
+    return value
+
+
+print(twice(4), value)
+
+
+# Pattern variables shadow too, each only within its own case arm -- note
+# `n` and `value` here are the pattern's, not the module's.
+def classify(point):
+    match point:
+        case (n, 0) -> "on x at " + str(n)
+        case (0, n) -> "on y at " + str(n)
+        case (n, value) -> str(n) + "/" + str(value)
+
+
+print(classify((3, 0)))
+print(classify((0, 4)))
+print(classify((5, 6)))
+print(n, value)
+
+
+# A comprehension's pattern variable is scoped to the comprehension.
+squares = [value * value for value in [1, 2, 3]]
+
+print(squares, value)
+
+
+# A nested function's parameter shadows the enclosing function's, and the
+# enclosing one is still what the outer body sees.
+def outer(x):
+    def inner(x) =
+        x * 10
+
+    return inner(x + 1) + x
+
+
+print(outer(2))
+
+
+# A `def` binds a name like any other, so it can shadow a binding, and a
+# function sees its own name (this one calls itself).
+step = "not a function"
+
+
+def step(k):
+    if k <= 0:
+        return "done"
+    else:
+        return "." + step(k - 1)
+
+
+print(step(3))
+
+
+# Shadowing chains: each scope rebinds the same name from the one outside
+# it, and every level reads exactly its own.
+def chain(label):
+    first = label + "/1"
+
+    def middle(label) =
+        label + "/2"
+
+    second = middle(first)
+    return second + "/3"
+
+
+print(chain("start"))

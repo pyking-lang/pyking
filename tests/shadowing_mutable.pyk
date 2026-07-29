@@ -1,0 +1,73 @@
+# Mutable variables and scope. A `var` may shadow any immutable name, and
+# `:=` always updates the nearest `var` in scope. The one thing that is
+# rejected -- at compile time, by the name analysis -- is binding a name
+# that a visible mutable variable owns, which is what keeps `:=`
+# unambiguous. See "Names and scoping" in PYKING.md.
+
+count = 100
+
+
+# A mutable variable shadowing the immutable `count` above.
+def tally(items):
+    var count = 0
+    for item in items:
+        count := count + item
+    return count
+
+
+print(tally([1, 2, 3]), count)
+
+
+# Sibling scopes may each declare a `var` of the same name: neither is in
+# scope where the other is declared, so they never meet.
+def sum_of(items):
+    var total = 0
+    for item in items:
+        total := total + item
+    return total
+
+
+def biggest_of(items):
+    var total = 0
+    for item in items:
+        if item > total:
+            total := item
+    return total
+
+
+print(sum_of([1, 2, 3, 4]), biggest_of([3, 9, 2]))
+
+
+# A `var` declared in a loop body belongs to that body's scope, so each
+# iteration starts a fresh one; the outer variable is updated from inside
+# the same nested blocks, since `:=` reaches out and no block shadows it.
+var log = ""
+for row in [[1, 2], [3, 4]]:
+    var line = ""
+    for cell in row:
+        line := line + str(cell)
+    log := log + line + ";"
+
+print(log)
+
+
+# `:=` from arbitrarily deep inside nested blocks still names the one
+# variable, because nothing in between is allowed to rebind it.
+var deepest = 0
+for a in range(3):
+    for b in range(3):
+        if a + b > deepest:
+            deepest := a + b
+
+print(deepest)
+
+
+# A mutable variable may hold anything a binding can, and a pattern
+# variable of another name may shadow freely alongside it.
+var report = ""
+for pair in [(1, "one"), (2, "two")]:
+    match pair:
+        case (k, name):
+            report := report + str(k) + "=" + name + " "
+
+print(report)

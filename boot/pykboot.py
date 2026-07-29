@@ -1,6 +1,7 @@
 import os
 import sys
 
+from analyses import analyze_program, AnalysisError
 from lexer import lexing, pprint_info, pprint_token, LexError
 from parser import parse, ParseError
 from syntax import pprint_program
@@ -58,6 +59,15 @@ try:
     program = parse(tokens)
 except ParseError as e:
     print(f"{pprint_info(e.info)} Parsing error: {e.message}", file=sys.stderr)
+    sys.exit(1)
+
+# Name analysis runs for every mode, `--ast` included: it is part of the
+# front end, not of any backend, and an AST whose names don't resolve is
+# not a program worth printing or compiling.
+try:
+    analyze_program(program)
+except AnalysisError as e:
+    print(f"{pprint_info(e.info)} Name error: {e.message}", file=sys.stderr)
     sys.exit(1)
 
 if show_ast:

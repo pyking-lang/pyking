@@ -420,22 +420,130 @@ def _is_irrefutable(pattern):
             return False
 
 
-def _pattern_to_target(pattern):
+def _pattern_to_target(pattern, scope):
     """Compiles an irrefutable `pattern` (see `_is_irrefutable`) directly
     to the equivalent Python assignment/`for` target -- e.g. `(x, _)`
     stays `(x, _)`, so the generated comprehension reads just like the
-    Pyking source, with no helper indirection."""
+    Pyking source, with no helper indirection. Returns it with the scope
+    its names extend, like `translate_target`."""
     match pattern:
         case PCapture(info, name):
-            return PyTargetName(info, name)
+            py_name, scope = _bind(name, scope)
+            return PyTargetName(info, py_name), scope
         case PWildcard(info):
-            return PyTargetName(info, "_")
+            return PyTargetName(info, "_"), scope
         case PTuple(info, elements):
-            return PyTargetTuple(info, [_pattern_to_target(e) for e in elements])
+            py_elements = []
+            for element in elements:
+                py_element, scope = _pattern_to_target(element, scope)
+                py_elements.append(py_element)
+            return PyTargetTuple(info, py_elements), scope
         case _:
             raise NotImplementedError(
                 f"pattern {pattern!r} is refutable; has no direct Python target"
             )
+
+
+# --- scopes and renaming ---
+#
+# Pyking makes every block a scope, so a binding inside an `if`/`for`/
+# `while`/`case` body may shadow an outer name and disappear with the
+# block. Python only scopes at function (and comprehension) boundaries,
+# so translating both bindings to the same Python name would let the
+# inner one overwrite the outer -- the shadowed name would come back
+# changed after the block. The translation therefore carries a `Scope`
+# mapping each Pyking name to the Python name standing in for it, and
+# renames a binding when, and only when, Python would otherwise confuse
+# it with a live one.
+#
+# "Only when necessary" is the point: a rename is emitted just for a
+# binding that shadows another *within the same Python function scope*.
+# Everything else keeps the name the programmer wrote --
+#
+#   - a `def` body, a comprehension: Python opens a real scope there, so
+#     a parameter or comprehension variable may reuse any name freely;
+#   - rebinding in the same block (`x = 1` then `x = 2`): the first is
+#     unreachable afterwards in Pyking too, so one Python name serves
+#     both;
+#   - sibling blocks that each bind `t`: neither can see the other's, so
+#     they share the name.
+#
+# A renamed name stays close to the original: `total` becomes `total2`,
+# or `total3` if `total2` is itself taken here (see `_fresh_py_name`).
+
+
+@dataclass(frozen=True)
+class Scope:
+    """The names in scope during translation.
+
+    `local` is the current Python function scope: Pyking name -> the
+    Python name it compiles to. `outer` is everything visible from
+    enclosing Python function scopes, kept separate because a binding
+    only has to dodge names in `local` -- Python's own scoping already
+    keeps it apart from `outer` -- while reads must still find both.
+    `block` is the set of names bound by the innermost Pyking block, the
+    one thing that distinguishes rebinding a name (reuse) from shadowing
+    it (rename)."""
+    outer: dict
+    local: dict
+    block: frozenset
+
+
+def _function_scope(scope):
+    """The scope for a `def` body or a comprehension: Python opens a
+    fresh scope there, so everything visible so far becomes closure state
+    and nothing inside it can collide with anything outside."""
+    return Scope({**scope.outer, **scope.local}, {}, frozenset())
+
+
+def _block_scope(scope):
+    """The scope for a nested Pyking block: the same Python function
+    scope -- which is exactly why bindings inside it may need renaming --
+    but its own set of block-local names, and its bindings are dropped
+    when the caller keeps using its own scope."""
+    return Scope(scope.outer, scope.local, frozenset())
+
+
+def _lookup(name, scope):
+    """The Python name a Pyking name reads as. A name bound nowhere is a
+    builtin (`print`, `len`, ...) and passes through unchanged -- the
+    name analysis has already rejected every other unbound name."""
+    if name in scope.local:
+        return scope.local[name]
+    return scope.outer.get(name, name)
+
+
+def _fresh_py_name(name, scope):
+    """`name2`, or `name3`, ... -- the first that no name in scope is
+    already using. Both sides of both maps are checked: a Python name in
+    use (a value) would be overwritten, and a Pyking name in scope (a
+    key) is one this same translation may yet have to emit as itself."""
+    taken = (
+        set(scope.local) | set(scope.local.values())
+        | set(scope.outer) | set(scope.outer.values())
+    )
+    n = 2
+    while f"{name}{n}" in taken:
+        n += 1
+    return f"{name}{n}"
+
+
+def _bind(name, scope):
+    """Binds a Pyking name, returning `(python_name, extended_scope)`.
+
+    Renames only when this binding would land on a Python name that is
+    still live in this function scope: either the same name bound by an
+    enclosing *block* (`name in scope.local` without being block-local
+    here), or a Python name some earlier rename already handed out
+    (`name in scope.local.values()`)."""
+    if name in scope.block:
+        return scope.local[name], scope
+    py_name = name
+    if name in scope.local or name in scope.local.values():
+        py_name = _fresh_py_name(name, scope)
+    return py_name, Scope(
+        scope.outer, {**scope.local, name: py_name}, scope.block | {name}
+    )
 
 
 def _build_match_helper(pattern, helper_name):
@@ -448,25 +556,28 @@ def _build_match_helper(pattern, helper_name):
     no collision protection: it's only ever referenced as the `match`
     subject *before* `pattern` binds anything, so even a pattern that
     itself captures a name `v` (which would then shadow the
-    parameter inside the `case` body) stays correct."""
+    parameter inside the `case` body) stays correct. For the same reason
+    the helper needs no renaming: its body is a Python function scope of
+    its own, holding nothing but this pattern's own names."""
     info = pattern.info
     v = PyVar(info, "v")
     names = pattern_captured_names(pattern)
     success = PyReturn(
         info, PyList(info, [PyTuple(info, [PyVar(info, n) for n in names])])
     )
-    match_stmt = PyMatch(
-        info, v, [PyMatchCase(info, translate_pattern(pattern), [success])]
-    )
+    helper_scope = Scope({}, {}, frozenset())
+    py_pattern, _ = translate_pattern(pattern, helper_scope)
+    match_stmt = PyMatch(info, v, [PyMatchCase(info, py_pattern, [success])])
     failure = PyReturn(info, PyList(info, []))
     helper = PyFunctionDef(info, helper_name, ["v"], [match_stmt, failure])
     _pending_comp_helpers.append(helper)
     return names
 
 
-def _translate_comp_for(clause):
+def _translate_comp_for(clause, scope):
     """Expands one Pyking `CompFor(pattern, sequence)` into Python
-    comprehension clause(s).
+    comprehension clause(s), returning them with the scope its pattern
+    extends (later clauses and the element expression see those names).
 
     An *irrefutable* pattern (see `_is_irrefutable`) needs no filtering,
     so it becomes a single, plain `for <target> in <seq>` -- the same
@@ -481,9 +592,10 @@ def _translate_comp_for(clause):
     raw items, then `for <names> in helper(item)`, where the helper
     returns `[]` (filtered out) or `[(names...)]` (matched)."""
     info = clause.info
-    sequence = translate_expr(clause.sequence)
+    sequence = translate_expr(clause.sequence, scope)
     if _is_irrefutable(clause.pattern):
-        return [PyCompFor(info, _pattern_to_target(clause.pattern), sequence)]
+        target, scope = _pattern_to_target(clause.pattern, scope)
+        return [PyCompFor(info, target, sequence)], scope
 
     item_var, helper_name = _fresh_comp_names()
     names = _build_match_helper(clause.pattern, helper_name)
@@ -491,118 +603,163 @@ def _translate_comp_for(clause):
     # pattern captures nothing, `(n,)` for one name -- `PyTargetTuple`
     # already prints the right shape (including the singleton comma) in
     # every case, so there's no need to special-case any of them here.
-    target = PyTargetTuple(info, [PyTargetName(info, n) for n in names])
+    elements = []
+    for name in names:
+        py_name, scope = _bind(name, scope)
+        elements.append(PyTargetName(info, py_name))
+    target = PyTargetTuple(info, elements)
     return [
         PyCompFor(info, PyTargetName(info, item_var), sequence),
         PyCompFor(
             info, target, PyCall(info, PyVar(info, helper_name), [PyVar(info, item_var)])
         ),
-    ]
+    ], scope
 
 
-def translate_expr(e):
+def translate_expr(e, scope):
     match e:
         case EInt(info, v):
             return PyInt(info, v)
         case EString(info, s):
             return PyString(info, s)
         case EVar(info, name):
-            return PyVar(info, name)
+            return PyVar(info, _lookup(name, scope))
         case EAdd(info, l, r):
-            return PyAdd(info, translate_expr(l), translate_expr(r))
+            return PyAdd(info, translate_expr(l, scope), translate_expr(r, scope))
         case ESub(info, l, r):
-            return PySub(info, translate_expr(l), translate_expr(r))
+            return PySub(info, translate_expr(l, scope), translate_expr(r, scope))
         case EMul(info, l, r):
-            return PyMul(info, translate_expr(l), translate_expr(r))
+            return PyMul(info, translate_expr(l, scope), translate_expr(r, scope))
         case EDiv(info, l, r):
-            return PyDiv(info, translate_expr(l), translate_expr(r))
+            return PyDiv(info, translate_expr(l, scope), translate_expr(r, scope))
         case ELessThan(info, l, r):
-            return PyLessThan(info, translate_expr(l), translate_expr(r))
+            return PyLessThan(info, translate_expr(l, scope), translate_expr(r, scope))
         case ELessThanEq(info, l, r):
-            return PyLessThanEq(info, translate_expr(l), translate_expr(r))
+            return PyLessThanEq(info, translate_expr(l, scope), translate_expr(r, scope))
         case EGreatThan(info, l, r):
-            return PyGreatThan(info, translate_expr(l), translate_expr(r))
+            return PyGreatThan(info, translate_expr(l, scope), translate_expr(r, scope))
         case EGreatThanEq(info, l, r):
-            return PyGreatThanEq(info, translate_expr(l), translate_expr(r))
+            return PyGreatThanEq(info, translate_expr(l, scope), translate_expr(r, scope))
         case EEq(info, l, r):
-            return PyEq(info, translate_expr(l), translate_expr(r))
+            return PyEq(info, translate_expr(l, scope), translate_expr(r, scope))
         case ECall(info, f, args):
-            return PyCall(info, translate_expr(f), [translate_expr(a) for a in args])
+            return PyCall(
+                info,
+                translate_expr(f, scope),
+                [translate_expr(a, scope) for a in args],
+            )
         case EList(info, elements):
-            return PyList(info, [translate_expr(el) for el in elements])
+            return PyList(info, [translate_expr(el, scope) for el in elements])
         case ETuple(info, elements):
-            return PyTuple(info, [translate_expr(el) for el in elements])
+            return PyTuple(info, [translate_expr(el, scope) for el in elements])
         case EIf(info, cond, then_expr, else_expr):
             # Pyking's `if c then a else b` is exactly Python's conditional
             # expression `a if c else b` -- same semantics (both branches
             # lazy, `else` mandatory), only the operand order differs.
             return PyIfExp(
                 info,
-                translate_expr(cond),
-                translate_expr(then_expr),
-                translate_expr(else_expr),
+                translate_expr(cond, scope),
+                translate_expr(then_expr, scope),
+                translate_expr(else_expr, scope),
             )
         case EListComp(info, expr, clauses):
+            # A Python comprehension has its own scope, exactly like a
+            # Pyking one, so its variables never need renaming -- but they
+            # must not leak into the enclosing scope either, hence the
+            # `_function_scope`.
+            comp_scope = _function_scope(scope)
             py_clauses = []
             for clause in clauses:
                 match clause:
                     case CompFor():
-                        py_clauses += _translate_comp_for(clause)
+                        clause_py, comp_scope = _translate_comp_for(clause, comp_scope)
+                        py_clauses += clause_py
                     case CompIf(_, condition):
-                        py_clauses.append(PyCompIf(clause.info, translate_expr(condition)))
-            return PyListComp(info, translate_expr(expr), py_clauses)
+                        py_clauses.append(
+                            PyCompIf(clause.info, translate_expr(condition, comp_scope))
+                        )
+            return PyListComp(info, translate_expr(expr, comp_scope), py_clauses)
         case _:
             raise NotImplementedError(f"no Python translation for expression {e!r}")
 
 
-def translate_pattern(p):
+def translate_pattern(p, scope):
+    """Translates a pattern, returning it with the scope its captures
+    extend -- a `case` arm's pattern binds in the enclosing Python
+    function scope (Python's `match` is not a scope), so those names go
+    through `_bind` and may be renamed like any other binding."""
     match p:
         case PInt(info, v):
-            return PyPInt(info, v)
+            return PyPInt(info, v), scope
         case PString(info, s):
-            return PyPString(info, s)
+            return PyPString(info, s), scope
         case PWildcard(info):
-            return PyPWildcard(info)
+            return PyPWildcard(info), scope
         case PCapture(info, name):
-            return PyPCapture(info, name)
+            py_name, scope = _bind(name, scope)
+            return PyPCapture(info, py_name), scope
         case PTuple(info, elements):
-            return PyPTuple(info, [translate_pattern(e) for e in elements])
+            py_elements = []
+            for element in elements:
+                py_element, scope = translate_pattern(element, scope)
+                py_elements.append(py_element)
+            return PyPTuple(info, py_elements), scope
         case PList(info, prefix, rest, suffix):
-            py_rest = None if rest is None else PyListRest(rest.info, rest.name)
-            return PyPList(
-                info,
-                [translate_pattern(e) for e in prefix],
-                py_rest,
-                [translate_pattern(e) for e in (suffix or [])],
-            )
+            py_prefix = []
+            for element in prefix:
+                py_element, scope = translate_pattern(element, scope)
+                py_prefix.append(py_element)
+            py_rest = None
+            if rest is not None:
+                if rest.name is None:
+                    py_rest = PyListRest(rest.info, None)
+                else:
+                    py_name, scope = _bind(rest.name, scope)
+                    py_rest = PyListRest(rest.info, py_name)
+            py_suffix = []
+            for element in (suffix or []):
+                py_element, scope = translate_pattern(element, scope)
+                py_suffix.append(py_element)
+            return PyPList(info, py_prefix, py_rest, py_suffix), scope
         case _:
             raise NotImplementedError(f"no Python translation for pattern {p!r}")
 
 
-def translate_target(t):
+def translate_target(t, scope):
+    """Translates an assignment target, returning it with the scope its
+    names extend."""
     match t:
         case TargetName(info, name):
-            return PyTargetName(info, name)
+            py_name, scope = _bind(name, scope)
+            return PyTargetName(info, py_name), scope
         case TargetTuple(info, elements):
-            return PyTargetTuple(info, [translate_target(e) for e in elements])
+            py_elements = []
+            for element in elements:
+                py_element, scope = translate_target(element, scope)
+                py_elements.append(py_element)
+            return PyTargetTuple(info, py_elements), scope
         case _:
             raise NotImplementedError(f"no Python translation for assignment target {t!r}")
 
 
-def translate_case(c):
+def translate_case(c, scope):
     # Pyking's single-expression `case pattern -> expr` has no Python
     # equivalent, so it desugars here into an ordinary case block whose
     # body is just `return expr` -- the Python target AST itself gains no
     # new node for this; PyMatchCase always just has a `body`.
+    #
+    # The arm is a block: its pattern binds into a scope of its own, and
+    # neither the pattern's names nor the arm's bindings escape it.
+    py_pattern, arm_scope = translate_pattern(c.pattern, _block_scope(scope))
     if c.expr is not None:
-        translated_expr = translate_expr(c.expr)
+        translated_expr = translate_expr(c.expr, arm_scope)
         body = [PyReturn(translated_expr.info, translated_expr)]
     else:
-        body = _translate_stmts(c.body)
-    return PyMatchCase(c.info, translate_pattern(c.pattern), body)
+        body, _ = _translate_stmts(c.body, arm_scope)
+    return PyMatchCase(c.info, py_pattern, body)
 
 
-def _translate_value_stmt(s, py_target):
+def _translate_value_stmt(s, py_target, scope):
     """Translates an if/match statement in *value form* -- one bound with
     '=' (see `SLetStmt` in syntax.py) -- into the very same PyIf/PyMatch
     the plain statement form produces, except that each branch's final
@@ -619,96 +776,152 @@ def _translate_value_stmt(s, py_target):
             # The parser guarantees `else_body` is not None here.
             return PyIf(
                 info,
-                translate_expr(cond),
-                _translate_value_block(then_body, py_target),
-                _translate_value_block(else_body, py_target),
+                translate_expr(cond, scope),
+                _translate_value_block(then_body, py_target, scope),
+                _translate_value_block(else_body, py_target, scope),
             )
         case SMatch(info, subject, cases):
             return PyMatch(
                 info,
-                translate_expr(subject),
-                [_translate_value_case(c, py_target) for c in cases],
+                translate_expr(subject, scope),
+                [_translate_value_case(c, py_target, scope) for c in cases],
             )
         case _:
             raise NotImplementedError(f"statement {s!r} has no value form")
 
 
-def _translate_value_block(stmts, py_target):
+def _translate_value_block(stmts, py_target, scope):
     """Translates one branch of a value-form if/match: every statement but
     the last is translated normally, and the last -- which the parser has
     checked yields a value (see `_check_value_block` there) -- either
     becomes the assignment to `py_target`, or, when it is itself an
-    if/match, has the same treatment applied to *its* branch tails."""
-    body = _translate_stmts(stmts[:-1])
+    if/match, has the same treatment applied to *its* branch tails. The
+    branch is a block, so it gets its own scope."""
+    body, branch_scope = _translate_stmts(stmts[:-1], _block_scope(scope))
     match stmts[-1]:
         case SExprStmt(info, expr):
-            body.append(PyAssign(info, py_target, translate_expr(expr)))
+            body.append(PyAssign(info, py_target, translate_expr(expr, branch_scope)))
         case SIf() | SMatch() as nested:
-            body.append(_translate_value_stmt(nested, py_target))
+            body.append(_translate_value_stmt(nested, py_target, branch_scope))
         case last:
             raise NotImplementedError(f"statement {last!r} yields no value")
     return body
 
 
-def _translate_value_case(c, py_target):
+def _translate_value_case(c, py_target, scope):
     # `case pattern -> expr` binds the expression directly; the block form
     # goes through `_translate_value_block` like an `if` branch. (Contrast
     # `translate_case`, which desugars `->` to a `return` instead -- that
     # is what a case arm means outside a binding.)
+    py_pattern, arm_scope = translate_pattern(c.pattern, _block_scope(scope))
     if c.expr is not None:
-        translated_expr = translate_expr(c.expr)
+        translated_expr = translate_expr(c.expr, arm_scope)
         body = [PyAssign(translated_expr.info, py_target, translated_expr)]
     else:
-        body = _translate_value_block(c.body, py_target)
-    return PyMatchCase(c.info, translate_pattern(c.pattern), body)
+        body = _translate_value_block(c.body, py_target, arm_scope)
+    return PyMatchCase(c.info, py_pattern, body)
 
 
-def translate_stmt(s):
+def translate_stmt(s, scope):
+    """Translates one statement, returning it with the scope it leaves
+    behind -- that is how a sequence of statements accumulates bindings,
+    and how a binding's rename becomes visible to what follows it."""
     match s:
         case SLet(info, target, expr):
-            return PyAssign(info, translate_target(target), translate_expr(expr))
+            # The right-hand side is translated *before* the target binds,
+            # so `x = x + 1` reads the outer `x` -- if that binding is a
+            # shadowing one, the read still resolves to the old name.
+            py_expr = translate_expr(expr, scope)
+            py_target, scope = translate_target(target, scope)
+            return PyAssign(info, py_target, py_expr), scope
+
         case SLetStmt(_, target, stmt):
-            return _translate_value_stmt(stmt, translate_target(target))
+            # The target binds in *this* scope (the branches are blocks of
+            # their own) and is bound first, so a branch that shadows a
+            # name cannot be handed the Python name the target is using.
+            py_target, scope = translate_target(target, scope)
+            return _translate_value_stmt(stmt, py_target, scope), scope
+
         case SVar(info, name, expr):
-            return PyAssign(info, PyTargetName(info, name), translate_expr(expr))
+            py_expr = translate_expr(expr, scope)
+            py_name, scope = _bind(name, scope)
+            return PyAssign(info, PyTargetName(info, py_name), py_expr), scope
+
         case SMutate(info, name, expr):
-            return PyAssign(info, PyTargetName(info, name), translate_expr(expr))
+            # An update, not a binding: it reuses the variable's name,
+            # whatever renaming that variable got when it was declared.
+            py_expr = translate_expr(expr, scope)
+            py_name = _lookup(name, scope)
+            return PyAssign(info, PyTargetName(info, py_name), py_expr), scope
+
         case SReturn(info, expr):
-            return PyReturn(info, translate_expr(expr))
+            return PyReturn(info, translate_expr(expr, scope)), scope
+
         case SExprStmt(info, expr):
-            return PyExprStmt(info, translate_expr(expr))
+            return PyExprStmt(info, translate_expr(expr, scope)), scope
+
         case SFor(info, name, iterable, body):
-            return PyFor(info, name, translate_expr(iterable), _translate_stmts(body))
+            py_iterable = translate_expr(iterable, scope)
+            # The loop variable belongs to the body's scope, and Python's
+            # `for` target is function-scoped, so it renames like anything
+            # else when it shadows.
+            py_name, body_scope = _bind(name, _block_scope(scope))
+            py_body, _ = _translate_stmts(body, body_scope)
+            return PyFor(info, py_name, py_iterable, py_body), scope
+
         case SWhile(info, cond, body):
-            return PyWhile(info, translate_expr(cond), _translate_stmts(body))
+            py_body, _ = _translate_stmts(body, _block_scope(scope))
+            return PyWhile(info, translate_expr(cond, scope), py_body), scope
+
         case SIf(info, cond, then_body, else_body):
-            translated_else = _translate_stmts(else_body) if else_body is not None else None
-            return PyIf(info, translate_expr(cond), _translate_stmts(then_body), translated_else)
+            py_then, _ = _translate_stmts(then_body, _block_scope(scope))
+            py_else = None
+            if else_body is not None:
+                py_else, _ = _translate_stmts(else_body, _block_scope(scope))
+            return PyIf(info, translate_expr(cond, scope), py_then, py_else), scope
+
         case SFunctionDef(info, name, params, body, _return_type, expr):
             # Pyking's single-expression `def name(...) = expr` has no
             # Python equivalent, so it desugars here into an ordinary
             # function body of just `return expr` -- mirrors
             # `translate_case`'s handling of `case pattern -> expr`.
-            param_names = [p.name for p in params]
+            #
+            # The function's own name binds in the enclosing scope (and so
+            # may be renamed); its parameters and body open a fresh Python
+            # scope, where nothing can collide with the outside and so
+            # nothing is renamed.
+            py_name, scope = _bind(name, scope)
+            body_scope = _function_scope(scope)
+            param_names = []
+            for param in params:
+                py_param, body_scope = _bind(param.name, body_scope)
+                param_names.append(py_param)
             if expr is not None:
-                translated_expr = translate_expr(expr)
+                translated_expr = translate_expr(expr, body_scope)
                 py_body = [PyReturn(translated_expr.info, translated_expr)]
             else:
-                py_body = _translate_stmts(body)
-            return PyFunctionDef(info, name, param_names, py_body)
+                py_body, _ = _translate_stmts(body, body_scope)
+            return PyFunctionDef(info, py_name, param_names, py_body), scope
+
         case SMatch(info, subject, cases):
-            return PyMatch(info, translate_expr(subject), [translate_case(c) for c in cases])
+            py_subject = translate_expr(subject, scope)
+            return PyMatch(info, py_subject, [translate_case(c, scope) for c in cases]), scope
+
         case _:
             raise NotImplementedError(f"no Python translation for statement {s!r}")
 
 
-def _translate_stmts(stmts):
-    """Translates a list of statements (a top-level program or any nested
-    block) with no side effects of its own -- used both by the external
-    entry point below and recursively for nested blocks, so that
-    hoisting comprehension-match helpers (see above) happens exactly
-    once, at the true top level, regardless of nesting."""
-    return [translate_stmt(s) for s in stmts]
+def _translate_stmts(stmts, scope):
+    """Translates a statement sequence, threading the scope through it,
+    and returns the statements with the scope they leave behind. A caller
+    that is entering a *block* passes a `_block_scope` and ignores the
+    returned scope -- that is what keeps a block's bindings from escaping
+    into the code after it."""
+    translated = []
+    for s in stmts:
+        py_stmt, scope = translate_stmt(s, scope)
+        translated.append(py_stmt)
+    return translated, scope
 
 
 def translate_program(stmts):
@@ -719,7 +932,7 @@ def translate_program(stmts):
     _comp_counter = 0
     _pending_comp_helpers = []
     _used_identifiers = _collect_identifiers(stmts)
-    translated = _translate_stmts(stmts)
+    translated, _ = _translate_stmts(stmts, Scope({}, {}, frozenset()))
     helpers = _pending_comp_helpers
     _pending_comp_helpers = []
     return helpers + translated

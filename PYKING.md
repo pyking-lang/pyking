@@ -27,9 +27,12 @@ default action:
   e.g. still showing `var`/`:=`) without compiling.
 
 `--tokens` additionally prints the raw token stream first, on top of
-whichever of the three above is chosen. A file that fails to lex or parse
-reports a `Lexing error` / `Parsing error` to stderr with the offending
-file, row, and column (start and end) instead of producing any output.
+whichever of the three above is chosen. A file that fails to lex, parse,
+or resolve its names reports a `Lexing error` / `Parsing error` / `Name
+error` to stderr with the offending file, row, and column (start and end)
+instead of producing any output. The name analysis (see "Names and
+scoping") runs for every mode, `--ast` included — it is part of the front
+end, not of a backend.
 
 The `pykboot` wrapper script at the repository root forwards flags as-is
 (e.g. `./pykboot --ast <file>`), but adds a convenience: called with
@@ -43,6 +46,19 @@ A quick reference for readers already familiar with Python: everything
 else in this document is either borrowed directly from Python or a
 restriction of it, but these are genuinely new.
 
+- **Full lexical scoping, with every block a scope**: Python scopes only
+  at function boundaries, so a name bound inside an `if`/`for`/`while`
+  body outlives it. In Pyking every block is a scope — an `if`/`else`
+  branch, a loop body, a `case` arm, a value-form branch — so a binding
+  made inside one is gone after it, and using a name that no enclosing
+  scope binds is a compile-time error rather than a `NameError` at run
+  time. Any binding may shadow a name already in scope (parameters,
+  `for` variables, pattern variables, `def`s, `=` bindings), with one
+  exception: a mutable variable may not be shadowed while it is in
+  scope, which is what keeps `:=` pointing at exactly one variable.
+  `boot/analyses.py` checks all of this after parsing, and the Python
+  backend renames shadowed bindings where Python's own scoping would
+  otherwise merge them. See "Names and scoping" for the details.
 - **Immutable-by-default bindings**: plain `=` never mutates — it's
   always a fresh binding. A name must first be declared with `var`
   before it can be updated, and only then with `:=`: `var n = 0` then
@@ -149,6 +165,9 @@ Statements:
 Structure:
 
 - Indentation-based blocks
+- Lexical scoping, with every block a scope, free shadowing of immutable
+  names, and no shadowing of a mutable one — checked statically by
+  `boot/analyses.py` (see "Names and scoping")
 
 ## Grammar
 
@@ -725,6 +744,142 @@ var total = 0
 total := total + 1
 print(total)
 ```
+
+A mutable variable is also the one name that may not be shadowed, and
+`:=` only ever accepts one — both checked at compile time; see "Names and
+scoping" below.
+
+### Names and scoping
+
+Pyking is **lexically scoped**: every use of a name refers to the
+innermost enclosing binding of that name, decided entirely by where the
+code is written. A scope is a function body or any indented block — the
+body of an `if`/`else` branch, a `for` or `while` loop, a `case` arm, a
+value-form branch — plus a list comprehension and the file's top level.
+Names bound inside a scope are not visible outside it:
+
+```pyking
+total = 0
+
+if 1 < 2:
+    inner = total + 1
+    print(inner)
+
+# `inner` is not in scope here -- using it is a compile-time error.
+```
+
+**What binds a name.** An `=` binding, a `var` declaration, a `def` (its
+own name, visible to its body so a function can call itself, and to the
+rest of the enclosing scope), a parameter, a `for` variable, a pattern
+variable in a `case` arm or comprehension. All of them behave the same
+way with respect to scope.
+
+**Shadowing.** Any of those may reuse a name that is already in scope;
+the inner binding wins until its scope ends, and the outer one is
+untouched and visible again afterwards. Two `=` bindings of the same name
+in one scope are the same thing — the second shadows the first, which is
+why a binding may change what a name means (and even its type) without
+ever being an update:
+
+```pyking
+n = "outer"
+
+
+def describe(n) =
+    "param " + str(n)
+
+
+print(describe(1), n)
+```
+
+**The one restriction:** a `var` may not be shadowed. While a mutable
+variable is in scope, no binding of any kind may reuse its name — not an
+`=` binding, parameter, `for` variable, pattern variable, `def`, or
+another `var`:
+
+```pyking
+var count = 0
+
+# Each of these is a compile-time error while `count` is in scope:
+#   count = 1                  (binding shadows the variable)
+#   def f(count): ...          (parameter shadows it)
+#   for count in range(3): ... (loop variable shadows it)
+```
+
+This is what makes `:=` unambiguous. `count := 1` updates the mutable
+variable `count` denotes; if an inner scope could rebind that name to
+something immutable, a reader would have to search every enclosing scope
+to know whether a given `:=` updates the variable, is an error, or
+reaches a *different* variable of the same name. With shadowing
+forbidden, the answer is always the nearest `var` — and correspondingly
+`:=` requires one: applying it to a binding, parameter, or pattern
+variable is an error, not a silent conversion.
+
+A `var` may itself shadow any *immutable* name, and two sibling scopes
+may each declare their own `var` of one name, since neither is in scope
+where the other is:
+
+```pyking
+count = 100
+
+
+def tally(items):
+    var count = 0
+    for item in items:
+        count := count + item
+    return count
+
+
+print(tally([1, 2, 3]), count)
+```
+
+**Bindings are sequential.** A scope's names come into being in the order
+they are written, so a name must already be bound where it is used —
+including inside a function body, which may only refer to what is in
+scope at the point the function is *defined*. A function does see its own
+name, so it can call itself; but two functions cannot yet call each
+other, and a `def` cannot refer to a binding written below it, even
+though the generated Python would resolve both at call time. The rule
+errs on the safe side: everything it accepts also runs, whereas making
+`def`s visible throughout their scope would equally accept `print(f())`
+written above `def f`, which Python rejects at runtime.
+
+**Checking.** All of this is enforced by `boot/analyses.py`, which runs
+after parsing (for every mode, `--ast` included) and reports a `Name
+error` with the offending source position. It is a single recursive walk
+carrying an environment of the names in scope; entering a nested scope
+just means the walk keeps using the environment it was handed, and
+leaving one means going back to the caller's — so a binding cannot leak
+out of its block. Because the generated Python calls Python's builtins,
+which no Pyking program binds, a small set of them (`print`, `range`,
+`str`, `len`) is seeded into the top-level environment; every other
+unbound name is an error.
+
+**Blocks are scopes in the generated code too.** Python has no block
+scope: an `if`/`for`/`while`/`case` body is not a scope there, so a
+binding that shadows an outer name would land on the same Python
+variable and the outer name would come back changed. `target_python.py`
+therefore *renames* such a binding while translating, keeping the
+generated name close to the source one — `total` becomes `total2`, or
+`total3` if `total2` is itself in scope:
+
+```
+$ python3 boot/pykboot.py --stdout tests/shadowing_blocks.pyk
+total = 1
+if 1 < 2:
+    total2 = 2       # the block's own `total`
+    print(total2)
+print(total)         # still the outer one
+```
+
+Renaming happens only where it is needed, so generated code keeps the
+names actually written wherever it can. It is *not* needed when Python's
+own scoping already separates the two — a `def` body or a comprehension,
+where a parameter or loop variable may reuse any name — nor when the
+shadowed binding is unreachable anyway: rebinding within one block, or
+two sibling blocks that each bind the same name. `tests/shadowing_blocks.pyk`
+exercises all of these, including a closure that has to read a renamed
+name and a `var` whose `:=` updates through the rename.
 
 ### Function definitions (`def`)
 

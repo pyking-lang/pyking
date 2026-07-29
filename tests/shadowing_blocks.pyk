@@ -1,0 +1,168 @@
+# Block scoping, and the renaming the Python backend does to preserve it.
+#
+# Every Pyking block -- an `if`/`else` branch, a loop body, a `case` arm,
+# a value-form branch -- is a scope, so a binding inside one shadows an
+# outer name only until the block ends. Python has no block scope, so
+# `target_python.py` renames such a binding, and *only* such a binding:
+# it keeps the programmer's name wherever Python's own scoping already
+# keeps the two apart (a `def` body, a comprehension) or wherever the
+# outer binding is unreachable anyway (rebinding in the same block,
+# sibling blocks). A renamed name stays close to the original -- `total`
+# becomes `total2`, or `total3` if `total2` is itself in scope.
+#
+# Compile with `--stdout` to see it; the first case comes out as:
+#
+#     total = 1
+#     if 1 < 2:
+#         total2 = 2       <- the block's own `total`
+#         print(total2)
+#     print(total)         <- still the outer one
+
+total = 1
+
+if 1 < 2:
+    total = 2
+    print(total)
+
+print(total)
+
+
+# Nesting: each level shadows the one outside it, and each is restored.
+depth = "a"
+
+if 1 < 2:
+    depth = "b"
+    if 1 < 2:
+        depth = "c"
+        print(depth)
+    print(depth)
+
+print(depth)
+
+
+# The rename skips a name already in scope: `count2` is taken here, so
+# the block's `count` becomes `count3`.
+count = 1
+count2 = 100
+
+if 1 < 2:
+    count = 2
+    print(count, count2)
+
+print(count, count2)
+
+
+# No rename needed: sibling blocks cannot see each other's bindings, so
+# both may use the name as written.
+if 1 < 2:
+    fresh = "first"
+    print(fresh)
+
+if 1 < 2:
+    fresh = "second"
+    print(fresh)
+
+
+# No rename needed: rebinding within one block leaves the first binding
+# unreachable in Pyking too, so one Python name serves both.
+step = 1
+step = step + 1
+
+print(step)
+
+
+# A loop variable and the loop body's bindings are both block bindings.
+i = "outer i"
+acc = "outer acc"
+
+for i in range(2):
+    acc = str(i) + "!"
+    print(i, acc)
+
+print(i, acc)
+
+
+# A `case` arm is a block, and its pattern variables bind in it -- Python's
+# `match` is not a scope, so these rename like anything else.
+tag = "outer tag"
+
+match (7, 8):
+    case (tag, other):
+        print(tag, other)
+
+print(tag)
+
+
+# The branches of a value-form `if` are blocks; the bound target belongs
+# to the enclosing scope, so it keeps its own name.
+limit = 10
+
+chosen = if limit > 5:
+    limit = 99
+    limit - 1
+else:
+    0
+
+print(chosen, limit)
+
+
+# A `var` declared inside a block shadows the immutable name outside it,
+# and `:=` updates that inner variable -- the rename carries through the
+# mutation as well.
+tally = "outer tally"
+
+for row in [[1, 2], [3, 4]]:
+    var tally = 0
+    for cell in row:
+        tally := tally + cell
+    print(tally)
+
+print(tally)
+
+
+# A function defined inside a block closes over the block's binding, so
+# the closure has to read the renamed name.
+label = "outer"
+
+if 1 < 2:
+    label = "inner"
+
+    def show() =
+        label
+
+    print(show())
+
+print(label)
+
+
+# No rename needed: a `def` body is a real Python scope, so a parameter
+# and a binding may reuse a module-level name freely.
+value = 5
+
+
+def doubled(value):
+    value = value * 2
+    return value
+
+
+print(doubled(value), value)
+
+
+# Renaming is decided per Python function scope, not per program: this
+# `total` shadows the parameter inside the function, and has nothing to
+# do with the module-level `total` at the top of this file.
+def report(total):
+    if total > 0:
+        total = total * 10
+        print(total)
+    return total
+
+
+print(report(3))
+
+
+# No rename needed: a comprehension has its own scope in Python too.
+item = "outer item"
+doubles = [item * 2 for item in [1, 2, 3]]
+
+print(doubles, item)

@@ -47,7 +47,10 @@ these is updated in the same change — none of them is optional, and the
 last two are the ones that get forgotten:
 
 1. **`boot/`** — the stage(s) implementing it (lexer → parser → syntax →
-   each `target_*.py` backend).
+   `analyses.py` → each `target_*.py` backend). A construct that binds or
+   uses a *name* always reaches `analyses.py`: it has to bind through
+   `bind` (so the no-shadowing-a-`var` rule covers it) or be walked so
+   its names are checked, or it silently escapes the analysis.
 2. **`tests/`** — at least one `.pyk` file exercising the new construct,
    with its `.out` file captured from an actual run (`make test`).
 3. **`PYKING.md`** — feature summary, EBNF grammar, the grammar notes for
@@ -113,15 +116,44 @@ The bootstrap is split into one module per compiler stage:
    bindings in a pattern (`_check_no_duplicate_captures`) and the "every
    branch yields a value" rules of a value-form `if`/`match`
    (`_check_value_stmt`, on which `target_python.py` relies).
-4. **`boot/target_python.py`** — the Python code-generation backend: its
+4. **`boot/analyses.py`** — static analyses over the parsed AST, run
+   between the parser and any backend (for every mode, `--ast` included);
+   errors raise `AnalysisError(info, message)`. Currently one analysis,
+   names: Pyking is lexically scoped, so `analyze_program` is a single
+   recursive walk carrying a *name environment* (`dict` name → kind of
+   binding) that is rebuilt rather than mutated — entering a nested scope
+   is "keep using the environment you were handed", leaving one is "go
+   back to the caller's", which is what makes a block's bindings unable
+   to escape it. `analyze_stmt` returns the environment its statement
+   leaves behind (that is how a statement sequence accumulates
+   bindings); `analyze_scope` deliberately discards it. Everything that
+   introduces a name funnels through `bind`, which is where the one
+   shadowing rule lives (a `var` may not be shadowed by anything), so a
+   new binding form only has to call it to be covered. `BUILTINS` seeds
+   `print`/`range`/`str`/`len` so that every *other* unbound name can be
+   an error — extend it when a program starts calling another builtin.
+   Keep new analyses in this module as separate `analyze_*` entry points
+   rather than folding more checking into the parser: the parser's job
+   is shape, and only a scope-aware walk can judge names.
+5. **`boot/target_python.py`** — the Python code-generation backend: its
    own `Py*` AST (`PyInt`, `PyAssign`, `PyFor`, ... — structurally the same
    shape as `boot/syntax.py`'s `E*`/`S*`, except Pyking's `SLet`/`SVar`/
    `SMutate` all collapse into one `PyAssign`, since Python has no
    mutable-vs-immutable-binding distinction, and `SLetStmt` — an
    `if`/`match` statement bound with `=`, see PYKING.md — has no node of
    its own at all, since it compiles to the ordinary `PyIf`/`PyMatch`
-   with a `PyAssign` pushed into each branch's tail), `translate_program`/
-   `translate_stmt`/`translate_expr` (Pyking AST → `Py*` AST; each `match`
+   with a `PyAssign` pushed into each branch's tail), a `Scope` threaded
+   through the whole translation (Pyking name → the Python name standing
+   in for it: Pyking blocks are scopes and Python's aren't, so a binding
+   that shadows another *within one Python function scope* is renamed —
+   `total` → `total2`, → `total3` if taken; `_bind`/`_lookup`/
+   `_block_scope`/`_function_scope` are the whole mechanism, and it
+   renames only when necessary, never inside a `def` body or
+   comprehension, where Python already scopes), `translate_program`/
+   `translate_stmt`/`translate_expr` (Pyking AST → `Py*` AST; statement
+   translators return `(node, scope)` so a sequence accumulates
+   bindings, and a caller entering a block discards the returned scope;
+   each `match`
    ends in a `case _: raise NotImplementedError(...)` so a future Pyking
    construct without a translation fails loudly rather than silently
    returning `None`), and `pprint_py_expr`/`pprint_py_stmt`/
@@ -130,10 +162,14 @@ The bootstrap is split into one module per compiler stage:
    it independent of `syntax.py`'s pretty-printing internals so future
    backends (e.g. `target_ocaml.py`) can be added the same way, without
    entangling target-specific logic into the Pyking AST/pretty-printer.
-5. **`boot/pykboot.py`** — the entry point: parses `--tokens`/`--ast`/
+6. **`boot/pykboot.py`** — the entry point: parses `--tokens`/`--ast`/
    `--stdout`/`--output <file>`/the filename from argv, calls
-   `lexer.lexing` and `parser.parse`, catches `LexError`/`ParseError` to
-   print a `'file' row:col-row:col ...` message to stderr. Exactly one of
+   `lexer.lexing`, `parser.parse` and `analyses.analyze_program`, catches
+   `LexError`/`ParseError`/`AnalysisError` to print a
+   `'file' row:col-row:col ...` message to stderr (`Lexing error` /
+   `Parsing error` / `Name error`). The analysis runs for every mode,
+   `--ast` included — an AST whose names don't resolve is not worth
+   printing or compiling. Exactly one of
    `--ast`, `--stdout`, or `--output <file>` must be given — there is no
    default action, and passing none of them is a usage error. With
    `--ast`, prints the pretty-printed *Pyking* AST via
