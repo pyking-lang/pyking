@@ -1,21 +1,6 @@
 # `else if` ladders nested inside other blocks, and mixed with the
 # `if ... then ... else` *expression*, which spells its own chain inline.
 
-def grade(score):
-    if score >= 90:
-        return "A"
-    else if score >= 80:
-        return "B"
-    else if score >= 70:
-        return "C"
-    else:
-        return "F"
-
-
-for s in [95, 85, 75, 65]:
-    print(s, grade(s))
-
-
 # A ladder whose branches hold further if statements -- the inner `else`
 # belongs to the inner `if`, since the dedent closes its block first.
 def quadrant(x, y):

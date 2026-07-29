@@ -1,0 +1,9 @@
+# The single-expression `def` forms whose values are outside the
+# JavaScript subset: a bare tuple, and true division (see
+# arithmetic_division.pyk).
+def average(a:Int, b:Int) -> Int = (a + b) / 2
+
+def swap(a, b) = b, a
+
+print(average(4, 8))
+print(swap(1, 2))

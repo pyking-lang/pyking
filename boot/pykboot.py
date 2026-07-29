@@ -5,16 +5,30 @@ from analyses import analyze_program, AnalysisError
 from lexer import lexing, pprint_info, pprint_token, LexError
 from parser import parse, ParseError
 from syntax import pprint_program
+import target_js_core
+import target_js_packaging
 from target_python import translate_program, pprint_py_program
 
+TARGETS = ("python",) + target_js_packaging.TARGETS
 
-USAGE = "Usage: python3 boot/pykboot.py [--tokens] (--ast | --stdout | --output <file>) <filename>"
+# What the primary output file is called when `--output` doesn't say. Each
+# backend owns its own extension; `esm` names three files from this stem.
+EXTENSIONS = {"python": ".py", **target_js_packaging.PRIMARY_EXTENSIONS}
+
+USAGE = (
+    "Usage: python3 boot/pykboot.py [--tokens] [--target|-t <target>] "
+    "[--ast | --stdout | --output <file>] <filename>\n"
+    f"       <target> is one of: {', '.join(TARGETS)} (default: python)\n"
+    "       without --ast/--stdout/--output, compiles to <filename's stem>"
+    " plus the target's extension, in the current directory"
+)
 
 args = sys.argv[1:]
 show_tokens = False
 show_ast = False
 show_stdout = False
 output_path = None
+target = "python"
 positional = []
 
 i = 0
@@ -26,6 +40,20 @@ while i < len(args):
         show_ast = True
     elif arg == "--stdout":
         show_stdout = True
+    elif arg in ("--target", "-t"):
+        i += 1
+        if i >= len(args):
+            print("Usage error: --target requires a <target> argument", file=sys.stderr)
+            print(USAGE, file=sys.stderr)
+            sys.exit(1)
+        target = args[i]
+        if target not in TARGETS:
+            print(
+                f"Usage error: unknown target '{target}'; expected one of "
+                f"{', '.join(TARGETS)}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
     elif arg == "--output":
         i += 1
         if i >= len(args):
@@ -70,29 +98,92 @@ except AnalysisError as e:
     print(f"{pprint_info(e.info)} Name error: {e.message}", file=sys.stderr)
     sys.exit(1)
 
+# `--ast` is the Pyking AST, which every target shares, so it is printed
+# before any backend runs and ignores `--target`.
 if show_ast:
     print(pprint_program(program))
-else:
-    py_ast = translate_program(program)
-    py_source = pprint_py_program(py_ast)
+    sys.exit(0)
 
-    if show_stdout:
-        print(py_source)
-    elif output_path is not None:
-        if os.path.abspath(output_path) == os.path.abspath(filename):
-            print(
-                f"Usage error: --output '{output_path}' would overwrite the input "
-                "file; choose a different output path.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+if not show_stdout and output_path is None:
+    # Nothing said where to put it: use the source file's own name, with
+    # the target's extension, in the directory the command was run from --
+    # `pykboot.py -t nodejs tests/hello.pyk` writes `./hello.js`. For
+    # `esm` this is a stem, and the three files are named from it.
+    stem = os.path.splitext(os.path.basename(filename))[0]
+    output_path = stem + EXTENSIONS[target]
 
-        with open(output_path, "w") as f:
-            f.write(py_source + "\n")
-    else:
+
+def write_manifest(path, contents):
+    """Writes the `esm` target's `package.json`, but never over one that
+    is already there: that file belongs to whatever project the output
+    landed in, and overwriting it could break far more than this build.
+    An existing manifest that already means "ES modules" is silently
+    fine; one that doesn't gets a warning, since the generated `.js`
+    files will not load without it."""
+    if not os.path.exists(path):
+        write(path, contents)
+        return
+    with open(path) as f:
+        existing = f.read()
+    if not target_js_packaging.manifest_declares_module(existing):
         print(
-            "Usage error: specify one of --ast, --stdout, or --output <file>.",
+            f"Note: '{path}' already exists and does not set "
+            '"type": "module"; node will read the generated .js files as '
+            "CommonJS until it does. Left untouched.",
             file=sys.stderr,
         )
-        print(USAGE, file=sys.stderr)
+
+
+def write(path, contents):
+    """Writes one output file, refusing to clobber the source and turning
+    a missing output directory into a usage error rather than a
+    traceback -- `esm` writes several files, so both checks have to happen
+    per file rather than once on `--output`."""
+    if os.path.abspath(path) == os.path.abspath(filename):
+        print(
+            f"Usage error: writing '{path}' would overwrite the input file; "
+            "choose a different output path.",
+            file=sys.stderr,
+        )
         sys.exit(1)
+    directory = os.path.dirname(path)
+    if directory and not os.path.isdir(directory):
+        print(
+            f"Usage error: cannot write '{path}': the directory "
+            f"'{directory}' does not exist.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    with open(path, "w") as f:
+        f.write(contents)
+
+
+if target == "python":
+    py_source = pprint_py_program(translate_program(program))
+    if show_stdout:
+        print(py_source)
+    else:
+        write(output_path, py_source + "\n")
+else:
+    # The JavaScript backends support a subset of Pyking so far; anything
+    # outside it is reported here rather than emitting broken JavaScript.
+    try:
+        js_program = target_js_core.translate_program(program)
+    except target_js_core.UnsupportedError as e:
+        print(
+            f"{pprint_info(e.info)} Unsupported by target '{target}': {e.message}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    source_name = os.path.basename(filename)
+    if show_stdout:
+        print(target_js_packaging.primary_source(target, js_program, source_name))
+    else:
+        for path, contents in target_js_packaging.package(
+            target, js_program, source_name, output_path
+        ).items():
+            if os.path.basename(path) == target_js_packaging.MODULE_MANIFEST:
+                write_manifest(path, contents)
+            else:
+                write(path, contents)

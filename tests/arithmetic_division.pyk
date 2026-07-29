@@ -1,0 +1,10 @@
+# `/` is Python's true division, so the result is a float and prints as
+# `6.0`. The JavaScript backends compute the same value but print `6`
+# (JavaScript has one number type), so this case is python-only -- see
+# docs/architecture.md, "Known differences between targets".
+def average(a, b):
+    return (a + b) / 2
+
+
+print(average(4, 8))
+print(10 - 4 / 2)

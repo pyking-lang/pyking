@@ -1,0 +1,70 @@
+# Values across the JavaScript subset: integers (including negative ones),
+# strings with escapes and concatenation, and the booleans that come out
+# of comparisons -- which every backend must print Python-style, `True`
+# and `False`, whatever its host language calls them.
+
+print(7, -7, - -7, 0)
+print(2 + 3 * 4, (2 + 3) * 4, 10 - 4 - 3, -(2 + 3))
+
+# Comparisons produce booleans, and each spelling is exercised so a
+# backend cannot get one of them subtly wrong.
+print(1 < 2, 2 < 1, 2 <= 2, 3 > 4, 4 >= 4)
+print(1 == 1, 1 == 2, "a" == "a", "a" == "b")
+
+# Booleans flow through bindings and variables like any other value.
+ordered = 1 < 2
+var flag = 5 == 5
+
+print(ordered, flag)
+
+flag := 5 == 6
+
+print(flag)
+
+# Strings: concatenation, escapes, and the quote forms.
+greeting = "hello"
+name = 'pyking'
+
+print(greeting + ", " + name + "!")
+print("tab:\tpipe|", "newline next")
+print("quote: \" and \\ backslash")
+
+# An if expression choosing between values of the same type, and one
+# nested in the else branch -- the ladder form.
+def label(n) =
+    if n < 0 then "negative" else if n == 0 then "zero" else "positive"
+
+
+print(label(-4), label(0), label(9))
+
+
+# Single-expression function bodies, with and without type annotations,
+# and with the body on the following line.
+def twice(n) = n * 2
+
+def shout(text: String) -> String = text + "!"
+
+def half_of_sum(a, b) =
+    (a + b) * 5
+
+
+print(twice(21), shout("ok"), half_of_sum(1, 1))
+
+
+# Immutable rebinding: the second `=` shadows the first, and may change
+# the type of what the name means.
+value = "text"
+value = 42
+
+print(value)
+
+
+# A function whose parameter shadows an outer name, which stays intact.
+outer = 100
+
+
+def use(outer):
+    return outer + 1
+
+
+print(use(1), outer)

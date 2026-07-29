@@ -1,9 +1,13 @@
-def average(a, b):
-    return (a + b) / 2
+def add(a, b):
+    return a + b
 
 
 def dec(x):
     return x - 1
 
 
-print(average(4, 8), dec(5))
+def scaled(a, b):
+    return (a + b) * 2
+
+
+print(add(4, 8), dec(5), scaled(3, 4))

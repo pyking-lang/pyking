@@ -1,60 +1,189 @@
+"""Runs every test program against every target it declares support for.
+
+`tests/test_cases.toml` lists the programs and their targets; each one is
+compiled, executed, and its output compared against the sibling `.out`
+file. The same `.out` serves every target -- that is the point of the
+exercise: a Pyking program means one thing, whichever backend ran it.
+
+How each target is executed:
+
+  python  compile to a temp .py, run it with python3, compare stdout.
+  nodejs  compile to a temp .js, run it with node, compare stdout.
+  esm     compile to a temp .js (plus its wrappers and package.json), run
+          the generated node driver -- that wrapper is what a user would
+          run, so that is what gets tested.
+  html    no browser is needed: the page's embedded module is extracted
+          and run under node with a small `document` stub that captures
+          what the program writes into the page, which is then compared
+          like any other output. See `run_html` for what that does and
+          does not prove.
+"""
+
 import glob
 import os
+import re
 import subprocess
 import sys
 import tempfile
+import tomllib
 
 PYKBOOT = os.path.join("boot", "pykboot.py")
+CASES_FILE = os.path.join("tests", "test_cases.toml")
+TARGETS = ("python", "nodejs", "esm", "html")
+
+# Stands in for the browser: the generated page's only contact with the
+# outside world is the element it prints into, so a `document` with one
+# accumulating `textContent` is the whole of what it needs.
+DOM_STUB = """let __pykCaptured = '';
+globalThis.document = {
+  getElementById: () => ({
+    get textContent() { return __pykCaptured; },
+    set textContent(value) { __pykCaptured = value; },
+  }),
+};
+"""
+DOM_FLUSH = "\nprocess.stdout.write(__pykCaptured);\n"
+
+SCRIPT_RE = re.compile(r'<script type="module">\n(.*?)\n</script>', re.S)
 
 
 def run(cmd):
     return subprocess.run(cmd, capture_output=True, text=True)
 
 
+def compile_to(source, target, output):
+    return run([sys.executable, PYKBOOT, "--target", target, "--output", output, source])
+
+
+def run_python(source, workdir):
+    generated = os.path.join(workdir, "program.py")
+    compiled = compile_to(source, "python", generated)
+    if compiled.returncode != 0:
+        return None, compiled.stderr
+    return run([sys.executable, generated]).stdout, None
+
+
+def run_nodejs(source, workdir):
+    generated = os.path.join(workdir, "program.js")
+    compiled = compile_to(source, "nodejs", generated)
+    if compiled.returncode != 0:
+        return None, compiled.stderr
+    return run(["node", generated]).stdout, None
+
+
+def run_esm(source, workdir):
+    """Runs the generated node driver, not the module directly: the
+    driver is the file a user would run, and exercising it also checks
+    that the module's `run(runtime)` interface is wired up -- and that the
+    generated package.json really does put node in ES module mode, since
+    the driver's `import` fails without it."""
+    module = os.path.join(workdir, "program.js")
+    compiled = compile_to(source, "esm", module)
+    if compiled.returncode != 0:
+        return None, compiled.stderr
+    return run(["node", os.path.join(workdir, "program.node.js")]).stdout, None
+
+
+def run_html(source, workdir):
+    """Runs the page's program under node with a stubbed `document`.
+
+    This executes the real generated program and the real `print` path --
+    the code that appends to the page -- and compares what would have
+    appeared there. It does not prove that a browser parses the page or
+    that the layout works; only a headless browser could do that, and one
+    would be a heavy dependency for an otherwise stdlib-only repository.
+    """
+    page = os.path.join(workdir, "program.html")
+    compiled = compile_to(source, "html", page)
+    if compiled.returncode != 0:
+        return None, compiled.stderr
+    with open(page) as f:
+        script = SCRIPT_RE.search(f.read())
+    if script is None:
+        return None, 'no <script type="module"> found in the generated page'
+    # `.mjs` here is the harness's own choice, not the compiler's: the
+    # extracted text came from a `<script type="module">` and so is a
+    # module by definition, and the extension says so without depending
+    # on a manifest the html target has no reason to write.
+    harness = os.path.join(workdir, "program.page.mjs")
+    with open(harness, "w") as f:
+        f.write(DOM_STUB + script.group(1) + DOM_FLUSH)
+    executed = run(["node", harness])
+    if executed.returncode != 0:
+        return None, executed.stderr
+    return executed.stdout, None
+
+
+RUNNERS = {
+    "python": run_python,
+    "nodejs": run_nodejs,
+    "esm": run_esm,
+    "html": run_html,
+}
+
+
+def load_cases():
+    """The manifest, with a warning for anything that has drifted out of
+    step with the files actually on disk."""
+    with open(CASES_FILE, "rb") as f:
+        cases = tomllib.load(f)["cases"]
+    listed = {case["file"] for case in cases}
+    on_disk = {os.path.basename(p) for p in glob.glob(os.path.join("tests", "*.pyk"))}
+    for missing in sorted(on_disk - listed):
+        print(f"WARNING: tests/{missing} is not listed in {CASES_FILE}")
+    for missing in sorted(listed - on_disk):
+        print(f"WARNING: {CASES_FILE} lists {missing}, which does not exist")
+    return cases
+
+
 def main():
-    test_files = sorted(glob.glob(os.path.join("tests", "*.pyk")))
-    passed = 0
-    failed = 0
+    cases = load_cases()
+    passed = {target: 0 for target in TARGETS}
+    failed = {target: 0 for target in TARGETS}
 
-    for path in test_files:
-        out_path = os.path.splitext(path)[0] + ".out"
-        with open(out_path, "r") as f:
-            expected_output = f.read()
-
-        with tempfile.NamedTemporaryFile(suffix=".py", delete=False) as tmp:
-            generated_path = tmp.name
-        try:
-            compiled = run([sys.executable, PYKBOOT, "--output", generated_path, path])
-            if compiled.returncode != 0:
-                print(f"{path} FAILED")
-                print("--- expected output ---")
-                print(expected_output, end="")
-                print("--- pykboot.py error ---")
-                print(compiled.stderr, end="")
-                failed += 1
+    for target in TARGETS:
+        for case in cases:
+            if target not in case["targets"]:
                 continue
+            source = os.path.join("tests", case["file"])
+            expected_path = os.path.splitext(source)[0] + ".out"
+            with open(expected_path) as f:
+                expected = f.read()
 
-            generated_output = run([sys.executable, generated_path]).stdout
+            with tempfile.TemporaryDirectory() as workdir:
+                actual, error = RUNNERS[target](source, workdir)
 
-            if generated_output == expected_output:
-                print(f"{path} OK.")
-                passed += 1
+            label = f"target {target}: {source}"
+            if error is not None:
+                print(f"{label} FAILED")
+                print("--- compile/run error ---")
+                print(error, end="")
+                failed[target] += 1
+            elif actual == expected:
+                print(f"{label} OK.")
+                passed[target] += 1
             else:
-                print(f"{path} FAILED")
+                print(f"{label} FAILED")
                 print("--- expected output ---")
-                print(expected_output, end="")
-                print("--- generated output ---")
-                print(generated_output, end="")
-                failed += 1
-        finally:
-            if os.path.exists(generated_path):
-                os.remove(generated_path)
+                print(expected, end="")
+                print("--- actual output ---")
+                print(actual, end="")
+                failed[target] += 1
 
-    total = passed + failed
     print()
-    print(f"Ran {total} tests: {passed} passed, {failed} failed.")
+    print("Summary")
+    total_failed = 0
+    for target in TARGETS:
+        total = passed[target] + failed[target]
+        print(
+            f"  target {target:<7} {passed[target]:3d} passed, "
+            f"{failed[target]:3d} failed  (of {total} supported cases)"
+        )
+        total_failed += failed[target]
+    total_run = sum(passed.values()) + sum(failed.values())
+    print(f"  {total_run} runs over {len(cases)} programs and {len(TARGETS)} targets.")
 
-    if failed:
+    if total_failed:
         sys.exit(1)
 
 

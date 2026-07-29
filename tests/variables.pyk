@@ -5,11 +5,13 @@ x = "test"
 # binding is not an update.
 x = 4
 
-# Changing a name from inside a loop body *is* an update, so the name is
+# Changing a name from inside a block *is* an update, so the name is
 # declared mutable and updated with `:=`. An `=` there would bind a new
-# name local to the body, leaving this one untouched.
+# name local to the block, leaving this one untouched.
 var greeting = "start"
-for i in range(1):
+var done = 1 == 2
+while done == (1 == 2):
     greeting := "hi"
+    done := 1 == 1
 
 print(x, greeting)

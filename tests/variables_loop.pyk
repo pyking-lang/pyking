@@ -1,0 +1,7 @@
+# The same update from inside a `for` loop, which the JavaScript subset
+# does not cover yet.
+var greeting = "start"
+for i in range(1):
+    greeting := "hi"
+
+print(greeting)

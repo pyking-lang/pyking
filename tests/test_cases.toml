@@ -1,0 +1,227 @@
+# Which targets each test program is expected to work with.
+#
+# Every program must work with `python`, the reference backend. The
+# JavaScript backends support a subset of Pyking so far (see
+# docs/architecture.md), so a program using lists, tuples, `for`, `match`
+# or comprehensions is python-only until they grow. `nodejs`, `esm` and
+# `html` always agree: they share `boot/target_js_core.py` and differ
+# only in packaging, so a program supported by one is supported by all.
+#
+# tests/test_script.py reads this file, runs each program on each of its
+# targets, and compares the output against the sibling `.out` file.
+
+[[cases]]
+file = "arithmetic.pyk"
+targets = ["python", "nodejs", "esm", "html"]
+
+[[cases]]
+file = "arithmetic_division.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "else_if.pyk"
+targets = ["python", "nodejs", "esm", "html"]
+
+[[cases]]
+file = "else_if_nested.pyk"
+targets = ["python", "nodejs", "esm", "html"]
+
+[[cases]]
+file = "else_if_nested_loop.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "escapes.pyk"
+targets = ["python", "nodejs", "esm", "html"]
+
+[[cases]]
+file = "for_complex.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "for_simple.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "if_expr.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "ifelse.pyk"
+targets = ["python", "nodejs", "esm", "html"]
+
+[[cases]]
+file = "indent.pyk"
+targets = ["python", "nodejs", "esm", "html"]
+
+[[cases]]
+file = "list_complex.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "list_comprehension_basic.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "list_comprehension_filter.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "list_comprehension_nested.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "list_comprehension_pattern_helper.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "list_literals.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "list_pattern_match.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "list_pattern_recursive.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "list_pattern_recursive_short.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "match_int_simple.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "match_int_simple_new.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "match_string_simple.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "negative_numbers.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "nested_for_mutation.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "scopes.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "shadowing.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "shadowing_blocks.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "shadowing_mutable.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "short_function.pyk"
+targets = ["python", "nodejs", "esm", "html"]
+
+[[cases]]
+file = "short_function_values.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "strings.pyk"
+targets = ["python", "nodejs", "esm", "html"]
+
+[[cases]]
+file = "subset_control.pyk"
+targets = ["python", "nodejs", "esm", "html"]
+
+[[cases]]
+file = "subset_values.pyk"
+targets = ["python", "nodejs", "esm", "html"]
+
+[[cases]]
+file = "test1.pyk"
+targets = ["python", "nodejs", "esm", "html"]
+
+[[cases]]
+file = "testen.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "tuples_assign_destructure.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "tuples_complex.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "tuples_functions.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "tuples_lists.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "tuples_literals.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "tuples_match_destructure.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "types_atoms.pyk"
+targets = ["python", "nodejs", "esm", "html"]
+
+[[cases]]
+file = "types_complex.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "types_lists.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "types_mixed.pyk"
+targets = ["python", "nodejs", "esm", "html"]
+
+[[cases]]
+file = "types_tuples.pyk"
+targets = ["python", "nodejs", "esm", "html"]
+
+[[cases]]
+file = "value_if.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "value_match.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "value_next_line.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "variables.pyk"
+targets = ["python", "nodejs", "esm", "html"]
+
+[[cases]]
+file = "variables_loop.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "while_nested.pyk"
+targets = ["python", "nodejs", "esm", "html"]
+
+[[cases]]
+file = "while_simple.pyk"
+targets = ["python", "nodejs", "esm", "html"]

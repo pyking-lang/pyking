@@ -1,0 +1,89 @@
+# Control flow across the whole JavaScript subset: functions with
+# parameters and returns, `while` loops (nested, and with early exits),
+# `if`/`else if`/`else`, mutable variables with `:=`, and recursion.
+
+def gcd(a, b):
+    var x = a
+    var y = b
+    while x > 0:
+        if x < y:
+            var swap = x
+            x := y
+            y := swap
+        x := x - y
+    return y
+
+
+print(gcd(48, 18), gcd(17, 5), gcd(9, 9))
+
+
+def factorial(n):
+    var result = 1
+    var k = n
+    while k > 1:
+        result := result * k
+        k := k - 1
+    return result
+
+
+print(factorial(0), factorial(1), factorial(6))
+
+
+# Recursion: a function is in scope inside its own body.
+def fib(n):
+    if n < 2:
+        return n
+    else:
+        return fib(n - 1) + fib(n - 2)
+
+
+print(fib(0), fib(1), fib(10))
+
+
+# A nested loop with an early return out of both levels.
+def first_pair_summing(limit, wanted):
+    var a = 1
+    while a <= limit:
+        var b = a
+        while b <= limit:
+            if a + b == wanted:
+                return a * 100 + b
+            b := b + 1
+        a := a + 1
+    return -1
+
+
+print(first_pair_summing(9, 12), first_pair_summing(3, 99))
+
+
+# An `else if` ladder deciding a mutable accumulator, driven by a while
+# loop -- the shape a `for` loop would take in the fuller language.
+def classify_sum(limit):
+    var n = 1
+    var small = 0
+    var medium = 0
+    var large = 0
+    while n <= limit:
+        if n < 3:
+            small := small + n
+        else if n < 6:
+            medium := medium + n
+        else:
+            large := large + n
+        n := n + 1
+    return small * 10000 + medium * 100 + large
+
+
+print(classify_sum(8))
+
+
+# Blocks are scopes: the binding inside the loop body is a fresh one each
+# time round, and never touches the outer name of the same spelling.
+step = "outer"
+var count = 0
+
+while count < 2:
+    step = "inner"
+    count := count + 1
+
+print(step, count)

@@ -1,44 +1,23 @@
-# Pyking language reference (bootstrap stage)))
+# Pyking language reference
 
-Pyking is a small, statically-scoped, Python-like language. Its syntax and
-core expression/statement forms are borrowed directly from Python (literals,
-arithmetic and comparison operators, function definitions, `for`/`while`/`if`
-control flow, indentation-based blocks). Pyking's one deliberate departure
-from Python is around variable mutation: plain `=` only introduces an
-*immutable* binding for a name, never a mutation. To declare a variable that
-can change over time, it must first be introduced with `var`, and it is
-updated afterwards with the `:=` operator rather than `=`.
+Pyking is a small, lexically-scoped, Python-like language. Its syntax and
+core expression/statement forms are borrowed directly from Python
+(literals, arithmetic and comparison operators, function definitions,
+`for`/`while`/`if` control flow, indentation-based blocks). Its
+deliberate departures are around binding and scope: plain `=` only
+introduces an *immutable* binding for a name, never a mutation; a
+variable that changes over time must be introduced with `var` and updated
+with `:=`; and every block is a scope, so a name bound inside one is gone
+after it.
 
-This document describes the subset of the language currently understood by
-the bootstrap implementation in `boot/` (`lexer.py`, `syntax.py`,
-`parser.py`, `target_python.py`, `pykboot.py`). Pyking itself has no
-evaluator — instead, `boot/pykboot.py` *compiles*: `python3
-boot/pykboot.py <file> --output <out.py>` lexes and parses `<file>`,
-translates the result to Python, and writes it to `<out.py>`, which can
-then be run directly with `python3 <out.py>`. `boot/pykboot.py` always
-requires exactly one of three flags telling it what to do — there is no
-default action:
+This document is the language reference: what Pyking programs mean, and
+what the bootstrap implementation in `boot/` currently accepts. It says
+nothing about the compiler itself — how a program is compiled, what
+targets it can be compiled to, how to invoke any of that — which lives in
+[docs/architecture.md](docs/architecture.md).
 
-- `--output <file>` compiles and writes the generated Python to `<file>`
-  (refusing to run if `<file>` would overwrite the input itself).
-- `--stdout` compiles and prints the generated Python source to stdout
-  instead of writing a file (handy for piping straight into `python3`).
-- `--ast` prints the pretty-printed *Pyking* AST (in Pyking's own syntax,
-  e.g. still showing `var`/`:=`) without compiling.
-
-`--tokens` additionally prints the raw token stream first, on top of
-whichever of the three above is chosen. A file that fails to lex, parse,
-or resolve its names reports a `Lexing error` / `Parsing error` / `Name
-error` to stderr with the offending file, row, and column (start and end)
-instead of producing any output. The name analysis (see "Names and
-scoping") runs for every mode, `--ast` included — it is part of the front
-end, not of a backend.
-
-The `pykboot` wrapper script at the repository root forwards flags as-is
-(e.g. `./pykboot --ast <file>`), but adds a convenience: called with
-*only* a filename and no flags, it compiles to a temp file, runs it with
-`python3`, and deletes the temp file afterward — i.e. `./pykboot <file>`
-is the "just run it" shorthand.
+Examples are marked `python` where they are also valid Python, and
+`pyking` where they use something Python has no spelling for.
 
 ## New in Pyking (not in Python)
 
@@ -56,9 +35,8 @@ restriction of it, but these are genuinely new.
   `for` variables, pattern variables, `def`s, `=` bindings), with one
   exception: a mutable variable may not be shadowed while it is in
   scope, which is what keeps `:=` pointing at exactly one variable.
-  `boot/analyses.py` checks all of this after parsing, and the Python
-  backend renames shadowed bindings where Python's own scoping would
-  otherwise merge them. See "Names and scoping" for the details.
+  All of it is checked at compile time. See "Names and scoping" for the
+  details.
 - **Immutable-by-default bindings**: plain `=` never mutates — it's
   always a fresh binding. A name must first be declared with `var`
   before it can be updated, and only then with `:=`: `var n = 0` then
@@ -168,7 +146,7 @@ Structure:
 - Indentation-based blocks
 - Lexical scoping, with every block a scope, free shadowing of immutable
   names, and no shadowing of a mutable one — checked statically by
-  `boot/analyses.py` (see "Names and scoping")
+  (see "Names and scoping")
 
 ## Grammar
 
@@ -301,7 +279,7 @@ Notes that don't fall out of the grammar alone:
   `if_stmt`, and that is how it is parsed: `boot/parser.py` builds no
   ladder node, just an `SIf` whose `else_body` is a one-element list
   holding the next `SIf`. Both pretty-printers undo the nesting when
-  printing (as `else if` for Pyking, `elif` for the Python backend), so
+  printing (as `else if` in Pyking's own syntax), so
   a ladder round-trips flat instead of stepping one level right per
   branch — and an `else:` block a program *did* write with a single
   nested `if_stmt` inside prints as an `else if` chain, the two being
@@ -402,8 +380,8 @@ Notes that don't fall out of the grammar alone:
   excluding the conditional expression), so `[x for x in xs if b if a
   else c]` is a syntax error in Python too. Pyking's parser is in fact
   lenient enough to recover in some of these cases, but both
-  pretty-printers always emit the parentheses — in the Python backend
-  they are mandatory for the output to be valid Python at all.
+  pretty-printers always emit the parentheses — in generated Python they
+  are mandatory for the output to be valid Python at all.
 - `additive` and `multiplicative` are left-associative.
 - `call_tail` can repeat after any atom, so `f(1)(2)` parses (a call
   result can itself be called), even though no example in this document
@@ -445,8 +423,8 @@ Notes that don't fall out of the grammar alone:
   all of its parameters, with or without a return type. Annotations are
   purely syntactic: they're parsed, stored in the AST, and pretty-printed
   back out, but there is no type checker yet, so nothing is verified
-  against them, and `target_python.py` erases them completely (generated
-  Python carries no type syntax at all).
+  against them, and every backend erases them completely — no generated
+  code carries type syntax at all.
 - A tuple `type` with zero elements, `()`, is the Unit type. One with a
   single element, e.g. `(Int)`, is a genuine 1-element tuple type, not a
   parenthesized `Int` — Pyking's type grammar has no parenthesization for
@@ -700,8 +678,8 @@ print(labels)
 ```
 
 Since Python's own comprehension syntax *can* express irrefutable targets
-but *can't* express refutable pattern matching, `boot/target_python.py`
-compiles the two cases differently: an irrefutable pattern becomes a plain
+but *can't* express refutable pattern matching, the compiler treats the
+two cases differently: an irrefutable pattern becomes a plain
 native `for`-target (`for (_, label) in pairs`, reading just like the
 Pyking source), while a refutable one is compiled into a small amount of
 extra machinery (an auto-generated `__pm*` helper function that
@@ -884,47 +862,22 @@ including inside a function body, which may only refer to what is in
 scope at the point the function is *defined*. A function does see its own
 name, so it can call itself; but two functions cannot yet call each
 other, and a `def` cannot refer to a binding written below it, even
-though the generated Python would resolve both at call time. The rule
+though a backend's own scoping would resolve both at call time. The rule
 errs on the safe side: everything it accepts also runs, whereas making
 `def`s visible throughout their scope would equally accept `print(f())`
 written above `def f`, which Python rejects at runtime.
 
-**Checking.** All of this is enforced by `boot/analyses.py`, which runs
-after parsing (for every mode, `--ast` included) and reports a `Name
-error` with the offending source position. It is a single recursive walk
-carrying an environment of the names in scope; entering a nested scope
-just means the walk keeps using the environment it was handed, and
-leaving one means going back to the caller's — so a binding cannot leak
-out of its block. Because the generated Python calls Python's builtins,
-which no Pyking program binds, a small set of them (`print`, `range`,
-`str`, `len`) is seeded into the top-level environment; every other
-unbound name is an error.
+**Checking.** All of this is checked statically, before any code is
+generated, and reported as a `Name error` against the offending source
+position. A handful of names are predefined and count as bound
+everywhere — `print`, `range`, `str` and `len` — since no Pyking program
+declares them; every other unbound name is an error.
 
-**Blocks are scopes in the generated code too.** Python has no block
-scope: an `if`/`for`/`while`/`case` body is not a scope there, so a
-binding that shadows an outer name would land on the same Python
-variable and the outer name would come back changed. `target_python.py`
-therefore *renames* such a binding while translating, keeping the
-generated name close to the source one — `total` becomes `total2`, or
-`total3` if `total2` is itself in scope:
-
-```
-$ python3 boot/pykboot.py --stdout tests/shadowing_blocks.pyk
-total = 1
-if 1 < 2:
-    total2 = 2       # the block's own `total`
-    print(total2)
-print(total)         # still the outer one
-```
-
-Renaming happens only where it is needed, so generated code keeps the
-names actually written wherever it can. It is *not* needed when Python's
-own scoping already separates the two — a `def` body or a comprehension,
-where a parameter or loop variable may reuse any name — nor when the
-shadowed binding is unreachable anyway: rebinding within one block, or
-two sibling blocks that each bind the same name. `tests/shadowing_blocks.pyk`
-exercises all of these, including a closure that has to read a renamed
-name and a `var` whose `:=` updates through the rename.
+**Compiling preserves this.** A backend whose own scoping is coarser
+than Pyking's has to work to keep these rules — the Python backend
+renames a binding that shadows an outer name, because Python has no
+block scope. That is a compiler concern rather than a language one; see
+[docs/architecture.md](docs/architecture.md).
 
 ### Function definitions (`def`)
 
@@ -1020,8 +973,8 @@ print(scale(3, 4))
 There is no type checker yet — annotations are parsed and stored in the
 AST (see `Param`/`SFunctionDef.return_type` in `boot/syntax.py`) and
 pretty-printed back out in Pyking's own syntax, but nothing is verified
-against them. Compiling to Python (`boot/target_python.py`) erases every
-annotation: the generated Python source carries no type syntax at all.
+against them. Compiling erases every annotation: no generated code
+carries type syntax at all.
 
 ### `return` statements
 
@@ -1098,8 +1051,8 @@ print(grade(95), grade(85), grade(75), grade(65))
 
 Because `else if` is just an `else` block holding one nested `if`
 statement (see the grammar notes above), the two forms below mean
-exactly the same thing; the flat one is preferred, and is what
-`--ast` prints back for either.
+exactly the same thing; the flat one is preferred, and is the form the
+Pyking pretty-printer produces for either.
 
 ```pyking
 if a:

@@ -5,29 +5,25 @@ in this repository.
 
 ## Project overview
 
-Pyking is an early-stage compiler/interpreter project for a small Python-like
-language. It follows the same "boot" bootstrapping pattern used by the Miking
-project (KTH): a throwaway bootstrap implementation is written first in a
-convenient host language, with the intent of eventually self-hosting the
-compiler in the target/meta language itself. Concretely:
+Pyking is an early-stage compiler for a small Python-like language. It is
+built to bootstrap: a throwaway implementation is written first in a
+convenient host language, with the intent of eventually rewriting the
+compiler in Pyking itself and compiling it with the throwaway one.
+Concretely:
 
 - `boot/` holds the bootstrap implementation, split into one plain script
   module per compiler stage (see "Architecture" below) — it is *not* a
   Python package (no `__init__.py`, no relative imports); modules import
   each other directly (e.g. `from lexer import ...`), relying on Python
-  adding `boot/` to `sys.path` when `boot/pykboot.py` is run directly. An
-  earlier version of the bootstrap was written in OCaml (`ast.ml`,
-  `lexer.ml`, `pykboot.ml`); it was removed on 2026-07-16 in favor of the
-  Python rewrite — don't reintroduce `.ml` files unless asked.
-- `src/` is reserved for the eventual self-hosted implementation written in
-  Miking (`.mc` files). It's currently empty of tracked content.
+  adding `boot/` to `sys.path` when `boot/pykboot.py` is run directly.
+- `src/` is reserved for the eventual self-hosted implementation — the
+  compiler written in Pyking. It's currently empty of tracked content.
 - `tests/` contains sample Pyking source programs (`.pyk`, not a pytest
-  suite), each with a sibling `.out` file holding its expected stdout, plus
-  `tests/test_script.py` (see "Running" below for how it uses these), and
-  usable standalone via:
-  ```
-  python3 boot/pykboot.py tests/test1.pyk
-  ```
+  suite), each with a sibling `.out` file holding its expected stdout,
+  plus `tests/test_cases.toml` (which program runs on which target) and
+  `tests/test_script.py` (see "Running" below for how it uses both).
+- `docs/` holds design notes; `docs/architecture.md` is the compiler-side
+  counterpart to PYKING.md.
 
 ## Pyking language reference
 
@@ -40,22 +36,42 @@ message format, etc.). Read it before writing or editing any Pyking source
 current bootstrap parser accepts, which is not the same as full Python.
 Keep it in sync whenever `boot/`'s language support changes.
 
-## Changing the language: always update all four places
+PYKING.md is **language-only**: nothing about compiler flags, targets,
+generated code, or the test harness belongs there. That material lives in
+**`docs/architecture.md`** — the pipeline, the four backends, the runtime
+interface, and how the tests work — and `README.md` is a short index
+pointing at both. When a change touches how something *compiles* rather
+than what it *means*, it is architecture.md that needs updating.
+
+## Changing the language: always update all five places
 
 A change to what `boot/` accepts is not finished until **every** one of
 these is updated in the same change — none of them is optional, and the
-last two are the ones that get forgotten:
+last ones are the ones that get forgotten:
 
 1. **`boot/`** — the stage(s) implementing it (lexer → parser → syntax →
-   `analyses.py` → each `target_*.py` backend). A construct that binds or
-   uses a *name* always reaches `analyses.py`: it has to bind through
-   `bind` (so the no-shadowing-a-`var` rule covers it) or be walked so
-   its names are checked, or it silently escapes the analysis.
+   `analyses.py` → each backend). A construct that binds or uses a *name*
+   always reaches `analyses.py`: it has to bind through `bind` (so the
+   no-shadowing-a-`var` rule covers it) or be walked so its names are
+   checked, or it silently escapes the analysis. Every backend needs a
+   decision, not just the Python one: either translate the construct in
+   `target_js_core.py` too, or leave it to that module's `_unsupported`
+   so the JS targets refuse it with a source position.
 2. **`tests/`** — at least one `.pyk` file exercising the new construct,
-   with its `.out` file captured from an actual run (`make test`).
+   with its `.out` captured from an actual run, **and an entry in
+   `tests/test_cases.toml`** listing the targets it works on. The harness
+   warns about a `.pyk` missing from the manifest, but a wrong target list
+   just silently under-tests. If most of an existing test would work on
+   the JS targets but one section would not, split it in two rather than
+   marking the whole file python-only.
 3. **`PYKING.md`** — feature summary, EBNF grammar, the grammar notes for
-   anything the EBNF can't express, and a worked example.
-4. **`tools/emacs/pyking-mode.el`** — the editor mode claims in its own
+   anything the EBNF can't express, and a worked example. Language only:
+   no flags, targets, or generated code.
+4. **`docs/architecture.md`** — anything about *compiling*: a new stage or
+   module in the pipeline diagram, a change to a target's output or file
+   set, a widening of the JavaScript subset, a new difference between
+   targets.
+5. **`tools/emacs/pyking-mode.el`** — the editor mode claims in its own
    commentary to mirror `boot/lexer.py` and `boot/parser.py`, so it goes
    stale silently. Check each of these against the change:
    - `pyking-mode-keywords` / `pyking-mode-types` — must still equal the
@@ -84,10 +100,12 @@ The bootstrap is split into one module per compiler stage:
    error reporting), the Token ADT (each token kind is a frozen `@dataclass`
    subclassing the `Token` marker base class, e.g. `TokInt`, `TokIdent`,
    `TokAdd`, `TokDef` — this mirrors how the token type would be expressed
-   as an OCaml/Miking variant type; keep new token kinds in this same
-   one-class-per-variant style rather than collapsing them into a single
-   class with a `kind` field), `pprint_token`/`pprint_info` (pretty-printing
-   via `match`/`case`, mirroring OCaml-style pattern matching), and the
+   as a variant type in a language that has them, which is what the
+   self-hosted compiler will be written in; keep new token kinds in this
+   same one-class-per-variant style rather than collapsing them into a
+   single class with a `kind` field), `pprint_token`/`pprint_info`
+   (pretty-printing via `match`/`case`, mirroring how the same code would
+   pattern-match over that variant type), and the
    lexer itself: `lexing(file, chars)` consumes a list of characters
    (`list(str)`, not a string) via structural pattern matching (`match rest:
    case [x, *xs] ...`) and returns a list of tokens. Helpers:
@@ -135,7 +153,32 @@ The bootstrap is split into one module per compiler stage:
    Keep new analyses in this module as separate `analyze_*` entry points
    rather than folding more checking into the parser: the parser's job
    is shape, and only a scope-aware walk can judge names.
-5. **`boot/target_python.py`** — the Python code-generation backend: its
+5. **`boot/runtime_interface.py`** — the boundary between pure Pyking code
+   and the outside world, in the spirit of WebAssembly's split between a
+   core language that cannot observe anything and a separate host spec.
+   Backend-agnostic by construction: it holds no Python and no JavaScript,
+   only the named operations (today just `print`) and their semantics,
+   *including* the value-formatting rules, since every backend has to
+   agree on those for one program to print the same characters
+   everywhere. Add an operation here first; the backends then bind it.
+6. **`boot/target_js_core.py`** — the JavaScript backend's language half:
+   a `Js*` AST, translation from `syntax.py`, and a printer. Knows nothing
+   about packaging. Calls that cross the runtime interface become
+   `JsRuntimeCall`, whose spelling is supplied by the packager, so the
+   same core output serves all three JS targets. JavaScript fits Pyking
+   better than Python does — `const`/`let` are Pyking's `=`/`var`, and
+   `{ }` blocks are scopes — so it renames only where JavaScript forces
+   it (`const` redeclaration, and the temporal dead zone), not on every
+   shadow the way `target_python.py` must. Constructs outside the
+   supported subset raise `UnsupportedError`, which carries an `Info`.
+7. **`boot/target_js_packaging.py`** — the JavaScript backend's packaging
+   half: wraps core output into `nodejs` (one self-contained script),
+   `html` (one self-contained page printing into a visible box), and `esm`
+   (a module exporting `run(runtime)`, plus a node driver and an HTML
+   wrapper derived from the `--output` path). It owns the JavaScript side
+   of the runtime interface — each host's `print` and the shared
+   `pykFormat` — which is exactly what differs between the three.
+8. **`boot/target_python.py`** — the Python code-generation backend: its
    own `Py*` AST (`PyInt`, `PyAssign`, `PyFor`, ... — structurally the same
    shape as `boot/syntax.py`'s `E*`/`S*`, except Pyking's `SLet`/`SVar`/
    `SMutate` all collapse into one `PyAssign`, since Python has no
@@ -157,27 +200,29 @@ The bootstrap is split into one module per compiler stage:
    ends in a `case _: raise NotImplementedError(...)` so a future Pyking
    construct without a translation fails loudly rather than silently
    returning `None`), and `pprint_py_expr`/`pprint_py_stmt`/
-   `pprint_py_program` (Py* AST → Python source text). This is the first
-   of what should eventually be multiple interchangeable backends — keep
-   it independent of `syntax.py`'s pretty-printing internals so future
-   backends (e.g. `target_ocaml.py`) can be added the same way, without
-   entangling target-specific logic into the Pyking AST/pretty-printer.
-6. **`boot/pykboot.py`** — the entry point: parses `--tokens`/`--ast`/
-   `--stdout`/`--output <file>`/the filename from argv, calls
-   `lexer.lexing`, `parser.parse` and `analyses.analyze_program`, catches
-   `LexError`/`ParseError`/`AnalysisError` to print a
+   `pprint_py_program` (Py* AST → Python source text). It was the first
+   backend and the JavaScript ones followed the same shape — keep it
+   independent of `syntax.py`'s pretty-printing internals so the next one
+   can too, without entangling target-specific logic into the Pyking
+   AST/pretty-printer.
+9. **`boot/pykboot.py`** — the entry point: parses `--tokens`/`--ast`/
+   `--stdout`/`--output <file>`/`--target|-t <target>`/the filename from
+   argv, runs `lexer.lexing`, `parser.parse` and
+   `analyses.analyze_program`, then dispatches on the target. Catches
+   `LexError`/`ParseError`/`AnalysisError`/`UnsupportedError` and prints a
    `'file' row:col-row:col ...` message to stderr (`Lexing error` /
-   `Parsing error` / `Name error`). The analysis runs for every mode,
-   `--ast` included — an AST whose names don't resolve is not worth
-   printing or compiling. Exactly one of
-   `--ast`, `--stdout`, or `--output <file>` must be given — there is no
-   default action, and passing none of them is a usage error. With
-   `--ast`, prints the pretty-printed *Pyking* AST via
-   `syntax.pprint_program` (this used to be the only/default behavior).
-   Otherwise it compiles: translates to the Python target AST and
-   pretty-prints it, then either prints that to stdout (`--stdout`) or
-   writes it to the path given by `--output` (refusing to run if that
-   path would overwrite the input file itself).
+   `Parsing error` / `Name error` / `Unsupported by target '<t>'`). The
+   analysis runs for every mode, `--ast` included — an AST whose names
+   don't resolve is not worth printing or compiling. Every flag has a
+   default: `--target` is `python`, and with no `--ast`/`--stdout`/
+   `--output` the program is compiled to a file named from the source
+   stem and the target's extension. `--ast`
+   prints the *Pyking* AST via `syntax.pprint_program` and returns before
+   any backend runs, since that AST is what every target shares. Keep the
+   driver thin: it sequences stages and reports errors, and each backend
+   owns its own translation, packaging, and file naming (`esm` writing
+   three files is `target_js_packaging.package`'s business, not the
+   driver's).
 
 When extending the lexer (new operators, keywords, string escapes, etc.),
 follow the existing pattern: add a `case [...]:` arm in the `match rest:`
@@ -187,43 +232,60 @@ block inside `lexing`, add a corresponding `Tok*` dataclass, and add a
 ## Running
 
 ```
-python3 boot/pykboot.py [--tokens] (--ast | --stdout | --output <file>) <filename>
+python3 boot/pykboot.py [--tokens] [--target|-t <target>] [--ast | --stdout | --output <file>] <filename>
 ```
 
 `--tokens` prints the token stream first (in addition to whatever else
-happens). Exactly one of the other three flags is required — there is no
-default action:
+happens). The other three select what to do, and none of them is
+required:
 
-- `--ast` stops after parsing and prints the pretty-printed *Pyking* AST
-  instead of compiling.
-- `--stdout` compiles (translating to the Python target AST via
-  `boot/target_python.py`) and prints the generated Python source to
-  stdout.
-- `--output <file>` compiles the same way and writes the generated Python
-  source to `<file>`, refusing to run if `<file>` would overwrite the
-  input.
+- `--ast` stops after the front end and prints the pretty-printed *Pyking*
+  AST. Target-independent, so it ignores `--target`.
+- `--stdout` compiles and prints the generated source. For `esm`, whose
+  wrappers only exist as files, this prints the module alone.
+- `--output <file>` compiles and writes to `<file>`. A single-file target
+  writes exactly that path; `esm` reads it as a *stem* and names its own
+  files, so `--output out/prog`, `out/prog.js` and `out/prog.html` all
+  produce `out/prog.js` (module), `out/prog.node.js` (driver),
+  `out/prog.html`, and `out/package.json` (`{"type": "module"}`, which is
+  what lets the first two be plain `.js`). An existing `package.json` is
+  never overwritten — it belongs to the surrounding project.
+- With none of them, the compiler names the file: the source's own stem
+  plus the target's extension (`EXTENSIONS` in `pykboot.py`, fed by each
+  backend), in the *current* directory — `-t nodejs tests/hello.pyk`
+  writes `./hello.js`. Writing over the input, or into a directory that
+  doesn't exist, is a usage error rather than a traceback, checked per
+  file since `esm` writes three.
 
-There's no `--target` flag yet — Python is the only backend, so a
-target-selection flag would be speculative; add one if/when a second
-backend is implemented.
+`--target`/`-t` selects the backend: `python` (the default), `nodejs`,
+`html`, or `esm`. The JavaScript targets share `boot/target_js_core.py`
+and differ only in `boot/target_js_packaging.py`; they support a subset of
+the language, and anything outside it is refused at compile time with a
+source position rather than emitted as broken JavaScript. See
+`docs/architecture.md` for the subset and the target table.
 
-The `pykboot` wrapper script at the repository root forwards flags as-is
-(`./pykboot --ast <file>`, etc.), but adds one convenience: called with
-*only* a filename and no flags, it compiles to a temp file, runs it with
-`python3`, and removes the temp file afterward (even if compiling or
-running fails) — i.e. `./pykboot <file>` is the "just run it" shorthand
-that no longer exists as `boot/pykboot.py`'s own default.
+The `pyk` wrapper script at the repository root forwards flags as-is
+(`./pyk --ast <file>`, `./pyk -t nodejs --stdout <file>`, ...), but adds
+one convenience: called with *only* a filename and no flags, it compiles
+to a temp file, runs it with `python3`, and removes the temp file
+afterward (even if compiling or running fails) — i.e. `./pyk <file>` is
+the "just run it" shorthand that no longer exists as `boot/pykboot.py`'s
+own default.
 
 `make test` runs `tests/test_script.py` (plain `make` with no target does
-nothing — the `Makefile`'s first rule, `all`, is intentionally empty), which
-compiles every `tests/*.pyk` file via
-`--output <tempfile>` (a real temp file, from Python's `tempfile` module),
-executes the result with `python3`, and compares its stdout against the
-sibling `tests/*.out` file (captured once, ahead of time, as the expected
-output) — then deletes the temp file again.
+nothing — the `Makefile`'s first rule, `all`, is intentionally empty). It
+reads `tests/test_cases.toml`, and for every (program, target) pair the
+manifest declares, compiles the program to a temp directory, runs it the
+way a user would — `python3` on the `.py`, `node` on the `.js`, `node` on
+the *generated driver* for `esm`, and, for `html`, the page's extracted
+module under a small `document` stub — and compares stdout against the
+sibling `.out` file. One `.out` serves every target, which is the property
+being tested. It warns about any `.pyk` missing from the manifest and
+prints a per-target summary.
 
-No dependencies beyond the Python standard library (`dataclasses`, `sys`).
-Requires Python 3.10+ for `match`/`case` statements.
+No third-party dependencies. Requires Python 3.11+ (`match`/`case`, and
+`tomllib` for the manifest); the JavaScript targets need `node` to *run*
+their output, but not to produce it.
 
 ## Repository housekeeping
 
