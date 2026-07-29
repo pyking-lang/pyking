@@ -56,6 +56,12 @@ class EDiv(Expr):           # left / right
 
 
 @dataclass(frozen=True)
+class ENeg(Expr):           # -operand (unary minus)
+    info: Info
+    operand: Expr
+
+
+@dataclass(frozen=True)
 class ELessThan(Expr):      # left < right
     info: Info
     left: Expr
@@ -217,6 +223,15 @@ def pprint_expr(e, min_prec=0):
             return _wrap(3, min_prec, f"{pprint_expr(l, 3)} * {pprint_expr(r, 4)}")
         case EDiv(_, l, r):
             return _wrap(3, min_prec, f"{pprint_expr(l, 3)} / {pprint_expr(r, 4)}")
+        case ENeg(_, operand):
+            # Unary minus binds tighter than `*`/`/` (so `-x * y` needs no
+            # parens and means `(-x) * y`), which is precedence 4 here. Its
+            # operand prints at 5, one above everything with a precedence,
+            # so any operator underneath is parenthesized -- `-(x * y)` --
+            # while an atom or call stays bare: `-x`, `-f(x)`. Nested
+            # negation is parenthesized too: `-(-5)` rather than `--5`,
+            # which parses the same but reads like a typo.
+            return _wrap(4, min_prec, f"-{pprint_expr(operand, 5)}")
         case ELessThan(_, l, r):
             return _wrap(1, min_prec, f"{pprint_expr(l, 2)} < {pprint_expr(r, 2)}")
         case ELessThanEq(_, l, r):
@@ -228,7 +243,9 @@ def pprint_expr(e, min_prec=0):
         case EEq(_, l, r):
             return _wrap(1, min_prec, f"{pprint_expr(l, 2)} == {pprint_expr(r, 2)}")
         case ECall(_, f, args):
-            return f"{pprint_expr(f, 4)}({', '.join(pprint_expr(a) for a in args)})"
+            # The callee prints at 5 so a negated one keeps its parens:
+            # `(-f)(x)` calls the negation, `-f(x)` negates the result.
+            return f"{pprint_expr(f, 5)}({', '.join(pprint_expr(a) for a in args)})"
         case EList(_, elements):
             return f"[{', '.join(pprint_expr(e) for e in elements)}]"
         case EListComp(_, expr, clauses):

@@ -123,7 +123,8 @@ Expressions:
 - Comments
 - Integer and string literals (with backslash escapes)
 - Variables (identifier references)
-- Arithmetic operators (`+`, `-`, `*`, `/`) and parenthesized expressions
+- Arithmetic operators (`+`, `-`, `*`, `/`), unary minus (`-x`, and
+  negative literals like `-5`), and parenthesized expressions
 - Comparison operators (`<`, `<=`, `>`, `>=`, `==`)
 - Function calls
 - List literals (`[e1, e2, ...]`)
@@ -216,7 +217,7 @@ match_stmt  = "match" , expr , ":" , INDENT , case_clause , { case_clause } , DE
 case_clause = "case" , pattern , ":" , block
             | "case" , pattern , "->" , expr ;
 pattern     = pattern_atom , { "," , pattern_atom } ;
-pattern_atom = int | string | "_" | ident
+pattern_atom = int | "-" , int | string | "_" | ident
              | "(" , ")"
              | "(" , pattern_atom , "," , ")"
              | "(" , pattern_atom , ( "," , pattern_atom )+ , [ "," ] , ")"
@@ -259,7 +260,8 @@ comparison  = additive , [ comp_op , additive ] ;
 comp_op     = "<" | "<=" | ">" | ">=" | "==" ;
 
 additive    = multiplicative , { ( "+" | "-" ) , multiplicative } ;
-multiplicative = atom , { ( "*" | "/" ) , atom } ;
+multiplicative = unary , { ( "*" | "/" ) , unary } ;
+unary       = "-" , unary | atom ;
 
 atom        = ( int | string | ident | list_lit | list_comp | tuple_lit
               | "(" , expr , ")" ) ,
@@ -413,7 +415,24 @@ Notes that don't fall out of the grammar alone:
   so without this row check, a statement immediately followed by one
   starting with `(`, e.g. a parenthesized tuple destructuring assignment,
   would be misparsed as one giant chained call.)
-- There is no unary minus — `-x` is not a valid atom.
+- `unary` is the only prefix operator: `-expr` negates, and nests
+  (`- -x`). It sits between `multiplicative` and `atom`, so it binds
+  tighter than `*`/`/` and looser than a `call_tail` — `-x * y` is
+  `(-x) * y`, and `-f(x)` negates the call's *result*, not `f`. It
+  applies to the operand it precedes and no further, so parentheses are
+  what extend it over a sum: `-x + 1` is `(-x) + 1`, not `-(x + 1)`.
+- The same `-` token serves both operators and they never compete: a
+  binary `-` can only appear where an expression has just ended, a unary
+  one only where an expression is about to begin, so spacing never
+  matters (`10 - -3`, `10 - - 3` and `10 - -3` all subtract minus three).
+  One consequence of the grammar having no statement separators (see
+  `call_tail` above) does follow: a statement *starting* with `-` on the
+  line after an expression statement continues that expression instead
+  of starting a new one, exactly as a leading `(` does.
+- A `pattern_atom` admits a negative integer, matching Python
+  (`case -1:`). Only a literal — a pattern is matched, never evaluated,
+  so there is no expression there for the general `unary` rule to apply
+  to.
 - `match_stmt` requires at least one `case_clause`.
 - Unlike Python, where `match`/`case` are context-sensitive ("soft")
   keywords, they're always reserved in Pyking — a variable or parameter
@@ -558,6 +577,32 @@ b = (2 + 3) * 4
 c = 10 - 4 / 2
 print(a, b, c)
 ```
+
+A `-` written where an expression is expected is instead unary minus,
+which negates what follows it. That covers negative literals (`-5`) and
+negation of anything else — a variable, a call's result, a parenthesized
+expression — and it may be repeated (`- -x`).
+
+```python
+x = 5
+low = -12
+
+print(-x, -low, - -5)
+print(-(x + 1), -x + 1)
+print(10 - -3, -x * 2)
+```
+
+It binds tighter than `*` and `/` and looser than a call, so `-x * y`
+means `(-x) * y` and `-f(x)` negates the result of `f(x)` rather than
+`f`. It reaches only over the operand it precedes, which is why `-x + 1`
+is `(-x) + 1` and the parentheses in `-(x + 1)` are doing real work.
+Since a binary `-` can only follow a completed expression and a unary
+one can only start a new one, spacing never changes the reading: `10 - -3`
+and `10 - - 3` are the same.
+
+A `case` pattern may use a negative integer literal too — `case -1:` —
+matching Python. That is a literal only: patterns are matched, not
+evaluated, so `case -x:` is not a negation of anything.
 
 ### Comparison operators
 
@@ -933,7 +978,7 @@ def sign(n: Int) -> String =
     if n < 0 then "negative" else "positive"
 
 
-print(scaled(1, 2), sign(0 - 3))
+print(scaled(1, 2), sign(-3))
 ```
 
 Note the body is still an *expression*: `if ... then ... else ...` as
@@ -1092,7 +1137,7 @@ def clamp(x, lo, hi):
     return if y > hi then hi else y
 
 
-print(sign(0 - 5), sign(0), sign(7))
+print(sign(-5), sign(0), sign(7))
 print(clamp(42, 1, 10))
 
 # The `+ 1` belongs to the else branch; parenthesize to apply it to the

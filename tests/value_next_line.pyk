@@ -67,7 +67,7 @@ def sign(n: Int) -> String =
     if n < 0 then "negative" else "positive"
 
 
-print(sign(0 - 3), sign(3))
+print(sign(-3), sign(3))
 
 # A bare tuple works here too, since the body is a full `tuple_or_expr`.
 def swap(a, b) =
@@ -99,4 +99,4 @@ def describe(n):
 print(describe(0))
 print(describe(1))
 print(describe(7))
-print(describe(0 - 7))
+print(describe(-7))

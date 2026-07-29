@@ -12,7 +12,7 @@ def classify(n):
         return "big"
 
 
-print(classify(0 - 4))
+print(classify(-4))
 print(classify(0))
 print(classify(7))
 print(classify(99))

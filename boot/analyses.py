@@ -39,7 +39,7 @@ from dataclasses import dataclass
 from lexer import Info
 from syntax import (
     EInt, EString, EVar,
-    EAdd, ESub, EMul, EDiv,
+    EAdd, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList, ETuple,
     EIf, EListComp, CompFor, CompIf,
     PInt, PString, PWildcard, PCapture, PTuple, PList,
@@ -188,6 +188,8 @@ def analyze_expr(e, env):
               | EGreatThanEq(_, l, r) | EEq(_, l, r)):
             analyze_expr(l, env)
             analyze_expr(r, env)
+        case ENeg(_, operand):
+            analyze_expr(operand, env)
         case ECall(_, func, args):
             analyze_expr(func, env)
             for arg in args:

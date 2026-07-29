@@ -30,7 +30,7 @@ def quadrant(x, y):
         return 3
 
 
-print(quadrant(1, 1), quadrant(0 - 1, 1), quadrant(0 - 1, 0 - 1), quadrant(1, 0 - 1))
+print(quadrant(1, 1), quadrant(-1, 1), quadrant(-1, -1), quadrant(1, -1))
 
 # An `else if` condition is a full expression, so it may itself be an if
 # *expression*: the ':' is what ends it, the same way it ends a plain one.
@@ -43,7 +43,7 @@ def zero_check(n):
         return "positive"
 
 
-print(zero_check(0 - 2), zero_check(0), zero_check(2))
+print(zero_check(-2), zero_check(0), zero_check(2))
 
 # Inside a while loop, with mutation, and with an if expression (which
 # needs its parentheses to be an operand) as one branch's value.

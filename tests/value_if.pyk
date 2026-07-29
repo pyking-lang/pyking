@@ -37,7 +37,7 @@ def classify(n):
     return label
 
 
-print(classify(0 - 4), classify(0), classify(7), classify(99))
+print(classify(-4), classify(0), classify(7), classify(99))
 
 # A tuple target destructures the bound value, just as in a plain binding.
 lo, hi = if my < y:
@@ -55,12 +55,12 @@ def stepped(n):
         steps := steps + 1
         n * 2
     else:
-        0 - n
+        -n
     return (doubled, steps)
 
 
 print(stepped(4))
-print(stepped(0 - 4))
+print(stepped(-4))
 
 # Nesting: a value-form `if` inside a branch of another one, and a value
 # binding inside a branch's block.

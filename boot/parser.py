@@ -13,7 +13,7 @@ from lexer import (
 )
 from syntax import (
     EInt, EString, EVar,
-    EAdd, ESub, EMul, EDiv,
+    EAdd, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList, ETuple,
     EIf, EListComp, CompFor, CompIf,
     PInt, PString, PWildcard, PCapture, PTuple, PList, ListRest, MatchCase,
@@ -199,15 +199,30 @@ def parse_comp_clauses(tokens):
                 )
 
 
+def parse_unary(tokens):
+    """Unary minus: `-expr`, binding tighter than `*`/`/` and looser than
+    a call, so `-x * y` is `(-x) * y` and `-f(x)` negates the result of
+    the call. Recursing on itself allows `- -x`, and it is the same `-`
+    token as subtraction -- the two never compete, since a binary `-`
+    only ever appears where an expression has just ended and a unary one
+    only where an expression is about to begin."""
+    match tokens:
+        case [TokSub(info), *rest]:
+            operand, rest = parse_unary(rest)
+            return ENeg(combine_info(info, operand.info), operand), rest
+        case _:
+            return parse_atom(tokens)
+
+
 def parse_multiplicative(tokens):
-    left, rest = parse_atom(tokens)
+    left, rest = parse_unary(tokens)
     while True:
         match rest:
             case [TokMul(_), *rest2]:
-                right, rest2 = parse_atom(rest2)
+                right, rest2 = parse_unary(rest2)
                 left, rest = EMul(combine_info(left.info, right.info), left, right), rest2
             case [TokDiv(_), *rest2]:
-                right, rest2 = parse_atom(rest2)
+                right, rest2 = parse_unary(rest2)
                 left, rest = EDiv(combine_info(left.info, right.info), left, right), rest2
             case _:
                 return left, rest
@@ -552,6 +567,11 @@ def parse_pattern_atom(tokens):
     required], or 2+ comma-separated patterns, trailing comma optional
     for 2+ -- same shape as a parenthesized tuple expression)."""
     match tokens:
+        case [TokSub(info), TokInt(int_info, v), *rest]:
+            # A negative integer *literal* pattern (`case -1:`). Only a
+            # literal: a pattern is matched, never evaluated, so there is
+            # no expression here for a general unary minus to apply to.
+            return PInt(combine_info(info, int_info), -v), rest
         case [TokInt(info, v), *rest]:
             return PInt(info, v), rest
         case [TokString(info, s), *rest]:

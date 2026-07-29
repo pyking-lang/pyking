@@ -3,7 +3,7 @@ from dataclasses import dataclass, fields, is_dataclass
 from lexer import Info
 from syntax import (
     EInt, EString, EVar,
-    EAdd, ESub, EMul, EDiv,
+    EAdd, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList, ETuple,
     EIf, EListComp, CompFor, CompIf,
     PInt, PString, PWildcard, PCapture, PTuple, PList,
@@ -71,6 +71,12 @@ class PyDiv(PyExpr):        # left / right
     info: Info
     left: PyExpr
     right: PyExpr
+
+
+@dataclass(frozen=True)
+class PyNeg(PyExpr):        # -operand (unary minus)
+    info: Info
+    operand: PyExpr
 
 
 @dataclass(frozen=True)
@@ -632,6 +638,8 @@ def translate_expr(e, scope):
             return PyMul(info, translate_expr(l, scope), translate_expr(r, scope))
         case EDiv(info, l, r):
             return PyDiv(info, translate_expr(l, scope), translate_expr(r, scope))
+        case ENeg(info, operand):
+            return PyNeg(info, translate_expr(operand, scope))
         case ELessThan(info, l, r):
             return PyLessThan(info, translate_expr(l, scope), translate_expr(r, scope))
         case ELessThanEq(info, l, r):
@@ -974,6 +982,11 @@ def pprint_py_expr(e, min_prec=0):
             return _wrap(3, min_prec, f"{pprint_py_expr(l, 3)} * {pprint_py_expr(r, 4)}")
         case PyDiv(_, l, r):
             return _wrap(3, min_prec, f"{pprint_py_expr(l, 3)} / {pprint_py_expr(r, 4)}")
+        case PyNeg(_, operand):
+            # Python's unary minus binds tighter than `*`/`/` too, so the
+            # same precedences as Pyking's `ENeg` apply (see `pprint_expr`
+            # in syntax.py): 4 for itself, 5 for its operand.
+            return _wrap(4, min_prec, f"-{pprint_py_expr(operand, 5)}")
         case PyLessThan(_, l, r):
             return _wrap(1, min_prec, f"{pprint_py_expr(l, 2)} < {pprint_py_expr(r, 2)}")
         case PyLessThanEq(_, l, r):
@@ -985,7 +998,9 @@ def pprint_py_expr(e, min_prec=0):
         case PyEq(_, l, r):
             return _wrap(1, min_prec, f"{pprint_py_expr(l, 2)} == {pprint_py_expr(r, 2)}")
         case PyCall(_, f, args):
-            return f"{pprint_py_expr(f, 4)}({', '.join(pprint_py_expr(a) for a in args)})"
+            # The callee prints at 5 so a negated one keeps its parens:
+            # `(-f)(x)` calls the negation, `-f(x)` negates the result.
+            return f"{pprint_py_expr(f, 5)}({', '.join(pprint_py_expr(a) for a in args)})"
         case PyList(_, elements):
             return f"[{', '.join(pprint_py_expr(el) for el in elements)}]"
         case PyTuple(_, elements):

@@ -12,12 +12,12 @@ def label(n):
     return prefix + str(n)
 
 
-print(sign(0 - 5))
+print(sign(-5))
 print(sign(0))
 print(sign(7))
 
 print(clamp(5, 1, 10))
-print(clamp(0 - 3, 1, 10))
+print(clamp(-3, 1, 10))
 print(clamp(42, 1, 10))
 
 print(label(3))

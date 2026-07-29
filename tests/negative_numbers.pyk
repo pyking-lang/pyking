@@ -1,0 +1,72 @@
+# Unary minus: negative literals, and negation of any expression.
+# `-` before an expression binds tighter than `*` and `/` but looser than
+# a call, so `-x * y` is `(-x) * y` and `-f(x)` negates the call's result.
+
+x = 5
+low = -12
+
+print(-x, low, -low)
+
+# The minus applies to the operand it precedes, so parentheses are what
+# extend it over a sum -- `-x + 1` is `(-x) + 1`, not `-(x + 1)`.
+print(-x + 1, -(x + 1))
+
+# Over a product the two group differently but agree in value, since
+# negation distributes: `(-x) * 2` and `-(x * 2)` are both -10.
+print(-x * 2, -(x * 2))
+
+# The same `-` token is both operators, and which one it is never depends
+# on spacing: a binary minus follows an expression, a unary one starts
+# a new one.
+print(10 - 3, 10 - -3, 10 - - 3, - -5)
+
+# Negation of a call result, and a call on a negative argument.
+def double(n) =
+    n * 2
+
+
+print(-double(3), double(-3), -double(-3))
+
+# Negative values in lists, tuples, and comparisons.
+values = [-1, 0, -3, 4]
+pair = (-1, -2)
+
+print(values, pair)
+print(-1 < 0, -1 > 0, -3 <= -3, -2 == -2)
+
+# In a comprehension, both as the element and inside a filter.
+print([-v for v in values])
+print([v for v in values if v < -1])
+
+# Negative integer *literals* are patterns too.
+def name_of(n):
+    match n:
+        case -1 -> "minus one"
+        case 0 -> "zero"
+        case -12 -> "minus twelve"
+        case _ -> "other"
+
+
+print(name_of(-1), name_of(0), name_of(low), name_of(7))
+
+# Mutable variables: negating the variable's own value.
+var running = 10
+
+for step in [-1, -2, -3]:
+    running := running + step
+
+print(running, -running)
+
+# In an if expression and in a value-form `if`, including a negative
+# branch value.
+print(if x > 0 then -x else x)
+
+sign = if low < 0:
+    -1
+else:
+    1
+
+print(sign, sign * low)
+
+# Division and repeated negation, to pin the precedence down.
+print(-6 / 3, -(6 / 3), - - -2)
