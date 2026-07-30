@@ -17,6 +17,10 @@ How each target is executed:
           share one backend and differ only in how the C is printed, so a
           difference between them is exactly the kind of bug worth
           catching.
+  java8   compile to a temp .java, build it with `javac --release <8|17|21>`,
+  java17  run the class with `java`, compare stdout. All three share one
+  java21  backend and differ only in how the Java is printed, the same
+          reason all three run here.
   html    no browser is needed: the page's embedded module is extracted
           and run under node with a small `document` stub that captures
           what the program writes into the page, which is then compared
@@ -34,10 +38,15 @@ import tomllib
 
 PYKBOOT = os.path.join("boot", "pykboot.py")
 CASES_FILE = os.path.join("tests", "test_cases.toml")
-TARGETS = ("python", "nodejs", "esm", "html", "c89", "c23")
+TARGETS = ("python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21")
 
 # The compiler used for the C targets; `cc` is the standard name.
 C_COMPILER = os.environ.get("CC", "cc")
+
+# The JDK tools used for the Java targets; `javac`/`java` are the standard
+# names on `PATH`.
+JAVA_COMPILER = os.environ.get("JAVAC", "javac")
+JAVA_RUNTIME = os.environ.get("JAVA", "java")
 
 # Stands in for the browser: the generated page's only contact with the
 # outside world is the element it prints into, so a `document` with one
@@ -138,6 +147,23 @@ def run_c(source, workdir, standard):
     return run([binary]).stdout, None
 
 
+def run_java(source, workdir, version):
+    """Compiles to Java, builds it with `javac --release <version>`, runs
+    the class with `java`. The class is named `Program` here rather than
+    whatever the backend would pick by default -- `--output` always names
+    it explicitly (see `boot/target_java.py`), so the test harness's own
+    naming choice never has to match the source file's."""
+    generated = os.path.join(workdir, "Program.java")
+    compiled = compile_to(source, version, generated)
+    if compiled.returncode != 0:
+        return None, compiled.stderr
+    release = version.removeprefix("java")
+    built = run([JAVA_COMPILER, "--release", release, "-d", workdir, generated])
+    if built.returncode != 0:
+        return None, built.stderr
+    return run([JAVA_RUNTIME, "-cp", workdir, "Program"]).stdout, None
+
+
 RUNNERS = {
     "python": run_python,
     "nodejs": run_nodejs,
@@ -145,6 +171,9 @@ RUNNERS = {
     "html": run_html,
     "c89": lambda source, workdir: run_c(source, workdir, "c89"),
     "c23": lambda source, workdir: run_c(source, workdir, "c23"),
+    "java8": lambda source, workdir: run_java(source, workdir, "java8"),
+    "java17": lambda source, workdir: run_java(source, workdir, "java17"),
+    "java21": lambda source, workdir: run_java(source, workdir, "java21"),
 }
 
 

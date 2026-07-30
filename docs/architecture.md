@@ -33,18 +33,18 @@ AST variant, and `match`/`case` over them rather than method dispatch.
                    boot/syntax.py AST — the one
                    thing every backend shares
                              │
-      ┌─────────────────┴──────────┬──────────────────┐
-      ▼                            ▼                  ▼
-┌──────────────┐   ┌────────────────────────┐  ┌──────────────┐
-│target_python │   │    target_js_core.py   │  │ target_c.py  │
-│ Py AST + pr. │   │    JS AST + printer    │  │ C AST + pr.  │
-└──────┬───────┘   └───────────┬────────────┘  └──────┬───────┘
-       │                       │ JsRuntimeCall(…)     │ standard=
-       │           ┌───────────▼────────────┐         │ c89 | c23
-       │           │ target_js_packaging.py │         │
-       │           └─┬─────────┬──────────┬─┘         │
-       ▼             ▼         ▼          ▼           ▼
-    foo.py        foo.js   foo.html    foo.js       foo.c
+      ┌─────────────────┴──────────┬──────────────────┬──────────────────┐
+      ▼                            ▼                  ▼                  ▼
+┌──────────────┐   ┌────────────────────────┐  ┌──────────────┐  ┌───────────────┐
+│target_python │   │    target_js_core.py   │  │ target_c.py  │  │target_java.py │
+│ Py AST + pr. │   │    JS AST + printer    │  │ C AST + pr.  │  │ Java AST + pr.│
+└──────┬───────┘   └───────────┬────────────┘  └──────┬───────┘  └───────┬───────┘
+       │                       │ JsRuntimeCall(…)     │ standard=        │ version=
+       │           ┌───────────▼────────────┐         │ c89 | c23        │ java8 | 17 | 21
+       │           │ target_js_packaging.py │         │                  │
+       │           └─┬─────────┬──────────┬─┘         │                  │
+       ▼             ▼         ▼          ▼           ▼                  ▼
+    foo.py        foo.js   foo.html    foo.js       foo.c            Foo.java
                                      + foo.node.js
                                      + foo.html
                                      + package.json
@@ -69,6 +69,7 @@ ignores `--target`.
 | `boot/target_js_core.py` | JavaScript AST, translation, printer — with no knowledge of packaging. |
 | `boot/target_js_packaging.py` | Wraps that output into the files each JS target delivers, and supplies the JavaScript side of the runtime interface. |
 | `boot/target_c.py` | C AST, translation, printer, for both `c89` and `c23` — one backend with a `standard` parameter. Infers types, which C needs and Pyking does not have. |
+| `boot/target_java.py` | Java AST, translation, printer, for `java8`, `java17` and `java21` — one backend with a `version` parameter, the same shape as `target_c.py`. Infers types the same way; also checks that every function provably returns, since `javac` (unlike C) refuses one that doesn't. |
 | `boot/runtime_interface.py` | The host/IO boundary. Backend-agnostic. |
 | `boot/pykboot.py` | The driver: flags, stage sequencing, error reporting. |
 
@@ -114,6 +115,9 @@ pages it links to; what follows is the shape of the mechanism.
 | `esm` | `foo.js`, `foo.node.js`, `foo.html`, `package.json` | a function the embedder passes in |
 | `c89` | `foo.c` | `printf`, from a C89-conforming file |
 | `c23` | `foo.c` | `printf`, from a C23 file |
+| `java8` | `Foo.java` | `System.out.println`, `javac --release 8` |
+| `java17` | `Foo.java` | `System.out.println`, `javac --release 17` |
+| `java21` | `Foo.java` | `System.out.println`, `javac --release 21` |
 
 `esm` is the interesting one. The module exports `run(runtime)` and
 prints through `runtime.print(...)`, so it reaches nothing by itself:
@@ -141,9 +145,17 @@ own name, the target's extension, in the directory the command was run
 from. `pykboot.py -t nodejs tests/hello.pyk` writes `./hello.js`, and
 `-t python` would have written `./hello.py`.
 
+The Java targets are the one exception: Java requires the file holding a
+`public` class to share that class's name exactly, so the source's own
+spelling would not do. `pykboot.py -t java21 tests/foo_bar.pyk` writes
+`./FooBar.java`, holding `public final class FooBar` — see "Naming the
+class" in [target_java.md](target_java.md#naming-the-class) for the exact
+rule and what an explicit `--output` does instead.
+
 `--output` overrides that. A single-file target writes exactly the path
-given. `esm` reads it as a *stem*, because it produces several files and
-their endings are not the caller's to choose: `--output out/prog`,
+given (for Java, its class is then named after that path instead of the
+source). `esm` reads it as a *stem*, because it produces several files
+and their endings are not the caller's to choose: `--output out/prog`,
 `out/prog.js` and `out/prog.html` all write
 
 ```
@@ -202,24 +214,29 @@ file, runs it with `python3`, and cleans up afterwards.
 
 ## What each target supports
 
-The Python backend compiles the whole language; the JavaScript and C
-backends implement a common subset, and refuse anything outside it at
-compile time with a source position rather than emitting code that will
-not build. The per-target detail — what is supported, how each construct
-is compiled, and where the output is not optimal — lives in its own page:
+The Python backend compiles the whole language; the JavaScript, C and
+Java backends implement a common subset, and refuse anything outside it
+at compile time with a source position rather than emitting code that
+will not build. The per-target detail — what is supported, how each
+construct is compiled, and where the output is not optimal — lives in its
+own page:
 
 - **[targets.md](targets.md)** — every target at a glance, the shared
   subset as a table, and the differences that survive it.
 - **[target_python.md](target_python.md)** — `python`.
 - **[target_js.md](target_js.md)** — `nodejs`, `html`, `esm`.
 - **[target_c.md](target_c.md)** — `c89`, `c23`.
+- **[target_java.md](target_java.md)** — `java8`, `java17`, `java21`.
 
-Two differences are worth knowing before reading further, because they
+Three differences are worth knowing before reading further, because they
 are the only cases where one Pyking program does not mean the same thing
 everywhere: JavaScript prints an integral float as `6` where Python
-prints `6.0`, and the C targets refuse `/` outright, since C's integer
-division would produce a different *value* rather than a different
-rendering.
+prints `6.0`; the C and Java targets refuse `/` outright, since integer
+division there would produce a different *value* rather than a different
+rendering; and the Java targets additionally refuse a function whose
+control can fall off the end without returning, since `javac` — unlike
+Python, and unlike C — treats that as a compile error rather than
+implicitly returning `None`.
 
 ## Tests
 
@@ -234,19 +251,22 @@ targets = ["python", "nodejs", "esm", "html"]
 
 `make test` runs `tests/test_script.py`, which walks that manifest,
 compiles and runs each program on each of its targets, and compares the
-output against the sibling `.out` file — one `.out` for all four targets,
-which is the property being tested. It warns about any `.pyk` missing
-from the manifest, and finishes with a per-target summary.
+output against the sibling `.out` file — the same `.out` file serving
+every target listed for a program, which is the property being tested.
+It warns about any `.pyk` missing from the manifest, and finishes with a
+per-target summary.
 
 Each target is executed the way a user would run it: `python3` on the
 generated `.py`, `node` on the generated `.js`, `cc -std=… -pedantic` and
-then the binary for `c89`/`c23`, and, for `esm`, `node` on the *generated
-node driver* rather than the module — the wrapper is the artifact a user
-runs, and exercising it also checks that `run(runtime)` is wired up.
-`-pedantic` matters for the C targets: the point of having a `c89` target
-is that its output really is C89, and a compiler that merely tolerated
-the difference would hide it. The C compiler comes from `$CC`, defaulting
-to `cc`.
+then the binary for `c89`/`c23`, `javac --release <8|17|21>` and then
+`java` for `java8`/`java17`/`java21`, and, for `esm`, `node` on the
+*generated node driver* rather than the module — the wrapper is the
+artifact a user runs, and exercising it also checks that `run(runtime)`
+is wired up. `-pedantic` matters for the C targets: the point of having a
+`c89` target is that its output really is C89, and a compiler that
+merely tolerated the difference would hide it. The C compiler comes from
+`$CC`, defaulting to `cc`; the Java tools come from `$JAVAC`/`$JAVA`,
+defaulting to `javac`/`java`.
 
 ### Testing the HTML target
 

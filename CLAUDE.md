@@ -41,8 +41,9 @@ generated code, or the test harness belongs there — not even "compiles
 to", where "means" will do. That material lives under `docs/`:
 `architecture.md` for the pipeline, `targets.md` for the target list and
 what each accepts, and one page per family (`target_python.md`,
-`target_js.md`, `target_c.md`) for how constructs are compiled and where
-the output is weak. `README.md` is a short index pointing at all of it.
+`target_js.md`, `target_c.md`, `target_java.md`) for how constructs are
+compiled and where the output is weak. `README.md` is a short index
+pointing at all of it.
 When a change touches how something *compiles* rather than what it
 *means*, PYKING.md is not the file to edit.
 
@@ -58,8 +59,9 @@ last ones are the ones that get forgotten:
    no-shadowing-a-`var` rule covers it) or be walked so its names are
    checked, or it silently escapes the analysis. Every backend needs a
    decision, not just the Python one: either translate the construct in
-   `target_js_core.py` too, or leave it to that module's `_unsupported`
-   so the JS targets refuse it with a source position.
+   `target_js_core.py`, `target_c.py` and `target_java.py` too, or leave
+   it to each of those modules' `_unsupported` so that target refuses it
+   with a source position.
 2. **`tests/`** — at least one `.pyk` file exercising the new construct,
    with its `.out` captured from an actual run, **and an entry in
    `tests/test_cases.toml`** listing the targets it works on. The harness
@@ -74,9 +76,10 @@ last ones are the ones that get forgotten:
    pipeline itself (a new stage or module, a change to how the driver
    works); `targets.md` for the target list and the shared-subset table;
    and the family page — `target_python.md`, `target_js.md`,
-   `target_c.md` — for what that family supports, how the construct is
-   compiled, and where its output is not optimal. A construct a backend
-   *refuses* belongs in its family page too, with the reason.
+   `target_c.md`, `target_java.md` — for what that family supports, how
+   the construct is compiled, and where its output is not optimal. A
+   construct a backend *refuses* belongs in its family page too, with the
+   reason.
 5. **`tools/emacs/pyking-mode.el`** — the editor mode claims in its own
    commentary to mirror `boot/lexer.py` and `boot/parser.py`, so it goes
    stale silently. Check each of these against the change:
@@ -197,7 +200,24 @@ The bootstrap is split into one module per compiler stage:
    its translated body. When inference cannot answer, raise
    `UnsupportedError` with the `Info` rather than emitting C that will
    not compile.
-9. **`boot/target_python.py`** — the Python code-generation backend: its
+9. **`boot/target_java.py`** — the Java backend, serving `java8`,
+   `java17` and `java21`: a `J*` AST, translation, and a printer taking a
+   `version` parameter, the same shape `target_c.py` uses for `standard`
+   — one backend because the three versions disagree only in whether a
+   local declaration writes `var` (Java 10's local-variable type
+   inference, absent from java8) or spells its type out. Infers types the
+   same way `target_c.py` does (`Int`/`String`/`Bool`, from initializers,
+   annotations, and translated return bodies), and additionally checks
+   that every function provably returns on every path
+   (`_definitely_returns`) and that no statement follows one that always
+   does (`_check_reachable`), since `javac` — unlike `cc` — refuses to
+   compile either. Needs no runtime helper the way C's `pyk_concat` and
+   `strcmp` are: string concatenation is Java's own `+`, and equality is
+   `.equals()`. The output file and its class are named in Java's own
+   style rather than the source's, since Java requires the two to match
+   (`default_class_name`; see `pykboot.py` below for where the exception
+   is applied).
+10. **`boot/target_python.py`** — the Python code-generation backend: its
    own `Py*` AST (`PyInt`, `PyAssign`, `PyFor`, ... — structurally the same
    shape as `boot/syntax.py`'s `E*`/`S*`, except Pyking's `SLet`/`SVar`/
    `SMutate` all collapse into one `PyAssign`, since Python has no
@@ -224,7 +244,7 @@ The bootstrap is split into one module per compiler stage:
    independent of `syntax.py`'s pretty-printing internals so the next one
    can too, without entangling target-specific logic into the Pyking
    AST/pretty-printer.
-10. **`boot/pykboot.py`** — the entry point: parses `--tokens`/`--ast`/
+11. **`boot/pykboot.py`** — the entry point: parses `--tokens`/`--ast`/
    `--stdout`/`--output <file>`/`--target|-t <target>`/the filename from
    argv, runs `lexer.lexing`, `parser.parse` and
    `analyses.analyze_program`, then dispatches on the target. Catches
@@ -235,13 +255,17 @@ The bootstrap is split into one module per compiler stage:
    don't resolve is not worth printing or compiling. Every flag has a
    default: `--target` is `python`, and with no `--ast`/`--stdout`/
    `--output` the program is compiled to a file named from the source
-   stem and the target's extension. `--ast`
+   stem and the target's extension — except the Java targets, where the
+   driver instead calls `target_java.default_class_name(stem)`, since
+   Java requires the file and its public class to match and the source's
+   own spelling usually isn't a legal, correctly-cased class name. `--ast`
    prints the *Pyking* AST via `syntax.pprint_program` and returns before
    any backend runs, since that AST is what every target shares. Keep the
    driver thin: it sequences stages and reports errors, and each backend
    owns its own translation, packaging, and file naming (`esm` writing
    three files is `target_js_packaging.package`'s business, not the
-   driver's).
+   driver's; deriving a Java class name from an explicit `--output` is
+   `target_java.py`'s, by the same principle).
 
 When extending the lexer (new operators, keywords, string escapes, etc.),
 follow the existing pattern: add a `case [...]:` arm in the `match rest:`
@@ -274,16 +298,20 @@ required:
   backend), in the *current* directory — `-t nodejs tests/hello.pyk`
   writes `./hello.js`. Writing over the input, or into a directory that
   doesn't exist, is a usage error rather than a traceback, checked per
-  file since `esm` writes three.
+  file since `esm` writes three. The Java targets are the exception: the
+  default name is Java-cased instead of the source's own stem, since Java
+  requires the file and its public class to match exactly — `-t java21
+  tests/foo_bar.pyk` writes `./FooBar.java`, not `./foo_bar.java`.
 
 `--target`/`-t` selects the backend: `python` (the default), `nodejs`,
-`html`, `esm`, `c89`, or `c23`. Targets come in groups sharing a backend:
-the JavaScript three differ only in `boot/target_js_packaging.py`, and
-the C two only in a `standard` parameter to `boot/target_c.py`'s printer.
-All of them support a subset of the language, and anything outside it is
-refused at compile time with a source position rather than emitted as
-code that will not build. See `docs/architecture.md` for the subsets and
-the target table.
+`html`, `esm`, `c89`, `c23`, `java8`, `java17`, or `java21`. Targets come
+in groups sharing a backend: the JavaScript three differ only in
+`boot/target_js_packaging.py`, the C two only in a `standard` parameter
+to `boot/target_c.py`'s printer, and the Java three only in a `version`
+parameter to `boot/target_java.py`'s printer. All of them support a
+subset of the language, and anything outside it is refused at compile
+time with a source position rather than emitted as code that will not
+build. See `docs/architecture.md` for the subsets and the target table.
 
 The `pyk` wrapper script at the repository root forwards flags as-is
 (`./pyk --ast <file>`, `./pyk -t nodejs --stdout <file>`, ...), but adds

@@ -19,6 +19,9 @@ python3 boot/pykboot.py -t html    hello.pyk   # ./hello.html
 python3 boot/pykboot.py -t esm     hello.pyk   # ./hello.js + .node.js + .html + package.json
 python3 boot/pykboot.py -t c89     hello.pyk   # ./hello.c  (C89)
 python3 boot/pykboot.py -t c23     hello.pyk   # ./hello.c  (C23)
+python3 boot/pykboot.py -t java8   hello.pyk   # ./Hello.java  (Java 8)
+python3 boot/pykboot.py -t java17  hello.pyk   # ./Hello.java  (Java 17)
+python3 boot/pykboot.py -t java21  hello.pyk   # ./Hello.java  (Java 21)
 ```
 
 The output is named after the source unless `--output` says otherwise;
@@ -34,8 +37,9 @@ The output is named after the source unless `--output` says otherwise;
 - **[docs/targets.md](docs/targets.md)** — the compiler targets: every
   one at a glance, which parts of the language each accepts, and links to
   a page per family ([Python](docs/target_python.md),
-  [JavaScript](docs/target_js.md), [C](docs/target_c.md)) documenting how
-  each construct is compiled and where the output is not optimal.
+  [JavaScript](docs/target_js.md), [C](docs/target_c.md),
+  [Java](docs/target_java.md)) documenting how each construct is compiled
+  and where the output is not optimal.
 - **[docs/architecture.md](docs/architecture.md)** — the compiler itself:
   pipeline diagram, the stages, the runtime interface that separates a
   program from the world it prints into, and how the tests work.
@@ -53,5 +57,6 @@ The output is named after the source unless `--output` says otherwise;
 | `src/` | reserved for the eventual self-hosted implementation |
 
 Requires Python 3.11+ (`match`/`case`, `tomllib`). Running the generated
-code needs `node` for the JavaScript targets and a C compiler for the C
-ones; producing it needs neither. No third-party dependencies.
+code needs `node` for the JavaScript targets, a C compiler for the C
+ones, and a JDK (`javac`/`java`) for the Java ones; producing it needs
+none of them. No third-party dependencies.

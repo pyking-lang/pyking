@@ -6,11 +6,14 @@ from lexer import lexing, pprint_info, pprint_token, LexError
 from parser import parse, ParseError
 from syntax import pprint_program
 import target_c
+import target_java
 import target_js_core
 import target_js_packaging
 from target_python import translate_program, pprint_py_program
 
-TARGETS = ("python",) + target_js_packaging.TARGETS + target_c.STANDARDS
+TARGETS = (
+    ("python",) + target_js_packaging.TARGETS + target_c.STANDARDS + target_java.VERSIONS
+)
 
 # What the primary output file is called when `--output` doesn't say. Each
 # backend owns its own extension; `esm` names three files from this stem.
@@ -18,6 +21,7 @@ EXTENSIONS = {
     "python": ".py",
     **target_js_packaging.PRIMARY_EXTENSIONS,
     **{standard: ".c" for standard in target_c.STANDARDS},
+    **{version: ".java" for version in target_java.VERSIONS},
 }
 
 USAGE = (
@@ -25,7 +29,9 @@ USAGE = (
     "[--ast | --stdout | --output <file>] <filename>\n"
     f"       <target> is one of: {', '.join(TARGETS)} (default: python)\n"
     "       without --ast/--stdout/--output, compiles to <filename's stem>"
-    " plus the target's extension, in the current directory"
+    " plus the target's extension, in the current directory\n"
+    "       (Java targets instead Java-case the stem, e.g. foo_bar.pyk ->"
+    " FooBar.java)"
 )
 
 args = sys.argv[1:]
@@ -109,13 +115,21 @@ if show_ast:
     print(pprint_program(program))
     sys.exit(0)
 
+stem = os.path.splitext(os.path.basename(filename))[0]
+
 if not show_stdout and output_path is None:
     # Nothing said where to put it: use the source file's own name, with
     # the target's extension, in the directory the command was run from --
     # `pykboot.py -t nodejs tests/hello.pyk` writes `./hello.js`. For
-    # `esm` this is a stem, and the three files are named from it.
-    stem = os.path.splitext(os.path.basename(filename))[0]
-    output_path = stem + EXTENSIONS[target]
+    # `esm` this is a stem, and the three files are named from it. Java
+    # is the exception: it requires the public class to share its file's
+    # name exactly, so the default name is Java-cased rather than the
+    # source's own spelling -- `foo_bar.pyk` writes `FooBar.java`, not
+    # `foo_bar.java`.
+    if target in target_java.VERSIONS:
+        output_path = target_java.default_class_name(stem) + ".java"
+    else:
+        output_path = stem + EXTENSIONS[target]
 
 
 def write_manifest(path, contents):
@@ -187,6 +201,31 @@ elif target in target_c.STANDARDS:
         print(c_source, end="")
     else:
         write(output_path, c_source)
+elif target in target_java.VERSIONS:
+    try:
+        java_program = target_java.translate_program(program)
+    except target_java.UnsupportedError as e:
+        print(
+            f"{pprint_info(e.info)} Unsupported by target '{target}': {e.message}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    # Java requires the public class to share its file's name exactly. An
+    # explicit `--output` is trusted as-is: the class is named after
+    # whatever file the caller chose. With none, `output_path` was already
+    # picked in Java's own casing above, and the class matches it too.
+    class_name = (
+        os.path.splitext(os.path.basename(output_path))[0]
+        if output_path is not None
+        else target_java.default_class_name(stem)
+    )
+    java_source = target_java.pprint_java_program(
+        java_program, target, class_name, os.path.basename(filename)
+    )
+    if show_stdout:
+        print(java_source, end="")
+    else:
+        write(output_path, java_source)
 else:
     # The JavaScript backends support a subset of Pyking so far; anything
     # outside it is reported here rather than emitting broken JavaScript.
