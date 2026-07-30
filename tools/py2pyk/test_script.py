@@ -27,7 +27,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 PY2PYK = HERE / "py2pyk.py"
-PYKBOOT = HERE.parent.parent / "boot" / "pykboot.py"
+PYKBOOT = HERE.parent.parent / "src" / "pykboot.py"
 TESTS_DIR = HERE / "tests"
 
 

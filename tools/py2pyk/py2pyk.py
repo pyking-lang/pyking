@@ -13,7 +13,7 @@ here). Everything downstream -- picking which constructs Pyking can
 express, deciding where Python's implicit function-scoped mutation needs
 Pyking's explicit `var`/`:=`, and printing Pyking's own syntax -- is
 specific to this tool and lives entirely in this file. It does not import
-anything from `boot/`, and it does not modify anything outside
+anything from `src/`, and it does not modify anything outside
 `tools/py2pyk/`; see `tools/py2pyk/README.md` for what is and is not
 supported and why.
 """
@@ -31,7 +31,7 @@ from pathlib import Path
 class UnsupportedFeature(Exception):
     """Raised for any Python construct py2pyk does not translate. Carries
     the offending node so the CLI can report a source position, the way
-    `boot/`'s own LexError/ParseError/AnalysisError do for Pyking source."""
+    `src/`'s own LexError/ParseError/AnalysisError do for Pyking source."""
 
     def __init__(self, node, message):
         self.node = node
@@ -55,9 +55,9 @@ def unsupported(node, message):
 
 
 # ---------------------------------------------------------------------------
-# Scope: mirrors Pyking's own name-scoping rules (boot/analyses.py), kept as
+# Scope: mirrors Pyking's own name-scoping rules (src/analyses.py), kept as
 # an independent re-implementation rather than an import, so py2pyk works
-# standalone and never reaches into boot/'s internals. Doing this analysis
+# standalone and never reaches into src/'s internals. Doing this analysis
 # ourselves, on the Python source positions, gives errors that point at the
 # *Python* line the trouble is on, rather than round-tripping through
 # pykboot.
@@ -78,7 +78,7 @@ class Scope:
     """One node of the lexical scope chain. `child()` opens a nested scope
     (an if/for/while/def body); its bindings are simply never merged back
     into the parent, which is what makes them disappear on the way out --
-    the same trick boot/analyses.py plays with a plain dict."""
+    the same trick src/analyses.py plays with a plain dict."""
 
     def __init__(self, parent=None):
         self.parent = parent
@@ -157,15 +157,112 @@ def flatten_target_names(target):
     )
 
 
-def target_shape_key(target):
-    """A hashable description of a target's *shape* (nesting of names),
-    ignoring the names themselves -- used to check that every branch of a
-    value-form-if candidate destructures the same way."""
+def target_binding_key(target):
+    """A hashable description of a target's shape *and* the names in it, in
+    order -- used to check that every branch of a value-form-if candidate
+    binds exactly the same names in exactly the same positions.
+
+    The names have to be part of the key, not just the shape: Pyking's
+    value-form `if` writes the target *once*, above the branches, so the
+    branches only supply values. Two branches that destructure the same
+    shape under different names (`lo, hi = a, b` in one and `hi, lo = a, b`
+    in the other) are therefore not interchangeable -- keying on shape
+    alone would quietly adopt the first branch's target for all of them and
+    silently swap the values."""
     if isinstance(target, ast.Name):
-        return "name"
+        return ("name", target.id)
     if isinstance(target, (ast.Tuple, ast.List)):
-        return tuple(target_shape_key(e) for e in target.elts)
+        return tuple(target_binding_key(e) for e in target.elts)
     return None
+
+
+def assign_tail_target(stmt):
+    """The single target of `stmt` if it is an assignment a value-form `if`
+    branch could end in -- `x = v` or the annotated `x: T = v`, whose
+    annotation Pyking erases anyway -- else None."""
+    if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
+        return stmt.targets[0]
+    if isinstance(stmt, ast.AnnAssign) and stmt.value is not None:
+        return stmt.target
+    return None
+
+
+def _comprehension_bound_names(node):
+    """Every name the generators of a comprehension bind as a target. Only
+    `ast.ListComp` ever reaches this: dict/set comprehensions, generator
+    expressions and lambdas are all rejected up front by
+    `_check_supported_early`, so a list comprehension is the one scope-
+    introducing expression left in the accepted subset."""
+    names = set()
+    for gen in node.generators:
+        for sub in ast.walk(gen.target):
+            if isinstance(sub, ast.Name):
+                names.add(sub.id)
+    return names
+
+
+def _collect_scope(node, bound, loads, nested):
+    """Accumulate, for one scope, the names `node` binds, the `ast.Name`
+    loads it performs, and the scopes nested directly inside it -- without
+    descending into any of those nested scopes' own bodies.
+
+    Python's rule is that a name assigned anywhere in a function is local to
+    it, so `bound` is exactly that set. The two scope-introducing forms that
+    survive into py2pyk's accepted subset are a nested `def` (recorded by
+    name, and collected into `nested` for the caller to handle) and a list
+    comprehension (whose targets bind only inside it). Lambdas, dict/set
+    comprehensions, generator expressions and the walrus operator are all
+    rejected by `_check_supported_early` before any of this runs.
+    """
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        bound.add(node.name)
+        nested.append(node)
+        return
+    if isinstance(node, ast.Lambda):
+        return
+    if isinstance(node, ast.ListComp):
+        inner = _comprehension_bound_names(node)
+        sub_bound, sub_loads = set(), []
+        for child in ast.iter_child_nodes(node):
+            _collect_scope(child, sub_bound, sub_loads, nested)
+        bound |= sub_bound - inner
+        loads.extend(n for n in sub_loads if n.id not in inner)
+        return
+    if isinstance(node, ast.Name):
+        if isinstance(node.ctx, ast.Load):
+            loads.append(node)
+        else:
+            bound.add(node.id)
+        return
+    for child in ast.iter_child_nodes(node):
+        _collect_scope(child, bound, loads, nested)
+
+
+def function_free_loads(fn):
+    """The `ast.Name` loads in `fn` that read a name from *outside* `fn` --
+    the names it closes over.
+
+    Classification needs these because a closure's read of an enclosing name
+    can happen at any point after the `def`, so a name the enclosing
+    function mutates inside a loop really is observed outside that loop. A
+    nested `def`'s own body is classified separately, but its free reads
+    belong to the enclosing function's picture of where each name is used.
+    """
+    bound = {a.arg for a in fn.args.args}
+    for group in (fn.args.posonlyargs, fn.args.kwonlyargs):
+        bound |= {a.arg for a in group or []}
+    for extra in (fn.args.vararg, fn.args.kwarg):
+        if extra is not None:
+            bound.add(extra.arg)
+    loads, nested = [], []
+    for stmt in fn.body:
+        _collect_scope(stmt, bound, loads, nested)
+    # A def nested inside this one may close over a name from further out,
+    # reaching past both scopes -- so take its free reads too, dropping
+    # whatever this scope binds for itself.
+    for inner_fn in nested:
+        loads.extend(function_free_loads(inner_fn))
+    return [n for n in loads if n.id not in bound]
 
 
 def is_elif_chain(if_node):
@@ -237,6 +334,44 @@ def _common_prefix(paths):
     return tuple(prefix)
 
 
+def _encloses(outer, inner):
+    """True if block path `outer` *is* `inner` or encloses it -- that is, a
+    binding made at `outer` is lexically visible at `inner`."""
+    return inner[:len(outer)] == outer
+
+
+def _uses_stay_block_local(assigns, reads, binding_paths):
+    """Whether every assignment to a name can stay a plain Pyking `=`.
+
+    True when no *write* ever has to be observed from outside the block that
+    made it, and every *read* has a binding visible in an enclosing block.
+    Both halves are about the single way the two languages disagree: a
+    Python `if`/`for`/`while` body is not a scope, so a name written inside
+    one outlives it; a Pyking block is, so it does not.
+
+      - a read with no enclosing binding can only be seeing a write that
+        leaked out of a sibling block, which Pyking would lose;
+      - a write nested *inside* a block that some read encloses is that same
+        leak seen from the other end.
+
+    Either needs `var`/`:=`. What this deliberately does *not* reject is one
+    name used independently in several sibling blocks -- a reused temporary
+    like `t` in two separate loop bodies. Neither block can observe the
+    other's `t` in either language, so a plain `=` in each means exactly
+    what the Python meant.
+    """
+    for _kind, read_path, _node, _stmt in reads:
+        if not any(_encloses(bp, read_path) for bp in binding_paths):
+            return False
+    for _kind, assign_path, _node, _stmt in assigns:
+        for _rkind, read_path, _rnode, _rstmt in reads:
+            if _encloses(assign_path, read_path):
+                continue
+            if _encloses(read_path, assign_path):
+                return False
+    return True
+
+
 def classify_function(body):
     """`body`: the list of statements making up one function's (or the
     module's) top-level block. Does not descend into nested `def`s -- each
@@ -254,12 +389,36 @@ def classify_function(body):
     def record(name, kind, path, node, stmt):
         occurrences.setdefault(name, []).append((kind, path, node, stmt))
 
-    def record_loads(expr, path):
+    def record_loads(expr, path, shadowed=frozenset()):
+        """Record every name `expr` *reads from the enclosing block*, at
+        `path`.
+
+        A comprehension is its own scope in both languages, so the names its
+        own generators bind are not reads of anything at `path` and must not
+        be recorded as such: `[x for x in xs]` sitting next to a `for x in
+        ...:` loop would otherwise look like a use of that loop's variable
+        outside its body, and get rejected on a conflict that does not
+        exist. `shadowed` carries the names an enclosing comprehension has
+        bound as we descend."""
         if expr is None:
             return
-        for node in ast.walk(expr):
-            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
-                record(node.id, "load", path, node, None)
+        if isinstance(expr, ast.ListComp):
+            bound = shadowed | _comprehension_bound_names(expr)
+            for i, gen in enumerate(expr.generators):
+                # The first generator's iterable is evaluated in the
+                # enclosing scope; later ones already see earlier
+                # generators' bindings (matching Pyking's own EListComp).
+                record_loads(gen.iter, path, shadowed if i == 0 else bound)
+                for cond in gen.ifs:
+                    record_loads(cond, path, bound)
+            record_loads(expr.elt, path, bound)
+            return
+        if isinstance(expr, ast.Name):
+            if isinstance(expr.ctx, ast.Load) and expr.id not in shadowed:
+                record(expr.id, "load", path, expr, None)
+            return
+        for child in ast.iter_child_nodes(expr):
+            record_loads(child, path, shadowed)
 
     def scan_block(stmts, path):
         path_to_stmts[path] = stmts
@@ -303,11 +462,15 @@ def classify_function(body):
             record_loads(stmt.value, path)
         elif isinstance(stmt, ast.FunctionDef):
             record(stmt.name, "store", path, stmt, stmt)
-            # Nested def bodies are classified independently later; a
-            # closure only *reads* an enclosing var (Python has no
-            # implicit write-through without 'nonlocal', which py2pyk
-            # rejects), so skipping them here cannot hide a needed
-            # promotion -- see README "Variable classification".
+            # A nested def's body is classified independently later, but the
+            # names it closes over have to be recorded here: the closure can
+            # be *called* at any point after the def, so a read inside it is
+            # a read at this level. Without this, a name the enclosing
+            # function mutates inside a loop would look like one whose
+            # writes never leave that loop -- and would wrongly keep a plain
+            # '=' (see README "Variable classification").
+            for free in function_free_loads(stmt):
+                record(free.id, "load", path, free, None)
         # Anything else is left to the real translation pass to accept or
         # reject; classification is best-effort and only needs to be
         # right about the constructs it recognizes above.
@@ -359,10 +522,42 @@ def classify_function(body):
         if not deeper_assigns and not has_aug:
             continue  # every assignment is a plain '=' at the same block
 
+        # The assignments straddle a block boundary, but that only matters if
+        # a value actually has to cross one. A name written and read entirely
+        # within independent blocks (the same temporary reused in two loop
+        # bodies, say) needs no 'var' -- see `_uses_stay_block_local`.
+        reads = [o for o in occs if o[0] == "load"]
+        binding_paths = [
+            o[1] for o in occs if o[0] in ("store", "augstore", "forstore")
+        ]
+        if not has_aug and _uses_stay_block_local(assigns, reads, binding_paths):
+            continue
+
         if lca_assigns:
             # A definition unconditionally reached at the LCA's own level
             # exists -- promote to 'var', declared there.
             first = min(lca_assigns, key=lambda o: o[3].lineno)
+            if first[0] == "augstore":
+                unsupported(
+                    first[3],
+                    f"'{name}' has to become a Pyking 'var' (it is also assigned "
+                    "inside a nested block), but the first assignment to it that "
+                    "always runs is an augmented assignment, which cannot declare "
+                    f"one -- a 'var' needs an initial value, so give '{name}' a "
+                    "plain unconditional assignment before this point",
+                )
+            earlier = [o for o in deeper_assigns if o[3].lineno < first[3].lineno]
+            if earlier:
+                bad_lines = sorted({o[3].lineno for o in earlier})
+                unsupported(
+                    earlier[0][3],
+                    f"'{name}' is assigned inside a nested block on line(s) "
+                    f"{', '.join(map(str, bad_lines))}, above the unconditional "
+                    f"assignment on line {first[3].lineno} that would have to "
+                    f"declare it as a Pyking 'var' -- a 'var' must be declared "
+                    f"before it is updated, so move an unconditional "
+                    f"'{name} = ...' above the first nested assignment",
+                )
             info.var_names.add(name)
             info.var_decl_node[name] = id(first[3])
             continue
@@ -384,12 +579,17 @@ def classify_function(body):
             lines = sorted({o[3].lineno for o in deeper_assigns})
             unsupported(
                 deeper_assigns[0][3],
-                f"'{name}' is only assigned conditionally (on line(s) "
-                f"{', '.join(map(str, lines))}) and is used outside that "
-                "conditional -- Pyking has no uninitialized 'var', and this "
-                "isn't a plain if/elif/.../else that assigns it in every "
-                "branch (which py2pyk could bind with a value-form 'if'); "
-                "give it a default value before the conditional",
+                f"'{name}' is assigned only inside nested block(s) (line(s) "
+                f"{', '.join(map(str, lines))}), but its value is needed "
+                "outside them. A Pyking block is a scope, so a binding made "
+                "in one does not survive it, and there is no uninitialized "
+                "'var' to promote this to. py2pyk can still express such a "
+                "name when every one of those assignments is the last "
+                "statement of a branch of a single if/elif/.../else -- with a "
+                "mandatory 'else', and binding the same name(s) in the same "
+                "order in every branch -- which becomes Pyking's value-form "
+                f"'if'. Failing that, give '{name}' an unconditional default "
+                "value before the conditional",
             )
         info.valueif_targets.setdefault(id(owning_if), []).append(name)
         info.valueif_owner[name] = id(owning_if)
@@ -411,31 +611,33 @@ def _find_valueif_owner(lca_stmts, name, deeper_assigns):
             continue
         bodies = [body for _, body in branches] + [final_else]
         tails = []
-        shape = None
+        key = None
         ok = True
         for body in bodies:
-            if not body or not isinstance(body[-1], ast.Assign):
-                ok = False
-                break
-            assign = body[-1]
-            if len(assign.targets) != 1:
+            target = assign_tail_target(body[-1]) if body else None
+            if target is None:
                 ok = False
                 break
             try:
-                names = [n for n, _ in flatten_target_names(assign.targets[0])]
+                names = [n for n, _ in flatten_target_names(target)]
             except UnsupportedFeature:
                 ok = False
                 break
             if name not in names:
                 ok = False
                 break
-            this_shape = target_shape_key(assign.targets[0])
-            if shape is None:
-                shape = this_shape
-            elif this_shape != shape:
+            # Every branch must bind the same names in the same positions,
+            # since the value-form `if` writes the target once, above them.
+            this_key = target_binding_key(target)
+            if this_key is None:
                 ok = False
                 break
-            tails.append(assign)
+            if key is None:
+                key = this_key
+            elif this_key != key:
+                ok = False
+                break
+            tails.append(body[-1])
         if not ok:
             continue
         if {id(t) for t in tails} == wanted_nodes:
@@ -809,7 +1011,7 @@ class FunctionTranslator:
             unsupported(node, BINOP_UNSUPPORTED[op_type])
         if op_type not in BINOP_SYMBOLS:
             unsupported(node, f"'{op_type.__name__}=' has no Pyking equivalent")
-        sym, _ = BINOP_SYMBOLS[op_type]
+        sym, prec = BINOP_SYMBOLS[op_type]
         scope.check_bound(name, node.target)
         if scope.lookup(name) != MUTABLE:
             unsupported(
@@ -819,7 +1021,14 @@ class FunctionTranslator:
                 "it needs an unconditional plain assignment before this point",
             )
         et = self.expr_of(scope)
-        rhs = et.translate(node.value, 2 if sym in ("+", "-") else 3)
+        # `x -= a` becomes `x := x - a`, so the original right-hand side lands
+        # in the *right* operand position of a left-associative operator and
+        # must be printed at `prec + 1` -- exactly as `_t_BinOp` does for its
+        # own right operand. Printing it at `prec` instead would drop the
+        # parentheses that keep `x -= 3 - 1` from becoming `x := x - 3 - 1`,
+        # i.e. `(x - 3) - 1`. Only `-` and `/` actually misbehave (`+`/`*`
+        # associate either way), which is what made this easy to miss.
+        rhs = et.translate(node.value, prec + 1)
         pad = self._pad(level)
         return [f"{pad}{name} := {name} {sym} {rhs}"]
 
@@ -882,7 +1091,7 @@ class FunctionTranslator:
         pad = self._pad(level)
         inner = level + 1
         branches, final_else = flatten_if_chain(node)
-        target_node = branches[0][1][-1].targets[0]
+        target_node = assign_tail_target(branches[0][1][-1])
         target_text = self._emit_target(target_node)
 
         def branch_lines(test, body, header_word):

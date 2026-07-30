@@ -2,9 +2,9 @@
 
 A standalone tool that translates a subset of Python source into
 [Pyking](../../PYKING.md) source. It is independent of the rest of this
-repository's compiler (`boot/`): it does not import from it, and nothing
+repository's compiler (`src/`): it does not import from it, and nothing
 outside `tools/py2pyk/` depends on it either. The only place the two
-touch is the test harness, which uses `boot/pykboot.py` as a black box to
+touch is the test harness, which uses `src/pykboot.py` as a black box to
 check that what py2pyk produces is valid, working Pyking.
 
 ## Summary
@@ -73,7 +73,7 @@ make test
 runs `test_script.py`, which for every `tests/*.py` file:
 
 1. translates it with `py2pyk.py`;
-2. compiles the result back to Python with `boot/pykboot.py` -- this
+2. compiles the result back to Python with `src/pykboot.py` -- this
    step is also, as a side effect, the check that py2pyk produced *valid*
    Pyking, since an invalid translation fails here with pykboot's own
    error;
@@ -82,7 +82,7 @@ runs `test_script.py`, which for every `tests/*.py` file:
 
 It prints one `<file>: OK.` or `<file>: FAIL.` line per test (with a
 reason on failure) and a final `N/M passed` summary. `tests/` currently
-holds 30 programs, all of which pass; see the next section for what each
+holds 35 programs, all of which pass; see the next section for what each
 demonstrates.
 
 ## What's in `tests/`
@@ -113,6 +113,11 @@ translation strategy clearly:
 | `while_loop.py` | `while` |
 | `accumulator_var.py` | `+=`/`*=` promoted to `var`/`:=` |
 | `accumulator_nested_if.py` | `var` promoted across a `for`+`if` boundary |
+| `augassign_precedence.py` | `x -= a - b` / `x /= a / b` keeping Python's grouping |
+| `reused_block_temp.py` | one temp name reused in independent sibling blocks, no `var` needed |
+| `closure_over_mutated_var.py` | a nested `def` reading a name a loop mutates forces `var` |
+| `comprehension_scope.py` | a comprehension target reusing a `for` variable's name |
+| `valueif_annotated_tail.py` | value-form `if` whose branches end in `r: int = ...` |
 | `max_of_list.py` | two names promoted to `var` together across an `if`/`elif` with no `else` |
 | `sum_of_squares.py`, `power_by_loop.py` | small numeric algorithms without `%`/`**` |
 | `conditional_assignment_valueif.py` | `if`/`elif`/`else` all assigning one name -> value-form `if` |
@@ -142,7 +147,7 @@ inside a comprehension's own `if` -- where that is mandatory, and it's
 harmless everywhere else).
 
 Only four call targets are ever bound in a fresh Pyking program:
-`print`, `range`, `str`, `len` (see `BUILTINS` in `boot/analyses.py`).
+`print`, `range`, `str`, `len` (see `BUILTINS` in `src/analyses.py`).
 Any other call must be to a function defined earlier in the same file;
 `int()`, `abs()`, `sum()`, `min()`, `max()`, `sorted()`, `enumerate()`,
 `zip()`, `input()`, `list()`, `dict()`, `isinstance()`, ... have no
@@ -156,7 +161,7 @@ Pyking's grammar has no boolean literal at all -- `Bool` is a reserved
 *type* name, but there is no `true`/`false`-style token that produces
 one. The *only* way to produce a `Bool` value in Pyking is a comparison. Since
 every backend agrees a comparison's result prints as `True`/`False`
-(see `boot/runtime_interface.py`), py2pyk translates the Python literals
+(see `src/runtime_interface.py`), py2pyk translates the Python literals
 that way:
 
 ```python
@@ -193,6 +198,26 @@ bodies). Three outcomes:
    level** (no assignment is nested inside a child `if`/`for`/`while` of
    it) -- a plain, repeated Pyking `=` is enough; nothing crosses a scope
    boundary. This is `variables_rebinding.py` and most of `arithmetic.py`.
+
+   The same conclusion is reached, by a second route, whenever the
+   assignments *do* straddle a block boundary but no value ever has to
+   cross one: every read has a binding in an enclosing block, and no write
+   sits inside a block that some read encloses. That is the reused
+   temporary --
+
+   ```python
+   for i in range(2):
+       t = i * 10            # each block binds its own `t`...
+       print(t)
+   for j in range(2):
+       t = j * 100           # ...and neither can see the other's
+       print(t)
+   ```
+
+   -- where a plain `=` in each block means exactly what the Python meant,
+   because neither language lets one of those blocks observe the other's
+   `t`. See `reused_block_temp.py`, and `_uses_stay_block_local` in
+   `py2pyk.py` for the two conditions stated precisely.
 
 2. **Some assignment happens directly at that level, and at least one
    other assignment (or an `x += ...`) happens nested inside a child
@@ -231,6 +256,16 @@ bodies). Three outcomes:
    return label            #          "negative"
    ```
 
+   Every branch must bind **the same names in the same positions**, not
+   merely the same *shape*: the value-form `if` writes its target once,
+   above the branches, so `lo, hi = a, b` in one branch and
+   `hi, lo = a, b` in another are not interchangeable, and a translation
+   that adopted the first branch's target for both would silently swap the
+   two values. Branches that disagree that way are rejected rather than
+   translated. A branch may end in an annotated assignment (`r: int = ...`)
+   just as well as a plain one, since Pyking erases the annotation --
+   `valueif_annotated_tail.py`.
+
    (`conditional_assignment_valueif.py`; `conditional_assignment_tuple.py`
    shows the same thing with a tuple-destructuring target,
    `lo, hi = a, b`.) If the nested assignments *don't* form that exact
@@ -244,19 +279,53 @@ bodies). Three outcomes:
        if x > 0:
            y = 1
        print(y)
-   <stdin>:3:9: unsupported: 'y' is only assigned conditionally (on line(s) 3)
-   and is used outside that conditional -- Pyking has no uninitialized 'var',
-   and this isn't a plain if/elif/.../else that assigns it in every branch
-   (which py2pyk could bind with a value-form 'if'); give it a default value
+   <stdin>:3:9: unsupported: 'y' is assigned only inside nested block(s)
+   (line(s) 3), but its value is needed outside them. A Pyking block is a
+   scope, so a binding made in one does not survive it, and there is no
+   uninitialized 'var' to promote this to. py2pyk can still express such a
+   name when every one of those assignments is the last statement of a branch
+   of a single if/elif/.../else -- with a mandatory 'else', and binding the
+   same name(s) in the same order in every branch -- which becomes Pyking's
+   value-form 'if'. Failing that, give 'y' an unconditional default value
    before the conditional
    ```
 
 This same analysis is what makes `x += 1`/`x -= 1`/`x *= 1`/`x /= 1`
 possible: an augmented assignment always needs its target to already be
 a Pyking `var` (see `accumulator_var.py`), so py2pyk requires an
-unconditional plain assignment to have already promoted it. `%=`, `//=`,
-and `**=` are rejected outright, for the same reason their non-augmented
-operators are (see below).
+unconditional plain assignment to have already promoted it -- and one that
+appears *above* the first nested assignment, since a `var` has to be
+declared before it can be updated. `%=`, `//=`, and `**=` are rejected
+outright, for the same reason their non-augmented operators are (see below).
+
+Note that `x -= a - b` becomes `x := x - (a - b)`, keeping the grouping
+Python gave it: the original right-hand side ends up in the *right* operand
+position of a left-associative operator, so it needs the parentheses that
+`x := x - a - b` would have silently dropped. `-` and `/` are the two
+operators where that matters -- see `augassign_precedence.py`.
+
+**A nested `def` counts as a use of every name it closes over.** A closure
+can be called at any point after its `def`, so a name it reads is read
+*there*, not where the `def` happens to be written:
+
+```python
+def sum_then_read():
+    total = 0                     # var total = 0
+    def get():                    #     -- get() reads it after the loop,
+        return total              #        so the loop's writes must be
+    for v in [1, 2, 3]:           #        visible to it
+        total = total + v         #     total := total + v
+    return get()                  # -> 6, not 0
+```
+
+Without counting that read, the loop's assignment would look like one whose
+value never leaves the loop, and a plain `=` there would make `get()` return
+`0`. py2pyk therefore collects each nested `def`'s *free* names -- the ones
+it does not bind itself, following Python's own rule that a name assigned
+anywhere in a function is local to it -- and records them as reads in the
+enclosing function. Parameters and comprehension targets that shadow an
+outer name mean the closure reads its own binding instead, and are not
+counted. See `closure_over_mutated_var.py`.
 
 **A name a `for`-loop binds as its own loop variable is a separate,
 simpler case, and is never promoted to `var`:** Pyking's `for name in
@@ -308,7 +377,7 @@ each other, and a `def` cannot refer to a binding written below it" (see
 ["Names and scoping"](../../PYKING.md#names-and-scoping)). py2pyk
 enforces the identical rule itself, with its own scope-chain
 implementation (`Scope` in `py2pyk.py`, deliberately not imported from
-`boot/analyses.py` -- see "Design notes" below) so that a forward
+`src/analyses.py` -- see "Design notes" below) so that a forward
 reference is reported against the *Python* source line, before pykboot
 ever sees the (invalid) output:
 
@@ -373,7 +442,7 @@ than guess. Each gives a specific, worded error naming the construct.
   standalone boolean expression.)
 - **`%`, `//`, `**`, and all bitwise operators** (`| & ^ << >> ~`) --
   Pyking's arithmetic is `+ - * /` only. `/` itself *is* translated,
-  matching Python's true division exactly (`boot/target_c.py` spells out
+  matching Python's true division exactly (`src/target_c.py` spells out
   that Pyking's `/` is true division, same as Python's, in the course of
   explaining why the C backend can't support it yet).
 - **`None`, floats, bytes, complex** -- Pyking has `Int`/`String`/`Bool`
@@ -428,6 +497,27 @@ than guess. Each gives a specific, worded error naming the construct.
 - **A `for`-loop's own target used outside its loop** -- see above;
   Python leaks it, Pyking never does, and there's no `var` a `for`
   header can bind to instead.
+- **Anything shadowing a name that had to become a `var`** -- Pyking
+  forbids shadowing a mutable variable outright (it is what keeps `:=`
+  unambiguous; see ["Names and
+  scoping"](../../PYKING.md#names-and-scoping)), and py2pyk enforces the
+  same rule against the Python source position. The non-obvious case is a
+  nested function whose *parameter* happens to share a name with a
+  variable the enclosing function mutates in a loop: the parameter is a
+  new binding, so it is refused. Renaming either one fixes it.
+- **Branches of one conditional binding the same names in different
+  positions** (`lo, hi = a, b` in one, `hi, lo = a, b` in another) --
+  Pyking's value-form `if` writes its target once, above the branches, so
+  the branches cannot each choose their own target. Rejected rather than
+  translated, since adopting one branch's target for all of them would
+  silently swap values.
+- **A conditional binding whose value then has to be mutated** -- a
+  value-form `if` binds with `=`, and Pyking's grammar accepts a
+  `value_stmt` only after an `assignment`, never after a `var_decl` (see
+  the grammar notes in [PYKING.md](../../PYKING.md#grammar): "Only
+  `assignment` accepts a `value_stmt`"). So a name that is both
+  conditionally initialized *and* later updated with `:=` has no spelling;
+  give it an unconditional default before the conditional instead.
 - **Chained assignment** (`a = b = 1`) and **multiple assignment
   targets** in one statement -- assign one target per statement instead.
   (Pyking has no syntax for it, and re-evaluating the right-hand side
@@ -454,12 +544,12 @@ than guess. Each gives a specific, worded error naming the construct.
   parser: Python already ships one, it is complete, and it is what every
   other Python tool uses.
 - **Why py2pyk re-implements Pyking's scope rules instead of importing
-  `boot/analyses.py`.** Doing so gives errors positioned against the
+  `src/analyses.py`.** Doing so gives errors positioned against the
   Python source line the trouble is actually on -- far more useful than
   translating first and letting `pykboot` reject the *generated* Pyking
   file, which would point at a line number in a file the user never
   wrote. It also keeps py2pyk genuinely independent, per the brief:
-  nothing under `tools/py2pyk/` reaches into `boot/`, and nothing outside
+  nothing under `tools/py2pyk/` reaches into `src/`, and nothing outside
   `tools/py2pyk/` is affected by anything here. The two only meet, as a
   black box, inside `test_script.py`.
 - **Why classification is a separate pass instead of inline
