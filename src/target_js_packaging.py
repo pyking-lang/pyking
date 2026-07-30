@@ -1,9 +1,9 @@
 """Packaging for the JavaScript backends: wraps the target-independent
-output of `boot/target_js_core.py` into the files each target delivers,
+output of `src/target_js_core.py` into the files each target delivers,
 and supplies the JavaScript side of the runtime interface.
 
 The core emits a `JsRuntimeCall` wherever a program reaches the outside
-world (see `boot/runtime_interface.py`) without deciding what that call
+world (see `src/runtime_interface.py`) without deciding what that call
 looks like. Deciding is this module's job, and it is the only real
 difference between the three targets:
 
@@ -163,7 +163,7 @@ def package_esm_module(js_program, source):
         _HEADER.format(source=source),
         "// Target: esm (the module). The program is pure: `runtime` supplies",
         "// everything it can observe -- for now `print(...values)`, which must",
-        "// write one line, values formatted as in boot/runtime_interface.py.",
+        "// write one line, values formatted as in src/runtime_interface.py.",
         "// Loaded as an ES module: the generated package.json beside this file",
         "// sets \"type\": \"module\", which is what makes plain .js mean that.",
         "",

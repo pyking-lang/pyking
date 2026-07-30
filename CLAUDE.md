@@ -11,13 +11,14 @@ convenient host language, with the intent of eventually rewriting the
 compiler in Pyking itself and compiling it with the throwaway one.
 Concretely:
 
-- `boot/` holds the bootstrap implementation, split into one plain script
+- `src/` holds the bootstrap implementation, split into one plain script
   module per compiler stage (see "Architecture" below) — it is *not* a
   Python package (no `__init__.py`, no relative imports); modules import
   each other directly (e.g. `from lexer import ...`), relying on Python
-  adding `boot/` to `sys.path` when `boot/pykboot.py` is run directly.
-- `src/` is reserved for the eventual self-hosted implementation — the
-  compiler written in Pyking. It's currently empty of tracked content.
+  adding `src/` to `sys.path` when `src/pykboot.py` is run directly. The
+  eventual self-hosted rewrite — the compiler written in Pyking itself —
+  is meant to replace these modules in place, here, rather than live in a
+  second, separate directory; there is no other reserved location for it.
 - `tests/` contains sample Pyking source programs (`.pyk`, not a pytest
   suite), each with a sibling `.out` file holding its expected stdout,
   plus `tests/test_cases.toml` (which program runs on which target) and
@@ -34,7 +35,7 @@ immutable binding, `for`/`while`/`if`, functions, indentation rules, error
 message format, etc.). Read it before writing or editing any Pyking source
 (e.g. the `.pyk` files under `tests/`) — it reflects exactly what the
 current bootstrap parser accepts, which is not the same as full Python.
-Keep it in sync whenever `boot/`'s language support changes.
+Keep it in sync whenever `src/`'s language support changes.
 
 PYKING.md is **language-only**: nothing about compiler flags, targets,
 generated code, or the test harness belongs there — not even "compiles
@@ -49,11 +50,11 @@ When a change touches how something *compiles* rather than what it
 
 ## Changing the language: always update all five places
 
-A change to what `boot/` accepts is not finished until **every** one of
+A change to what `src/` accepts is not finished until **every** one of
 these is updated in the same change — none of them is optional, and the
 last ones are the ones that get forgotten:
 
-1. **`boot/`** — the stage(s) implementing it (lexer → parser → syntax →
+1. **`src/`** — the stage(s) implementing it (lexer → parser → syntax →
    `analyses.py` → each backend). A construct that binds or uses a *name*
    always reaches `analyses.py`: it has to bind through `bind` (so the
    no-shadowing-a-`var` rule covers it) or be walked so its names are
@@ -81,10 +82,10 @@ last ones are the ones that get forgotten:
    construct a backend *refuses* belongs in its family page too, with the
    reason.
 5. **`tools/emacs/pyking-mode.el`** — the editor mode claims in its own
-   commentary to mirror `boot/lexer.py` and `boot/parser.py`, so it goes
+   commentary to mirror `src/lexer.py` and `src/parser.py`, so it goes
    stale silently. Check each of these against the change:
    - `pyking-mode-keywords` / `pyking-mode-types` — must still equal the
-     `keywords` list in `boot/lexer.py`;
+     `keywords` list in `src/lexer.py`;
    - `pyking-mode-builtins` — extend it when an example or test starts
      calling a new Python builtin;
    - `pyking-mode-font-lock-keywords` — new operator/marker syntax;
@@ -100,11 +101,11 @@ last ones are the ones that get forgotten:
    it disagrees with, and `-f batch-byte-compile` must stay
    warning-free.
 
-## Architecture of `boot/`
+## Architecture of `src/`
 
 The bootstrap is split into one module per compiler stage:
 
-1. **`boot/lexer.py`** — `Info` (a frozen dataclass carrying source location:
+1. **`src/lexer.py`** — `Info` (a frozen dataclass carrying source location:
    `file`, `row1`, `col1`, `row2`, `col2`, attached to every token, used for
    error reporting), the Token ADT (each token kind is a frozen `@dataclass`
    subclassing the `Token` marker base class, e.g. `TokInt`, `TokIdent`,
@@ -123,17 +124,17 @@ The bootstrap is split into one module per compiler stage:
    `is_letter` / `is_digit_letter` classify characters. Row/column tracking
    is done manually (`r, c`) as characters are consumed. Lexical errors
    raise `LexError(info, message)`.
-2. **`boot/syntax.py`** — the expression (`E*`) and statement (`S*`) AST
+2. **`src/syntax.py`** — the expression (`E*`) and statement (`S*`) AST
    dataclasses, one class per variant (same rationale as the Token ADT), and
    their pretty printers (`pprint_expr`, `pprint_stmt`, `pprint_program`).
-   Named `syntax.py`, not `ast.py`: `boot/` is a flat set of script modules
+   Named `syntax.py`, not `ast.py`: `src/` is a flat set of script modules
    (not a package), so a module literally named `ast.py` would shadow the
    standard library `ast` module on `sys.path` — which breaks `dataclasses`
    itself (`dataclasses` → `inspect` → `annotationlib` needs the real `ast`
    at import time). Don't rename this back to `ast.py`.
-3. **`boot/parser.py`** — the recursive-descent parser (`parse_atom`,
+3. **`src/parser.py`** — the recursive-descent parser (`parse_atom`,
    `parse_expr`, `parse_statement`, `parse`, ...) that consumes the token
-   list and builds the AST from `boot/syntax.py`. Each AST node's `info`
+   list and builds the AST from `src/syntax.py`. Each AST node's `info`
    spans from its first token's start to its last token's end, built via
    `combine_info(start, end)` — when adding a new grammar rule, combine
    infos the same way rather than reusing a single token's span. Parse
@@ -143,7 +144,7 @@ The bootstrap is split into one module per compiler stage:
    bindings in a pattern (`_check_no_duplicate_captures`) and the "every
    branch yields a value" rules of a value-form `if`/`match`
    (`_check_value_stmt`, on which `target_python.py` relies).
-4. **`boot/analyses.py`** — static analyses over the parsed AST, run
+4. **`src/analyses.py`** — static analyses over the parsed AST, run
    between the parser and any backend (for every mode, `--ast` included);
    errors raise `AnalysisError(info, message)`. Currently one analysis,
    names: Pyking is lexically scoped, so `analyze_program` is a single
@@ -162,7 +163,7 @@ The bootstrap is split into one module per compiler stage:
    Keep new analyses in this module as separate `analyze_*` entry points
    rather than folding more checking into the parser: the parser's job
    is shape, and only a scope-aware walk can judge names.
-5. **`boot/runtime_interface.py`** — the boundary between pure Pyking code
+5. **`src/runtime_interface.py`** — the boundary between pure Pyking code
    and the outside world, in the spirit of WebAssembly's split between a
    core language that cannot observe anything and a separate host spec.
    Backend-agnostic by construction: it holds no Python and no JavaScript,
@@ -170,7 +171,7 @@ The bootstrap is split into one module per compiler stage:
    *including* the value-formatting rules, since every backend has to
    agree on those for one program to print the same characters
    everywhere. Add an operation here first; the backends then bind it.
-6. **`boot/target_js_core.py`** — the JavaScript backend's language half:
+6. **`src/target_js_core.py`** — the JavaScript backend's language half:
    a `Js*` AST, translation from `syntax.py`, and a printer. Knows nothing
    about packaging. Calls that cross the runtime interface become
    `JsRuntimeCall`, whose spelling is supplied by the packager, so the
@@ -180,14 +181,14 @@ The bootstrap is split into one module per compiler stage:
    it (`const` redeclaration, and the temporal dead zone), not on every
    shadow the way `target_python.py` must. Constructs outside the
    supported subset raise `UnsupportedError`, which carries an `Info`.
-7. **`boot/target_js_packaging.py`** — the JavaScript backend's packaging
+7. **`src/target_js_packaging.py`** — the JavaScript backend's packaging
    half: wraps core output into `nodejs` (one self-contained script),
    `html` (one self-contained page printing into a visible box), and `esm`
    (a module exporting `run(runtime)`, plus a node driver and an HTML
    wrapper derived from the `--output` path). It owns the JavaScript side
    of the runtime interface — each host's `print` and the shared
    `pykFormat` — which is exactly what differs between the three.
-8. **`boot/target_c.py`** — the C backend, serving both the `c89` and
+8. **`src/target_c.py`** — the C backend, serving both the `c89` and
    `c23` targets: a `C*` AST, translation, and a printer taking a
    `standard` parameter. One backend rather than two because the
    standards disagree about *printing*, not meaning — comments, whether
@@ -200,7 +201,7 @@ The bootstrap is split into one module per compiler stage:
    its translated body. When inference cannot answer, raise
    `UnsupportedError` with the `Info` rather than emitting C that will
    not compile.
-9. **`boot/target_java.py`** — the Java backend, serving `java8`,
+9. **`src/target_java.py`** — the Java backend, serving `java8`,
    `java17` and `java21`: a `J*` AST, translation, and a printer taking a
    `version` parameter, the same shape `target_c.py` uses for `standard`
    — one backend because the three versions disagree only in whether a
@@ -217,9 +218,9 @@ The bootstrap is split into one module per compiler stage:
    style rather than the source's, since Java requires the two to match
    (`default_class_name`; see `pykboot.py` below for where the exception
    is applied).
-10. **`boot/target_python.py`** — the Python code-generation backend: its
+10. **`src/target_python.py`** — the Python code-generation backend: its
    own `Py*` AST (`PyInt`, `PyAssign`, `PyFor`, ... — structurally the same
-   shape as `boot/syntax.py`'s `E*`/`S*`, except Pyking's `SLet`/`SVar`/
+   shape as `src/syntax.py`'s `E*`/`S*`, except Pyking's `SLet`/`SVar`/
    `SMutate` all collapse into one `PyAssign`, since Python has no
    mutable-vs-immutable-binding distinction, and `SLetStmt` — an
    `if`/`match` statement bound with `=`, see PYKING.md — has no node of
@@ -244,7 +245,7 @@ The bootstrap is split into one module per compiler stage:
    independent of `syntax.py`'s pretty-printing internals so the next one
    can too, without entangling target-specific logic into the Pyking
    AST/pretty-printer.
-11. **`boot/pykboot.py`** — the entry point: parses `--tokens`/`--ast`/
+11. **`src/pykboot.py`** — the entry point: parses `--tokens`/`--ast`/
    `--stdout`/`--output <file>`/`--target|-t <target>`/the filename from
    argv, runs `lexer.lexing`, `parser.parse` and
    `analyses.analyze_program`, then dispatches on the target. Catches
@@ -275,7 +276,7 @@ block inside `lexing`, add a corresponding `Tok*` dataclass, and add a
 ## Running
 
 ```
-python3 boot/pykboot.py [--tokens] [--target|-t <target>] [--ast | --stdout | --output <file>] <filename>
+python3 src/pykboot.py [--tokens] [--target|-t <target>] [--ast | --stdout | --output <file>] <filename>
 ```
 
 `--tokens` prints the token stream first (in addition to whatever else
@@ -306,9 +307,9 @@ required:
 `--target`/`-t` selects the backend: `python` (the default), `nodejs`,
 `html`, `esm`, `c89`, `c23`, `java8`, `java17`, or `java21`. Targets come
 in groups sharing a backend: the JavaScript three differ only in
-`boot/target_js_packaging.py`, the C two only in a `standard` parameter
-to `boot/target_c.py`'s printer, and the Java three only in a `version`
-parameter to `boot/target_java.py`'s printer. All of them support a
+`src/target_js_packaging.py`, the C two only in a `standard` parameter
+to `src/target_c.py`'s printer, and the Java three only in a `version`
+parameter to `src/target_java.py`'s printer. All of them support a
 subset of the language, and anything outside it is refused at compile
 time with a source position rather than emitted as code that will not
 build. See `docs/architecture.md` for the subsets and the target table.
@@ -318,7 +319,7 @@ The `pyk` wrapper script at the repository root forwards flags as-is
 one convenience: called with *only* a filename and no flags, it compiles
 to a temp file, runs it with `python3`, and removes the temp file
 afterward (even if compiling or running fails) — i.e. `./pyk <file>` is
-the "just run it" shorthand that no longer exists as `boot/pykboot.py`'s
+the "just run it" shorthand that no longer exists as `src/pykboot.py`'s
 own default.
 
 `make test` runs `tests/test_script.py` (plain `make` with no target does
@@ -341,6 +342,7 @@ Python-only.
 ## Repository housekeeping
 
 - Editor backup files ending in `~` (e.g. `tests/arithmetic.py~`,
-  `.gitignore~`) and the `src/` directory are untracked/gitignored scratch
-  content — don't treat them as authoritative source, and don't assume
+  `.gitignore~`) or in `#...#` (Emacs auto-save), and any `__pycache__`
+  directory, are untracked scratch content, wherever they turn up (`src/`
+  included) — don't treat them as authoritative source, and don't assume
   they should be committed.

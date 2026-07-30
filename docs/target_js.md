@@ -4,8 +4,8 @@
 
 **Key points**
 
-- One translation, `boot/target_js_core.py`; three packagings,
-  `boot/target_js_packaging.py`. The targets accept exactly the same
+- One translation, `src/target_js_core.py`; three packagings,
+  `src/target_js_packaging.py`. The targets accept exactly the same
   programs and differ only in **where `print` goes** and what files come
   out.
 - JavaScript fits Pyking better than Python does: `const` is an immutable
@@ -16,7 +16,7 @@
   `match`, comprehensions or value-form bindings. Anything outside it is
   refused with a source position.
 - `print` is the one thing crossing the runtime boundary
-  (`boot/runtime_interface.py`), and the three targets bind it three
+  (`src/runtime_interface.py`), and the three targets bind it three
   ways: `console.log`, a page element, or a function the embedder passes
   in.
 - Least optimal at: float display (`6` where Python prints `6.0`), and
@@ -82,7 +82,7 @@ Refused at compile time, with the source position:
 | `str`, `len`, `range` | no JavaScript standard-library shim yet |
 
 ```
-$ python3 boot/pykboot.py -t nodejs tests/for_simple.pyk
+$ python3 src/pykboot.py -t nodejs tests/for_simple.pyk
 'tests/for_simple.pyk' 2:0-3:22 Unsupported by target 'nodejs': `for` loops
 are not supported by the JavaScript backends yet
 ```

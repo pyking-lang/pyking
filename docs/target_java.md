@@ -4,8 +4,8 @@
 
 **Key points**
 
-- One backend, `boot/target_java.py`, with a `version` parameter -- the
-  same shape as `boot/target_c.py`'s `standard`. All three versions
+- One backend, `src/target_java.py`, with a `version` parameter -- the
+  same shape as `src/target_c.py`'s `standard`. All three versions
   translate *identically*; only the printer differs, and in one place:
   whether a local declaration spells out its type or writes `var`.
 - Java is statically typed and Pyking is not, so this backend **infers
@@ -73,7 +73,7 @@ position.
 ### `/`
 
 ```
-$ python3 boot/pykboot.py -t java21 divide.pyk
+$ python3 src/pykboot.py -t java21 divide.pyk
 'divide.pyk' 1:6-1:11 Unsupported by target 'java21': `/` is true division in
 Pyking and truncating integer division in Java; matching it needs a
 floating-point type this backend does not have yet
@@ -196,13 +196,13 @@ spelling the way every other target does. With no `--output`, the
 default name is **Java-cased**, not the source's:
 
 ```
-$ python3 boot/pykboot.py -t java21 foo_bar.pyk     # writes FooBar.java
-$ python3 boot/pykboot.py -t java21 test1.pyk       # writes Test1.java
+$ python3 src/pykboot.py -t java21 foo_bar.pyk     # writes FooBar.java
+$ python3 src/pykboot.py -t java21 test1.pyk       # writes Test1.java
 ```
 
 Words are split on anything that is not a letter or digit, each
 capitalised and run together (`default_class_name` in
-`boot/target_java.py`); a stem with none becomes `Program`, and one that
+`src/target_java.py`); a stem with none becomes `Program`, and one that
 would start with a digit gets an underscore prefixed, since neither is a
 legal Java identifier otherwise.
 

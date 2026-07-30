@@ -1,10 +1,10 @@
 """The JavaScript code-generation core: a JS AST, a translation from
-`boot/syntax.py` into it, and a printer.
+`src/syntax.py` into it, and a printer.
 
 This module knows nothing about *packaging* -- whether the result ends up
 as a node script, an ES module, or an HTML page is decided entirely by
-`boot/target_js_packaging.py`. What it does know is that some calls cross
-the runtime interface (`boot/runtime_interface.py`): those become
+`src/target_js_packaging.py`. What it does know is that some calls cross
+the runtime interface (`src/runtime_interface.py`): those become
 `JsRuntimeCall`, and the packager says what expression each one is
 spelled as (`print`, or `runtime.print`, ...).
 
@@ -411,7 +411,7 @@ def _wrap(prec, min_prec, text):
 
 def pprint_js_expr(e, runtime, min_prec=0):
     """`runtime` maps each runtime operation to the JavaScript expression
-    that performs it -- see `boot/target_js_packaging.py`."""
+    that performs it -- see `src/target_js_packaging.py`."""
     match e:
         case JsNum(_, v):
             return str(v)

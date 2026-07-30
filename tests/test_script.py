@@ -36,7 +36,7 @@ import sys
 import tempfile
 import tomllib
 
-PYKBOOT = os.path.join("boot", "pykboot.py")
+PYKBOOT = os.path.join("src", "pykboot.py")
 CASES_FILE = os.path.join("tests", "test_cases.toml")
 TARGETS = ("python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21")
 
@@ -151,7 +151,7 @@ def run_java(source, workdir, version):
     """Compiles to Java, builds it with `javac --release <version>`, runs
     the class with `java`. The class is named `Program` here rather than
     whatever the backend would pick by default -- `--output` always names
-    it explicitly (see `boot/target_java.py`), so the test harness's own
+    it explicitly (see `src/target_java.py`), so the test harness's own
     naming choice never has to match the source file's."""
     generated = os.path.join(workdir, "Program.java")
     compiled = compile_to(source, version, generated)

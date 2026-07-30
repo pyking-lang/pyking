@@ -6,7 +6,7 @@
 
 ;; A syntax-highlighting major mode for Pyking, the small Python-like
 ;; language defined by this repository. The keyword list and grammar
-;; used below are taken directly from `boot/lexer.py' / `boot/parser.py'
+;; used below are taken directly from `src/lexer.py' / `src/parser.py'
 ;; and documented in `PYKING.md' at the repository root; keep the two in
 ;; sync if the grammar changes.
 ;;
@@ -87,7 +87,7 @@ be changed, but is exposed as a customizable option the same way
 (defconst pyking-mode-keywords
   '("for" "in" "if" "while" "then" "else" "var" "def" "return" "match" "case")
   "Reserved keywords in Pyking.
-Mirrors the `keywords' list in boot/lexer.py. Unlike Python, `match' and
+Mirrors the `keywords' list in src/lexer.py. Unlike Python, `match' and
 `case' are always reserved here, not context-sensitive (\"soft\")
 keywords; `then' -- Pyking's `if cond then a else b' expression keyword --
 has no Python counterpart at all.")
@@ -99,7 +99,7 @@ has no Python counterpart at all.")
 (defconst pyking-mode-types
   '("Int" "String" "Bool")
   "Reserved type names usable in parameter/return type annotations.
-Mirrors the `keywords' list in boot/lexer.py: like `match'/`case', these
+Mirrors the `keywords' list in src/lexer.py: like `match'/`case', these
 are always-reserved keywords, not identifiers the parser special-cases
 only in type position -- see PYKING.md's \"Type annotations\" section.
 Kept as a separate list (rather than folded into
@@ -513,7 +513,7 @@ block opener that list holds a single forced column (see
 (defvar pyking-mode-syntax-table
   (let ((table (make-syntax-table)))
     ;; ident = letter , { letter | digit } ; where `letter' includes `_'
-    ;; (see `is_letter' in boot/lexer.py) -- `_' is part of the word,
+    ;; (see `is_letter' in src/lexer.py) -- `_' is part of the word,
     ;; not a symbol separator.
     (modify-syntax-entry ?_ "w" table)
     ;; Comments: "#" runs to end of line.
@@ -521,7 +521,7 @@ block opener that list holds a single forced column (see
     (modify-syntax-entry ?\n ">" table)
     ;; string = "'" , { string_char } , "'" | '"' , { string_char } , '"' ;
     ;; both quote characters delimit strings, and "\\" is the escape
-    ;; character for both (see `scan_string'/`_ESCAPES' in boot/lexer.py).
+    ;; character for both (see `scan_string'/`_ESCAPES' in src/lexer.py).
     (modify-syntax-entry ?\" "\"" table)
     (modify-syntax-entry ?\' "\"" table)
     (modify-syntax-entry ?\\ "\\" table)
@@ -554,8 +554,8 @@ mutation operator, the `..'/`..name' list-pattern rest marker, string
 literals (with backslash escapes), `#' comments, integer literals, type
 annotation names (`Int', `String', `Bool', see `pyking-mode-types'), and
 well-known builtins (see `pyking-mode-builtins'), consistent with the
-grammar documented in PYKING.md and implemented in boot/lexer.py and
-boot/parser.py.
+grammar documented in PYKING.md and implemented in src/lexer.py and
+src/parser.py.
 
 Also provides `python-mode'-style 4-space (`pyking-indent-offset')
 indentation via `pyking-indent-line', including TAB-again cycling

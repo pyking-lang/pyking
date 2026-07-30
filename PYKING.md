@@ -11,7 +11,7 @@ with `:=`; and every block is a scope, so a name bound inside one is gone
 after it.
 
 This document is the language reference: what Pyking programs mean, and
-what the bootstrap implementation in `boot/` currently accepts. It says
+what the bootstrap implementation in `src/` currently accepts. It says
 nothing about the compiler itself: what targets a program can be compiled
 to and what each supports is in [docs/targets.md](docs/targets.md), and
 how the compiler is put together is in
@@ -149,7 +149,7 @@ Structure:
 
 ## Grammar
 
-EBNF for the subset currently accepted by `parse()` in `boot/parser.py`.
+EBNF for the subset currently accepted by `parse()` in `src/parser.py`.
 `INDENT`/`DEDENT` are not literal characters — they are synthesized by the
 lexer from 4-space indentation changes (see "Indentation-based blocks"
 below). Comments are stripped by the lexer and don't appear here.
@@ -275,7 +275,7 @@ Notes that don't fall out of the grammar alone:
   *statement* form, i.e. end in `:`; `else if c then a else b` is an
   error, since an `if_expr` may not start an `else` tail. This makes
   `else if` exactly equivalent to an `else` block holding one nested
-  `if_stmt`, and that is how it is parsed: `boot/parser.py` builds no
+  `if_stmt`, and that is how it is parsed: `src/parser.py` builds no
   ladder node, just an `SIf` whose `else_body` is a one-element list
   holding the next `SIf`. Both pretty-printers undo the nesting when
   printing (as `else if` in Pyking's own syntax), so
@@ -316,7 +316,7 @@ Notes that don't fall out of the grammar alone:
   lies: it may be an `if_stmt` or an `expr_stmt` holding an `if_expr`,
   and the two share the entire `"if" , expr` prefix. Since that `expr`
   can be arbitrarily long, no bounded lookahead separates them — the
-  grammar is not LL(1) at `statement`. `boot/parser.py` handles this
+  grammar is not LL(1) at `statement`. `src/parser.py` handles this
   without backtracking by parsing the shared prefix once and then
   dispatching on the single token that follows it: `:` means `if_stmt`,
   `then` means `if_expr`. (An `if_stmt` whose *condition* is an `if_expr`
@@ -387,7 +387,7 @@ Notes that don't fall out of the grammar alone:
   as the atom it follows — a `(` that starts a new row is always treated
   as the start of the next statement instead, never as a continuation of
   the previous one. (There are no statement-separator tokens in this
-  grammar at all — see the parser module comment in `boot/parser.py` —
+  grammar at all — see the parser module comment in `src/parser.py` —
   so without this row check, a statement immediately followed by one
   starting with `(`, e.g. a parenthesized tuple destructuring assignment,
   would be misparsed as one giant chained call.)
@@ -949,7 +949,7 @@ print(scale(3, 4))
 ```
 
 There is no type checker yet — annotations are parsed and stored in the
-AST (see `Param`/`SFunctionDef.return_type` in `boot/syntax.py`) and
+AST (see `Param`/`SFunctionDef.return_type` in `src/syntax.py`) and
 pretty-printed back out in Pyking's own syntax, but nothing is verified
 against them. Compiling erases every annotation: no generated code
 carries type syntax at all.

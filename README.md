@@ -13,15 +13,15 @@ Pyking has no interpreter. It compiles, and the same program can be
 emitted for several targets:
 
 ```sh
-python3 boot/pykboot.py            hello.pyk   # ./hello.py  (python is the default)
-python3 boot/pykboot.py -t nodejs  hello.pyk   # ./hello.js
-python3 boot/pykboot.py -t html    hello.pyk   # ./hello.html
-python3 boot/pykboot.py -t esm     hello.pyk   # ./hello.js + .node.js + .html + package.json
-python3 boot/pykboot.py -t c89     hello.pyk   # ./hello.c  (C89)
-python3 boot/pykboot.py -t c23     hello.pyk   # ./hello.c  (C23)
-python3 boot/pykboot.py -t java8   hello.pyk   # ./Hello.java  (Java 8)
-python3 boot/pykboot.py -t java17  hello.pyk   # ./Hello.java  (Java 17)
-python3 boot/pykboot.py -t java21  hello.pyk   # ./Hello.java  (Java 21)
+python3 src/pykboot.py            hello.pyk   # ./hello.py  (python is the default)
+python3 src/pykboot.py -t nodejs  hello.pyk   # ./hello.js
+python3 src/pykboot.py -t html    hello.pyk   # ./hello.html
+python3 src/pykboot.py -t esm     hello.pyk   # ./hello.js + .node.js + .html + package.json
+python3 src/pykboot.py -t c89     hello.pyk   # ./hello.c  (C89)
+python3 src/pykboot.py -t c23     hello.pyk   # ./hello.c  (C23)
+python3 src/pykboot.py -t java8   hello.pyk   # ./Hello.java  (Java 8)
+python3 src/pykboot.py -t java17  hello.pyk   # ./Hello.java  (Java 17)
+python3 src/pykboot.py -t java21  hello.pyk   # ./Hello.java  (Java 21)
 ```
 
 The output is named after the source unless `--output` says otherwise;
@@ -50,11 +50,10 @@ The output is named after the source unless `--output` says otherwise;
 
 | path | contents |
 |---|---|
-| `boot/` | the bootstrap compiler, one module per stage |
+| `src/` | the bootstrap compiler, one module per stage (see [CLAUDE.md](CLAUDE.md)) |
 | `tests/` | Pyking programs, their expected output, and the test runner |
 | `docs/` | design and architecture notes |
 | `tools/emacs/` | a major mode for editing `.pyk` files |
-| `src/` | reserved for the eventual self-hosted implementation |
 
 Requires Python 3.11+ (`match`/`case`, `tomllib`). Running the generated
 code needs `node` for the JavaScript targets, a C compiler for the C

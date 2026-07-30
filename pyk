@@ -1,6 +1,6 @@
 #!/bin/bash
 DIR="$(cd "$(dirname "$0")" && pwd)"
-PYKBOOT_PY="$DIR/boot/pykboot.py"
+PYKBOOT_PY="$DIR/src/pykboot.py"
 
 if [ "$#" -eq 1 ]; then
     # No flags given: compile to a temp file, run it, then clean up -- even

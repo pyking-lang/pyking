@@ -21,9 +21,9 @@ backend does with it differs, which is the whole point:
 This module names the operations and pins down their semantics. It holds
 no target-specific code -- no Python, no JavaScript -- because every
 backend has to agree on *what* `print` means before any of them can
-decide *how* to do it. `boot/target_js_core.py` emits a `JsRuntimeCall`
+decide *how* to do it. `src/target_js_core.py` emits a `JsRuntimeCall`
 for each operation named here and leaves the binding to
-`boot/target_js_packaging.py`.
+`src/target_js_packaging.py`.
 """
 
 from dataclasses import dataclass

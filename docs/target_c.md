@@ -4,7 +4,7 @@
 
 **Key points**
 
-- One backend, `boot/target_c.py`, with a `standard` parameter. The two
+- One backend, `src/target_c.py`, with a `standard` parameter. The two
   targets translate *identically*; only the printer differs, in four
   places: comments, where declarations may appear, how booleans are
   spelled, and which headers are needed.
@@ -60,7 +60,7 @@ to give. All are refused at compile time with a source position.
 ### `/`
 
 ```
-$ python3 boot/pykboot.py -t c23 divide.pyk
+$ python3 src/pykboot.py -t c23 divide.pyk
 'divide.pyk' 1:6-1:11 Unsupported by target 'c23': `/` is true division in
 Pyking and truncating integer division in C; matching it needs a
 floating-point type this backend does not have yet

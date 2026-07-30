@@ -7,10 +7,10 @@ semantics, scoping rules — see [PYKING.md](../PYKING.md); for what each
 compiler target supports and how it compiles, see
 [targets.md](targets.md).
 
-The compiler is built to bootstrap. `boot/` holds a throwaway
+The compiler is built to bootstrap. `src/` holds a throwaway
 implementation written in a convenient host language (Python), and the
 plan is to eventually rewrite the compiler in Pyking itself and compile
-it with this one. Nothing in `boot/` is meant to survive that
+it with this one. Nothing in `src/` is meant to survive that
 transition, so it favours being obvious over being clever — and it is
 why the code is written in a style that ports easily: one dataclass per
 AST variant, and `match`/`case` over them rather than method dispatch.
@@ -21,16 +21,16 @@ AST variant, and `match`/`case` over them rather than method dispatch.
                           foo.pyk
                              │
                     ┌────────▼────────┐
-                    │  boot/lexer.py  │   characters → tokens
+                    │  src/lexer.py  │   characters → tokens
                     └────────┬────────┘
                     ┌────────▼────────┐
-                    │ boot/parser.py  │   tokens → AST
+                    │ src/parser.py  │   tokens → AST
                     └────────┬────────┘
                     ┌────────▼────────┐
-                    │boot/analyses.py │   names & scoping: rejects,
+                    │src/analyses.py │   names & scoping: rejects,
                     └────────┬────────┘   never rewrites
                              │
-                   boot/syntax.py AST — the one
+                   src/syntax.py AST — the one
                    thing every backend shares
                              │
       ┌─────────────────┴──────────┬──────────────────┬──────────────────┐
@@ -49,7 +49,7 @@ AST variant, and `match`/`case` over them rather than method dispatch.
                                      + foo.html
                                      + package.json
 
-        boot/runtime_interface.py — the contract both sides
+        src/runtime_interface.py — the contract both sides
         reference: what a program may observe of the outside world
 ```
 
@@ -61,23 +61,23 @@ ignores `--target`.
 
 | module | role |
 |---|---|
-| `boot/lexer.py` | Characters → tokens. `Info` (file, row/column span) is attached to every token and rides along on every later node, so any stage can report an error against the source. |
-| `boot/parser.py` | Recursive descent, tokens → the AST in `syntax.py`. Also enforces the few rules the grammar cannot state (duplicate pattern bindings, "every branch of a bound `if` yields a value"). |
-| `boot/syntax.py` | The AST itself — one dataclass per variant — plus a pretty printer that prints Pyking back out. |
-| `boot/analyses.py` | Static checks over the AST, currently names and scoping. Runs for every mode, `--ast` included; it only rejects, never rewrites. |
-| `boot/target_python.py` | Python backend: its own `Py*` AST, translation, printer. |
-| `boot/target_js_core.py` | JavaScript AST, translation, printer — with no knowledge of packaging. |
-| `boot/target_js_packaging.py` | Wraps that output into the files each JS target delivers, and supplies the JavaScript side of the runtime interface. |
-| `boot/target_c.py` | C AST, translation, printer, for both `c89` and `c23` — one backend with a `standard` parameter. Infers types, which C needs and Pyking does not have. |
-| `boot/target_java.py` | Java AST, translation, printer, for `java8`, `java17` and `java21` — one backend with a `version` parameter, the same shape as `target_c.py`. Infers types the same way; also checks that every function provably returns, since `javac` (unlike C) refuses one that doesn't. |
-| `boot/runtime_interface.py` | The host/IO boundary. Backend-agnostic. |
-| `boot/pykboot.py` | The driver: flags, stage sequencing, error reporting. |
+| `src/lexer.py` | Characters → tokens. `Info` (file, row/column span) is attached to every token and rides along on every later node, so any stage can report an error against the source. |
+| `src/parser.py` | Recursive descent, tokens → the AST in `syntax.py`. Also enforces the few rules the grammar cannot state (duplicate pattern bindings, "every branch of a bound `if` yields a value"). |
+| `src/syntax.py` | The AST itself — one dataclass per variant — plus a pretty printer that prints Pyking back out. |
+| `src/analyses.py` | Static checks over the AST, currently names and scoping. Runs for every mode, `--ast` included; it only rejects, never rewrites. |
+| `src/target_python.py` | Python backend: its own `Py*` AST, translation, printer. |
+| `src/target_js_core.py` | JavaScript AST, translation, printer — with no knowledge of packaging. |
+| `src/target_js_packaging.py` | Wraps that output into the files each JS target delivers, and supplies the JavaScript side of the runtime interface. |
+| `src/target_c.py` | C AST, translation, printer, for both `c89` and `c23` — one backend with a `standard` parameter. Infers types, which C needs and Pyking does not have. |
+| `src/target_java.py` | Java AST, translation, printer, for `java8`, `java17` and `java21` — one backend with a `version` parameter, the same shape as `target_c.py`. Infers types the same way; also checks that every function provably returns, since `javac` (unlike C) refuses one that doesn't. |
+| `src/runtime_interface.py` | The host/IO boundary. Backend-agnostic. |
+| `src/pykboot.py` | The driver: flags, stage sequencing, error reporting. |
 
 ## The runtime interface
 
 A Pyking program on its own only computes. It cannot reach a console, a
 file or a clock; everything observable crosses a boundary that
-`boot/runtime_interface.py` writes down. This is the split WebAssembly
+`src/runtime_interface.py` writes down. This is the split WebAssembly
 draws — a core language with no access to the world, plus a separate
 named set of operations a host agrees to provide — and it is drawn here
 for the same reason: the language keeps one meaning, while *where the
@@ -190,7 +190,7 @@ disk, which is why it is a separate target rather than a wrapper.
 ## Command line
 
 ```
-python3 boot/pykboot.py [--tokens] [--target|-t <target>] [--ast | --stdout | --output <file>] <filename>
+python3 src/pykboot.py [--tokens] [--target|-t <target>] [--ast | --stdout | --output <file>] <filename>
 ```
 
 With none of `--ast`, `--stdout` or `--output`, the program is compiled to

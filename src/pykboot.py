@@ -25,7 +25,7 @@ EXTENSIONS = {
 }
 
 USAGE = (
-    "Usage: python3 boot/pykboot.py [--tokens] [--target|-t <target>] "
+    "Usage: python3 src/pykboot.py [--tokens] [--target|-t <target>] "
     "[--ast | --stdout | --output <file>] <filename>\n"
     f"       <target> is one of: {', '.join(TARGETS)} (default: python)\n"
     "       without --ast/--stdout/--output, compiles to <filename's stem>"

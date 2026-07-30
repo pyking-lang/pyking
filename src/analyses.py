@@ -1,4 +1,4 @@
-"""Static analyses over the Pyking AST (`boot/syntax.py`).
+"""Static analyses over the Pyking AST (`src/syntax.py`).
 
 Currently one analysis: names. Pyking is lexically scoped -- every name
 resolves in the innermost enclosing scope that binds it, decided purely

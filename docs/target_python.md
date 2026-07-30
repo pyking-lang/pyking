@@ -17,7 +17,7 @@
   from the source) and refutable comprehension patterns (a helper
   function per clause, hoisted to the top of the file).
 
-Implementation: `boot/target_python.py`.
+Implementation: `src/target_python.py`.
 
 ## What is supported
 
@@ -212,7 +212,7 @@ def scale(x, factor:Int) -> Int:   def scale(x, factor):
 - **The immutability distinction disappears.** `=`, `var` and `:=` all
   become assignment, so generated Python will happily let you do things
   the Pyking source would have been rejected for. The checking lives in
-  `boot/analyses.py`, ahead of every backend; it is not re-expressible in
+  `src/analyses.py`, ahead of every backend; it is not re-expressible in
   the output.
 - **No optimisation of any kind.** The backend is a printer: no constant
   folding, no dead-code elimination, no tail calls. `1 + 2` compiles to
