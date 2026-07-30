@@ -12,6 +12,11 @@ How each target is executed:
   esm     compile to a temp .js (plus its wrappers and package.json), run
           the generated node driver -- that wrapper is what a user would
           run, so that is what gets tested.
+  c89     compile to a temp .c, build it with `cc -std=c89`, run the
+  c23     binary, compare stdout. Both standards run every C case: they
+          share one backend and differ only in how the C is printed, so a
+          difference between them is exactly the kind of bug worth
+          catching.
   html    no browser is needed: the page's embedded module is extracted
           and run under node with a small `document` stub that captures
           what the program writes into the page, which is then compared
@@ -29,7 +34,10 @@ import tomllib
 
 PYKBOOT = os.path.join("boot", "pykboot.py")
 CASES_FILE = os.path.join("tests", "test_cases.toml")
-TARGETS = ("python", "nodejs", "esm", "html")
+TARGETS = ("python", "nodejs", "esm", "html", "c89", "c23")
+
+# The compiler used for the C targets; `cc` is the standard name.
+C_COMPILER = os.environ.get("CC", "cc")
 
 # Stands in for the browser: the generated page's only contact with the
 # outside world is the element it prints into, so a `document` with one
@@ -114,11 +122,29 @@ def run_html(source, workdir):
     return executed.stdout, None
 
 
+def run_c(source, workdir, standard):
+    """Compiles to C, builds it with the system compiler, runs the binary.
+    `-pedantic` is on: the point of having a `c89` target at all is that
+    its output really is C89, and a compiler that merely tolerates it
+    would hide the difference from `c23`."""
+    generated = os.path.join(workdir, "program.c")
+    compiled = compile_to(source, standard, generated)
+    if compiled.returncode != 0:
+        return None, compiled.stderr
+    binary = os.path.join(workdir, "program")
+    built = run([C_COMPILER, f"-std={standard}", "-pedantic", "-o", binary, generated])
+    if built.returncode != 0:
+        return None, built.stderr
+    return run([binary]).stdout, None
+
+
 RUNNERS = {
     "python": run_python,
     "nodejs": run_nodejs,
     "esm": run_esm,
     "html": run_html,
+    "c89": lambda source, workdir: run_c(source, workdir, "c89"),
+    "c23": lambda source, workdir: run_c(source, workdir, "c23"),
 }
 
 

@@ -37,11 +37,14 @@ current bootstrap parser accepts, which is not the same as full Python.
 Keep it in sync whenever `boot/`'s language support changes.
 
 PYKING.md is **language-only**: nothing about compiler flags, targets,
-generated code, or the test harness belongs there. That material lives in
-**`docs/architecture.md`** — the pipeline, the four backends, the runtime
-interface, and how the tests work — and `README.md` is a short index
-pointing at both. When a change touches how something *compiles* rather
-than what it *means*, it is architecture.md that needs updating.
+generated code, or the test harness belongs there — not even "compiles
+to", where "means" will do. That material lives under `docs/`:
+`architecture.md` for the pipeline, `targets.md` for the target list and
+what each accepts, and one page per family (`target_python.md`,
+`target_js.md`, `target_c.md`) for how constructs are compiled and where
+the output is weak. `README.md` is a short index pointing at all of it.
+When a change touches how something *compiles* rather than what it
+*means*, PYKING.md is not the file to edit.
 
 ## Changing the language: always update all five places
 
@@ -67,10 +70,13 @@ last ones are the ones that get forgotten:
 3. **`PYKING.md`** — feature summary, EBNF grammar, the grammar notes for
    anything the EBNF can't express, and a worked example. Language only:
    no flags, targets, or generated code.
-4. **`docs/architecture.md`** — anything about *compiling*: a new stage or
-   module in the pipeline diagram, a change to a target's output or file
-   set, a widening of the JavaScript subset, a new difference between
-   targets.
+4. **`docs/`** — anything about *compiling*. `architecture.md` for the
+   pipeline itself (a new stage or module, a change to how the driver
+   works); `targets.md` for the target list and the shared-subset table;
+   and the family page — `target_python.md`, `target_js.md`,
+   `target_c.md` — for what that family supports, how the construct is
+   compiled, and where its output is not optimal. A construct a backend
+   *refuses* belongs in its family page too, with the reason.
 5. **`tools/emacs/pyking-mode.el`** — the editor mode claims in its own
    commentary to mirror `boot/lexer.py` and `boot/parser.py`, so it goes
    stale silently. Check each of these against the change:
@@ -178,7 +184,20 @@ The bootstrap is split into one module per compiler stage:
    wrapper derived from the `--output` path). It owns the JavaScript side
    of the runtime interface — each host's `print` and the shared
    `pykFormat` — which is exactly what differs between the three.
-8. **`boot/target_python.py`** — the Python code-generation backend: its
+8. **`boot/target_c.py`** — the C backend, serving both the `c89` and
+   `c23` targets: a `C*` AST, translation, and a printer taking a
+   `standard` parameter. One backend rather than two because the
+   standards disagree about *printing*, not meaning — comments, whether
+   declarations may follow statements, whether `bool` exists — so the
+   `standard` reaches only `pprint_c_program` and its helpers. Its real
+   work is the type inference C forces and Pyking never needed: every
+   expression node carries an `Int`/`String`/`Bool` type, bindings take
+   their initializer's, parameters their annotation (when C can represent
+   it) or a guess from the body, and a function's return type is read off
+   its translated body. When inference cannot answer, raise
+   `UnsupportedError` with the `Info` rather than emitting C that will
+   not compile.
+9. **`boot/target_python.py`** — the Python code-generation backend: its
    own `Py*` AST (`PyInt`, `PyAssign`, `PyFor`, ... — structurally the same
    shape as `boot/syntax.py`'s `E*`/`S*`, except Pyking's `SLet`/`SVar`/
    `SMutate` all collapse into one `PyAssign`, since Python has no
@@ -205,7 +224,7 @@ The bootstrap is split into one module per compiler stage:
    independent of `syntax.py`'s pretty-printing internals so the next one
    can too, without entangling target-specific logic into the Pyking
    AST/pretty-printer.
-9. **`boot/pykboot.py`** — the entry point: parses `--tokens`/`--ast`/
+10. **`boot/pykboot.py`** — the entry point: parses `--tokens`/`--ast`/
    `--stdout`/`--output <file>`/`--target|-t <target>`/the filename from
    argv, runs `lexer.lexing`, `parser.parse` and
    `analyses.analyze_program`, then dispatches on the target. Catches
@@ -258,11 +277,13 @@ required:
   file since `esm` writes three.
 
 `--target`/`-t` selects the backend: `python` (the default), `nodejs`,
-`html`, or `esm`. The JavaScript targets share `boot/target_js_core.py`
-and differ only in `boot/target_js_packaging.py`; they support a subset of
-the language, and anything outside it is refused at compile time with a
-source position rather than emitted as broken JavaScript. See
-`docs/architecture.md` for the subset and the target table.
+`html`, `esm`, `c89`, or `c23`. Targets come in groups sharing a backend:
+the JavaScript three differ only in `boot/target_js_packaging.py`, and
+the C two only in a `standard` parameter to `boot/target_c.py`'s printer.
+All of them support a subset of the language, and anything outside it is
+refused at compile time with a source position rather than emitted as
+code that will not build. See `docs/architecture.md` for the subsets and
+the target table.
 
 The `pyk` wrapper script at the repository root forwards flags as-is
 (`./pyk --ast <file>`, `./pyk -t nodejs --stdout <file>`, ...), but adds
@@ -284,8 +305,10 @@ being tested. It warns about any `.pyk` missing from the manifest and
 prints a per-target summary.
 
 No third-party dependencies. Requires Python 3.11+ (`match`/`case`, and
-`tomllib` for the manifest); the JavaScript targets need `node` to *run*
-their output, but not to produce it.
+`tomllib` for the manifest). Running the generated code needs `node` for
+the JavaScript targets and a C compiler (`$CC`, default `cc`) for the C
+ones — neither is needed to *produce* it, so the compiler itself stays
+Python-only.
 
 ## Repository housekeeping
 

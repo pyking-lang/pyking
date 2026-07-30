@@ -12,8 +12,9 @@ after it.
 
 This document is the language reference: what Pyking programs mean, and
 what the bootstrap implementation in `boot/` currently accepts. It says
-nothing about the compiler itself — how a program is compiled, what
-targets it can be compiled to, how to invoke any of that — which lives in
+nothing about the compiler itself: what targets a program can be compiled
+to and what each supports is in [docs/targets.md](docs/targets.md), and
+how the compiler is put together is in
 [docs/architecture.md](docs/architecture.md).
 
 Examples are marked `python` where they are also valid Python, and
@@ -50,8 +51,7 @@ restriction of it, but these are genuinely new.
   `def` whose whole body is one expression, with no `:` or indented
   block — e.g. `def add(a, b) = a + b` instead of `def add(a, b):`
   followed by `return a + b` on its own indented line. Just like the
-  `case`/`->` extension above, it compiles to an ordinary `def ... :`
-  whose only statement is `return expr`. The expression may also stand
+  `case`/`->` extension above, it means a body of one `return expr`. The expression may also stand
   on the line after the `=`, indented, when it no longer fits beside the
   header.
 - **`if ... then ... else ...` expressions**: Python writes a conditional
@@ -59,13 +59,13 @@ restriction of it, but these are genuinely new.
   Pyking puts it first, behind a new `then` keyword —
   `if cond then e1 else e2`. Semantically the two are identical (only the
   taken branch is evaluated, and `else` is mandatory), and Pyking's form
-  compiles straight to Python's. This is a genuinely new *keyword*, so
+  matches Python's exactly. This is a genuinely new *keyword*, so
   `then` is reserved everywhere and can no longer be used as an
   identifier.
 - **`else if` instead of `elif`**: Pyking has no `elif` keyword — an
   `if` statement chains with the two ordinary keywords `else if`, e.g.
   `else if n == 0:` on its own line. It means exactly what Python's
-  `elif` does (and compiles to it), so it is neither more nor less than
+  `elif` does, so it is neither more nor less than
   sugar for an `else:` block containing a single nested `if` statement.
 - **`if`/`match` statements as bound values**: the right-hand side of an
   `=` binding may be a block-form `if` or `match` instead of an
@@ -75,8 +75,7 @@ restriction of it, but these are genuinely new.
   whichever branch runs, and a bound `if` must therefore have an `else`.
   Python has no statement that evaluates to a value (its `if`/`match`
   yield nothing, and its conditional *expression* holds no statements),
-  so this compiles to the same `if`/`match` statement with the
-  assignment pushed into every branch tail. Any bound value may also
+  so no backend can express it as one. Any bound value may also
   start on the line after its `=`, indented — a layout Python has no
   need for, since its right-hand sides are always expressions.
 - **`..`/`..name` list-pattern rest markers**: Python spells "match the
@@ -128,7 +127,7 @@ Statements:
   annotations (`Int`, `String`, `Bool`, list types `[T]`, tuple types
   `(T1, T2, ...)` including the unit type `()`, and nesting of any of
   these) — annotations are pretty-printed in Pyking's own syntax but
-  erased entirely when compiling to Python; also `def name(params) = expr`,
+  erased when compiling; also `def name(params) = expr`,
   a single-expression body, which may stand on the next line indented —
   Pyking extension
 - `return` statements
@@ -330,8 +329,8 @@ Notes that don't fall out of the grammar alone:
   the right of `=` needs no such care — `match` is a reserved keyword,
   so it can never begin an `expr`.
 - Two restrictions on a `value_stmt` are not expressible in the grammar
-  and are checked by the parser instead, since the compiled Python
-  depends on both: every branch's `block` must **end in an expression**
+  and are checked by the parser instead, since every backend depends on
+  both: every branch's `block` must **end in an expression**
   (an `expr_stmt`, or a nested `value_stmt` that recursively ends in
   one), and a `value_if`'s final `else` is **mandatory** — a binding
   cannot be left without a value when no condition holds. A `match_stmt`
@@ -380,8 +379,7 @@ Notes that don't fall out of the grammar alone:
   excluding the conditional expression), so `[x for x in xs if b if a
   else c]` is a syntax error in Python too. Pyking's parser is in fact
   lenient enough to recover in some of these cases, but both
-  pretty-printers always emit the parentheses — in generated Python they
-  are mandatory for the output to be valid Python at all.
+  pretty-printers always emit the parentheses.
 - `additive` and `multiplicative` are left-associative.
 - `call_tail` can repeat after any atom, so `f(1)(2)` parses (a call
   result can itself be called), even though no example in this document
@@ -458,9 +456,8 @@ Notes that don't fall out of the grammar alone:
   same name more than once — e.g. `case [a, ..b, a]:` is rejected at
   parse time with "duplicate binding 'a' in pattern". This mirrors
   Python's own restriction on repeated names within one `match` pattern,
-  since both plain `match`/`case` and the list comprehension desugaring
-  (see below) ultimately compile a Pyking pattern down to a real Python
-  `case` pattern.
+  mirroring Python's own restriction on repeated names within one
+  `match` pattern.
 - `list_pattern_items` may contain **at most one** `rest_marker`,
   appearing anywhere among the items — patterns before it are a prefix
   that must match the start of the list, patterns after it are a suffix
@@ -487,8 +484,8 @@ Notes that don't fall out of the grammar alone:
   must currently stay on one source line.
 - The `"case" , pattern , "->" , expr` form of `case_clause` is a genuine
   Pyking extension — it isn't valid Python `match` syntax at all (Python
-  always requires `:` and an indented block). It compiles to an ordinary
-  `case pattern:` block whose only statement is `return expr` — so, like
+  always requires `:` and an indented block). It *means* a `case pattern:`
+  block whose only statement is `return expr` — so, like
   a bare `return_stmt`, it's only meaningful inside a `function_def`; the
   parser doesn't check this, matching how `return_stmt` itself is already
   accepted anywhere without that check.
@@ -496,8 +493,8 @@ Notes that don't fall out of the grammar alone:
 - The `"=" , tuple_or_expr` form of `function_def` is a genuine Pyking
   extension in the same spirit as `case pattern -> expr` above — it isn't
   valid Python syntax at all (Python's `def` always requires `:` and an
-  indented block). It compiles to an ordinary `def name(...):` block whose
-  only statement is `return expr`. Unlike `case pattern -> expr` (which
+  indented block). It *means* a `def name(...):` block whose only
+  statement is `return expr`. Unlike `case pattern -> expr` (which
   parses its expression with plain `expr`, not `tuple_or_expr`), the `def`
   form uses `tuple_or_expr` — the same grammar `return_stmt` itself uses
   in the implementation — so a bare tuple works with no extra parens,
@@ -677,31 +674,14 @@ labels = [label for (_, label) in pairs]
 print(labels)
 ```
 
-Since Python's own comprehension syntax *can* express irrefutable targets
-but *can't* express refutable pattern matching, the compiler treats the
-two cases differently: an irrefutable pattern becomes a plain
-native `for`-target (`for (_, label) in pairs`, reading just like the
-Pyking source), while a refutable one is compiled into a small amount of
-extra machinery (an auto-generated `__pm*` helper function that
-attempts the match via a real Python `match` statement, plus a supporting
-comprehension clause) — see the comment above `translate_expr`'s
-`EListComp` case for the details. Either way the result is still a single
-ordinary list comprehension expression; none of this is visible from
-Pyking source.
+A refutable pattern therefore does two things at once — it *filters* and
+it *binds* — while an irrefutable one only binds. That is a statement
+about the language; how a backend achieves it is its own business, and
+the Python target's encoding is described in
+[docs/target_python.md](docs/target_python.md).
 
-The full breakdown of which comprehension `for` pattern needs a helper:
-
-| `for` pattern | Refutable? | Compiles to | Helper? |
-| --- | --- | --- | --- |
-| name `x`, wildcard `_` | no | native `for x in seq` | no |
-| tuple of irrefutables `(x, _)`, `(x, (y, z))` | no — fixed-arity destructure; wrong arity raises, as in Python | native `for (x, _) in seq` | no |
-| literal `0`, `"a"` | yes — Python can't express a value test | match helper | **yes** |
-| any list pattern `[a, b]`, `[x, ..r]` | yes — variable length is genuinely tested | match helper | **yes** |
-| tuple holding a literal/list `(x, 0)`, `(x, [a, b])` | yes — inherited from the inner pattern | match helper | **yes** |
-
-`tests/list_comprehension_pattern_helper.pyk` exercises every
-helper-generating (refutable) case; the other `list_comprehension_*`
-tests use only irrefutable patterns and so compile helper-free.
+`tests/list_comprehension_pattern_helper.pyk` exercises every refutable
+case; the other `list_comprehension_*` tests use irrefutable patterns.
 
 ### Tuple literals
 
@@ -745,8 +725,7 @@ the right-hand side is parsed with `tuple_or_expr` (so it may itself be a
 bare tuple), while the left-hand side is a `target`, always resolved
 independently of what the right-hand side turns out to be (there is no
 type checker to confirm the two shapes actually match — a mismatched
-tuple arity is only caught at Python runtime, when the generated
-unpacking assignment fails).
+tuple arity is only caught when the program runs).
 
 ```python
 a, b = 1, 2
@@ -873,11 +852,10 @@ position. A handful of names are predefined and count as bound
 everywhere — `print`, `range`, `str` and `len` — since no Pyking program
 declares them; every other unbound name is an error.
 
-**Compiling preserves this.** A backend whose own scoping is coarser
-than Pyking's has to work to keep these rules — the Python backend
-renames a binding that shadows an outer name, because Python has no
-block scope. That is a compiler concern rather than a language one; see
-[docs/architecture.md](docs/architecture.md).
+**Compiling preserves this.** A backend whose own scoping is coarser than
+Pyking's has to work to keep these rules; how each one does is a compiler
+concern rather than a language one, described in
+[docs/targets.md](docs/targets.md).
 
 ### Function definitions (`def`)
 
@@ -894,9 +872,9 @@ print(average(4, 8))
 
 `def name(params) = expr` is a single-expression alternative — Pyking
 extension, with no Python equivalent, so (unlike every other example in
-this document) the following is Pyking source, not valid Python. It
-compiles to an ordinary `def name(params):` whose only statement is
-`return expr`, letting short functions be written on one line. It plays
+this document) the following is Pyking source, not valid Python. It means
+a `def name(params):` whose only statement is `return expr`, letting short
+functions be written on one line. It plays
 the same role for `def` that `case pattern -> expr` plays for `match`/
 `case` (see below): both are one-expression shorthands for an implicit
 `return`. Since it's parsed with `tuple_or_expr`, a bare comma-separated
@@ -1195,8 +1173,8 @@ A `case` clause can alternatively use `->` followed by a single
 expression instead of `:` and an indented block — this is a Pyking-only
 extension with no Python equivalent, so (unlike every other example in
 this document) the following is Pyking source, not valid Python:
-`case pattern -> expr` compiles to an ordinary `case pattern:` block
-whose body is `return expr`, so it's only meaningful directly inside a
+`case pattern -> expr` means a `case pattern:` block whose body is
+`return expr`, so it's only meaningful directly inside a
 function (see the grammar notes above) — unless the whole `match` is
 bound with `=`, where the arm supplies the bound value instead of
 returning (see "`if`/`match` statements as bound values" below). The two

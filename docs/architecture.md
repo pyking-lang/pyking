@@ -3,7 +3,9 @@
 How the compiler is put together: the stages a program passes through,
 the backends it can come out of, and the boundary between a Pyking
 program and the world it runs in. For the language itself — syntax,
-semantics, scoping rules — see [PYKING.md](../PYKING.md).
+semantics, scoping rules — see [PYKING.md](../PYKING.md); for what each
+compiler target supports and how it compiles, see
+[targets.md](targets.md).
 
 The compiler is built to bootstrap. `boot/` holds a throwaway
 implementation written in a convenient host language (Python), and the
@@ -31,21 +33,21 @@ AST variant, and `match`/`case` over them rather than method dispatch.
                    boot/syntax.py AST — the one
                    thing every backend shares
                              │
-            ┌────────────────┴─────────────────┐
-            ▼                                  ▼
-  ┌───────────────────┐            ┌────────────────────────┐
-  │target_python.py   │            │  target_js_core.py     │
-  │Py AST + printer   │            │  JS AST + printer      │
-  └─────────┬─────────┘            └───────────┬────────────┘
-            │                                  │ JsRuntimeCall("print", …)
-            │                      ┌───────────▼────────────┐
-            │                      │ target_js_packaging.py │
-            │                      └─┬─────────┬──────────┬─┘
-            ▼                        ▼         ▼          ▼
-         foo.py                   foo.js   foo.html    foo.js
-                                                     + foo.node.js
-                                                     + foo.html
-                                                     + package.json
+      ┌─────────────────┴──────────┬──────────────────┐
+      ▼                            ▼                  ▼
+┌──────────────┐   ┌────────────────────────┐  ┌──────────────┐
+│target_python │   │    target_js_core.py   │  │ target_c.py  │
+│ Py AST + pr. │   │    JS AST + printer    │  │ C AST + pr.  │
+└──────┬───────┘   └───────────┬────────────┘  └──────┬───────┘
+       │                       │ JsRuntimeCall(…)     │ standard=
+       │           ┌───────────▼────────────┐         │ c89 | c23
+       │           │ target_js_packaging.py │         │
+       │           └─┬─────────┬──────────┬─┘         │
+       ▼             ▼         ▼          ▼           ▼
+    foo.py        foo.js   foo.html    foo.js       foo.c
+                                     + foo.node.js
+                                     + foo.html
+                                     + package.json
 
         boot/runtime_interface.py — the contract both sides
         reference: what a program may observe of the outside world
@@ -66,6 +68,7 @@ ignores `--target`.
 | `boot/target_python.py` | Python backend: its own `Py*` AST, translation, printer. |
 | `boot/target_js_core.py` | JavaScript AST, translation, printer — with no knowledge of packaging. |
 | `boot/target_js_packaging.py` | Wraps that output into the files each JS target delivers, and supplies the JavaScript side of the runtime interface. |
+| `boot/target_c.py` | C AST, translation, printer, for both `c89` and `c23` — one backend with a `standard` parameter. Infers types, which C needs and Pyking does not have. |
 | `boot/runtime_interface.py` | The host/IO boundary. Backend-agnostic. |
 | `boot/pykboot.py` | The driver: flags, stage sequencing, error reporting. |
 
@@ -100,6 +103,8 @@ real difference between the three JavaScript targets.
 ## Targets
 
 Selected with `--target <name>` or `-t <name>`; `python` is the default.
+Each family is documented in full in [targets.md](targets.md) and the
+pages it links to; what follows is the shape of the mechanism.
 
 | target | files written | `print` goes to |
 |---|---|---|
@@ -107,6 +112,8 @@ Selected with `--target <name>` or `-t <name>`; `python` is the default.
 | `nodejs` | `foo.js` | `console.log`, called directly — self-contained, `node foo.js` |
 | `html` | `foo.html` | a visible box on the page — self-contained, open it from disk |
 | `esm` | `foo.js`, `foo.node.js`, `foo.html`, `package.json` | a function the embedder passes in |
+| `c89` | `foo.c` | `printf`, from a C89-conforming file |
+| `c23` | `foo.c` | `printf`, from a C23 file |
 
 `esm` is the interesting one. The module exports `run(runtime)` and
 prints through `runtime.print(...)`, so it reaches nothing by itself:
@@ -193,79 +200,26 @@ The `pyk` wrapper script at the repository root forwards flags as-is, and
 adds one convenience: called with *only* a filename it compiles to a temp
 file, runs it with `python3`, and cleans up afterwards.
 
-## What the JavaScript backends support
+## What each target supports
 
-The JS backends implement a subset of Pyking, chosen so the pipeline and
-the three packagings could be built end to end before the language
-surface grew:
+The Python backend compiles the whole language; the JavaScript and C
+backends implement a common subset, and refuse anything outside it at
+compile time with a source position rather than emitting code that will
+not build. The per-target detail — what is supported, how each construct
+is compiled, and where the output is not optimal — lives in its own page:
 
-**Supported** — `print`; `def` with parameters (type annotations erased),
-including the single-expression `def f(x) = e` form; `if` / `else if` /
-`else`; `while`; `return`; `var` and `:=`; immutable `=` bindings to a
-single name; `if ... then ... else` expressions; integer, string and
-boolean values; arithmetic (`+ - * /`, unary minus), comparisons, and
-calls.
+- **[targets.md](targets.md)** — every target at a glance, the shared
+  subset as a table, and the differences that survive it.
+- **[target_python.md](target_python.md)** — `python`.
+- **[target_js.md](target_js.md)** — `nodejs`, `html`, `esm`.
+- **[target_c.md](target_c.md)** — `c89`, `c23`.
 
-**Not yet** — lists, tuples and tuple destructuring; `for`; `match`/`case`
-and patterns; comprehensions; value-form `if`/`match` bindings; the
-builtins `str`, `len` and `range`.
-
-Anything outside the subset is refused at compile time with a source
-position, never emitted as broken JavaScript.
-
-### JavaScript is a closer fit than Python
-
-Two things the Python backend has to work around fall out for free here:
-
-- `const` is an immutable binding and `let` a mutable variable, so
-  Pyking's `=`, `var` and `:=` map straight onto them, where the Python
-  backend must collapse all three into one assignment form.
-- `{ }` blocks are scopes, exactly as Pyking's blocks are. The Python
-  backend renames a binding that shadows an outer name, because Python
-  has no block scope; the JS backend renames only where JavaScript's own
-  rules force it — `const` cannot be redeclared in one block, and a
-  `const` shadowing an outer name makes that name unreadable earlier in
-  the same block (the temporal dead zone).
-
-### Renaming in the Python backend
-
-Pyking makes every block a scope; Python does not. A binding that shadows
-an outer name inside an `if`/`for`/`while`/`case` body would land on the
-same Python variable, and the outer name would come back changed. So
-`target_python.py` renames such a binding, keeping the generated name
-close to the source one — `total` becomes `total2`, or `total3` if
-`total2` is itself in scope:
-
-```
-$ python3 boot/pykboot.py --stdout tests/shadowing_blocks.pyk
-total = 1
-if 1 < 2:
-    total2 = 2       # the block's own `total`
-    print(total2)
-print(total)         # still the outer one
-```
-
-It renames only where needed, so generated code keeps the names actually
-written wherever it can: not inside a `def` body or a comprehension
-(Python already scopes those), and not when the shadowed binding is
-unreachable anyway — rebinding within one block, or two sibling blocks
-using the same name. `tests/shadowing_blocks.pyk` exercises all of it.
-
-## Known differences between targets
-
-The same program should print the same characters on every target, and
-the test suite checks exactly that by comparing all of them against one
-`.out` file. One difference remains, and it is why a couple of test
-programs are python-only:
-
-- **Float display.** Pyking's `/` is true division, so `(4 + 8) / 2` is a
-  float and Python prints `6.0`. JavaScript has a single number type and
-  prints `6`. Making the JS backends agree would mean carrying Python's
-  int/float distinction into the generated code — ints as `BigInt`,
-  division as `Number`, and a coercion helper around every arithmetic
-  operator — which would cost the thing the backend is trying to keep:
-  generated code that reads like the source. `arithmetic_division.pyk`
-  and `short_function_values.pyk` hold the affected cases.
+Two differences are worth knowing before reading further, because they
+are the only cases where one Pyking program does not mean the same thing
+everywhere: JavaScript prints an integral float as `6` where Python
+prints `6.0`, and the C targets refuse `/` outright, since C's integer
+division would produce a different *value* rather than a different
+rendering.
 
 ## Tests
 
@@ -285,10 +239,14 @@ which is the property being tested. It warns about any `.pyk` missing
 from the manifest, and finishes with a per-target summary.
 
 Each target is executed the way a user would run it: `python3` on the
-generated `.py`, `node` on the generated `.js`, and, for `esm`, `node` on
-the *generated node driver* rather than the module — the wrapper is the
-artifact a user runs, and exercising it also checks that `run(runtime)`
-is wired up.
+generated `.py`, `node` on the generated `.js`, `cc -std=… -pedantic` and
+then the binary for `c89`/`c23`, and, for `esm`, `node` on the *generated
+node driver* rather than the module — the wrapper is the artifact a user
+runs, and exercising it also checks that `run(runtime)` is wired up.
+`-pedantic` matters for the C targets: the point of having a `c89` target
+is that its output really is C89, and a compiler that merely tolerated
+the difference would hide it. The C compiler comes from `$CC`, defaulting
+to `cc`.
 
 ### Testing the HTML target
 

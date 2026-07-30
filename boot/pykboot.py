@@ -5,15 +5,20 @@ from analyses import analyze_program, AnalysisError
 from lexer import lexing, pprint_info, pprint_token, LexError
 from parser import parse, ParseError
 from syntax import pprint_program
+import target_c
 import target_js_core
 import target_js_packaging
 from target_python import translate_program, pprint_py_program
 
-TARGETS = ("python",) + target_js_packaging.TARGETS
+TARGETS = ("python",) + target_js_packaging.TARGETS + target_c.STANDARDS
 
 # What the primary output file is called when `--output` doesn't say. Each
 # backend owns its own extension; `esm` names three files from this stem.
-EXTENSIONS = {"python": ".py", **target_js_packaging.PRIMARY_EXTENSIONS}
+EXTENSIONS = {
+    "python": ".py",
+    **target_js_packaging.PRIMARY_EXTENSIONS,
+    **{standard: ".c" for standard in target_c.STANDARDS},
+}
 
 USAGE = (
     "Usage: python3 boot/pykboot.py [--tokens] [--target|-t <target>] "
@@ -164,6 +169,24 @@ if target == "python":
         print(py_source)
     else:
         write(output_path, py_source + "\n")
+elif target in target_c.STANDARDS:
+    # One backend, two standards: the difference is in how the C is
+    # printed, not in what it means.
+    try:
+        c_program = target_c.translate_program(program)
+    except target_c.UnsupportedError as e:
+        print(
+            f"{pprint_info(e.info)} Unsupported by target '{target}': {e.message}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    c_source = target_c.pprint_c_program(
+        c_program, target, os.path.basename(filename)
+    )
+    if show_stdout:
+        print(c_source, end="")
+    else:
+        write(output_path, c_source)
 else:
     # The JavaScript backends support a subset of Pyking so far; anything
     # outside it is reported here rather than emitting broken JavaScript.

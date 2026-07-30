@@ -1,18 +1,19 @@
 # Which targets each test program is expected to work with.
 #
 # Every program must work with `python`, the reference backend. The
-# JavaScript backends support a subset of Pyking so far (see
+# JavaScript and C backends support a subset of Pyking so far (see
 # docs/architecture.md), so a program using lists, tuples, `for`, `match`
-# or comprehensions is python-only until they grow. `nodejs`, `esm` and
-# `html` always agree: they share `boot/target_js_core.py` and differ
-# only in packaging, so a program supported by one is supported by all.
+# or comprehensions is python-only until they grow. Targets that share a
+# backend always agree: `nodejs`, `esm` and `html` differ only in
+# packaging, and `c89`/`c23` only in how the same C is printed -- so a
+# program supported by one of a group is supported by all of it.
 #
 # tests/test_script.py reads this file, runs each program on each of its
 # targets, and compares the output against the sibling `.out` file.
 
 [[cases]]
 file = "arithmetic.pyk"
-targets = ["python", "nodejs", "esm", "html"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23"]
 
 [[cases]]
 file = "arithmetic_division.pyk"
@@ -20,11 +21,11 @@ targets = ["python"]
 
 [[cases]]
 file = "else_if.pyk"
-targets = ["python", "nodejs", "esm", "html"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23"]
 
 [[cases]]
 file = "else_if_nested.pyk"
-targets = ["python", "nodejs", "esm", "html"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23"]
 
 [[cases]]
 file = "else_if_nested_loop.pyk"
@@ -32,7 +33,7 @@ targets = ["python"]
 
 [[cases]]
 file = "escapes.pyk"
-targets = ["python", "nodejs", "esm", "html"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23"]
 
 [[cases]]
 file = "for_complex.pyk"
@@ -48,11 +49,11 @@ targets = ["python"]
 
 [[cases]]
 file = "ifelse.pyk"
-targets = ["python", "nodejs", "esm", "html"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23"]
 
 [[cases]]
 file = "indent.pyk"
-targets = ["python", "nodejs", "esm", "html"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23"]
 
 [[cases]]
 file = "list_complex.pyk"
@@ -128,7 +129,7 @@ targets = ["python"]
 
 [[cases]]
 file = "short_function.pyk"
-targets = ["python", "nodejs", "esm", "html"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23"]
 
 [[cases]]
 file = "short_function_values.pyk"
@@ -136,19 +137,19 @@ targets = ["python"]
 
 [[cases]]
 file = "strings.pyk"
-targets = ["python", "nodejs", "esm", "html"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23"]
 
 [[cases]]
 file = "subset_control.pyk"
-targets = ["python", "nodejs", "esm", "html"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23"]
 
 [[cases]]
 file = "subset_values.pyk"
-targets = ["python", "nodejs", "esm", "html"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23"]
 
 [[cases]]
 file = "test1.pyk"
-targets = ["python", "nodejs", "esm", "html"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23"]
 
 [[cases]]
 file = "testen.pyk"
@@ -180,7 +181,7 @@ targets = ["python"]
 
 [[cases]]
 file = "types_atoms.pyk"
-targets = ["python", "nodejs", "esm", "html"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23"]
 
 [[cases]]
 file = "types_complex.pyk"
@@ -192,11 +193,11 @@ targets = ["python"]
 
 [[cases]]
 file = "types_mixed.pyk"
-targets = ["python", "nodejs", "esm", "html"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23"]
 
 [[cases]]
 file = "types_tuples.pyk"
-targets = ["python", "nodejs", "esm", "html"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23"]
 
 [[cases]]
 file = "value_if.pyk"
@@ -212,7 +213,7 @@ targets = ["python"]
 
 [[cases]]
 file = "variables.pyk"
-targets = ["python", "nodejs", "esm", "html"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23"]
 
 [[cases]]
 file = "variables_loop.pyk"
@@ -220,8 +221,8 @@ targets = ["python"]
 
 [[cases]]
 file = "while_nested.pyk"
-targets = ["python", "nodejs", "esm", "html"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23"]
 
 [[cases]]
 file = "while_simple.pyk"
-targets = ["python", "nodejs", "esm", "html"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23"]

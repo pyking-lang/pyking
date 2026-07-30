@@ -17,6 +17,8 @@ python3 boot/pykboot.py            hello.pyk   # ./hello.py  (python is the defa
 python3 boot/pykboot.py -t nodejs  hello.pyk   # ./hello.js
 python3 boot/pykboot.py -t html    hello.pyk   # ./hello.html
 python3 boot/pykboot.py -t esm     hello.pyk   # ./hello.js + .node.js + .html + package.json
+python3 boot/pykboot.py -t c89     hello.pyk   # ./hello.c  (C89)
+python3 boot/pykboot.py -t c23     hello.pyk   # ./hello.c  (C23)
 ```
 
 The output is named after the source unless `--output` says otherwise;
@@ -29,10 +31,14 @@ The output is named after the source unless `--output` says otherwise;
 
 - **[PYKING.md](PYKING.md)** — the language: feature summary, full EBNF
   grammar, scoping rules, and a worked example for every construct.
-- **[docs/architecture.md](docs/architecture.md)** — the compiler:
-  pipeline diagram, the stages, the four backends, the runtime interface
-  that separates a program from the world it prints into, and how the
-  tests work.
+- **[docs/targets.md](docs/targets.md)** — the compiler targets: every
+  one at a glance, which parts of the language each accepts, and links to
+  a page per family ([Python](docs/target_python.md),
+  [JavaScript](docs/target_js.md), [C](docs/target_c.md)) documenting how
+  each construct is compiled and where the output is not optimal.
+- **[docs/architecture.md](docs/architecture.md)** — the compiler itself:
+  pipeline diagram, the stages, the runtime interface that separates a
+  program from the world it prints into, and how the tests work.
 - **[CLAUDE.md](CLAUDE.md)** — repository conventions, for anyone (or
   anything) making changes here.
 
@@ -46,5 +52,6 @@ The output is named after the source unless `--output` says otherwise;
 | `tools/emacs/` | a major mode for editing `.pyk` files |
 | `src/` | reserved for the eventual self-hosted implementation |
 
-Requires Python 3.11+ (`match`/`case`, `tomllib`); the JavaScript targets
-need `node` to run their output. No third-party dependencies.
+Requires Python 3.11+ (`match`/`case`, `tomllib`). Running the generated
+code needs `node` for the JavaScript targets and a C compiler for the C
+ones; producing it needs neither. No third-party dependencies.
