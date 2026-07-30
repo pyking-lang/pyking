@@ -1,0 +1,6 @@
+# Everything here is produced by `make`; generator.py is the source.
+build/
+
+# Download cache for Ace and Pyodide (~12 MB). Survives `make clean`;
+# `make distclean` removes it.
+vendor/
