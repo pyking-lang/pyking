@@ -68,7 +68,7 @@ static host will do; nothing runs server-side.
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│ Pyking Playground                        ● Pyodide: ready    ⚙   │
+│ Pyking Playground                  ● Pyodide: ready  [≡ Settings]│
 ├────────────────────────────────╥─────────────────────────────────┤
 │ Source        [example ▾]      ║ Target [▾]                      │
 │           [Compile →] [▶ Run]  ║              [▶ Run]  [⧉ Copy]  │
@@ -108,11 +108,20 @@ static host will do; nothing runs server-side.
   them. Each split is clamped to 12–85 % so a pane can be made small but
   never dragged out of existence — a zero-width editor is easy to reach and
   impossible to grab back.
-- **The ⚙ icon opens settings**, as an in-page dialog rather than a window:
-  editor **font size** (10–26 px, applied to both editors and the output
-  pane) and a **Reset pane sizes** button. Close it with `Esc`, the ✕, or a
-  click on the backdrop. Font size and both split positions are remembered
-  in `localStorage`, so the layout you set is the one you come back to.
+- **The Settings button** (top right) opens an in-page dialog rather than a
+  window:
+  - **Font size**, 10–26 px, applied to both editors and the output pane.
+  - **Scrollable** output — on by default. Off clips the pane instead, and
+    also stops it auto-following the newest line: scrolling programmatically
+    while clipped would push the start of the output out of reach.
+  - **Clear it each time you press Run** — on by default. Only *Run* clears;
+    compiling deliberately does not, so a compile error stays beside the
+    output you were comparing it against.
+  - **Reset pane sizes**.
+
+  Close it with `Esc`, the ✕, or a click on the backdrop. Every setting, and
+  both split positions, are remembered in `localStorage`, so the layout you
+  set is the one you come back to.
 - **`Shift`+`Enter` runs** — the same as the **▶ Run** button of whichever
   pane has focus: in the source pane it compiles to Python and runs that, in
   the generated pane it runs what is displayed. With focus anywhere else it
