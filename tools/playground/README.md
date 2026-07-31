@@ -68,19 +68,21 @@ static host will do; nothing runs server-side.
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│ Pyking Playground                              ● Pyodide: ready  │
-├────────────────────────────────┬─────────────────────────────────┤
-│ Source        [example ▾]      │ Target [▾]                      │
-│           [Compile →] [▶ Run]  │              [▶ Run]  [⧉ Copy]  │
-│ ┌────────────────────────────┐ │ ┌─────────────────────────────┐ │
-│ │ Pyking, highlighted        │ │ │ generated code, highlighted │ │
-│ │ errors underlined in place │ │ │ for the selected target     │ │
-│ └────────────────────────────┘ │ └─────────────────────────────┘ │
-│                                │ Output                [Clear]   │
-│                                │ ┌─────────────────────────────┐ │
-│                                │ │ text, or a live page preview│ │
-│                                │ └─────────────────────────────┘ │
-└────────────────────────────────┴─────────────────────────────────┘
+│ Pyking Playground                        ● Pyodide: ready    ⚙   │
+├────────────────────────────────╥─────────────────────────────────┤
+│ Source        [example ▾]      ║ Target [▾]                      │
+│           [Compile →] [▶ Run]  ║              [▶ Run]  [⧉ Copy]  │
+│ ┌────────────────────────────┐ ║ ┌─────────────────────────────┐ │
+│ │ Pyking, highlighted        │ ║ │ generated code, highlighted │ │
+│ │ errors underlined in place │ ║ │ for the selected target     │ │
+│ │                            │ ║ └─────────────────────────────┘ │
+│ │                            │ ║ ═══════════ drag ═══════════════│
+│ │                            │ ║ Output                [Clear]   │
+│ │                            │ ║ ┌─────────────────────────────┐ │
+│ │                            │ ║ │ text, or a live page preview│ │
+│ └────────────────────────────┘ ║ └─────────────────────────────┘ │
+└────────────────────────────────╨─────────────────────────────────┘
+                                 ↑ drag
 ```
 
 - **Compile →** turns the left pane into the right pane. The arrow is there to
@@ -101,6 +103,16 @@ static host will do; nothing runs server-side.
   it, with a source position, is the point.
 - Compile errors are written to the output pane *and* underlined in the
   source editor at the exact span the compiler reported.
+- **The three panes resize.** Drag the bar between the two columns, or the
+  one between the generated code and the output, to trade space between
+  them. Each split is clamped to 12–85 % so a pane can be made small but
+  never dragged out of existence — a zero-width editor is easy to reach and
+  impossible to grab back.
+- **The ⚙ icon opens settings**, as an in-page dialog rather than a window:
+  editor **font size** (10–26 px, applied to both editors and the output
+  pane) and a **Reset pane sizes** button. Close it with `Esc`, the ✕, or a
+  click on the backdrop. Font size and both split positions are remembered
+  in `localStorage`, so the layout you set is the one you come back to.
 - **`Shift`+`Enter` runs** — the same as the **▶ Run** button of whichever
   pane has focus: in the source pane it compiles to Python and runs that, in
   the generated pane it runs what is displayed. With focus anywhere else it
@@ -245,6 +257,16 @@ Ace and the Pyking mode are loaded for you if they are not already present.
 All paths are relative, so the build directory can be served from any
 sub-path. Styles are scoped under `.pyk-playground` and use CSS custom
 properties (`--pyk-bg`, `--pyk-accent`, …), so re-theming is a few overrides.
+
+Two details that matter when embedding. The settings dialog is positioned
+*inside* the component's own box, not over the viewport, so it cannot cover
+your page's chrome. And the pane splits are custom properties on the root
+element (`--pyk-col-split`, `--pyk-out-split`), so you can set a starting
+layout from your own CSS:
+
+```css
+#host { --pyk-col-split: 40%; --pyk-out-split: 25%; }
+```
 
 **Just the compiler**, with your own interface:
 
