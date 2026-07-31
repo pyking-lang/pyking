@@ -43,7 +43,7 @@ from syntax import (
     EInt, EString, EBool, EVar,
     EAdd, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EIf,
-    SLet, SVar, SMutate, SReturn, SExprStmt, SWhile, SIf, SFunctionDef,
+    SLet, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SWhile, SIf, SFunctionDef,
     TargetName, TInt, TString, TBool,
 )
 
@@ -86,10 +86,16 @@ def _unsupported(node, message):
 INT = "Int"
 BOOL = "Bool"
 STRING = "String"
+# Pyking's unit type `()`. A function that produces no value has this as
+# its return type -- `print` yields unit, and so does a body whose tail
+# is a loop or a binding -- and C spells that `void`. Without it such a
+# function would be typed `int` and simply fall off its end, which is
+# undefined behaviour rather than merely untidy.
+UNIT = "Unit"
 
 _C_TYPES = {
-    "c89": {INT: "int", BOOL: "int", STRING: "const char *"},
-    "c23": {INT: "int", BOOL: "bool", STRING: "const char *"},
+    "c89": {INT: "int", BOOL: "int", STRING: "const char *", UNIT: "void"},
+    "c23": {INT: "int", BOOL: "bool", STRING: "const char *", UNIT: "void"},
 }
 
 # How each type is printed, per `runtime_interface.PRINT`: integers in
@@ -306,17 +312,40 @@ class _At:
     info: Info
 
 
+# Names that are legal Pyking identifiers but reserved words in C, so a
+# program with `def double(n):` would otherwise compile to code that will
+# not parse. Covers C89, the C99/C11 additions, and the C23 keywords --
+# one list for both standards, since a name renamed under c23 and not
+# under c89 would make the two targets disagree about the generated code
+# for no good reason. `main`, `printf` and the generated helpers are in
+# here too: those are not keywords, but a Pyking function shadowing one
+# would break the file just as thoroughly.
+RESERVED = frozenset("""
+auto break case char const continue default do double else enum extern
+float for goto if inline int long register restrict return short signed
+sizeof static struct switch typedef union unsigned void volatile while
+alignas alignof bool constexpr false nullptr static_assert thread_local
+true typeof _Alignas _Alignof _Atomic _Bool _Complex _Generic _Imaginary
+_Noreturn _Static_assert _Thread_local
+main printf strcmp strlen malloc size_t pyk_concat
+""".split())
+
+
 def _fresh_c_name(name, scope):
     taken = set(scope.names) | {c_name for c_name, _ in scope.names.values()}
     n = 2
-    while f"{name}{n}" in taken:
+    while f"{name}{n}" in taken or f"{name}{n}" in RESERVED:
         n += 1
     return f"{name}{n}"
 
 
 def _bind(name, ctype, scope):
     c_name = name
-    if name in scope.names or any(name == c for c, _ in scope.names.values()):
+    if (
+        name in RESERVED
+        or name in scope.names
+        or any(name == c for c, _ in scope.names.values())
+    ):
         c_name = _fresh_c_name(name, scope)
     return c_name, Scope(
         {**scope.names, name: (c_name, ctype)}, scope.block | {name}
@@ -343,7 +372,10 @@ class _Translator:
 
     # -- expressions --
 
-    def expr(self, e, scope):
+    def expr(self, e, scope, allow_unit=False):
+        """`allow_unit` permits a call to a unit-returning (`void`)
+        function, which is meaningful only as an expression statement --
+        everywhere else there is no value to use."""
         match e:
             case EInt(info, v):
                 return CInt(info, v)
@@ -402,6 +434,16 @@ class _Translator:
                 c_name, param_types, ret = self.signatures[name]
                 if len(args) != len(param_types):
                     _unsupported(e, f"`{name}` takes {len(param_types)} argument(s)")
+                if ret == UNIT and not allow_unit:
+                    # A `void` call has no value to use. Only an
+                    # expression *statement* may call one, which is what
+                    # `allow_unit` marks.
+                    _unsupported(
+                        e,
+                        f"`{name}` produces no value (it returns unit), so it "
+                        "cannot be used as one; call it as a statement of "
+                        "its own",
+                    )
                 return CCall(
                     info, c_name, [self.expr(a, scope) for a in args], ret
                 )
@@ -432,6 +474,44 @@ class _Translator:
             translated, scope = self.stmt(s, scope)
             out.append(translated)
         return out, scope
+
+    def tail_stmts(self, stmts, scope):
+        """Translates a statement list whose last statement is in **tail
+        position** -- a function body, or a branch of one that is itself
+        in tail position -- so the value it produces becomes the
+        function's return value. Mirrors `_translate_tail_block` in
+        `target_python.py`; see PYKING.md's "Tail position"."""
+        if not stmts:
+            return []
+        body, tail_scope = self.stmts(stmts[:-1], scope)
+        return body + self.tail_stmt(stmts[-1], tail_scope)
+
+    def tail_stmt(self, s, scope):
+        """The last statement of a body in tail position, as a list of C
+        statements: an expression becomes the returned value, an `if`
+        pushes the rule into its branches, and anything else -- a loop, a
+        binding, a `print` (which yields unit) -- translates normally."""
+        match s:
+            case SExprStmt(_, ECall(_, EVar(_, name), _)) if (
+                runtime_interface.lookup(name) is not None
+            ):
+                translated, _ = self.stmt(s, scope)
+                return [translated]
+            case SExprStmt(info, expr):
+                return [CReturn(info, self.expr(expr, scope))]
+            case SIf(info, cond, then_body, else_body):
+                condition = self.expr(cond, scope)
+                self._require(condition, BOOL, "an `if` condition")
+                then_branch = self.tail_stmts(then_body, _block_scope(scope))
+                else_branch = (
+                    None
+                    if else_body is None
+                    else self.tail_stmts(else_body, _block_scope(scope))
+                )
+                return [CIf(info, condition, then_branch, else_branch)]
+            case _:
+                translated, _ = self.stmt(s, scope)
+                return [translated]
 
     def block(self, stmts, scope):
         translated, _ = self.stmts(stmts, _block_scope(scope))
@@ -466,6 +546,12 @@ class _Translator:
             case SReturn(info, expr):
                 return CReturn(info, self.expr(expr, scope)), scope
 
+            case SReturnStmt(_, stmt):
+                # `return if c:` -- the same push-down as a tail-position
+                # `if`, written explicitly so it also works before the
+                # end of the body.
+                return self.tail_stmt(stmt, scope)[0], scope
+
             case SExprStmt(info, ECall(_, EVar(_, name), args)) if (
                 runtime_interface.lookup(name)
             ):
@@ -473,7 +559,7 @@ class _Translator:
                 return CPrint(info, [self.expr(a, scope) for a in args]), scope
 
             case SExprStmt(info, expr):
-                return CExprStmt(info, self.expr(expr, scope)), scope
+                return CExprStmt(info, self.expr(expr, scope, allow_unit=True)), scope
 
             case SWhile(info, cond, body):
                 return CWhile(info, self.expr(cond, scope), self.block(body, scope)), scope
@@ -515,7 +601,9 @@ class _Translator:
             value = self.expr(func.expr, body_scope)
             body = [CReturn(value.info, value)]
         else:
-            body, _ = self.stmts(func.body, body_scope)
+            # The body's last statement is in tail position: whatever
+            # value it produces is the function's result.
+            body = self.tail_stmts(func.body, body_scope)
 
         returned = _return_types(body)
         recursive = _calls(body, c_name)
@@ -532,8 +620,21 @@ class _Translator:
                     "annotated, so annotate it (`-> String`, `-> Bool`)",
                 )
             _unsupported(func, "a function returning more than one type")
-        actual = returned.pop() if returned else provisional
+        # No `return` anywhere means the function produces no value:
+        # that is unit, i.e. `void`, not the provisional `Int` it was
+        # registered with (which would fall off the end -- UB).
+        actual = returned.pop() if returned else UNIT
         self.signatures[func.name] = (c_name, param_types, actual)
+
+        if actual != UNIT and _falls_through(body):
+            _unsupported(
+                func,
+                f"`{func.name}` produces a value on some paths and none on "
+                "others; C has one return type per function, and falling off "
+                "the end of a non-`void` one is undefined behaviour, so give "
+                "every path a value (an `if` needs its `else`)",
+            )
+
         return CFunc(func.info, c_name, params, body, actual), scope
 
 
@@ -580,6 +681,24 @@ def _walk_c(node):
     elif isinstance(node, (list, tuple)):
         for element in node:
             yield from _walk_c(element)
+
+
+def _falls_through(body):
+    """Whether control can reach the end of `body` without returning.
+    Falling off the end of a non-`void` function is undefined behaviour
+    in C, so a function that can do it is refused rather than emitted --
+    the same rule `target_java.py` enforces because `javac` demands it,
+    here because the C standard does not and the compiler would happily
+    produce a program that returns whatever was in the return register."""
+    if not body:
+        return True
+    match body[-1]:
+        case CReturn():
+            return False
+        case CIf(_, _, then_body, else_body) if else_body is not None:
+            return _falls_through(then_body) or _falls_through(else_body)
+        case _:
+            return True
 
 
 def _return_types(body):

@@ -36,10 +36,18 @@ TARGETS = ("nodejs", "html", "esm")
 # The formatter every host needs, implementing the rules in
 # `runtime_interface.PRINT`. JavaScript already spells its booleans
 # `true`/`false`, exactly the way Pyking's own boolean literals do, so
-# `String(value)` alone gets that rule right with no conversion needed;
-# going through one function regardless keeps every host's output
-# identical and gives later value types (lists, tuples) one place to land.
+# those need no conversion; going through one function regardless keeps
+# every host's output identical and gives later value types (lists,
+# tuples) one place to land.
+#
+# Unit is the exception. A Pyking function that produces no value
+# compiles to one that returns nothing, which JavaScript reports as
+# `undefined` -- but Pyking's unit is `()`, and every backend has to
+# print it the same way. Converting here rather than making such a
+# function `return` something keeps the generated code unchanged: this
+# is the one place a JS host already inspects a value.
 _FORMAT_JS = """function pykFormat(value) {
+  if (value === undefined) return '()';
   return String(value);
 }"""
 

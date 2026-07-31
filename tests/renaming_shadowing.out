@@ -1,0 +1,16 @@
+innermost 200
+middle 100
+outer 2
+shadowed 40 2 3
+restored 1 2 3
+first 11
+second 22
+after 0
+inner param 1
+param 1 outer
+loop 1 10
+loop 2 20
+name still outer
+5 6 [3, 9]
+55
+zero other 9

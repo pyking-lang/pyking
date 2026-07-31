@@ -141,7 +141,12 @@ Statements:
   erased when compiling; also `def name(params) = expr`,
   a single-expression body, which may stand on the next line indented —
   Pyking extension
-- `return` statements
+- `return` statements, whose operand may be an ordinary expression or
+  an `if`/`match` *statement* in value form (`return if cond:` /
+  `return match e:`) — Pyking extension
+- **Tail position**: a function body's last statement supplies the
+  function's value with no `return` written, recursively through
+  `if` branches and `case` arms — Pyking extension
 - `for`/`in` loops
 - `while` loops
 - `if`/`else` statements, chained with `else if` — spelled as two
@@ -191,7 +196,7 @@ type         = "Int" | "String" | "Bool"
              | "[" , type , "]"
              | "(" , [ type , { "," , type } ] , ")" ;
 
-return_stmt = "return" , tuple_or_expr ;
+return_stmt = "return" , bound_value ;
 
 for_stmt    = "for" , ident , "in" , expr , ":" , block ;
 
@@ -351,14 +356,14 @@ Notes that don't fall out of the grammar alone:
   not a silently skipped branch. The nested-`value_stmt` case is also
   what makes an `else if` ladder work in value form, a ladder being
   exactly a nested `if_stmt` as its `else` branch's only statement.
-- Only `assignment` accepts a `value_stmt` — `var_decl`, `mutation` and
-  `return_stmt` keep taking a plain `tuple_or_expr` (for the first two
-  the parser says so explicitly if you try). The value form works by
-  assigning to the target in each
-  branch's tail, which is what an immutable binding does; `var`/`:=`
-  distinguish *declaring* from *updating*, and a form that expands to
-  one assignment per branch has no way to say which of the two each of
-  those is.
+- `assignment` and `return_stmt` accept a `value_stmt`; `var_decl` and
+  `mutation` keep taking a plain `tuple_or_expr`, and the parser says so
+  explicitly if you try. The value form works by pushing something into
+  each branch's tail — an assignment to the target for `assignment`, a
+  `return` for `return_stmt` — and both of those are single, unambiguous
+  things to push. `var`/`:=` distinguish *declaring* from *updating*,
+  and a form that expands to one of them per branch has no way to say
+  which of the two each of those is.
 - The indented `bound_value`/`bound_expr` form holds exactly **one**
   value: anything left in the block before its DEDENT is an error
   (`expected a single value in the indented block after '='`). It exists
@@ -900,7 +905,10 @@ written above `def f`, which Python rejects at runtime.
 generated, and reported as a `Name error` against the offending source
 position. A handful of names are predefined and count as bound
 everywhere — `print`, `range`, `str` and `len` — since no Pyking program
-declares them; every other unbound name is an error.
+declares them; every other unbound name is an error. `print` produces no
+value: it yields unit, `()`, so it is meaningful as a statement and not
+as something to bind or return. Unit prints as `()` — the same in every
+backend, whatever the host language calls its own absence of a value.
 
 **Compiling preserves this.** A backend whose own scoping is coarser than
 Pyking's has to work to keep these rules; how each one does is a compiler
@@ -1364,11 +1372,113 @@ produce the identical AST.
 ### Expression statements
 
 Any expression, most commonly a function call, may be used directly as a
-statement; its value is simply discarded.
+statement. Its value is discarded — *unless* the statement is in **tail
+position**, where it becomes the enclosing function's return value (see
+"Tail position" below).
 
 ```python
 print("hello, pyking")
 ```
+
+### Tail position
+
+A function body's **last statement is in tail position**, and whatever
+value it produces is the function's result — there is no need to write
+`return` for it. The rule is recursive, so it reaches through branches
+rather than only the outermost statement:
+
+| last statement | the function's value |
+|---|---|
+| an expression | that expression |
+| an `if`/`else` | each branch's own tail, recursively |
+| a `match` | each `case` arm's own tail, recursively |
+| an explicit `return` | what it returns |
+| anything else (`for`, `while`, `=`, `var`, `:=`) | unit, `()` |
+
+```pyking
+def add(x, y):
+    x + y
+
+
+def pick(x, y, z):
+    if z > 5:
+        x + y
+    else:
+        2 * x
+
+
+def name_of(n):
+    match n:
+        case 0 -> "zero"
+        case _:
+            "many"
+
+
+print(add(1, 2), pick(2, 3, 9), name_of(0))
+```
+
+Because the rule recurses, an `if` nested inside a `match` nested inside
+an `if` needs nothing special: every branch of every level is itself in
+tail position. An `else if` ladder works for the same reason — a ladder
+*is* a nested `if` in the else branch (see "`if`/`else` statements").
+
+Only the **last** statement is in tail position. An `if` with something
+after it is an ordinary statement run for its effect, and the trailing
+expression is the value:
+
+```pyking
+def not_last(n):
+    var acc = 0
+    if n > 0:
+        acc := 1
+    else:
+        acc := 2
+    acc + 10
+
+
+print(not_last(1))
+```
+
+A branch that produces no value simply does not return one, and the
+function yields unit for that path — an `if` with no `else`, or a body
+ending in a loop:
+
+```pyking
+def only_then(n):
+    if n > 0:
+        "positive"
+
+
+print(only_then(1), only_then(-1))
+```
+
+### `return` with an `if`/`match`
+
+`return` also accepts a value-form `if`/`match` directly, so each
+branch's tail expression becomes the returned value. This says
+explicitly what tail position says implicitly — and, unlike the implicit
+rule, it works *before* the end of a body:
+
+```pyking
+def sign(x):
+    return if x < 0:
+        "negative"
+    else:
+        "not negative"
+
+
+def classify(n):
+    return match n:
+        case 0 -> "zero"
+        case _ -> "many"
+
+
+print(sign(-2), classify(0))
+```
+
+The same two rules a value-form binding obeys apply here: a `return if`
+must have its `else`, and every branch must end in an expression — there
+would otherwise be a path with nothing to return.
 
 ### Indentation-based blocks
 

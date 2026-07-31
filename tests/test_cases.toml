@@ -121,6 +121,14 @@ file = "nested_for_mutation.pyk"
 targets = ["python"]
 
 [[cases]]
+file = "renaming_keywords.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
+
+[[cases]]
+file = "renaming_shadowing.pyk"
+targets = ["python"]
+
+[[cases]]
 file = "scopes.pyk"
 targets = ["python"]
 
@@ -158,6 +166,18 @@ targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "
 
 [[cases]]
 file = "test1.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
+
+[[cases]]
+file = "tail_return_boundaries.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "tail_return_nested.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "tail_return_subset.pyk"
 targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
 
 [[cases]]
@@ -207,6 +227,10 @@ targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "
 [[cases]]
 file = "types_tuples.pyk"
 targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
+
+[[cases]]
+file = "unit_values.pyk"
+targets = ["python"]
 
 [[cases]]
 file = "value_if.pyk"

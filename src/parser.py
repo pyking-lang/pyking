@@ -18,7 +18,7 @@ from syntax import (
     EIf, EListComp, CompFor, CompIf,
     PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, ListRest, MatchCase,
     Stmt,
-    SLet, SLetStmt, SVar, SMutate, SReturn, SExprStmt, SFor, SWhile, SIf,
+    SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SFor, SWhile, SIf,
     SFunctionDef, SMatch,
     TInt, TString, TBool, TList, TTuple, Param,
     TargetName, TargetTuple,
@@ -791,17 +791,20 @@ def parse_match_stmt(match_info, tokens):
 # parse. `target_python.py` relies on both holding.
 
 def _check_value_stmt(stmt):
-    """Checks that `stmt` -- the if/match statement on the right-hand side
-    of a binding -- yields a value whichever way it branches: an `if` must
-    have its `else` (there is no value to bind if the condition fails), and
-    every branch must end in a value (see `_check_value_block`). A `match`
+    """Checks that `stmt` -- an if/match statement in value form, on the
+    right-hand side of a binding or after `return` -- yields a value
+    whichever way it branches: an `if` must have its `else` (there is no
+    value to produce if the condition fails), and every branch must end
+    in a value (see `_check_value_block`). A `match`
     needs no such existence check: `parse_cases` already requires at least
     one case, and an unmatched subject is a runtime error, not a branch
     that silently falls through."""
     match stmt:
         case SIf(info, _, then_body, else_body):
             if else_body is None:
-                raise ParseError(info, "an 'if' bound with '=' must have an 'else' branch")
+                raise ParseError(
+                    info, "a value-form 'if' must have an 'else' branch"
+                )
             _check_value_block(then_body, info)
             _check_value_block(else_body, info)
         case SMatch(_, _, cases):
@@ -826,9 +829,15 @@ def _check_value_block(stmts, info):
         case [*_, (SIf() | SMatch()) as nested]:
             _check_value_stmt(nested)
         case [*_, last]:
-            raise ParseError(last.info, "a branch bound with '=' must end in an expression")
+            raise ParseError(
+                last.info,
+                "every branch of a value-form 'if'/'match' must end in an expression",
+            )
         case _:
-            raise ParseError(info, "a branch bound with '=' must end in an expression")
+            raise ParseError(
+                info,
+                "every branch of a value-form 'if'/'match' must end in an expression",
+            )
 
 
 def parse_bound_value(tokens):
@@ -899,8 +908,8 @@ def _expect_expr_value(value, what):
         case Stmt():
             raise ParseError(
                 value.info,
-                f"{what} takes an expression; "
-                "a value-form 'if'/'match' can only be bound with '='",
+                f"{what} takes an expression; a value-form 'if'/'match' "
+                "can only be bound with '=' or returned with 'return'",
             )
         case _:
             return value
@@ -938,8 +947,20 @@ def parse_statement(tokens):
                     raise ParseError(_here(rest), "expected ':' or '=' after def header")
 
         case [TokReturn(info), *rest]:
-            expr, rest = parse_tuple_or_expr(rest)
-            return SReturn(combine_info(info, expr.info), expr), rest
+            # `return` takes a `bound_value`, not just an expression: the
+            # value-form `if`/`match` is allowed here as well as after
+            # `=`, so `return if c:` propagates each branch's tail
+            # expression into the return (see `SReturnStmt` in syntax.py).
+            # `parse_bound_value` has already applied `_check_value_stmt`
+            # to the statement form, so the mandatory `else` and the
+            # every-branch-ends-in-a-value rules hold here too.
+            value, rest = parse_bound_value(rest)
+            return_info = combine_info(info, value.info)
+            match value:
+                case Stmt():
+                    return SReturnStmt(return_info, value), rest
+                case _:
+                    return SReturn(return_info, value), rest
 
         case [TokFor(info), TokIdent(_, name), TokIn(_), *rest]:
             iterable, rest = parse_expr(rest)

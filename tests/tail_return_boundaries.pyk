@@ -1,0 +1,75 @@
+# Where tail position stops, and the explicit `return if`/`return match`
+# form -- the cases that distinguish "the last statement" from "any
+# statement that happens to be an expression".
+
+# The if/match is NOT last: another expression follows, so the if runs
+# for its effect and only the trailing expression is the value.
+def not_last(n):
+    var acc = 0
+    if n > 0:
+        acc := 1
+    else:
+        acc := 2
+    acc + 10
+
+
+# A value-form binding followed by a tail expression: the binding takes
+# the branch values, the trailing `w` is what the function returns.
+def bound_then_tail(x, y, z):
+    w = if z > 5:
+        x + y
+    else:
+        2 * x
+    w * 100
+
+
+# A tail that yields no value at all: a `for` loop. The function returns
+# unit, which the Python target renders as None.
+def loop_tail(n):
+    var t = 0
+    for i in range(n):
+        t := t + i
+
+
+# A `print` yields unit too, so a body ending in one returns unit rather
+# than the print's own result.
+def shout(s):
+    print("!", s)
+
+
+# `return if` used EARLY -- before the end of the body, where the
+# implicit tail rule cannot reach. The statement after it never runs.
+def early(x):
+    return if x > 5:
+        "big"
+    else:
+        "small"
+    print("never runs")
+
+
+# `return match`, with a statement arm whose own tail is a nested if.
+def classify(n):
+    return match n:
+        case 0 -> "zero"
+        case 1:
+            if 1 < 2:
+                "one"
+            else:
+                "unreachable"
+        case _ -> "many"
+
+
+# An `if` with no `else` in tail position: the taken branch returns, the
+# missing one falls out of the function as unit.
+def only_then(n):
+    if n > 0:
+        "positive"
+
+
+print(not_last(1), not_last(-1))
+print(bound_then_tail(2, 3, 4), bound_then_tail(2, 3, 9))
+print(loop_tail(4))
+shout("hi")
+print(early(9), early(1))
+print(classify(0), classify(1), classify(5))
+print(only_then(1), only_then(-1))

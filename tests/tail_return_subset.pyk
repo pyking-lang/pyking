@@ -1,0 +1,71 @@
+# Tail position across the shared subset, so every backend has to agree:
+# a plain expression tail, an if/else tail, an `else if` ladder, the
+# explicit `return if`, recursion through a tail return, and a function
+# yielding unit because its tail is a `print`.
+
+# The whole body is one expression.
+def twice(n):
+    n * 2
+
+
+# if/else in tail position; both branches must agree in type for the C
+# and Java backends, and do.
+def pick(x, y, z):
+    if z > 5:
+        x + y
+    else:
+        2 * x
+
+
+# An `else if` ladder, every rung in tail position.
+def grade(score):
+    if score >= 90:
+        "A"
+    else if score >= 80:
+        "B"
+    else if score >= 70:
+        "C"
+    else:
+        "F"
+
+
+# The explicit form. (Putting a statement after it would be dead code,
+# which the Java backend refuses outright -- see
+# tests/tail_return_boundaries.pyk for that case, which is python-only.)
+def sign(n):
+    return if n < 0:
+        "negative"
+    else:
+        "not negative"
+
+
+# Recursion whose base and step are both tail expressions.
+def total(n):
+    if n <= 0:
+        0
+    else:
+        n + total(n - 1)
+
+
+# A boolean tail expression.
+def is_big(n):
+    n > 100
+
+
+# `print` yields unit, so this function returns unit: `void` in C and
+# Java, an implicit `None` in Python, `undefined` in JavaScript. It is
+# called as a statement, never used as a value. `label` is annotated
+# because passing a parameter only to `print` tells the C and Java
+# backends' inference nothing about its type (see docs/target_c.md,
+# "How types are inferred"), and it would otherwise default to Int.
+def announce(label: String, n: Int):
+    print(label, n)
+
+
+print(twice(21))
+print(pick(2, 3, 4), pick(2, 3, 9))
+print(grade(95), grade(85), grade(75), grade(65))
+print(sign(-2), sign(2))
+print(total(4))
+print(is_big(101), is_big(9))
+announce("count", 7)

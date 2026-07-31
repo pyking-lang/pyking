@@ -1,0 +1,72 @@
+# Tail position, nested and mixed: whatever the last statement of a
+# function body produces is the function's value, and the rule pushes
+# down through `if` branches and `case` arms to any depth (see
+# "Tail position" in PYKING.md).
+
+# A plain expression as the whole body.
+def add(x, y):
+    x + y
+
+
+# if/else in tail position: each branch returns its own tail.
+def pick(x, y, z):
+    if z > 5:
+        x + y
+    else:
+        2 * x
+
+
+# match in tail position, block arms and `->` arms mixed.
+def name_of(n):
+    match n:
+        case 0 -> "zero"
+        case 1:
+            "one"
+        case _:
+            "many"
+
+
+# if inside match inside if, all in tail position -- the rule recurses,
+# so no depth is special.
+def deep(n, m):
+    if n > 0:
+        match m:
+            case 0 -> "pos/zero"
+            case 1:
+                if n > 10:
+                    "big/one"
+                else:
+                    "small/one"
+            case _:
+                "pos/other"
+    else:
+        "neg"
+
+
+# An `else if` ladder is a nested `if` in the else branch, so every rung
+# is in tail position too.
+def grade(score):
+    if score >= 90:
+        "A"
+    else if score >= 80:
+        "B"
+    else if score >= 70:
+        "C"
+    else:
+        "F"
+
+
+# Tail returns compose with recursion.
+def countdown(n):
+    if n <= 0:
+        "done"
+    else:
+        countdown(n - 1)
+
+
+print(add(1, 2))
+print(pick(2, 3, 4), pick(2, 3, 9))
+print(name_of(0), name_of(1), name_of(7))
+print(deep(1, 0), deep(20, 1), deep(1, 1), deep(1, 9), deep(-1, 0))
+print(grade(95), grade(85), grade(75), grade(65))
+print(countdown(3))

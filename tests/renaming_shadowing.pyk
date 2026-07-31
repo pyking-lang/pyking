@@ -1,0 +1,110 @@
+# Stress for the *other* renaming mechanism: Pyking makes every block a
+# scope, and a backend whose own scoping is coarser (Python's is
+# function-level) has to rename a binding that shadows another within one
+# function. This file piles the awkward cases together -- shadowing at
+# several depths, names that collide with what a rename would pick, and
+# names that collide with the compiler's own generated identifiers.
+
+# Rebinding in one block reuses the name; shadowing inside a nested block
+# must not disturb the outer one.
+total = 1
+total = total + 1
+
+if 1 < 2:
+    total = 100
+    if 2 < 3:
+        total = 200
+        print("innermost", total)
+    print("middle", total)
+
+print("outer", total)
+
+
+# A name whose rename target is already taken: `x2` and `x3` exist, so a
+# shadow of `x` has to skip past both.
+x = 1
+x2 = 2
+x3 = 3
+
+if 1 < 2:
+    x = 40
+    print("shadowed", x, x2, x3)
+
+print("restored", x, x2, x3)
+
+
+# Sibling blocks each shadow the same name; neither can see the other's,
+# so they may reuse one name between them.
+y = 0
+
+if 1 < 2:
+    y = 11
+    print("first", y)
+
+if 1 < 2:
+    y = 22
+    print("second", y)
+
+print("after", y)
+
+
+# Parameters and `for` variables shadow outer names too, and a function
+# body is a fresh scope in every backend, so nothing there needs renaming
+# even though the names repeat.
+name = "outer"
+
+
+def describe(name):
+    label = "param " + str(name)
+    if 1 < 2:
+        label = "inner " + label
+        print(label)
+    return label
+
+
+print(describe(1), name)
+
+
+for name2 in [1, 2]:
+    inner = name2 * 10
+    print("loop", name2, inner)
+
+print("name still", name)
+
+
+# The Python backend generates `item*` and `__pm*` names for refutable
+# comprehension patterns, and checks them against every identifier in the
+# source -- so a program that already uses those names must still work.
+item1 = 5
+__pm1 = 6
+rows = [[1, 2], [3], [4, 5]]
+sums = [a + b for [a, b] in rows]
+
+print(item1, __pm1, sums)
+
+
+# A nested `def` closing over a shadowed name.
+def outer(n):
+    n = n + 1
+
+    def inner(n):
+        n * 10
+
+    return inner(n) + n
+
+
+print(outer(4))
+
+
+# Shadowing inside `match` arms: each arm is its own scope.
+def classify(v):
+    match v:
+        case 0:
+            tag = "zero"
+            tag
+        case other:
+            tag = "other " + str(other)
+            tag
+
+
+print(classify(0), classify(9))

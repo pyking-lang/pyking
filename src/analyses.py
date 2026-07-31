@@ -43,7 +43,7 @@ from syntax import (
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList, ETuple,
     EIf, EListComp, CompFor, CompIf,
     PInt, PString, PWildcard, PCapture, PTuple, PList,
-    SLet, SLetStmt, SVar, SMutate, SReturn, SExprStmt, SFor, SWhile, SIf,
+    SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SFor, SWhile, SIf,
     SFunctionDef, SMatch,
     TargetName, TargetTuple,
 )
@@ -293,6 +293,13 @@ def analyze_stmt(s, env):
 
         case SReturn(_, expr):
             analyze_expr(expr, env)
+            return env
+
+        case SReturnStmt(_, stmt):
+            # `return if c:` / `return match e:` -- the branches are
+            # ordinary nested scopes, exactly as in `SLetStmt`, and
+            # nothing is bound in the enclosing one.
+            analyze_value_stmt(stmt, env)
             return env
 
         case SExprStmt(_, expr):

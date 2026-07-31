@@ -29,7 +29,7 @@ from syntax import (
     EInt, EString, EBool, EVar,
     EAdd, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EIf,
-    SLet, SVar, SMutate, SReturn, SExprStmt, SWhile, SIf, SFunctionDef,
+    SLet, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SWhile, SIf, SFunctionDef,
     TargetName,
 )
 
@@ -216,11 +216,28 @@ def _lookup(name, scope):
     return scope.names.get(name, name)
 
 
+# Names that are legal Pyking identifiers but reserved words in
+# JavaScript, so a program with `def class(n):` would otherwise compile
+# to code that will not parse. Covers ES2015+ reserved words, the
+# strict-mode-only ones (generated code is `const`/`let` throughout, so
+# it is effectively strict), the literals, and the handful of globals a
+# generated file relies on -- shadowing `undefined` or `console` would
+# break the prelude rather than the program's own syntax, which is
+# harder to spot.
+RESERVED = frozenset("""
+await break case catch class const continue debugger default delete do
+else enum export extends false finally for function if implements import
+in instanceof interface let new null package private protected public
+return static super switch this throw true try typeof var void while
+with yield arguments eval undefined NaN Infinity console String
+""".split())
+
+
 def _fresh_js_name(name, scope):
     """`name2`, `name3`, ... -- the first not already spoken for here."""
     taken = set(scope.names) | set(scope.names.values())
     n = 2
-    while f"{name}{n}" in taken:
+    while f"{name}{n}" in taken or f"{name}{n}" in RESERVED:
         n += 1
     return f"{name}{n}"
 
@@ -228,7 +245,11 @@ def _fresh_js_name(name, scope):
 def _bind(name, scope):
     """Binds a Pyking name, returning `(js_name, extended_scope)`."""
     js_name = name
-    if name in scope.names or name in scope.names.values():
+    if (
+        name in RESERVED
+        or name in scope.names
+        or name in scope.names.values()
+    ):
         js_name = _fresh_js_name(name, scope)
     return js_name, Scope({**scope.names, name: js_name}, scope.block | {name})
 
@@ -314,6 +335,52 @@ def translate_expr(e, scope):
             _unsupported(e, type(e).__name__)
 
 
+def _yields_unit(expr):
+    """Whether `expr` is a call across the runtime interface (`print`).
+    Those yield unit, so a function whose tail is one needs no `return`:
+    JavaScript's own implicit `undefined` already is it."""
+    match expr:
+        case ECall(_, EVar(_, name), _):
+            return runtime_interface.lookup(name) is not None
+        case _:
+            return False
+
+
+def translate_tail_stmts(stmts, scope):
+    """Translates a statement list whose last statement is in **tail
+    position** -- a function body, or a branch of one that is itself in
+    tail position -- so that the value it produces becomes the
+    function's return value. Mirrors `_translate_tail_block` in
+    `target_python.py`; see PYKING.md's "Tail position"."""
+    if not stmts:
+        return []
+    body, tail_scope = translate_stmts(stmts[:-1], scope)
+    return body + translate_tail_stmt(stmts[-1], tail_scope)
+
+
+def translate_tail_stmt(s, scope):
+    """The last statement of a body in tail position, as a list of JS
+    statements: an expression becomes the return value, an `if` pushes
+    the rule into its branches, anything else translates normally."""
+    match s:
+        case SExprStmt(_, expr) if _yields_unit(expr):
+            translated, _ = translate_stmt(s, scope)
+            return [translated]
+        case SExprStmt(info, expr):
+            return [JsReturn(info, translate_expr(expr, scope))]
+        case SIf(info, cond, then_body, else_body):
+            js_then = translate_tail_stmts(then_body, _block_scope(scope))
+            js_else = (
+                None
+                if else_body is None
+                else translate_tail_stmts(else_body, _block_scope(scope))
+            )
+            return [JsIf(info, translate_expr(cond, scope), js_then, js_else)]
+        case _:
+            translated, _ = translate_stmt(s, scope)
+            return [translated]
+
+
 def translate_stmt(s, scope):
     """Translates one statement, returning it with the scope it leaves
     behind, so a sequence accumulates bindings and any rename is visible
@@ -339,6 +406,12 @@ def translate_stmt(s, scope):
 
         case SReturn(info, expr):
             return JsReturn(info, translate_expr(expr, scope)), scope
+
+        case SReturnStmt(_, stmt):
+            # `return if c:` -- the same push-down as a tail-position
+            # `if`, written explicitly so it also works before the end of
+            # the body.
+            return translate_tail_stmt(stmt, scope)[0], scope
 
         case SExprStmt(info, expr):
             return JsExprStmt(info, translate_expr(expr, scope)), scope
@@ -368,7 +441,9 @@ def translate_stmt(s, scope):
                 js_expr = translate_expr(expr, body_scope)
                 js_body = [JsReturn(js_expr.info, js_expr)]
             else:
-                js_body, _ = translate_stmts(body, body_scope)
+                # The body's last statement is in tail position: whatever
+                # it produces is the function's result.
+                js_body = translate_tail_stmts(body, body_scope)
             return JsFunc(info, js_name, param_names, js_body), scope
 
         case _:

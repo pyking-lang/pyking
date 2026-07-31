@@ -66,7 +66,8 @@ exists as a separate target rather than as a wrapper.
 single-expression `def f(x) = e` form; `if` / `else if` / `else`;
 `while`; `=`, `var`, `:=`; `if … then … else …` expressions; integers,
 strings and booleans; `+ - * /`, unary minus, comparisons, and calls.
-Nested `def` works too — JavaScript has closures.
+Tail position and `return if c:` are supported (see below); nested `def`
+works too — JavaScript has closures.
 
 ## What is not supported
 
@@ -151,6 +152,32 @@ JavaScript's loose equality would relate values across those types.
 Function definitions are set off with a blank line before and after, the
 spacing a JavaScript programmer would write.
 
+### Tail position
+
+A function body's last statement supplies its value (see "Tail position"
+in PYKING.md), so a `return` is pushed down into it, recursively through
+`if` branches:
+
+```pyking                          // generated JavaScript
+def pick(x, y, z):                 function pick(x, y, z) {
+    if z > 5:                        if (z > 5) {
+        x + y              ->          return x + y;
+    else:                            } else {
+        2 * x                          return 2 * x;
+                                     }
+                                   }
+```
+
+A `print` in tail position stays a statement -- it yields unit -- and a
+tail that is a loop or a binding produces no value, so nothing is
+returned. Such a function reports `undefined` in JavaScript, but Pyking's
+unit prints `()` everywhere, so `pykFormat` converts it (see below)
+rather than the generated function returning some stand-in value: this
+is the one place a JS host already inspects a value, so the conversion
+costs the compiled program nothing. `return if c:`
+compiles the same way, written explicitly. (`return match e:` needs
+`match`, which this family does not support yet.)
+
 ### `print` and the runtime boundary
 
 A `print` call is not an ordinary call: it crosses the runtime interface,
@@ -163,6 +190,7 @@ obvious which lines came from the `.pyk` file:
 // A Pyking program cannot do I/O by itself; its host must define `print`.
 
 function pykFormat(value) {
+  if (value === undefined) return '()';
   return String(value);
 }
 
@@ -185,6 +213,25 @@ that now has the opposite problem, having to *override* its native
 `True`/`False` to match.) The `html` target substitutes a `print` that
 appends to a `<pre>` on the page; `esm` has no prelude at all, since it
 is handed a `runtime` instead of building one.
+
+### Names that are keywords in JavaScript
+
+A name can be a good Pyking identifier and a reserved word in JavaScript
+-- `class`, `function`, `new`, `typeof`, `delete`, `super`, and the rest,
+plus the strict-mode-only ones (generated code is `const`/`let`
+throughout, so it is effectively strict). Such a name is renamed by the
+same mechanism that handles shadowing below:
+
+```pyking                          // generated JavaScript
+def class(n):                      function class2(n) {
+    n * 2                  ->        return n * 2;
+                                   }
+```
+
+The list (`RESERVED` in `src/target_js_core.py`) also holds a few
+globals a generated file leans on -- `undefined`, `console`, `String` --
+because shadowing one of those would break the prelude rather than the
+program's own syntax, which is harder to spot.
 
 ### Scope and renaming
 

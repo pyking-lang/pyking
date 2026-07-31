@@ -72,6 +72,9 @@ testing — could be built end to end before the language surface grew:
 | `print` | ✅ | ✅ | ✅ | ✅ |
 | `def`, parameters, `return`, recursion | ✅ | ✅ | ✅ | ✅ |
 | `def f(x) = expr` | ✅ | ✅ | ✅ | ✅ |
+| tail position (last statement is the value) | ✅ | ✅ | ✅ | ✅ |
+| `return if c:` / `return match e:` | ✅ | ✅ (`if` only) | ✅ (`if` only) | ✅ (`if` only) |
+| unit-returning functions (`void`) | ✅ | ✅ | ✅ | ✅ |
 | `if` / `else if` / `else`, `while` | ✅ | ✅ | ✅ | ✅ |
 | `=`, `var`, `:=` | ✅ | ✅ | ✅ | ✅ |
 | `if … then … else …` expressions | ✅ | ✅ | ✅ (branches must agree in type) | ✅ (branches must agree in type) |

@@ -1,0 +1,85 @@
+# Identifiers that are perfectly legal Pyking names but reserved words in
+# one or more target languages. Each backend renames them in its own
+# generated code; the program's behaviour must be identical everywhere,
+# which is what the shared `.out` file checks.
+#
+# Every name here is a keyword in at least one target:
+#   class, import, lambda, pass, del, global, raise, yield  -- Python
+#   class, function, typeof, delete, new, instanceof, super -- JavaScript
+#   double, struct, unsigned, static, void, char, sizeof    -- C
+#   static, final, public, abstract, synchronized, native   -- Java
+# and several are keywords in more than one at once.
+
+# A function named after a C and Java keyword, and one after a Python and
+# JavaScript keyword. Both are called normally.
+def double(n):
+    n * 2
+
+
+def lambda(n):
+    n + 1
+
+
+print(double(21), lambda(41))
+
+
+# Keywords as parameter names, including one shadowed by the function's
+# own parameter list.
+def combine(class, static, void):
+    class + static + void
+
+
+print(combine(1, 2, 3))
+
+
+# Keywords as ordinary bindings and as mutable variables.
+struct = 10
+var unsigned = 20
+unsigned := unsigned + 1
+
+print(struct, unsigned)
+
+
+# A keyword name rebound (a second `=` shadows the first), which the
+# backends' existing shadow-renaming must compose with keyword renaming.
+public = 1
+public = public + 1
+
+print(public)
+
+
+# A keyword name that ALSO collides with the name a rename would pick:
+# `final` and `final2` both exist, so the renamer has to skip past the
+# taken one rather than producing a duplicate.
+final = 7
+final2 = 8
+
+print(final, final2)
+
+
+# Keyword names inside a loop body and an if, where blocks are scopes.
+var typeof = 0
+while typeof < 3:
+    delete = typeof * 10
+    if delete > 5:
+        native = delete + 1
+        print("big", native)
+    else:
+        print("small", delete)
+    typeof := typeof + 1
+
+
+# A keyword-named function calling another keyword-named function, and
+# recursion through one.
+def sizeof(n):
+    if n <= 0:
+        0
+    else:
+        1 + sizeof(n - 1)
+
+
+def instanceof(n):
+    sizeof(n) + double(n)
+
+
+print(sizeof(4), instanceof(3))

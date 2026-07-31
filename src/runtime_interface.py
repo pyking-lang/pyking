@@ -48,6 +48,9 @@ class Operation:
 #     space, and the result is followed by a newline;
 #   - a string is written as-is, with no quoting;
 #   - an integer is written in base 10;
+#   - unit, `()`, is written `()` -- never the host language's own name
+#     for "no value", so Python must not print `None` nor JavaScript
+#     `undefined` where the C and Java hosts would print `()`;
 #   - a boolean is written `true` or `false` -- lowercase, matching
 #     Pyking's own `true`/`false` literals (see PYKING.md) rather than
 #     Python's capitalised `True`/`False`. This is one value every host
@@ -59,7 +62,14 @@ class Operation:
 PRINT = Operation(
     name="print",
     variadic=True,
-    doc="Write the arguments, space-separated, as one line of output.",
+    doc=(
+        "Write the arguments, space-separated, as one line of output. "
+        "Produces no value: it yields unit, `()`, so it is meaningful as "
+        "a statement and not as something to bind or return. A function "
+        "whose tail is a `print` therefore returns unit -- `void` in the "
+        "C and Java backends, an implicit `None`/`undefined` in the "
+        "Python and JavaScript ones."
+    ),
 )
 
 OPERATIONS = (PRINT,)

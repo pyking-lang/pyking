@@ -498,6 +498,18 @@ class SReturn(Stmt):        # return expr
 
 
 @dataclass(frozen=True)
+class SReturnStmt(Stmt):    # return <if/match statement in value form>,
+    info: Info               # e.g. `return if c:` / `return match e:` --
+    stmt: Stmt               # Pyking extension, the `return` counterpart of
+                             # `SLetStmt`. `stmt` is the SIf/SMatch itself;
+                             # the value returned is the last expression of
+                             # whichever branch runs, so every branch must
+                             # end in one (and an `if` must have its
+                             # `else`) -- the same rules `SLetStmt` obeys,
+                             # checked by the same parser code.
+
+
+@dataclass(frozen=True)
 class SExprStmt(Stmt):      # expr used as a statement, e.g. print(x)
     info: Info
     expr: Expr
@@ -564,6 +576,12 @@ def pprint_stmt(s, level=0):
             return f"{pad}{name} := {pprint_expr(expr)}"
         case SReturn(_, expr):
             return f"{pad}return {pprint_expr(expr)}"
+        case SReturnStmt(_, stmt):
+            # Same shape as `SLetStmt` above: the returned statement prints
+            # exactly as it would on its own, and only its header line
+            # gains the `return ` prefix.
+            head, *rest = pprint_stmt(stmt, level).split("\n")
+            return "\n".join([f"{pad}return {head.strip()}"] + rest)
         case SExprStmt(_, expr):
             return f"{pad}{pprint_expr(expr)}"
         case SFor(_, name, iterable, body):

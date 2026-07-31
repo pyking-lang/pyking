@@ -1,3 +1,4 @@
+import keyword
 from dataclasses import dataclass, fields, is_dataclass
 
 import runtime_interface
@@ -8,7 +9,7 @@ from syntax import (
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList, ETuple,
     EIf, EListComp, CompFor, CompIf,
     PInt, PString, PBool, PWildcard, PCapture, PTuple, PList,
-    SLet, SLetStmt, SVar, SMutate, SReturn, SExprStmt, SFor, SWhile, SIf,
+    SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SFor, SWhile, SIf,
     SFunctionDef, SMatch,
     TargetName, TargetTuple,
 )
@@ -573,6 +574,16 @@ def _lookup(name, scope):
     return scope.outer.get(name, name)
 
 
+# Names that are legal Pyking identifiers but reserved words in Python,
+# so a program with `def lambda(n):` would otherwise compile to code that
+# will not parse. Taken from the `keyword` module rather than written out,
+# so the set can never go stale against the Python this runs on;
+# `softkwlist` (`match`, `case`, `type`, `_`) is included too -- most are
+# already Pyking keywords and so unreachable here, and renaming the rest
+# costs nothing.
+RESERVED = frozenset(keyword.kwlist) | frozenset(keyword.softkwlist)
+
+
 def _fresh_py_name(name, scope):
     """`name2`, or `name3`, ... -- the first that no name in scope is
     already using. Both sides of both maps are checked: a Python name in
@@ -583,7 +594,7 @@ def _fresh_py_name(name, scope):
         | set(scope.outer) | set(scope.outer.values())
     )
     n = 2
-    while f"{name}{n}" in taken:
+    while f"{name}{n}" in taken or f"{name}{n}" in RESERVED:
         n += 1
     return f"{name}{n}"
 
@@ -599,7 +610,7 @@ def _bind(name, scope):
     if name in scope.block:
         return scope.local[name], scope
     py_name = name
-    if name in scope.local or name in scope.local.values():
+    if name in RESERVED or name in scope.local or name in scope.local.values():
         py_name = _fresh_py_name(name, scope)
     return py_name, Scope(
         scope.outer, {**scope.local, name: py_name}, scope.block | {name}
@@ -925,6 +936,111 @@ def translate_case(c, scope):
     return PyMatchCase(c.info, py_pattern, body)
 
 
+def _yields_unit(expr):
+    """Whether `expr` is a call across the runtime interface (`print`
+    today). Those yield unit, and Python's own implicit `None` already
+    *is* unit, so a function whose tail is one needs no `return` emitted
+    at all -- writing `return print(x)` would say the same thing less
+    clearly, and is the one form the C and Java backends cannot express
+    (they refuse `print` as a value)."""
+    match expr:
+        case ECall(_, EVar(_, name), _):
+            return runtime_interface.lookup(name) is not None
+        case _:
+            return False
+
+
+def _translate_tail_block(stmts, scope):
+    """Translates a statement list whose last statement is in **tail
+    position** -- a function body, or a branch of one that is itself in
+    tail position. Everything but the last statement translates
+    normally; the last goes through `_translate_tail_stmt`.
+
+    This is the same recursion `_translate_value_block` performs for a
+    value-form binding, with `return` in place of the assignment, which
+    is why an `if` nested in a `match` nested in an `if` needs no case of
+    its own: each level hands its branch tails back to this function."""
+    if not stmts:
+        return []
+    body, tail_scope = _translate_stmts(stmts[:-1], scope)
+    return body + _translate_tail_stmt(stmts[-1], tail_scope)
+
+
+def _translate_tail_stmt(s, scope):
+    """The last statement of a body in tail position, as a list of Python
+    statements. An expression becomes the function's return value; an
+    `if`/`match` pushes the rule down into its branches (so each branch
+    returns its own tail); anything else -- a loop, a binding, an
+    explicit `return` -- translates exactly as it would anywhere else."""
+    match s:
+        case SExprStmt(_, expr) if _yields_unit(expr):
+            translated, _ = translate_stmt(s, scope)
+            return [translated]
+        case SExprStmt(info, expr):
+            return [PyReturn(info, translate_expr(expr, scope))]
+        case SIf(info, cond, then_body, else_body):
+            # An `if` with no `else` leaves that path with no value; it
+            # simply falls out of the function, which is Python's own
+            # implicit `None` -- i.e. unit.
+            return [
+                PyIf(
+                    info,
+                    translate_expr(cond, scope),
+                    _translate_tail_block(then_body, _block_scope(scope)),
+                    None
+                    if else_body is None
+                    else _translate_tail_block(else_body, _block_scope(scope)),
+                )
+            ]
+        case SMatch(info, subject, cases):
+            return [
+                PyMatch(
+                    info,
+                    translate_expr(subject, scope),
+                    [_translate_tail_case(c, scope) for c in cases],
+                )
+            ]
+        case _:
+            translated, _ = translate_stmt(s, scope)
+            return [translated]
+
+
+def _falls_through(py_body):
+    """Whether control can reach the end of `py_body` without returning.
+
+    Used to decide whether a function needs an explicit `return ()`:
+    Pyking's unit is the empty tuple, and Python's own implicit `None` is
+    *not* it -- printing one would write `None` where every other backend
+    writes `()`. Emitting the return where control can fall out keeps
+    unit a real value rather than a formatting special case, so no
+    print-time conversion (and no prelude) is needed for it."""
+    if not py_body:
+        return True
+    match py_body[-1]:
+        case PyReturn():
+            return False
+        case PyIf(_, _, then_body, else_body) if else_body is not None:
+            return _falls_through(then_body) or _falls_through(else_body)
+        case PyMatch(_, _, cases) if any(
+            isinstance(c.pattern, (PyPWildcard, PyPCapture)) for c in cases
+        ):
+            # Only a `match` with an irrefutable arm is guaranteed to run
+            # one; otherwise an unmatched subject falls straight through.
+            return any(_falls_through(c.body) for c in cases)
+        case _:
+            return True
+
+
+def _translate_tail_case(c, scope):
+    """One `case` arm of a `match` in tail position. `case p -> expr`
+    already means `return expr`, so it is exactly `translate_case`'s job;
+    a block arm hands its own tail back to `_translate_tail_block`."""
+    if c.expr is not None:
+        return translate_case(c, scope)
+    py_pattern, arm_scope = translate_pattern(c.pattern, _block_scope(scope))
+    return PyMatchCase(c.info, py_pattern, _translate_tail_block(c.body, arm_scope))
+
+
 def _translate_value_stmt(s, py_target, scope):
     """Translates an if/match statement in *value form* -- one bound with
     '=' (see `SLetStmt` in syntax.py) -- into the very same PyIf/PyMatch
@@ -1066,8 +1182,22 @@ def translate_stmt(s, scope):
                 translated_expr = translate_expr(expr, body_scope)
                 py_body = [PyReturn(translated_expr.info, translated_expr)]
             else:
-                py_body, _ = _translate_stmts(body, body_scope)
+                # The body's last statement is in tail position: whatever
+                # value it produces is the function's result. See
+                # `_translate_tail_block`. A body that can fall out of
+                # the end produces unit on that path, and unit is `()`,
+                # not Python's implicit `None` -- see `_falls_through`.
+                py_body = _translate_tail_block(body, body_scope)
+                if _falls_through(py_body):
+                    py_body.append(PyReturn(info, PyTuple(info, [])))
             return PyFunctionDef(info, py_name, param_names, py_body), scope
+
+        case SReturnStmt(_, stmt):
+            # `return if c:` / `return match e:` -- the same push-down as
+            # a tail-position if/match, just written explicitly, so it
+            # also works where the implicit rule cannot reach: before the
+            # end of the body.
+            return _translate_tail_stmt(stmt, scope)[0], scope
 
         case SMatch(info, subject, cases):
             py_subject = translate_expr(subject, scope)

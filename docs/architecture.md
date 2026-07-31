@@ -91,8 +91,15 @@ print(values...)   write one line; values formatted individually and
                    joined with single spaces
 ```
 
+`print` produces no value -- it yields unit, `()` -- so it is a
+statement, not something to bind or return, and a function whose tail is
+a `print` returns unit (`void` in C and Java; Python's implicit `None`
+and JavaScript's `undefined` already are it).
+
 Its formatting rules are part of the contract, not of any backend: a
-string is written bare, an integer in base 10, and a boolean as `true` or
+string is written bare, an integer in base 10, unit as `()` (never the
+host's own name for "no value" -- not Python's `None`, not JavaScript's
+`undefined`), and a boolean as `true` or
 `false` — Pyking's own spelling (see PYKING.md), not Python's capitalised
 `True`/`False`. JavaScript and Java already spell booleans that way
 natively and need no conversion; C spells booleans neither way in either

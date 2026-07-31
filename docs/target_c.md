@@ -46,6 +46,8 @@ rules, one printer with four `if standard ==` branches in it.
 single-expression `def f(x) = e` form; `if` / `else if` / `else`;
 `while`; `=`, `var`, `:=`; `if … then … else …` expressions; integers,
 strings and booleans; `+ - *`, unary minus, comparisons, and calls.
+Tail position, `return if c:`, and unit-returning (`void`) functions are
+supported too — see below.
 
 Type annotations are *used* here rather than erased, when they name a
 type C can represent.
@@ -101,6 +103,23 @@ gets a new C variable, which may well have a different type.
   type on both arms.
 - `==` between different types — likewise.
 - `+` mixing an integer and a string.
+
+### A function that produces a value on some paths and none on others
+
+```
+Unsupported by target 'c23': `f` produces a value on some paths and none
+on others; C has one return type per function, and falling off the end of
+a non-`void` one is undefined behaviour, so give every path a value (an
+`if` needs its `else`)
+```
+
+An `if` with no `else` whose branch ends in an expression gives one path
+a value and leaves the other with unit. C has a single return type per
+function and no way to say "or nothing", and falling off the end of a
+non-`void` function is undefined behaviour -- the compiler will happily
+build a program that returns whatever was in the return register. This
+is the same rule `target_java.py` enforces because `javac` demands it;
+here it is enforced because the C standard does *not*.
 
 ### A recursive function returning non-`Int` without an annotation
 
@@ -271,6 +290,61 @@ int gcd(int a, int b)
     return y;
 }
 ```
+
+### Tail position and unit (`void`)
+
+A function body's last statement supplies its value (see "Tail position"
+in PYKING.md), so a `return` is pushed down into it, recursively through
+`if` branches. This matters more here than in the other backends:
+without it a body ending in a bare expression compiled to a non-`void`
+function that simply fell off its end, which is **undefined behaviour**,
+not merely a dropped value.
+
+```pyking                          /* generated C */
+def pick(x, y, z):                 int pick(int x, int y, int z)
+    if z > 5:                      {
+        x + y              ->          if (z > 5) {
+    else:                                  return x + y;
+        2 * x                          } else {
+                                           return 2 * x;
+                                       }
+                                   }
+```
+
+A function that returns no value on any path has Pyking's unit type,
+which C spells `void` -- a body whose tail is a `print` (which yields
+unit), a loop, or a binding:
+
+```pyking                          /* generated C */
+def announce(label: String, n):    void announce(const char *label, int n)
+    print(label, n)        ->      {
+                                       printf("%s %d\n", label, n);
+                                   }
+```
+
+A `void` call has no value to use, so calling one anywhere but as a
+statement of its own is refused with a source position rather than
+emitted as C that will not compile.
+
+### Names that are keywords in C
+
+A name can be a good Pyking identifier and a reserved word in C --
+`double`, `struct`, `static`, `void`, `char`, `sizeof`, and the rest.
+Such a name is renamed by the same mechanism that handles shadowing:
+
+```pyking                          /* generated C */
+def double(n):                     int double2(int n)
+    n * 2                  ->      {
+                                       return n * 2;
+                                   }
+```
+
+The list (`RESERVED` in `src/target_c.py`) is one list for both
+standards -- C89 plus the C99/C11/C23 additions -- since a name renamed
+under `c23` but not `c89` would make the two targets disagree about the
+generated code for no good reason. It also holds `main`, `printf`,
+`strcmp` and the generated helpers: not keywords, but a Pyking function
+shadowing one would break the file just as thoroughly.
 
 ### Booleans
 

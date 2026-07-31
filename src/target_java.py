@@ -69,7 +69,7 @@ from syntax import (
     EInt, EString, EBool, EVar,
     EAdd, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EIf,
-    SLet, SVar, SMutate, SReturn, SExprStmt, SWhile, SIf, SFunctionDef,
+    SLet, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SWhile, SIf, SFunctionDef,
     TargetName, TInt, TString, TBool,
 )
 
@@ -127,7 +127,14 @@ INT = "Int"
 BOOL = "Bool"
 STRING = "String"
 
-_JAVA_TYPES = {INT: "int", BOOL: "boolean", STRING: "String"}
+# Pyking's unit type `()`. A function that produces no value has this as
+# its return type -- `print` yields unit, and so does a body whose tail is
+# a loop or a binding -- and Java spells that `void`. Without it such a
+# function would be typed `int` and rejected by the definitely-returns
+# check below, even though it is perfectly well-formed Pyking.
+UNIT = "Unit"
+
+_JAVA_TYPES = {INT: "int", BOOL: "boolean", STRING: "String", UNIT: "void"}
 
 _ANNOTATIONS = {TInt: INT, TString: STRING, TBool: BOOL}
 
@@ -327,17 +334,38 @@ def _lookup(name, scope, info):
     return scope.names[name]
 
 
+# Names that are legal Pyking identifiers but reserved words in Java, so
+# a program with `def static(n):` would otherwise compile to code that
+# will not parse. Covers the keywords (including the reserved-but-unused
+# `const`/`goto`), the literals, and the few names generated code leans
+# on -- `String`, `System`, `args` and `main` are not keywords, but a
+# Pyking function shadowing one would break the file just as thoroughly.
+RESERVED = frozenset("""
+abstract assert boolean break byte case catch char class const continue
+default do double else enum extends final finally float for goto if
+implements import instanceof int interface long native new package
+private protected public return short static strictfp super switch
+synchronized this throw throws transient try void volatile while
+true false null var record sealed permits yield
+String System Object Integer Boolean Math args main
+""".split())
+
+
 def _fresh_java_name(name, scope):
     taken = set(scope.names) | {java_name for java_name, _ in scope.names.values()}
     n = 2
-    while f"{name}{n}" in taken:
+    while f"{name}{n}" in taken or f"{name}{n}" in RESERVED:
         n += 1
     return f"{name}{n}"
 
 
 def _bind(name, jtype, scope):
     java_name = name
-    if name in scope.names or any(name == n for n, _ in scope.names.values()):
+    if (
+        name in RESERVED
+        or name in scope.names
+        or any(name == n for n, _ in scope.names.values())
+    ):
         java_name = _fresh_java_name(name, scope)
     return java_name, Scope(
         {**scope.names, name: (java_name, jtype)}, scope.block | {name}
@@ -361,7 +389,10 @@ class _Translator:
 
     # -- expressions --
 
-    def expr(self, e, scope):
+    def expr(self, e, scope, allow_unit=False):
+        """`allow_unit` permits a call to a unit-returning (`void`)
+        method, which is meaningful only as an expression statement --
+        everywhere else there is no value to use."""
         match e:
             case EInt(info, v):
                 return JInt(info, v)
@@ -420,6 +451,16 @@ class _Translator:
                 java_name, param_types, ret = self.signatures[name]
                 if len(args) != len(param_types):
                     _unsupported(e, f"`{name}` takes {len(param_types)} argument(s)")
+                if ret == UNIT and not allow_unit:
+                    # A `void` call has no value to use. Only an
+                    # expression *statement* may call one, which is what
+                    # `allow_unit` marks.
+                    _unsupported(
+                        e,
+                        f"`{name}` produces no value (it returns unit), so it "
+                        "cannot be used as one; call it as a statement of "
+                        "its own",
+                    )
                 return JCall(
                     info, java_name, [self.expr(a, scope) for a in args], ret
                 )
@@ -452,6 +493,45 @@ class _Translator:
         _check_reachable(out)
         return out, scope
 
+    def tail_stmts(self, stmts, scope):
+        """Translates a statement list whose last statement is in **tail
+        position** -- a function body, or a branch of one that is itself
+        in tail position -- so the value it produces becomes the
+        method's return value. Mirrors `_translate_tail_block` in
+        `target_python.py`; see PYKING.md's "Tail position"."""
+        if not stmts:
+            return []
+        body, tail_scope = self.stmts(stmts[:-1], scope)
+        return body + self.tail_stmt(stmts[-1], tail_scope)
+
+    def tail_stmt(self, s, scope):
+        """The last statement of a body in tail position, as a list of
+        Java statements: an expression becomes the returned value, an
+        `if` pushes the rule into its branches, and anything else -- a
+        loop, a binding, a `print` (which yields unit) -- translates
+        normally."""
+        match s:
+            case SExprStmt(_, ECall(_, EVar(_, name), _)) if (
+                runtime_interface.lookup(name) is not None
+            ):
+                translated, _ = self.stmt(s, scope)
+                return [translated]
+            case SExprStmt(info, expr):
+                return [JReturn(info, self.expr(expr, scope))]
+            case SIf(info, cond, then_body, else_body):
+                condition = self.expr(cond, scope)
+                self._require(condition, BOOL, "an `if` condition")
+                then_branch = self.tail_stmts(then_body, _block_scope(scope))
+                else_branch = (
+                    None
+                    if else_body is None
+                    else self.tail_stmts(else_body, _block_scope(scope))
+                )
+                return [JIf(info, condition, then_branch, else_branch)]
+            case _:
+                translated, _ = self.stmt(s, scope)
+                return [translated]
+
     def block(self, stmts, scope):
         translated, _ = self.stmts(stmts, _block_scope(scope))
         return translated
@@ -482,6 +562,12 @@ class _Translator:
                     )
                 return JAssign(info, java_name, value), scope
 
+            case SReturnStmt(_, stmt):
+                # `return if c:` -- the same push-down as a tail-position
+                # `if`, written explicitly so it also works before the
+                # end of the body.
+                return self.tail_stmt(stmt, scope)[0], scope
+
             case SReturn(info, expr):
                 return JReturn(info, self.expr(expr, scope)), scope
 
@@ -492,7 +578,7 @@ class _Translator:
                 return JPrint(info, _build_print_expr(translated_args)), scope
 
             case SExprStmt(info, expr):
-                return JExprStmt(info, self.expr(expr, scope)), scope
+                return JExprStmt(info, self.expr(expr, scope, allow_unit=True)), scope
 
             case SWhile(info, cond, body):
                 return JWhile(info, self.expr(cond, scope), self.block(body, scope)), scope
@@ -536,7 +622,9 @@ class _Translator:
             value = self.expr(func.expr, body_scope)
             body = [JReturn(value.info, value)]
         else:
-            body, _ = self.stmts(func.body, body_scope)
+            # The body's last statement is in tail position: whatever
+            # value it produces is the function's result.
+            body = self.tail_stmts(func.body, body_scope)
 
         returned = _return_types(body)
         recursive = _calls(body, java_name)
@@ -553,10 +641,12 @@ class _Translator:
                     "annotated, so annotate it (`-> String`, `-> Bool`)",
                 )
             _unsupported(func, "a function returning more than one type")
-        actual = returned.pop() if returned else provisional
+        # No `return` anywhere means the function produces no value:
+        # that is unit, i.e. `void`, not the provisional `Int`.
+        actual = returned.pop() if returned else UNIT
         self.signatures[func.name] = (java_name, param_types, actual)
 
-        if not _definitely_returns(body):
+        if actual != UNIT and not _definitely_returns(body):
             _unsupported(
                 func,
                 f"`{func.name}` does not return a value on every path; "

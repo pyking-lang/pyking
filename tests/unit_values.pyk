@@ -1,0 +1,69 @@
+# Unit, `()`, reached every way a program can reach it. Every backend
+# prints it the same: `()`, never the host language's own name for
+# "no value" (Python's None, JavaScript's undefined).
+
+# The literal.
+u = ()
+print(u)
+print(())
+
+# A function whose tail is a `print`: `print` yields unit, so the
+# function does too.
+def announce(n):
+    print("n =", n)
+
+
+print(announce(1))
+
+# A function whose tail is a loop -- a loop produces no value.
+def sum_to(n):
+    var total = 0
+    for i in range(n):
+        total := total + i
+
+
+print(sum_to(4))
+
+# A function whose tail is a binding, likewise.
+def just_binds(n):
+    doubled = n * 2
+
+
+print(just_binds(3))
+
+# An `if` with no `else`: the taken path has a value, the missing one is
+# unit, and both print as themselves.
+def only_when_positive(n):
+    if n > 0:
+        "positive"
+
+
+print(only_when_positive(1), only_when_positive(-1))
+
+# The same through a `match` with no irrefutable arm: an unmatched
+# subject falls out of the function as unit.
+def only_zero(n):
+    match n:
+        case 0:
+            "zero"
+
+
+print(only_zero(0), only_zero(7))
+
+# Unit flows through a binding like any other value.
+nothing = announce(2)
+print(nothing)
+
+# Unit inside a data structure keeps its own spelling.
+print([(), ()])
+print((1, ()))
+
+# A function that *does* return on every path gets no unit anywhere.
+def sign(n):
+    if n < 0:
+        "negative"
+    else:
+        "not negative"
+
+
+print(sign(-1), sign(1))

@@ -59,6 +59,8 @@ rules, one printer with a single `if version` branch in it.
 single-expression `def f(x) = e` form; `if` / `else if` / `else`;
 `while`; `=`, `var`, `:=`; `if … then … else …` expressions; integers,
 strings and booleans; `+ - *`, unary minus, comparisons, and calls.
+Tail position, `return if c:`, and unit-returning (`void`) methods are
+supported too -- see below.
 
 Type annotations are *used* here rather than erased, when they name a
 type Java can represent -- exactly as in the C targets.
@@ -112,8 +114,14 @@ the end instead of returning, so make sure every branch ends in `return`
 
 Python returns `None` implicitly when a function's control falls off the
 end; `javac` treats that as a compile error for any method whose return
-type isn't `void`. This backend checks for it during translation --
-conservatively: it recognises an unconditional `return`, or an `if`/`else`
+type isn't `void`. Two things narrow when this can fire at all. A method
+whose return type *is* `void` -- one yielding unit, see "Tail position
+and unit" above -- is exempt, because there is nothing for it to return.
+And tail position means a branch need only *end in an expression* to
+count as returning, so an exhaustive `if`/`else` satisfies the rule with
+no `return` written. What is left is a genuine gap: a path that produces
+no value in a method some other path gives one to. This backend checks
+for it during translation -- conservatively: it recognises an unconditional `return`, or an `if`/`else`
 whose *both* arms definitely return, which is exactly the shape every
 function in this shared subset already needs to have. A `while` loop is
 never the proof on its own, `while true:` included: `_stmt_definitely_returns`
@@ -284,6 +292,55 @@ declares with `var` instead of spelling out `int`:
 Top-level Pyking statements become the body of `main`; `def`s become
 `private static` methods, in source order -- which works because name
 analysis already requires definition before use.
+
+### Tail position and unit (`void`)
+
+A method body's last statement supplies its value (see "Tail position"
+in PYKING.md), so a `return` is pushed down into it, recursively through
+`if` branches -- which also means the definitely-returns check below is
+satisfied by an exhaustive `if`/`else` whose branches merely *end in an
+expression*, with no `return` written:
+
+```pyking                          // generated Java
+def pick(x, y, z):                 private static int pick(final int x, ...) {
+    if z > 5:                          if (z > 5) {
+        x + y              ->              return x + y;
+    else:                              } else {
+        2 * x                              return 2 * x;
+                                       }
+                                   }
+```
+
+A method that returns no value on any path has Pyking's unit type, which
+Java spells `void` -- a body whose tail is a `print` (which yields
+unit), a loop, or a binding. Such a method is exempt from the
+definitely-returns rule, since there is nothing to return:
+
+```pyking                          // generated Java
+def announce(label: String, n):    private static void announce(final String label, final int n) {
+    print(label, n)        ->          System.out.println(label + " " + n);
+                                   }
+```
+
+A `void` call has no value to use, so calling one anywhere but as a
+statement of its own is refused with a source position rather than
+handed to `javac` as `'void' type not allowed here`.
+
+### Names that are keywords in Java
+
+A name can be a good Pyking identifier and a reserved word in Java --
+`static`, `class`, `final`, `public`, `new`, `instanceof`, and the rest.
+Such a name is renamed by the same mechanism that handles shadowing:
+
+```pyking                          // generated Java
+def static(n):                     private static int static2(final int n) {
+    n * 2                  ->          return n * 2;
+                                   }
+```
+
+The list (`RESERVED` in `src/target_java.py`) also holds `String`,
+`System`, `args` and `main`: not keywords, but a Pyking function
+shadowing one would break the generated file just as thoroughly.
 
 ### Immutable bindings stay immutable
 

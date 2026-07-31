@@ -121,6 +121,23 @@ in `tests/`, since nothing prints a list of booleans, but it follows the
 same "only the top-level argument is special" rule the existing
 formatting contract already uses for strings.
 
+### Names that are keywords in Python
+
+A name can be a perfectly good Pyking identifier and a reserved word in
+Python — `lambda`, `class`, `pass`, `del`, `import`, and the rest.
+Emitting it unchanged would produce a file that will not parse, so such
+a name is renamed by the same mechanism that renames a shadowed one:
+
+```pyking                          # generated Python
+def lambda(n):                     def lambda2(n):
+    n * 2                  ->          return n * 2
+```
+
+The list comes from the standard `keyword` module (`kwlist` plus
+`softkwlist`) rather than being written out here, so it cannot go stale
+against the Python this compiler runs on. Renaming picks `lambda2`,
+`lambda3`, … — skipping any that is itself taken or reserved.
+
 ### Blocks are scopes; Python's are not
 
 Pyking makes every block a scope. Python scopes at function boundaries
@@ -182,6 +199,51 @@ def classify(n):
 
 Note the operand order flips for the `if` expression: Pyking writes the
 condition first (`if c then a else b`), Python writes it in the middle.
+
+### Tail position
+
+A function body's last statement supplies the function's value (see
+"Tail position" in PYKING.md), so the backend pushes a `return` down
+into it — recursively, so branches of branches are covered:
+
+```pyking                          # generated Python
+def pick(x, y, z):                 def pick(x, y, z):
+    if z > 5:                          if z > 5:
+        x + y              ->              return x + y
+    else:                              else:
+        2 * x                              return 2 * x
+```
+
+`_translate_tail_block`/`_translate_tail_stmt` do this, and they are
+deliberately the same recursion as `_translate_value_block` below with
+`return` in place of the assignment — which is why an `if` nested in a
+`match` nested in an `if` needs no case of its own.
+
+A body that can fall out of its end produces unit on that path, and unit
+is `()` — Python's implicit `None` is *not* it, and printing one would
+write `None` where every other backend writes `()`. So a `return ()` is
+appended exactly when control can reach the end (`_falls_through`),
+which keeps unit a real value instead of a print-time special case:
+
+```pyking                          # generated Python
+def greet(n):                      def greet(n):
+    print(n)               ->          print(n)
+                                       return ()
+```
+
+A body that already returns on every path gets nothing added, so the
+common `if`/`else` case stays clean.
+
+Two things are left alone. A `print` in tail position stays a statement:
+it yields unit, and Python's implicit `None` already *is* unit, so
+`return print(x)` would say the same thing less clearly (and is the one
+form the C and Java backends cannot express at all). And a tail that is
+a loop or a binding produces no value, so no `return` is emitted and the
+function returns `None`.
+
+`return if c:` / `return match e:` compile the same way, just written
+explicitly, which additionally works before the end of a body where the
+implicit rule cannot reach.
 
 ### Value-form `if`/`match`
 
