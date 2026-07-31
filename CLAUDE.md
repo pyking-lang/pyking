@@ -55,7 +55,9 @@ these is updated in the same change — none of them is optional, and the
 last ones are the ones that get forgotten:
 
 1. **`src/`** — the stage(s) implementing it (lexer → parser → syntax →
-   `analyses.py` → `typesystem.py` → each backend). `symbolize` needs
+   `analyses.py` → `typesystem.py` → each backend). A new or changed AST
+   node also means updating its `datatype` comment in `syntax.py` — see
+   that module's entry below; nothing catches it drifting. `symbolize` needs
    nothing: its walk is generic over dataclass fields, so a new node in
    `syntax.py` gets a symbol for free. `typesystem.py` does need a
    decision, but only a cheap one — either check the construct or let it
@@ -140,6 +142,38 @@ The bootstrap is split into one module per compiler stage:
    standard library `ast` module on `sys.path` — which breaks `dataclasses`
    itself (`dataclasses` → `inspect` → `annotationlib` needs the real `ast`
    at import time). Don't rename this back to `ast.py`.
+
+   **The AST is documented as algebraic data types** in one block of
+   `datatype` comments at the top of the file, listing every group's
+   variants and their fields — `Expr`, `Type`, `Pattern`, `CompClause`,
+   `AssignTarget`, `Stmt`, and the single-constructor `Param`,
+   `ListRest` and `MatchCase`. They are gathered there, rather than each
+   above its own base class, so the whole shape of the AST reads in one
+   place and types that refer to each other can be compared without
+   scrolling.
+
+   Dataclasses can state a node's fields but not that the group is a
+   *closed set of alternatives*, which is exactly what every
+   `match`/`case` over the AST depends on, so the comments state it: one
+   block tells you what a `match` on that type has to cover. The
+   notation is OCaml-ish, with a legend beside it (`Int`/`String`/`Bool`
+   for Python's `int`/`str`/`bool`, `[T]` for a list of `T`, `T?` for a
+   field that may be `None`).
+
+   **These are hand-written, so keep them in step with the code in the
+   same change** — they are the one part of `syntax.py` nothing will
+   catch when it drifts. Adding, removing or renaming a node, changing a
+   field's name, type or optionality, or moving a node to a different
+   base class all mean editing the `datatype` block too. Note `[T]`
+   records something the annotation itself does not: a field is only
+   annotated `list`, so the element type lives *only* in the comment and
+   is worth getting right. The blocks are ordered alternatives-types
+   first, then the single-constructor ones — deliberately *not* the
+   order the classes are declared in, since a class has to wait for
+   whatever it mentions (`EListComp` holds `[CompClause]`, so it is
+   declared after `CompClause` despite being a variant of `Expr`). Put a
+   new variant in the block for the type it belongs to, wherever the
+   class itself has to sit.
 3. **`src/parser.py`** — the recursive-descent parser (`parse_atom`,
    `parse_expr`, `parse_statement`, `parse`, ...) that consumes the token
    list and builds the AST from `src/syntax.py`. Each AST node's `info`

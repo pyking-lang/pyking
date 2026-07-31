@@ -3,6 +3,111 @@ from dataclasses import dataclass
 from lexer import Info
 
 
+# The AST, as algebraic data types: every node group in this file, its
+# variants, and the fields each variant carries. Python's dataclasses
+# can say the fields but not that a group *is* a closed set of
+# alternatives, which is the thing every `match`/`case` over the AST
+# relies on -- so this says it, and one block tells you what a `match`
+# on that type has to cover.
+#
+# All of them are gathered here rather than each sitting above its own
+# base class, so that the whole shape of the AST can be read in one
+# place, and so that the types which refer to one another can be
+# compared without scrolling between them.
+#
+# The notation is OCaml-ish rather than Python:
+#
+#     Int, String, Bool   Python's int/str/bool, spelled as Pyking spells
+#                         its own types
+#     [T]                 a list of T (the annotation only says `list`,
+#                         so the element type is recorded here)
+#     T?                  may be absent -- the field defaults to None
+#
+# The order here is the six alternatives-types first, then the three
+# single-constructor ones (a one-variant datatype being exactly a
+# record). It is not the order the classes are *declared* in below: a
+# class has to wait for whatever it mentions -- `EListComp` holds
+# `[CompClause]`, so it is declared after `CompClause` even though it is
+# a variant of `Expr`.
+#
+# These blocks are documentation, not generated code -- keep them in step
+# with the dataclasses by hand (see CLAUDE.md).
+
+
+# datatype Expr:
+#     EInt(info: Info, value: Int, sym: Int)
+#     EString(info: Info, value: String, sym: Int)
+#     EBool(info: Info, value: Bool, sym: Int)
+#     EVar(info: Info, name: String, sym: Int)
+#     EAdd(info: Info, left: Expr, right: Expr, sym: Int)
+#     ESub(info: Info, left: Expr, right: Expr, sym: Int)
+#     EMul(info: Info, left: Expr, right: Expr, sym: Int)
+#     EDiv(info: Info, left: Expr, right: Expr, sym: Int)
+#     ENeg(info: Info, operand: Expr, sym: Int)
+#     ELessThan(info: Info, left: Expr, right: Expr, sym: Int)
+#     ELessThanEq(info: Info, left: Expr, right: Expr, sym: Int)
+#     EGreatThan(info: Info, left: Expr, right: Expr, sym: Int)
+#     EGreatThanEq(info: Info, left: Expr, right: Expr, sym: Int)
+#     EEq(info: Info, left: Expr, right: Expr, sym: Int)
+#     ECall(info: Info, func: Expr, args: [Expr], sym: Int)
+#     EList(info: Info, elements: [Expr], sym: Int)
+#     ETuple(info: Info, elements: [Expr], sym: Int)
+#     EIf(info: Info, cond: Expr, then_expr: Expr, else_expr: Expr, sym: Int)
+#     EListComp(info: Info, expr: Expr, clauses: [CompClause], sym: Int)
+#
+# datatype Type:
+#     TInt(info: Info, sym: Int)
+#     TString(info: Info, sym: Int)
+#     TBool(info: Info, sym: Int)
+#     TList(info: Info, element: Type, sym: Int)
+#     TTuple(info: Info, elements: [Type], sym: Int)
+#
+# datatype Pattern:
+#     PInt(info: Info, value: Int, sym: Int)
+#     PString(info: Info, value: String, sym: Int)
+#     PBool(info: Info, value: Bool, sym: Int)
+#     PWildcard(info: Info, sym: Int)
+#     PCapture(info: Info, name: String, sym: Int)
+#     PTuple(info: Info, elements: [Pattern], sym: Int)
+#     PList(info: Info, prefix: [Pattern], rest: ListRest?, suffix: [Pattern]?,
+#           sym: Int)
+#
+# datatype CompClause:
+#     CompFor(info: Info, pattern: Pattern, sequence: Expr, sym: Int)
+#     CompIf(info: Info, condition: Expr, sym: Int)
+#
+# datatype AssignTarget:
+#     TargetName(info: Info, name: String, sym: Int)
+#     TargetTuple(info: Info, elements: [AssignTarget], sym: Int)
+#
+# datatype Stmt:
+#     SLet(info: Info, target: AssignTarget, expr: Expr, type: Type?, sym: Int)
+#     SLetStmt(info: Info, target: AssignTarget, stmt: Stmt, type: Type?,
+#              sym: Int)
+#     SVar(info: Info, name: String, expr: Expr, sym: Int)
+#     SMutate(info: Info, name: String, expr: Expr, sym: Int)
+#     SReturn(info: Info, expr: Expr, sym: Int)
+#     SReturnStmt(info: Info, stmt: Stmt, sym: Int)
+#     SExprStmt(info: Info, expr: Expr, sym: Int)
+#     SFor(info: Info, name: String, iterable: Expr, body: [Stmt], sym: Int)
+#     SWhile(info: Info, cond: Expr, body: [Stmt], sym: Int)
+#     SIf(info: Info, cond: Expr, then_body: [Stmt], else_body: [Stmt]?,
+#         sym: Int)
+#     SFunctionDef(info: Info, name: String, params: [Param], body: [Stmt]?,
+#                  return_type: Type?, expr: Expr?, sym: Int)
+#     SMatch(info: Info, subject: Expr, cases: [MatchCase], sym: Int)
+#
+# datatype Param:
+#     Param(info: Info, name: String, type: Type?, sym: Int)
+#
+# datatype ListRest:
+#     ListRest(info: Info, name: String?, sym: Int)
+#
+# datatype MatchCase:
+#     MatchCase(info: Info, pattern: Pattern, body: [Stmt]?, expr: Expr?,
+#               sym: Int)
+
+
 # --- expression AST ---
 
 class Expr:
