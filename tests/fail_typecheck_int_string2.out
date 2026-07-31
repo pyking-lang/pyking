@@ -1,0 +1,2 @@
+'tests/fail_typecheck_int_string2.pyk' 16:13-16:28 Type error: `-`
+  cannot be applied to String and String; it accepts Int - Int

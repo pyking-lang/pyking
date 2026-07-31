@@ -34,7 +34,8 @@ an error, or silently updates a *different* variable of the same name.
 Forbidding the shadow means the answer is always the nearest `var`.
 """
 
-from dataclasses import dataclass
+import itertools
+from dataclasses import dataclass, fields, is_dataclass, replace
 
 from lexer import Info
 from syntax import (
@@ -353,3 +354,62 @@ def analyze_program(stmts):
     only rejects, it never rewrites the AST."""
     env = {name: Binding(BUILTIN) for name in BUILTINS}
     analyze_stmts(stmts, env)
+
+
+# --- symbolize ---
+#
+# A second pass over the checked AST, giving every node a unique integer
+# `sym` (see `syntax.py`). Nothing in the compiler consumes these yet --
+# `--symbols` prints them, and a later stage that needs to attach
+# information to a node (a type, a storage location, a use-def edge) has
+# a stable key to hang it on that does not depend on the node's identity
+# or position.
+#
+# The walk is generic over dataclass fields rather than one case per node
+# type, the same way `_collect_identifiers` in `target_python.py` is: a
+# new node in `syntax.py` gets a symbol without anyone remembering to
+# update this file. Nodes are frozen, so the tree is rebuilt with
+# `replace` rather than mutated, and the pass returns the new one.
+
+
+def _highest_sym(node):
+    """The largest `sym` anywhere in `node`, or 0 if nothing is
+    symbolized yet."""
+    if is_dataclass(node) and hasattr(node, "sym"):
+        return max(
+            [node.sym]
+            + [_highest_sym(getattr(node, f.name)) for f in fields(node)]
+        )
+    if isinstance(node, (list, tuple)):
+        return max([0] + [_highest_sym(element) for element in node])
+    return 0
+
+
+def symbolize(stmts):
+    """Every node in `stmts`, rebuilt so that all of them have a unique
+    `sym`. Numbering is post-order and starts at 1, so 0 -- every node's
+    default -- means "not symbolized yet" and can never collide with a
+    real symbol.
+
+    A node that *already* has a symbol keeps it, and fresh numbers
+    continue past the highest one in the tree. That makes the pass safe
+    to run a second time, which is what gives nodes synthesized after
+    the first run -- the types the checker writes into bindings, say --
+    symbols of their own without renumbering everything around them."""
+    counter = itertools.count(_highest_sym(stmts) + 1)
+
+    def walk(node):
+        if is_dataclass(node) and hasattr(node, "sym"):
+            updated = {
+                f.name: walk(getattr(node, f.name))
+                for f in fields(node)
+                if f.name != "sym"
+            }
+            return replace(node, **updated, sym=node.sym or next(counter))
+        if isinstance(node, list):
+            return [walk(element) for element in node]
+        if isinstance(node, tuple):
+            return tuple(walk(element) for element in node)
+        return node
+
+    return [walk(s) for s in stmts]

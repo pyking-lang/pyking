@@ -527,19 +527,32 @@ def parse_target(tokens):
 
 
 def _try_parse_assignment_target(tokens):
-    """Speculatively parses `tokens` as `target =`, returning `(target,
-    rest)` positioned just after the '=' on success, or `None` if
-    `tokens` doesn't begin with a valid `target =` -- callers fall back
-    to parsing `tokens` as a general statement/expression instead. Since
-    this parser is purely functional over immutable token lists, a
-    failed speculative parse has no side effects to undo."""
+    """Speculatively parses `tokens` as `target [: type] =`, returning
+    `(target, type_or_None, rest)` positioned just after the '=' on
+    success, or `None` if `tokens` doesn't begin with one -- callers fall
+    back to parsing `tokens` as a general statement/expression instead.
+    Since this parser is purely functional over immutable token lists, a
+    failed speculative parse has no side effects to undo.
+
+    The optional `: type` cannot be confused with anything else here:
+    `:=` is a single token (`TokAssign`), so a `TokColon` after a target
+    can only begin an annotation."""
     try:
         target, rest = parse_target(tokens)
     except ParseError:
         return None
+    annotation = None
+    match rest:
+        case [TokColon(_), *after_colon]:
+            # Committed: a target followed by ':' can only be an
+            # annotated assignment, so a bad type here is reported as
+            # itself rather than swallowed into a `None` that would send
+            # the caller off to reparse this as an expression and
+            # complain about the colon instead.
+            annotation, rest = parse_type(after_colon)
     match rest:
         case [TokEq(_), *rest]:
-            return target, rest
+            return target, annotation, rest
         case _:
             return None
 
@@ -1028,14 +1041,14 @@ def parse_statement(tokens):
         case [TokIdent() | TokLParen(), *_] if (
             _assign := _try_parse_assignment_target(tokens)
         ) is not None:
-            target, rest = _assign
+            target, annotation, rest = _assign
             value, rest = parse_bound_value(rest)
             let_info = combine_info(target.info, value.info)
             match value:
                 case Stmt():
-                    return SLetStmt(let_info, target, value), rest
+                    return SLetStmt(let_info, target, value, annotation), rest
                 case _:
-                    return SLet(let_info, target, value), rest
+                    return SLet(let_info, target, value, annotation), rest
 
         case _:
             expr, rest = parse_tuple_or_expr(tokens)

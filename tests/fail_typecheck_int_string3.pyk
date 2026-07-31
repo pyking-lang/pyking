@@ -1,0 +1,19 @@
+# A construct the checker does not cover yet.
+#
+# The first version of `src/typesystem.py` handles a top-level list of
+# immutable bindings and expression statements over Int and String. A
+# mutable variable is none of those, so it is refused with `Construct is
+# not supported` rather than quietly accepted -- the deliberate floor
+# described in that module and in docs/architecture.md.
+#
+# Note the bindings before it are perfectly well typed: the checker gets
+# as far as it can and then says exactly where it stopped, which is what
+# makes the message useful rather than a blanket "cannot check this
+# program".
+#
+# This program is expected to FAIL type checking. Its `.out` holds the
+# error message, not a program's output.
+
+base = 10
+scaled = base * 4
+var running = scaled

@@ -34,9 +34,21 @@ named after the source unless `--output` says otherwise:
 ```
 
 `--stdout` prints the generated code instead of writing it, `--ast` shows
-the parsed program, and `--tokens` the token stream. Every flag is passed
-straight through to the compiler (`src/pykboot.py`), so running `./pyk`
-with no arguments prints the full usage.
+the parsed program, and `--tokens` the token stream. Two flags go with
+`--ast`: `--symbols` labels each node with the unique number the
+`symbolize` pass gave it, and `--typecheck` runs the type checker first,
+so the printed program carries the types it inferred:
+
+```sh
+./pyk --typecheck --ast hello.pyk    # x: Int = 12 + 20
+./pyk --ast --symbols hello.pyk      # x@1 = (12@2 + 20@3)@4  @5
+```
+
+The type checker is opt-in because it covers only part of the language
+so far — see [docs/architecture.md](docs/architecture.md#symbols-and-types).
+Every flag is passed straight through to the compiler
+(`src/pykboot.py`), so running `./pyk` with no arguments prints the full
+usage.
 
 ## Make targets
 

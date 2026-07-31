@@ -2,11 +2,12 @@ import os
 import sys
 import textwrap
 
-from analyses import analyze_program, AnalysisError
+from analyses import analyze_program, symbolize, AnalysisError
 from lexer import lexing, pprint_info, pprint_token, LexError
 from parser import parse, ParseError
 from syntax import pprint_program
 import target_c
+import typesystem
 import target_java
 import target_js_core
 import target_js_packaging
@@ -78,6 +79,8 @@ Options:
   --output <file>       write the output to <file>
   --stdout              print the generated code instead of writing it
   --ast                 print the parsed program and stop
+  --symbols             with --ast, also print each node's symbol
+  --typecheck           type-check before doing anything else
   --tokens              print the token stream first
 
 Targets:
@@ -94,6 +97,8 @@ file and its class in Java's own casing: foo_bar.pyk -> FooBar.java."""
 args = sys.argv[1:]
 show_tokens = False
 show_ast = False
+show_symbols = False
+typecheck = False
 show_stdout = False
 output_path = None
 target = "python"
@@ -106,6 +111,10 @@ while i < len(args):
         show_tokens = True
     elif arg == "--ast":
         show_ast = True
+    elif arg == "--symbols":
+        show_symbols = True
+    elif arg == "--typecheck":
+        typecheck = True
     elif arg == "--stdout":
         show_stdout = True
     elif arg in ("--target", "-t"):
@@ -183,10 +192,33 @@ except AnalysisError as e:
     )
     sys.exit(1)
 
+# Every node gets a unique symbol once the names check out. This runs
+# for every mode, like the analysis before it: `--symbols` prints the
+# symbols, and a later pass that wants to hang information off a node
+# needs them to exist whether or not anyone asked to see them.
+program = symbolize(program)
+
+# Type checking is opt-in (`--typecheck`) while it covers only part of
+# the language -- see src/typesystem.py. It runs after symbolizing and
+# before `--ast`, so a printed AST shows the types it worked out.
+if typecheck:
+    try:
+        program, _ = typesystem.type_check(program, {})
+        # The checker synthesized the type nodes it wrote into each
+        # binding, so they have no symbols yet; symbolizing again fills
+        # in exactly those, leaving every existing number untouched.
+        program = symbolize(program)
+    except typesystem.TypeError_ as e:
+        print(
+            wrap(f"{pprint_info(e.info)} Type error: {e.message}"),
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
 # `--ast` is the Pyking AST, which every target shares, so it is printed
 # before any backend runs and ignores `--target`.
 if show_ast:
-    print(pprint_program(program))
+    print(pprint_program(program, symbols=show_symbols))
     sys.exit(0)
 
 stem = os.path.splitext(os.path.basename(filename))[0]

@@ -13,24 +13,28 @@ class Expr:
 class EInt(Expr):
     info: Info
     value: int
+    sym: int = 0
 
 
 @dataclass(frozen=True)
 class EString(Expr):
     info: Info
     value: str
+    sym: int = 0
 
 
 @dataclass(frozen=True)
 class EBool(Expr):          # 'true' / 'false'
     info: Info
     value: bool
+    sym: int = 0
 
 
 @dataclass(frozen=True)
 class EVar(Expr):
     info: Info
     name: str
+    sym: int = 0
 
 
 @dataclass(frozen=True)
@@ -38,6 +42,7 @@ class EAdd(Expr):           # left + right
     info: Info
     left: Expr
     right: Expr
+    sym: int = 0
 
 
 @dataclass(frozen=True)
@@ -45,6 +50,7 @@ class ESub(Expr):           # left - right
     info: Info
     left: Expr
     right: Expr
+    sym: int = 0
 
 
 @dataclass(frozen=True)
@@ -52,6 +58,7 @@ class EMul(Expr):           # left * right
     info: Info
     left: Expr
     right: Expr
+    sym: int = 0
 
 
 @dataclass(frozen=True)
@@ -59,12 +66,14 @@ class EDiv(Expr):           # left / right
     info: Info
     left: Expr
     right: Expr
+    sym: int = 0
 
 
 @dataclass(frozen=True)
 class ENeg(Expr):           # -operand (unary minus)
     info: Info
     operand: Expr
+    sym: int = 0
 
 
 @dataclass(frozen=True)
@@ -72,6 +81,7 @@ class ELessThan(Expr):      # left < right
     info: Info
     left: Expr
     right: Expr
+    sym: int = 0
 
 
 @dataclass(frozen=True)
@@ -79,6 +89,7 @@ class ELessThanEq(Expr):    # left <= right
     info: Info
     left: Expr
     right: Expr
+    sym: int = 0
 
 
 @dataclass(frozen=True)
@@ -86,6 +97,7 @@ class EGreatThan(Expr):     # left > right
     info: Info
     left: Expr
     right: Expr
+    sym: int = 0
 
 
 @dataclass(frozen=True)
@@ -93,6 +105,7 @@ class EGreatThanEq(Expr):   # left >= right
     info: Info
     left: Expr
     right: Expr
+    sym: int = 0
 
 
 @dataclass(frozen=True)
@@ -100,6 +113,7 @@ class EEq(Expr):            # left == right
     info: Info
     left: Expr
     right: Expr
+    sym: int = 0
 
 
 @dataclass(frozen=True)
@@ -107,18 +121,21 @@ class ECall(Expr):          # func(args...)
     info: Info
     func: Expr
     args: list
+    sym: int = 0
 
 
 @dataclass(frozen=True)
 class EList(Expr):          # [elements...]
     info: Info
     elements: list
+    sym: int = 0
 
 
 @dataclass(frozen=True)
 class ETuple(Expr):         # (e1, e2, ...); () is the empty/Unit tuple,
     info: Info              # (e,) is a singleton -- built from either a
     elements: list          # parenthesized or a bare comma-separated form
+    sym: int = 0
 
 
 @dataclass(frozen=True)
@@ -127,6 +144,7 @@ class EIf(Expr):            # if cond then then_expr else else_expr
     cond: Expr              # the `if` *statement*, so that every `else`
     then_expr: Expr         # has exactly one possible owner -- see the
     else_expr: Expr         # "if expressions" notes in PYKING.md)
+    sym: int = 0
 
 
 # --- type AST (for optional parameter/return type annotations) ---
@@ -138,31 +156,89 @@ class Type:
 @dataclass(frozen=True)
 class TInt(Type):           # Int
     info: Info
+    sym: int = 0
 
 
 @dataclass(frozen=True)
 class TString(Type):        # String
     info: Info
+    sym: int = 0
 
 
 @dataclass(frozen=True)
 class TBool(Type):          # Bool
     info: Info
+    sym: int = 0
 
 
 @dataclass(frozen=True)
 class TList(Type):          # [element]
     info: Info
     element: Type
+    sym: int = 0
 
 
 @dataclass(frozen=True)
 class TTuple(Type):         # (e1, e2, ...); zero elements is the Unit type "()"
     info: Info
     elements: list
+    sym: int = 0
+
+
+# Whether `--symbols` asked for each node's symbol number to be shown
+# (see `symbolize` in src/analyses.py). This is a module-level display
+# setting rather than a parameter threaded through every printer:
+# `pprint_program` is the only entry point any caller uses (see
+# `src/pykboot.py` and `tools/playground/generator.py`), it sets and
+# restores this around its one call, and the printers are pure and
+# single-threaded -- so nothing can observe the flag outside that call,
+# and no recursive call site has to remember to pass it along.
+_show_symbols = False
+
+def _sym(node, text):
+    """`text` with the node's symbol number appended, when `--symbols`
+    asked for it; `text` unchanged otherwise."""
+    if not _show_symbols:
+        return text
+    body = text if isinstance(node, _SELF_DELIMITED) else f"({text})"
+    return f"{body}@{node.sym}"
 
 
 def pprint_type(t):
+    return _sym(t, _pprint_type(t))
+
+
+def pprint_param(p):
+    return _sym(p, _pprint_param(p))
+
+
+def pprint_expr(e, min_prec=0):
+    return _sym(e, _pprint_expr(e, min_prec))
+
+
+def pprint_pattern(p):
+    return _sym(p, _pprint_pattern(p))
+
+
+def pprint_comp_clause(c):
+    return _sym(c, _pprint_comp_clause(c))
+
+
+def pprint_target(t):
+    return _sym(t, _pprint_target(t))
+
+
+def pprint_stmt(s, level=0):
+    """A statement may span several lines; its symbol goes on the header
+    line, where the construct it belongs to is."""
+    text = _pprint_stmt(s, level)
+    if not _show_symbols:
+        return text
+    head, *rest = text.split("\n")
+    return "\n".join([f"{head}  @{s.sym}"] + rest)
+
+
+def _pprint_type(t):
     match t:
         case TInt(_):
             return "Int"
@@ -181,9 +257,10 @@ class Param:                # name[:type]
     info: Info
     name: str
     type: Type = None
+    sym: int = 0
 
 
-def pprint_param(p):
+def _pprint_param(p):
     if p.type is None:
         return p.name
     return f"{p.name}:{pprint_type(p.type)}"
@@ -210,7 +287,7 @@ def _quote_string(s):
     return f"'{body}'"
 
 
-def pprint_expr(e, min_prec=0):
+def _pprint_expr(e, min_prec=0):
     # min_prec is the precedence required by the surrounding context; a
     # sub-expression built from a lower-precedence operator is parenthesized
     # so re-parsing the printed form reproduces the same AST.
@@ -294,35 +371,41 @@ class Pattern:
 class PInt(Pattern):        # case 0:
     info: Info
     value: int
+    sym: int = 0
 
 
 @dataclass(frozen=True)
 class PString(Pattern):     # case "foo":
     info: Info
     value: str
+    sym: int = 0
 
 
 @dataclass(frozen=True)
 class PBool(Pattern):       # case true: / case false:
     info: Info
     value: bool
+    sym: int = 0
 
 
 @dataclass(frozen=True)
 class PWildcard(Pattern):   # case _:
     info: Info
+    sym: int = 0
 
 
 @dataclass(frozen=True)
 class PCapture(Pattern):    # case name: (binds `name` to the matched value)
     info: Info
     name: str
+    sym: int = 0
 
 
 @dataclass(frozen=True)
 class PTuple(Pattern):      # case (p1, p2, ...): destructures a tuple value
     info: Info
     elements: list
+    sym: int = 0
 
 
 @dataclass(frozen=True)
@@ -330,6 +413,7 @@ class ListRest:              # the `..` / `..name` rest marker inside a PList
     info: Info
     name: str = None         # None: `..` (matches and discards the rest);
                               # otherwise `..name` (matches and binds the rest)
+    sym: int = 0
 
 
 @dataclass(frozen=True)
@@ -338,9 +422,10 @@ class PList(Pattern):        # case [p1, ..., pk]: destructures a list value;
     prefix: list              # among the elements (prefix/suffix split around it)
     rest: ListRest = None    # None => exact-length list (no rest marker present)
     suffix: list = None      # elements after `rest`; empty/None if no rest marker
+    sym: int = 0
 
 
-def pprint_pattern(p):
+def _pprint_pattern(p):
     match p:
         case PInt(_, v):
             return str(v)
@@ -377,12 +462,14 @@ class CompFor(CompClause):   # for pattern in sequence
     info: Info
     pattern: Pattern
     sequence: Expr
+    sym: int = 0
 
 
 @dataclass(frozen=True)
 class CompIf(CompClause):    # if condition
     info: Info
     condition: Expr
+    sym: int = 0
 
 
 @dataclass(frozen=True)
@@ -390,9 +477,10 @@ class EListComp(Expr):       # [expr for pattern in seq {for ... | if ...}]
     info: Info
     expr: Expr
     clauses: list             # list[CompClause]; first is always a CompFor
+    sym: int = 0
 
 
-def pprint_comp_clause(c):
+def _pprint_comp_clause(c):
     # Both sub-expressions print at min_prec 1 so that an `EIf` (precedence
     # 0) is parenthesized here. In a comprehension the surrounding grammar
     # already spells `for`/`in`/`if`, so an unparenthesized if expression
@@ -420,6 +508,7 @@ class MatchCase:
     pattern: Pattern
     body: list = None
     expr: Expr = None
+    sym: int = 0
 
 
 # --- assignment target AST (the left-hand side of `=`, which may
@@ -433,15 +522,17 @@ class AssignTarget:
 class TargetName(AssignTarget):   # name
     info: Info
     name: str
+    sym: int = 0
 
 
 @dataclass(frozen=True)
 class TargetTuple(AssignTarget):  # (t1, t2, ...) destructuring target
     info: Info
     elements: list
+    sym: int = 0
 
 
-def pprint_target(t):
+def _pprint_target(t):
     match t:
         case TargetName(_, name):
             return name
@@ -460,10 +551,17 @@ class Stmt:
 
 
 @dataclass(frozen=True)
-class SLet(Stmt):           # target = expr (immutable binding; target may
-    info: Info               # destructure a tuple)
+class SLet(Stmt):           # target[: type] = expr (immutable binding;
+    info: Info               # target may destructure a tuple)
     target: AssignTarget
     expr: Expr
+    # The binding's type: `None` until something works it out. The
+    # annotation is optional in the source, and the type checker
+    # (`src/typesystem.py`, run only under `--typecheck`) fills it in
+    # otherwise. Printed back when present, which is what makes
+    # `pyk --typecheck --ast` show what was inferred.
+    type: Type = None
+    sym: int = 0
 
 
 @dataclass(frozen=True)
@@ -475,6 +573,9 @@ class SLetStmt(Stmt):       # target = <if/match statement in value form>,
                              # end in one (and an `if` must have its `else`)
                              # -- checked by the parser, since neither
                              # restriction is expressible in the grammar.
+    type: Type = None        # as `SLet.type`; both come from the single
+                             # `assignment` grammar rule.
+    sym: int = 0
 
 
 @dataclass(frozen=True)
@@ -482,6 +583,7 @@ class SVar(Stmt):           # var name = expr (mutable declaration)
     info: Info
     name: str
     expr: Expr
+    sym: int = 0
 
 
 @dataclass(frozen=True)
@@ -489,12 +591,14 @@ class SMutate(Stmt):        # name := expr (mutation of a `var`)
     info: Info
     name: str
     expr: Expr
+    sym: int = 0
 
 
 @dataclass(frozen=True)
 class SReturn(Stmt):        # return expr
     info: Info
     expr: Expr
+    sym: int = 0
 
 
 @dataclass(frozen=True)
@@ -507,12 +611,14 @@ class SReturnStmt(Stmt):    # return <if/match statement in value form>,
                              # end in one (and an `if` must have its
                              # `else`) -- the same rules `SLetStmt` obeys,
                              # checked by the same parser code.
+    sym: int = 0
 
 
 @dataclass(frozen=True)
 class SExprStmt(Stmt):      # expr used as a statement, e.g. print(x)
     info: Info
     expr: Expr
+    sym: int = 0
 
 
 @dataclass(frozen=True)
@@ -521,6 +627,7 @@ class SFor(Stmt):           # for name in iterable: body
     name: str
     iterable: Expr
     body: list
+    sym: int = 0
 
 
 @dataclass(frozen=True)
@@ -528,6 +635,7 @@ class SWhile(Stmt):         # while cond: body
     info: Info
     cond: Expr
     body: list
+    sym: int = 0
 
 
 @dataclass(frozen=True)
@@ -536,6 +644,7 @@ class SIf(Stmt):            # if cond: then_body [else: else_body]
     cond: Expr
     then_body: list
     else_body: list = None
+    sym: int = 0
 
 
 @dataclass(frozen=True)
@@ -551,6 +660,7 @@ class SFunctionDef(Stmt):   # def name(params...) [-> return_type]: body
     body: list = None
     return_type: Type = None
     expr: Expr = None
+    sym: int = 0
 
 
 @dataclass(frozen=True)
@@ -558,18 +668,23 @@ class SMatch(Stmt):         # match subject: case pattern: body ...
     info: Info
     subject: Expr
     cases: list
+    sym: int = 0
 
 
-def pprint_stmt(s, level=0):
+def _pprint_stmt(s, level=0):
     pad = "    " * level
     match s:
-        case SLet(_, target, expr):
-            return f"{pad}{pprint_target(target)} = {pprint_expr(expr)}"
-        case SLetStmt(_, target, stmt):
+        case SLet(_, target, expr, type_):
+            return (
+                f"{pad}{pprint_target(target)}{_annotation(type_)} "
+                f"= {pprint_expr(expr)}"
+            )
+        case SLetStmt(_, target, stmt, type_):
             # The bound statement prints exactly as it would on its own;
             # only its header line gains the `target = ` prefix.
             head, *rest = pprint_stmt(stmt, level).split("\n")
-            return "\n".join([f"{pad}{pprint_target(target)} = {head.strip()}"] + rest)
+            prefix = f"{pad}{pprint_target(target)}{_annotation(type_)} = "
+            return "\n".join([prefix + head.strip()] + rest)
         case SVar(_, name, expr):
             return f"{pad}var {name} = {pprint_expr(expr)}"
         case SMutate(_, name, expr):
@@ -635,5 +750,34 @@ def pprint_stmt(s, level=0):
             return "\n".join(lines)
 
 
-def pprint_program(stmts):
-    return "\n".join(pprint_stmt(s) for s in stmts)
+# Nodes whose printed form is already a single token or already
+# bracketed, so appending `@n` to it cannot be misread. Everything else
+# is parenthesized first: without that, `1 + 2` would print as
+# `1@1 + 2@2@3`, where the last `@3` looks like it belongs to the `2`.
+_SELF_DELIMITED = (
+    EInt, EString, EBool, EVar, EList, ETuple, EListComp,
+    TInt, TString, TBool, TList, TTuple,
+    PInt, PString, PBool, PWildcard, PCapture, PTuple, PList,
+    TargetName, TargetTuple,
+)
+
+
+def _annotation(type_):
+    """`: Int` for a binding whose type is known, nothing otherwise. The
+    annotation is optional in the source and filled in by the type
+    checker (see `SLet.type`), so this is what makes
+    `pyk --typecheck --ast` show what was inferred -- and, since the
+    parser accepts the same syntax, keeps that output re-parsable."""
+    return "" if type_ is None else f": {pprint_type(type_)}"
+
+
+def pprint_program(stmts, symbols=False):
+    """The whole program as Pyking source. `symbols` additionally prints
+    each node's symbol number (see `symbolize` in src/analyses.py) as an
+    `@n` suffix -- what `--symbols` asks for."""
+    global _show_symbols
+    _show_symbols = symbols
+    try:
+        return "\n".join(pprint_stmt(s) for s in stmts)
+    finally:
+        _show_symbols = False

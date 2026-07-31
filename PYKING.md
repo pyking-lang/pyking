@@ -129,7 +129,8 @@ Expressions:
 
 Statements:
 
-- Immutable bindings (`=`), which may destructure a tuple value into
+- Immutable bindings (`=`), with an optional type annotation on the
+  name (`x: Int = 1`), which may destructure a tuple value into
   several names at once (e.g. `a, b = 1, 2` or `(a, (b, c)) = pair`),
   and whose right-hand side may be an `if`/`match` *statement* in value
   form (`x = if cond:` / `x = match e:`) — Pyking extension
@@ -222,7 +223,7 @@ list_pattern_item  = pattern_atom | rest_marker ;
 rest_marker        = ".." , [ ident ] ;
 
 var_decl    = "var" , ident , "=" , bound_expr ;
-assignment  = target , "=" , bound_value ;
+assignment  = target , [ ":" , type ] , "=" , bound_value ;
 mutation    = ident , ":=" , bound_expr ;
 
 (* A bound value may start on the line after its "=", indented -- the
@@ -438,6 +439,13 @@ Notes that don't fall out of the grammar alone:
   `True`, or `False` as an identifier (the first two because they're
   keywords, the last two because they're simply unbound: Pyking has no
   binding for Python's capitalised spelling).
+- `assignment`'s `[ ":" , type ]` annotates the *binding*, e.g.
+  `x: Int = 1`. Like every other annotation it is optional and nothing
+  verifies it (see "Type annotations"), but it is the one the type
+  checker writes back into: `pyk --typecheck --ast` prints each binding
+  with the type it inferred, in exactly this syntax, so that output can
+  be fed back to the compiler. A destructuring target takes one
+  annotation for the whole binding, not one per name.
 - `param`'s `[ ":" , type ]` and `function_def`'s `[ "->" , type ]` are
   both optional and independent — a function may annotate none, some, or
   all of its parameters, with or without a return type. Annotations are
@@ -978,6 +986,14 @@ body for that.
 
 ### Type annotations
 
+An immutable binding may be annotated on its name, `x: Int = 1`:
+
+```pyking
+count: Int = 42
+name: String = "pyking"
+total: Int = count + 1
+```
+
 Parameters and the return value may optionally be annotated with a type:
 `Int`, `String`, `Bool`, a list type `[T]`, or a tuple type
 `(T1, T2, ...)` (nesting freely, e.g. `[(Int, Bool)]`). `()`, the
@@ -1006,11 +1022,15 @@ print(sum_list([1, 2, 3, 4]))
 print(scale(3, 4))
 ```
 
-There is no type checker yet — annotations are parsed and stored in the
-AST (see `Param`/`SFunctionDef.return_type` in `src/syntax.py`) and
-pretty-printed back out in Pyking's own syntax, but nothing is verified
-against them. Compiling erases every annotation: no generated code
-carries type syntax at all.
+Annotations are parsed and stored in the AST (see `Param`,
+`SFunctionDef.return_type` and `SLet.type` in `src/syntax.py`) and
+pretty-printed back out in Pyking's own syntax. Compiling erases every
+one of them: no generated code carries type syntax at all.
+
+Nothing verifies an annotation in an ordinary compile. There *is* a type
+checker, but it is opt-in and covers only part of the language so far —
+how it is invoked and what it currently accepts is a compiler matter,
+described in [docs/architecture.md](docs/architecture.md).
 
 ### `return` statements
 

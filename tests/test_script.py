@@ -38,7 +38,27 @@ import tomllib
 
 PYKBOOT = os.path.join("src", "pykboot.py")
 CASES_FILE = os.path.join("tests", "test_cases.toml")
-TARGETS = ("python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21")
+# The `typecheck` target is not a backend: it compiles nothing and runs
+# nothing. It type-checks a program and compares the *printed AST*
+# against the `.out` file, which is how a `typecheck_*.pyk` test pins
+# down the types the checker infers. See `run_typecheck` below.
+TYPECHECK_TARGET = "typecheck"
+# A `typecheck_*` program must type-check, and its `.out` holds the
+# printed AST. A `fail_typecheck_*` one must *not*, and its `.out` holds
+# the error message instead -- so the two prefixes together pin down both
+# halves of the checker: what it infers, and what it rejects and how it
+# says so.
+TYPECHECK_PREFIX = "typecheck_"
+FAIL_TYPECHECK_PREFIX = "fail_typecheck_"
+
+
+def is_typecheck_file(name):
+    return name.startswith((TYPECHECK_PREFIX, FAIL_TYPECHECK_PREFIX))
+
+TARGETS = (
+    "python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17",
+    "java21", TYPECHECK_TARGET,
+)
 
 # The compiler used for the C targets; `cc` is the standard name.
 C_COMPILER = os.environ.get("CC", "cc")
@@ -164,7 +184,32 @@ def run_java(source, workdir, version):
     return run([JAVA_RUNTIME, "-cp", workdir, "Program"]).stdout, None
 
 
+def run_typecheck(source, workdir):
+    """Type-checks `source`. Nothing is compiled or executed.
+
+    For a `typecheck_*` program the result is its pretty-printed AST:
+    the checker writes the types it inferred into it (`x: Int = 1`), so
+    printing it is what the `.out` records, and any error is a failure.
+
+    For a `fail_typecheck_*` program it is the other way round -- the
+    checker is *expected* to reject it, so the error message becomes the
+    output to compare and type-checking cleanly is the failure."""
+    expect_failure = os.path.basename(source).startswith(FAIL_TYPECHECK_PREFIX)
+    result = run([sys.executable, PYKBOOT, "--typecheck", "--ast", source])
+    if expect_failure:
+        if result.returncode == 0:
+            return None, (
+                "expected type checking to fail, but it succeeded and "
+                f"printed:\n{result.stdout}"
+            )
+        return result.stderr, None
+    if result.returncode != 0:
+        return None, result.stderr
+    return result.stdout, None
+
+
 RUNNERS = {
+    TYPECHECK_TARGET: run_typecheck,
     "python": run_python,
     "nodejs": run_nodejs,
     "esm": run_esm,
@@ -188,6 +233,26 @@ def load_cases():
         print(f"WARNING: tests/{missing} is not listed in {CASES_FILE}")
     for missing in sorted(listed - on_disk):
         print(f"WARNING: {CASES_FILE} lists {missing}, which does not exist")
+    # A `typecheck_*` program is checked, never run, so its `.out` holds a
+    # printed AST rather than a program's output -- listing it against a
+    # real backend would compare those two unrelated things. The naming
+    # convention and the manifest have to agree about which files those
+    # are, so neither can drift silently.
+    for case in cases:
+        typecheck_file = is_typecheck_file(case["file"])
+        uses_typecheck = TYPECHECK_TARGET in case["targets"]
+        if typecheck_file and case["targets"] != [TYPECHECK_TARGET]:
+            print(
+                f"WARNING: {case['file']} is named {TYPECHECK_PREFIX}* or "
+                f"{FAIL_TYPECHECK_PREFIX}* so it must list exactly "
+                f"targets = [\"{TYPECHECK_TARGET}\"]"
+            )
+        if uses_typecheck and not typecheck_file:
+            print(
+                f"WARNING: {case['file']} uses the {TYPECHECK_TARGET} target "
+                f"but is named neither {TYPECHECK_PREFIX}* nor "
+                f"{FAIL_TYPECHECK_PREFIX}*"
+            )
     return cases
 
 
@@ -228,10 +293,14 @@ def main():
     print()
     print("Summary")
     total_failed = 0
+    # Width taken from the names themselves rather than fixed, so the
+    # columns stay lined up whatever a target is called -- `typecheck` is
+    # already longer than every backend name.
+    width = max(len(target) for target in TARGETS)
     for target in TARGETS:
         total = passed[target] + failed[target]
         print(
-            f"  target {target:<7} {passed[target]:3d} passed, "
+            f"  target {target:<{width}} {passed[target]:3d} passed, "
             f"{failed[target]:3d} failed  (of {total} supported cases)"
         )
         total_failed += failed[target]

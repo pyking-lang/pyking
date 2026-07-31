@@ -55,7 +55,12 @@ these is updated in the same change — none of them is optional, and the
 last ones are the ones that get forgotten:
 
 1. **`src/`** — the stage(s) implementing it (lexer → parser → syntax →
-   `analyses.py` → each backend). A construct that binds or uses a *name*
+   `analyses.py` → `typesystem.py` → each backend). `symbolize` needs
+   nothing: its walk is generic over dataclass fields, so a new node in
+   `syntax.py` gets a symbol for free. `typesystem.py` does need a
+   decision, but only a cheap one — either check the construct or let it
+   fall through to `Construct is not supported`, which is what every
+   construct it has not reached yet already does. A construct that binds or uses a *name*
    always reaches `analyses.py`: it has to bind through `bind` (so the
    no-shadowing-a-`var` rule covers it) or be walked so its names are
    checked, or it silently escapes the analysis. Every backend needs a
@@ -166,7 +171,31 @@ The bootstrap is split into one module per compiler stage:
    Keep new analyses in this module as separate `analyze_*` entry points
    rather than folding more checking into the parser: the parser's job
    is shape, and only a scope-aware walk can judge names.
-5. **`src/runtime_interface.py`** — the boundary between pure Pyking code
+   Also here: **`symbolize`**, which gives every AST node a unique
+   integer `sym` (post-order from 1; `0` means "not symbolized yet").
+   Unlike `analyze_program` it *rewrites* — nodes are frozen, so it
+   rebuilds the tree with `replace`. Its walk is generic over dataclass
+   fields rather than one case per node type, so a node added to
+   `syntax.py` is covered without touching it. A node that already has a
+   symbol keeps it and new numbers continue past the highest in the
+   tree, which is what makes it safe to run twice (the type checker
+   synthesizes nodes after the first run).
+5. **`src/typesystem.py`** — the type checker, run only under
+   `--typecheck`, after `symbolize` and before `--ast` prints anything.
+   One entry point, `type_check(node, env) -> (new_node, type)`, where
+   `env` maps a name to its type and is used *immutably* (a binding
+   hands what follows it an extended copy), the same discipline
+   `analyses.py` follows. Types are `syntax.py`'s own `T*` nodes, not a
+   separate vocabulary, so a checked binding prints as `x: Int = 1` —
+   syntax the parser accepts, which keeps `--typecheck --ast` output
+   re-parsable. Statements and whole programs have type unit; a
+   binding's right-hand-side type is recorded in `SLet.type`. It covers
+   only a fragment so far (top-level `=` and expression statements over
+   `Int`/`String`, with `+` overloaded and `-`/`*` on `Int`); everything
+   else raises `TypeError_(info, "Construct is not supported")`. Keep
+   that floor explicit rather than silently accepting what it has not
+   reasoned about.
+6. **`src/runtime_interface.py`** — the boundary between pure Pyking code
    and the outside world, in the spirit of WebAssembly's split between a
    core language that cannot observe anything and a separate host spec.
    Backend-agnostic by construction: it holds no Python and no JavaScript,
@@ -174,7 +203,7 @@ The bootstrap is split into one module per compiler stage:
    *including* the value-formatting rules, since every backend has to
    agree on those for one program to print the same characters
    everywhere. Add an operation here first; the backends then bind it.
-6. **`src/target_js_core.py`** — the JavaScript backend's language half:
+7. **`src/target_js_core.py`** — the JavaScript backend's language half:
    a `Js*` AST, translation from `syntax.py`, and a printer. Knows nothing
    about packaging. Calls that cross the runtime interface become
    `JsRuntimeCall`, whose spelling is supplied by the packager, so the
@@ -184,14 +213,14 @@ The bootstrap is split into one module per compiler stage:
    it (`const` redeclaration, and the temporal dead zone), not on every
    shadow the way `target_python.py` must. Constructs outside the
    supported subset raise `UnsupportedError`, which carries an `Info`.
-7. **`src/target_js_packaging.py`** — the JavaScript backend's packaging
+8. **`src/target_js_packaging.py`** — the JavaScript backend's packaging
    half: wraps core output into `nodejs` (one self-contained script),
    `html` (one self-contained page printing into a visible box), and `esm`
    (a module exporting `run(runtime)`, plus a node driver and an HTML
    wrapper derived from the `--output` path). It owns the JavaScript side
    of the runtime interface — each host's `print` and the shared
    `pykFormat` — which is exactly what differs between the three.
-8. **`src/target_c.py`** — the C backend, serving both the `c89` and
+9. **`src/target_c.py`** — the C backend, serving both the `c89` and
    `c23` targets: a `C*` AST, translation, and a printer taking a
    `standard` parameter. One backend rather than two because the
    standards disagree about *printing*, not meaning — comments, whether
@@ -204,7 +233,7 @@ The bootstrap is split into one module per compiler stage:
    its translated body. When inference cannot answer, raise
    `UnsupportedError` with the `Info` rather than emitting C that will
    not compile.
-9. **`src/target_java.py`** — the Java backend, serving `java8`,
+10. **`src/target_java.py`** — the Java backend, serving `java8`,
    `java17` and `java21`: a `J*` AST, translation, and a printer taking a
    `version` parameter, the same shape `target_c.py` uses for `standard`
    — one backend because the three versions disagree only in whether a
@@ -221,7 +250,7 @@ The bootstrap is split into one module per compiler stage:
    style rather than the source's, since Java requires the two to match
    (`default_class_name`; see `pykboot.py` below for where the exception
    is applied).
-10. **`src/target_python.py`** — the Python code-generation backend: its
+11. **`src/target_python.py`** — the Python code-generation backend: its
    own `Py*` AST (`PyInt`, `PyAssign`, `PyFor`, ... — structurally the same
    shape as `src/syntax.py`'s `E*`/`S*`, except Pyking's `SLet`/`SVar`/
    `SMutate` all collapse into one `PyAssign`, since Python has no
@@ -248,13 +277,16 @@ The bootstrap is split into one module per compiler stage:
    independent of `syntax.py`'s pretty-printing internals so the next one
    can too, without entangling target-specific logic into the Pyking
    AST/pretty-printer.
-11. **`src/pykboot.py`** — the entry point: parses `--tokens`/`--ast`/
-   `--stdout`/`--output <file>`/`--target|-t <target>`/the filename from
-   argv, runs `lexer.lexing`, `parser.parse` and
-   `analyses.analyze_program`, then dispatches on the target. Catches
-   `LexError`/`ParseError`/`AnalysisError`/`UnsupportedError` and prints a
-   `'file' row:col-row:col ...` message to stderr (`Lexing error` /
-   `Parsing error` / `Name error` / `Unsupported by target '<t>'`). The
+12. **`src/pykboot.py`** — the entry point: parses `--tokens`/`--ast`/
+   `--symbols`/`--typecheck`/`--stdout`/`--output <file>`/
+   `--target|-t <target>`/the filename from argv, runs `lexer.lexing`,
+   `parser.parse`, `analyses.analyze_program` and `analyses.symbolize`,
+   optionally `typesystem.type_check`, then dispatches on the target.
+   Catches `LexError`/`ParseError`/`AnalysisError`/`TypeError_`/
+   `UnsupportedError` and prints a `'file' row:col-row:col ...` message
+   to stderr (`Lexing error` / `Parsing error` / `Name error` /
+   `Type error` / `Unsupported by target '<t>'`). Every message it
+   prints goes through `wrap`, which reflows to 70 columns. The
    analysis runs for every mode, `--ast` included — an AST whose names
    don't resolve is not worth printing or compiling. Every flag has a
    default: `--target` is `python`, and with no `--ast`/`--stdout`/
@@ -279,7 +311,8 @@ block inside `lexing`, add a corresponding `Tok*` dataclass, and add a
 ## Running
 
 ```
-pyk [--tokens] [--target|-t <target>] [--ast | --stdout | --output <file>] <filename>
+pyk [--tokens] [--symbols] [--typecheck] [--target|-t <target>]
+    [--ast | --stdout | --output <file>] <filename>
 ```
 
 (`pyk` is the wrapper script at the repository root; it forwards every
@@ -293,7 +326,9 @@ happens). The other three select what to do, and none of them is
 required:
 
 - `--ast` stops after the front end and prints the pretty-printed *Pyking*
-  AST. Target-independent, so it ignores `--target`.
+  AST. Target-independent, so it ignores `--target`. `--symbols` adds
+  each node's symbol as an `@n` suffix; `--typecheck` runs the type
+  checker first, so the printed AST carries the types it inferred.
 - `--stdout` compiles and prints the generated source. For `esm`, whose
   wrappers only exist as files, this prints the module alone.
 - `--output <file>` compiles and writes to `<file>`. A single-file target
@@ -341,6 +376,24 @@ module under a small `document` stub — and compares stdout against the
 sibling `.out` file. One `.out` serves every target, which is the property
 being tested. It warns about any `.pyk` missing from the manifest and
 prints a per-target summary.
+
+`typecheck` is a target in that list but not a backend: it compiles and
+runs nothing. It invokes `pyk --typecheck --ast`, and two filename
+prefixes say what to expect:
+
+- **`typecheck_*.pyk`** must type-check, and its `.out` holds the
+  *printed AST* — so the test pins down the types the checker infers
+  rather than a program's output.
+- **`fail_typecheck_*.pyk`** must **not** type-check, and its `.out`
+  holds the *error message*. Type-checking cleanly is the failure.
+
+Together they pin down both halves of the checker: what it infers, and
+what it rejects and how it says so. The naming convention and the
+manifest have to agree — a file with either prefix must list exactly
+`targets = ["typecheck"]`, and no other file may use that target — and
+the harness warns when they drift apart. Such a program cannot call
+anything, `print` included: a call is one of the constructs the checker
+does not cover yet.
 
 No third-party dependencies. Requires Python 3.11+ (`match`/`case`, and
 `tomllib` for the manifest). Running the generated code needs `node` for

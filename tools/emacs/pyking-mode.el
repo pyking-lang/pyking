@@ -101,7 +101,10 @@ has no Python counterpart at all.")
 
 (defconst pyking-mode-types
   '("Int" "String" "Bool")
-  "Reserved type names usable in parameter/return type annotations.
+  "Reserved type names usable in type annotations.
+Annotations appear on a parameter, on a `def' return value, and on an
+immutable binding (`x: Int = 1' -- see `assignment' in PYKING.md's
+grammar), which is the form the type checker fills in and prints back.
 Mirrors the `keywords' list in src/lexer.py: like `match'/`case', these
 are always-reserved keywords, not identifiers the parser special-cases
 only in type position -- see PYKING.md's \"Type annotations\" section.
@@ -158,6 +161,14 @@ builtin.")
      1 font-lock-variable-name-face)
    ;; for_stmt = "for" , ident , "in" , expr , ":" , block -- loop variable.
    '("\\_<for\\_>[ \t]+\\(\\sw+\\)[ \t]+\\_<in\\_>"
+     1 font-lock-variable-name-face)
+   ;; assignment = target , [ ":" , type ] , "=" , bound_value -- the
+   ;; annotated form declares a name, so it is highlighted like the
+   ;; `def'/`var'/`for' declarations above. The annotation must actually
+   ;; begin a `type' (see the grammar in PYKING.md): requiring that is
+   ;; what stops a bare `else:' -- a word, a colon, and nothing more --
+   ;; from being mistaken for a declaration of a variable called `else'.
+   '("^[ \t]*\\(\\sw+\\)[ \t]*:[ \t]*\\(?:Int\\|String\\|Bool\\|[][(]\\)"
      1 font-lock-variable-name-face)
    ;; mutation = ident , ":=" , expr -- Pyking's one deliberate departure
    ;; from plain Python assignment (see PYKING.md), worth calling out.
@@ -578,7 +589,8 @@ block opener that list holds a single forced column (see
 Provides syntax highlighting for Pyking's keywords (`for', `in', `if',
 `while', `then', `else', `var', `def', `return', `match', `case'), the
 `:=' mutation operator, the `..'/`..name' list-pattern rest marker,
-string literals (with backslash escapes), `#' comments, integer and
+string literals (with backslash escapes), `#' comments, the name an
+annotated binding declares (`x: Int = 1'), integer and
 boolean literals (`true'/`false', see `pyking-mode-constants', coloured
 the same as an integer literal, not as a keyword), type annotation names
 (`Int', `String', `Bool', see `pyking-mode-types'), and well-known

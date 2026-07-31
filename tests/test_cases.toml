@@ -45,6 +45,18 @@ file = "escapes.pyk"
 targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
 
 [[cases]]
+file = "fail_typecheck_int_string1.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_int_string2.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_int_string3.pyk"
+targets = ["typecheck"]
+
+[[cases]]
 file = "for_complex.pyk"
 targets = ["python"]
 
@@ -207,6 +219,10 @@ targets = ["python"]
 [[cases]]
 file = "tuples_match_destructure.pyk"
 targets = ["python"]
+
+[[cases]]
+file = "typecheck_int_string.pyk"
+targets = ["typecheck"]
 
 [[cases]]
 file = "types_atoms.pyk"

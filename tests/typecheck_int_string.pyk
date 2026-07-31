@@ -1,0 +1,63 @@
+# Type checking over the fragment `src/typesystem.py` covers so far:
+# top-level immutable bindings and expression statements, over Int and
+# String, with `+` (overloaded), `-` and `*` (Int only).
+#
+# This file is never run. The test harness compiles it with
+# `--typecheck --ast`, so the `.out` beside it is the *pretty-printed
+# AST* -- every binding carrying the type the checker worked out. That
+# is what pins the inference down: change what a construct infers and
+# this file's output changes with it.
+#
+# It calls no functions, not even `print`: a call is one of the many
+# constructs this first checker refuses, so it could not appear in a
+# program that type-checks.
+
+# Literals give their own type.
+i = 42
+s = "hello"
+
+# `+` on integers is Int.
+sum = 12 + 20
+
+# `+` on strings is String -- the same operator, a different type. This
+# overloading is the whole reason `+` needs a table of signatures rather
+# than one rule.
+greeting = "hi" + "there"
+
+# `-` and `*` are Int-only.
+difference = 100 - 58
+product = 6 * 7
+
+# A name carries its type into later expressions, so these are checked
+# against what the bindings above inferred, not re-derived from
+# literals.
+doubled = sum * 2
+shifted = doubled - i
+label = greeting + "!"
+louder = label + "!" + "!"
+
+# Precedence and nesting do not change the types, only the grouping.
+mixed = 1 + 2 * 3 - 4
+grouped = (1 + 2) * (3 - 4)
+deep = ((1 + 2) * 3 - 4) * 5
+
+# Long chains of each operator, to check the checker walks both operands
+# all the way down rather than stopping at the first pair.
+chain = 1 + 2 + 3 + 4 + 5
+words = "a" + "b" + "c" + "d"
+
+# A binding may be rebound to a different type: `=` is a fresh binding,
+# not an update (see PYKING.md), so the second `value` is a String even
+# though the first was an Int.
+value = 1
+value = "now a string"
+after = value + " still a string"
+
+# An expression statement is checked too, and has no name to record its
+# type on -- the statement itself is unit.
+i + 1
+greeting + "?"
+2 * 3 - 4
+
+# An annotation already written in the source is checked and kept.
+annotated: Int = 7 + 1

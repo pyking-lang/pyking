@@ -1,0 +1,12 @@
+# The overloaded `+` applied to one Int and one String.
+#
+# `+` is the one operator with more than one signature -- Int + Int and
+# String + String -- so it is also the one where "no signature matches"
+# has to be reported rather than a single expected type. Neither operand
+# is wrong on its own; it is the pair that has no meaning.
+#
+# This program is expected to FAIL type checking. Its `.out` holds the
+# error message, not a program's output.
+
+count = 13
+count + "hello"

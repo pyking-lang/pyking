@@ -1,0 +1,2 @@
+'tests/fail_typecheck_int_string3.pyk' 19:0-19:20 Type error:
+  Construct is not supported
