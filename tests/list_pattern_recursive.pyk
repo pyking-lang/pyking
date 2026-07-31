@@ -25,10 +25,10 @@ def reverse(xs):
 def contains(xs, target):
     match xs:
         case []:
-            return 1 == 2
+            return false
         case [x, ..rest]:
             if x == target:
-                return 1 == 1
+                return true
             else:
                 return contains(rest, target)
 

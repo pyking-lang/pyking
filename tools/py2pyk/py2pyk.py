@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+/bin/env python3
 """py2pyk: translate a subset of Python source into Pyking source.
 
 Usage:
@@ -721,11 +721,9 @@ class ExprTranslator:
     def _t_Constant(self, node, min_prec):
         v = node.value
         if isinstance(v, bool):
-            # Pyking has no boolean literal syntax, but comparisons do
-            # produce real Bool values (see PYKING.md / runtime_interface's
-            # print formatting), so a self-evidently-true/false comparison
-            # stands in for the literal -- see README "True/False/None".
-            return "(1 == 1)" if v else "(1 == 2)"
+            # Pyking's own boolean literals -- lowercase, unlike Python's
+            # capitalised True/False (see PYKING.md's "Boolean literals").
+            return "true" if v else "false"
         if isinstance(v, int):
             return str(v)
         if isinstance(v, str):

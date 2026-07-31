@@ -66,7 +66,7 @@ from dataclasses import dataclass
 from lexer import Info
 import runtime_interface
 from syntax import (
-    EInt, EString, EVar,
+    EInt, EString, EBool, EVar,
     EAdd, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EIf,
     SLet, SVar, SMutate, SReturn, SExprStmt, SWhile, SIf, SFunctionDef,
@@ -144,8 +144,7 @@ def _annotated_type(annotation):
 # --- Java AST ---
 #
 # Every expression node carries its type: the translator needs it to
-# check operators and to pick `.equals()` over `==`, and the printer needs
-# it to turn a printed boolean into Pyking's `True`/`False`.
+# check operators and to pick `.equals()` over `==`.
 
 class JExpr:
     """Base class for the Java expression AST."""
@@ -163,6 +162,13 @@ class JStr(JExpr):
     info: Info
     value: str
     ctype: str = STRING
+
+
+@dataclass(frozen=True)
+class JBool(JExpr):
+    info: Info
+    value: bool
+    ctype: str = BOOL
 
 
 @dataclass(frozen=True)
@@ -361,6 +367,8 @@ class _Translator:
                 return JInt(info, v)
             case EString(info, s):
                 return JStr(info, s)
+            case EBool(info, v):
+                return JBool(info, v)
             case EVar(info, name):
                 java_name, jtype = _lookup(name, scope, info)
                 return JVar(info, java_name, jtype)
@@ -656,20 +664,16 @@ def _check_reachable(stmts):
 
 def _build_print_expr(args):
     """One `JExpr` computing the line `print(args...)` writes: each
-    argument formatted -- a boolean converted to Pyking's `True`/`False`
-    through a conditional expression, since Java spells its own lowercase
-    -- and joined with single spaces via Java's `+`, which already means
-    string concatenation once either side is a `String`. `None` for no
-    arguments at all."""
+    argument joined with single spaces via Java's `+`, which already means
+    string concatenation once either side is a `String` -- and Java's own
+    boolean-to-string conversion already spells `true`/`false`, exactly
+    matching Pyking's, so a boolean argument needs no special handling
+    (unlike `target_c.py`, where the two standards disagree with Pyking
+    and with each other). `None` for no arguments at all."""
     if not args:
         return None
-    parts = [
-        JCond(a.info, a, JStr(a.info, "True"), JStr(a.info, "False"), STRING)
-        if a.ctype == BOOL else a
-        for a in args
-    ]
-    result = parts[0]
-    for part in parts[1:]:
+    result = args[0]
+    for part in args[1:]:
         result = JBinary(part.info, "+", result, JStr(part.info, " "), STRING)
         result = JBinary(part.info, "+", result, part, STRING)
     return result
@@ -749,6 +753,8 @@ def pprint_java_expr(e, version, min_prec=0):
             return str(v)
         case JStr(_, s, _):
             return _quote(s)
+        case JBool(_, v, _):
+            return "true" if v else "false"
         case JVar(_, name, _):
             return name
         case JUnary(_, op, operand, _):

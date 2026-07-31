@@ -41,6 +41,86 @@ total := total + x                 total = total + x
 print(x, total)                    print(x, total)
 ```
 
+### Booleans
+
+`true`/`false` compile straight to Python's `True`/`False` — that part is
+a plain value, not a formatting concern, so a bound, returned, or
+compared boolean looks exactly as you'd expect in the generated code.
+Printing one is the exception: Python's own `print` would write it back
+out capitalised, `True`/`False`, but Pyking prints `true`/`false` (see
+"The runtime interface" in `docs/architecture.md`) — the one place this
+backend's native behavior actively disagrees with Pyking's, rather than
+simply lacking a distinction Pyking makes.
+
+There is no type checker (see PYKING.md), so in general this backend
+cannot know whether a given `print` argument is a `Bool` — but it doesn't
+need one to know for *most* arguments: a comparison or a boolean literal
+always is one, and an arithmetic expression, a literal int/string, or a
+list/tuple never is, straight from the Pyking AST's own shape (`_bool_shape`
+in `target_python.py`). Each argument is handled according to what that
+tells it:
+
+```pyking                                     # generated Python
+print(1 < 2, true, 5, "hi")                   print('true' if 1 < 2 else 'false', 'true' if True else 'false', 5, 'hi')
+```
+
+A provable `Bool` becomes an inline `'true' if <expr> else 'false'` —
+`<expr>` is evaluated exactly once either way, since it's the
+conditional's own condition, not repeated in each branch — and a provable
+non-`Bool` is passed through completely unwrapped, exactly as if this
+backend didn't exist. Only the residue — a variable or a function call,
+whose value could be anything, including a `Bool`, from where this
+backend is standing — falls back to a small generated helper, checking at
+*runtime* what couldn't be decided at compile time:
+
+```pyking                              # generated Python (only ever emitted if needed)
+found = true
+print(found)                           def __pyk_bool_str(v):
+                                            if isinstance(v, bool):
+                                                return 'true' if v else 'false'
+                                            return v
+                                        found = True
+                                        print(__pyk_bool_str(found))
+```
+
+`isinstance`, not `v is True`/`v is False`: Python's `bool` is a subclass
+of `int` and `1 == True`, but `isinstance(1, bool)` is always `False`, so
+an ordinary Pyking `Int` that happens to hold `0` or `1` is never
+misprinted as a boolean this way. The helper is generated at most once
+per file, lazily, the first time an argument actually needs it — so a
+program that never prints anything this backend can't classify never
+gets one at all — and named to avoid every identifier in the source (the
+same scheme `__pm*` comprehension helpers use, see below), so it can
+never collide with a user's own name. When present, it prints in its own
+commented-off **prelude** block ahead of the rest of the file (mirroring
+the convention `target_js_packaging.py` uses for its own prelude, for the
+same reason: it's boilerplate for the host, not a translation of
+anything the Pyking source wrote):
+
+```python
+# --- prelude begins ---
+# Pyking prints a Bool as `true`/`false`, not Python's own capitalised
+# `True`/`False`; this helper exists because at least one value printed
+# below isn't provably a Bool from its Pyking source form alone (a
+# variable or a function call), so it has to be checked at runtime.
+
+def __pyk_bool_str(v):
+    if isinstance(v, bool):
+        return 'true' if v else 'false'
+    return v
+
+# --- prelude ends; the compiled program follows ---
+```
+
+Only a `print` call's own top-level arguments are handled this way at
+all; a boolean nested inside a printed list or tuple keeps Python's own
+capitalised `repr` (`print([true, false])` writes `[True, False]`), the
+same way a nested *string* keeps Python's quoting even though a top-level
+string argument prints bare. Neither is currently reachable from a test
+in `tests/`, since nothing prints a list of booleans, but it follows the
+same "only the top-level argument is special" rule the existing
+formatting contract already uses for strings.
+
 ### Blocks are scopes; Python's are not
 
 Pyking makes every block a scope. Python scopes at function boundaries
@@ -178,7 +258,7 @@ so they can never collide with a user name.
 |---|---|---|---|
 | name `x`, wildcard `_` | no | native `for x in seq` | no |
 | tuple of irrefutables `(x, _)` | no | native `for (x, _) in seq` | no |
-| literal `0`, `"a"` | yes | two clauses + helper | **yes** |
+| literal `0`, `"a"`, `true` | yes | two clauses + helper | **yes** |
 | any list pattern `[a, b]`, `[x, ..r]` | yes | two clauses + helper | **yes** |
 | tuple holding either `(x, 0)` | yes | two clauses + helper | **yes** |
 
@@ -206,6 +286,12 @@ def scale(x, factor:Int) -> Int:   def scale(x, factor):
   source (see above).
 - **Comprehension helpers.** One generated function per refutable
   clause, plus a list allocation per element tested.
+- **An unclassifiable `print` argument always pays for a function call.**
+  `_bool_shape` (see "Booleans" above) only recognises a `Bool` from the
+  Pyking AST shape directly in front of it; a variable or a function call
+  falls back to the `__pyk_bool_str` runtime check even on every run where
+  the value turns out not to be a `Bool` at all, since there's no static
+  type information to rule that out ahead of time.
 - **No `pass`.** Pyking has no empty block, so the case never arises —
   but it also means the backend has no way to emit one if the language
   ever gains it.

@@ -26,7 +26,7 @@ print(label(30))
 # An if expression nested as the condition of another one, and as a
 # branch of another one -- both need no parentheses to parse, since
 # `else` is mandatory and so every `else` has exactly one owner.
-print(if if 1 < 2 then 1 == 1 else 1 == 2 then "yes" else "no")
+print(if if 1 < 2 then true else false then "yes" else "no")
 print(if 1 < 2 then if 3 < 4 then "both" else "first" else "neither")
 
 # Inside a call argument, a list, and a tuple.
@@ -39,7 +39,7 @@ print((if 1 < 2 then 1 else 2, 9))
 # otherwise run straight into this one).
 nums = [1, 2, 3, 4, 5]
 print([if x < 3 then 0 else x for x in nums])
-print([x for x in nums if (if x < 3 then 1 == 1 else 1 == 2)])
+print([x for x in nums if (if x < 3 then true else false)])
 
 # Mixed with operators: the branches extend as far as they can, so the
 # `+ 1` below belongs to the else branch, not to the whole expression.

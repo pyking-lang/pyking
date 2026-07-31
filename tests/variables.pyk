@@ -9,9 +9,9 @@ x = 4
 # declared mutable and updated with `:=`. An `=` there would bind a new
 # name local to the block, leaving this one untouched.
 var greeting = "start"
-var done = 1 == 2
-while done == (1 == 2):
+var done = false
+while done == false:
     greeting := "hi"
-    done := 1 == 1
+    done := true
 
 print(x, greeting)

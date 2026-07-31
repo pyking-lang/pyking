@@ -34,13 +34,12 @@ from target_js_core import pprint_js_program
 TARGETS = ("nodejs", "html", "esm")
 
 # The formatter every host needs, implementing the rules in
-# `runtime_interface.PRINT`. Only booleans actually need converting --
-# JavaScript spells them lowercase -- but going through one function
-# keeps every host's output identical and gives later value types
-# (lists, tuples) one place to land.
+# `runtime_interface.PRINT`. JavaScript already spells its booleans
+# `true`/`false`, exactly the way Pyking's own boolean literals do, so
+# `String(value)` alone gets that rule right with no conversion needed;
+# going through one function regardless keeps every host's output
+# identical and gives later value types (lists, tuples) one place to land.
 _FORMAT_JS = """function pykFormat(value) {
-  if (value === true) return 'True';
-  if (value === false) return 'False';
   return String(value);
 }"""
 

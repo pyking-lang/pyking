@@ -38,7 +38,7 @@ from dataclasses import dataclass
 
 from lexer import Info
 from syntax import (
-    EInt, EString, EVar,
+    EInt, EString, EBool, EVar,
     EAdd, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList, ETuple,
     EIf, EListComp, CompFor, CompIf,
@@ -179,7 +179,7 @@ def bind_target(env, target, kind=BINDING):
 
 def analyze_expr(e, env):
     match e:
-        case EInt(_, _) | EString(_, _):
+        case EInt(_, _) | EString(_, _) | EBool(_, _):
             pass
         case EVar(info, name):
             check_bound(name, env, info)

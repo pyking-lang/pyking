@@ -187,7 +187,7 @@ int main(void)
 {
     int i = 0;
     while (i < 2) {
-        printf("%s %s %s\n", sign(i), classify(i), strcmp("a", "b") == 0 ? "True" : "False");
+        printf("%s %s %s\n", sign(i), classify(i), strcmp("a", "b") == 0 ? "true" : "false");
         i = i + 1;
     }
 
@@ -274,16 +274,26 @@ int gcd(int a, int b)
 
 ### Booleans
 
-Pyking prints booleans `True`/`False`, which C spells neither way, so a
-printed boolean becomes a conditional expression. The type itself follows
-the standard:
+`true`/`false` literals translate directly to `CBool`, printed by
+`_bool_literal` as whichever spelling the standard uses (`1`/`0` for
+c89, `true`/`false` — real keywords, no `<stdbool.h>` needed — for c23).
+*Printing* a boolean is a separate concern from representing one: Pyking
+prints booleans `true`/`false` too, but neither C standard spells its own
+`Bool` representation that way on its own (c89's is just `int`; c23's
+`bool` prints via `%d`, `1`/`0`, same as c89), so a printed boolean always
+becomes a conditional expression regardless of standard:
 
 ```c
 int negate(int flag)      /* c89 */
 bool negate(bool flag)    // c23
 
-printf("%s\n", negate(1 < 2) ? "True" : "False");   /* both */
+printf("%s\n", negate(1 < 2) ? "true" : "false");   /* both */
 ```
+
+(For c23 this means a boolean's *value* representation and its *printed*
+spelling happen to agree — both `true`/`false` — but the conditional
+expression is still there, generated the same way for both standards,
+since the printer doesn't special-case c23 to skip it.)
 
 ### `print`
 
@@ -292,7 +302,7 @@ format string built at compile time — `%d` for integers, `%s` for
 strings, and `%s` plus a ternary for booleans:
 
 ```pyking                          /* generated C */
-print(1, "two", 3 < 4)             printf("%d %s %s\n", 1, "two", 3 < 4 ? "True" : "False");
+print(1, "two", 3 < 4)             printf("%d %s %s\n", 1, "two", 3 < 4 ? "true" : "false");
 ```
 
 ### Strings

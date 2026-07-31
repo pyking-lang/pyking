@@ -84,8 +84,11 @@ last ones are the ones that get forgotten:
 5. **`tools/emacs/pyking-mode.el`** — the editor mode claims in its own
    commentary to mirror `src/lexer.py` and `src/parser.py`, so it goes
    stale silently. Check each of these against the change:
-   - `pyking-mode-keywords` / `pyking-mode-types` — must still equal the
-     `keywords` list in `src/lexer.py`;
+   - `pyking-mode-keywords` / `pyking-mode-types` / `pyking-mode-constants`
+     — together must still equal the `keywords` list in `src/lexer.py`
+     (split three ways so each gets the right face: control-flow/
+     declaration keywords, type annotation names, and literal values like
+     `true`/`false` respectively);
    - `pyking-mode-builtins` — extend it when an example or test starts
      calling a new Python builtin;
    - `pyking-mode-font-lock-keywords` — new operator/marker syntax;

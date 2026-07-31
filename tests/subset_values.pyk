@@ -1,7 +1,7 @@
 # Values across the JavaScript subset: integers (including negative ones),
 # strings with escapes and concatenation, and the booleans that come out
-# of comparisons -- which every backend must print Python-style, `True`
-# and `False`, whatever its host language calls them.
+# of comparisons -- which every backend must print Pyking-style, `true`
+# and `false`, whatever its host language calls them.
 
 print(7, -7, - -7, 0)
 print(2 + 3 * 4, (2 + 3) * 4, 10 - 4 - 3, -(2 + 3))

@@ -41,15 +41,21 @@ class Operation:
 # The value formatting every host must implement, spelled out once here so
 # that the same program prints the same characters whichever backend ran
 # it. It follows Python's `print`, because that is the backend Pyking
-# started with and the `.out` files in tests/ record it:
+# started with and the `.out` files in tests/ record it -- except for
+# booleans, which are spelled Pyking's own way, not Python's:
 #
 #   - the arguments are formatted individually and joined with a single
 #     space, and the result is followed by a newline;
 #   - a string is written as-is, with no quoting;
 #   - an integer is written in base 10;
-#   - a boolean is written `True` or `False` -- capitalised, which is
-#     exactly where a JavaScript host cannot simply hand the value to
-#     `String()` and must convert.
+#   - a boolean is written `true` or `false` -- lowercase, matching
+#     Pyking's own `true`/`false` literals (see PYKING.md) rather than
+#     Python's capitalised `True`/`False`. This is one value every host
+#     has to convert *to*, not one it can hand off unchanged: it's a
+#     no-op for JavaScript (already spelled that way) and Java (same),
+#     but the Python backend has to override its own `print`'s default
+#     capitalisation, and C has to spell out a conditional in both
+#     standards, neither of which spells a boolean either way on its own.
 PRINT = Operation(
     name="print",
     variadic=True,

@@ -9,14 +9,14 @@ from lexer import (
     TokLBracket, TokRBracket, TokDotDot,
     TokDef, TokReturn, TokFor, TokIn, TokIf, TokWhile, TokThen, TokElse, TokVar,
     TokAssign, TokMatch, TokCase, TokArrow,
-    TokTypeInt, TokTypeString, TokTypeBool,
+    TokTypeInt, TokTypeString, TokTypeBool, TokTrue, TokFalse,
 )
 from syntax import (
-    EInt, EString, EVar,
+    EInt, EString, EBool, EVar,
     EAdd, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList, ETuple,
     EIf, EListComp, CompFor, CompIf,
-    PInt, PString, PWildcard, PCapture, PTuple, PList, ListRest, MatchCase,
+    PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, ListRest, MatchCase,
     Stmt,
     SLet, SLetStmt, SVar, SMutate, SReturn, SExprStmt, SFor, SWhile, SIf,
     SFunctionDef, SMatch,
@@ -63,6 +63,10 @@ def parse_atom(tokens):
             return parse_call_tail(EInt(info, v), rest)
         case [TokString(info, s), *rest]:
             return parse_call_tail(EString(info, s), rest)
+        case [TokTrue(info), *rest]:
+            return parse_call_tail(EBool(info, True), rest)
+        case [TokFalse(info), *rest]:
+            return parse_call_tail(EBool(info, False), rest)
         case [TokIdent(info, name), *rest]:
             return parse_call_tail(EVar(info, name), rest)
         case [TokLParen(lp_info), TokRParen(rp_info), *rest]:
@@ -562,7 +566,7 @@ def _block_end_info(header_info, body):
 
 
 def parse_pattern_atom(tokens):
-    """A single pattern: int/string/'_'/identifier, or a fully
+    """A single pattern: int/string/bool/'_'/identifier, or a fully
     parenthesized tuple pattern (0, 1 [singleton, trailing comma
     required], or 2+ comma-separated patterns, trailing comma optional
     for 2+ -- same shape as a parenthesized tuple expression)."""
@@ -576,6 +580,10 @@ def parse_pattern_atom(tokens):
             return PInt(info, v), rest
         case [TokString(info, s), *rest]:
             return PString(info, s), rest
+        case [TokTrue(info), *rest]:
+            return PBool(info, True), rest
+        case [TokFalse(info), *rest]:
+            return PBool(info, False), rest
         case [TokIdent(info, "_"), *rest]:
             return PWildcard(info), rest
         case [TokIdent(info, name), *rest]:

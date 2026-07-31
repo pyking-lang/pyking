@@ -8,9 +8,9 @@ def greet(name:String) -> String:
 
 def negate(flag:Bool) -> Bool:
     if flag:
-        return 1 == 2
+        return false
     else:
-        return 1 == 1
+        return true
 
 
 print(add(2, 3))

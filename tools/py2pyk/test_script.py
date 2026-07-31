@@ -4,7 +4,7 @@
 For every `tests/*.py` file:
 
   1. translate it with py2pyk.py into Pyking source;
-  2. compile that Pyking source back into Python with boot/pykboot.py
+  2. compile that Pyking source back into Python with src/pykboot.py
      (the project's real bootstrap compiler -- this is also, as a side
      effect, the ground truth check that py2pyk produced *valid* Pyking:
      an invalid translation fails here with pykboot's own error);
@@ -12,15 +12,18 @@ For every `tests/*.py` file:
      `python3`, and compare their stdout.
 
 A test passes if both programs run to completion and print identical
-output. This is deliberately black-box: it never compares source text,
-only observable behaviour, which is the property py2pyk is supposed to
-preserve.
+output (after normalizing one, permanent, documented difference: Python's
+`print` spells a boolean `True`/`False`, Pyking's spells it `true`/`false`
+-- see `_normalized_for_comparison` below). This is deliberately
+black-box otherwise: it never compares source text, only observable
+behaviour, which is the property py2pyk is supposed to preserve.
 
 Run via `make test` in this directory, or directly:
 
     python3 test_script.py
 """
 
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -36,6 +39,26 @@ def run_python(path, cwd):
         [sys.executable, str(path)],
         cwd=cwd, capture_output=True, text=True, timeout=30,
     )
+
+
+_PYTHON_BOOL_RE = re.compile(r"\bTrue\b|\bFalse\b")
+
+
+def _normalized_for_comparison(text):
+    """Python's own `print` writes a bool `True`/`False`; Pyking's own
+    `print` writes `true`/`false` (see PYKING.md's "Boolean literals" --
+    a deliberate, permanent difference between the two languages, not
+    something py2pyk's translation could or should paper over). Comparing
+    raw stdout would therefore report a mismatch on every test that
+    prints a boolean, even one translated perfectly, so the *original*
+    Python program's output is normalized to Pyking's spelling before
+    comparing -- the round-tripped program's output already uses it.
+
+    This is a whole-word substitution, so it would incorrectly normalize
+    a string that happens to *contain* the word "True" or "False" as data
+    rather than as a boolean's repr (e.g. `print("True Story")`); none of
+    the programs in tests/ do that."""
+    return _PYTHON_BOOL_RE.sub(lambda m: m.group(0).lower(), text)
 
 
 def run_case(py_file, tmp_dir):
@@ -65,7 +88,8 @@ def run_case(py_file, tmp_dir):
     if roundtrip.returncode != 0:
         return False, f"round-tripped Python program failed:\n{_indent(roundtrip.stderr)}"
 
-    if original.stdout != roundtrip.stdout:
+    original_stdout = _normalized_for_comparison(original.stdout)
+    if original_stdout != roundtrip.stdout:
         return False, (
             "output mismatch:\n"
             f"  original:   {original.stdout!r}\n"

@@ -1,9 +1,9 @@
 7 -7 7 0
 14 20 3 -5
-True False True False True
-True False True False
-True True
-False
+true false true false true
+true false true false
+true true
+false
 hello, pyking!
 tab:	pipe| newline next
 quote: " and \ backslash

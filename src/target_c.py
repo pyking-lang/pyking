@@ -40,7 +40,7 @@ from dataclasses import dataclass
 from lexer import Info
 import runtime_interface
 from syntax import (
-    EInt, EString, EVar,
+    EInt, EString, EBool, EVar,
     EAdd, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EIf,
     SLet, SVar, SMutate, SReturn, SExprStmt, SWhile, SIf, SFunctionDef,
@@ -93,8 +93,9 @@ _C_TYPES = {
 }
 
 # How each type is printed, per `runtime_interface.PRINT`: integers in
-# base 10, strings bare, booleans as `True`/`False` -- which C spells
-# neither way, so a boolean argument becomes a conditional expression.
+# base 10, strings bare, booleans as `true`/`false` -- which C spells
+# neither way (c89 has `1`/`0`, c23's `bool` prints the same via `%d`),
+# so a boolean argument becomes a conditional expression.
 _FORMATS = {INT: "%d", BOOL: "%s", STRING: "%s"}
 
 _ANNOTATIONS = {TInt: INT, TString: STRING, TBool: BOOL}
@@ -131,6 +132,13 @@ class CStr(CExpr):
     info: Info
     value: str
     ctype: str = STRING
+
+
+@dataclass(frozen=True)
+class CBool(CExpr):
+    info: Info
+    value: bool
+    ctype: str = BOOL
 
 
 @dataclass(frozen=True)
@@ -341,6 +349,8 @@ class _Translator:
                 return CInt(info, v)
             case EString(info, s):
                 return CStr(info, s)
+            case EBool(info, v):
+                return CBool(info, v)
             case EVar(info, name):
                 c_name, ctype = _lookup(name, scope, info)
                 return CVar(info, c_name, ctype)
@@ -639,6 +649,8 @@ def pprint_c_expr(e, standard, min_prec=0):
             return str(v)
         case CStr(_, s, _):
             return _quote(s)
+        case CBool(_, v, _):
+            return _bool_literal(v, standard)
         case CVar(_, name, _):
             return name
         case CUnary(_, op, operand, _):
@@ -678,10 +690,11 @@ def pprint_c_expr(e, standard, min_prec=0):
 
 def _print_argument(arg, standard):
     """A `printf` argument. A boolean becomes a conditional expression,
-    since C spells its booleans `1`/`0` and Pyking prints `True`/`False`."""
+    since c89 spells its booleans `1`/`0` (c23's `bool` at least prints
+    with `%d` the same way) but Pyking prints them `true`/`false`."""
     text = pprint_c_expr(arg, standard, _CONDITIONAL_PRECEDENCE + 1)
     if arg.ctype == BOOL:
-        return f'{text} ? "True" : "False"'
+        return f'{text} ? "true" : "false"'
     return pprint_c_expr(arg, standard)
 
 

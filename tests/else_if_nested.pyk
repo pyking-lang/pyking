@@ -22,7 +22,7 @@ print(quadrant(1, 1), quadrant(-1, 1), quadrant(-1, -1), quadrant(1, -1))
 def zero_check(n):
     if n < 0:
         return "negative"
-    else if if n == 0 then 1 == 1 else 1 == 2:
+    else if if n == 0 then true else false:
         return "zero"
     else:
         return "positive"

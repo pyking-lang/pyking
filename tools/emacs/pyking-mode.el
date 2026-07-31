@@ -87,7 +87,10 @@ be changed, but is exposed as a customizable option the same way
 (defconst pyking-mode-keywords
   '("for" "in" "if" "while" "then" "else" "var" "def" "return" "match" "case")
   "Reserved keywords in Pyking.
-Mirrors the `keywords' list in src/lexer.py. Unlike Python, `match' and
+Mirrors the `keywords' list in src/lexer.py, minus the names broken out
+into `pyking-mode-types' and `pyking-mode-constants' below (each gets its
+own face, the way other language modes distinguish literals and type
+names from control-flow/declaration keywords). Unlike Python, `match' and
 `case' are always reserved here, not context-sensitive (\"soft\")
 keywords; `then' -- Pyking's `if cond then a else b' expression keyword --
 has no Python counterpart at all.")
@@ -110,6 +113,23 @@ type names from control-flow/declaration keywords.")
 (defconst pyking-mode-types-regexp
   (regexp-opt pyking-mode-types 'symbols)
   "Regexp matching any name in `pyking-mode-types' as a whole symbol.")
+
+(defconst pyking-mode-constants
+  '("true" "false")
+  "Reserved literal keywords in Pyking, for values rather than control
+flow or types. Mirrors the `keywords' list in src/lexer.py: `true' and
+`false' are Pyking's own lowercase spelling of the two boolean values,
+not Python's capitalised `True'/`False' (which are therefore *not* in
+this list -- they are ordinary, unbound identifiers in Pyking, not
+keywords). Kept as a separate list (rather than folded into
+`pyking-mode-keywords') so they get `font-lock-constant-face' instead of
+`font-lock-keyword-face' -- the same face an integer literal gets (see
+`pyking-mode-font-lock-keywords'), since a boolean literal is exactly as
+much a literal value as `123' is, not a keyword like `if' or `return'.")
+
+(defconst pyking-mode-constants-regexp
+  (regexp-opt pyking-mode-constants 'symbols)
+  "Regexp matching any name in `pyking-mode-constants' as a whole symbol.")
 
 (defconst pyking-mode-builtins
   '("print" "range" "str" "len")
@@ -148,8 +168,15 @@ builtin.")
    ;; isn't one currently, but this keeps the ordering future-proof).
    '("\\.\\." . font-lock-keyword-face)
    ;; int = digit , { digit } ; identifiers can't start with a digit, so
-   ;; a symbol-boundary match is exactly the integer-literal case.
-   '("\\_<[0-9]+\\_>" . font-lock-constant-face)
+   ;; a symbol-boundary match is exactly the integer-literal case. `bool'
+   ;; (`true'/`false', see `pyking-mode-constants') is folded into this
+   ;; same rule -- one alternation, one face -- rather than a second,
+   ;; separate rule that merely happens to specify the same face: a
+   ;; literal value is a literal value, whether spelled with digits or
+   ;; with `true'/`false', and this makes that a single fact in the code,
+   ;; not two rules that could drift apart under a future edit.
+   (cons (concat "\\_<[0-9]+\\_>\\|" pyking-mode-constants-regexp)
+         'font-lock-constant-face)
    ;; Known Python builtins (see `pyking-mode-builtins'); matched as a
    ;; plain symbol, not conditionally on being followed by "(", matching
    ;; `python-mode's own behavior.
@@ -549,12 +576,14 @@ block opener that list holds a single forced column (see
   "Major mode for editing Pyking (.pyk) source files.
 
 Provides syntax highlighting for Pyking's keywords (`for', `in', `if',
-`while', `then', `else', `var', `def', `return', `match', `case'), the `:='
-mutation operator, the `..'/`..name' list-pattern rest marker, string
-literals (with backslash escapes), `#' comments, integer literals, type
-annotation names (`Int', `String', `Bool', see `pyking-mode-types'), and
-well-known builtins (see `pyking-mode-builtins'), consistent with the
-grammar documented in PYKING.md and implemented in src/lexer.py and
+`while', `then', `else', `var', `def', `return', `match', `case'), the
+`:=' mutation operator, the `..'/`..name' list-pattern rest marker,
+string literals (with backslash escapes), `#' comments, integer and
+boolean literals (`true'/`false', see `pyking-mode-constants', coloured
+the same as an integer literal, not as a keyword), type annotation names
+(`Int', `String', `Bool', see `pyking-mode-types'), and well-known
+builtins (see `pyking-mode-builtins'), consistent with the grammar
+documented in PYKING.md and implemented in src/lexer.py and
 src/parser.py.
 
 Also provides `python-mode'-style 4-space (`pyking-indent-offset')

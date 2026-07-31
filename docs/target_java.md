@@ -115,11 +115,18 @@ end; `javac` treats that as a compile error for any method whose return
 type isn't `void`. This backend checks for it during translation --
 conservatively: it recognises an unconditional `return`, or an `if`/`else`
 whose *both* arms definitely return, which is exactly the shape every
-function in this shared subset already needs to have (a `while` loop
-can never be the proof on its own, since Pyking has no boolean literal to
-spell an unconditional `while true:` with) -- and refuses anything it
-cannot prove returns, rather than handing `javac` a file it will reject
-with a less helpful message and no Pyking source position.
+function in this shared subset already needs to have. A `while` loop is
+never the proof on its own, `while true:` included: `_stmt_definitely_returns`
+(see `src/target_java.py`) doesn't attempt any loop analysis at all,
+deliberately -- real `javac` does special-case a constant-`true` condition
+this way (JLS 14.21), but recognising that here would mean recognising it
+for `while 1 == 1:` too, since that was already an "obviously true"
+condition before Pyking had a `true` literal to spell one with more
+directly, and neither is worth the analysis for how rarely an infinite
+loop with no `break` is the last statement of a function. The backend
+refuses anything it cannot prove returns by the simpler rule, rather than
+handing `javac` a file it will reject with a less helpful message and no
+Pyking source position.
 
 ### Unreachable code after a `return`
 
@@ -260,7 +267,7 @@ public final class Prog {
     public static void main(String[] args) {
         int i = 0;
         while (i < 2) {
-            System.out.println(sign(i) + " " + classify(i) + " " + ("a".equals("b") ? "True" : "False"));
+            System.out.println(sign(i) + " " + classify(i) + " " + "a".equals("b"));
             i = i + 1;
         }
     }
@@ -301,14 +308,18 @@ Every argument's type is known statically, so a `print` call becomes one
 and single spaces:
 
 ```pyking                          // generated Java
-print(1, "two", 3 < 4)             System.out.println(1 + " " + "two" + " " + (3 < 4 ? "True" : "False"));
+print(1, "two", 3 < 4)             System.out.println(1 + " " + "two" + " " + (3 < 4));
 ```
 
-Java spells booleans `true`/`false`; Pyking prints `True`/`False`, so a
-printed boolean becomes a conditional expression first, exactly as in the
-C targets' `printf` arguments -- just built as an ordinary Java
-sub-expression here rather than a separate format-string entry, since
-`System.out.println` takes one argument, not a format and a list.
+No conversion needed for the boolean: Java's `+` already stringifies a
+`boolean` operand as `true`/`false`, which is exactly Pyking's own
+spelling too (see PYKING.md) -- unlike the C targets, where neither
+standard spells a boolean's *printed* form the way Pyking does on its
+own, so `target_c.py`'s `printf` arguments need an explicit conditional
+expression (see `docs/target_c.md`'s "Booleans"). A single boolean
+argument to `print` on its own (no concatenation to trigger) compiles
+just as directly -- `System.out.println` has an overload that takes a
+`boolean` argument, and it also prints `true`/`false`.
 
 ### Strings
 

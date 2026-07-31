@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from lexer import Info
 import runtime_interface
 from syntax import (
-    EInt, EString, EVar,
+    EInt, EString, EBool, EVar,
     EAdd, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EIf,
     SLet, SVar, SMutate, SReturn, SExprStmt, SWhile, SIf, SFunctionDef,
@@ -68,6 +68,12 @@ class JsNum(JsExpr):
 class JsStr(JsExpr):
     info: Info
     value: str
+
+
+@dataclass(frozen=True)
+class JsBool(JsExpr):
+    info: Info
+    value: bool
 
 
 @dataclass(frozen=True)
@@ -271,6 +277,8 @@ def translate_expr(e, scope):
             return JsNum(info, v)
         case EString(info, s):
             return JsStr(info, s)
+        case EBool(info, v):
+            return JsBool(info, v)
         case EVar(info, name):
             return JsVar(info, _lookup(name, scope))
         case ENeg(info, operand):
@@ -417,6 +425,8 @@ def pprint_js_expr(e, runtime, min_prec=0):
             return str(v)
         case JsStr(_, s):
             return _quote(s)
+        case JsBool(_, v):
+            return "true" if v else "false"
         case JsVar(_, name):
             return name
         case JsUnary(_, op, operand):

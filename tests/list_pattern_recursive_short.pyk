@@ -18,11 +18,8 @@ def reverse(xs):
 
 def contains(xs, target):
     match xs:
-        case [] -> 1 == 2
-        case [x, ..rest]:
-            match x == target:
-                case True -> 1 == 1
-                case False -> contains(rest, target)
+        case [] -> false
+        case [x, ..rest] -> if x == target then true else contains(rest, target)
 
 def double_all(xs):
     match xs:

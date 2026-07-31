@@ -54,6 +54,15 @@ restriction of it, but these are genuinely new.
   `case`/`->` extension above, it means a body of one `return expr`. The expression may also stand
   on the line after the `=`, indented, when it no longer fits beside the
   header.
+- **Lowercase `true`/`false` boolean literals**: Python spells its two
+  boolean values `True`/`False`; Pyking spells them lowercase, `true` and
+  `false`, matching most other languages' convention rather than
+  Python's. They are genuinely new *keywords* (not existing identifiers
+  given a meaning), so, like `then` below, neither `true` nor `false` can
+  be used as an identifier anywhere. `1 == 1` and `true` are
+  interchangeable Pyking values — the only difference is that one is
+  computed and the other is written directly — and every backend prints
+  either one the same way; see "Booleans" below.
 - **`if ... then ... else ...` expressions**: Python writes a conditional
   expression with the condition in the middle (`e1 if cond else e2`);
   Pyking puts it first, behind a new `then` keyword —
@@ -99,6 +108,8 @@ Expressions:
 
 - Comments
 - Integer and string literals (with backslash escapes)
+- Boolean literals (`true`, `false`) — Pyking extension; spelled
+  lowercase, unlike Python's `True`/`False`
 - Variables (identifier references)
 - Arithmetic operators (`+`, `-`, `*`, `/`), unary minus (`-x`, and
   negative literals like `-5`), and parenthesized expressions
@@ -194,7 +205,7 @@ match_stmt  = "match" , expr , ":" , INDENT , case_clause , { case_clause } , DE
 case_clause = "case" , pattern , ":" , block
             | "case" , pattern , "->" , expr ;
 pattern     = pattern_atom , { "," , pattern_atom } ;
-pattern_atom = int | "-" , int | string | "_" | ident
+pattern_atom = int | "-" , int | string | bool | "_" | ident
              | "(" , ")"
              | "(" , pattern_atom , "," , ")"
              | "(" , pattern_atom , ( "," , pattern_atom )+ , [ "," ] , ")"
@@ -240,7 +251,7 @@ additive    = multiplicative , { ( "+" | "-" ) , multiplicative } ;
 multiplicative = unary , { ( "*" | "/" ) , unary } ;
 unary       = "-" , unary | atom ;
 
-atom        = ( int | string | ident | list_lit | list_comp | tuple_lit
+atom        = ( int | string | bool | ident | list_lit | list_comp | tuple_lit
               | "(" , expr , ")" ) ,
               { call_tail } ;
 call_tail   = "(" , [ args ] , ")" ;
@@ -258,6 +269,7 @@ tuple_lit   = "(" , ")"
 
 ident       = letter , { letter | digit } ;
 int         = digit , { digit } ;
+bool        = "true" | "false" ;
 string      = "'" , { string_char } , "'"
             | '"' , { string_char } , '"' ;
 string_char = any_char_except_quote_or_backslash
@@ -415,7 +427,12 @@ Notes that don't fall out of the grammar alone:
   can't be named `match` or `case`. The same is true of `Int`, `String`,
   and `Bool` (the atomic type names): they're reserved everywhere, not
   just in type position, so no identifier may be named after one of them
-  either, and of `then`, which has no Python counterpart at all.
+  either; of `then`, which has no Python counterpart at all; and of
+  `true`/`false`, which do have a Python counterpart (`True`/`False`) but
+  not this spelling of one — a Pyking program cannot use `true`, `false`,
+  `True`, or `False` as an identifier (the first two because they're
+  keywords, the last two because they're simply unbound: Pyking has no
+  binding for Python's capitalised spelling).
 - `param`'s `[ ":" , type ]` and `function_def`'s `[ "->" , type ]` are
   both optional and independent — a function may annotate none, some, or
   all of its parameters, with or without a return type. Annotations are
@@ -446,12 +463,13 @@ Notes that don't fall out of the grammar alone:
   `x = (1, print(x))` instead of two statements. Always use the
   parenthesized singleton form when there's any doubt.
 - `pattern_atom` is intentionally minimal beyond tuples and lists: an
-  integer or string literal matches only that exact value; `_` always
-  matches, discarding the value; a plain `ident` also always matches, but
-  binds the value to that name; a parenthesized group destructures a
-  tuple value element-by-element; a `list_pattern` destructures a list
-  value. All of these nest arbitrarily (e.g. `case (a, [b, ..c]):`).
-  There's still no support for guards (`if`) or or-patterns (`|`).
+  integer, string, or boolean literal matches only that exact value; `_`
+  always matches, discarding the value; a plain `ident` also always
+  matches, but binds the value to that name; a parenthesized group
+  destructures a tuple value element-by-element; a `list_pattern`
+  destructures a list value. All of these nest arbitrarily (e.g.
+  `case (a, [b, ..c]):`). There's still no support for guards (`if`) or
+  or-patterns (`|`).
 - No pattern (tuple, list, or nested combination of either) may bind the
   same name more than once — e.g. `case [a, ..b, a]:` is rejected at
   parse time with "duplicate binding 'a' in pattern". This mirrors
@@ -527,6 +545,38 @@ quoted = 'it\'s a test with a "quoted" word\nand a second line'
 print(count, message)
 print(quoted)
 ```
+
+### Boolean literals
+
+`true` and `false` are literals for the two `Bool` values — Pyking
+extension, with no Python equivalent, so (unlike every other example in
+this section so far) the following is Pyking source, not valid Python:
+Python spells the same two values `True`/`False`, capitalised, which
+Pyking has no binding for at all (see the grammar notes above). They are
+ordinary values, usable anywhere an expression is: bound with `=`,
+declared with `var` and updated with `:=`, passed as arguments, returned,
+compared with `==`, and so on.
+
+```pyking
+done = false
+var flag = true
+
+flag := false
+
+print(done, flag)
+```
+
+A boolean literal and a comparison that happens to agree with it are
+completely interchangeable — `true` is not a different kind of value from
+what `1 == 1` produces, just a shorter way to write the same one:
+
+```pyking
+print(true == (1 == 1), false == (2 == 3))
+```
+
+`true`/`false` may also appear as a `match`/`case` pattern, matching only
+that exact value — see ["`match`/`case` pattern
+matching"](#matchcase-pattern-matching) below.
 
 ### Variables (identifier references)
 
@@ -1078,20 +1128,20 @@ print((if 1 < 2 then 100 else 200) + 1)
 
 # Parentheses are required around an if expression used as a
 # comprehension filter (see the grammar notes above).
-print([x for x in [1, 2, 3, 4] if (if x < 3 then 1 == 1 else 1 == 2)])
+print([x for x in [1, 2, 3, 4] if (if x < 3 then true else false)])
 ```
 
 ### `match`/`case` pattern matching
 
 `match expr:` is followed by one or more indented `case pattern:` clauses;
 the body of the first case whose pattern matches runs. A pattern is an
-integer literal, a string literal, `_` (always matches, discards the
-value), a plain identifier (always matches, binds the value to that
-name), or a tuple pattern that destructures a tuple value element by
-element (with or without parentheses, nesting arbitrarily, and sub-patterns
-can themselves be literals, `_`, identifiers, or further tuple patterns)
-— see the grammar notes above for what isn't supported yet (guards,
-or-patterns, list patterns).
+integer literal, a string literal, a boolean literal, `_` (always
+matches, discards the value), a plain identifier (always matches, binds
+the value to that name), or a tuple pattern that destructures a tuple
+value element by element (with or without parentheses, nesting
+arbitrarily, and sub-patterns can themselves be literals, `_`,
+identifiers, or further tuple patterns) — see the grammar notes above for
+what isn't supported yet (guards, or-patterns).
 
 ```python
 def describe(n):
@@ -1106,6 +1156,19 @@ def describe(n):
 
 for i in [0, 1, 5]:
     print(describe(i))
+```
+
+A boolean pattern matches only that exact value, the same way an integer
+or string literal pattern does:
+
+```pyking
+def describe(flag):
+    match flag:
+        case true -> "yes"
+        case false -> "no"
+
+
+print(describe(1 < 2), describe(3 < 2))
 ```
 
 ```python

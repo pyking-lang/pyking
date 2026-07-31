@@ -1,12 +1,13 @@
 from dataclasses import dataclass, fields, is_dataclass
 
+import runtime_interface
 from lexer import Info
 from syntax import (
-    EInt, EString, EVar,
+    EInt, EString, EBool, EVar,
     EAdd, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList, ETuple,
     EIf, EListComp, CompFor, CompIf,
-    PInt, PString, PWildcard, PCapture, PTuple, PList,
+    PInt, PString, PBool, PWildcard, PCapture, PTuple, PList,
     SLet, SLetStmt, SVar, SMutate, SReturn, SExprStmt, SFor, SWhile, SIf,
     SFunctionDef, SMatch,
     TargetName, TargetTuple,
@@ -37,6 +38,12 @@ class PyInt(PyExpr):
 class PyString(PyExpr):
     info: Info
     value: str
+
+
+@dataclass(frozen=True)
+class PyBool(PyExpr):       # True / False
+    info: Info
+    value: bool
 
 
 @dataclass(frozen=True)
@@ -155,6 +162,12 @@ class PyPInt(PyPattern):    # case 0:
 class PyPString(PyPattern):  # case "foo":
     info: Info
     value: str
+
+
+@dataclass(frozen=True)
+class PyPBool(PyPattern):    # case True: / case False:
+    info: Info
+    value: bool
 
 
 @dataclass(frozen=True)
@@ -298,6 +311,23 @@ class PyMatch(PyStmt):      # match subject: case pattern: body ...
     cases: list
 
 
+@dataclass(frozen=True)
+class PyProgram:
+    """The result of translating a whole Pyking program (`translate_program`'s
+    return value, and `pprint_py_program`'s sole argument): the compiled
+    statements, plus an optional `prelude` -- currently just the
+    boolean-print-formatting helper (see `_bool_format_helper_name`),
+    present only when the program actually printed something this
+    backend could not prove, from its Pyking source form alone, was or
+    wasn't a Bool (see `_bool_shape`). The prelude prints separately, in
+    its own commented-off block, because it's boilerplate for the host
+    Python interpreter, not a translation of anything the Pyking source
+    wrote -- the same reason the JavaScript targets mark their own
+    prelude off in `target_js_packaging.py`."""
+    prelude: list        # PyStmt list, usually empty
+    stmts: list          # PyStmt list: the translated program
+
+
 # --- translation: Pyking AST (syntax.py) -> Python target AST ---
 #
 # List comprehensions need special handling: Pyking allows an arbitrary
@@ -341,6 +371,30 @@ _pending_comp_helpers = []
 # be guaranteed never to collide with -- or shadow -- a user name, whatever
 # the program happens to call its variables.
 _used_identifiers = set()
+
+# A call to a runtime_interface operation (currently just `print`) needs
+# each argument that might be a Bool passed through
+# `_bool_format_helper_name()`'s helper first: Pyking spells its boolean
+# values `true`/`false`, but they are represented as Python's own
+# `True`/`False` throughout translation (see `PyBool` above), and
+# Python's own `print` would write those back out capitalised. Most
+# printed values need no such check at all -- see `_bool_shape` and
+# `_wrap_print_argument`, which decide *per argument* whether Pyking's own
+# grammar already proves it one way or the other -- and the ones that do
+# are handled with an inline conditional, no helper involved. The helper
+# below exists only for the residue: an argument (a variable, a function
+# call, ...) genuinely could be a Bool at runtime and the translator
+# cannot tell from its Pyking source form alone. It is synthesized once,
+# lazily, the first time it's actually needed -- so a program that never
+# hits that case never gets one at all -- the same way `_build_match_helper`
+# builds a comprehension helper on first use, and named via the same
+# collision-avoidance scheme as `_fresh_comp_names`, so it can never
+# collide with a real Pyking identifier. It prints separately from
+# ordinary generated code, in a commented-off prelude block (see
+# `pprint_py_program`), because it's host boilerplate the Pyking source
+# didn't write, not a translation of anything in it.
+_bool_format_helper_name_value = None
+_bool_format_helper_def = None
 
 
 def _collect_identifiers(node, acc=None):
@@ -415,8 +469,8 @@ def _is_irrefutable(pattern):
     to a fixed-arity tuple type `(T1, ..., Tn)`, so like Python's own
     unpacking it's treated as a total destructuring -- a wrong-arity value
     is a shape error surfaced by Python at runtime, not a silent filter.
-    Literal patterns (`PInt`/`PString`) are refutable by value, which
-    Python's `for`-target grammar can't express at all."""
+    Literal patterns (`PInt`/`PString`/`PBool`) are refutable by value,
+    which Python's `for`-target grammar can't express at all."""
     match pattern:
         case PCapture(_, _) | PWildcard(_):
             return True
@@ -580,6 +634,45 @@ def _build_match_helper(pattern, helper_name):
     return names
 
 
+def _bool_format_helper_name(info):
+    """The name of the print-formatting helper for a value that genuinely
+    might be a Bool at runtime and can't be proven either way from its
+    Pyking source form (see `_bool_shape`) -- building and registering it
+    the first time *that* happens, synthesized as:
+
+        def __pyk_bool_str(v):
+            if isinstance(v, bool):
+                return 'true' if v else 'false'
+            return v
+
+    `isinstance` rather than `v is True`/`v is False`, because Python's
+    `bool` is a subclass of `int` and `1 == True`, but never
+    `isinstance(1, bool)` -- so a Pyking `Int` that happens to be `0` or
+    `1` is never misidentified as a boolean this way. Only a call's
+    *top-level* arguments are ever wrapped (see `_wrap_print_argument`),
+    matching the granularity `runtime_interface.py`'s formatting contract
+    already documents at (an integer nested inside a printed list is
+    already however Python's own `repr` renders it, not specially handled
+    either). Kept separate from `_pending_comp_helpers`: it's boilerplate
+    for the host, not a translation of anything the source wrote, so it
+    prints in its own commented-off prelude block -- see
+    `pprint_py_program`."""
+    global _bool_format_helper_name_value, _bool_format_helper_def
+    if _bool_format_helper_name_value is None:
+        candidate = "__pyk_bool_str"
+        n = 0
+        while candidate in _used_identifiers:
+            n += 1
+            candidate = f"__pyk_bool_str{n}"
+        _bool_format_helper_name_value = candidate
+        v = PyVar(info, "v")
+        is_bool = PyCall(info, PyVar(info, "isinstance"), [v, PyVar(info, "bool")])
+        as_text = PyIfExp(info, v, PyString(info, "true"), PyString(info, "false"))
+        body = [PyIf(info, is_bool, [PyReturn(info, as_text)]), PyReturn(info, v)]
+        _bool_format_helper_def = PyFunctionDef(info, candidate, ["v"], body)
+    return _bool_format_helper_name_value
+
+
 def _translate_comp_for(clause, scope):
     """Expands one Pyking `CompFor(pattern, sequence)` into Python
     comprehension clause(s), returning them with the scope its pattern
@@ -622,12 +715,64 @@ def _translate_comp_for(clause, scope):
     ], scope
 
 
+# Pyking has no type checker (see PYKING.md), so whether a given
+# expression produces a Bool is, in general, not knowable at compile
+# time -- but for plenty of expressions it plainly is, straight from
+# their Pyking AST *shape* alone, with no type system needed: a
+# comparison or a boolean literal always does, an arithmetic expression
+# or a list/tuple/string/int literal never does. `_bool_shape` answers
+# that where it can and says "unknown" everywhere else, which
+# `_wrap_print_argument` (the only caller) treats as the safe default: a
+# runtime check via `_bool_format_helper_name`.
+_PROVABLY_BOOL_EXPRS = (EEq, ELessThan, ELessThanEq, EGreatThan, EGreatThanEq)
+_PROVABLY_NOT_BOOL_EXPRS = (EInt, EString, EAdd, ESub, EMul, EDiv, ENeg, EList, ETuple, EListComp)
+
+
+def _bool_shape(e):
+    """'bool', 'not-bool', or 'unknown' for whether `e` provably produces
+    a Bool, provably doesn't, or can't be told without a type checker.
+    Recurses into an `if` expression's branches -- if both agree, so does
+    the whole expression -- since `if cond then true else false` and
+    similar are common enough to be worth not falling back to a runtime
+    check for. A variable or a function call is always 'unknown': its
+    value could be anything, including a Bool, from where this backend is
+    standing."""
+    if isinstance(e, EBool) or isinstance(e, _PROVABLY_BOOL_EXPRS):
+        return "bool"
+    if isinstance(e, _PROVABLY_NOT_BOOL_EXPRS):
+        return "not-bool"
+    if isinstance(e, EIf):
+        then_shape = _bool_shape(e.then_expr)
+        return then_shape if then_shape == _bool_shape(e.else_expr) else "unknown"
+    return "unknown"
+
+
+def _wrap_print_argument(pyking_expr, translated, info):
+    """One argument to a `print` call, formatted for Pyking's boolean
+    spelling: an inline `'true' if <expr> else 'false'` when `_bool_shape`
+    proves `pyking_expr` is always a Bool (no runtime check needed at
+    all -- this is the common case, e.g. any comparison), the translated
+    expression completely unwrapped when it proves the opposite (an Int,
+    a String, a list, ...), and only otherwise -- genuinely unknown --
+    a call through the `_bool_format_helper_name` helper, which is what
+    actually brings that helper into existence in the first place."""
+    shape = _bool_shape(pyking_expr)
+    if shape == "bool":
+        return PyIfExp(info, translated, PyString(info, "true"), PyString(info, "false"))
+    if shape == "not-bool":
+        return translated
+    helper = PyVar(info, _bool_format_helper_name(info))
+    return PyCall(info, helper, [translated])
+
+
 def translate_expr(e, scope):
     match e:
         case EInt(info, v):
             return PyInt(info, v)
         case EString(info, s):
             return PyString(info, s)
+        case EBool(info, v):
+            return PyBool(info, v)
         case EVar(info, name):
             return PyVar(info, _lookup(name, scope))
         case EAdd(info, l, r):
@@ -650,6 +795,17 @@ def translate_expr(e, scope):
             return PyGreatThanEq(info, translate_expr(l, scope), translate_expr(r, scope))
         case EEq(info, l, r):
             return PyEq(info, translate_expr(l, scope), translate_expr(r, scope))
+        case ECall(info, EVar(_, name), args) if runtime_interface.lookup(name) is not None:
+            # A call to a runtime_interface operation (just `print` today):
+            # its arguments are formatted, not merely printed, and Pyking's
+            # own `true`/`false` spelling for a Bool is one place that
+            # differs from Python's `True`/`False` -- see
+            # `_wrap_print_argument`.
+            return PyCall(
+                info,
+                PyVar(info, name),
+                [_wrap_print_argument(a, translate_expr(a, scope), info) for a in args],
+            )
         case ECall(info, f, args):
             return PyCall(
                 info,
@@ -701,6 +857,8 @@ def translate_pattern(p, scope):
             return PyPInt(info, v), scope
         case PString(info, s):
             return PyPString(info, s), scope
+        case PBool(info, v):
+            return PyPBool(info, v), scope
         case PWildcard(info):
             return PyPWildcard(info), scope
         case PCapture(info, name):
@@ -934,16 +1092,23 @@ def _translate_stmts(stmts, scope):
 
 def translate_program(stmts):
     """External entry point: translates a full program, resetting the
-    comprehension-helper state first and prepending every helper
-    function synthesized along the way (see the module comment above)."""
+    comprehension-helper and boolean-print-helper state first and
+    prepending every comprehension helper synthesized along the way (see
+    the module comment above) to the translated statements, returned
+    together with any boolean-print-formatting prelude as a `PyProgram`
+    for `pprint_py_program` to print."""
     global _comp_counter, _pending_comp_helpers, _used_identifiers
+    global _bool_format_helper_name_value, _bool_format_helper_def
     _comp_counter = 0
     _pending_comp_helpers = []
+    _bool_format_helper_name_value = None
+    _bool_format_helper_def = None
     _used_identifiers = _collect_identifiers(stmts)
     translated, _ = _translate_stmts(stmts, Scope({}, {}, frozenset()))
     helpers = _pending_comp_helpers
     _pending_comp_helpers = []
-    return helpers + translated
+    prelude = [_bool_format_helper_def] if _bool_format_helper_def is not None else []
+    return PyProgram(prelude, helpers + translated)
 
 
 # --- pretty printer: Python target AST -> Python source text ---
@@ -972,6 +1137,8 @@ def pprint_py_expr(e, min_prec=0):
             return str(v)
         case PyString(_, s):
             return _quote_string(s)
+        case PyBool(_, v):
+            return "True" if v else "False"
         case PyVar(_, name):
             return name
         case PyAdd(_, l, r):
@@ -1048,6 +1215,12 @@ def pprint_py_pattern(p):
             return str(v)
         case PyPString(_, s):
             return _quote_string(s)
+        case PyPBool(_, v):
+            # `True`/`False` (capitalised) are two of the handful of names
+            # Python's own `match` treats as a *value* pattern rather than
+            # a capture, per PEP 634 -- exactly the literal-match behaviour
+            # `PBool` needs, with no extra work here.
+            return "True" if v else "False"
         case PyPWildcard(_):
             return "_"
         case PyPCapture(_, name):
@@ -1082,6 +1255,23 @@ def pprint_py_target(t):
             raise NotImplementedError(f"no pretty printer for Python target {t!r}")
 
 
+def _render_block(stmts, level):
+    """Renders a same-scope statement list as a list of lines, one blank
+    line before and after every nested `def` (but never at the very start
+    or end of the block, where it would only leave a dangling blank line
+    against the header or the dedent) -- ordinary Python style, and the
+    same rule `pprint_py_program` applies at the top level below."""
+    lines = []
+    prev_was_def = False
+    for i, st in enumerate(stmts):
+        is_def = isinstance(st, PyFunctionDef)
+        if i > 0 and (is_def or prev_was_def):
+            lines.append("")
+        lines.append(pprint_py_stmt(st, level))
+        prev_was_def = is_def
+    return lines
+
+
 def pprint_py_stmt(s, level=0):
     pad = "    " * level
     match s:
@@ -1093,15 +1283,15 @@ def pprint_py_stmt(s, level=0):
             return f"{pad}{pprint_py_expr(expr)}"
         case PyFor(_, name, iterable, body):
             lines = [f"{pad}for {name} in {pprint_py_expr(iterable)}:"]
-            lines += [pprint_py_stmt(st, level + 1) for st in body]
+            lines += _render_block(body, level + 1)
             return "\n".join(lines)
         case PyWhile(_, cond, body):
             lines = [f"{pad}while {pprint_py_expr(cond)}:"]
-            lines += [pprint_py_stmt(st, level + 1) for st in body]
+            lines += _render_block(body, level + 1)
             return "\n".join(lines)
         case PyIf(_, cond, then_body, else_body):
             lines = [f"{pad}if {pprint_py_expr(cond)}:"]
-            lines += [pprint_py_stmt(st, level + 1) for st in then_body]
+            lines += _render_block(then_body, level + 1)
             # An else body of exactly one `if` prints as Python's `elif`,
             # which is defined as precisely that nesting -- same semantics,
             # but a Pyking `else if` ladder (which translates to nested
@@ -1112,28 +1302,47 @@ def pprint_py_stmt(s, level=0):
                 match else_body:
                     case [PyIf(_, elif_cond, elif_body, else_body2)]:
                         lines.append(f"{pad}elif {pprint_py_expr(elif_cond)}:")
-                        lines += [pprint_py_stmt(st, level + 1) for st in elif_body]
+                        lines += _render_block(elif_body, level + 1)
                         else_body = else_body2
                     case None:
                         break
                     case _:
                         lines.append(f"{pad}else:")
-                        lines += [pprint_py_stmt(st, level + 1) for st in else_body]
+                        lines += _render_block(else_body, level + 1)
                         break
             return "\n".join(lines)
         case PyFunctionDef(_, name, params, body):
             lines = [f"{pad}def {name}({', '.join(params)}):"]
-            lines += [pprint_py_stmt(st, level + 1) for st in body]
+            lines += _render_block(body, level + 1)
             return "\n".join(lines)
         case PyMatch(_, subject, cases):
             lines = [f"{pad}match {pprint_py_expr(subject)}:"]
             for c in cases:
                 lines.append(f"{pad}    case {pprint_py_pattern(c.pattern)}:")
-                lines += [pprint_py_stmt(st, level + 2) for st in c.body]
+                lines += _render_block(c.body, level + 2)
             return "\n".join(lines)
         case _:
             raise NotImplementedError(f"no pretty printer for Python statement {s!r}")
 
 
-def pprint_py_program(stmts):
-    return "\n".join(pprint_py_stmt(s) for s in stmts)
+# Markers around the prelude, matching the convention
+# `target_js_packaging.py` uses for the same reason: so a reader can see
+# at a glance which lines came from the `.pyk` source and which are host
+# boilerplate around it. Only ever present when `_bool_format_helper_name`
+# actually built the helper -- see `translate_program`/`PyProgram`.
+_PRELUDE_BEGIN = "\n".join([
+    "# --- prelude begins ---",
+    "# Pyking prints a Bool as `true`/`false`, not Python's own capitalised",
+    "# `True`/`False`; this helper exists because at least one value printed",
+    "# below isn't provably a Bool from its Pyking source form alone (a",
+    "# variable or a function call), so it has to be checked at runtime.",
+])
+_PRELUDE_END = "# --- prelude ends; the compiled program follows ---"
+
+
+def pprint_py_program(program):
+    body = "\n".join(_render_block(program.stmts, 0))
+    if not program.prelude:
+        return body
+    prelude_body = "\n".join(_render_block(program.prelude, 0))
+    return "\n".join([_PRELUDE_BEGIN, "", prelude_body, "", _PRELUDE_END, "", body])

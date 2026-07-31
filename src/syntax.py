@@ -22,6 +22,12 @@ class EString(Expr):
 
 
 @dataclass(frozen=True)
+class EBool(Expr):          # 'true' / 'false'
+    info: Info
+    value: bool
+
+
+@dataclass(frozen=True)
 class EVar(Expr):
     info: Info
     name: str
@@ -213,6 +219,8 @@ def pprint_expr(e, min_prec=0):
             return str(v)
         case EString(_, s):
             return _quote_string(s)
+        case EBool(_, v):
+            return "true" if v else "false"
         case EVar(_, name):
             return name
         case EAdd(_, l, r):
@@ -295,6 +303,12 @@ class PString(Pattern):     # case "foo":
 
 
 @dataclass(frozen=True)
+class PBool(Pattern):       # case true: / case false:
+    info: Info
+    value: bool
+
+
+@dataclass(frozen=True)
 class PWildcard(Pattern):   # case _:
     info: Info
 
@@ -332,6 +346,8 @@ def pprint_pattern(p):
             return str(v)
         case PString(_, s):
             return _quote_string(s)
+        case PBool(_, v):
+            return "true" if v else "false"
         case PWildcard(_):
             return "_"
         case PCapture(_, name):

@@ -226,6 +226,16 @@ class TokTypeBool(Token):   # 'Bool' (type annotation)
 
 
 @dataclass(frozen=True)
+class TokTrue(Token):       # 'true' (boolean literal)
+    info: Info
+
+
+@dataclass(frozen=True)
+class TokFalse(Token):      # 'false' (boolean literal)
+    info: Info
+
+
+@dataclass(frozen=True)
 class TokIdent(Token):
     info: Info
     value: str
@@ -309,6 +319,10 @@ def pprint_token(tok):
             return "TokTypeString"
         case TokTypeBool():
             return "TokTypeBool"
+        case TokTrue():
+            return "TokTrue"
+        case TokFalse():
+            return "TokFalse"
         case TokIdent(_,s):
             return f"TokIdent('{s}')"
 
@@ -329,7 +343,7 @@ def is_digit_letter(x):
 
 keywords = [
     "for", "in", "if", "while", "then", "else", "var", "def", "return",
-    "match", "case", "Int", "String", "Bool",
+    "match", "case", "Int", "String", "Bool", "true", "false",
 ]
 
 
@@ -363,6 +377,10 @@ def keyword_token(name, info):
             return TokTypeString(info)
         case "Bool":
             return TokTypeBool(info)
+        case "true":
+            return TokTrue(info)
+        case "false":
+            return TokFalse(info)
 
 
 def string_until(pred, chars):

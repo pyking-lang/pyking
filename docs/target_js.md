@@ -163,8 +163,6 @@ obvious which lines came from the `.pyk` file:
 // A Pyking program cannot do I/O by itself; its host must define `print`.
 
 function pykFormat(value) {
-  if (value === true) return 'True';
-  if (value === false) return 'False';
   return String(value);
 }
 
@@ -175,11 +173,18 @@ function print(...values) {
 // --- prelude ends; the compiled program follows ---
 ```
 
-`pykFormat` exists because the runtime interface fixes how values print
-— and booleans are the one place JavaScript disagrees, spelling them
-`true`/`false` where Pyking prints `True`/`False`. The `html` target
-substitutes a `print` that appends to a `<pre>` on the page; `esm` has no
-prelude at all, since it is handed a `runtime` instead of building one.
+`pykFormat` exists because the runtime interface fixes how values print,
+and it is where a future value type that *does* need converting would
+land — but today `String(value)` alone already gets every current type
+right, including booleans: JavaScript already spells them `true`/`false`,
+exactly Pyking's own spelling (see PYKING.md), so there is nothing left
+to convert. (This used to be the one place JavaScript disagreed with
+Pyking's formatting, back when Pyking printed booleans the Python way,
+capitalised — see `docs/target_python.md`'s "Booleans" for the backend
+that now has the opposite problem, having to *override* its native
+`True`/`False` to match.) The `html` target substitutes a `print` that
+appends to a `<pre>` on the page; `esm` has no prelude at all, since it
+is handed a `runtime` instead of building one.
 
 ### Scope and renaming
 

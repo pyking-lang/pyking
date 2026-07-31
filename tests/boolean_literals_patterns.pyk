@@ -1,0 +1,18 @@
+# Boolean literals as patterns -- Python-only, since this builds on
+# `match`/`case` and list comprehensions (see tests/boolean_literals.pyk
+# for the shared-subset uses of `true`/`false`).
+
+# A boolean literal is also a pattern, matching only that exact value --
+# the same as an integer or string literal pattern.
+def describe(value):
+    match value:
+        case true -> "yes"
+        case false -> "no"
+
+
+print(describe(1 < 2), describe(3 < 2))
+
+# Refutable-pattern filtering in a comprehension works for booleans too.
+readings = [true, false, true, true, false]
+only_true = [1 for true in readings]
+print(only_true)

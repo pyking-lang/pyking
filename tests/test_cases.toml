@@ -21,6 +21,14 @@ file = "arithmetic_division.pyk"
 targets = ["python"]
 
 [[cases]]
+file = "boolean_literals.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
+
+[[cases]]
+file = "boolean_literals_patterns.pyk"
+targets = ["python"]
+
+[[cases]]
 file = "else_if.pyk"
 targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
 

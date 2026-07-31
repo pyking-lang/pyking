@@ -1,0 +1,32 @@
+# Boolean literals: `true`/`false` are ordinary Bool values, usable
+# anywhere an expression is -- bound, mutated, passed, returned, and
+# compared -- exactly like a comparison's result.
+
+found = true
+missing = false
+print(found, missing)
+
+var flag = true
+flag := false
+print(flag)
+
+
+def is_positive(x: Int) -> Bool:
+    if x > 0:
+        return true
+    else:
+        return false
+
+
+print(is_positive(5), is_positive(-5))
+
+# A literal and a comparison producing the same value are interchangeable.
+print(true == (1 == 1), false == (2 == 3), true == false)
+
+if true:
+    print("always runs")
+
+if false:
+    print("never runs")
+else:
+    print("else runs instead")

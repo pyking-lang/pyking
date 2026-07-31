@@ -157,22 +157,20 @@ Pyking's call syntax is positional-only.
 
 ### `True`/`False`
 
-Pyking's grammar has no boolean literal at all -- `Bool` is a reserved
-*type* name, but there is no `true`/`false`-style token that produces
-one. The *only* way to produce a `Bool` value in Pyking is a comparison. Since
-every backend agrees a comparison's result prints as `True`/`False`
-(see `src/runtime_interface.py`), py2pyk translates the Python literals
-that way:
+Pyking has its own boolean literals, `true`/`false` (see PYKING.md's
+"Boolean literals") -- lowercase, unlike Python's capitalised
+`True`/`False` -- and py2pyk translates directly to them:
 
 ```python
-found = False          # ->  found = (1 == 2)
-done = True             # ->  done = (1 == 1)
+found = False          # ->  found = false
+done = True             # ->  done = true
 ```
 
-This is a translation trick, not a Pyking language feature -- don't take
-`(1 == 1)` as idiomatic Pyking to write by hand; it's just the only
-expression that is guaranteed to evaluate to a `Bool` with the value the
-source asked for.
+(Earlier versions of both Pyking and this tool had no boolean literal at
+all -- only a comparison could produce a `Bool` value -- so py2pyk used
+to translate `True`/`False` to the tautologies `(1 == 1)`/`(1 == 2)` as a
+stand-in. That workaround is gone now that Pyking has the real thing;
+`git log -p` on this file has the old translation if you're curious.)
 
 ### Variable classification: `var` vs `=` vs value-form `if`
 

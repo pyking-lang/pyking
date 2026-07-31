@@ -92,10 +92,22 @@ print(values...)   write one line; values formatted individually and
 ```
 
 Its formatting rules are part of the contract, not of any backend: a
-string is written bare, an integer in base 10, and a boolean as `True` or
-`False`. That last one is where a JavaScript host cannot simply hand the
-value to `String()` — it must convert — and it is why every JS host in
-`target_js_packaging.py` routes through one `pykFormat`.
+string is written bare, an integer in base 10, and a boolean as `true` or
+`false` — Pyking's own spelling (see PYKING.md), not Python's capitalised
+`True`/`False`. JavaScript and Java already spell booleans that way
+natively and need no conversion; C spells booleans neither way in either
+standard, so it always builds a conditional expression (see
+`docs/target_c.md`). Python's own `print` capitalises, so its backend
+has the most work: for a `print` argument its own AST shape already
+proves is (or isn't) a `Bool` -- a comparison, a boolean literal, plain
+arithmetic, ... -- it needs no runtime check at all, just an inline
+conditional or none; only a value it can't classify that way (a
+variable, a function call) falls back to a small generated helper,
+appearing only when actually needed (see "Booleans" in
+`docs/target_python.md`). Every JS host in `target_js_packaging.py`
+still routes through one `pykFormat`, kept as a single indirection point
+for any future value type that does need converting, even though today
+it is just `String()`.
 
 `target_js_core.py` emits a `JsRuntimeCall` for each such operation and
 never decides what it looks like. Packaging decides, and that is the only
