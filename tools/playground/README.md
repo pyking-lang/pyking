@@ -111,6 +111,12 @@ static host will do; nothing runs server-side.
 - **The Settings button** (top right) opens an in-page dialog rather than a
   window:
   - **Font size**, 10–26 px, applied to both editors and the output pane.
+  - **Run while you type** — **off** by default. On, the source runs about
+    half a second after you stop typing, exactly as if you had pressed Run.
+    Only typing in the *source* counts: loading an example, or the generated
+    pane being rewritten by a compile, does not trigger it. Ticking the box
+    does not run anything either — the next keystroke does — so enabling it
+    can never start the runtime download while the dialog is still open.
   - **Scrollable** output — on by default. Off clips the pane instead, and
     also stops it auto-following the newest line: scrolling programmatically
     while clipped would push the start of the output out of reach.
@@ -327,6 +333,10 @@ those are the properties to re-check.
   Python but no Python: see "self-hosting" in `advice-pyking-on-web.md`.
 - **A non-terminating program freezes the tab** for the `python` target.
   The JavaScript targets are protected by the iframe watchdog; moving Pyodide
-  into a web worker would fix the rest.
+  into a web worker would fix the rest. **Worth knowing before switching on
+  "run while you type":** with it on, a loop that never ends freezes the tab
+  without you having pressed anything, and the edit that would fix it can no
+  longer be typed. Reload to recover — the setting persists, so switch it
+  off again, or keep it off while writing a loop.
 - **C and Java output is display-only.** Copy it out and build it locally —
   the header comment in each generated file gives the exact command.

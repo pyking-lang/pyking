@@ -769,14 +769,22 @@ import { PykingRuntime } from "./pyking-runtime.js";
 const STORAGE_KEY = "pyking-playground.settings";
 
 /** What the settings dialog starts from, before anything saved is layered
- *  over it. Both switches default on: an output pane you cannot scroll
+ *  over it. The two output switches default on: a pane you cannot scroll
  *  loses what it cannot show, and output that accumulates across runs is
- *  hard to read the newest of. */
+ *  hard to read the newest of. `autoRun` defaults off -- running on every
+ *  edit is a preference, and it is the one setting that can start the
+ *  multi-megabyte runtime download without an explicit button press. */
 const DEFAULT_SETTINGS = {
   fontSize: 13,
   scrollOutput: true,
   clearOnRun: true,
+  autoRun: false,
 };
+
+/** How long the source has to sit still before an automatic run. Long
+ *  enough to finish a word -- half-written code is mostly code that does
+ *  not compile, and re-running it per keystroke would say so per keystroke. */
+const AUTO_RUN_DELAY = 600;
 
 const DEFAULTS = {
   base: "./assets",
@@ -814,8 +822,11 @@ class Playground {
     this.files = {};          // last successful compile: {name: text}
     this.current = null;      // which of those is shown on the right
     this.errorMarker = null;
-    this.frame = null;        // the sandboxed iframe a JS run lives in
+    this.frame = null;         // the sandboxed iframe a JS run lives in
     this.frameSeq = 0;
+    this.autoRunTimer = null;  // pending "run while you type"
+    this.autoRunning = false;
+    this.programmaticEdit = false;
     this.settings = { ...DEFAULT_SETTINGS, ...loadSettings() };
   }
 
@@ -836,7 +847,14 @@ class Playground {
     // *generated* code) and would need extra vendored files.
     this.left.session.setUseWorker(false);
     this.right.session.setUseWorker(false);
-    this.left.session.on("change", () => this.clearError());
+    this.left.session.on("change", () => {
+      this.clearError();
+      // Only what the *user* typed schedules a run. Ace fires the same event
+      // for `setValue`, so loading an example -- which happens once during
+      // startup -- would otherwise trigger a run, and with it the runtime
+      // download, before anyone had touched the page.
+      if (!this.programmaticEdit) this.scheduleAutoRun();
+    });
 
     ui.target.addEventListener("change", () => this.onTargetChange());
     ui.example.addEventListener("change", () => this.loadExample(ui.example.value));
@@ -919,7 +937,7 @@ class Playground {
     const entry = this.meta.examples.find((e) => e.file === file);
     if (!entry) return;
     const response = await fetch(this.cfg.examplesURL + file);
-    this.left.setValue(await response.text(), -1);
+    this.setSource(await response.text());
     this.ui.example.value = file;
     this.clearError();
     this.refreshSupport();
@@ -1185,6 +1203,49 @@ ${code}
   showPreview() { this.ui.output.classList.add("pyk-hidden");
                   this.ui.preview.classList.remove("pyk-hidden"); }
 
+  // -- run while you type -----------------------------------------------
+
+  /** Replace the source without it counting as typing. Also the method to
+   *  use from an embedding page, for the same reason. */
+  setSource(text) {
+    // Ace fires "change" synchronously from setValue, so a plain flag is
+    // enough and no reset-on-a-timer is needed.
+    this.programmaticEdit = true;
+    try {
+      this.left.setValue(text, -1);
+    } finally {
+      this.programmaticEdit = false;
+    }
+  }
+
+  scheduleAutoRun() {
+    if (!this.settings.autoRun) return;
+    clearTimeout(this.autoRunTimer);
+    this.autoRunTimer = setTimeout(() => this.autoRun(), AUTO_RUN_DELAY);
+  }
+
+  cancelAutoRun() {
+    clearTimeout(this.autoRunTimer);
+    this.autoRunTimer = null;
+  }
+
+  async autoRun() {
+    // A run started from an earlier keystroke may still be in flight -- the
+    // first one of the session waits on the whole runtime download. Rather
+    // than overlap them, let this edit re-arm the timer and run once that
+    // one has finished, so the code that eventually runs is the latest.
+    if (this.autoRunning) {
+      this.scheduleAutoRun();
+      return;
+    }
+    this.autoRunning = true;
+    try {
+      await this.runFromSource();
+    } finally {
+      this.autoRunning = false;
+    }
+  }
+
   /** Clear the output pane when starting a run, if that is switched on.
    *  Compiling deliberately does not: the setting says "each time you press
    *  Run", and a compile error you wanted to keep beside the output would
@@ -1333,6 +1394,14 @@ ${code}
       this.applyFontSize(Number(fontSize.value));
       this.saveSettings();
     });
+    this.ui.autoRun.addEventListener("change", () => {
+      this.settings.autoRun = this.ui.autoRun.checked;
+      // Switching it off must also drop an edit already waiting to run;
+      // switching it on does not run anything until the next keystroke, so
+      // ticking a box never starts a download on its own.
+      if (!this.settings.autoRun) this.cancelAutoRun();
+      this.saveSettings();
+    });
     this.ui.scrollOutput.addEventListener("change", () => {
       this.settings.scrollOutput = this.ui.scrollOutput.checked;
       this.applyOutputScroll();
@@ -1376,6 +1445,7 @@ ${code}
     this.applyFontSize(this.settings.fontSize);
     this.applyOutputScroll();
     this.ui.clearOnRun.checked = this.settings.clearOnRun;
+    this.ui.autoRun.checked = this.settings.autoRun;
     for (const [key, name] of [["colSplit", "--pyk-col-split"],
                                ["outSplit", "--pyk-out-split"]]) {
       if (this.settings[key]) this.ui.root.style.setProperty(name, this.settings[key]);
@@ -1388,6 +1458,7 @@ ${code}
       fontSize: this.settings.fontSize,
       scrollOutput: this.settings.scrollOutput,
       clearOnRun: this.settings.clearOnRun,
+      autoRun: this.settings.autoRun,
       colSplit: style.getPropertyValue("--pyk-col-split") || null,
       outSplit: style.getPropertyValue("--pyk-out-split") || null,
     });
@@ -1473,6 +1544,15 @@ function buildDom(host, meta, cfg) {
               <span class="pyk-value" data-r="fontValue">13px</span>
             </div>
             <p class="pyk-hint">Applies to both editors and the output pane.</p>
+          </div>
+          <div class="pyk-field">
+            <label>Running</label>
+            <label class="pyk-check">
+              <input type="checkbox" data-r="autoRun">
+              Run while you type
+            </label>
+            <p class="pyk-hint">Runs the source about half a second after you
+              stop typing, as if you had pressed Run.</p>
           </div>
           <div class="pyk-field">
             <label>Output pane</label>
