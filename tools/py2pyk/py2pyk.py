@@ -1,4 +1,4 @@
-/bin/env python3
+#!/usr/bin/env python3
 """py2pyk: translate a subset of Python source into Pyking source.
 
 Usage:

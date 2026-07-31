@@ -202,8 +202,12 @@ disk, which is why it is a separate target rather than a wrapper.
 ## Command line
 
 ```
-python3 src/pykboot.py [--tokens] [--target|-t <target>] [--ast | --stdout | --output <file>] <filename>
+pyk [options] <filename>
 ```
+
+Run `pyk` with no arguments for the full option and target list, which
+`src/pykboot.py` builds from `TARGETS`/`EXTENSIONS` so it cannot drift
+from what the backends actually support.
 
 With none of `--ast`, `--stdout` or `--output`, the program is compiled to
 a file the compiler names (see "Naming the output" above). `--tokens`
@@ -218,7 +222,11 @@ construct the chosen target does not support, reports
 'file' row:col-row:col Unsupported by target 'nodejs': ...
 ```
 
-to stderr and produces no output.
+to stderr and produces no output. Every message the driver prints is
+reflowed to 70 columns first (`wrap` in `src/pykboot.py`), with
+continuation lines indented two spaces, so a long one stays readable in
+a narrow terminal instead of wrapping raggedly at whatever width it
+happens to find.
 
 The `pyk` wrapper script at the repository root forwards flags as-is, and
 adds one convenience: called with *only* a filename it compiles to a temp

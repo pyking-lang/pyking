@@ -25,17 +25,21 @@ With no `--output`, the compiler names the file after the source, with the
 target's extension, in the current directory:
 
 ```sh
-python3 src/pykboot.py            tests/hello.pyk   # ./hello.py
-python3 src/pykboot.py -t nodejs  tests/hello.pyk   # ./hello.js
-python3 src/pykboot.py -t c23     tests/hello.pyk   # ./hello.c
+pyk -t python  tests/hello.pyk   # ./hello.py
+pyk -t nodejs  tests/hello.pyk   # ./hello.js
+pyk -t c23     tests/hello.pyk   # ./hello.c
 ```
+
+(`-t python` is spelled out because it is the *default* target, not
+because it has to be: `pyk tests/hello.pyk`, with no options at all,
+compiles and runs the program instead of leaving a file behind.)
 
 Java is the one exception: it requires its file and public class to
 match exactly, so the default name is Java-cased rather than the
 source's own spelling:
 
 ```sh
-python3 src/pykboot.py -t java21  tests/hello.pyk   # ./Hello.java, class Hello
+pyk -t java21  tests/hello.pyk   # ./Hello.java, class Hello
 ```
 
 ## Families
@@ -87,9 +91,9 @@ A program outside a target's subset is refused at compile time, with a
 source position, rather than emitted as code that will not build:
 
 ```
-$ python3 src/pykboot.py -t nodejs tests/for_simple.pyk
-'tests/for_simple.pyk' 2:0-3:22 Unsupported by target 'nodejs': `for` loops
-are not supported by the JavaScript backends yet
+$ pyk -t nodejs tests/for_simple.pyk
+'tests/for_simple.pyk' 2:0-3:22 Unsupported by target 'nodejs': `for`
+  loops are not supported by the JavaScript backends yet
 ```
 
 ## Differences that survive the subset

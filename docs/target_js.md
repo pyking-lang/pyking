@@ -82,9 +82,9 @@ Refused at compile time, with the source position:
 | `str`, `len`, `range` | no JavaScript standard-library shim yet |
 
 ```
-$ python3 src/pykboot.py -t nodejs tests/for_simple.pyk
-'tests/for_simple.pyk' 2:0-3:22 Unsupported by target 'nodejs': `for` loops
-are not supported by the JavaScript backends yet
+$ pyk -t nodejs tests/for_simple.pyk
+'tests/for_simple.pyk' 2:0-3:22 Unsupported by target 'nodejs': `for`
+  loops are not supported by the JavaScript backends yet
 ```
 
 ## How things compile

@@ -1,5 +1,6 @@
 import os
 import sys
+import textwrap
 
 from analyses import analyze_program, AnalysisError
 from lexer import lexing, pprint_info, pprint_token, LexError
@@ -24,15 +25,71 @@ EXTENSIONS = {
     **{version: ".java" for version in target_java.VERSIONS},
 }
 
-USAGE = (
-    "Usage: python3 src/pykboot.py [--tokens] [--target|-t <target>] "
-    "[--ast | --stdout | --output <file>] <filename>\n"
-    f"       <target> is one of: {', '.join(TARGETS)} (default: python)\n"
-    "       without --ast/--stdout/--output, compiles to <filename's stem>"
-    " plus the target's extension, in the current directory\n"
-    "       (Java targets instead Java-case the stem, e.g. foo_bar.pyk ->"
-    " FooBar.java)"
-)
+# Every message this module prints is laid out for a terminal this wide.
+# 70 rather than the usual 80 so that output still reads well once a
+# `$ ` prompt, a quoting mail client, or a docs code block has eaten a
+# few columns.
+WIDTH = 70
+
+
+def wrap(text, indent="  "):
+    """`text` reflowed to `WIDTH`, with continuation lines indented so a
+    wrapped message still reads as one message rather than as several.
+
+    Neither long words nor hyphens are broken: the things most likely to
+    be long here are paths, identifiers and flags (`--stdout`,
+    `foo_bar.pyk`, `some/deep/dir`), and splitting one across a line
+    break would make it unsearchable and, for a flag, unreadable."""
+    return "\n".join(
+        textwrap.wrap(
+            text,
+            width=WIDTH,
+            subsequent_indent=indent,
+            break_long_words=False,
+            break_on_hyphens=False,
+        )
+    )
+
+
+def _target_table():
+    """The `Targets:` block: one row per group of targets sharing an
+    output extension, in `TARGETS` order. Built from `TARGETS`/
+    `EXTENSIONS` rather than written out, so a backend that adds a target
+    shows up here without anyone remembering to update a second list."""
+    groups = {}
+    for name in TARGETS:
+        groups.setdefault(EXTENSIONS[name], []).append(name)
+    rows = [(", ".join(names), extension) for extension, names in groups.items()]
+    column = max(len(names) for names, _ in rows) + 3
+    return "\n".join(f"  {names.ljust(column)}{extension}" for names, extension in rows)
+
+
+# Spelled in terms of `pyk`, the wrapper script at the repository root,
+# rather than this module's own path: `pyk` is the documented front end
+# (see README.md), it forwards every flag here untouched, and it is what
+# a reader who just typed something wrong almost certainly ran. The one
+# place the two genuinely differ is a bare filename with no flags at all
+# -- `pyk` runs the program, this module compiles it to a file -- so that
+# case is spelled out below rather than glossed over.
+USAGE = f"""Usage: pyk [options] <filename>
+
+Options:
+  -t, --target <name>   compile for <name> (default: python)
+  --output <file>       write the output to <file>
+  --stdout              print the generated code instead of writing it
+  --ast                 print the parsed program and stop
+  --tokens              print the token stream first
+
+Targets:
+{_target_table()}
+
+With no options at all, `pyk <filename>` compiles to a temporary file,
+runs it, and removes it. Otherwise the output is named after the
+source file, in the current directory, unless --output says otherwise.
+
+The `esm` target writes three more files beside its .js: a .node.js
+driver, an .html wrapper, and package.json. The Java targets name the
+file and its class in Java's own casing: foo_bar.pyk -> FooBar.java."""
 
 args = sys.argv[1:]
 show_tokens = False
@@ -54,21 +111,29 @@ while i < len(args):
     elif arg in ("--target", "-t"):
         i += 1
         if i >= len(args):
-            print("Usage error: --target requires a <target> argument", file=sys.stderr)
+            print(
+                wrap("Usage error: --target requires a <target> argument"),
+                file=sys.stderr,
+            )
             print(USAGE, file=sys.stderr)
             sys.exit(1)
         target = args[i]
         if target not in TARGETS:
             print(
-                f"Usage error: unknown target '{target}'; expected one of "
-                f"{', '.join(TARGETS)}",
+                wrap(
+                    f"Usage error: unknown target '{target}'; expected one of "
+                    f"{', '.join(TARGETS)}"
+                ),
                 file=sys.stderr,
             )
             sys.exit(1)
     elif arg == "--output":
         i += 1
         if i >= len(args):
-            print("Usage error: --output requires a <file> argument", file=sys.stderr)
+            print(
+                wrap("Usage error: --output requires a <file> argument"),
+                file=sys.stderr,
+            )
             print(USAGE, file=sys.stderr)
             sys.exit(1)
         output_path = args[i]
@@ -87,7 +152,10 @@ with open(filename, "r") as f:
 try:
     tokens = lexing(filename, list(data))
 except LexError as e:
-    print(f"{pprint_info(e.info)} Lexing error: {e.message}", file=sys.stderr)
+    print(
+        wrap(f"{pprint_info(e.info)} Lexing error: {e.message}"),
+        file=sys.stderr,
+    )
     sys.exit(1)
 
 if show_tokens:
@@ -97,7 +165,10 @@ if show_tokens:
 try:
     program = parse(tokens)
 except ParseError as e:
-    print(f"{pprint_info(e.info)} Parsing error: {e.message}", file=sys.stderr)
+    print(
+        wrap(f"{pprint_info(e.info)} Parsing error: {e.message}"),
+        file=sys.stderr,
+    )
     sys.exit(1)
 
 # Name analysis runs for every mode, `--ast` included: it is part of the
@@ -106,7 +177,10 @@ except ParseError as e:
 try:
     analyze_program(program)
 except AnalysisError as e:
-    print(f"{pprint_info(e.info)} Name error: {e.message}", file=sys.stderr)
+    print(
+        wrap(f"{pprint_info(e.info)} Name error: {e.message}"),
+        file=sys.stderr,
+    )
     sys.exit(1)
 
 # `--ast` is the Pyking AST, which every target shares, so it is printed
@@ -146,9 +220,11 @@ def write_manifest(path, contents):
         existing = f.read()
     if not target_js_packaging.manifest_declares_module(existing):
         print(
-            f"Note: '{path}' already exists and does not set "
-            '"type": "module"; node will read the generated .js files as '
-            "CommonJS until it does. Left untouched.",
+            wrap(
+                f"Note: '{path}' already exists and does not set "
+                '"type": "module"; node will read the generated .js files '
+                "as CommonJS until it does. Left untouched."
+            ),
             file=sys.stderr,
         )
 
@@ -160,16 +236,20 @@ def write(path, contents):
     per file rather than once on `--output`."""
     if os.path.abspath(path) == os.path.abspath(filename):
         print(
-            f"Usage error: writing '{path}' would overwrite the input file; "
-            "choose a different output path.",
+            wrap(
+                f"Usage error: writing '{path}' would overwrite the input "
+                "file; choose a different output path."
+            ),
             file=sys.stderr,
         )
         sys.exit(1)
     directory = os.path.dirname(path)
     if directory and not os.path.isdir(directory):
         print(
-            f"Usage error: cannot write '{path}': the directory "
-            f"'{directory}' does not exist.",
+            wrap(
+                f"Usage error: cannot write '{path}': the directory "
+                f"'{directory}' does not exist."
+            ),
             file=sys.stderr,
         )
         sys.exit(1)
@@ -190,7 +270,10 @@ elif target in target_c.STANDARDS:
         c_program = target_c.translate_program(program)
     except target_c.UnsupportedError as e:
         print(
-            f"{pprint_info(e.info)} Unsupported by target '{target}': {e.message}",
+            wrap(
+                f"{pprint_info(e.info)} Unsupported by target "
+                f"'{target}': {e.message}"
+            ),
             file=sys.stderr,
         )
         sys.exit(1)
@@ -206,7 +289,10 @@ elif target in target_java.VERSIONS:
         java_program = target_java.translate_program(program)
     except target_java.UnsupportedError as e:
         print(
-            f"{pprint_info(e.info)} Unsupported by target '{target}': {e.message}",
+            wrap(
+                f"{pprint_info(e.info)} Unsupported by target "
+                f"'{target}': {e.message}"
+            ),
             file=sys.stderr,
         )
         sys.exit(1)
@@ -233,7 +319,10 @@ else:
         js_program = target_js_core.translate_program(program)
     except target_js_core.UnsupportedError as e:
         print(
-            f"{pprint_info(e.info)} Unsupported by target '{target}': {e.message}",
+            wrap(
+                f"{pprint_info(e.info)} Unsupported by target "
+                f"'{target}': {e.message}"
+            ),
             file=sys.stderr,
         )
         sys.exit(1)

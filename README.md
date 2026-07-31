@@ -10,25 +10,49 @@ updated with `:=`, and every block is a real scope, checked at compile
 time.
 
 Pyking has no interpreter. It compiles, and the same program can be
-emitted for several targets:
+emitted for several targets. The `pyk` script at the repository root is
+the front end for all of it:
 
 ```sh
-python3 src/pykboot.py            hello.pyk   # ./hello.py  (python is the default)
-python3 src/pykboot.py -t nodejs  hello.pyk   # ./hello.js
-python3 src/pykboot.py -t html    hello.pyk   # ./hello.html
-python3 src/pykboot.py -t esm     hello.pyk   # ./hello.js + .node.js + .html + package.json
-python3 src/pykboot.py -t c89     hello.pyk   # ./hello.c  (C89)
-python3 src/pykboot.py -t c23     hello.pyk   # ./hello.c  (C23)
-python3 src/pykboot.py -t java8   hello.pyk   # ./Hello.java  (Java 8)
-python3 src/pykboot.py -t java17  hello.pyk   # ./Hello.java  (Java 17)
-python3 src/pykboot.py -t java21  hello.pyk   # ./Hello.java  (Java 21)
+./pyk hello.pyk                # compile and run it, leaving nothing behind
 ```
 
-The output is named after the source unless `--output` says otherwise;
-`--stdout` prints it instead, and `--ast` shows the parsed program.
+Given a filename and nothing else, `pyk` compiles to a temporary file,
+runs it, and cleans up. Add any flag and it compiles to a file instead,
+named after the source unless `--output` says otherwise:
 
-`./pyk hello.pyk` compiles and runs a program in one step, and
-`make test` runs the whole suite across every target.
+```sh
+./pyk -t python  hello.pyk     # ./hello.py     (python is the default)
+./pyk -t nodejs  hello.pyk     # ./hello.js
+./pyk -t html    hello.pyk     # ./hello.html
+./pyk -t esm     hello.pyk     # ./hello.js + .node.js + .html + package.json
+./pyk -t c89     hello.pyk     # ./hello.c      (C89)
+./pyk -t c23     hello.pyk     # ./hello.c      (C23)
+./pyk -t java8   hello.pyk     # ./Hello.java   (Java 8)
+./pyk -t java17  hello.pyk     # ./Hello.java   (Java 17)
+./pyk -t java21  hello.pyk     # ./Hello.java   (Java 21)
+```
+
+`--stdout` prints the generated code instead of writing it, `--ast` shows
+the parsed program, and `--tokens` the token stream. Every flag is passed
+straight through to the compiler (`src/pykboot.py`), so running `./pyk`
+with no arguments prints the full usage.
+
+## Make targets
+
+A bare `make` deliberately does nothing — every useful thing has a name:
+
+| command | what it does |
+|---|---|
+| `make test` | the compiler's own suite: every program in `tests/` on every target it supports, comparing each against one shared `.out` file |
+| `make test-py2pyk` | the [py2pyk](tools/py2pyk/) suite: each `.py` translated to Pyking, compiled back to Python, and both run and diffed |
+| `make playground` | build and serve the [web playground](tools/playground/), then print a link to open |
+
+`make playground` delegates to `tools/playground/`, which has options of
+its own (`PORT=`, `CDN=`, `make clean`, ...) — run `make -C
+tools/playground help` for those. Everything it generates stays inside
+that directory and is gitignored; the first run downloads ~12 MB and
+caches it, later ones are offline.
 
 ## Documentation
 
@@ -50,10 +74,13 @@ The output is named after the source unless `--output` says otherwise;
 
 | path | contents |
 |---|---|
+| `pyk` | the command-line front end (see above) |
 | `src/` | the bootstrap compiler, one module per stage (see [CLAUDE.md](CLAUDE.md)) |
 | `tests/` | Pyking programs, their expected output, and the test runner |
 | `docs/` | design and architecture notes |
 | `tools/emacs/` | a major mode for editing `.pyk` files |
+| `tools/py2pyk/` | a standalone Python-to-Pyking translator, with its own tests |
+| `tools/playground/` | the browser playground: the compiler running under Pyodide |
 
 Requires Python 3.11+ (`match`/`case`, `tomllib`). Running the generated
 code needs `node` for the JavaScript targets, a C compiler for the C

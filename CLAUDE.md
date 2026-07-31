@@ -279,8 +279,14 @@ block inside `lexing`, add a corresponding `Tok*` dataclass, and add a
 ## Running
 
 ```
-python3 src/pykboot.py [--tokens] [--target|-t <target>] [--ast | --stdout | --output <file>] <filename>
+pyk [--tokens] [--target|-t <target>] [--ast | --stdout | --output <file>] <filename>
 ```
+
+(`pyk` is the wrapper script at the repository root; it forwards every
+flag to `src/pykboot.py` untouched. Run it with no arguments for the
+usage message, which is generated from `TARGETS`/`EXTENSIONS` and
+reflowed to 70 columns by `wrap`, along with every error the driver
+prints.)
 
 `--tokens` prints the token stream first (in addition to whatever else
 happens). The other three select what to do, and none of them is

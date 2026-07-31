@@ -73,10 +73,10 @@ position.
 ### `/`
 
 ```
-$ python3 src/pykboot.py -t java21 divide.pyk
-'divide.pyk' 1:6-1:11 Unsupported by target 'java21': `/` is true division in
-Pyking and truncating integer division in Java; matching it needs a
-floating-point type this backend does not have yet
+$ pyk -t java21 divide.pyk
+'divide.pyk' 1:6-1:11 Unsupported by target 'java21': `/` is true
+  division in Pyking and truncating integer division in Java; matching
+  it needs a floating-point type this backend does not have yet
 ```
 
 Same reasoning as [the C targets](target_c.md): the *value* would be
@@ -203,8 +203,8 @@ spelling the way every other target does. With no `--output`, the
 default name is **Java-cased**, not the source's:
 
 ```
-$ python3 src/pykboot.py -t java21 foo_bar.pyk     # writes FooBar.java
-$ python3 src/pykboot.py -t java21 test1.pyk       # writes Test1.java
+$ pyk -t java21 foo_bar.pyk     # writes FooBar.java
+$ pyk -t java21 test1.pyk       # writes Test1.java
 ```
 
 Words are split on anything that is not a letter or digit, each

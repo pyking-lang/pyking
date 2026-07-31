@@ -60,10 +60,10 @@ to give. All are refused at compile time with a source position.
 ### `/`
 
 ```
-$ python3 src/pykboot.py -t c23 divide.pyk
-'divide.pyk' 1:6-1:11 Unsupported by target 'c23': `/` is true division in
-Pyking and truncating integer division in C; matching it needs a
-floating-point type this backend does not have yet
+$ pyk -t c23 divide.pyk
+'divide.pyk' 1:6-1:11 Unsupported by target 'c23': `/` is true
+  division in Pyking and truncating integer division in C; matching it
+  needs a floating-point type this backend does not have yet
 ```
 
 Pyking's `7 / 2` is `3.5`; C's is `3`. Unlike the JavaScript targets,
