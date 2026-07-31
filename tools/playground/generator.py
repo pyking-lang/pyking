@@ -748,14 +748,44 @@ class Playground {
     ui.copy.addEventListener("click", () => this.copyRight());
     ui.clear.addEventListener("click", () => this.clearOutput());
 
-    // Ctrl/Cmd+Enter compiles, Ctrl/Cmd+Shift+Enter runs -- the shortcuts a
-    // playground is expected to have.
-    const keys = (event) => {
-      if (!(event.ctrlKey || event.metaKey) || event.key !== "Enter") return;
+    // Keyboard shortcuts.
+    //
+    // Registered as Ace commands rather than as one bubbling keydown
+    // listener, because Ace handles keys on its own hidden textarea first: a
+    // listener on the container would not run until Ace had already inserted
+    // the newline that Shift+Enter would otherwise type.
+    //
+    // Shift+Enter runs, and means the Run button of whichever pane has focus
+    // -- the source pane compiles to Python and runs that, the generated
+    // pane runs what is displayed. Overriding it costs nothing, since plain
+    // Enter already inserts a newline and Shift+Enter merely duplicated it.
+    const bind = (editor, name, bindKey, exec) =>
+      editor.commands.addCommand({ name, bindKey, exec, readOnly: true });
+
+    const COMPILE = { win: "Ctrl-Enter", mac: "Command-Enter" };
+    const RUN = { win: "Shift-Enter", mac: "Shift-Enter" };
+    const RUN_ACCEL = { win: "Ctrl-Shift-Enter", mac: "Command-Shift-Enter" };
+
+    bind(this.left, "pykCompile", COMPILE, () => this.compile());
+    bind(this.right, "pykCompile", COMPILE, () => this.compile());
+    bind(this.left, "pykRun", RUN, () => this.runFromSource());
+    bind(this.right, "pykRun", RUN, () => this.runGenerated());
+    bind(this.left, "pykRunAccel", RUN_ACCEL, () => this.runFromSource());
+    bind(this.right, "pykRunAccel", RUN_ACCEL, () => this.runGenerated());
+
+    // The same keys when focus is outside both editors -- on a dropdown, a
+    // button, or the page itself. Ace stops propagation for keys it handled,
+    // but the check for an enclosing editor is explicit so that a future Ace
+    // that stops doing so cannot make this fire twice.
+    ui.root.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      if (event.target?.closest?.(".ace_editor")) return;
+      const accel = event.ctrlKey || event.metaKey;
+      if (!accel && !event.shiftKey) return;
       event.preventDefault();
-      event.shiftKey ? this.runFromSource() : this.compile();
-    };
-    ui.root.addEventListener("keydown", keys);
+      if (accel && !event.shiftKey) this.compile();
+      else this.runFromSource();
+    });
 
     await this.loadExample(this.cfg.initialExample, { silent: true });
     this.onTargetChange();
@@ -884,7 +914,7 @@ class Playground {
     const haveCode = Object.keys(this.files).length > 0;
     this.ui.runRight.disabled = !how || !haveCode;
     this.ui.runRight.title = how
-      ? (haveCode ? `Run the generated ${target} code`
+      ? (haveCode ? `Run the generated ${target} code (Shift+Enter)`
                   : "Compile first, then run")
       : `${target} cannot run in a browser — there is no `
         + `${target.startsWith("java") ? "JVM" : "C compiler"} here`;
@@ -1104,7 +1134,7 @@ function buildDom(host, meta, cfg) {
                   title="Compile this source into the pane on the right (Ctrl+Enter)">
             Compile →</button>
           <button class="pyk-run" data-r="runLeft"
-                  title="Compile to Python and run it (Ctrl+Shift+Enter)">▶ Run</button>
+                  title="Compile to Python and run it (Shift+Enter)">▶ Run</button>
         </div>
         <div class="pyk-editor" data-r="leftEditor"></div>
       </section>

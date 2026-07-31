@@ -101,7 +101,17 @@ static host will do; nothing runs server-side.
   it, with a source position, is the point.
 - Compile errors are written to the output pane *and* underlined in the
   source editor at the exact span the compiler reported.
-- `Ctrl`/`Cmd`+`Enter` compiles; add `Shift` to run.
+- **`Shift`+`Enter` runs** — the same as the **▶ Run** button of whichever
+  pane has focus: in the source pane it compiles to Python and runs that, in
+  the generated pane it runs what is displayed. With focus anywhere else it
+  runs the source. `Ctrl`/`Cmd`+`Enter` compiles;
+  `Ctrl`/`Cmd`+`Shift`+`Enter` also runs.
+
+  Shift+Enter is registered as an Ace *command*, not as a key listener on the
+  container: Ace handles keys on its own hidden textarea first, so a listener
+  would only fire after Ace had already typed the newline. Overriding it
+  loses nothing, since plain `Enter` inserts a newline anyway and Shift+Enter
+  merely duplicated it.
 
 Pyodide loads lazily on the first compile or run, not on page load, so the
 page appears immediately and the status pill reports progress.
