@@ -21,7 +21,7 @@ endif
 
 GENERATOR := $(PYTHON) generator.py
 
-.PHONY: all build vendor check serve clean distclean help
+.PHONY: all build vendor check e2e serve clean distclean help
 
 # Serving is last, and blocks -- that is the point: `make` leaves you with a
 # running server and a link to click.
@@ -35,6 +35,12 @@ build:
 
 check:
 	@$(GENERATOR) check
+
+# Browser tests. Separate from `check` because this is the one part of the
+# tool that needs a dependency (Playwright); without it the script says so
+# and exits cleanly rather than failing.
+e2e:
+	@node e2e.mjs
 
 serve:
 	@$(GENERATOR) serve --port $(PORT)
@@ -53,6 +59,7 @@ help:
 	@echo "make            vendor + build + check + serve (prints a clickable URL)"
 	@echo "make build      regenerate build/ from generator.py"
 	@echo "make check      compile every example headlessly, no browser needed"
+	@echo "make e2e        browser tests (needs Playwright; skips if absent)"
 	@echo "make serve      serve build/ on http://localhost:\$$(PORT)/"
 	@echo "make clean      remove build/"
 	@echo "make distclean  also remove the vendor/ download cache"

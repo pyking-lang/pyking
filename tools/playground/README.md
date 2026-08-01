@@ -36,6 +36,7 @@ is already pure: `os` and `sys` appear only in `pykboot.py`.
 | `make build` | regenerate `build/` from `generator.py` |
 | `make vendor` | download Ace + Pyodide into `vendor/` (cached; skipped if present) |
 | `make check` | compile every example for every target it claims, headlessly |
+| `make e2e` | browser tests — layout, workers, Stop (needs Playwright) |
 | `make serve` | serve `build/`, print a clickable `http://localhost:8000/` |
 | `make clean` | remove `build/` |
 | `make distclean` | also remove `vendor/` |
@@ -172,25 +173,87 @@ re-fetching Pyodide.
 > `python3 -m http.server` has the same flaw, so prefer `make serve` over
 > serving `build/` by hand.
 
-### Running the JavaScript targets
+### How programs are executed, and how they are stopped
 
-Generated JavaScript runs in a throwaway `<iframe sandbox="allow-scripts">`.
-The sandbox is what makes it safe to offer at all: a runaway loop in generated
-code cannot be interrupted, but the frame can be removed, which stops it —
-there is a 5-second watchdog that does exactly that.
+**Nothing runs on the main thread.** That is the whole design, and it exists
+for one case: a program that never terminates. If Pyodide ran on the main
+thread an endless loop would freeze the tab — including the button you would
+press to stop it — and no amount of care in the UI could recover.
 
-- `nodejs` output is a classic script that prints through `console.log`, so
-  the frame shims `console.log` and posts each line back.
-- `esm` output is a module exporting `run(runtime)`. It is inlined into a
-  `<script type="module">` and driven with a `print` that implements the
-  formatting rule from `src/runtime_interface.py` (booleans print `True` /
-  `False`). That mirrors what the generated node driver does — formatting is
-  the *host's* job, which is why each generated wrapper carries its own copy.
-- `html` output is already a complete, self-contained page, so it is simply
-  shown in the preview frame.
+| Target | Runs on | Stopped by |
+|---|---|---|
+| `python` | the Pyodide worker | `terminate()`, then a fresh worker boots |
+| `nodejs` (script) | the JavaScript worker | `terminate()` |
+| `esm` (module) | the JavaScript worker | `terminate()` |
+| `html` | an iframe preview | removing the frame |
 
-Python runs in Pyodide on the main thread, so a non-terminating Pyking
-program will freeze the tab. All the bundled examples terminate.
+A **sandboxed iframe is not good enough** for the first three, which is why
+they moved. A same-process iframe shares the main thread, so a loop inside
+one can still lock the page; browsers only isolate it when site isolation
+happens to apply. A worker is *guaranteed* a separate thread and
+`terminate()` is *guaranteed* to end it — measured at ~5 ms, against a
+Python loop that was ignoring everything else.
+
+Only `html` still uses a frame, because it **is** a page: it draws into its
+own document rather than printing. Removing the frame stops it, which is what
+Stop does.
+
+Two consequences worth knowing:
+
+- **Output streams as it is produced.** Pyodide's `setStdout` posts each line
+  across as the program prints it, rather than the run returning everything
+  at the end. So a program that prints and *then* hangs still shows what it
+  printed — which is exactly the case you want to see.
+- **Stopping Python costs the interpreter.** `terminate()` reclaims the
+  thread whatever the interpreter was doing, which is the point, but the
+  Pyodide instance goes with it. A replacement starts immediately and is
+  usually warm again before the next run is asked for; the status pill says
+  `restarting Python` until it is.
+
+The `esm` module is imported as a real module from a blob URL and handed a
+`print` — the source runs exactly as written, with no rewriting to make it
+fit. That `print` formats values with the JavaScript backend's **own**
+`pykFormat`, lifted out of `src/target_js_packaging.py` at build time rather
+than hand-copied, so the playground cannot disagree with `node prog.js` about
+how a value prints.
+
+### The Stop button
+
+**Run becomes Stop while a program is running**, and turns back into Run when
+it ends — one control that changes meaning, rather than two competing for the
+same corner. While something is executing, starting another one is not what
+that slot is for.
+
+The pair is sized as a single control (same `min-width`, padding and font,
+set together in the stylesheet) and Stop is Run's immediately preceding
+sibling, so only one is ever displayed and the swap cannot shift the toolbar
+by a pixel. Both are a little larger than the other buttons, being the ones
+you aim for.
+
+The swap happens the instant Run is pressed and covers everything that press
+costs: booting the runtime, compiling, then executing — so the first Run of a
+session, which spends several seconds on the Pyodide download, is
+interruptible too. Stopping during the boot is reported as stopped rather
+than as a failure.
+
+It was originally a separate button delayed by 0.6 s, on the reasoning that a
+quick run should not make a control flash past. That was the wrong trade: the
+button exists for programs that do not stop, and those are exactly the ones
+where any moment without it is a moment stuck — and a delay makes "is it
+working?" indistinguishable from "is it hung?".
+
+For a fast run the swap happens and reverses within a few milliseconds, which
+is just what a run that quick looks like. To watch it actually do its job,
+paste a program that does not terminate and press Run:
+
+```pyking
+var i = 0
+while i < 1:
+    i := 0
+```
+
+The page stays responsive, Run has become Stop, and clicking it ends the
+program. That works for the `python` target and for `nodejs` / `esm` alike.
 
 ## Layout
 
@@ -200,6 +263,7 @@ Checked in — note there is no `index.html` here; it is generated:
 tools/playground/
   Makefile
   generator.py     the single source for every generated file
+  e2e.mjs          browser tests (optional; see "Verifying" below)
   README.md
   .gitignore       build/, vendor/
 ```
@@ -212,6 +276,8 @@ build/
   assets/
     playground.js            the UI (ES module, exports mountPlayground)
     pyking-runtime.js        the compiler as an object — no UI at all
+    pyking-worker.js         Pyodide + the compiler, on their own thread
+    js-worker.js             generated JavaScript, on its own thread
     pyking-mode.js           Ace syntax mode for Pyking
     playground.css           all styles, scoped under .pyk-playground
     playground.json          targets, editor modes, examples — drives the UI
@@ -233,9 +299,12 @@ anything the compiler already knows:
 1. **The compiler modules** are copied from `src/` at build time — never
    forked. `pykboot.py` is excluded; it is the CLI.
 2. **The keyword and builtin lists** in `pyking-mode.js` are lifted out of
-   `src/lexer.py` and `src/analyses.py` while generating it. (`tools/emacs/`
-   warns in its own commentary that a hand-copied keyword list goes stale
-   silently; this one cannot.)
+   `src/lexer.py` and `src/analyses.py` while generating it, and **the value
+   formatter** in `js-worker.js` out of `src/target_js_packaging.py`.
+   (`tools/emacs/` warns in its own commentary that a hand-copied keyword
+   list goes stale silently; these cannot. The formatter was a hand-copy
+   once, and it drifted the moment booleans stopped printing capitalised —
+   hence the rule.)
 3. **The examples and their target support** come from `tests/*.pyk` and
    `tests/test_cases.toml` — the same manifest `make test` runs from, so the
    page cannot claim support the test suite does not.
@@ -273,6 +342,12 @@ All paths are relative, so the build directory can be served from any
 sub-path. Styles are scoped under `.pyk-playground` and use CSS custom
 properties (`--pyk-bg`, `--pyk-accent`, …), so re-theming is a few overrides.
 
+Note that every button-variant rule is written as `.pyk-playground .pyk-run`
+rather than `.pyk-run`. The base rule is `.pyk-playground button`, which is
+*more* specific than a bare class, so an unscoped variant silently loses its
+colour and padding to it — which is exactly what happened until it was
+caught.
+
 Two details that matter when embedding. The settings dialog is positioned
 *inside* the component's own box, not over the viewport, so it cannot cover
 your page's chrome. And the pane splits are custom properties on the root
@@ -291,17 +366,35 @@ import { PykingRuntime } from "./assets/pyking-runtime.js";
 const rt = new PykingRuntime({
   pyodideIndexURL: "./assets/vendor/pyodide/",
   pykingURL: "./pyking/",
+  workerURL: "./assets/pyking-worker.js",
 });
 await rt.ready(status => console.log(status));   // the big download happens here
 
-const result = rt.compile("print(1 + 2)\n", "java17");
+const result = await rt.compile("print(1 + 2)\n", "java17");
 // { ok: true, files: { "Playground.java": "…" } }
 
-const failed = rt.compile("print(nope)\n", "python");
+const failed = await rt.compile("print(nope)\n", "python");
 // { ok: false, stage: "Name error", text: "'playground.pyk' 1:6-1:10 …",
 //   info: { row1: 1, col1: 6, row2: 1, col2: 10 } }
 
-rt.runPython(code);   // { ok, output, traceback? }
+await rt.runPython(code, { onOutput: text => process.stdout.write(text) });
+rt.stop();     // ends a program that will not end itself, and re-boots
+```
+
+`compile` and `runPython` are asynchronous because they cross a thread
+boundary — everything happens on a worker (see above). Relative URLs are
+resolved against the page before being handed over, so `"./assets/…"` means
+what you expect: inside a worker a relative URL would otherwise resolve
+against the *worker's* location, which is how `./assets/vendor/pyodide/`
+once became `/assets/assets/vendor/pyodide/`. Generated JavaScript
+has its own runner with the same shape:
+
+```js
+import { JsRunner } from "./assets/pyking-runtime.js";
+
+const js = new JsRunner("./assets/js-worker.js");
+await js.run("script", nodejsSource, { onOutput: line => console.log(line) });
+js.stop();
 ```
 
 `compile()` never throws for a bad program — a refusal is data, with the same
@@ -315,8 +408,26 @@ Most of this is testable headlessly, and worth re-running after changing the
 compiler:
 
 ```sh
-make check                       # 244 example/target pairs through the shim
+make check                       # every example/target pair, through the shim
+make e2e                         # the same page, in a real browser
 ```
+
+`make check` needs nothing but Python. `make e2e` needs Playwright — the one
+dependency anywhere in this tool, which is why it is a separate target and
+why the script prints an install line and exits cleanly when it is absent:
+
+```sh
+npm install playwright && npx playwright install chromium
+```
+
+It is worth having, because there is a class of defect nothing headless can
+see. jsdom has no layout engine, so it can prove two CSS rules resolve alike
+but not that a control is the right size; and node can model a Worker but not
+run WebAssembly inside one. Both gaps hid real bugs — a Stop button that was
+never styled at all, and a doubled URL path that broke startup outright — and
+both are now covered: `make e2e` starts its own server, measures the real
+geometry of the toolbar, boots Pyodide in a real worker, runs a program that
+never terminates, and checks the page stays responsive while Stop ends it.
 
 The build was additionally validated by driving the real vendored Pyodide from
 node — mounting the compiler, compiling all nine targets, and confirming the
@@ -331,12 +442,12 @@ those are the properties to re-check.
 - **~12 MB on first load**, cached by the browser afterwards. `CDN=1` moves
   the bytes rather than removing them. The long-term fix is not a smaller
   Python but no Python: see "self-hosting" in `advice-pyking-on-web.md`.
-- **A non-terminating program freezes the tab** for the `python` target.
-  The JavaScript targets are protected by the iframe watchdog; moving Pyodide
-  into a web worker would fix the rest. **Worth knowing before switching on
-  "run while you type":** with it on, a loop that never ends freezes the tab
-  without you having pressed anything, and the edit that would fix it can no
-  longer be typed. Reload to recover — the setting persists, so switch it
-  off again, or keep it off while writing a loop.
+- **A non-terminating program no longer freezes the tab.** Execution happens
+  on workers, so the page stays responsive and the Stop button ends it (see
+  "How programs are executed" above). This is what makes "run while you type"
+  safe to leave on: a loop that never ends can be stopped, and the edit that
+  fixes it can still be typed. The remaining exception is the `html` target,
+  which needs a real frame to draw into — removing the frame stops it, but a
+  same-process frame can still make the page stutter first.
 - **C and Java output is display-only.** Copy it out and build it locally —
   the header comment in each generated file gives the exact command.
