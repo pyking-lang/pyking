@@ -84,15 +84,13 @@ function it was not told. Its type is then `(P1, P2, ...) -> R`, a
 follow it.
 
 A body supplies that return type in either of the two ways PYKING.md's
-"Tail position" describes, and they mix: every path leaves by a
-`return`, or the body's last statement yields a value of the type (with
-no `return` written), or some branches do one and some the other. What
-makes one rule out of the two is `Never`: a `return` does not complete,
-so it has no value to disagree with the branch beside it, and a body in
-which nothing completes has no trailing value to check. A body that
-falls off the end yielding nothing -- or the wrong thing -- is refused,
-because a function that says `-> Int` and does neither has a type it
-does not honour.
+"Tail position" describes, and they mix: a `return`, or a last statement
+that is simply an expression of the right type, or some branches doing
+one and some the other. One rule covers all of it, because every
+statement is asked the same question -- *what value do you supply?* --
+and `return e` answers "e's", exactly as the tail-position table says.
+A body that supplies nothing, or the wrong thing, is refused: a function
+that says `-> Int` and does neither has a type it does not honour.
 
 One deliberate limit: the function's own name means `BSelf` rather than
 its type inside its own body, so recursion is refused rather than
@@ -107,11 +105,19 @@ merely bound by a construct the checker does not cover.
 
 ## What a statement's type is
 
-Every function here answers with a type, and most statements have type
-unit, `()` -- as does a whole program. Two do not, and they are what
-makes `if` checkable: an *expression statement* has its expression's
-type, and a *block* has the type of its last statement. So a branch that
-ends in an expression yields that expression's value, and
+A statement's type is the type of the value it *supplies* -- the
+question PYKING.md's "Tail position" asks of a function body's last
+statement, asked here of every statement, since only its position
+decides whether the answer is wanted. Most statements supply nothing and
+so have type unit, `()`, as does a whole program. Four supply something:
+
+    an expression statement    its expression
+    a `return`                 what it returns
+    an `if`/`else`             what its branches agree on
+    a block                    its last statement's
+
+So a branch that ends in an expression supplies that expression's value,
+and
 
     if c:
         1
@@ -119,9 +125,9 @@ ends in an expression yields that expression's value, and
         'x'
 
 is an error -- `Int` against `String` -- while two branches that end in
-ordinary statements are both unit and agree. An `if` with no `else` is
-checked against unit, since that is what "the branch that did not run"
-produces.
+ordinary statements both supply unit and agree. An `if` with no `else`
+supplies unit whatever its one branch ends in, because there is a way
+through it that runs no branch at all.
 """
 
 from dataclasses import dataclass
@@ -173,44 +179,6 @@ class BSelf(Binding):
 
 
 # ---------------------------------------------------------------------
-# What a statement leaves behind
-#
-# A statement either completes, yielding a value of some type, or it does
-# not complete at all -- which is what a `return` does: it leaves the
-# function, so nothing after it runs and it has no value *here*. Both
-# answers are needed, and neither is a special case of the other:
-#
-#     type Yield = Type | Never
-#
-# `Never` is why a branch that returns and a branch that yields a value
-# agree rather than clash -- see PYKING.md's "Tail position", where an
-# explicit `return` and a trailing expression are two ways of supplying
-# the same function's value:
-#
-#     if b:
-#         return 1     Never   -- so the `if` yields what the other
-#     else:            branch yields, Int, and a function returning Int
-#         2            is satisfied either way
-#
-# It is a checker-internal answer, not a type: it never reaches `tmap`,
-# is never printed, and has no syntax. `syntax.py` knows nothing of it.
-# ---------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class Never:
-    """The answer for a statement that does not complete. One value,
-    `NEVER`; compare with `is_never`, never with `same_type`."""
-
-
-NEVER = Never()
-
-
-def is_never(yielded):
-    return isinstance(yielded, Never)
-
-
-# ---------------------------------------------------------------------
 # Signatures
 #
 # Written as they would be in a language that could state them, with
@@ -218,17 +186,16 @@ def is_never(yielded):
 # absent, and `(A, B)` a pair. Two aliases carry the tables this pass
 # threads through itself:
 #
-#     Env   = {String: Binding}   what each name in scope means
-#     TMap  = {Int: Type}         symbol -> inferred type; the result
-#     Yield = Type | Never        what a statement leaves behind
+#     Env  = {String: Binding}    what each name in scope means
+#     TMap = {Int: Type}          symbol -> inferred type; the result
 #
 # The `Type?` each statement function takes is the return type of the
 # function whose body is being checked, absent at the top level, where a
 # `return` has nothing to return from.
 #
 #     val type_check         : [Stmt] -> TMap
-#     val check_stmts        : [Stmt] -> Env -> TMap -> Type? -> Yield
-#     val check_stmt         : Stmt -> Env -> TMap -> Type? -> (Yield, Env)
+#     val check_stmts        : [Stmt] -> Env -> TMap -> Type? -> Type
+#     val check_stmt         : Stmt -> Env -> TMap -> Type? -> (Type, Env)
 #     val check_expr         : Expr -> Env -> TMap -> Type
 #     val check_param        : Param -> TMap -> Type
 #     val check_function     : SFunctionDef -> Env -> TMap -> Type
@@ -237,10 +204,8 @@ def is_never(yielded):
 #     val check_annotation   : Type? -> Type -> ()
 #     val function_type      : SFunctionDef -> TFunction
 #     val same_type          : Type -> Type -> Bool
-#     val is_never           : Yield -> Bool
 #     val bind               : Env -> String -> Type -> Env
 #     val unit               : Info -> Type
-#     val is_unit            : Type -> Bool
 #
 # Only `type_check` is meant to be called from outside; the rest are the
 # structure of the pass, one function per datatype it walks.
@@ -296,13 +261,12 @@ def type_check(stmts):
 
 
 def check_stmts(stmts, env, tmap, ret):
-    """What a block leaves behind: its last statement's yield, or unit
-    when it is empty -- and `NEVER` if any statement in it does not
-    complete, since then neither does the block.
+    """The type a block yields: its last statement's, or unit when it is
+    empty.
 
-    Only the *last* statement's value is the block's, which is what
-    PYKING.md's "Tail position" says: a statement in the middle is run
-    for its effect, however interesting its type.
+    Only the *last* statement supplies a value, which is what PYKING.md's
+    "Tail position" says: a statement in the middle is run for its
+    effect, however interesting its type.
 
     `env` is threaded from one statement to the next, so a binding is
     visible to what follows it -- and the extended environment is
@@ -310,19 +274,25 @@ def check_stmts(stmts, env, tmap, ret):
     what it binds cannot escape it (`analyses.py` says the same thing
     with `analyze_scope`)."""
     yielded = unit(stmts[0].info if stmts else Info("<empty>", 1, 0, 1, 0))
-    never = False
     for statement in stmts:
         yielded, env = check_stmt(statement, env, tmap, ret)
-        never = never or is_never(yielded)
-    return NEVER if never else yielded
+    return yielded
 
 
 # --- Stmt ------------------------------------------------------------
 
 
 def check_stmt(statement, env, tmap, ret):
-    """One statement: the type it yields, and the environment the
-    statements after it are checked in."""
+    """One statement: the type of the value it supplies, and the
+    environment the statements after it are checked in.
+
+    "Supplies" is PYKING.md's "Tail position" question, asked of every
+    statement: in the tail of a function body this is the function's
+    value, and anywhere else it is simply ignored. Most statements supply
+    nothing and so have type unit; an expression statement supplies its
+    expression, an `if` supplies whatever its branches agree on, and a
+    `return` supplies what it returns -- which is why nothing special is
+    needed to let one branch `return` while the other ends in a value."""
     match statement:
         case SLet(info, TargetName(_, name, _), expr, annotation, sym):
             # The binding's symbol records what its right-hand side
@@ -339,12 +309,6 @@ def check_stmt(statement, env, tmap, ret):
             # the branches having agreed on one is what the `SIf` case
             # below has already established.
             bound_type, _ = check_stmt(stmt, env, tmap, ret)
-            if is_never(bound_type):
-                # Nothing to bind: every branch left the function. The
-                # parser already refuses this (a value-form branch must
-                # end in an expression), so this only guards against a
-                # `NEVER` ever reaching `tmap`, which holds types.
-                unsupported(statement)
             check_annotation(annotation, bound_type)
             tmap[sym] = bound_type
             return unit(info), bind(env, name, bound_type)
@@ -367,41 +331,29 @@ def check_stmt(statement, env, tmap, ret):
                     f"the condition of an 'if' must be Bool, not "
                     f"{pprint_type(cond_type)}",
                 )
-            then_yield = check_stmts(then_body, env, tmap, ret)
+            then_type = check_stmts(then_body, env, tmap, ret)
             if else_body is None:
-                # There is no second branch to compare against, but there
-                # is still a second *outcome*: the condition being false
-                # produces nothing, so the branch that exists may not
-                # produce anything either. A branch that never completes
-                # produces nothing to reconcile, and the `if` as a whole
-                # simply falls through.
-                if not (is_never(then_yield) or is_unit(then_yield)):
-                    raise TypeError_(
-                        info,
-                        f"an 'if' with no 'else' cannot yield a value, but "
-                        f"this one yields {pprint_type(then_yield)}",
-                    )
+                # With no `else` there is a way through this statement
+                # that runs no branch at all, so the `if` supplies
+                # nothing whatever the one branch it has ends in. A body
+                # that needed that value is caught where the value was
+                # needed -- `check_function` -- rather than here.
                 return unit(info), env
-            else_yield = check_stmts(else_body, env, tmap, ret)
-            # A branch that never completes has no value to disagree
-            # with, so the other branch's answer stands -- which is what
-            # lets one branch `return` while the other supplies the value
-            # in tail position (see PYKING.md, "Tail position").
-            if is_never(then_yield):
-                return else_yield, env
-            if is_never(else_yield):
-                return then_yield, env
-            if not same_type(then_yield, else_yield):
+            else_type = check_stmts(else_body, env, tmap, ret)
+            if not same_type(then_type, else_type):
                 raise TypeError_(
                     info,
                     f"the branches of this 'if' have different types: "
-                    f"{pprint_type(then_yield)} and {pprint_type(else_yield)}",
+                    f"{pprint_type(then_type)} and {pprint_type(else_type)}",
                 )
-            return then_yield, env
+            return then_type, env
 
         case SReturn(info, expr, _):
-            # A `return` leaves the function, so it yields `NEVER`: it
-            # has no value *here*, and nothing after it runs.
+            # A `return` supplies the function's value explicitly, so
+            # that value is what this statement supplies -- which is
+            # exactly what PYKING.md's tail-position table says of it,
+            # and what lets a branch that returns sit beside one that
+            # ends in an expression without either being a special case.
             if ret is None:
                 raise TypeError_(info, "'return' outside a function")
             actual = check_expr(expr, env, tmap)
@@ -411,7 +363,7 @@ def check_stmt(statement, env, tmap, ret):
                     f"this function returns {pprint_type(ret)}, but this "
                     f"'return' gives {pprint_type(actual)}",
                 )
-            return NEVER, env
+            return actual, env
 
         case SReturnStmt(info, stmt, _):
             # `return if c: ...` -- the same rule, against whatever the
@@ -419,17 +371,13 @@ def check_stmt(statement, env, tmap, ret):
             if ret is None:
                 raise TypeError_(info, "'return' outside a function")
             actual, _ = check_stmt(stmt, env, tmap, ret)
-            if is_never(actual):
-                # Every branch returned on its own; there is nothing left
-                # for this `return` to give.
-                return NEVER, env
             if not same_type(actual, ret):
                 raise TypeError_(
                     info,
                     f"this function returns {pprint_type(ret)}, but this "
                     f"'return' gives {pprint_type(actual)}",
                 )
-            return NEVER, env
+            return actual, env
 
         case SFunctionDef(_, name, _, _, _, _, _):
             # Checked against its annotations here; visible under its own
@@ -549,16 +497,15 @@ def check_function(node, env, tmap):
             )
         return unit(node.info)
 
-    # A body supplies the function's value in either of the two ways
-    # PYKING.md's "Tail position" describes, and this one check covers
-    # both: `NEVER` means every path left by a `return`, which were each
-    # checked against the annotation as they were met, and any other
-    # answer is what the body's last statement yields -- the value the
-    # function produces with no `return` written.
-    body_yield = check_stmts(node.body, body_env, tmap, node.return_type)
-    if is_never(body_yield) or same_type(body_yield, node.return_type):
+    # The body's last statement is the one in tail position, and what it
+    # supplies is the function's value -- whether it supplies it with a
+    # `return` or by simply being an expression. One check covers both,
+    # because `check_stmt` already answers that one question for every
+    # kind of statement.
+    supplied = check_stmts(node.body, body_env, tmap, node.return_type)
+    if same_type(supplied, node.return_type):
         return unit(node.info)
-    if is_unit(body_yield):
+    if is_unit(supplied):
         raise TypeError_(
             node.info,
             f"'{node.name}' returns {pprint_type(node.return_type)}, so its "
@@ -568,7 +515,7 @@ def check_function(node, env, tmap):
     raise TypeError_(
         node.body[-1].info,
         f"'{node.name}' returns {pprint_type(node.return_type)}, but its "
-        f"body ends in a value of type {pprint_type(body_yield)}",
+        f"body ends in a value of type {pprint_type(supplied)}",
     )
 
 

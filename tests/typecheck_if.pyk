@@ -24,7 +24,8 @@ if flag:
 else:
     b = 'two'
 
-# With no `else` at all. The one branch there is must not yield a value.
+# With no `else` at all: there is a way through the statement that runs
+# no branch, so it supplies nothing whatever the branch ends in.
 if same:
     c = 3
 

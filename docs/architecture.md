@@ -169,8 +169,8 @@ writes out as OCaml-style signatures:
 
 ```
 type_check    : [Stmt] -> TMap
-check_stmts   : [Stmt] -> Env -> TMap -> Type? -> Yield
-check_stmt    : Stmt -> Env -> TMap -> Type? -> (Yield, Env)
+check_stmts   : [Stmt] -> Env -> TMap -> Type? -> Type
+check_stmt    : Stmt -> Env -> TMap -> Type? -> (Type, Env)
 check_expr    : Expr -> Env -> TMap -> Type
 check_param   : Param -> TMap -> Type
 same_type     : Type -> Type -> Bool
@@ -272,14 +272,13 @@ annotated — this checker infers nothing about a function it was not told
 — and then two rules apply: every `return` must give the declared type,
 and the body must *produce* it, either by returning on every path or by
 ending in a value of that type. Those are the two halves of PYKING.md's
-"Tail position", and one check covers both because a statement's answer
-is a `Yield`: a type, or `Never` for a statement that does not complete.
-A `return` yields `Never`, so a branch that returns has no value to
-disagree with the branch beside it (one may return while the other
-supplies the value), and a body in which nothing completes has no
-trailing value left to check. That subsumes the `definitely_returns`
-reasoning `target_java.py` still does for `javac` — here it falls out of
-the types.
+"Tail position", and one check covers both, because every statement is
+asked the same question — *what value do you supply?* — and `return e`
+answers "e's", exactly as the tail-position table says of it. So a
+branch that returns and a branch that ends in an expression are
+comparable without either being a special case, and no separate
+"does every path return?" pass is needed the way `target_java.py` still
+needs one for `javac`.
 
 Recursion is refused rather than assumed: the function's own name is
 bound in its body to `BSelf` rather than to its type, which is what lets

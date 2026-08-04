@@ -1708,10 +1708,11 @@ else:
     b = 'two'
 ```
 
-An `if` with no `else` is checked against unit: the condition being
-false has to produce something too, and what it produces is nothing. So
-a branch that yields a value needs an `else` to yield one as well. A
-condition must be `Bool` — there is no truthiness.
+An `if` with no `else` supplies unit, whatever its one branch ends in:
+there is a way through such a statement that runs no branch at all, so
+there is no value it can be counted on for. A function that needed that
+value is refused where the value was needed — at the function, not at
+the `if`. A condition must be `Bool` — there is no truthiness.
 
 **Functions.** A `def` is checked only when it is *fully* annotated:
 every parameter and the return type. Its type is then the function type
@@ -1738,9 +1739,11 @@ def scale(x:Int, factor:Int) -> Int:
         9
 ```
 
-The two ways mix, because a `return` does not *complete*: it leaves the
-function, so it has no value in the branch it sits in, and there is
-nothing for the other branch to disagree with. One branch may return
+The two ways mix, because the checker asks every statement the same
+question "Tail position" asks — *what value do you supply?* — and a
+`return` answers with what it returns, which is exactly what that
+section's table says of it. So a branch that returns and a
+branch that ends in an expression are comparable, and one may return
 while the other supplies the value:
 
 ```pyking

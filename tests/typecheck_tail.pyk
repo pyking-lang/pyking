@@ -5,10 +5,11 @@
 # path returns, or the body ends in a value of the declared type -- and
 # the two mix freely.
 #
-# What makes that work is that a `return` does not *complete*: it leaves
-# the function, so it has no value in the block it sits in. A branch
-# that returns therefore has nothing to disagree with the other branch
-# about, and an `if` takes whichever branch does yield a value.
+# What makes that work is that every statement is asked one question --
+# what value does it *supply*? -- and a `return` answers with what it
+# returns, exactly as PYKING.md's tail-position table says. So a branch
+# that returns and a branch that ends in an expression are comparable,
+# and neither is a special case.
 #
 # This file is never run. The harness compiles it with
 # `--typecheck --ast`, so the `.out` beside it is the printed AST.
@@ -52,8 +53,8 @@ def nested(n:Int, keep:Bool) -> Int:
         3
 
 # The two ways of supplying the value in one function: the first branch
-# leaves by `return`, the second falls off the end of the body with a
-# value. Both give an Int, and the function is satisfied either way.
+# says so with `return`, the second just ends in a value. Both supply an
+# Int, and the function is satisfied either way.
 def mixed(n:Int) -> Int:
     if n > 0:
         return n
@@ -61,17 +62,15 @@ def mixed(n:Int) -> Int:
         0 - n
 
 # Every path returning explicitly is still fine -- that is the same rule
-# seen from the other side, since a body where nothing completes has no
-# trailing value to check.
+# again, with every branch supplying its value the explicit way.
 def clamp(n:Int, hi:Int) -> Int:
     if n > hi:
         return hi
     else:
         return n
 
-# A `return` before the end, with the tail unreachable behind it, still
-# leaves the function; and a `return` of a value-form `if` checks
-# against the annotation the same way.
+# A `return` of a value-form `if` supplies what the branch that runs
+# yields, and checks against the annotation the same way.
 def pick(keep:Bool) -> String:
     return if keep:
         'kept'

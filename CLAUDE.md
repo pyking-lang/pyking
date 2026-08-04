@@ -285,12 +285,13 @@ The bootstrap is split into one module per compiler stage:
    it was not told); then every `return` must give the declared type and
    the body must *produce* it — by returning on every path, or by ending
    in a value of that type (PYKING.md's "Tail position"), or by mixing
-   the two. One check covers all three because a statement's answer is a
-   `Yield`: a type, or `Never` for one that does not complete. A `return`
-   yields `Never`, so it has no value to disagree with the branch beside
-   it. Recursion is refused: the function's own name is bound in its body
-   to `BSelf` rather than to its type, which is what lets the error say
-   so.
+   the two. One check covers all three because every statement is asked
+   one question — what value does it *supply*? — and `return e` answers
+   "e's", which is what the tail-position table says of it; so a
+   returning branch and a value-ending branch compare without either
+   being a special case. Recursion is refused: the function's own name is
+   bound in its body to `BSelf` rather than to its type, which is what
+   lets the error say so.
 
    Everything outside that fragment raises
    `TypeError_(info, "Construct is not supported")` — including a name
