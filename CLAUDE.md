@@ -137,6 +137,14 @@ The bootstrap is split into one module per compiler stage:
 2. **`src/syntax.py`** — the expression (`E*`) and statement (`S*`) AST
    dataclasses, one class per variant (same rationale as the Token ADT), and
    their pretty printers (`pprint_expr`, `pprint_stmt`, `pprint_program`).
+   `pprint_program(stmts, symbols=False, tmap=None)` is the only entry
+   point any caller uses; both of its options are module-level display
+   flags it sets and restores around its one call, rather than
+   parameters threaded through every printer. Given a `tmap` (the type
+   checker's symbol → type table), every annotation printed comes from
+   it and none from the AST — a node it does not know about prints no
+   type at all, whatever the source wrote, since nothing has checked
+   that annotation.
    Named `syntax.py`, not `ast.py`: `src/` is a flat set of script modules
    (not a package), so a module literally named `ast.py` would shadow the
    standard library `ast` module on `sys.path` — which breaks `dataclasses`
@@ -212,23 +220,35 @@ The bootstrap is split into one module per compiler stage:
    fields rather than one case per node type, so a node added to
    `syntax.py` is covered without touching it. A node that already has a
    symbol keeps it and new numbers continue past the highest in the
-   tree, which is what makes it safe to run twice (the type checker
-   synthesizes nodes after the first run).
+   tree, which is what makes it safe to run twice, should a pass ever
+   synthesize nodes into an already-symbolized tree.
 5. **`src/typesystem.py`** — the type checker, run only under
-   `--typecheck`, after `symbolize` and before `--ast` prints anything.
-   One entry point, `type_check(node, env) -> (new_node, type)`, where
-   `env` maps a name to its type and is used *immutably* (a binding
-   hands what follows it an extended copy), the same discipline
-   `analyses.py` follows. Types are `syntax.py`'s own `T*` nodes, not a
-   separate vocabulary, so a checked binding prints as `x: Int = 1` —
-   syntax the parser accepts, which keeps `--typecheck --ast` output
-   re-parsable. Statements and whole programs have type unit; a
-   binding's right-hand-side type is recorded in `SLet.type`. It covers
-   only a fragment so far (top-level `=` and expression statements over
-   `Int`/`String`, with `+` overloaded and `-`/`*` on `Int`); everything
-   else raises `TypeError_(info, "Construct is not supported")`. Keep
-   that floor explicit rather than silently accepting what it has not
-   reasoned about.
+   `--typecheck`, after `symbolize` and before `--ast` prints anything;
+   it runs *instead of* `analyze_program`, not after it (see
+   `pykboot.py` below). One entry point,
+   `type_check(node, env, tmap) -> type`, where `env` maps a name to its
+   type and is used *immutably* (a binding hands what follows it an
+   extended copy), the same discipline `analyses.py` follows. `tmap` is
+   the deliberate opposite: one mutable dict, shared by the whole run,
+   mapping a node's *symbol* to the type inferred for it, and it is the
+   pass's only output besides the returned type. **The checker does not
+   touch the AST** — it rebuilds nothing and writes into no node's
+   `type` field — so what the source wrote and what the checker inferred
+   stay separable; keep it that way. When checking finishes `tmap` holds
+   an entry for every annotatable construct the checker reached
+   (`SFunctionDef`'s return type, `Param`, `SLet`, `SLetStmt`), of which
+   only `SLet` is inside the fragment covered so far. Types are
+   `syntax.py`'s own `T*` nodes, not a separate vocabulary, so a checked
+   binding prints as `x: Int = 1` — syntax the parser accepts, which
+   keeps `--typecheck --ast` output re-parsable; they are synthesized
+   here, so they carry no symbols. Statements and whole programs have
+   type unit. It covers only a fragment so far (top-level `=` and
+   expression statements over `Int`/`String`, with `+` overloaded and
+   `-`/`*` on `Int`); everything else raises
+   `TypeError_(info, "Construct is not supported")` — including a name
+   it cannot find, since no name analysis has run ahead of it in this
+   mode. Keep that floor explicit rather than silently accepting what it
+   has not reasoned about.
 6. **`src/runtime_interface.py`** — the boundary between pure Pyking code
    and the outside world, in the spirit of WebAssembly's split between a
    core language that cannot observe anything and a separate host spec.
@@ -320,9 +340,18 @@ The bootstrap is split into one module per compiler stage:
    `UnsupportedError` and prints a `'file' row:col-row:col ...` message
    to stderr (`Lexing error` / `Parsing error` / `Name error` /
    `Type error` / `Unsupported by target '<t>'`). Every message it
-   prints goes through `wrap`, which reflows to 70 columns. The
+   prints goes through `wrap`, which reflows to 70 columns. The name
    analysis runs for every mode, `--ast` included — an AST whose names
-   don't resolve is not worth printing or compiling. Every flag has a
+   don't resolve is not worth printing or compiling — *except*
+   `--typecheck`, which replaces it: the type checker carries a name
+   environment of its own and refuses any name it cannot find there, so
+   running both would judge names twice, by two passes covering
+   different fragments of the language. `symbolize` still runs in every
+   mode, since `tmap` is keyed by symbol; nothing needs symbolizing
+   again afterwards, because the checker synthesizes nothing into the
+   tree. The `tmap` it produces is handed to `pprint_program`, so a
+   `--typecheck --ast` run prints inferred types rather than written
+   ones. Every flag has a
    default: `--target` is `python`, and with no `--ast`/`--stdout`/
    `--output` the program is compiled to a file named from the source
    stem and the target's extension — except the Java targets, where the

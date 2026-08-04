@@ -300,6 +300,16 @@ class TTuple(Type):         # (e1, e2, ...); zero elements is the Unit type "()"
 # and no recursive call site has to remember to pass it along.
 _show_symbols = False
 
+# The types the type checker inferred, as symbol -> `Type`, when
+# `pprint_program` was given them (see `type_check` in
+# `src/typesystem.py`); `None` when it was not, which is every mode but
+# `--typecheck`. A display setting for the same reasons `_show_symbols`
+# is one, set and restored by the same single entry point -- and needed
+# because the checker no longer writes what it inferred into the AST,
+# so a printer that only looked at the node would show what the *source*
+# annotated instead.
+_tmap = None
+
 def _sym(node, text):
     """`text` with the node's symbol number appended, when `--symbols`
     asked for it; `text` unchanged otherwise."""
@@ -366,9 +376,10 @@ class Param:                # name[:type]
 
 
 def _pprint_param(p):
-    if p.type is None:
+    type_ = _node_type(p, p.type)
+    if type_ is None:
         return p.name
-    return f"{p.name}:{pprint_type(p.type)}"
+    return f"{p.name}:{_pprint_annotation_type(type_)}"
 
 
 def _wrap(prec, min_prec, s):
@@ -660,11 +671,12 @@ class SLet(Stmt):           # target[: type] = expr (immutable binding;
     info: Info               # target may destructure a tuple)
     target: AssignTarget
     expr: Expr
-    # The binding's type: `None` until something works it out. The
-    # annotation is optional in the source, and the type checker
-    # (`src/typesystem.py`, run only under `--typecheck`) fills it in
-    # otherwise. Printed back when present, which is what makes
-    # `pyk --typecheck --ast` show what was inferred.
+    # The binding's type as the *source* wrote it, or `None` where the
+    # annotation was left out -- nothing else fills this in. The type
+    # checker (`src/typesystem.py`, run only under `--typecheck`) leaves
+    # the AST alone and records what it inferred in its own symbol ->
+    # type table instead; `pprint_program` prints from that table when
+    # given one, and from this field otherwise.
     type: Type = None
     sym: int = 0
 
@@ -781,14 +793,14 @@ def _pprint_stmt(s, level=0):
     match s:
         case SLet(_, target, expr, type_):
             return (
-                f"{pad}{pprint_target(target)}{_annotation(type_)} "
+                f"{pad}{pprint_target(target)}{_annotation(s, type_)} "
                 f"= {pprint_expr(expr)}"
             )
         case SLetStmt(_, target, stmt, type_):
             # The bound statement prints exactly as it would on its own;
             # only its header line gains the `target = ` prefix.
             head, *rest = pprint_stmt(stmt, level).split("\n")
-            prefix = f"{pad}{pprint_target(target)}{_annotation(type_)} = "
+            prefix = f"{pad}{pprint_target(target)}{_annotation(s, type_)} = "
             return "\n".join([prefix + head.strip()] + rest)
         case SVar(_, name, expr):
             return f"{pad}var {name} = {pprint_expr(expr)}"
@@ -835,8 +847,7 @@ def _pprint_stmt(s, level=0):
             return "\n".join(lines)
         case SFunctionDef(_, name, params, body, return_type, expr):
             header = f"{pad}def {name}({', '.join(pprint_param(p) for p in params)})"
-            if return_type is not None:
-                header += f" -> {pprint_type(return_type)}"
+            header += _return_annotation(s, return_type)
             if expr is not None:
                 return f"{header} = {pprint_expr(expr)}"
             lines = [header + ":"]
@@ -867,22 +878,72 @@ _SELF_DELIMITED = (
 )
 
 
-def _annotation(type_):
+def _node_type(node, annotation):
+    """The type to print for a node that can carry one: the one the type
+    checker inferred for it when `pprint_program` was given a `tmap`,
+    and the node's own annotation -- what the source wrote -- otherwise.
+
+    When there is a `tmap`, it is the *only* authority: a node with no
+    entry in it prints without a type even if the source annotated it,
+    since nothing has checked that annotation and printing it would
+    claim otherwise."""
+    if _tmap is None:
+        return annotation
+    return _tmap.get(node.sym)
+
+
+def _pprint_annotation_type(t):
+    """A type in an annotation position, printed bare under `--symbols`
+    when it came from a `tmap`: the type checker synthesizes those, so
+    neither it nor anything inside it is a node of the AST with a symbol
+    of its own, and printing the `@0` that means "not symbolized yet"
+    would read as a bug rather than as a fact about the type."""
+    if _tmap is None:
+        return pprint_type(t)
+    global _show_symbols
+    saved = _show_symbols
+    _show_symbols = False
+    try:
+        return pprint_type(t)
+    finally:
+        _show_symbols = saved
+
+
+def _annotation(node, type_):
     """`: Int` for a binding whose type is known, nothing otherwise. The
-    annotation is optional in the source and filled in by the type
-    checker (see `SLet.type`), so this is what makes
-    `pyk --typecheck --ast` show what was inferred -- and, since the
-    parser accepts the same syntax, keeps that output re-parsable."""
-    return "" if type_ is None else f": {pprint_type(type_)}"
+    annotation is optional in the source and worked out by the type
+    checker otherwise, so this is what makes `pyk --typecheck --ast`
+    show what was inferred -- and, since the parser accepts the same
+    syntax, keeps that output re-parsable."""
+    type_ = _node_type(node, type_)
+    return "" if type_ is None else f": {_pprint_annotation_type(type_)}"
 
 
-def pprint_program(stmts, symbols=False):
+def _return_annotation(node, return_type):
+    """` -> Int` for a function whose return type is known, nothing
+    otherwise -- `_annotation`'s counterpart for the one annotation that
+    is not written with a colon."""
+    return_type = _node_type(node, return_type)
+    return "" if return_type is None else f" -> {_pprint_annotation_type(return_type)}"
+
+
+def pprint_program(stmts, symbols=False, tmap=None):
     """The whole program as Pyking source. `symbols` additionally prints
     each node's symbol number (see `symbolize` in src/analyses.py) as an
-    `@n` suffix -- what `--symbols` asks for."""
-    global _show_symbols
+    `@n` suffix -- what `--symbols` asks for.
+
+    `tmap` is what the type checker inferred, as symbol -> `Type` (see
+    `type_check` in src/typesystem.py). Given one, every annotation
+    printed comes from it and none from the AST: a node it knows about
+    prints the *checked* type, and one it does not prints no type at
+    all, whatever the source wrote. Given none -- every mode but
+    `--typecheck` -- the annotations in the AST are printed as they
+    were parsed."""
+    global _show_symbols, _tmap
     _show_symbols = symbols
+    _tmap = tmap
     try:
         return "\n".join(pprint_stmt(s) for s in stmts)
     finally:
         _show_symbols = False
+        _tmap = None

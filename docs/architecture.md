@@ -28,13 +28,13 @@ AST variant, and `match`/`case` over them rather than method dispatch.
                     └────────┬────────┘
                     ┌────────▼────────┐
                     │src/analyses.py │   names & scoping: rejects,
-                    │  analyze_program│   never rewrites
-                    ├─────────────────┤
+                    │  analyze_program│   never rewrites (not under
+                    ├─────────────────┤   --typecheck, which replaces it)
                     │   symbolize     │   one unique integer per node
                     └────────┬────────┘
                     ┌────────▼────────┐
-                    │src/typesystem.py│   --typecheck only; annotates
-                    └────────┬────────┘   bindings with their types
+                    │src/typesystem.py│   --typecheck only; leaves the AST
+                    └────────┬────────┘   alone, fills a symbol→type tmap
                              │
                    src/syntax.py AST — the one
                    thing every backend shares
@@ -70,8 +70,8 @@ ignores `--target`.
 | `src/lexer.py` | Characters → tokens. `Info` (file, row/column span) is attached to every token and rides along on every later node, so any stage can report an error against the source. |
 | `src/parser.py` | Recursive descent, tokens → the AST in `syntax.py`. Also enforces the few rules the grammar cannot state (duplicate pattern bindings, "every branch of a bound `if` yields a value"). |
 | `src/syntax.py` | The AST itself — one dataclass per variant — plus a pretty printer that prints Pyking back out. |
-| `src/analyses.py` | Static passes over the AST. `analyze_program` checks names and scoping — it only rejects, never rewrites. `symbolize` then gives every node a unique integer `sym`, rebuilding the tree (nodes are frozen). Both run for every mode, `--ast` included. |
-| `src/typesystem.py` | The type checker. Opt-in (`--typecheck`) while it covers only part of the language; it returns a new AST with each binding's type filled in, which is what `--ast` then prints. |
+| `src/analyses.py` | Static passes over the AST. `analyze_program` checks names and scoping — it only rejects, never rewrites; it runs for every mode except `--typecheck`, which replaces it. `symbolize` then gives every node a unique integer `sym`, rebuilding the tree (nodes are frozen); it runs for every mode, `--ast` included. |
+| `src/typesystem.py` | The type checker. Opt-in (`--typecheck`) while it covers only part of the language; it leaves the AST alone and reports what it inferred in `tmap`, a symbol → type table, which is what `--ast` then prints from. |
 | `src/target_python.py` | Python backend: its own `Py*` AST, translation, printer. |
 | `src/target_js_core.py` | JavaScript AST, translation, printer — with no knowledge of packaging. |
 | `src/target_js_packaging.py` | Wraps that output into the files each JS target delivers, and supplies the JavaScript side of the runtime interface. |
@@ -147,16 +147,16 @@ x@1 = (12@2 + 20@3)@4  @5
 ```
 
 A node that already has a symbol keeps it and fresh numbers continue
-past the highest in the tree, which makes the pass safe to run twice —
-that is how nodes synthesized *after* the first run (the types the
-checker writes into bindings) get symbols without renumbering anything.
+past the highest in the tree, which makes the pass safe to run twice
+should a later pass ever synthesize nodes into an already-symbolized
+tree: those get symbols without anything else being renumbered.
 
 **`type_check`** (in `src/typesystem.py`) is the type checker, run only
 under `--typecheck`, after symbolizing and before `--ast` prints
 anything. Its signature is
 
 ```
-type_check(node, env) -> (new_node, type)
+type_check(node, env, tmap) -> type
 ```
 
 where `env` maps a name to its type and is used immutably — a binding
@@ -164,11 +164,37 @@ hands what follows it an extended *copy*, the same discipline
 `analyses.py` follows, and for the same reason: what a name means is
 decided by where it is written.
 
+`tmap` is the deliberate opposite: one mutable dict, shared by the whole
+run, mapping a node's *symbol* to the type worked out for it. It is what
+the pass produces. The AST is not touched — nothing is rebuilt and no
+node's `type` field is written — so what the source *wrote* and what the
+checker *inferred* stay separable, and the driver hands the finished
+`tmap` to `pprint_program` (below) to print the latter. When checking
+finishes, `tmap` holds an entry for each annotatable construct the
+checker reached: `SFunctionDef` (its return type), `Param`, `SLet` and
+`SLetStmt` — of which only `SLet` is inside the fragment covered so far.
+Symbols exist for exactly this: `tmap` needs a key for a node that does
+not depend on the node's identity, which is why symbolizing runs first —
+and, since no node is synthesized into the tree, it does not have to run
+again afterwards.
+
 Types are the `T*` nodes from `syntax.py` rather than a vocabulary of
 their own, so a checked binding prints as `x: Int = 1` — syntax the
 parser accepts, which is what keeps `--typecheck --ast` output
-re-parsable. A statement and a whole program have type unit, `()`; a
-binding's right-hand-side type is recorded in the binding itself.
+re-parsable. They are synthesized by the checker and so carry no symbols
+of their own: under `--symbols` an inferred type prints bare, since `@0`
+means "not symbolized yet" and that is not what a type from `tmap` is. A
+statement and a whole program have type unit, `()`; a binding's
+right-hand-side type is what `tmap` records under that binding's symbol.
+
+`--typecheck` runs *instead of* `analyze_program`, not after it: the
+checker carries a name environment of its own and refuses any name it
+cannot find there, so running both would judge names twice, by two
+passes covering different fragments of the language. The visible
+consequence is that in this mode an unbound name is reported as
+`Construct is not supported` by the checker rather than as a `Name
+error`, and the rules only the analysis knows (a `var` may not be
+shadowed) are not checked at all.
 
 Both halves of it are pinned down by tests, distinguished by filename:
 `tests/typecheck_*.pyk` must check, and its `.out` is the printed AST;

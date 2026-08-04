@@ -182,15 +182,20 @@ except ParseError as e:
 
 # Name analysis runs for every mode, `--ast` included: it is part of the
 # front end, not of any backend, and an AST whose names don't resolve is
-# not a program worth printing or compiling.
-try:
-    analyze_program(program)
-except AnalysisError as e:
-    print(
-        wrap(f"{pprint_info(e.info)} Name error: {e.message}"),
-        file=sys.stderr,
-    )
-    sys.exit(1)
+# not a program worth printing or compiling. The exception is
+# `--typecheck`, which replaces it: the type checker carries an
+# environment of its own and refuses any name it cannot find there, so
+# running both would mean judging names twice, by two passes that cover
+# different fragments of the language.
+if not typecheck:
+    try:
+        analyze_program(program)
+    except AnalysisError as e:
+        print(
+            wrap(f"{pprint_info(e.info)} Name error: {e.message}"),
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 # Every node gets a unique symbol once the names check out. This runs
 # for every mode, like the analysis before it: `--symbols` prints the
@@ -200,14 +205,15 @@ program = symbolize(program)
 
 # Type checking is opt-in (`--typecheck`) while it covers only part of
 # the language -- see src/typesystem.py. It runs after symbolizing and
-# before `--ast`, so a printed AST shows the types it worked out.
+# before `--ast`, so a printed AST shows the types it worked out. It
+# leaves the AST alone and reports what it inferred in `tmap`, a symbol
+# -> type table, which is why symbolizing has to have happened first and
+# does not have to happen again afterwards.
+tmap = None
 if typecheck:
+    tmap = {}
     try:
-        program, _ = typesystem.type_check(program, {})
-        # The checker synthesized the type nodes it wrote into each
-        # binding, so they have no symbols yet; symbolizing again fills
-        # in exactly those, leaving every existing number untouched.
-        program = symbolize(program)
+        typesystem.type_check(program, {}, tmap)
     except typesystem.TypeError_ as e:
         print(
             wrap(f"{pprint_info(e.info)} Type error: {e.message}"),
@@ -216,9 +222,11 @@ if typecheck:
         sys.exit(1)
 
 # `--ast` is the Pyking AST, which every target shares, so it is printed
-# before any backend runs and ignores `--target`.
+# before any backend runs and ignores `--target`. With `--typecheck` it
+# is printed against `tmap`, so the annotations shown are the ones the
+# checker inferred rather than the ones the source happened to write.
 if show_ast:
-    print(pprint_program(program, symbols=show_symbols))
+    print(pprint_program(program, symbols=show_symbols, tmap=tmap))
     sys.exit(0)
 
 stem = os.path.splitext(os.path.basename(filename))[0]
