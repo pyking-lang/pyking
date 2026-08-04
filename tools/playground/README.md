@@ -124,6 +124,21 @@ static host will do; nothing runs server-side.
   - **Clear it each time you press Run** — on by default. Only *Run* clears;
     compiling deliberately does not, so a compile error stays beside the
     output you were comparing it against.
+  - **Enable typechecker** and **Print AST output** — the compiler's own
+    `--typecheck` and `--ast`, both **off** by default. Each changes what
+    compiling means, so nobody gets them without asking:
+    - *Enable typechecker* runs `src/typesystem.py` and, exactly as `pyk`
+      does, uses it *instead of* the name analysis. It covers only a
+      fragment of the language so far and refuses the rest with `Construct
+      is not supported`, so it will reject most examples — that floor is
+      the point, not a bug. It applies to **Run** as well: a program the
+      checker rejects is rejected whichever button you press.
+    - *Print AST output* stops after the front end and shows the
+      pretty-printed Pyking AST, whatever target is selected — the same
+      view as the `ast` target, and with the type checker on it carries the
+      types that were inferred. There is then no generated code, so the
+      generated pane's ▶ Run is disabled: it runs *what is shown*, and an
+      AST is a view of the program rather than code any host could run.
   - **Reset pane sizes**.
 
   Close it with `Esc`, the ✕, or a click on the backdrop. Every setting, and
@@ -377,6 +392,13 @@ const failed = await rt.compile("print(nope)\n", "python");
 // { ok: false, stage: "Name error", text: "'playground.pyk' 1:6-1:10 …",
 //   info: { row1: 1, col1: 6, row2: 1, col2: 10 } }
 
+// pyk's front-end flags, both off unless asked for -- what the settings
+// dialog's last two checkboxes switch on:
+const checked = await rt.compile("x = 1 + 2\n", "python", "playground.pyk",
+                                 { typecheck: true, ast: true });
+// { ok: true, files: { "playground.ast": "x: Int = 1 + 2" },
+//   views: ["playground.ast"] }
+
 await rt.runPython(code, { onOutput: text => process.stdout.write(text) });
 rt.stop();     // ends a program that will not end itself, and re-boots
 ```
@@ -397,6 +419,11 @@ await js.run("script", nodejsSource, { onOutput: line => console.log(line) });
 js.stop();
 ```
 
+A successful result also carries `views`: the names in `files` that are a
+view of the front end (`--ast`) rather than code a host could run. The page
+uses it to keep its Run button honest, and an embedder that runs generated
+code should skip them the same way.
+
 `compile()` never throws for a bad program — a refusal is data, with the same
 wording `pykboot.py` prints and the raw span for highlighting. Rows count from
 1 and columns from 0, exactly as `lexer.Info` records them (Ace counts both
@@ -412,7 +439,13 @@ make check                       # every example/target pair, through the shim
 make e2e                         # the same page, in a real browser
 ```
 
-`make check` needs nothing but Python. `make e2e` needs Playwright — the one
+`make check` needs nothing but Python. It also exercises the two front-end
+flags, neither of which is reachable by selecting a target: every example is
+compiled once more with `--ast` against a target that would otherwise
+generate code, and the type-checker fixtures under `tests/` are held to the
+rule their names state — `typecheck_*` must check, `fail_typecheck_*` must
+not. What those programs *infer* is `tests/test_script.py`'s business; this
+only proves the flags reach the checker through the shim. `make e2e` needs Playwright — the one
 dependency anywhere in this tool, which is why it is a separate target and
 why the script prints an install line and exits cleanly when it is absent:
 
