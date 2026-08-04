@@ -201,7 +201,10 @@ represent it, else a guess from whether the body concatenates or compares
 it with a string, else `Int`; a function's return type is read back off
 its translated body). The same caveat applies: rule 2 is a guess, and an
 unannotated parameter the body only ever returns unchanged will infer
-`Int` and refuse a call site that passes a string.
+`Int` and refuse a call site that passes a string. Annotations naming a
+tuple, list or function type are ignored here too — for a function type
+what refuses the program is the *call* through the parameter, `call to
+unknown function`, since a `def` is not a value this backend can pass.
 
 ## Naming the class
 

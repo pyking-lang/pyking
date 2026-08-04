@@ -333,9 +333,11 @@ comprehension.
 
 ### Type annotations
 
-Parsed, stored, pretty-printed back by `--ast`, and erased here. Nothing
-verifies them at any stage, so the generated Python carries no typing
-information at all:
+Parsed, stored, pretty-printed back by `--ast`, and erased here —
+function types (`(Int) -> Int`) exactly like the rest. Nothing verifies
+them in an ordinary compile (`--typecheck` is a separate, opt-in pass;
+see PYKING.md's "Type checking"), and the generated Python carries no
+typing information at all:
 
 ```pyking                          # generated Python
 def scale(x, factor:Int) -> Int:   def scale(x, factor):

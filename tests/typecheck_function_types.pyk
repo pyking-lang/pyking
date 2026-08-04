@@ -1,0 +1,71 @@
+# Function types as the type checker sees them: written in the source,
+# taken as declarations, and compared structurally.
+#
+# `tests/function_types.pyk` is the runnable half of this -- that
+# annotations parse and a program written with them still runs. This
+# half is what they *mean*: a parameter annotated `(Int) -> Int` may be
+# called, and only something of that same type may be passed to it.
+#
+# This file is never run. The harness compiles it with
+# `--typecheck --ast`, so the `.out` beside it is the printed AST -- and
+# because a function type prints in the syntax it is written in, that
+# output is also what pins down the round trip.
+
+def inc(n:Int) -> Int:
+    return n + 1
+
+def is_small(n:Int) -> Bool:
+    return n < 10
+
+# A parameter of function type is callable, and its result has the type
+# the annotation promised.
+def apply(f:(Int) -> Int, x:Int) -> Int:
+    return f(x)
+
+def apply_twice(f:(Int) -> Int, x:Int) -> Int:
+    return f(f(x))
+
+# Two parameters, so one pair of parentheses -- against `((Int, Bool))`
+# below, which is one parameter that is itself a pair.
+def combine(f:(Int, Bool) -> Int, n:Int, keep:Bool) -> Int:
+    return f(n, keep)
+
+def choose(a:Int, keep:Bool) -> Int:
+    if keep:
+        return a
+    else:
+        return 0
+
+# Returning a function: `->` groups to the right, so this returns a
+# `(Int) -> Int` rather than taking one.
+def pick(keep:Bool) -> (Int) -> Int:
+    return inc
+
+# Types nest freely: a function type inside a tuple type, inside a list
+# type, and as the parameter of another function type. These are
+# declared and never called -- a call would need a tuple or a list, and
+# neither is inside the fragment the checker covers yet.
+def nested(pair:((Int) -> Int, Int), fs:[(Int) -> Int]) -> Int:
+    return 1
+
+def higher(f:((Int) -> Int) -> Int) -> Int:
+    return 1
+
+def pair_taker(p:((Int, Bool)) -> Int) -> Int:
+    return 2
+
+# A name bound to a function has that function's type, and passing it
+# where a function type is expected compares the two structurally.
+stepper = inc
+one = apply(inc, 1)
+two = apply(stepper, 1)
+three = apply_twice(inc, 1)
+four = combine(choose, 7, true)
+five = apply(pick(true), 1)
+
+# A `Bool`-returning function is a different type from an `Int`-returning
+# one, and each only fits where its own type is expected.
+def guard(f:(Int) -> Bool, x:Int) -> Bool:
+    return f(x)
+
+small = guard(is_small, 3)

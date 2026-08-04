@@ -137,9 +137,10 @@ Statements:
 - Mutable variables (`var` and `:=`) — Pyking extension
 - Function definitions (`def`), with optional parameter and return type
   annotations (`Int`, `String`, `Bool`, list types `[T]`, tuple types
-  `(T1, T2, ...)` including the unit type `()`, and nesting of any of
-  these) — annotations are pretty-printed in Pyking's own syntax but
-  erased when compiling; also `def name(params) = expr`,
+  `(T1, T2, ...)` including the unit type `()`, function types
+  `(T1, T2, ...) -> T`, and nesting of any of these) — annotations are
+  pretty-printed in Pyking's own syntax but erased when compiling; also
+  `def name(params) = expr`,
   a single-expression body, which may stand on the next line indented —
   Pyking extension
 - `return` statements, whose operand may be an ordinary expression or
@@ -164,9 +165,8 @@ Structure:
   names, and no shadowing of a mutable one — checked statically by
   (see "Names and scoping")
 - Static checking in two layers: names and scoping always, types only
-  under `--typecheck` and only over part of the language so far — with
-  one type, the function type `(Int, Bool) -> Int`, that checking has
-  and source syntax does not (see "Type checking")
+  under `--typecheck` and only over part of the language so far (see
+  "Type checking")
 
 ## Grammar
 
@@ -199,7 +199,7 @@ param        = ident , [ ":" , type ] ;
 
 type         = "Int" | "String" | "Bool"
              | "[" , type , "]"
-             | "(" , [ type , { "," , type } ] , ")" ;
+             | "(" , [ type , { "," , type } ] , ")" , [ "->" , type ] ;
 
 return_stmt = "return" , bound_value ;
 
@@ -453,15 +453,28 @@ Notes that don't fall out of the grammar alone:
 - `param`'s `[ ":" , type ]` and `function_def`'s `[ "->" , type ]` are
   both optional and independent — a function may annotate none, some, or
   all of its parameters, with or without a return type. Annotations are
-  purely syntactic: they're parsed, stored in the AST, and pretty-printed
-  back out, but there is no type checker yet, so nothing is verified
-  against them, and every backend erases them completely — no generated
-  code carries type syntax at all.
+  purely syntactic in an ordinary compile: they're parsed, stored in the
+  AST, and pretty-printed back out, and every backend erases them
+  completely — no generated code carries type syntax at all. Whether
+  anything is *verified* against them is a separate question, answered by
+  "Type checking" at the end of this reference.
 - A tuple `type` with zero elements, `()`, is the Unit type. One with a
   single element, e.g. `(Int)`, is a genuine 1-element tuple type, not a
   parenthesized `Int` — Pyking's type grammar has no parenthesization for
   grouping, so there's no ambiguity to resolve. Tuple and list types can
   nest arbitrarily, e.g. `[(Int, Bool)]` or `(Int, [String], (Bool, Bool))`.
+- The trailing `[ "->" , type ]` in `type` is what makes a **function
+  type**, `(Int, Bool) -> Int`. The parenthesized list before the arrow
+  is the *parameter list*, and the same list without an arrow after it is
+  a tuple — which is the whole rule, decided by the one token after `)`.
+  So `(Int, Bool)` is a pair, `(Int, Bool) -> Int` takes two parameters,
+  and `((Int, Bool)) -> Int` takes one parameter that is a pair. The
+  result is a `type` in its turn, so `->` groups to the right:
+  `(Int) -> (Int) -> Int` returns a function and needs no parentheses of
+  its own. A function type may appear wherever a type may, including
+  nested inside list and tuple types — `[(Int) -> Bool]`,
+  `((Int) -> Int, Int)` — and as another function type's parameter,
+  `((Int) -> Int) -> Int`.
 - The same is true of `tuple_lit`, `target_atom`, and `pattern_atom`:
   `()` is the empty tuple, and a *parenthesized* single element followed
   by a comma, e.g. `(1,)`, `(x,)`, or `case (p,):`, is a genuine singleton
@@ -999,11 +1012,12 @@ total: Int = count + 1
 ```
 
 Parameters and the return value may optionally be annotated with a type:
-`Int`, `String`, `Bool`, a list type `[T]`, or a tuple type
-`(T1, T2, ...)` (nesting freely, e.g. `[(Int, Bool)]`). `()`, the
-zero-element tuple type, is the Unit type. Annotations are entirely
-optional and independent per parameter/return value — a function can mix
-annotated and unannotated parameters freely.
+`Int`, `String`, `Bool`, a list type `[T]`, a tuple type `(T1, T2, ...)`,
+or a function type `(T1, T2, ...) -> T` (all nesting freely, e.g.
+`[(Int, Bool)]` or `[(Int) -> Bool]`). `()`, the zero-element tuple type,
+is the Unit type. Annotations are entirely optional and independent per
+parameter/return value — a function can mix annotated and unannotated
+parameters freely.
 
 ```python
 def add(a:Int, b:Int) -> Int:
@@ -1024,6 +1038,43 @@ def scale(x, factor:Int) -> Int:
 print(add(2, 3))
 print(sum_list([1, 2, 3, 4]))
 print(scale(3, 4))
+```
+
+**Function types.** `(T1, T2, ...) -> T` is the type of a function, and
+may be written wherever a type may. The parentheses are the parameter
+*list*'s, not a tuple's, so the count of parameters is what they show: a
+function of two parameters is `(Int, Bool) -> Int`, and one of a single
+parameter that happens to be a pair is `((Int, Bool)) -> Int`. Without an
+arrow after it, the same parenthesized list is an ordinary tuple type.
+The result is a type in its turn, so `->` groups to the right and a
+function returning a function needs no parentheses of its own.
+
+```python
+def inc(n:Int) -> Int:
+    return n + 1
+
+
+def apply(f:(Int) -> Int, x:Int) -> Int:
+    return f(x)
+
+
+# Returning a function: the return type is `(Int) -> Int`.
+def stepper(up:Bool) -> (Int) -> Int:
+    return inc
+
+
+# Nested: a list of them, a pair holding one, one taken by another.
+def each(fs:[(Int) -> Int], first:((Int) -> Int, Int)) -> Int:
+    return apply(inc, 0)
+
+
+def under(f:((Int) -> Int) -> Int) -> Int:
+    return 0
+
+
+step:(Int) -> Int = inc
+
+print(apply(inc, 1), apply(step, 1), apply(stepper(true), 1))
 ```
 
 Annotations are parsed and stored in the AST (see `Param`,
@@ -1564,29 +1615,15 @@ always be refused.
 
 ### Types
 
-The types a program can *write* are the ones "Type annotations" lists:
-`Int`, `String`, `Bool`, list types `[T]`, and tuple types
-`(T1, T2, ...)` — with `()`, the zero-element tuple, as the unit type.
+The checker works in the types "Type annotations" lists, and no others:
+`Int`, `String`, `Bool`, list types `[T]`, tuple types `(T1, T2, ...)`
+— with `()`, the zero-element tuple, as the unit type — and function
+types `(T1, T2, ...) -> T`.
 
-Checking adds one more that has no source syntax: the **function type**,
-written
-
-```
-(Int, Bool) -> Int
-```
-
-for a function of two parameters returning an `Int`. The parentheses
-belong to the parameter *list*, not to a tuple, so a function of one
-parameter that happens to be a two-element tuple is
-
-```
-((Int, Bool)) -> Int
-```
-
-Any type may appear in either position. A function type cannot be
-written in a program — there is no grammar for it — but it is what a
-`def`'s name means, so it is what `pyk --typecheck --ast` prints for a
-name bound to a function:
+The function type is the one a program rarely writes but the checker
+constantly infers, since it is what a `def`'s *name* means. So it is
+what `pyk --typecheck --ast` prints for a name bound to a function,
+whether or not the source said so:
 
 ```pyking
 def choose(a:Int, keep:Bool) -> Int:
@@ -1598,6 +1635,11 @@ def choose(a:Int, keep:Bool) -> Int:
 
 picker = choose      # picker: (Int, Bool) -> Int
 ```
+
+Two types are the same type when they have the same structure; where
+they were written, and whether one was written at all, does not enter
+into it. So a parameter annotated `(Int) -> Int` accepts any function of
+that shape, and rejects `(Int) -> Bool`.
 
 ### What is checked
 
@@ -1622,6 +1664,30 @@ different types is refused rather than answered `false`.
 its right-hand side, and that is what its name means to the statements
 that follow. An expression statement has its expression's type, which is
 what lets a block yield a value.
+
+A binding that *annotates* itself is checked against that annotation —
+an annotation is a claim about the program, and where one is written it
+is verified rather than replaced, which is the whole difference between
+an annotation and a comment. Both forms of binding are checked, the
+ordinary one and the value form:
+
+```pyking
+def foo(x:Int, y:Int) -> Int = x + y
+
+
+ok:(Int, Int) -> Int = foo      # fine
+# f:(Int, String) -> Int = foo  # error: foo is (Int, Int) -> Int
+# n:String = 1 + 2              # error: the value is an Int
+```
+
+```
+'prog.pyk' 3:2-3:22 Type error: this binding is annotated (Int,
+  String) -> Int, but its value has type (Int, Int) -> Int
+```
+
+A binding with no annotation claims nothing and takes whatever its value
+has; `--typecheck --ast` then prints the type that was worked out, which
+is what makes that output worth reading.
 
 **Blocks and `if`.** A block's type is its last statement's, and unit if
 it is empty. The two branches of an `if` must have the *same* type —
@@ -1656,6 +1722,22 @@ above, and:
   and can fall off the end does not honour its own annotation;
 - a call must give as many arguments as there are parameters, each of
   the parameter's type, and the call has the return type.
+
+Anything of function type may be called, not only a `def`'s own name, so
+a parameter annotated with a function type is callable inside the body
+and higher-order functions check like anything else:
+
+```pyking
+def inc(n:Int) -> Int:
+    return n + 1
+
+
+def twice(f:(Int) -> Int, x:Int) -> Int:
+    return f(f(x))
+
+
+answer = twice(inc, 5)      # answer: Int
+```
 
 Both body forms are checked the same way, and a function's parameters
 are in scope only in its own body:
@@ -1707,19 +1789,6 @@ the body that justifies it is reasoning the checker does not do yet:
 This is a restriction of the *checker*, not of the language: the same
 function compiles and runs perfectly well without `--typecheck` (and a
 `def`'s name is in scope in its own body — see "Names and scoping").
-
-**Annotations on bindings.** `x: Int = 1` is an annotation the checker
-does not verify even when it is on. The inferred type wins, and
-`--typecheck --ast` prints that rather than what was written, so
-
-```pyking
-x: String = 1 + 2
-```
-
-is accepted, and prints as `x: Int = 1 + 2`. Only *parameter* and
-*return* annotations are taken as declarations and enforced. (An
-unannotated binding prints its inferred type the same way, which is what
-makes the printed AST worth reading.)
 
 **Names, while `--typecheck` is on.** The type checker carries a name
 environment of its own, so it replaces the name analysis rather than

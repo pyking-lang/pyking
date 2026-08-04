@@ -297,10 +297,11 @@ class TFunction(Type):      # (T1, T2, ...) -> T
     params: list             # function of one *tuple* is ((Int, Bool)) -> Int
     result: Type             # and a function of two is (Int, Bool) -> Int.
     sym: int = 0
-    # No source syntax builds one: `parse_type` has no rule for it, and a
-    # `def` writes its parts separately (`p:Int`, `-> Int`) rather than as
-    # one type. The type checker is what puts those parts together, so a
-    # `TFunction` only ever reaches a printer, never a backend.
+    # Built two ways: written in the source, where `parse_type` reads a
+    # parenthesized list followed by `->` as one (a list *not* followed by
+    # `->` is a `TTuple`), and by the type checker, which puts a `def`'s
+    # separately written parts (`p:Int`, `-> Int`) together into the
+    # function's own type.
 
 
 # Whether `--symbols` asked for each node's symbol number to be shown
@@ -693,10 +694,12 @@ class SLet(Stmt):           # target[: type] = expr (immutable binding;
     expr: Expr
     # The binding's type as the *source* wrote it, or `None` where the
     # annotation was left out -- nothing else fills this in. The type
-    # checker (`src/typesystem.py`, run only under `--typecheck`) leaves
-    # the AST alone and records what it inferred in its own symbol ->
-    # type table instead; `pprint_program` prints from that table when
-    # given one, and from this field otherwise.
+    # checker (`src/typesystem.py`, run only under `--typecheck`) reads
+    # it, to check it against what the right-hand side turned out to be,
+    # but does not write it: it leaves the AST alone and records what it
+    # inferred in its own symbol -> type table instead. `pprint_program`
+    # prints from that table when given one, and from this field
+    # otherwise.
     type: Type = None
     sym: int = 0
 
@@ -943,12 +946,15 @@ def _return_annotation(node, return_type):
     """` -> Int` for a function whose return type is known, nothing
     otherwise -- `_annotation`'s counterpart for the one annotation that
     is not written with a colon."""
-    return_type = _node_type(node, return_type)
-    # A function's *type* is a function type, and that is what a `tmap`
-    # holds for it; the slot in the syntax is only its result, since the
-    # parameters have already been written out one by one.
-    if isinstance(return_type, TFunction):
-        return_type = return_type.result
+    if _tmap is not None:
+        # A `tmap` holds the function's *type*, and the slot in the
+        # syntax is only its result: the parameters have been written out
+        # one by one already. The node's own annotation is the opposite
+        # -- it is the result, and is unwrapped no further, since a
+        # function may perfectly well return a function.
+        return_type = _tmap.get(node.sym)
+        if isinstance(return_type, TFunction):
+            return_type = return_type.result
     return "" if return_type is None else f" -> {_pprint_annotation_type(return_type)}"
 
 

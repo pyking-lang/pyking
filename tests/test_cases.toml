@@ -45,11 +45,19 @@ file = "escapes.pyk"
 targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
 
 [[cases]]
+file = "fail_typecheck_binding_annotation.pyk"
+targets = ["typecheck"]
+
+[[cases]]
 file = "fail_typecheck_call_argument.pyk"
 targets = ["typecheck"]
 
 [[cases]]
 file = "fail_typecheck_function_return.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_function_type_argument.pyk"
 targets = ["typecheck"]
 
 [[cases]]
@@ -75,6 +83,10 @@ targets = ["python"]
 [[cases]]
 file = "for_simple.pyk"
 targets = ["python"]
+
+[[cases]]
+file = "function_types.pyk"
+targets = ["python", "nodejs", "esm", "html"]
 
 [[cases]]
 file = "if_expr.pyk"
@@ -234,6 +246,10 @@ targets = ["python"]
 
 [[cases]]
 file = "typecheck_function_if.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "typecheck_function_types.pyk"
 targets = ["typecheck"]
 
 [[cases]]

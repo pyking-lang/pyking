@@ -1,0 +1,19 @@
+# A binding whose annotation disagrees with the value bound to it.
+#
+# `foo` takes two Ints, so its type is `(Int, Int) -> Int`, and the
+# annotation on `f` claims `(Int, String) -> Int`. Neither the function
+# nor the annotation is wrong on its own; the binding is, because it
+# states something about itself that its own right-hand side does not
+# bear out.
+#
+# An annotation is a claim about the program, so where one is written it
+# is checked rather than replaced -- that is the whole difference between
+# an annotation and a comment. The error is reported against the
+# annotation, since the value is a perfectly good value of its own type.
+#
+# This program is expected to FAIL type checking. Its `.out` holds the
+# error message, not a program's output.
+
+def foo(x:Int, y:Int) -> Int = x + y
+
+f : (Int, String) -> Int = foo

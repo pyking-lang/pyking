@@ -1,0 +1,46 @@
+# Function types written in the source, in every position a type may
+# appear: a parameter, a return type, an element of a list or tuple type,
+# and the annotation on a binding.
+#
+# `(Int) -> Int` is the type of a function of one Int returning an Int.
+# The parentheses are the parameter *list*'s, so a function of one
+# parameter that happens to be a pair is `((Int, Bool)) -> Int`, and one
+# of two parameters is `(Int, Bool) -> Int`.
+#
+# Annotations are erased when compiling, so this program runs the same
+# with or without them -- what it proves is that they parse, and that a
+# program written with them means what it meant before.
+
+
+def inc(n:Int) -> Int:
+    return n + 1
+
+
+def apply(f:(Int) -> Int, x:Int) -> Int:
+    return f(x)
+
+
+def twice(f:(Int) -> Int, x:Int) -> Int:
+    return f(f(x))
+
+
+# A function that returns a function: `->` groups to the right, so the
+# return type below is `(Int) -> Int` and needs no parentheses of its
+# own.
+def chooser(keep:Bool) -> (Int) -> Int:
+    return inc
+
+
+# A binding may be annotated with a function type too.
+step:(Int) -> Int = inc
+
+print(apply(inc, 1))
+print(twice(inc, 1))
+print(apply(step, 10))
+print(twice(chooser(true), 100))
+
+# Nesting a function type inside a list or tuple type is left to
+# tests/typecheck_function_types.pyk: writing it here would mean passing
+# a list or a tuple, which the JavaScript backends do not support yet,
+# and the point of this file is that one program means the same thing on
+# every target that can run it.

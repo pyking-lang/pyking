@@ -20,7 +20,7 @@ from syntax import (
     Stmt,
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SFor, SWhile, SIf,
     SFunctionDef, SMatch,
-    TInt, TString, TBool, TList, TTuple, Param,
+    TInt, TString, TBool, TList, TTuple, TFunction, Param,
     TargetName, TargetTuple,
 )
 
@@ -406,8 +406,26 @@ def parse_type(tokens):
                 case _:
                     raise ParseError(_here(rest), "expected ']' in list type")
         case [TokLParen(lp_info), *rest]:
+            # One parenthesized list, two types: it is a function's
+            # parameter list when `->` follows and a tuple otherwise --
+            # `(Int, Bool)` against `(Int, Bool) -> Int`. Deciding it on
+            # the token after `)` is what keeps a *parameter* that is
+            # itself a tuple writable, as `((Int, Bool)) -> Int`: the
+            # inner pair is read as a tuple because no arrow follows it,
+            # and the outer as a parameter list because one does.
             elements, rp_info, rest = parse_type_elements(rest)
-            return TTuple(combine_info(lp_info, rp_info), elements), rest
+            match rest:
+                case [TokArrow(_), *after_arrow]:
+                    # The result is a whole type in its turn, so a
+                    # function returning a function needs no parentheses
+                    # and `->` groups to the right:
+                    # `(Int) -> (Int) -> Int`.
+                    result, rest = parse_type(after_arrow)
+                    return (TFunction(combine_info(lp_info, result.info),
+                                      elements, result),
+                            rest)
+                case _:
+                    return TTuple(combine_info(lp_info, rp_info), elements), rest
         case [t, *_]:
             raise ParseError(t.info, "expected a type")
         case []:

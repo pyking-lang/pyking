@@ -189,13 +189,20 @@ parser accepts, which is what keeps `--typecheck --ast` output
 re-parsable. They are synthesized by the checker and so carry no symbols
 of their own: under `--symbols` an inferred type prints bare, since `@0`
 means "not symbolized yet" and that is not what a type from `tmap` is.
-The one type with no source syntax at all is `TFunction`, written
-`(Int, Bool) -> Int` — the parentheses are the parameter *list*'s, so a
-function of one two-element tuple is `((Int, Bool)) -> Int` and one of
-two parameters is `(Int, Bool) -> Int`. `parse_type` has no rule for it,
-so a name bound to a function prints as `g: (Int) -> Int = f`: true, but
-not something the parser could read back. Being unwritable, it is also
-the one type no backend can meet.
+That includes `TFunction`, written `(Int, Bool) -> Int`: `parse_type`
+reads a parenthesized list followed by `->` as a parameter list and one
+without as a tuple, which is the whole of the rule and is why a
+parameter that is itself a pair is written `((Int, Bool)) -> Int`. So a
+name bound to a function prints as `g: (Int) -> Int = f`, and that
+re-parses like anything else.
+
+Being writable, a function type can also reach a *backend* — as an
+annotation, since annotations are erased and no backend reads one it
+cannot represent (`_annotated_type` in `target_c.py` and
+`target_java.py` returns `None` for it, exactly as for a list or tuple
+type, leaving inference to decide). What C and Java refuse is the
+*value*: a call through a parameter is `call to unknown function`,
+which is a limit on functions as values rather than on their types.
 
 Most statements, and every whole program, have type unit, `()`. Two do
 not, and that is what makes `if` checkable: an *expression statement*
@@ -229,6 +236,12 @@ annotated function definitions, over `Int`, `String` and `Bool`: `+`
 (overloaded: `Int + Int -> Int` and `String + String -> String`), `-`
 and `*` on `Int`, `<`/`<=`/`>`/`>=` on `Int` giving `Bool`, `==` on two
 values of one type giving `Bool`, and calls of a function-typed name.
+
+A binding takes its right-hand side's type, and an annotation it wrote
+is checked against that rather than replaced by it — `f: (Int, String)
+-> Int = foo` is an error when `foo` is `(Int, Int) -> Int`, reported
+against the annotation, since the value is a perfectly good value of its
+own type.
 
 A `def` is checked only when *every* parameter and the return type is
 annotated — this checker infers nothing about a function it was not told

@@ -40,9 +40,9 @@ Types are the `T*` nodes from `syntax.py`, not a separate vocabulary, so
 `x: Int = 1` -- syntax the parser accepts, which is what keeps
 `pyk --typecheck --ast` output re-parsable. They are synthesized here
 rather than taken from the AST, so they carry no symbols of their own.
-The one exception is `TFunction`, which has no source syntax at all: a
-name bound to a function prints as `g: (Int) -> Int = f`, which says
-what is true but is not something the parser could read back.
+That includes `TFunction`, whose syntax `(Int, Bool) -> Int` the parser
+reads as well as prints, so a name bound to a function prints as
+`g: (Int) -> Int = f` and can be read back.
 
 Types are compared with `_same_type`, never with `==`: two `TInt` nodes
 built at different places are different *nodes* (a dataclass compares its
@@ -51,9 +51,11 @@ built at different places are different *nodes* (a dataclass compares its
 ## What this version covers
 
 A program is a list of immutable bindings (`=`), expression statements,
-`if` statements and fully annotated function definitions. Expressions
-are integer, string and boolean literals, names bound earlier, calls of
-a function-typed name, and:
+`if` statements and fully annotated function definitions. A binding
+takes its right-hand side's type, and an annotation it wrote is checked
+against that rather than replaced by it (`_check_annotation`).
+Expressions are integer, string and boolean literals, names bound
+earlier, calls of a function-typed name, and:
 
     +          Int + Int -> Int,  String + String -> String  (overloaded)
     - *        Int -> Int
@@ -232,6 +234,27 @@ def _is_unit(t):
     return isinstance(t, TTuple) and not t.elements
 
 
+def _check_annotation(annotation, actual):
+    """Checks a binding's own annotation, if it wrote one, against what
+    its right-hand side turned out to be.
+
+    An annotation is a claim about the program, so where one exists it is
+    checked rather than replaced -- which is the whole difference between
+    an annotation and a comment. A binding that wrote none claims
+    nothing, and takes whatever its value has.
+
+    The error is reported against the *annotation*: the value is a
+    perfectly good value of its own type, and the disagreement is
+    something the program stated."""
+    if annotation is None or _same_type(annotation, actual):
+        return
+    raise TypeError_(
+        annotation.info,
+        f"this binding is annotated {pprint_type(annotation)}, but its "
+        f"value has type {pprint_type(actual)}",
+    )
+
+
 def _check_block(stmts, env, tmap, ret):
     """Type-checks a sequence of statements, returning the type the
     sequence *yields*: its last statement's, or unit when it is empty.
@@ -254,23 +277,22 @@ def _check_stmt(statement, env, tmap, ret):
     """One statement: its type, and the environment the statements after
     it are checked in."""
     match statement:
-        case SLet(info, TargetName(_, name, _), expr, _, sym):
+        case SLet(info, TargetName(_, name, _), expr, annotation, sym):
             expr_type = type_check(expr, env, tmap)
             # The binding's symbol records what its right-hand side
             # turned out to be; the binding *itself* is a statement, so
-            # it has unit type. An annotation written in the source is
-            # not consulted -- nothing verifies annotations yet (see
-            # PYKING.md), so the inferred type is the truthful one, and
-            # it is the one `--ast` prints.
+            # it has unit type.
+            _check_annotation(annotation, expr_type)
             tmap[sym] = expr_type
             return unit(info), {**env, name: expr_type}
 
-        case SLetStmt(info, TargetName(_, name, _), stmt, _, sym):
+        case SLetStmt(info, TargetName(_, name, _), stmt, annotation, sym):
             # `x = if c: ...` binds what the branch that runs yields, so
             # the bound statement's own type is the binding's type -- and
             # the branches having agreed on one is what `SIf` below has
             # already established.
             bound_type, _ = _check_stmt(stmt, env, tmap, ret)
+            _check_annotation(annotation, bound_type)
             tmap[sym] = bound_type
             return unit(info), {**env, name: bound_type}
 

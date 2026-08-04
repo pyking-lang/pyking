@@ -256,16 +256,21 @@ The bootstrap is split into one module per compiler stage:
    `T*` nodes, not a separate vocabulary, so a checked binding prints as
    `x: Int = 1` — syntax the parser accepts, which keeps
    `--typecheck --ast` output re-parsable; they are synthesized here, so
-   they carry no symbols. The exception is `TFunction`, which has no
-   source syntax at all, so `g: (Int) -> Int = f` is true but not
-   re-parsable. Compare types with `_same_type`, never `==`: `T*` nodes
-   are dataclasses, so `==` compares `info` and `sym` too.
+   they carry no symbols. That includes `TFunction`, `(Int, Bool) -> Int`,
+   which `parse_type` reads as well as prints, so `g: (Int) -> Int = f`
+   round-trips like anything else. Compare types with `_same_type`, never
+   `==`: `T*` nodes are dataclasses, so `==` compares `info` and `sym`
+   too.
 
    Most statements and every program have type unit; an *expression
    statement* has its expression's type and a *block* its last
    statement's, which is what makes the two branches of an `if`
    comparable — they are required to agree, and an `if` with no `else`
-   is checked against unit. A `def` is checked only when every parameter
+   is checked against unit. A binding takes its right-hand side's type,
+   and where it wrote an annotation that annotation is *checked* against
+   it (`_check_annotation`) rather than replaced — an annotation is a
+   claim about the program, and verifying it is the difference between
+   an annotation and a comment. A `def` is checked only when every parameter
    and the return type is annotated (it infers nothing about a function
    it was not told); then every `return` must give the declared type and
    the body must return on every path. Recursion is refused: the

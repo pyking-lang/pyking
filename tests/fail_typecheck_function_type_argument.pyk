@@ -1,0 +1,18 @@
+# A function passed where a function of a *different* type is expected.
+#
+# `is_small` is a perfectly good function and `apply` is a perfectly good
+# higher-order one; what does not fit is the pair. Function types are
+# compared structurally -- parameter by parameter and then the result --
+# so `(Int) -> Bool` and `(Int) -> Int` differ in exactly one place, and
+# that is enough.
+#
+# This program is expected to FAIL type checking. Its `.out` holds the
+# error message, not a program's output.
+
+def is_small(n:Int) -> Bool:
+    return n < 10
+
+def apply(f:(Int) -> Int, x:Int) -> Int:
+    return f(x)
+
+result = apply(is_small, 3)

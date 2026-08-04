@@ -82,6 +82,7 @@ testing — could be built end to end before the language surface grew:
 | `+ - *`, unary minus, comparisons | ✅ | ✅ | ✅ | ✅ |
 | `/` | ✅ | ✅ (prints `6`, not `6.0`) | ❌ | ❌ |
 | type annotations | erased | erased | used, when they name `Int`/`String`/`Bool` | used, when they name `Int`/`String`/`Bool` |
+| functions as values (passing a `def`, calling a parameter) | ✅ | ✅ | ❌ (`call to unknown function`) | ❌ (`call to unknown function`) |
 | lists, tuples, destructuring | ✅ | ❌ | ❌ | ❌ |
 | `for`, `match`/`case`, patterns | ✅ | ❌ | ❌ | ❌ |
 | list comprehensions | ✅ | ❌ | ❌ | ❌ |

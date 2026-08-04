@@ -143,10 +143,14 @@ Three types — `Int`, `String`, `Bool` — and three rules:
    `Int`.
 3. A **function's return type** is read back off its translated body.
 
-Annotations naming a tuple or list type are *ignored* rather than
-rejected. Nothing in Pyking checks annotations, and
+Annotations naming a tuple, list or function type are *ignored* rather
+than rejected. An ordinary compile checks no annotation, and
 `tests/types_tuples.pyk` annotates parameters as tuples and then passes
 integers — so inference is the more truthful reading of such a program.
+A parameter annotated `(Int) -> Int` is the same story with a sharper
+end: the annotation is dropped, and what stops the program is the
+*call* through that parameter, refused as `call to unknown function`,
+since C has no value a `def` can become here.
 
 *Not optimal:* rule 2 is a guess. A program that passes a string to an
 unannotated parameter which the body only ever returns unchanged will
