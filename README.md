@@ -52,19 +52,30 @@ usage.
 
 ## Make targets
 
-A bare `make` deliberately does nothing — every useful thing has a name:
+There is nothing to build — the compiler is a set of Python scripts run
+in place — so a bare `make` prints this list rather than building
+anything:
 
 | command | what it does |
 |---|---|
+| `make`, `make help` | the list below |
 | `make test` | the compiler's own suite: every program in `tests/` on every target it supports, comparing each against one shared `.out` file |
 | `make test-py2pyk` | the [py2pyk](tools/py2pyk/) suite: each `.py` translated to Pyking, compiled back to Python, and both run and diffed |
 | `make playground` | build and serve the [web playground](tools/playground/), then print a link to open |
+| `make clean` | remove what has been generated: `__pycache__/` directories and the playground's `build/` |
+| `make distclean` | that, plus the playground's `vendor/` download cache |
+
+`make clean` leaves *compiled programs* alone. `pyk` writes its output
+wherever you point it, under names that are ordinary source names in the
+target language (`hello.py`, `Hello.java`), so nothing can tell those
+apart from files you wrote yourself — deleting them stays your call.
 
 `make playground` delegates to `tools/playground/`, which has options of
-its own (`PORT=`, `CDN=`, `make clean`, ...) — run `make -C
-tools/playground help` for those. Everything it generates stays inside
-that directory and is gitignored; the first run downloads ~12 MB and
-caches it, later ones are offline.
+its own (`PORT=`, `CDN=`, ...) — run `make -C tools/playground help` for
+those. Everything it generates stays inside that directory and is
+gitignored; the first run downloads ~12 MB and caches it, later ones are
+offline. That cache is why the playground's build output goes on `make
+clean` but the cache itself only goes on `make distclean`.
 
 ## Documentation
 

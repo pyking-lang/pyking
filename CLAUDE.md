@@ -429,8 +429,19 @@ afterward (even if compiling or running fails) — i.e. `./pyk <file>` is
 the "just run it" shorthand that no longer exists as `src/pykboot.py`'s
 own default.
 
-`make test` runs `tests/test_script.py` (plain `make` with no target does
-nothing — the `Makefile`'s first rule, `all`, is intentionally empty). It
+Plain `make` with no target prints the help: the `Makefile`'s first rule,
+`all`, is `help`, since nothing here is built and someone typing `make`
+is asking what they can run. That help list is hand-written, as is the
+one in `tools/playground/Makefile` it is modelled on — add a target and
+you have to add its line too. `make clean` removes `__pycache__`
+directories and delegates the playground's `build/` to that directory's
+own Makefile; `make distclean` also drops its `vendor/` download cache.
+Neither touches *compiled programs*: `pyk` writes them wherever the
+caller asked, under names indistinguishable from hand-written source in
+every target language, so a clean rule that guessed at them would
+eventually delete someone's own file. Keep it that way.
+
+`make test` runs `tests/test_script.py`. It
 reads `tests/test_cases.toml`, and for every (program, target) pair the
 manifest declares, compiles the program to a temp directory, runs it the
 way a user would — `python3` on the `.py`, `node` on the `.js`, `node` on
