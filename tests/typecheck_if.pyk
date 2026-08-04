@@ -1,0 +1,79 @@
+# Type checking of `if`, in both of the shapes Pyking has for it: the
+# ordinary statement, and the value form bound with `=` (see PYKING.md).
+#
+# The rule is one rule: the two branches must have the same type, where a
+# branch's type is the type of the last statement in it -- unit for an
+# ordinary statement, and the expression's own type for a branch that
+# ends in an expression. An `if` with no `else` is checked against unit,
+# since the condition being false has to produce something too, and what
+# it produces is nothing.
+#
+# This file is never run: the harness compiles it with
+# `--typecheck --ast`, and the `.out` beside it is the printed AST.
+
+# A condition is anything of type Bool: a literal, a comparison, or a
+# name bound to one.
+flag = 3 < 4
+same = 2 == 2
+never = false
+
+# Ordinary statement form. Both branches end in bindings, so both have
+# type unit and agree.
+if flag:
+    a = 1
+else:
+    b = 'two'
+
+# With no `else` at all. The one branch there is must not yield a value.
+if same:
+    c = 3
+
+# Value form: the binding takes what the branch that runs yields, so
+# both branches have to yield the same type.
+best = if flag:
+    1
+else:
+    2
+
+greeting = if never:
+    'hello'
+else:
+    'goodbye'
+
+# An `else if` ladder is a nested `if` in the else branch (the parser
+# desugars it, and the printer prints it flat again), so the rule applies
+# down the whole chain.
+grade = if 1 < 2:
+    'a'
+else if 2 < 3:
+    'b'
+else:
+    'c'
+
+# Nesting the other way: a branch whose last statement is itself an `if`
+# yields what *that* if yields.
+nested = if flag:
+    if same:
+        10
+    else:
+        20
+else:
+    30
+
+# A branch is a scope, so a binding inside one is not visible after the
+# `if` -- this `d` is the first `d` there is, not a rebinding of one from
+# a branch above.
+if flag:
+    d = 'inside the branch'
+else:
+    d = 'the other branch'
+
+d = 0
+
+# Statements before the last one in a branch are ordinary statements; it
+# is only the last that decides the branch's type.
+total = if flag:
+    step = 6
+    step * 7
+else:
+    0

@@ -1,0 +1,37 @@
+def sign(n:Int) -> String:
+    if n < 1:
+        return 'small'
+    else if n == 1:
+        return 'one'
+    else:
+        return 'large'
+def clamp(n:Int, hi:Int) -> Int:
+    if n > hi:
+        return hi
+    else:
+        return n
+def area(width:Int, height:Int) -> Int:
+    scaled: Int = width * height
+    return scaled
+def pick(keep:Bool) -> Int:
+    chosen: Int = if keep:
+        11
+    else:
+        22
+    return chosen
+def pick_directly(keep:Bool) -> String:
+    return if keep:
+        'kept'
+    else:
+        'dropped'
+def describe(n:Int) -> String:
+    if n > 0:
+        positive: Bool = true
+    return 'described'
+kind: String = sign(4)
+bounded: Int = clamp(99, 10)
+size: Int = area(3, 4)
+chosen: Int = pick(true)
+said: String = pick_directly(false)
+described: String = describe(size)
+both: String = kind + said

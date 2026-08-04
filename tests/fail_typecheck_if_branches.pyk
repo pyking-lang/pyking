@@ -1,0 +1,16 @@
+# A value-form `if` whose branches yield different types.
+#
+# Either branch on its own is fine -- `42` is an Int and 'forty-two' is a
+# String -- but only one of them runs, and the binding has to have one
+# type either way. So the error is against the whole `if`, not against
+# either branch: neither is wrong, their disagreement is.
+#
+# This program is expected to FAIL type checking. Its `.out` holds the
+# error message, not a program's output.
+
+flag = 1 < 2
+
+answer = if flag:
+    42
+else:
+    'forty-two'

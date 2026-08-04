@@ -1,0 +1,14 @@
+# A call whose argument does not have the parameter's type.
+#
+# The function itself is fine and the argument is a perfectly good
+# String; what is wrong is the pair, which is why the error is reported
+# against the *argument*, with the position of the thing that would have
+# to change.
+#
+# This program is expected to FAIL type checking. Its `.out` holds the
+# error message, not a program's output.
+
+def double(n:Int) -> Int:
+    return n * 2
+
+doubled = double('two')

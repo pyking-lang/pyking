@@ -1,0 +1,58 @@
+# Type checking of functions, which `src/typesystem.py` covers only when
+# they are *fully* annotated: every parameter and the return type. It
+# infers nothing about a function it was not told, so an unannotated one
+# is refused rather than guessed at.
+#
+# This file is never run. The test harness compiles it with
+# `--typecheck --ast`, so the `.out` beside it is the *pretty-printed
+# AST* -- every binding carrying the type the checker worked out.
+#
+# It calls no builtin, not even `print`: only a name bound to a function
+# type can be called, and `print` is not one of those.
+
+# The block form and the single-expression form are both checked against
+# the annotation, and both against the same rule -- what the body
+# produces must be the declared return type.
+def double(n:Int) -> Int:
+    return n * 2
+
+def shout(word:String) -> String = word + '!'
+
+def choose(a:Int, keep:Bool) -> Int:
+    if keep:
+        return a
+    else:
+        return 0
+
+# One parameter, which happens to be a tuple. Worth its own function
+# because of how the type of *this* prints, below.
+def first(pair:(Int, Bool)) -> Int:
+    return 1
+
+# A function's name means its function type, so binding it to another
+# name is an ordinary binding whose type the checker knows how to write:
+# `(Int) -> Int`. The parentheses belong to the parameter *list*, which
+# is why `first` -- one parameter that is a two-element tuple -- prints
+# with two pairs, `((Int, Bool)) -> Int`, and `choose` -- two parameters
+# -- with one.
+twice = double
+picker = choose
+firstly = first
+
+# Calling one: the arguments are checked against the parameter types and
+# the call has the function's return type.
+four = double(2)
+eight = double(double(2))
+loud = shout('hi')
+kept = choose(7, true)
+dropped = choose(7, false)
+
+# The result of a call is an ordinary value of that type, so it composes
+# with everything the checker already knew about.
+sum = double(3) + 4
+message = shout('a') + shout('b')
+compared = double(1) == 2
+
+# The parameters are in scope in the body and nowhere else, so this
+# top-level `n` is a different `n` from `double`'s -- and it is a String.
+n = 'not the parameter'

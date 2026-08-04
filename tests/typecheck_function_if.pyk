@@ -1,0 +1,67 @@
+# Functions whose bodies branch: the two halves of what
+# `src/typesystem.py` learned to check, meeting.
+#
+# Two rules apply at once here. Every `return` has to give the declared
+# return type, and the body has to return on *every* path -- a function
+# that says `-> Int` and can fall off the end does not honour its own
+# annotation, which is the same thing `javac` refuses (see
+# `_definitely_returns`).
+#
+# This file is never run: the harness compiles it with
+# `--typecheck --ast`, and the `.out` beside it is the printed AST.
+
+# Every branch of the ladder returns, so the body does.
+def sign(n:Int) -> String:
+    if n < 1:
+        return 'small'
+    else if n == 1:
+        return 'one'
+    else:
+        return 'large'
+
+def clamp(n:Int, hi:Int) -> Int:
+    if n > hi:
+        return hi
+    else:
+        return n
+
+# Statements before the return are ordinary statements; it is the last
+# one that has to return.
+def area(width:Int, height:Int) -> Int:
+    scaled = width * height
+    return scaled
+
+# A value-form `if` inside a body: `chosen` gets what the branch that
+# runs yields, and the `return` then checks that against the annotation.
+def pick(keep:Bool) -> Int:
+    chosen = if keep:
+        11
+    else:
+        22
+    return chosen
+
+# `return if ...` -- the same value form, returned directly rather than
+# bound first (see PYKING.md, "return of an if").
+def pick_directly(keep:Bool) -> String:
+    return if keep:
+        'kept'
+    else:
+        'dropped'
+
+# An `if` that yields nothing is an ordinary statement inside a body,
+# and the return after it is what makes the body return.
+def describe(n:Int) -> String:
+    if n > 0:
+        positive = true
+    return 'described'
+
+# The parameters of one function are not visible in another, so `n`
+# below is `sign`'s parameter and nothing else -- and the calls compose
+# as any other expression does.
+kind = sign(4)
+bounded = clamp(99, 10)
+size = area(3, 4)
+chosen = pick(true)
+said = pick_directly(false)
+described = describe(size)
+both = kind + said
