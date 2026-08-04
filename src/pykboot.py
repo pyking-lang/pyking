@@ -211,9 +211,8 @@ program = symbolize(program)
 # does not have to happen again afterwards.
 tmap = None
 if typecheck:
-    tmap = {}
     try:
-        typesystem.type_check(program, {}, tmap)
+        tmap = typesystem.type_check(program)
     except typesystem.TypeError_ as e:
         print(
             wrap(f"{pprint_info(e.info)} Type error: {e.message}"),

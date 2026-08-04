@@ -55,7 +55,7 @@ layers — the name and scope rules every compile applies, and the types
 "which programs are well-typed" is a property of Pyking rather than of
 the pass that decides it. Extending `src/typesystem.py` therefore means
 editing that section too; `docs/architecture.md` keeps only how the pass
-is *built* (its signature, `tmap`, `_same_type`), and points at PYKING.md
+is *built* (its signature, `tmap`, `same_type`), and points at PYKING.md
 for the rules.
 
 ## Changing the language: always update all five places
@@ -238,13 +238,23 @@ The bootstrap is split into one module per compiler stage:
 5. **`src/typesystem.py`** — the type checker, run only under
    `--typecheck`, after `symbolize` and before `--ast` prints anything;
    it runs *instead of* `analyze_program`, not after it (see
-   `pykboot.py` below). One entry point,
-   `type_check(node, env, tmap) -> type`, where `env` maps a name to its
-   type and is used *immutably* (a binding hands what follows it an
-   extended copy), the same discipline `analyses.py` follows. `tmap` is
-   the deliberate opposite: one mutable dict, shared by the whole run,
-   mapping a node's *symbol* to the type inferred for it, and it is the
-   pass's only output besides the returned type. **The checker does not
+   `pykboot.py` below). One entry point, `type_check(stmts) -> tmap`: a
+   whole program in, the types it worked out back.
+
+   Inside, **one function per AST datatype** — `check_stmts` ([Stmt]),
+   `check_stmt` (Stmt), `check_expr` (Expr), `check_param` (Param),
+   `same_type` (Type) — each taking a node of exactly that type and
+   returning exactly one kind of answer, with the signatures written out
+   OCaml-style in a block near the top. Keep that shape when extending
+   it: no function here dispatches on which *sort* of node it was handed,
+   only on which variant of its own datatype. `Env` maps a name to a
+   small `Binding` datatype (`BValue` a value of a type, `BSelf` the
+   function whose body we are in, which is how recursion is refused *as
+   recursion*) and is used *immutably* — a binding hands what follows it
+   an extended copy, the same discipline `analyses.py` follows. `TMap` is
+   the deliberate opposite: one mutable dict, mapping a node's *symbol*
+   to the type inferred for it, built as the pass runs and returned as
+   its result. **The checker does not
    touch the AST** — it rebuilds nothing and writes into no node's
    `type` field — so what the source wrote and what the checker inferred
    stay separable; keep it that way. When checking finishes `tmap` holds
@@ -258,7 +268,7 @@ The bootstrap is split into one module per compiler stage:
    `--typecheck --ast` output re-parsable; they are synthesized here, so
    they carry no symbols. That includes `TFunction`, `(Int, Bool) -> Int`,
    which `parse_type` reads as well as prints, so `g: (Int) -> Int = f`
-   round-trips like anything else. Compare types with `_same_type`, never
+   round-trips like anything else. Compare types with `same_type`, never
    `==`: `T*` nodes are dataclasses, so `==` compares `info` and `sym`
    too.
 
@@ -268,14 +278,19 @@ The bootstrap is split into one module per compiler stage:
    comparable — they are required to agree, and an `if` with no `else`
    is checked against unit. A binding takes its right-hand side's type,
    and where it wrote an annotation that annotation is *checked* against
-   it (`_check_annotation`) rather than replaced — an annotation is a
+   it (`check_annotation`) rather than replaced — an annotation is a
    claim about the program, and verifying it is the difference between
    an annotation and a comment. A `def` is checked only when every parameter
    and the return type is annotated (it infers nothing about a function
    it was not told); then every `return` must give the declared type and
-   the body must return on every path. Recursion is refused: the
-   function's own name is bound in its body to a `_SelfReference` marker
-   whose one purpose is to make the error say so.
+   the body must *produce* it — by returning on every path, or by ending
+   in a value of that type (PYKING.md's "Tail position"), or by mixing
+   the two. One check covers all three because a statement's answer is a
+   `Yield`: a type, or `Never` for one that does not complete. A `return`
+   yields `Never`, so it has no value to disagree with the branch beside
+   it. Recursion is refused: the function's own name is bound in its body
+   to `BSelf` rather than to its type, which is what lets the error say
+   so.
 
    Everything outside that fragment raises
    `TypeError_(info, "Construct is not supported")` — including a name

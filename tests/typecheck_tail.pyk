@@ -1,0 +1,91 @@
+# Tail position, checked: a function body's last statement supplies the
+# function's value, with no `return` written (see PYKING.md, "Tail
+# position"). The checker reads a body the same way the language does,
+# so a `def` satisfies its annotation in either of two ways -- every
+# path returns, or the body ends in a value of the declared type -- and
+# the two mix freely.
+#
+# What makes that work is that a `return` does not *complete*: it leaves
+# the function, so it has no value in the block it sits in. A branch
+# that returns therefore has nothing to disagree with the other branch
+# about, and an `if` takes whichever branch does yield a value.
+#
+# This file is never run. The harness compiles it with
+# `--typecheck --ast`, so the `.out` beside it is the printed AST.
+
+# The body is one `if`, both of whose branches end in an Int, so the
+# `if` yields Int and so does the function.
+def scale(x:Int, factor:Int) -> Int:
+    if x * factor == 4:
+        8
+    else:
+        9
+
+# The simplest tail: a lone expression.
+def double(n:Int) -> Int:
+    n * 2
+
+# Statements first, value last -- only the last statement is in tail
+# position; the ones before it are run for their effect.
+def area(width:Int, height:Int) -> Int:
+    scaled = width * height
+    scaled + 0
+
+# The rule recurses, so an `else if` ladder needs nothing special: every
+# branch of every level is itself in tail position.
+def describe(n:Int) -> String:
+    if n < 0:
+        'negative'
+    else if n == 0:
+        'zero'
+    else:
+        'positive'
+
+# And so does an `if` nested inside a branch.
+def nested(n:Int, keep:Bool) -> Int:
+    if keep:
+        if n > 10:
+            1
+        else:
+            2
+    else:
+        3
+
+# The two ways of supplying the value in one function: the first branch
+# leaves by `return`, the second falls off the end of the body with a
+# value. Both give an Int, and the function is satisfied either way.
+def mixed(n:Int) -> Int:
+    if n > 0:
+        return n
+    else:
+        0 - n
+
+# Every path returning explicitly is still fine -- that is the same rule
+# seen from the other side, since a body where nothing completes has no
+# trailing value to check.
+def clamp(n:Int, hi:Int) -> Int:
+    if n > hi:
+        return hi
+    else:
+        return n
+
+# A `return` before the end, with the tail unreachable behind it, still
+# leaves the function; and a `return` of a value-form `if` checks
+# against the annotation the same way.
+def pick(keep:Bool) -> String:
+    return if keep:
+        'kept'
+    else:
+        'dropped'
+
+# The tail of a body may be a call, a comparison, or anything else with
+# a type -- it is an expression like any other.
+four = scale(2, 2)
+nine = scale(1, 1)
+doubled = double(21)
+size = area(3, 4)
+kind = describe(0)
+picked = pick(true)
+inner = nested(11, true)
+folded = mixed(0 - 5)
+bounded = clamp(99, 10)

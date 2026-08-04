@@ -265,6 +265,10 @@ file = "typecheck_int_string.pyk"
 targets = ["typecheck"]
 
 [[cases]]
+file = "typecheck_tail.pyk"
+targets = ["typecheck"]
+
+[[cases]]
 file = "types_atoms.pyk"
 targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
 

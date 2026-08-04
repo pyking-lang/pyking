@@ -1718,10 +1718,48 @@ every parameter and the return type. Its type is then the function type
 above, and:
 
 - every `return` must give the declared return type;
-- the body must return on every path — a function that says `-> Int`
-  and can fall off the end does not honour its own annotation;
+- the body must *produce* that type, either by returning on every path
+  or by ending in a value of it — the two ways "Tail position"
+  describes, and a body that does neither does not honour its own
+  annotation;
 - a call must give as many arguments as there are parameters, each of
   the parameter's type, and the call has the return type.
+
+**Tail position is checked as the language defines it**: the body's last
+statement supplies the function's value, recursively through branches,
+with no `return` written. So this checks, and `scale` returns `Int`
+because both branches of its one statement do:
+
+```pyking
+def scale(x:Int, factor:Int) -> Int:
+    if x * factor == 4:
+        8
+    else:
+        9
+```
+
+The two ways mix, because a `return` does not *complete*: it leaves the
+function, so it has no value in the branch it sits in, and there is
+nothing for the other branch to disagree with. One branch may return
+while the other supplies the value:
+
+```pyking
+def size(n:Int) -> Int:
+    if n > 0:
+        return n
+    else:
+        0 - n
+```
+
+A body that ends in a value of the *wrong* type is an error, and so is
+one that ends without producing anything at all:
+
+```
+'prog.pyk' 2:4-2:8 Type error: 'f' returns Int, but its body ends in a
+  value of type String
+'prog.pyk' 1:0-3:16 Type error: 'f' returns Int, so its body must
+  return on every path, or end in an expression of that type
+```
 
 Anything of function type may be called, not only a `def`'s own name, so
 a parameter annotated with a function type is callable inside the body

@@ -1,29 +1,30 @@
 """The type checker: a pass that gives every expression a type and
-records the type of every binding in a symbol table.
+records the type of every annotated construct in a symbol table.
 
 Pyking has no type checker in the ordinary pipeline -- type annotations
 are parsed, stored and erased (see PYKING.md, "Type annotations"), and
 every backend infers whatever it needs for itself. This module is the
 beginning of a real one, run only when `--typecheck` asks for it, after
-`symbolize` and before anything is printed or compiled.
+`symbolize` and before anything is printed or compiled. What it means
+for a *program* -- the rules, and what it refuses -- is PYKING.md's
+"Type checking" section; this file is how those rules are applied.
 
-The single entry point is:
+The entry point is `type_check(stmts) -> tmap`: a whole program in, the
+types it worked out back. Everything else is one function per AST
+datatype -- `check_stmts` for a block, `check_stmt` for a statement,
+`check_expr` for an expression, `check_param` for a parameter -- each
+taking a node of exactly that type and returning exactly one kind of
+answer. The signatures are written out in the "Signatures" block below
+in the same OCaml-ish notation `syntax.py` uses for the AST itself,
+because that is the shape this pass is really written in: no function
+here dispatches on which *sort* of node it was handed, only on which
+variant of its own datatype.
 
-    type_check(node, env, tmap) -> type
-
-`env` maps a name to its type. It is an ordinary dict used immutably: a
-binding produces an *extended copy* rather than mutating the one it was
-handed, the same discipline `analyses.py` follows and for the same
-reason -- what a name means is decided by where it is written, and a
-pass that mutates one shared table cannot say that.
-
-`tmap` is the opposite kind of table, and deliberately so: one mutable
-dict, shared by the whole run, mapping a node's *symbol* (see
-`symbolize` in `analyses.py`) to the type the checker worked out for it.
-It is the pass's only output apart from the returned type. The AST is
-left exactly as it was parsed -- this checker rebuilds nothing and
-writes into no node's `type` field -- so what a program *says* and what
-the checker *inferred* stay separable, and a caller that wants the
+`tmap` is the pass's result: one mutable dict, mapping a node's *symbol*
+(see `symbolize` in `analyses.py`) to the type worked out for it. The
+AST is left exactly as it was parsed -- this checker rebuilds nothing
+and writes into no node's `type` field -- so what a program *says* and
+what the checker *inferred* stay separable, and a caller that wants the
 latter asks `tmap` for it. `src/pykboot.py` hands the finished `tmap` to
 `syntax.pprint_program`, which is what makes `pyk --typecheck --ast`
 print inferred types rather than written ones.
@@ -35,25 +36,31 @@ is its *function* type, not its return type: the type of a thing is the
 type of the thing, and the syntax's `-> T` slot holds only part of it,
 which is why `pprint_program` prints `TFunction.result` there.
 
+`env` is the opposite kind of table: it maps a name to what that name
+means *here*, and it is used immutably -- a binding produces an extended
+copy rather than mutating the one it was handed, the same discipline
+`analyses.py` follows and for the same reason. What a name means is
+decided by where it is written, and a pass that mutates one shared table
+cannot say that.
+
 Types are the `T*` nodes from `syntax.py`, not a separate vocabulary, so
 `pprint_type` already renders them and a checked binding prints as
 `x: Int = 1` -- syntax the parser accepts, which is what keeps
-`pyk --typecheck --ast` output re-parsable. They are synthesized here
-rather than taken from the AST, so they carry no symbols of their own.
-That includes `TFunction`, whose syntax `(Int, Bool) -> Int` the parser
-reads as well as prints, so a name bound to a function prints as
-`g: (Int) -> Int = f` and can be read back.
+`pyk --typecheck --ast` output re-parsable. The ones this pass builds
+carry no symbols of their own. That includes `TFunction`, whose syntax
+`(Int, Bool) -> Int` the parser reads as well as prints, so a name bound
+to a function prints as `g: (Int) -> Int = f` and can be read back.
 
-Types are compared with `_same_type`, never with `==`: two `TInt` nodes
-built at different places are different *nodes* (a dataclass compares its
-`info` and `sym` too) and the same *type*.
+Types are compared with `same_type`, never with `==`: two `TInt` nodes
+built at different places are different *nodes* (a dataclass compares
+its `info` and `sym` too) and the same *type*.
 
 ## What this version covers
 
 A program is a list of immutable bindings (`=`), expression statements,
 `if` statements and fully annotated function definitions. A binding
 takes its right-hand side's type, and an annotation it wrote is checked
-against that rather than replaced by it (`_check_annotation`).
+against that rather than replaced by it (`check_annotation`).
 Expressions are integer, string and boolean literals, names bound
 earlier, calls of a function-typed name, and:
 
@@ -76,13 +83,22 @@ function it was not told. Its type is then `(P1, P2, ...) -> R`, a
 `TFunction`, and that is what its name means to the statements that
 follow it.
 
-Two deliberate limits. The function's own name is *not* in scope in its
-body, so recursion is refused rather than assumed to check: taking a
-declared type on faith to check the body that justifies it is a
-different (if small) piece of reasoning, and it is not written yet. And
-a body must return on every path (`_definitely_returns`), because a
-function that says `-> Int` and falls off the end has a type it does not
-honour.
+A body supplies that return type in either of the two ways PYKING.md's
+"Tail position" describes, and they mix: every path leaves by a
+`return`, or the body's last statement yields a value of the type (with
+no `return` written), or some branches do one and some the other. What
+makes one rule out of the two is `Never`: a `return` does not complete,
+so it has no value to disagree with the branch beside it, and a body in
+which nothing completes has no trailing value to check. A body that
+falls off the end yielding nothing -- or the wrong thing -- is refused,
+because a function that says `-> Int` and does neither has a type it
+does not honour.
+
+One deliberate limit: the function's own name means `BSelf` rather than
+its type inside its own body, so recursion is refused rather than
+assumed to check. Taking a declared type on faith to check the body that
+justifies it is a different (if small) piece of reasoning, and it is not
+written yet.
 
 `--typecheck` runs *instead of* the name analysis, not after it (see
 `src/pykboot.py`), so this pass is on its own about names: a name it
@@ -91,11 +107,11 @@ merely bound by a construct the checker does not cover.
 
 ## What a statement's type is
 
-`type_check` returns a type for whatever it is given, and most statements
-have type unit, `()` -- as does a whole program. Two do not, and they are
-what makes `if` checkable: an *expression statement* has its
-expression's type, and a *block* has the type of its last statement. So
-a branch that ends in an expression yields that expression's value, and
+Every function here answers with a type, and most statements have type
+unit, `()` -- as does a whole program. Two do not, and they are what
+makes `if` checkable: an *expression statement* has its expression's
+type, and a *block* has the type of its last statement. So a branch that
+ends in an expression yields that expression's value, and
 
     if c:
         1
@@ -115,10 +131,120 @@ from syntax import (
     pprint_type,
     EInt, EString, EBool, EVar, EAdd, ESub, EMul, ECall,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq,
-    Stmt, SLet, SLetStmt, SExprStmt, SIf, SReturn, SReturnStmt, SFunctionDef,
-    TInt, TString, TBool, TList, TTuple, TFunction,
+    SLet, SLetStmt, SExprStmt, SIf, SReturn, SReturnStmt, SFunctionDef,
+    Type, TInt, TString, TBool, TList, TTuple, TFunction,
     TargetName,
 )
+
+
+# ---------------------------------------------------------------------
+# What a name means
+#
+# `env` maps a name to one of these rather than straight to a type,
+# because a name can mean something that is *not* a value of some type:
+# inside a function's own body, its own name means "the function being
+# defined", which is exactly the case recursion would need and this
+# checker does not handle yet. Making that a variant rather than a
+# missing entry is what lets the one place that reads a name back out --
+# `check_expr`'s `EVar` -- say what is really going on instead of
+# refusing an ordinary-looking name with `Construct is not supported`.
+#
+# datatype Binding:
+#     BValue(type: Type)          an ordinary name, of that type
+#     BSelf(name: String)         the function whose body we are in
+# ---------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Binding:
+    """Base class for what a name is bound to. See the datatype comment
+    above: the variants are a closed set, and `check_expr` matches on
+    all of them."""
+
+
+@dataclass(frozen=True)
+class BValue(Binding):
+    type: Type
+
+
+@dataclass(frozen=True)
+class BSelf(Binding):
+    name: str
+
+
+# ---------------------------------------------------------------------
+# What a statement leaves behind
+#
+# A statement either completes, yielding a value of some type, or it does
+# not complete at all -- which is what a `return` does: it leaves the
+# function, so nothing after it runs and it has no value *here*. Both
+# answers are needed, and neither is a special case of the other:
+#
+#     type Yield = Type | Never
+#
+# `Never` is why a branch that returns and a branch that yields a value
+# agree rather than clash -- see PYKING.md's "Tail position", where an
+# explicit `return` and a trailing expression are two ways of supplying
+# the same function's value:
+#
+#     if b:
+#         return 1     Never   -- so the `if` yields what the other
+#     else:            branch yields, Int, and a function returning Int
+#         2            is satisfied either way
+#
+# It is a checker-internal answer, not a type: it never reaches `tmap`,
+# is never printed, and has no syntax. `syntax.py` knows nothing of it.
+# ---------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Never:
+    """The answer for a statement that does not complete. One value,
+    `NEVER`; compare with `is_never`, never with `same_type`."""
+
+
+NEVER = Never()
+
+
+def is_never(yielded):
+    return isinstance(yielded, Never)
+
+
+# ---------------------------------------------------------------------
+# Signatures
+#
+# Written as they would be in a language that could state them, with
+# `syntax.py`'s legend: `[T]` is a list of `T`, `T?` a value that may be
+# absent, and `(A, B)` a pair. Two aliases carry the tables this pass
+# threads through itself:
+#
+#     Env   = {String: Binding}   what each name in scope means
+#     TMap  = {Int: Type}         symbol -> inferred type; the result
+#     Yield = Type | Never        what a statement leaves behind
+#
+# The `Type?` each statement function takes is the return type of the
+# function whose body is being checked, absent at the top level, where a
+# `return` has nothing to return from.
+#
+#     val type_check         : [Stmt] -> TMap
+#     val check_stmts        : [Stmt] -> Env -> TMap -> Type? -> Yield
+#     val check_stmt         : Stmt -> Env -> TMap -> Type? -> (Yield, Env)
+#     val check_expr         : Expr -> Env -> TMap -> Type
+#     val check_param        : Param -> TMap -> Type
+#     val check_function     : SFunctionDef -> Env -> TMap -> Type
+#     val check_call         : ECall -> Env -> TMap -> Type
+#     val check_binary       : Expr -> Env -> TMap -> Type
+#     val check_annotation   : Type? -> Type -> ()
+#     val function_type      : SFunctionDef -> TFunction
+#     val same_type          : Type -> Type -> Bool
+#     val is_never           : Yield -> Bool
+#     val bind               : Env -> String -> Type -> Env
+#     val unit               : Info -> Type
+#     val is_unit            : Type -> Bool
+#
+# Only `type_check` is meant to be called from outside; the rest are the
+# structure of the pass, one function per datatype it walks.
+# ---------------------------------------------------------------------
 
 
 class TypeError_(Exception):
@@ -140,239 +266,244 @@ class TypeError_(Exception):
 UNSUPPORTED = "Construct is not supported"
 
 
-def _unsupported(node):
+def unsupported(node):
+    """Refuses `node`, against its own source position. The floor of the
+    fragment this checker covers -- see the module docstring."""
     raise TypeError_(node.info, UNSUPPORTED)
 
 
-def unit(info):
-    """The unit type, `()` -- an empty tuple type. What every statement
-    and every program has."""
-    return TTuple(info, [])
+# --- the program -----------------------------------------------------
 
 
-# The binary operators this checker knows, as
-# `node class -> (spelling, [(operand type, result type), ...])`. Several
-# are overloaded, which is why the table maps to a *list* of signatures
-# rather than one: `12 + 20` is `Int`, `'hi' + 'there'` is `String`, and
-# `13 + 'hello'` matches neither and is an error. Both operands must
-# match the *same* signature, which is what makes `1 == 'x'` an error
-# rather than a comparison that is merely always false.
-_OPERATORS = {
-    EAdd: ("+", [(TInt, TInt), (TString, TString)]),
-    ESub: ("-", [(TInt, TInt)]),
-    EMul: ("*", [(TInt, TInt)]),
-    ELessThan: ("<", [(TInt, TBool)]),
-    ELessThanEq: ("<=", [(TInt, TBool)]),
-    EGreatThan: (">", [(TInt, TBool)]),
-    EGreatThanEq: (">=", [(TInt, TBool)]),
-    EEq: ("==", [(TInt, TBool), (TString, TBool), (TBool, TBool)]),
-}
+def type_check(stmts):
+    """Type-checks a whole program: a list of top-level statements.
+
+    Returns the `tmap` it built -- symbol -> type for every annotatable
+    construct it reached. Raises `TypeError_` for the first thing that
+    does not check out; there is no error recovery, and a program that
+    returns is a program that type-checks.
+
+    A program is a block, checked in the empty environment with no
+    enclosing function, and its own type is discarded: nothing is
+    waiting for a program's value the way a branch's caller waits for a
+    branch's."""
+    tmap = {}
+    check_stmts(stmts, {}, tmap, None)
+    return tmap
 
 
-def _check_binary(e, env, tmap):
-    spelling, signatures = _OPERATORS[type(e)]
-    left_type = type_check(e.left, env, tmap)
-    right_type = type_check(e.right, env, tmap)
-    for operand, result in signatures:
-        if isinstance(left_type, operand) and isinstance(right_type, operand):
-            return result(e.info)
-    # Every type in the message is spelled by `pprint_type`, the same
-    # function that prints a type in source and in `--ast` output, so an
-    # error can never name a type differently from the way the program
-    # would have to write it. A signature's operand is a *class* here, so
-    # it is instantiated to be printed -- only ever on this error path.
-    accepted = " or ".join(
-        f"{name} {spelling} {name}"
-        for name in (pprint_type(operand(e.info)) for operand, _ in signatures)
-    )
-    raise TypeError_(
-        e.info,
-        f"`{spelling}` cannot be applied to {pprint_type(left_type)} and "
-        f"{pprint_type(right_type)}; it accepts {accepted}",
-    )
+# --- [Stmt] ----------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class _SelfReference:
-    """What a function's own name is bound to inside its own body.
+def check_stmts(stmts, env, tmap, ret):
+    """What a block leaves behind: its last statement's yield, or unit
+    when it is empty -- and `NEVER` if any statement in it does not
+    complete, since then neither does the block.
 
-    Not a type -- deliberately. Leaving the name out of the body's
-    environment altogether would refuse recursion with `Construct is not
-    supported` pointing at a perfectly ordinary use of a name, which
-    describes neither what happened nor what to do about it. Binding it
-    to *this* instead lets the one place that reads a name back out of
-    the environment say what is really going on. Nothing else can
-    encounter it: it is bound in exactly one place and read in exactly
-    one."""
-
-    name: str
-
-
-def _same_type(a, b):
-    """Whether two types *are* the same type.
-
-    Not `a == b`: types are frozen dataclasses, so `==` compares their
-    `info` and `sym` too, and `Int` written in one place would differ
-    from `Int` inferred in another. What matters is the structure, so
-    that is what is compared -- recursively, since a type can contain
-    types."""
-    match (a, b):
-        case (TInt(), TInt()) | (TString(), TString()) | (TBool(), TBool()):
-            return True
-        case (TList(_, x), TList(_, y)):
-            return _same_type(x, y)
-        case (TTuple(_, xs), TTuple(_, ys)):
-            return len(xs) == len(ys) and all(map(_same_type, xs, ys))
-        case (TFunction(_, ps, r), TFunction(_, qs, s)):
-            return (len(ps) == len(qs) and all(map(_same_type, ps, qs))
-                    and _same_type(r, s))
-        case _:
-            return False
-
-
-def _is_unit(t):
-    return isinstance(t, TTuple) and not t.elements
-
-
-def _check_annotation(annotation, actual):
-    """Checks a binding's own annotation, if it wrote one, against what
-    its right-hand side turned out to be.
-
-    An annotation is a claim about the program, so where one exists it is
-    checked rather than replaced -- which is the whole difference between
-    an annotation and a comment. A binding that wrote none claims
-    nothing, and takes whatever its value has.
-
-    The error is reported against the *annotation*: the value is a
-    perfectly good value of its own type, and the disagreement is
-    something the program stated."""
-    if annotation is None or _same_type(annotation, actual):
-        return
-    raise TypeError_(
-        annotation.info,
-        f"this binding is annotated {pprint_type(annotation)}, but its "
-        f"value has type {pprint_type(actual)}",
-    )
-
-
-def _check_block(stmts, env, tmap, ret):
-    """Type-checks a sequence of statements, returning the type the
-    sequence *yields*: its last statement's, or unit when it is empty.
+    Only the *last* statement's value is the block's, which is what
+    PYKING.md's "Tail position" says: a statement in the middle is run
+    for its effect, however interesting its type.
 
     `env` is threaded from one statement to the next, so a binding is
     visible to what follows it -- and the extended environment is
-    returned to nobody, which is exactly what makes a block a scope: what
-    it binds cannot escape it (`analyses.py` says the same thing with
-    `analyze_scope`).
-
-    `ret` is the return type of the enclosing function, or `None` at the
-    top level, where a `return` has nothing to return from."""
+    returned to nobody, which is exactly what makes a block a scope:
+    what it binds cannot escape it (`analyses.py` says the same thing
+    with `analyze_scope`)."""
     yielded = unit(stmts[0].info if stmts else Info("<empty>", 1, 0, 1, 0))
+    never = False
     for statement in stmts:
-        yielded, env = _check_stmt(statement, env, tmap, ret)
-    return yielded
+        yielded, env = check_stmt(statement, env, tmap, ret)
+        never = never or is_never(yielded)
+    return NEVER if never else yielded
 
 
-def _check_stmt(statement, env, tmap, ret):
-    """One statement: its type, and the environment the statements after
-    it are checked in."""
+# --- Stmt ------------------------------------------------------------
+
+
+def check_stmt(statement, env, tmap, ret):
+    """One statement: the type it yields, and the environment the
+    statements after it are checked in."""
     match statement:
         case SLet(info, TargetName(_, name, _), expr, annotation, sym):
-            expr_type = type_check(expr, env, tmap)
             # The binding's symbol records what its right-hand side
             # turned out to be; the binding *itself* is a statement, so
             # it has unit type.
-            _check_annotation(annotation, expr_type)
+            expr_type = check_expr(expr, env, tmap)
+            check_annotation(annotation, expr_type)
             tmap[sym] = expr_type
-            return unit(info), {**env, name: expr_type}
+            return unit(info), bind(env, name, expr_type)
 
         case SLetStmt(info, TargetName(_, name, _), stmt, annotation, sym):
             # `x = if c: ...` binds what the branch that runs yields, so
             # the bound statement's own type is the binding's type -- and
-            # the branches having agreed on one is what `SIf` below has
-            # already established.
-            bound_type, _ = _check_stmt(stmt, env, tmap, ret)
-            _check_annotation(annotation, bound_type)
+            # the branches having agreed on one is what the `SIf` case
+            # below has already established.
+            bound_type, _ = check_stmt(stmt, env, tmap, ret)
+            if is_never(bound_type):
+                # Nothing to bind: every branch left the function. The
+                # parser already refuses this (a value-form branch must
+                # end in an expression), so this only guards against a
+                # `NEVER` ever reaching `tmap`, which holds types.
+                unsupported(statement)
+            check_annotation(annotation, bound_type)
             tmap[sym] = bound_type
-            return unit(info), {**env, name: bound_type}
+            return unit(info), bind(env, name, bound_type)
 
         case SLet() | SLetStmt():
             # A destructuring target (`a, b = ...`) needs tuple types.
-            _unsupported(statement)
+            unsupported(statement)
 
         case SExprStmt(_, expr, _):
             # An expression statement has its expression's type. That is
             # what lets a block yield a value, and so what makes the two
             # branches of an `if` comparable.
-            return type_check(expr, env, tmap), env
+            return check_expr(expr, env, tmap), env
 
         case SIf(info, cond, then_body, else_body, _):
-            cond_type = type_check(cond, env, tmap)
+            cond_type = check_expr(cond, env, tmap)
             if not isinstance(cond_type, TBool):
                 raise TypeError_(
                     cond.info,
                     f"the condition of an 'if' must be Bool, not "
                     f"{pprint_type(cond_type)}",
                 )
-            then_type = _check_block(then_body, env, tmap, ret)
+            then_yield = check_stmts(then_body, env, tmap, ret)
             if else_body is None:
                 # There is no second branch to compare against, but there
                 # is still a second *outcome*: the condition being false
                 # produces nothing, so the branch that exists may not
-                # produce anything either.
-                if not _is_unit(then_type):
+                # produce anything either. A branch that never completes
+                # produces nothing to reconcile, and the `if` as a whole
+                # simply falls through.
+                if not (is_never(then_yield) or is_unit(then_yield)):
                     raise TypeError_(
                         info,
                         f"an 'if' with no 'else' cannot yield a value, but "
-                        f"this one yields {pprint_type(then_type)}",
+                        f"this one yields {pprint_type(then_yield)}",
                     )
                 return unit(info), env
-            else_type = _check_block(else_body, env, tmap, ret)
-            if not _same_type(then_type, else_type):
+            else_yield = check_stmts(else_body, env, tmap, ret)
+            # A branch that never completes has no value to disagree
+            # with, so the other branch's answer stands -- which is what
+            # lets one branch `return` while the other supplies the value
+            # in tail position (see PYKING.md, "Tail position").
+            if is_never(then_yield):
+                return else_yield, env
+            if is_never(else_yield):
+                return then_yield, env
+            if not same_type(then_yield, else_yield):
                 raise TypeError_(
                     info,
                     f"the branches of this 'if' have different types: "
-                    f"{pprint_type(then_type)} and {pprint_type(else_type)}",
+                    f"{pprint_type(then_yield)} and {pprint_type(else_yield)}",
                 )
-            return then_type, env
+            return then_yield, env
 
         case SReturn(info, expr, _):
+            # A `return` leaves the function, so it yields `NEVER`: it
+            # has no value *here*, and nothing after it runs.
             if ret is None:
                 raise TypeError_(info, "'return' outside a function")
-            actual = type_check(expr, env, tmap)
-            if not _same_type(actual, ret):
+            actual = check_expr(expr, env, tmap)
+            if not same_type(actual, ret):
                 raise TypeError_(
                     expr.info,
                     f"this function returns {pprint_type(ret)}, but this "
                     f"'return' gives {pprint_type(actual)}",
                 )
-            return unit(info), env
+            return NEVER, env
 
         case SReturnStmt(info, stmt, _):
             # `return if c: ...` -- the same rule, against whatever the
             # branch that runs yields.
             if ret is None:
                 raise TypeError_(info, "'return' outside a function")
-            actual, _ = _check_stmt(stmt, env, tmap, ret)
-            if not _same_type(actual, ret):
+            actual, _ = check_stmt(stmt, env, tmap, ret)
+            if is_never(actual):
+                # Every branch returned on its own; there is nothing left
+                # for this `return` to give.
+                return NEVER, env
+            if not same_type(actual, ret):
                 raise TypeError_(
                     info,
                     f"this function returns {pprint_type(ret)}, but this "
                     f"'return' gives {pprint_type(actual)}",
                 )
-            return unit(info), env
+            return NEVER, env
 
-        case SFunctionDef():
+        case SFunctionDef(_, name, _, _, _, _, _):
             # Checked against its annotations here; visible under its own
             # name only to the statements that follow.
-            return (_check_function(statement, env, tmap),
-                    _bind_function(statement, env, tmap))
+            return (check_function(statement, env, tmap),
+                    bind(env, name, function_type(statement)))
 
         case _:
-            _unsupported(statement)
+            unsupported(statement)
 
 
-def _function_type(node):
+# --- Expr ------------------------------------------------------------
+
+
+def check_expr(expr, env, tmap):
+    """The type of one expression."""
+    match expr:
+        case EInt(info, _, _):
+            return TInt(info)
+
+        case EString(info, _, _):
+            return TString(info)
+
+        case EBool(info, _, _):
+            return TBool(info)
+
+        case EVar(info, name, _):
+            match env.get(name):
+                case BValue(type_):
+                    return type_
+                case BSelf(_):
+                    raise TypeError_(
+                        info,
+                        f"'{name}' is used inside its own definition; "
+                        f"recursive functions are not supported yet",
+                    )
+                case _:
+                    # No name analysis has run ahead of this pass under
+                    # `--typecheck`, so a name missing here is either
+                    # genuinely unbound or bound by a construct this
+                    # checker does not cover yet (a `for` variable, a
+                    # `var`, a function that is not fully annotated).
+                    # Either way it is refused, with a position.
+                    unsupported(expr)
+
+        case EAdd() | ESub() | EMul() | ELessThan() | ELessThanEq() \
+                | EGreatThan() | EGreatThanEq() | EEq():
+            return check_binary(expr, env, tmap)
+
+        case ECall():
+            return check_call(expr, env, tmap)
+
+        case _:
+            unsupported(expr)
+
+
+# --- Param -----------------------------------------------------------
+
+
+def check_param(param, tmap):
+    """A parameter's declared type, recorded under its symbol.
+
+    Only ever called for a parameter that *has* an annotation:
+    `function_type` refuses a `def` with any parameter missing one
+    before this is reached, since a function is checked as a whole or
+    not at all."""
+    tmap[param.sym] = param.type
+    return param.type
+
+
+# --- SFunctionDef ----------------------------------------------------
+
+
+def function_type(node):
     """The `TFunction` a fully annotated `def` describes, or a refusal
     naming what is missing. Nothing here infers: a function this checker
     was not told about is one it declines to check, rather than one it
@@ -391,31 +522,26 @@ def _function_type(node):
     return TFunction(node.info, [p.type for p in node.params], node.return_type)
 
 
-def _bind_function(node, env, tmap):
-    """`env` with the function's name bound to its type -- for the
-    statements *after* the `def`, never for its own body."""
-    return {**env, node.name: _function_type(node)}
-
-
-def _check_function(node, env, tmap):
+def check_function(node, env, tmap):
     """Checks a `def` against its annotations, and returns unit: the
     definition is a statement, whatever the function's own type is."""
-    ftype = _function_type(node)
+    ftype = function_type(node)
     for param in node.params:
-        tmap[param.sym] = param.type
+        check_param(param, tmap)
     tmap[node.sym] = ftype
 
-    # The parameters, and the function's own name bound to a marker
-    # rather than to its type: that is what refuses recursion (see
-    # `_SelfReference` and the module docstring) instead of quietly
-    # letting an outer binding of the same name stand in for it.
-    body_env = {**env, node.name: _SelfReference(node.name),
-                **{p.name: p.type for p in node.params}}
+    # The parameters, and the function's own name bound to `BSelf`
+    # rather than to its type: that is what refuses recursion (see the
+    # module docstring) instead of quietly letting an outer binding of
+    # the same name stand in for it.
+    body_env = {**env, node.name: BSelf(node.name)}
+    for param in node.params:
+        body_env = bind(body_env, param.name, param.type)
 
     if node.expr is not None:
         # `def f(x:Int) -> Int = expr`: the expression *is* the result.
-        actual = type_check(node.expr, body_env, tmap)
-        if not _same_type(actual, node.return_type):
+        actual = check_expr(node.expr, body_env, tmap)
+        if not same_type(actual, node.return_type):
             raise TypeError_(
                 node.expr.info,
                 f"'{node.name}' returns {pprint_type(node.return_type)}, but "
@@ -423,54 +549,54 @@ def _check_function(node, env, tmap):
             )
         return unit(node.info)
 
-    _check_block(node.body, body_env, tmap, node.return_type)
-    if not _definitely_returns(node.body):
+    # A body supplies the function's value in either of the two ways
+    # PYKING.md's "Tail position" describes, and this one check covers
+    # both: `NEVER` means every path left by a `return`, which were each
+    # checked against the annotation as they were met, and any other
+    # answer is what the body's last statement yields -- the value the
+    # function produces with no `return` written.
+    body_yield = check_stmts(node.body, body_env, tmap, node.return_type)
+    if is_never(body_yield) or same_type(body_yield, node.return_type):
+        return unit(node.info)
+    if is_unit(body_yield):
         raise TypeError_(
             node.info,
             f"'{node.name}' returns {pprint_type(node.return_type)}, so its "
-            f"body must return on every path",
+            f"body must return on every path, or end in an expression of "
+            f"that type",
         )
-    return unit(node.info)
+    raise TypeError_(
+        node.body[-1].info,
+        f"'{node.name}' returns {pprint_type(node.return_type)}, but its "
+        f"body ends in a value of type {pprint_type(body_yield)}",
+    )
 
 
-def _definitely_returns(stmts):
-    """Whether a block always leaves by a `return`.
-
-    Only the last statement can decide it -- anything before it may fall
-    through -- and only two kinds do: a `return`, and an `if` whose every
-    branch does (which needs the `else` to exist, or the condition being
-    false falls out of the block). `javac` reasons the same way about
-    Java, and `target_java.py` has the same function for the same
-    reason."""
-    match stmts:
-        case [*_, SReturn() | SReturnStmt()]:
-            return True
-        case [*_, SIf(_, _, then_body, else_body)]:
-            return (else_body is not None
-                    and _definitely_returns(then_body)
-                    and _definitely_returns(else_body))
-        case _:
-            return False
+# --- ECall -----------------------------------------------------------
 
 
-def _check_call(e, env, tmap):
-    func_type = type_check(e.func, env, tmap)
+def check_call(call, env, tmap):
+    """The type of a call: its function's result, once the arguments
+    have been checked against that function's parameters. Anything of
+    function type may be called, so a parameter annotated `(Int) -> Int`
+    is as callable as a `def`'s own name."""
+    func_type = check_expr(call.func, env, tmap)
     if not isinstance(func_type, TFunction):
         raise TypeError_(
-            e.info,
+            call.info,
             f"this call applies something of type {pprint_type(func_type)}, "
             f"which is not a function",
         )
-    if len(e.args) != len(func_type.params):
-        expected, given = len(func_type.params), len(e.args)
+    if len(call.args) != len(func_type.params):
+        expected, given = len(func_type.params), len(call.args)
         raise TypeError_(
-            e.info,
+            call.info,
             f"this function takes {expected} argument{'' if expected == 1 else 's'}, "
             f"but {given} {'was' if given == 1 else 'were'} given",
         )
-    for position, (arg, expected) in enumerate(zip(e.args, func_type.params), 1):
-        actual = type_check(arg, env, tmap)
-        if not _same_type(actual, expected):
+    for position, (arg, expected) in enumerate(zip(call.args, func_type.params), 1):
+        actual = check_expr(arg, env, tmap)
+        if not same_type(actual, expected):
             raise TypeError_(
                 arg.info,
                 f"argument {position} has type {pprint_type(actual)}, but "
@@ -479,79 +605,111 @@ def _check_call(e, env, tmap):
     return func_type.result
 
 
-def type_check(node, env, tmap):
-    """Type-checks one AST node (or a whole program, as a list of
-    statements) in `env`, returning its type and recording into `tmap`
-    the type of every annotatable construct it passes.
+# --- operators -------------------------------------------------------
 
-    The node itself is left alone: nothing here rebuilds the AST or
-    writes into it. `env` is not mutated either -- a binding hands the
-    *rest of the program* an extended copy, which is why checking a block
-    threads one along rather than sharing a single table. `tmap` is the
-    one thing that is mutated, and it is the pass's result: it belongs to
-    the whole run, not to a scope, since a symbol is unique across the
-    program.
+# The binary operators this checker knows, as
+# `node class -> (spelling, [(operand type, result type), ...])`. Several
+# are overloaded, which is why the table maps to a *list* of signatures
+# rather than one: `12 + 20` is `Int`, `'hi' + 'there'` is `String`, and
+# `13 + 'hello'` matches neither and is an error. Both operands must
+# match the *same* signature, which is what makes `1 == 'x'` an error
+# rather than a comparison that is merely always false.
+OPERATORS = {
+    EAdd: ("+", [(TInt, TInt), (TString, TString)]),
+    ESub: ("-", [(TInt, TInt)]),
+    EMul: ("*", [(TInt, TInt)]),
+    ELessThan: ("<", [(TInt, TBool)]),
+    ELessThanEq: ("<=", [(TInt, TBool)]),
+    EGreatThan: (">", [(TInt, TBool)]),
+    EGreatThanEq: (">=", [(TInt, TBool)]),
+    EEq: ("==", [(TInt, TBool), (TString, TBool), (TBool, TBool)]),
+}
 
-    Statements go through `_check_stmt`, which additionally says what
-    environment follows them and what return type they sit under; this
-    entry point is for a whole program, an expression, or a statement in
-    neither of those positions."""
-    match node:
-        # --- a program: a list of statements ---
-        case list():
-            # A program is a block, but its *type* is unit whatever its
-            # last statement yields: nothing is waiting for a program's
-            # value the way a branch's caller waits for a branch's.
-            _check_block(node, env, tmap, None)
-            return unit(_program_info(node))
 
-        # --- statements ---
-        case Stmt():
-            return _check_stmt(node, env, tmap, None)[0]
+def check_binary(expr, env, tmap):
+    """The type of a binary operator application, from `OPERATORS`."""
+    spelling, signatures = OPERATORS[type(expr)]
+    left_type = check_expr(expr.left, env, tmap)
+    right_type = check_expr(expr.right, env, tmap)
+    for operand, result in signatures:
+        if isinstance(left_type, operand) and isinstance(right_type, operand):
+            return result(expr.info)
+    # Every type in the message is spelled by `pprint_type`, the same
+    # function that prints a type in source and in `--ast` output, so an
+    # error can never name a type differently from the way the program
+    # would have to write it. A signature's operand is a *class* here, so
+    # it is instantiated to be printed -- only ever on this error path.
+    accepted = " or ".join(
+        f"{name} {spelling} {name}"
+        for name in (pprint_type(operand(expr.info)) for operand, _ in signatures)
+    )
+    raise TypeError_(
+        expr.info,
+        f"`{spelling}` cannot be applied to {pprint_type(left_type)} and "
+        f"{pprint_type(right_type)}; it accepts {accepted}",
+    )
 
-        # --- expressions ---
-        case EInt(info, _, _):
-            return TInt(info)
 
-        case EString(info, _, _):
-            return TString(info)
+# --- Type ------------------------------------------------------------
 
-        case EBool(info, _, _):
-            return TBool(info)
 
-        case EVar(_, name, _):
-            if name not in env:
-                # No name analysis has run ahead of this pass under
-                # `--typecheck`, so a name missing here is either
-                # genuinely unbound or bound by a construct this checker
-                # does not cover yet (a `for` variable, a `var`, a
-                # function that is not fully annotated). Either way it is
-                # refused, with a position.
-                _unsupported(node)
-            found = env[name]
-            if isinstance(found, _SelfReference):
-                raise TypeError_(
-                    node.info,
-                    f"'{name}' is used inside its own definition; recursive "
-                    f"functions are not supported yet",
-                )
-            return found
+def check_annotation(annotation, actual):
+    """Checks a binding's own annotation, if it wrote one, against what
+    its right-hand side turned out to be.
 
-        case EAdd() | ESub() | EMul() | ELessThan() | ELessThanEq() \
-                | EGreatThan() | EGreatThanEq() | EEq():
-            return _check_binary(node, env, tmap)
+    An annotation is a claim about the program, so where one exists it is
+    checked rather than replaced -- which is the whole difference between
+    an annotation and a comment. A binding that wrote none claims
+    nothing, and takes whatever its value has.
 
-        case ECall():
-            return _check_call(node, env, tmap)
+    The error is reported against the *annotation*: the value is a
+    perfectly good value of its own type, and the disagreement is
+    something the program stated."""
+    if annotation is None or same_type(annotation, actual):
+        return
+    raise TypeError_(
+        annotation.info,
+        f"this binding is annotated {pprint_type(annotation)}, but its "
+        f"value has type {pprint_type(actual)}",
+    )
 
+
+def same_type(a, b):
+    """Whether two types *are* the same type.
+
+    Not `a == b`: types are frozen dataclasses, so `==` compares their
+    `info` and `sym` too, and `Int` written in one place would differ
+    from `Int` inferred in another. What matters is the structure, so
+    that is what is compared -- recursively, since a type can contain
+    types."""
+    match (a, b):
+        case (TInt(), TInt()) | (TString(), TString()) | (TBool(), TBool()):
+            return True
+        case (TList(_, x), TList(_, y)):
+            return same_type(x, y)
+        case (TTuple(_, xs), TTuple(_, ys)):
+            return len(xs) == len(ys) and all(map(same_type, xs, ys))
+        case (TFunction(_, ps, r), TFunction(_, qs, s)):
+            return (len(ps) == len(qs) and all(map(same_type, ps, qs))
+                    and same_type(r, s))
         case _:
-            _unsupported(node)
+            return False
 
 
-def _program_info(stmts):
-    """An `Info` to blame for a whole program: its first statement's, or
-    a synthetic one for the empty program, which has no source to point
-    at but still has a type."""
-    if stmts:
-        return stmts[0].info
-    return Info("<empty>", 1, 0, 1, 0)
+def unit(info):
+    """The unit type, `()` -- an empty tuple type. What a statement, and
+    a program, has."""
+    return TTuple(info, [])
+
+
+def is_unit(t):
+    return isinstance(t, TTuple) and not t.elements
+
+
+# --- Env -------------------------------------------------------------
+
+
+def bind(env, name, type_):
+    """`env` with `name` bound to an ordinary value of `type_` -- a fresh
+    dict, never a mutation of the one passed in."""
+    return {**env, name: BValue(type_)}

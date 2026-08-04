@@ -159,20 +159,44 @@ section, since that is language, not compiler; what follows is how the
 pass is built. Its signature is
 
 ```
-type_check(node, env, tmap) -> type
+type_check(stmts) -> tmap
 ```
 
-where `env` maps a name to its type and is used immutably — a binding
-hands what follows it an extended *copy*, the same discipline
-`analyses.py` follows, and for the same reason: what a name means is
-decided by where it is written.
+— a whole program in, the types it worked out back. Inside, there is one
+function per AST datatype it walks, each taking a node of exactly that
+type and returning exactly one kind of answer, in the shape the module
+writes out as OCaml-style signatures:
 
-`tmap` is the deliberate opposite: one mutable dict, shared by the whole
-run, mapping a node's *symbol* to the type worked out for it. It is what
-the pass produces. The AST is not touched — nothing is rebuilt and no
-node's `type` field is written — so what the source *wrote* and what the
-checker *inferred* stay separable, and the driver hands the finished
-`tmap` to `pprint_program` (below) to print the latter. When checking
+```
+type_check    : [Stmt] -> TMap
+check_stmts   : [Stmt] -> Env -> TMap -> Type? -> Yield
+check_stmt    : Stmt -> Env -> TMap -> Type? -> (Yield, Env)
+check_expr    : Expr -> Env -> TMap -> Type
+check_param   : Param -> TMap -> Type
+same_type     : Type -> Type -> Bool
+```
+
+`Env` maps a name to what it means here and is used immutably — a
+binding hands what follows it an extended *copy*, the same discipline
+`analyses.py` follows, and for the same reason: what a name means is
+decided by where it is written. It maps to a small `Binding` datatype
+rather than straight to a type, because a name can mean something that
+is not a value: `BSelf` is what a function's own name means inside its
+own body, which is what lets the one place that reads a name back out
+report recursion as recursion.
+
+The `Type?` each statement function takes is the enclosing function's
+return type, absent at the top level — that is what a `return` is
+checked against, and why `return` outside a function is an error rather
+than a special case somewhere else.
+
+`TMap` is the deliberate opposite of `Env`: one mutable dict, mapping a
+node's *symbol* to the type worked out for it, built up as the pass runs
+and handed back as its result. The AST is not touched — nothing is
+rebuilt and no node's `type` field is written — so what the source
+*wrote* and what the checker *inferred* stay separable, and the driver
+hands the finished `tmap` to `pprint_program` (below) to print the
+latter. When checking
 finishes, `tmap` holds an entry for each annotatable construct the
 checker reached: `SFunctionDef`, `Param`, `SLet` and `SLetStmt`. A
 `SFunctionDef`'s entry is its *function* type, not its return type — the
@@ -211,7 +235,7 @@ branch ending in an expression yields that expression's value, and the
 two branches of an `if` are required to agree. An `if` with no `else` is
 checked against unit.
 
-Types are compared with `_same_type` rather than `==`: `T*` nodes are
+Types are compared with `same_type` rather than `==`: `T*` nodes are
 frozen dataclasses, so `==` would compare their `info` and `sym` too and
 find `Int` written in one place different from `Int` inferred in
 another.
@@ -246,10 +270,20 @@ own type.
 A `def` is checked only when *every* parameter and the return type is
 annotated — this checker infers nothing about a function it was not told
 — and then two rules apply: every `return` must give the declared type,
-and the body must return on every path (`_definitely_returns`, which
-reasons exactly as `target_java.py` does for `javac`). Recursion is
-refused rather than assumed: the function's own name is bound in its
-body to a marker (`_SelfReference`) whose only purpose is to say so.
+and the body must *produce* it, either by returning on every path or by
+ending in a value of that type. Those are the two halves of PYKING.md's
+"Tail position", and one check covers both because a statement's answer
+is a `Yield`: a type, or `Never` for a statement that does not complete.
+A `return` yields `Never`, so a branch that returns has no value to
+disagree with the branch beside it (one may return while the other
+supplies the value), and a body in which nothing completes has no
+trailing value left to check. That subsumes the `definitely_returns`
+reasoning `target_java.py` still does for `javac` — here it falls out of
+the types.
+
+Recursion is refused rather than assumed: the function's own name is
+bound in its body to `BSelf` rather than to its type, which is what lets
+the error say so.
 
 Anything else is refused with `Construct is not supported` against its
 own source position — a deliberate floor, since a checker that quietly

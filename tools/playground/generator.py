@@ -272,9 +272,8 @@ def compile_source(text, target="python", name="playground.pyk",
     program = symbolize(program)
     tmap = None
     if typecheck:
-        tmap = {}
         try:
-            typesystem.type_check(program, {}, tmap)
+            tmap = typesystem.type_check(program)
         except typesystem.TypeError_ as e:
             return _fail(e, "Type error")
 
