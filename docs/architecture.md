@@ -153,7 +153,10 @@ tree: those get symbols without anything else being renumbered.
 
 **`type_check`** (in `src/typesystem.py`) is the type checker, run only
 under `--typecheck`, after symbolizing and before `--ast` prints
-anything. Its signature is
+anything. What it means for a *program* — the rules it applies, what it
+refuses and why — is [PYKING.md](../PYKING.md)'s "Type checking"
+section, since that is language, not compiler; what follows is how the
+pass is built. Its signature is
 
 ```
 type_check(node, env, tmap) -> type
@@ -171,9 +174,11 @@ node's `type` field is written — so what the source *wrote* and what the
 checker *inferred* stay separable, and the driver hands the finished
 `tmap` to `pprint_program` (below) to print the latter. When checking
 finishes, `tmap` holds an entry for each annotatable construct the
-checker reached: `SFunctionDef` (its return type), `Param`, `SLet` and
-`SLetStmt` — of which only `SLet` is inside the fragment covered so far.
-Symbols exist for exactly this: `tmap` needs a key for a node that does
+checker reached: `SFunctionDef`, `Param`, `SLet` and `SLetStmt`. A
+`SFunctionDef`'s entry is its *function* type, not its return type — the
+type of a thing is the type of the thing, and `-> T` in the syntax is
+only part of it, which is why the printer takes `TFunction.result` for
+that slot. Symbols exist for exactly this: `tmap` needs a key for a node that does
 not depend on the node's identity, which is why symbolizing runs first —
 and, since no node is synthesized into the tree, it does not have to run
 again afterwards.
@@ -183,9 +188,26 @@ their own, so a checked binding prints as `x: Int = 1` — syntax the
 parser accepts, which is what keeps `--typecheck --ast` output
 re-parsable. They are synthesized by the checker and so carry no symbols
 of their own: under `--symbols` an inferred type prints bare, since `@0`
-means "not symbolized yet" and that is not what a type from `tmap` is. A
-statement and a whole program have type unit, `()`; a binding's
-right-hand-side type is what `tmap` records under that binding's symbol.
+means "not symbolized yet" and that is not what a type from `tmap` is.
+The one type with no source syntax at all is `TFunction`, written
+`(Int, Bool) -> Int` — the parentheses are the parameter *list*'s, so a
+function of one two-element tuple is `((Int, Bool)) -> Int` and one of
+two parameters is `(Int, Bool) -> Int`. `parse_type` has no rule for it,
+so a name bound to a function prints as `g: (Int) -> Int = f`: true, but
+not something the parser could read back. Being unwritable, it is also
+the one type no backend can meet.
+
+Most statements, and every whole program, have type unit, `()`. Two do
+not, and that is what makes `if` checkable: an *expression statement*
+has its expression's type, and a *block* has its last statement's — so a
+branch ending in an expression yields that expression's value, and the
+two branches of an `if` are required to agree. An `if` with no `else` is
+checked against unit.
+
+Types are compared with `_same_type` rather than `==`: `T*` nodes are
+frozen dataclasses, so `==` would compare their `info` and `sym` too and
+find `Int` written in one place different from `Int` inferred in
+another.
 
 `--typecheck` runs *instead of* `analyze_program`, not after it: the
 checker carries a name environment of its own and refuses any name it
@@ -201,13 +223,25 @@ Both halves of it are pinned down by tests, distinguished by filename:
 `tests/fail_typecheck_*.pyk` must not, and its `.out` is the error
 message.
 
-It currently covers a top-level list of immutable bindings and
-expression statements over `Int` and `String`, with `+` (overloaded:
-`Int + Int -> Int` and `String + String -> String`), and `-`/`*` on
-`Int`. Anything else is refused with `Construct is not supported`
-against its own source position — a deliberate floor, since a checker
-that quietly accepted what it had not reasoned about would be worse than
-one that says where it stops:
+It currently covers immutable bindings, expression statements, `if`
+statements (in both the ordinary and the value form), and fully
+annotated function definitions, over `Int`, `String` and `Bool`: `+`
+(overloaded: `Int + Int -> Int` and `String + String -> String`), `-`
+and `*` on `Int`, `<`/`<=`/`>`/`>=` on `Int` giving `Bool`, `==` on two
+values of one type giving `Bool`, and calls of a function-typed name.
+
+A `def` is checked only when *every* parameter and the return type is
+annotated — this checker infers nothing about a function it was not told
+— and then two rules apply: every `return` must give the declared type,
+and the body must return on every path (`_definitely_returns`, which
+reasons exactly as `target_java.py` does for `javac`). Recursion is
+refused rather than assumed: the function's own name is bound in its
+body to a marker (`_SelfReference`) whose only purpose is to say so.
+
+Anything else is refused with `Construct is not supported` against its
+own source position — a deliberate floor, since a checker that quietly
+accepted what it had not reasoned about would be worse than one that
+says where it stops:
 
 ```
 $ pyk --typecheck prog.pyk

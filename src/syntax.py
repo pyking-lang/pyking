@@ -61,6 +61,7 @@ from lexer import Info
 #     TBool(info: Info, sym: Int)
 #     TList(info: Info, element: Type, sym: Int)
 #     TTuple(info: Info, elements: [Type], sym: Int)
+#     TFunction(info: Info, params: [Type], result: Type, sym: Int)
 #
 # datatype Pattern:
 #     PInt(info: Info, value: Int, sym: Int)
@@ -290,6 +291,18 @@ class TTuple(Type):         # (e1, e2, ...); zero elements is the Unit type "()"
     sym: int = 0
 
 
+@dataclass(frozen=True)
+class TFunction(Type):      # (T1, T2, ...) -> T
+    info: Info               # The parameter list is always parenthesized, so a
+    params: list             # function of one *tuple* is ((Int, Bool)) -> Int
+    result: Type             # and a function of two is (Int, Bool) -> Int.
+    sym: int = 0
+    # No source syntax builds one: `parse_type` has no rule for it, and a
+    # `def` writes its parts separately (`p:Int`, `-> Int`) rather than as
+    # one type. The type checker is what puts those parts together, so a
+    # `TFunction` only ever reaches a printer, never a backend.
+
+
 # Whether `--symbols` asked for each node's symbol number to be shown
 # (see `symbolize` in src/analyses.py). This is a module-level display
 # setting rather than a parameter threaded through every printer:
@@ -365,6 +378,13 @@ def _pprint_type(t):
             return f"[{pprint_type(element)}]"
         case TTuple(_, elements):
             return f"({', '.join(pprint_type(e) for e in elements)})"
+        case TFunction(_, params, result):
+            # The parentheses are the parameter *list*'s, not a tuple's, so
+            # one parameter that happens to be a tuple keeps its own pair:
+            # `((Int, Bool)) -> Int` takes one pair, `(Int, Bool) -> Int`
+            # takes two.
+            return (f"({', '.join(pprint_type(p) for p in params)})"
+                    f" -> {pprint_type(result)}")
 
 
 @dataclass(frozen=True)
@@ -924,6 +944,11 @@ def _return_annotation(node, return_type):
     otherwise -- `_annotation`'s counterpart for the one annotation that
     is not written with a colon."""
     return_type = _node_type(node, return_type)
+    # A function's *type* is a function type, and that is what a `tmap`
+    # holds for it; the slot in the syntax is only its result, since the
+    # parameters have already been written out one by one.
+    if isinstance(return_type, TFunction):
+        return_type = return_type.result
     return "" if return_type is None else f" -> {_pprint_annotation_type(return_type)}"
 
 

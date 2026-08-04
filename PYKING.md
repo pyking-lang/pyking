@@ -163,6 +163,10 @@ Structure:
 - Lexical scoping, with every block a scope, free shadowing of immutable
   names, and no shadowing of a mutable one — checked statically by
   (see "Names and scoping")
+- Static checking in two layers: names and scoping always, types only
+  under `--typecheck` and only over part of the language so far — with
+  one type, the function type `(Int, Bool) -> Int`, that checking has
+  and source syntax does not (see "Type checking")
 
 ## Grammar
 
@@ -1028,9 +1032,11 @@ pretty-printed back out in Pyking's own syntax. Compiling erases every
 one of them: no generated code carries type syntax at all.
 
 Nothing verifies an annotation in an ordinary compile. There *is* a type
-checker, but it is opt-in and covers only part of the language so far —
-how it is invoked and what it currently accepts is a compiler matter,
-described in [docs/architecture.md](docs/architecture.md).
+checker, opt-in and covering only part of the language so far; what it
+accepts, what it refuses, and which annotations it treats as declarations
+rather than as decoration are in "Type checking" at the end of this
+reference. How the pass itself is built is a compiler matter, described
+in [docs/architecture.md](docs/architecture.md).
 
 ### `return` statements
 
@@ -1518,3 +1524,206 @@ def bucket(x):
 
 print(bucket(0), bucket(5))
 ```
+
+## Type checking
+
+Pyking's static semantics come in two layers. One is always on and is
+about *names*; the other is about *types*, and today it is opt-in.
+
+**Always checked**, in every mode and for every target — including
+`--ast`, since a program whose names do not resolve is not worth
+printing either:
+
+- the shape rules the grammar cannot state: a value-form `if` must have
+  its `else` and every branch must end in an expression (see the section
+  on `if`/`match` statements as bound values), and a `case` pattern may
+  not bind the same name twice. These are reported as `Parsing error`.
+- names and scoping: every name must be bound where it is used, and a
+  `var` may not be shadowed (see "Names and scoping"). These are
+  reported as `Name error`.
+
+**Checked only under `--typecheck`**: everything below. Without that
+flag no type is ever verified — annotations are parsed, pretty-printed
+and then erased, and each backend infers for itself whatever the target
+language forces it to (which is why a program can be rejected by the C
+or Java backend and accepted by the Python one). With the flag, the
+program is type-checked before anything is printed or compiled, and a
+failure is reported as `Type error` and stops the compile.
+
+The checker covers a *fragment* of the language, and refuses everything
+else rather than guessing:
+
+```
+'prog.pyk' 4:8-4:13 Type error: Construct is not supported
+```
+
+That is deliberate. A checker that quietly accepted what it had not
+reasoned about would be worse than one that says where it stops — so
+the list below is a floor that grows, not a description of what will
+always be refused.
+
+### Types
+
+The types a program can *write* are the ones "Type annotations" lists:
+`Int`, `String`, `Bool`, list types `[T]`, and tuple types
+`(T1, T2, ...)` — with `()`, the zero-element tuple, as the unit type.
+
+Checking adds one more that has no source syntax: the **function type**,
+written
+
+```
+(Int, Bool) -> Int
+```
+
+for a function of two parameters returning an `Int`. The parentheses
+belong to the parameter *list*, not to a tuple, so a function of one
+parameter that happens to be a two-element tuple is
+
+```
+((Int, Bool)) -> Int
+```
+
+Any type may appear in either position. A function type cannot be
+written in a program — there is no grammar for it — but it is what a
+`def`'s name means, so it is what `pyk --typecheck --ast` prints for a
+name bound to a function:
+
+```pyking
+def choose(a:Int, keep:Bool) -> Int:
+    if keep:
+        return a
+    else:
+        return 0
+
+
+picker = choose      # picker: (Int, Bool) -> Int
+```
+
+### What is checked
+
+**Literals and names.** `1` is `Int`, `'s'` is `String`, `true` and
+`false` are `Bool`. A name has the type of the binding it refers to,
+under Pyking's ordinary lexical scoping.
+
+**Operators.** Both operands must match the *same* signature:
+
+| operator | accepts | gives |
+|---|---|---|
+| `+` | `Int + Int` | `Int` |
+| `+` | `String + String` | `String` |
+| `-`, `*` | `Int`, `Int` | `Int` |
+| `<`, `<=`, `>`, `>=` | `Int`, `Int` | `Bool` |
+| `==` | two `Int`s, two `String`s or two `Bool`s | `Bool` |
+
+So `1 + 'a'` is an error, and so is `1 == 'a'` — a comparison of two
+different types is refused rather than answered `false`.
+
+**Bindings and expression statements.** An `=` binding takes the type of
+its right-hand side, and that is what its name means to the statements
+that follow. An expression statement has its expression's type, which is
+what lets a block yield a value.
+
+**Blocks and `if`.** A block's type is its last statement's, and unit if
+it is empty. The two branches of an `if` must have the *same* type —
+which is what makes `x = if ...` sound, since only one branch runs but
+the binding has one type either way:
+
+```pyking
+flag = 3 < 4
+
+best = if flag:      # both branches yield Int
+    1
+else:
+    2
+
+if flag:             # both branches yield unit
+    a = 1
+else:
+    b = 'two'
+```
+
+An `if` with no `else` is checked against unit: the condition being
+false has to produce something too, and what it produces is nothing. So
+a branch that yields a value needs an `else` to yield one as well. A
+condition must be `Bool` — there is no truthiness.
+
+**Functions.** A `def` is checked only when it is *fully* annotated:
+every parameter and the return type. Its type is then the function type
+above, and:
+
+- every `return` must give the declared return type;
+- the body must return on every path — a function that says `-> Int`
+  and can fall off the end does not honour its own annotation;
+- a call must give as many arguments as there are parameters, each of
+  the parameter's type, and the call has the return type.
+
+Both body forms are checked the same way, and a function's parameters
+are in scope only in its own body:
+
+```pyking
+def sign(n:Int) -> String:
+    if n < 1:
+        return 'small'
+    else if n == 1:
+        return 'one'
+    else:
+        return 'large'
+
+
+def shout(word:String) -> String = word + '!'
+
+
+kind = sign(4)
+loud = shout('hi')
+```
+
+### What is not checked
+
+**Constructs outside the fragment.** `var` and `:=`, `for`, `while`,
+`match`, list and tuple literals, list comprehensions, `if` *expressions*
+(`if c then a else b`), `/`, unary minus, and a binding that destructures
+a tuple (`a, b = ...`) are all refused with `Construct is not supported`.
+So is any call to a builtin — `print` included — since only a name known
+to have a function type can be called.
+
+**Functions that are not fully annotated.** A `def` with an unannotated
+parameter or no return type is refused, naming what is missing, rather
+than inferred:
+
+```
+'prog.pyk' 1:0-2:12 Type error: 'f' can only be checked when every
+  parameter and the return type is annotated; parameter 'n' is not
+```
+
+**Recursion.** A function's own name is deliberately not usable inside
+its own body while checking — taking a declared type on faith to check
+the body that justifies it is reasoning the checker does not do yet:
+
+```
+'prog.pyk' 2:11-2:12 Type error: 'f' is used inside its own
+  definition; recursive functions are not supported yet
+```
+
+This is a restriction of the *checker*, not of the language: the same
+function compiles and runs perfectly well without `--typecheck` (and a
+`def`'s name is in scope in its own body — see "Names and scoping").
+
+**Annotations on bindings.** `x: Int = 1` is an annotation the checker
+does not verify even when it is on. The inferred type wins, and
+`--typecheck --ast` prints that rather than what was written, so
+
+```pyking
+x: String = 1 + 2
+```
+
+is accepted, and prints as `x: Int = 1 + 2`. Only *parameter* and
+*return* annotations are taken as declarations and enforced. (An
+unannotated binding prints its inferred type the same way, which is what
+makes the printed AST worth reading.)
+
+**Names, while `--typecheck` is on.** The type checker carries a name
+environment of its own, so it replaces the name analysis rather than
+running after it. In this mode an unbound name is reported as
+`Construct is not supported` rather than as a `Name error`, and the
+no-shadowing-a-`var` rule is not checked at all. Compiling without the
+flag checks names as usual.

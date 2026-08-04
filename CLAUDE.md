@@ -37,16 +37,26 @@ message format, etc.). Read it before writing or editing any Pyking source
 current bootstrap parser accepts, which is not the same as full Python.
 Keep it in sync whenever `src/`'s language support changes.
 
-PYKING.md is **language-only**: nothing about compiler flags, targets,
-generated code, or the test harness belongs there — not even "compiles
-to", where "means" will do. That material lives under `docs/`:
-`architecture.md` for the pipeline, `targets.md` for the target list and
-what each accepts, and one page per family (`target_python.md`,
-`target_js.md`, `target_c.md`, `target_java.md`) for how constructs are
-compiled and where the output is weak. `README.md` is a short index
-pointing at all of it.
+PYKING.md is **language-only**: nothing about targets, generated code,
+or the test harness belongs there — not even "compiles to", where
+"means" will do. That material lives under `docs/`: `architecture.md`
+for the pipeline, `targets.md` for the target list and what each
+accepts, and one page per family (`target_python.md`, `target_js.md`,
+`target_c.md`, `target_java.md`) for how constructs are compiled and
+where the output is weak. `README.md` is a short index pointing at all
+of it.
 When a change touches how something *compiles* rather than what it
 *means*, PYKING.md is not the file to edit.
+
+**Static semantics are language, not compiler**, and they are the one
+place PYKING.md names a flag. Its "Type checking" section documents both
+layers — the name and scope rules every compile applies, and the types
+`--typecheck` checks — including what the checker refuses and why, since
+"which programs are well-typed" is a property of Pyking rather than of
+the pass that decides it. Extending `src/typesystem.py` therefore means
+editing that section too; `docs/architecture.md` keeps only how the pass
+is *built* (its signature, `tmap`, `_same_type`), and points at PYKING.md
+for the rules.
 
 ## Changing the language: always update all five places
 
@@ -79,7 +89,10 @@ last ones are the ones that get forgotten:
    marking the whole file python-only.
 3. **`PYKING.md`** — feature summary, EBNF grammar, the grammar notes for
    anything the EBNF can't express, and a worked example. Language only:
-   no flags, targets, or generated code.
+   no targets or generated code. Its "Type checking" section is the
+   exception that proves it — static semantics *are* language, so a
+   change to what `analyses.py` or `typesystem.py` accepts belongs there
+   too, `--typecheck` and all.
 4. **`docs/`** — anything about *compiling*. `architecture.md` for the
    pipeline itself (a new stage or module, a change to how the driver
    works); `targets.md` for the target list and the shared-subset table;
@@ -236,15 +249,30 @@ The bootstrap is split into one module per compiler stage:
    `type` field — so what the source wrote and what the checker inferred
    stay separable; keep it that way. When checking finishes `tmap` holds
    an entry for every annotatable construct the checker reached
-   (`SFunctionDef`'s return type, `Param`, `SLet`, `SLetStmt`), of which
-   only `SLet` is inside the fragment covered so far. Types are
-   `syntax.py`'s own `T*` nodes, not a separate vocabulary, so a checked
-   binding prints as `x: Int = 1` — syntax the parser accepts, which
-   keeps `--typecheck --ast` output re-parsable; they are synthesized
-   here, so they carry no symbols. Statements and whole programs have
-   type unit. It covers only a fragment so far (top-level `=` and
-   expression statements over `Int`/`String`, with `+` overloaded and
-   `-`/`*` on `Int`); everything else raises
+   (`SFunctionDef`, `Param`, `SLet`, `SLetStmt`) — a `SFunctionDef`'s
+   being its *function* type, since the type of a thing is the type of
+   the thing and `-> T` in the syntax is only part of it (the printer
+   takes `TFunction.result` for that slot). Types are `syntax.py`'s own
+   `T*` nodes, not a separate vocabulary, so a checked binding prints as
+   `x: Int = 1` — syntax the parser accepts, which keeps
+   `--typecheck --ast` output re-parsable; they are synthesized here, so
+   they carry no symbols. The exception is `TFunction`, which has no
+   source syntax at all, so `g: (Int) -> Int = f` is true but not
+   re-parsable. Compare types with `_same_type`, never `==`: `T*` nodes
+   are dataclasses, so `==` compares `info` and `sym` too.
+
+   Most statements and every program have type unit; an *expression
+   statement* has its expression's type and a *block* its last
+   statement's, which is what makes the two branches of an `if`
+   comparable — they are required to agree, and an `if` with no `else`
+   is checked against unit. A `def` is checked only when every parameter
+   and the return type is annotated (it infers nothing about a function
+   it was not told); then every `return` must give the declared type and
+   the body must return on every path. Recursion is refused: the
+   function's own name is bound in its body to a `_SelfReference` marker
+   whose one purpose is to make the error say so.
+
+   Everything outside that fragment raises
    `TypeError_(info, "Construct is not supported")` — including a name
    it cannot find, since no name analysis has run ahead of it in this
    mode. Keep that floor explicit rather than silently accepting what it
@@ -465,9 +493,10 @@ Together they pin down both halves of the checker: what it infers, and
 what it rejects and how it says so. The naming convention and the
 manifest have to agree — a file with either prefix must list exactly
 `targets = ["typecheck"]`, and no other file may use that target — and
-the harness warns when they drift apart. Such a program cannot call
-anything, `print` included: a call is one of the constructs the checker
-does not cover yet.
+the harness warns when they drift apart. Such a program may call its own
+fully annotated functions but no builtin, `print` included: only a name
+the checker knows to have a function type can be called, and no builtin
+has one.
 
 No third-party dependencies. Requires Python 3.11+ (`match`/`case`, and
 `tomllib` for the manifest). Running the generated code needs `node` for
