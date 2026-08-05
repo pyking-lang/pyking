@@ -179,11 +179,8 @@ same_type     : Type -> Type -> Bool
 `Env` maps a name to what it means here and is used immutably — a
 binding hands what follows it an extended *copy*, the same discipline
 `analyses.py` follows, and for the same reason: what a name means is
-decided by where it is written. It maps to a small `Binding` datatype
-rather than straight to a type, because a name can mean something that
-is not a value: `BSelf` is what a function's own name means inside its
-own body, which is what lets the one place that reads a name back out
-report recursion as recursion.
+decided by where it is written. It maps a name straight to its type;
+there is nothing else a name can mean here.
 
 The `Type?` each statement function takes is the enclosing function's
 return type, absent at the top level — that is what a `return` is
@@ -281,8 +278,11 @@ comparable without either being a special case, and no separate
 needs one for `javac`.
 
 Recursion is refused rather than assumed: the function's own name is
-bound in its body to `BSelf` rather than to its type, which is what lets
-the error say so.
+left unbound while its body is checked, so a recursive call is refused
+like anything else outside the fragment. It is *removed* from the body's
+environment rather than merely not added, since a `def`'s name is in
+scope in its own body and an outer binding of that name must not show
+through.
 
 Anything else is refused with `Construct is not supported` against its
 own source position — a deliberate floor, since a checker that quietly

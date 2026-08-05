@@ -247,11 +247,9 @@ The bootstrap is split into one module per compiler stage:
    returning exactly one kind of answer, with the signatures written out
    OCaml-style in a block near the top. Keep that shape when extending
    it: no function here dispatches on which *sort* of node it was handed,
-   only on which variant of its own datatype. `Env` maps a name to a
-   small `Binding` datatype (`BValue` a value of a type, `BSelf` the
-   function whose body we are in, which is how recursion is refused *as
-   recursion*) and is used *immutably* — a binding hands what follows it
-   an extended copy, the same discipline `analyses.py` follows. `TMap` is
+   only on which variant of its own datatype. `Env` maps a name to its
+   type and is used *immutably* — a binding hands what follows it an
+   extended copy, the same discipline `analyses.py` follows. `TMap` is
    the deliberate opposite: one mutable dict, mapping a node's *symbol*
    to the type inferred for it, built as the pass runs and returned as
    its result. **The checker does not
@@ -290,8 +288,10 @@ The bootstrap is split into one module per compiler stage:
    "e's", which is what the tail-position table says of it; so a
    returning branch and a value-ending branch compare without either
    being a special case. Recursion is refused: the function's own name is
-   bound in its body to `BSelf` rather than to its type, which is what
-   lets the error say so.
+   left unbound while its body is checked — *removed* from the body's
+   environment rather than merely not added, since a `def`'s name is in
+   scope in its own body and an outer binding of it must not show
+   through.
 
    Everything outside that fragment raises
    `TypeError_(info, "Construct is not supported")` — including a name

@@ -1820,16 +1820,20 @@ than inferred:
 
 **Recursion.** A function's own name is deliberately not usable inside
 its own body while checking — taking a declared type on faith to check
-the body that justifies it is reasoning the checker does not do yet:
+the body that justifies it is reasoning the checker does not do yet — so
+a recursive call is refused like any other construct outside the
+fragment, against the name it could not resolve:
 
 ```
-'prog.pyk' 2:11-2:12 Type error: 'f' is used inside its own
-  definition; recursive functions are not supported yet
+'prog.pyk' 2:11-2:12 Type error: Construct is not supported
 ```
 
 This is a restriction of the *checker*, not of the language: the same
-function compiles and runs perfectly well without `--typecheck` (and a
-`def`'s name is in scope in its own body — see "Names and scoping").
+function compiles and runs perfectly well without `--typecheck`, where a
+`def`'s name *is* in scope in its own body (see "Names and scoping").
+That scoping still holds here in the one way it can be observed: an
+outer binding of the same name does not show through into the body
+either.
 
 **Names, while `--typecheck` is on.** The type checker carries a name
 environment of its own, so it replaces the name analysis rather than

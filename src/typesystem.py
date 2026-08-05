@@ -92,11 +92,14 @@ and `return e` answers "e's", exactly as the tail-position table says.
 A body that supplies nothing, or the wrong thing, is refused: a function
 that says `-> Int` and does neither has a type it does not honour.
 
-One deliberate limit: the function's own name means `BSelf` rather than
-its type inside its own body, so recursion is refused rather than
-assumed to check. Taking a declared type on faith to check the body that
-justifies it is a different (if small) piece of reasoning, and it is not
-written yet.
+One deliberate limit: the function's own name is left *unbound* inside
+its own body, so recursion is refused (with the same `Construct is not
+supported` everything outside the fragment gets) rather than assumed to
+check. Taking a declared type on faith to check the body that justifies
+it is a different, if small, piece of reasoning, and it is not written
+yet. Note the name is removed from the body's environment rather than
+merely not added: a `def`'s name is in scope in its own body, so an
+outer binding of the same name must not show through.
 
 `--typecheck` runs *instead of* the name analysis, not after it (see
 `src/pykboot.py`), so this pass is on its own about names: a name it
@@ -130,8 +133,6 @@ supplies unit whatever its one branch ends in, because there is a way
 through it that runs no branch at all.
 """
 
-from dataclasses import dataclass
-
 from lexer import Info
 from syntax import (
     pprint_type,
@@ -144,41 +145,6 @@ from syntax import (
 
 
 # ---------------------------------------------------------------------
-# What a name means
-#
-# `env` maps a name to one of these rather than straight to a type,
-# because a name can mean something that is *not* a value of some type:
-# inside a function's own body, its own name means "the function being
-# defined", which is exactly the case recursion would need and this
-# checker does not handle yet. Making that a variant rather than a
-# missing entry is what lets the one place that reads a name back out --
-# `check_expr`'s `EVar` -- say what is really going on instead of
-# refusing an ordinary-looking name with `Construct is not supported`.
-#
-# datatype Binding:
-#     BValue(type: Type)          an ordinary name, of that type
-#     BSelf(name: String)         the function whose body we are in
-# ---------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class Binding:
-    """Base class for what a name is bound to. See the datatype comment
-    above: the variants are a closed set, and `check_expr` matches on
-    all of them."""
-
-
-@dataclass(frozen=True)
-class BValue(Binding):
-    type: Type
-
-
-@dataclass(frozen=True)
-class BSelf(Binding):
-    name: str
-
-
-# ---------------------------------------------------------------------
 # Signatures
 #
 # Written as they would be in a language that could state them, with
@@ -186,12 +152,15 @@ class BSelf(Binding):
 # absent, and `(A, B)` a pair. Two aliases carry the tables this pass
 # threads through itself:
 #
-#     Env  = {String: Binding}    what each name in scope means
+#     Env  = {String: Type}       the type of each name in scope
 #     TMap = {Int: Type}          symbol -> inferred type; the result
 #
-# The `Type?` each statement function takes is the return type of the
-# function whose body is being checked, absent at the top level, where a
-# `return` has nothing to return from.
+# The `Type?` each statement function takes (`return_type`) is the
+# declared return type of the function whose body is being checked,
+# absent at the top level, where a `return` has nothing to return from.
+# It is what a `return` is checked against, wherever in the body it is
+# written -- which is why it is threaded down through nested blocks and
+# not just looked at once when the body is done.
 #
 #     val type_check         : [Stmt] -> TMap
 #     val check_stmts        : [Stmt] -> Env -> TMap -> Type? -> Type
@@ -260,7 +229,7 @@ def type_check(stmts):
 # --- [Stmt] ----------------------------------------------------------
 
 
-def check_stmts(stmts, env, tmap, ret):
+def check_stmts(stmts, env, tmap, return_type):
     """The type a block yields: its last statement's, or unit when it is
     empty.
 
@@ -272,17 +241,20 @@ def check_stmts(stmts, env, tmap, ret):
     visible to what follows it -- and the extended environment is
     returned to nobody, which is exactly what makes a block a scope:
     what it binds cannot escape it (`analyses.py` says the same thing
-    with `analyze_scope`)."""
+    with `analyze_scope`).
+
+    `return_type` is carried through untouched, for whatever `return`
+    turns up anywhere inside; see `check_stmt`."""
     yielded = unit(stmts[0].info if stmts else Info("<empty>", 1, 0, 1, 0))
     for statement in stmts:
-        yielded, env = check_stmt(statement, env, tmap, ret)
+        yielded, env = check_stmt(statement, env, tmap, return_type)
     return yielded
 
 
 # --- Stmt ------------------------------------------------------------
 
 
-def check_stmt(statement, env, tmap, ret):
+def check_stmt(statement, env, tmap, return_type):
     """One statement: the type of the value it supplies, and the
     environment the statements after it are checked in.
 
@@ -292,7 +264,17 @@ def check_stmt(statement, env, tmap, ret):
     nothing and so have type unit; an expression statement supplies its
     expression, an `if` supplies whatever its branches agree on, and a
     `return` supplies what it returns -- which is why nothing special is
-    needed to let one branch `return` while the other ends in a value."""
+    needed to let one branch `return` while the other ends in a value.
+
+    `return_type` is the enclosing function's declared return type, or
+    `None` at the top level. It is what a `return` is checked against,
+    and it is threaded down through every nested block rather than
+    consulted once at the end, because only the *last* statement's value
+    reaches `check_function`: a `return` written anywhere else -- inside
+    an `if` with no `else`, before a later statement -- supplies nothing
+    to the body and would otherwise never be checked at all. It is also
+    what makes `return` outside a function an error rather than a silent
+    nothing."""
     match statement:
         case SLet(info, TargetName(_, name, _), expr, annotation, sym):
             # The binding's symbol records what its right-hand side
@@ -308,7 +290,7 @@ def check_stmt(statement, env, tmap, ret):
             # the bound statement's own type is the binding's type -- and
             # the branches having agreed on one is what the `SIf` case
             # below has already established.
-            bound_type, _ = check_stmt(stmt, env, tmap, ret)
+            bound_type, _ = check_stmt(stmt, env, tmap, return_type)
             check_annotation(annotation, bound_type)
             tmap[sym] = bound_type
             return unit(info), bind(env, name, bound_type)
@@ -331,7 +313,7 @@ def check_stmt(statement, env, tmap, ret):
                     f"the condition of an 'if' must be Bool, not "
                     f"{pprint_type(cond_type)}",
                 )
-            then_type = check_stmts(then_body, env, tmap, ret)
+            then_type = check_stmts(then_body, env, tmap, return_type)
             if else_body is None:
                 # With no `else` there is a way through this statement
                 # that runs no branch at all, so the `if` supplies
@@ -339,7 +321,7 @@ def check_stmt(statement, env, tmap, ret):
                 # that needed that value is caught where the value was
                 # needed -- `check_function` -- rather than here.
                 return unit(info), env
-            else_type = check_stmts(else_body, env, tmap, ret)
+            else_type = check_stmts(else_body, env, tmap, return_type)
             if not same_type(then_type, else_type):
                 raise TypeError_(
                     info,
@@ -354,13 +336,13 @@ def check_stmt(statement, env, tmap, ret):
             # exactly what PYKING.md's tail-position table says of it,
             # and what lets a branch that returns sit beside one that
             # ends in an expression without either being a special case.
-            if ret is None:
+            if return_type is None:
                 raise TypeError_(info, "'return' outside a function")
             actual = check_expr(expr, env, tmap)
-            if not same_type(actual, ret):
+            if not same_type(actual, return_type):
                 raise TypeError_(
                     expr.info,
-                    f"this function returns {pprint_type(ret)}, but this "
+                    f"this function returns {pprint_type(return_type)}, but this "
                     f"'return' gives {pprint_type(actual)}",
                 )
             return actual, env
@@ -368,13 +350,13 @@ def check_stmt(statement, env, tmap, ret):
         case SReturnStmt(info, stmt, _):
             # `return if c: ...` -- the same rule, against whatever the
             # branch that runs yields.
-            if ret is None:
+            if return_type is None:
                 raise TypeError_(info, "'return' outside a function")
-            actual, _ = check_stmt(stmt, env, tmap, ret)
-            if not same_type(actual, ret):
+            actual, _ = check_stmt(stmt, env, tmap, return_type)
+            if not same_type(actual, return_type):
                 raise TypeError_(
                     info,
-                    f"this function returns {pprint_type(ret)}, but this "
+                    f"this function returns {pprint_type(return_type)}, but this "
                     f"'return' gives {pprint_type(actual)}",
                 )
             return actual, env
@@ -404,24 +386,17 @@ def check_expr(expr, env, tmap):
         case EBool(info, _, _):
             return TBool(info)
 
-        case EVar(info, name, _):
-            match env.get(name):
-                case BValue(type_):
-                    return type_
-                case BSelf(_):
-                    raise TypeError_(
-                        info,
-                        f"'{name}' is used inside its own definition; "
-                        f"recursive functions are not supported yet",
-                    )
-                case _:
-                    # No name analysis has run ahead of this pass under
-                    # `--typecheck`, so a name missing here is either
-                    # genuinely unbound or bound by a construct this
-                    # checker does not cover yet (a `for` variable, a
-                    # `var`, a function that is not fully annotated).
-                    # Either way it is refused, with a position.
-                    unsupported(expr)
+        case EVar(_, name, _):
+            if name not in env:
+                # No name analysis has run ahead of this pass under
+                # `--typecheck`, so a name missing here is either
+                # genuinely unbound or bound by a construct this checker
+                # does not cover yet -- a `for` variable, a `var`, a
+                # function that is not fully annotated, or a function's
+                # own name inside its own body, which is how recursion
+                # is refused. Either way it is refused, with a position.
+                unsupported(expr)
+            return env[name]
 
         case EAdd() | ESub() | EMul() | ELessThan() | ELessThanEq() \
                 | EGreatThan() | EGreatThanEq() | EEq():
@@ -478,11 +453,12 @@ def check_function(node, env, tmap):
         check_param(param, tmap)
     tmap[node.sym] = ftype
 
-    # The parameters, and the function's own name bound to `BSelf`
-    # rather than to its type: that is what refuses recursion (see the
-    # module docstring) instead of quietly letting an outer binding of
-    # the same name stand in for it.
-    body_env = {**env, node.name: BSelf(node.name)}
+    # The parameters, and the function's own name *removed*: a `def`'s
+    # name is in scope in its own body (see PYKING.md, "Names and
+    # scoping"), so an outer binding of that name must not stand in for
+    # it -- and leaving it unbound is what refuses recursion, which this
+    # checker does not do yet.
+    body_env = {name: type_ for name, type_ in env.items() if name != node.name}
     for param in node.params:
         body_env = bind(body_env, param.name, param.type)
 
@@ -657,6 +633,6 @@ def is_unit(t):
 
 
 def bind(env, name, type_):
-    """`env` with `name` bound to an ordinary value of `type_` -- a fresh
-    dict, never a mutation of the one passed in."""
-    return {**env, name: BValue(type_)}
+    """`env` with `name` bound to `type_` -- a fresh dict, never a
+    mutation of the one passed in."""
+    return {**env, name: type_}
