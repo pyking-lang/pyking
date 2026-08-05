@@ -274,6 +274,10 @@ def compile_source(text, target="python", name="playground.pyk",
     if typecheck:
         try:
             tmap = typesystem.type_check(program)
+        except AnalysisError as e:
+            # The checker does its own name checking when it replaces the
+            # analysis, and reports it as the same kind of error.
+            return _fail(e, "Name error")
         except typesystem.TypeError_ as e:
             return _fail(e, "Type error")
 
@@ -2352,6 +2356,17 @@ def check():
     for entry in manifest["examples"]:
         name = entry["file"]
         source = (BUILD / "examples" / name).read_text()
+        if name.startswith("fail_typecheck_"):
+            # A fixture whose whole point is to be refused. Only the
+            # refusal is asserted: some of these are ordinary programs
+            # with a type error in them, but others are not programs at
+            # all -- one names something that is not bound -- and
+            # expecting those to compile any other way would be
+            # expecting the front end to miss what they exist to catch.
+            expect(f"{name} -> --typecheck", False,
+                   pyking_web.compile_source(source, "python", name,
+                                             typecheck=True, ast=True))
+            continue
         for target in entry["targets"] + ["ast"]:
             expect(f"{name} -> {target}", True,
                    pyking_web.compile_source(source, target, name))
@@ -2359,8 +2374,8 @@ def check():
         # it is checked once, against one that would otherwise generate.
         expect(f"{name} -> --ast", True,
                pyking_web.compile_source(source, "python", name, ast=True))
-        if name.startswith("typecheck_") or name.startswith("fail_typecheck_"):
-            expect(f"{name} -> --typecheck", not name.startswith("fail_"),
+        if name.startswith("typecheck_"):
+            expect(f"{name} -> --typecheck", True,
                    pyking_web.compile_source(source, "python", name,
                                              typecheck=True, ast=True))
     print(f"check: {checked - failures}/{checked} example/target pairs compiled")

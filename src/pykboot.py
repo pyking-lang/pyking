@@ -183,10 +183,11 @@ except ParseError as e:
 # Name analysis runs for every mode, `--ast` included: it is part of the
 # front end, not of any backend, and an AST whose names don't resolve is
 # not a program worth printing or compiling. The exception is
-# `--typecheck`, which replaces it: the type checker carries an
-# environment of its own and refuses any name it cannot find there, so
-# running both would mean judging names twice, by two passes that cover
-# different fragments of the language.
+# `--typecheck`, which replaces it: the type checker's environment *is* a
+# scope and it checks names against it as it goes, so running both would
+# mean judging names twice. It reports one the same way, with the same
+# `AnalysisError`, so which pass found it makes no difference to what is
+# printed.
 if not typecheck:
     try:
         analyze_program(program)
@@ -213,6 +214,14 @@ tmap = None
 if typecheck:
     try:
         tmap = typesystem.type_check(program)
+    except AnalysisError as e:
+        # A name the checker could not resolve: the same error the
+        # analysis raises for it, reported in the same words.
+        print(
+            wrap(f"{pprint_info(e.info)} Name error: {e.message}"),
+            file=sys.stderr,
+        )
+        sys.exit(1)
     except typesystem.TypeError_ as e:
         print(
             wrap(f"{pprint_info(e.info)} Type error: {e.message}"),

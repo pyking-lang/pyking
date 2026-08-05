@@ -92,19 +92,42 @@ and `return e` answers "e's", exactly as the tail-position table says.
 A body that supplies nothing, or the wrong thing, is refused: a function
 that says `-> Int` and does neither has a type it does not honour.
 
-One deliberate limit: the function's own name is left *unbound* inside
-its own body, so recursion is refused (with the same `Construct is not
-supported` everything outside the fragment gets) rather than assumed to
-check. Taking a declared type on faith to check the body that justifies
-it is a different, if small, piece of reasoning, and it is not written
-yet. Note the name is removed from the body's environment rather than
-merely not added: a `def`'s name is in scope in its own body, so an
-outer binding of the same name must not show through.
+One deliberate limit: the function's own name is in scope in its own
+body but has no *type* there, so recursion is refused (with the same
+`Construct is not supported` everything outside the fragment gets)
+rather than assumed to check. Taking a declared type on faith to check
+the body that justifies it is a different, if small, piece of reasoning,
+and it is not written yet.
+
+## Names and scoping
 
 `--typecheck` runs *instead of* the name analysis, not after it (see
-`src/pykboot.py`), so this pass is on its own about names: a name it
-cannot find in `env` is refused here, whether it is genuinely unbound or
-merely bound by a construct the checker does not cover.
+`src/pykboot.py`), so this pass is on its own about names -- and checks
+them itself rather than leaving them unchecked. `env` is the scope: a
+name is in it or it is not, and one that is not raises `analyses.py`'s
+own `AnalysisError` with `analyses.py`'s own wording, so a program is
+told the same thing about an unbound name whichever pass found it.
+
+The scoping falls out of how `env` is threaded, and needs no separate
+machinery: a block is a scope because `check_stmts` hands its extended
+environment to nobody, a name is visible only after its own binding
+because the thread runs forwards, and shadowing works because `bind`
+replaces an entry in a *copy*. Parameters bind in the body, a `def`'s
+name binds in the enclosing scope and in its own body, and the builtins
+are in scope from the start.
+
+A name may be in scope and still have no type here -- that is what a
+`None` in `env` means, and a use of one is refused as unsupported rather
+than as unbound. Today that is the builtins and a function's own name
+inside its body.
+
+One rule from `analyses.py` is deliberately *not* here yet: a `var` may
+not be shadowed. This checker does not cover `var` at all -- a mutable
+declaration is refused as unsupported -- so there is nothing for the
+rule to protect, and it stays in `analyses.py` until there is. That, and
+the constructs this checker refuses outright, are the whole difference
+between the two passes' idea of names; when the rest arrives, the
+analysis can go.
 
 ## What a statement's type is
 
@@ -133,6 +156,7 @@ supplies unit whatever its one branch ends in, because there is a way
 through it that runs no branch at all.
 """
 
+from analyses import AnalysisError, BUILTINS
 from lexer import Info
 from syntax import (
     pprint_type,
@@ -152,7 +176,8 @@ from syntax import (
 # absent, and `(A, B)` a pair. Two aliases carry the tables this pass
 # threads through itself:
 #
-#     Env  = {String: Type}       the type of each name in scope
+#     Env  = {String: Type?}      the names in scope, and their types
+#                                 where this checker knows one
 #     TMap = {Int: Type}          symbol -> inferred type; the result
 #
 # The `Type?` each statement function takes (`return_type`) is the
@@ -217,12 +242,16 @@ def type_check(stmts):
     does not check out; there is no error recovery, and a program that
     returns is a program that type-checks.
 
-    A program is a block, checked in the empty environment with no
-    enclosing function, and its own type is discarded: nothing is
-    waiting for a program's value the way a branch's caller waits for a
-    branch's."""
+    A program is a block, checked with no enclosing function, and its own
+    type is discarded: nothing is waiting for a program's value the way a
+    branch's caller waits for a branch's. Its environment starts with the
+    builtins in scope -- `analyses.BUILTINS`, the same list, so the two
+    passes cannot disagree about what a program may name -- but with no
+    type for any of them, since this checker cannot yet describe a
+    variadic `print` or a polymorphic `len`."""
     tmap = {}
-    check_stmts(stmts, {}, tmap, None)
+    env = {name: None for name in BUILTINS}
+    check_stmts(stmts, env, tmap, None)
     return tmap
 
 
@@ -386,17 +415,21 @@ def check_expr(expr, env, tmap):
         case EBool(info, _, _):
             return TBool(info)
 
-        case EVar(_, name, _):
+        case EVar(info, name, _):
+            # Two different questions, asked in order. Is the name in
+            # scope at all -- a question about *names*, answered the way
+            # `analyses.py` answers it and reported the same way? And
+            # then: does this checker know a type for it?
             if name not in env:
-                # No name analysis has run ahead of this pass under
-                # `--typecheck`, so a name missing here is either
-                # genuinely unbound or bound by a construct this checker
-                # does not cover yet -- a `for` variable, a `var`, a
-                # function that is not fully annotated, or a function's
-                # own name inside its own body, which is how recursion
-                # is refused. Either way it is refused, with a position.
+                raise AnalysisError(info, f"unbound name '{name}'")
+            type_ = env[name]
+            if type_ is None:
+                # In scope, but with no type here: a builtin, or the
+                # function whose own body this is (which is how recursion
+                # is refused). Outside the fragment, like any other
+                # construct this checker has not reached yet.
                 unsupported(expr)
-            return env[name]
+            return type_
 
         case EAdd() | ESub() | EMul() | ELessThan() | ELessThanEq() \
                 | EGreatThan() | EGreatThanEq() | EEq():
@@ -453,12 +486,12 @@ def check_function(node, env, tmap):
         check_param(param, tmap)
     tmap[node.sym] = ftype
 
-    # The parameters, and the function's own name *removed*: a `def`'s
-    # name is in scope in its own body (see PYKING.md, "Names and
-    # scoping"), so an outer binding of that name must not stand in for
-    # it -- and leaving it unbound is what refuses recursion, which this
-    # checker does not do yet.
-    body_env = {name: type_ for name, type_ in env.items() if name != node.name}
+    # The function's own name is in scope in its own body (see PYKING.md,
+    # "Names and scoping"), so it is bound here -- with no type, which is
+    # what refuses recursion while still hiding any outer binding of the
+    # same name. The parameters bind over it, shadowing whatever they
+    # share a name with, exactly as `analyses.py` binds them.
+    body_env = bind(env, node.name, None)
     for param in node.params:
         body_env = bind(body_env, param.name, param.type)
 
@@ -633,6 +666,13 @@ def is_unit(t):
 
 
 def bind(env, name, type_):
-    """`env` with `name` bound to `type_` -- a fresh dict, never a
-    mutation of the one passed in."""
+    """`env` with `name` in scope, of `type_` -- or of no type this
+    checker knows, when `type_` is `None`. A fresh dict, never a mutation
+    of the one passed in: what a name means is decided by where it is
+    written, and rebinding one here would change what it meant somewhere
+    else.
+
+    Every binding form goes through this, which is what makes shadowing
+    work by construction -- an inner binding simply replaces the entry
+    the outer one made, and the outer dict is untouched."""
     return {**env, name: type_}

@@ -1,0 +1,2 @@
+'tests/fail_typecheck_scope_escape.pyk' 17:7-17:12 Name error: unbound
+  name 'inner'

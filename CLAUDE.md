@@ -249,7 +249,20 @@ The bootstrap is split into one module per compiler stage:
    it: no function here dispatches on which *sort* of node it was handed,
    only on which variant of its own datatype. `Env` maps a name to its
    type and is used *immutably* — a binding hands what follows it an
-   extended copy, the same discipline `analyses.py` follows. `TMap` is
+   extended copy, the same discipline `analyses.py` follows.
+
+   **`Env` is also the scope**, and the checker does its own name
+   checking with it: bound-before-use, block bindings that do not escape,
+   shadowing, a `def`'s name in its own body, and `analyses.BUILTINS`
+   (imported, not re-listed) in scope from the start. An unbound name
+   raises `analyses.AnalysisError`, in its words, so the message does not
+   depend on which pass ran. The value type is `Type?`: `None` means "in
+   scope, no type here" — a builtin, or the function whose body is being
+   checked, which is how recursion is refused — and using one is
+   `Construct is not supported`, not "unbound". The one rule still only
+   in `analyses.py` is that a `var` may not be shadowed; this checker
+   refuses `var` outright, so there is nothing here for it to protect
+   yet. That is the last gap before the analysis can be deleted. `TMap` is
    the deliberate opposite: one mutable dict, mapping a node's *symbol*
    to the type inferred for it, built as the pass runs and returned as
    its result. **The checker does not
@@ -392,10 +405,11 @@ The bootstrap is split into one module per compiler stage:
    prints goes through `wrap`, which reflows to 70 columns. The name
    analysis runs for every mode, `--ast` included — an AST whose names
    don't resolve is not worth printing or compiling — *except*
-   `--typecheck`, which replaces it: the type checker carries a name
-   environment of its own and refuses any name it cannot find there, so
-   running both would judge names twice, by two passes covering
-   different fragments of the language. `symbolize` still runs in every
+   `--typecheck`, which replaces it: the type checker's environment *is*
+   a scope, so it checks names itself and raises the analysis's own
+   `AnalysisError` for one it cannot find — which is why this driver
+   catches that around `type_check` too, and prints the same `Name
+   error` either way. `symbolize` still runs in every
    mode, since `tmap` is keyed by symbol; nothing needs symbolizing
    again afterwards, because the checker synthesizes nothing into the
    tree. The `tmap` it produces is handed to `pprint_program`, so a

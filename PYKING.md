@@ -1806,8 +1806,10 @@ loud = shout('hi')
 `match`, list and tuple literals, list comprehensions, `if` *expressions*
 (`if c then a else b`), `/`, unary minus, and a binding that destructures
 a tuple (`a, b = ...`) are all refused with `Construct is not supported`.
-So is any call to a builtin — `print` included — since only a name known
-to have a function type can be called.
+So is any call to a builtin — `print` included: the builtins are in
+scope, but this checker has no type for a variadic `print` or a
+polymorphic `len`, and only a name known to have a function type can be
+called.
 
 **Functions that are not fully annotated.** A `def` with an unannotated
 parameter or no return type is refused, naming what is missing, rather
@@ -1835,9 +1837,26 @@ That scoping still holds here in the one way it can be observed: an
 outer binding of the same name does not show through into the body
 either.
 
-**Names, while `--typecheck` is on.** The type checker carries a name
-environment of its own, so it replaces the name analysis rather than
-running after it. In this mode an unbound name is reported as
-`Construct is not supported` rather than as a `Name error`, and the
-no-shadowing-a-`var` rule is not checked at all. Compiling without the
-flag checks names as usual.
+**Names, while `--typecheck` is on.** The type checker replaces the name
+analysis rather than running after it, and does that checking itself:
+its environment *is* the scope, so it applies the rules under "Names and
+scoping" — a name must be bound where it is used, a block's bindings do
+not escape it, a name is visible only after its own binding, an inner
+binding shadows an outer one, a `def`'s name is in scope in its own body,
+and the builtins are in scope throughout. An unbound name is reported
+exactly as it is without the flag:
+
+```
+'prog.pyk' 14:16-14:23 Name error: unbound name 'missing'
+```
+
+The one rule that is *not* applied in this mode is the mutable one: a
+`var` may not be shadowed. This checker does not cover `var` at all, so
+there is nothing for that rule to protect here; compiling without
+`--typecheck` applies it as usual.
+
+A name may be in scope and still have no type the checker knows — a
+builtin, or a function's own name inside its own body. Using one is
+refused as `Construct is not supported` rather than as an unbound name,
+since the name is perfectly well bound; it is the *type* that is
+missing.

@@ -77,6 +77,14 @@ file = "fail_typecheck_int_string3.pyk"
 targets = ["typecheck"]
 
 [[cases]]
+file = "fail_typecheck_scope_escape.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_unbound_name.pyk"
+targets = ["typecheck"]
+
+[[cases]]
 file = "for_complex.pyk"
 targets = ["python"]
 

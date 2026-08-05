@@ -237,14 +237,28 @@ frozen dataclasses, so `==` would compare their `info` and `sym` too and
 find `Int` written in one place different from `Int` inferred in
 another.
 
-`--typecheck` runs *instead of* `analyze_program`, not after it: the
-checker carries a name environment of its own and refuses any name it
-cannot find there, so running both would judge names twice, by two
-passes covering different fragments of the language. The visible
-consequence is that in this mode an unbound name is reported as
-`Construct is not supported` by the checker rather than as a `Name
-error`, and the rules only the analysis knows (a `var` may not be
-shadowed) are not checked at all.
+`--typecheck` runs *instead of* `analyze_program`, not after it, and
+does that pass's job as well as its own: `Env` **is** the scope. A name
+must be bound where it is used, a block's bindings do not escape it
+(`check_stmts` hands its extended environment to nobody), a name is
+visible only after its own binding, an inner binding shadows an outer
+one, a `def`'s name is in scope in its own body, and the builtins —
+`analyses.BUILTINS`, imported rather than re-listed — are in scope from
+the start. A name that is not found raises `analyses.py`'s own
+`AnalysisError`, with its wording, so the driver prints the same `Name
+error` whichever pass caught it.
+
+`Env` maps to `Type?` rather than `Type` for exactly this reason: a name
+can be in scope with no type the checker knows — a builtin, or the
+function whose own body is being checked, which is how recursion is
+refused. Using one is `Construct is not supported`; the name is bound,
+it is the type that is missing.
+
+The one rule left behind is the mutable one: a `var` may not be
+shadowed. This checker refuses `var` outright, so there is nothing here
+for that rule to protect, and it stays in `analyses.py` until there is.
+That is the last thing standing between the two passes — when the
+checker covers the constructs the analysis walks, the analysis can go.
 
 Both halves of it are pinned down by tests, distinguished by filename:
 `tests/typecheck_*.pyk` must check, and its `.out` is the printed AST;

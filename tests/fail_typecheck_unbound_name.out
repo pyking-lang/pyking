@@ -1,0 +1,2 @@
+'tests/fail_typecheck_unbound_name.pyk' 14:16-14:23 Name error:
+  unbound name 'missing'

@@ -444,8 +444,12 @@ flags, neither of which is reachable by selecting a target: every example is
 compiled once more with `--ast` against a target that would otherwise
 generate code, and the type-checker fixtures under `tests/` are held to the
 rule their names state — `typecheck_*` must check, `fail_typecheck_*` must
-not. What those programs *infer* is `tests/test_script.py`'s business; this
-only proves the flags reach the checker through the shim. `make e2e` needs Playwright — the one
+not. A `fail_typecheck_*` fixture is held to *only* that rule: some of them
+are not valid programs at all (one names something unbound), so expecting
+them to compile any other way would be expecting the front end to miss what
+they exist to catch. What those programs *infer* is `tests/test_script.py`'s
+business; this only proves the flags reach the checker through the shim.
+`make e2e` needs Playwright — the one
 dependency anywhere in this tool, which is why it is a separate target and
 why the script prints an install line and exits cleanly when it is absent:
 

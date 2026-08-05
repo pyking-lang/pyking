@@ -1,0 +1,17 @@
+# A binding used after the block that bound it.
+#
+# Pyking is lexically scoped and every block is a scope (see PYKING.md,
+# "Names and scoping"), so `inner` exists only inside the branch. The
+# type checker gets this for free from the way it threads its
+# environment: a block hands its extended environment to nobody, so what
+# a branch binds is gone the moment the branch ends.
+#
+# This program is expected to FAIL type checking. Its `.out` holds the
+# error message, not a program's output.
+
+flag = 1 < 2
+
+if flag:
+    inner = 'only in here'
+
+echo = inner

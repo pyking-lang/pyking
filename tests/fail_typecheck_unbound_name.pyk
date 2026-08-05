@@ -1,0 +1,14 @@
+# A name that is not bound anywhere.
+#
+# Under `--typecheck` the type checker replaces the name analysis, so it
+# is the one that catches this -- and it says exactly what the analysis
+# would have said, in the same words and with the same `Name error`
+# heading, because a program should be told the same thing about a name
+# whichever pass noticed. Compiling the same file *without*
+# `--typecheck` reports this identically.
+#
+# This program is expected to FAIL type checking. Its `.out` holds the
+# error message, not a program's output.
+
+count = 13
+total = count + missing
