@@ -1,0 +1,137 @@
+# Functions defined in one loop body that name each other must be built
+# together, so each turn's copies find each turn's copies -- whether or
+# not they are written next to one another.
+#
+# A statement between two such `def`s changes nothing about what the
+# program means: they are still one group, still one turn's worth. This
+# file is the case that used to be compiled wrongly (see docs/gap.md).
+
+var fns = []
+
+for i in range(3):
+    def outer_call() = inner()
+    marker = "unrelated"
+    def inner() = i
+    fns := fns + [outer_call]
+
+for f in fns:
+    print(f())
+
+
+# The same with the pair mutually recursive, and with the statement
+# between them binding something the *second* one reads -- so the group
+# takes that binding along.
+var pairs = []
+
+for n in range(3):
+    def even(k) = if k < 1 then n else odd(k - 1)
+    step = 1
+    def odd(k) = even(k - step + 1)
+    pairs := pairs + [even]
+
+for g in pairs:
+    print(g(2))
+
+
+# A chain of three, split twice: `first` names `second`, `second` names
+# `third`, and only `third` reads the loop. All three are still one
+# group, since a reference is a reference wherever it points.
+var chains = []
+
+for m in range(3):
+    def first() = second()
+    left = "a"
+    def second() = third()
+    right = "b"
+    def third() = m * 100
+    chains := chains + [first]
+
+for h in chains:
+    print(h())
+
+
+# Functions in a loop that read nothing the loop rebinds need none of
+# this: they mean the same thing every turn, and are compiled exactly as
+# they are written.
+var plain = []
+
+for p in range(2):
+    def constant() = 7
+    def doubled_constant() = constant() * 2
+    plain := plain + [doubled_constant]
+
+for q in plain:
+    print(q())
+
+
+# A `var` is a location, not a value: `:=` updates the one binding, so a
+# function reading it sees this turn's updates rather than a copy taken
+# when the function was made.
+var readers = []
+
+for r in range(2):
+    var acc = 0
+    def read_acc() = acc
+    acc := acc + 10
+    readers := readers + [read_acc]
+
+for s in readers:
+    print(s())
+
+
+# A `def` written *above* a rebinding reads the binding that was there
+# before it, which no turn of the loop touches -- so it needs no copy of
+# its own, and does not get one.
+outside = "outer"
+
+var readers2 = []
+
+for t in range(2):
+    def before() = outside + "/before"
+    outside = "inner"
+    def after() = outside + "/after"
+    readers2 := readers2 + [before]
+    readers2 := readers2 + [after]
+
+for u in readers2:
+    print(u())
+
+
+# The statements a group takes with it keep their order, side effects
+# and all: `first` is written before `second` and still runs first.
+def noisy(tag:String) -> Int:
+    print(tag)
+    1
+
+
+var noisy_fns = []
+
+for v in range(1):
+    def uses() = held()
+    stays = noisy("first")
+    held_value = noisy("second") + v
+    def held() = held_value
+    noisy_fns := noisy_fns + [uses]
+
+for w in noisy_fns:
+    print(w())
+
+
+# A statement that cannot move -- a `return` leaves the function, not the
+# group's factory -- stays exactly where it is, and the group takes only
+# the binding it needs.
+def guarded(n:Int) -> Int:
+    var kept = []
+    for y in range(1):
+        def outer_use() = inner_use()
+        if n > 100:
+            return 0
+        held = y + 5
+        def inner_use() = held
+        kept := kept + [outer_use]
+    for z in kept:
+        print(z())
+    n
+
+
+print(guarded(1))

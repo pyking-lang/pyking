@@ -1,0 +1,19 @@
+# Two functions of the same name in one block.
+#
+# A function name means one thing in the block it is written in, which
+# is what makes hoisting its name safe: since it cannot be rebound
+# there, "the function visible at this line" and "the function visible
+# anywhere in this block" are the same function. Two `def`s of one name
+# would break that, so the second is refused (a nested block may still
+# shadow it).
+#
+# This program is expected to FAIL type checking. Its `.out` holds the
+# error message, not a program's output.
+
+def size(n:Int) -> Int:
+    n
+
+def size(n:Int) -> Int:
+    n * 2
+
+used = size(3)

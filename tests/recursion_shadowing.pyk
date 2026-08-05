@@ -1,0 +1,64 @@
+# Recursion and forward references where the names being resolved are
+# *also* shadowed.
+#
+# Every backend has to rename here: a nested `def` whose name is already
+# taken in an enclosing scope compiles to a different name (`mark2`,
+# say), and a call written *above* that `def` has to say the new name
+# too. Getting that wrong does not fail to compile -- it calls whatever
+# the shadowed name holds -- so this file runs the result and checks the
+# answer.
+
+# The nested function shadows the enclosing function's own name, and
+# recurses: the inner `depth` must call the inner `depth`.
+def depth(n:Int) -> Int:
+    def inner(m:Int) -> Int:
+        def depth(k:Int) -> Int:
+            if k < 1:
+                0
+            else:
+                depth(k - 1) + 1
+        depth(m)
+    inner(n)
+
+
+# A branch is a block of its own, so this `def` is in scope for that
+# branch only -- including the lines above it. `use` names `mark` before
+# `mark` is written, and the name it has to find is the renamed one, not
+# the binding of that name in the enclosing block.
+def branchy(n:Int) -> Int:
+    mark = 5
+    if n > 0:
+        def use(m:Int) -> Int:
+            mark(m) + 1
+        def mark(m:Int) -> Int:
+            m * 10
+        use(n)
+    else:
+        mark
+
+
+# The same, with the pair inside the branch mutually recursive: both
+# names shadow bindings of the enclosing block, and each names the other
+# before it is written.
+def alternate(n:Int) -> String:
+    up = "up"
+    down = "down"
+    if n > 0:
+        def up(m:Int) -> String:
+            if m < 1:
+                "up"
+            else:
+                down(m - 1)
+        def down(m:Int) -> String:
+            if m < 1:
+                "down"
+            else:
+                up(m - 1)
+        up(n)
+    else:
+        up + down
+
+
+print(depth(0), depth(4))
+print(branchy(0), branchy(2))
+print(alternate(0), alternate(1), alternate(2), alternate(3))

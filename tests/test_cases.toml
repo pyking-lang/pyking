@@ -49,6 +49,10 @@ file = "fail_typecheck_binding_annotation.pyk"
 targets = ["typecheck"]
 
 [[cases]]
+file = "fail_typecheck_binding_after_def.pyk"
+targets = ["typecheck"]
+
+[[cases]]
 file = "fail_typecheck_call_argument.pyk"
 targets = ["typecheck"]
 
@@ -58,6 +62,18 @@ targets = ["typecheck"]
 
 [[cases]]
 file = "fail_typecheck_function_type_argument.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_def_binding_clash.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_duplicate_def.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_forward_binding.pyk"
 targets = ["typecheck"]
 
 [[cases]]
@@ -74,6 +90,14 @@ targets = ["typecheck"]
 
 [[cases]]
 file = "fail_typecheck_int_string3.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_mutual_recursion.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_recursive_call.pyk"
 targets = ["typecheck"]
 
 [[cases]]
@@ -107,6 +131,22 @@ targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "
 [[cases]]
 file = "indent.pyk"
 targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
+
+[[cases]]
+file = "lexical_capture.pyk"
+targets = ["python", "nodejs", "esm", "html"]
+
+[[cases]]
+file = "lexical_capture_group.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "lexical_capture_loop.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "lexical_capture_nested.pyk"
+targets = ["python", "nodejs", "esm", "html"]
 
 [[cases]]
 file = "list_complex.pyk"
@@ -165,6 +205,26 @@ file = "nested_for_mutation.pyk"
 targets = ["python"]
 
 [[cases]]
+file = "recursion_forward.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
+
+[[cases]]
+file = "recursion_mutual.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
+
+[[cases]]
+file = "recursion_nested.pyk"
+targets = ["python", "nodejs", "esm", "html"]
+
+[[cases]]
+file = "recursion_shadowing.pyk"
+targets = ["python", "nodejs", "esm", "html"]
+
+[[cases]]
+file = "recursion_simple.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
+
+[[cases]]
 file = "renaming_keywords.pyk"
 targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
 
@@ -183,6 +243,10 @@ targets = ["python"]
 [[cases]]
 file = "shadowing_blocks.pyk"
 targets = ["python"]
+
+[[cases]]
+file = "shadowing_functions.pyk"
+targets = ["python", "nodejs", "esm", "html"]
 
 [[cases]]
 file = "shadowing_mutable.pyk"
@@ -270,6 +334,14 @@ targets = ["typecheck"]
 
 [[cases]]
 file = "typecheck_int_string.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "typecheck_lexical_capture.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "typecheck_recursion.pyk"
 targets = ["typecheck"]
 
 [[cases]]

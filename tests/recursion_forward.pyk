@@ -1,0 +1,33 @@
+# A function used before it is written.
+#
+# `describe` calls `classify`, which is defined below it, and `main`
+# calls both. Only functions may be used this way: an `=` binding is
+# still strictly sequential (see PYKING.md, "Names and scoping"), and the
+# function *value* exists from its `def` onward, which is why the calls
+# that actually run are all at the bottom of the file.
+
+def describe(n:Int) -> String:
+    classify(n) + " number"
+
+
+def classify(n:Int) -> String:
+    if n < 0:
+        "negative"
+    else if n == 0:
+        "zero"
+    else:
+        "positive"
+
+
+# Forward references chain: `report` names `describe`, which is above it,
+# and `emphasise`, which is below.
+def report(n:Int) -> String:
+    emphasise(describe(n))
+
+
+def emphasise(text:String) -> String:
+    text + "!"
+
+
+print(describe(0 - 3), describe(0), describe(7))
+print(report(0 - 1), report(4))

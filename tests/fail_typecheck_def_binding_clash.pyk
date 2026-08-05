@@ -1,0 +1,21 @@
+# A `def` and an `=` binding of the same name in the same block.
+#
+# `f` would be bound twice in one block, once by each. A `def`'s name is
+# visible throughout its block -- that is what lets functions be
+# recursive, mutually recursive or written below their use -- so a use
+# of `f` here has two candidates and no reason to prefer either: is
+# `use` returning the Int, or the function? Rather than pick, Pyking
+# refuses the program (see PYKING.md, "Names and scoping"). Putting the
+# `def` in a nested block, where the answer is never in doubt, is
+# allowed.
+#
+# This program is expected to FAIL type checking. Its `.out` holds the
+# error message, not a program's output.
+
+f = 1
+
+def use() -> Int:
+    f
+
+def f(n:Int) -> Int:
+    n * 2

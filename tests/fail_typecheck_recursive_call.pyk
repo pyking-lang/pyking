@@ -1,0 +1,15 @@
+# A recursive call that gets its own function's parameter type wrong.
+#
+# The function's type is known while its body is checked -- that is what
+# makes recursion checkable rather than assumed -- so a recursive call is
+# checked against it exactly like a call to anything else. Here `count`
+# takes an Int and passes itself a String.
+#
+# This program is expected to FAIL type checking. Its `.out` holds the
+# error message, not a program's output.
+
+def count(n:Int) -> Int:
+    if n < 1:
+        0
+    else:
+        count("one less") + 1

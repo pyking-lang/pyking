@@ -1,0 +1,4 @@
+'tests/fail_typecheck_duplicate_def.pyk' 16:0-17:9 Name error: 'size'
+  is already defined as a function in this block (declared on line
+  13); a function name may be defined once per block (a nested block
+  may shadow it)

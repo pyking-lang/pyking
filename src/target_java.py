@@ -311,12 +311,17 @@ class JProgram:
 
 @dataclass(frozen=True)
 class Scope:
+    # `outside` is what is in scope in the Pyking program but *not*
+    # reachable from here -- the bindings around a function, which this
+    # backend's functions cannot see. Kept so that reading one can say
+    # why rather than claiming the name does not exist.
+    outside: frozenset
     names: dict              # Pyking name -> (Java name, type)
     block: frozenset
 
 
 def _block_scope(scope):
-    return Scope(scope.names, frozenset())
+    return Scope(scope.outside, scope.names, frozenset())
 
 
 @dataclass(frozen=True)
@@ -328,6 +333,12 @@ class _At:
 
 def _lookup(name, scope, info):
     if name not in scope.names:
+        if name in scope.outside:
+            _unsupported(
+                _At(info),
+                f"'{name}' is bound outside this function -- "
+                "these are static methods, with no closure over the code around them: a method reads its parameters and calls other methods, nothing else",
+            )
         _unsupported(
             _At(info), f"'{name}' is not a value this backend can compile"
         )
@@ -368,7 +379,9 @@ def _bind(name, jtype, scope):
     ):
         java_name = _fresh_java_name(name, scope)
     return java_name, Scope(
-        {**scope.names, name: (java_name, jtype)}, scope.block | {name}
+        scope.outside,
+        {**scope.names, name: (java_name, jtype)},
+        scope.block | {name},
     )
 
 
@@ -386,6 +399,9 @@ class _Translator:
 
     def __init__(self):
         self.signatures = {}    # Pyking name -> (Java name, [param types], return type)
+        self.declared = {}      # Pyking name -> Java name, from the declaration pass
+        self.defined = set()    # functions whose body has been translated
+        self.called_early = set()   # ... and those called before that happened
 
     # -- expressions --
 
@@ -448,6 +464,11 @@ class _Translator:
             case ECall(info, EVar(_, name), args):
                 if name not in self.signatures:
                     _unsupported(e, f"call to unknown function `{name}`")
+                if name not in self.defined:
+                    # Typed from the signature registered ahead of the
+                    # body; `function` checks that guess when the body
+                    # arrives.
+                    self.called_early.add(name)
                 java_name, param_types, ret = self.signatures[name]
                 if len(args) != len(param_types):
                     _unsupported(e, f"`{name}` takes {len(param_types)} argument(s)")
@@ -604,15 +625,48 @@ class _Translator:
 
     # -- functions --
 
+    def declare_functions(self, stmts, scope):
+        """Registers every top-level `def`'s signature before any body is
+        translated, so a call may name a function written further down --
+        forward references and mutual recursion (see PYKING.md, "Names
+        and scoping"). Java itself does not care about order: these are
+        static methods of one class, so nothing has to be emitted ahead
+        of anything else, unlike C.
+
+        The return type registered here is *provisional* -- the
+        annotation, or `Int` for an unannotated function, since only its
+        translated body can say otherwise. `function` checks that
+        assumption once the body is in, which is why calls made before
+        that point are remembered in `called_early`."""
+        for s in stmts:
+            if isinstance(s, SFunctionDef):
+                java_name, scope = _bind(s.name, INT, scope)
+                self.signatures[s.name] = (
+                    java_name,
+                    [_param_type(s, p) for p in s.params],
+                    _annotated_type(s.return_type) or INT,
+                )
+                self.declared[s.name] = java_name
+        return scope
+
     def function(self, func, scope):
-        """Translates a `def`, registering its signature first so the body
-        may call it recursively."""
+        """Translates a `def`. Its signature is already registered (see
+        `declare_functions`), which is what lets the body call itself,
+        its siblings, and functions defined below it."""
         param_types = [_param_type(func, p) for p in func.params]
-        java_name, scope = _bind(func.name, INT, scope)
+        if func.name in self.declared:
+            java_name = self.declared[func.name]
+        else:
+            java_name, scope = _bind(func.name, INT, scope)
         provisional = _annotated_type(func.return_type) or INT
         self.signatures[func.name] = (java_name, param_types, provisional)
 
-        body_scope = _block_scope(scope)
+        # A function body starts from *nothing*: its parameters bind
+        # into it below, and other functions are reached through
+        # `self.signatures`. What it cannot see is the bindings around
+        # it -- there are no closures here -- and `outside` remembers
+        # those names so reading one says why (see `_lookup`).
+        body_scope = Scope(frozenset(scope.names), {}, frozenset())
         params = []
         for param, jtype in zip(func.params, param_types):
             java_param, body_scope = _bind(param.name, jtype, body_scope)
@@ -645,6 +699,15 @@ class _Translator:
         # that is unit, i.e. `void`, not the provisional `Int`.
         actual = returned.pop() if returned else UNIT
         self.signatures[func.name] = (java_name, param_types, actual)
+        if func.name in self.called_early and actual != provisional:
+            _unsupported(
+                func,
+                f"`{func.name}` is called before it is defined and does not "
+                f"return {provisional}; a call written above a `def` is typed "
+                "from the annotation, or Int without one, so annotate the "
+                "return type (`-> String`, `-> Bool`)",
+            )
+        self.defined.add(func.name)
 
         if actual != UNIT and not _definitely_returns(body):
             _unsupported(
@@ -772,7 +835,8 @@ def _build_print_expr(args):
 def translate_program(stmts):
     """External entry point: a whole Pyking program as a `JProgram`."""
     translator = _Translator()
-    scope = Scope({}, frozenset())
+    scope = Scope(frozenset(), {}, frozenset())
+    scope = translator.declare_functions(stmts, scope)
     functions = []
     main_body = []
     for s in stmts:

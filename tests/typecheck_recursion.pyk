@@ -1,0 +1,78 @@
+# Recursion, mutual recursion and forward references, type-checked.
+#
+# All of it rests on one rule: every `def` in a block is in scope
+# throughout that block (see PYKING.md, "Names and scoping"), so a body
+# may name itself, its siblings, and functions written below it. The
+# checker declares them before it checks anything, which is why a
+# recursive call has a type to be checked against at all.
+#
+# This file is never run. The harness compiles it with
+# `--typecheck --ast`, so the `.out` beside it is the printed AST.
+
+# Self-recursion: the function's own type is known while its body is
+# being checked, so the recursive call is checked like any other.
+def factorial(n:Int) -> Int:
+    if n < 2:
+        1
+    else:
+        n * factorial(n - 1)
+
+# A recursive function whose result is not the type of its argument.
+def spell(n:Int) -> String:
+    if n < 1:
+        ""
+    else:
+        "x" + spell(n - 1)
+
+# Mutual recursion: each body names the other, and neither is written
+# first in any sense that matters.
+def is_even(n:Int) -> Bool:
+    if n == 0:
+        true
+    else:
+        is_odd(n - 1)
+
+def is_odd(n:Int) -> Bool:
+    if n == 0:
+        false
+    else:
+        is_even(n - 1)
+
+# A plain forward reference: no cycle, just a helper written afterwards.
+def describe(n:Int) -> String:
+    label(n) + "!"
+
+def label(n:Int) -> String:
+    if n < 0:
+        "negative"
+    else:
+        "positive"
+
+# Nested functions, mutually recursive inside their enclosing body, and
+# reading the enclosing parameter.
+def parity(limit:Int) -> String:
+    def even(m:Int) -> Bool:
+        if m == 0:
+            true
+        else:
+            odd(m - 1)
+    def odd(m:Int) -> Bool:
+        if m == 0:
+            false
+        else:
+            even(m - 1)
+    if even(limit):
+        "even"
+    else:
+        "odd"
+
+# A function's name means its function type, before and after its own
+# definition, so binding it to another name works either way round.
+alias = factorial
+paired = is_even
+
+six = factorial(3)
+word = spell(3)
+flag = is_even(4)
+told = describe(1)
+kind = parity(6)

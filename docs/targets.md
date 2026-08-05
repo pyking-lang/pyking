@@ -71,6 +71,7 @@ testing — could be built end to end before the language surface grew:
 |---|---|---|---|---|
 | `print` | ✅ | ✅ | ✅ | ✅ |
 | `def`, parameters, `return`, recursion | ✅ | ✅ | ✅ | ✅ |
+| forward references, mutual recursion | ✅ | ✅ | ✅ (prototypes emitted) | ✅ |
 | `def f(x) = expr` | ✅ | ✅ | ✅ | ✅ |
 | tail position (last statement is the value) | ✅ | ✅ | ✅ | ✅ |
 | `return if c:` / `return match e:` | ✅ | ✅ (`if` only) | ✅ (`if` only) | ✅ (`if` only) |
@@ -83,6 +84,7 @@ testing — could be built end to end before the language surface grew:
 | `/` | ✅ | ✅ (prints `6`, not `6.0`) | ❌ | ❌ |
 | type annotations | erased | erased | used, when they name `Int`/`String`/`Bool` | used, when they name `Int`/`String`/`Bool` |
 | functions as values (passing a `def`, calling a parameter) | ✅ | ✅ | ❌ (`call to unknown function`) | ❌ (`call to unknown function`) |
+| a function reading a binding from around it (a closure) | ✅ | ✅ | ❌ (no closures) | ❌ (no closures) |
 | lists, tuples, destructuring | ✅ | ❌ | ❌ | ❌ |
 | `for`, `match`/`case`, patterns | ✅ | ❌ | ❌ | ❌ |
 | list comprehensions | ✅ | ❌ | ❌ | ❌ |

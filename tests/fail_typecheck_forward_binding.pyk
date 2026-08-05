@@ -1,0 +1,21 @@
+# An `=` binding used before it is written.
+#
+# Only functions may be used ahead of their definition (see PYKING.md,
+# "Names and scoping"): a `def` says what its name means on the `def`
+# itself, while an `=` binding's meaning is whatever its right-hand side
+# works out to, which may read anything bound before it. So the rule
+# stays as it is for `=`, and `total` below names something that does not
+# exist yet.
+#
+# The function *is* usable ahead of its definition, and does not save it:
+# `later` is the problem, not `double`.
+#
+# This program is expected to FAIL type checking. Its `.out` holds the
+# error message, not a program's output.
+
+def double(n:Int) -> Int:
+    n * 2
+
+total = double(later)
+
+later = 21

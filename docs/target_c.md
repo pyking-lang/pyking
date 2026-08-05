@@ -121,16 +121,58 @@ build a program that returns whatever was in the return register. This
 is the same rule `target_java.py` enforces because `javac` demands it;
 here it is enforced because the C standard does *not*.
 
-### A recursive function returning non-`Int` without an annotation
+### A recursive or forward-called function returning non-`Int` without an annotation
 
 ```
 Unsupported by target 'c23': `f` calls itself and does not return Int; a
 recursive function's return type is assumed Int unless annotated, so
 annotate it (`-> String`, `-> Bool`)
+
+Unsupported by target 'c23': `g` is called before it is defined and does
+not return Int; a call written above a `def` is typed from the
+annotation, or Int without one, so annotate the return type
+(`-> String`, `-> Bool`)
 ```
 
-The signature must exist before the body is translated, so the return
-type starts as `Int`. Adding `-> String` resolves it.
+A signature must exist before the call can be translated, and for a
+function whose body has not been read yet the return type can only come
+from its annotation — so without one it starts as `Int`. Adding
+`-> String` or `-> Bool` resolves both.
+
+### A function reading a binding from around it
+
+```
+Unsupported by target 'c23': 'x' is bound outside this function --
+C has no closures: a function here reads its parameters and calls other functions, nothing else
+```
+
+Pyking's functions may read the bindings in scope where they are written
+(PYKING.md, "Names and scoping"); this backend's cannot. A function body
+here starts from its own parameters, reaches other functions by name,
+and sees nothing else. Passing the value in as a parameter is the fix.
+
+Until this was checked, such a program compiled and then failed in the
+host compiler with a message about a name this backend had emitted --
+which is exactly what refusing it at compile time, with a Pyking source
+position, exists to avoid.
+
+### Forward references and mutual recursion
+
+These are supported. Pyking lets a function be used before it is written
+(see PYKING.md, "Names and scoping"), so this backend registers every
+top-level `def`'s signature before translating any body, and prints a
+**prototype for every function** ahead of the definitions:
+
+```c
+/* Declared ahead of their definitions: a Pyking function may be called
+   before it is written. */
+int is_even(int n);
+int is_odd(int n);
+```
+
+Prototypes are emitted for all of them rather than only those that need
+one, so the output does not depend on the order the definitions happen
+to be in — which is what the language says does not matter.
 
 ## How types are inferred
 

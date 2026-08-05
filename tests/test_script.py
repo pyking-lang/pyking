@@ -92,11 +92,52 @@ def compile_to(source, target, output):
     return run([sys.executable, PYKBOOT, "--target", target, "--output", output, source])
 
 
+# The Python backend builds a per-turn factory (`__pyk_turn1`) for a
+# `def` written inside a loop, so that each turn's functions keep that
+# turn's bindings -- see PYKING.md, "Names and scoping". It is the one
+# construct that makes generated Python look unlike its source, so it is
+# also the one worth pinning: a program that never writes a `def` inside
+# a loop must never produce one.
+FACTORY_MARKER = "__pyk_turn"
+
+
+def has_def_inside_loop(source):
+    """Whether `source` writes a `def` anywhere inside a `for`/`while`
+    body.
+
+    Indentation is the block structure in Pyking, in strict multiples of
+    four with no line continuations (see PYKING.md), so reading it off
+    the text is exact rather than a guess."""
+    open_blocks = []          # (indent, opened by a loop?)
+    with open(source) as f:
+        for line in f:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            indent = len(line) - len(line.lstrip())
+            while open_blocks and indent <= open_blocks[-1][0]:
+                open_blocks.pop()
+            if stripped.startswith("def ") and any(
+                is_loop for _, is_loop in open_blocks
+            ):
+                return True
+            open_blocks.append((indent, stripped.startswith(("for ", "while "))))
+    return False
+
+
 def run_python(source, workdir):
     generated = os.path.join(workdir, "program.py")
     compiled = compile_to(source, "python", generated)
     if compiled.returncode != 0:
         return None, compiled.stderr
+    with open(generated) as f:
+        code = f.read()
+    if FACTORY_MARKER in code and not has_def_inside_loop(source):
+        return None, (
+            f"generated a per-turn factory ({FACTORY_MARKER}*) for a program "
+            "with no `def` inside a loop -- ordinary programs must compile to "
+            "ordinary Python"
+        )
     return run([sys.executable, generated]).stdout, None
 
 

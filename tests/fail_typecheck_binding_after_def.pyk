@@ -1,0 +1,15 @@
+# The same clash written the other way round: the `def` first, the
+# binding after it.
+#
+# The rule is not about order -- a function's name is visible throughout
+# its block, so the ambiguity is the same whichever line comes first,
+# and so is the error. `tests/fail_typecheck_def_binding_clash.pyk` is
+# this program with the two lines swapped.
+#
+# This program is expected to FAIL type checking. Its `.out` holds the
+# error message, not a program's output.
+
+def total(n:Int) -> Int:
+    n + 1
+
+total = 100

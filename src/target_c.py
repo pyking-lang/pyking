@@ -289,16 +289,27 @@ class CProgram:
 
 @dataclass(frozen=True)
 class Scope:
+    # `outside` is what is in scope in the Pyking program but *not*
+    # reachable from here -- the bindings around a function, which this
+    # backend's functions cannot see. Kept so that reading one can say
+    # why rather than claiming the name does not exist.
+    outside: frozenset
     names: dict             # Pyking name -> (C name, type)
     block: frozenset
 
 
 def _block_scope(scope):
-    return Scope(scope.names, frozenset())
+    return Scope(scope.outside, scope.names, frozenset())
 
 
 def _lookup(name, scope, info):
     if name not in scope.names:
+        if name in scope.outside:
+            _unsupported(
+                _At(info),
+                f"'{name}' is bound outside this function -- "
+                "C has no closures: a function here reads its parameters and calls other functions, nothing else",
+            )
         _unsupported(
             _At(info), f"'{name}' is not a value this backend can compile"
         )
@@ -348,7 +359,9 @@ def _bind(name, ctype, scope):
     ):
         c_name = _fresh_c_name(name, scope)
     return c_name, Scope(
-        {**scope.names, name: (c_name, ctype)}, scope.block | {name}
+        scope.outside,
+        {**scope.names, name: (c_name, ctype)},
+        scope.block | {name},
     )
 
 
@@ -366,6 +379,9 @@ class _Translator:
 
     def __init__(self):
         self.signatures = {}    # Pyking name -> (C name, [param types], return type)
+        self.declared = {}      # Pyking name -> C name, from the declaration pass
+        self.defined = set()    # functions whose body has been translated
+        self.called_early = set()   # ... and those called before that happened
         self.uses_print = False
         self.uses_concat = False
         self.uses_strcmp = False
@@ -431,6 +447,11 @@ class _Translator:
             case ECall(info, EVar(_, name), args):
                 if name not in self.signatures:
                     _unsupported(e, f"call to unknown function `{name}`")
+                if name not in self.defined:
+                    # Typed from the signature registered ahead of the
+                    # body; `function` checks that guess when the body
+                    # arrives.
+                    self.called_early.add(name)
                 c_name, param_types, ret = self.signatures[name]
                 if len(args) != len(param_types):
                     _unsupported(e, f"`{name}` takes {len(param_types)} argument(s)")
@@ -583,15 +604,51 @@ class _Translator:
 
     # -- functions --
 
+    def declare_functions(self, stmts, scope):
+        """Registers every top-level `def`'s signature before any body is
+        translated, so a call may name a function written further down --
+        forward references and mutual recursion (see PYKING.md, "Names
+        and scoping").
+
+        C, unlike Java, does care about order: a call must have seen a
+        declaration. That is what the prototypes `pprint_c_program`
+        emits ahead of the definitions are for, and this pass is what
+        makes the call itself translatable in the first place.
+
+        The return type registered here is *provisional* -- the
+        annotation, or `Int` for an unannotated function, since only its
+        translated body can say otherwise. `function` checks that
+        assumption once the body is in, which is why calls made before
+        that point are remembered in `called_early`."""
+        for s in stmts:
+            if isinstance(s, SFunctionDef):
+                c_name, scope = _bind(s.name, INT, scope)
+                self.signatures[s.name] = (
+                    c_name,
+                    [_param_type(s, p) for p in s.params],
+                    _annotated_type(s.return_type) or INT,
+                )
+                self.declared[s.name] = c_name
+        return scope
+
     def function(self, func, scope):
-        """Translates a `def`, registering its signature first so the body
-        may call it recursively."""
+        """Translates a `def`. Its signature is already registered (see
+        `declare_functions`), which is what lets the body call itself,
+        its siblings, and functions defined below it."""
         param_types = [_param_type(func, p) for p in func.params]
-        c_name, scope = _bind(func.name, INT, scope)
+        if func.name in self.declared:
+            c_name = self.declared[func.name]
+        else:
+            c_name, scope = _bind(func.name, INT, scope)
         provisional = _annotated_type(func.return_type) or INT
         self.signatures[func.name] = (c_name, param_types, provisional)
 
-        body_scope = _block_scope(scope)
+        # A function body starts from *nothing*: its parameters bind
+        # into it below, and other functions are reached through
+        # `self.signatures`. What it cannot see is the bindings around
+        # it -- there are no closures here -- and `outside` remembers
+        # those names so reading one says why (see `_lookup`).
+        body_scope = Scope(frozenset(scope.names), {}, frozenset())
         params = []
         for param, ctype in zip(func.params, param_types):
             c_param, body_scope = _bind(param.name, ctype, body_scope)
@@ -625,6 +682,15 @@ class _Translator:
         # registered with (which would fall off the end -- UB).
         actual = returned.pop() if returned else UNIT
         self.signatures[func.name] = (c_name, param_types, actual)
+        if func.name in self.called_early and actual != provisional:
+            _unsupported(
+                func,
+                f"`{func.name}` is called before it is defined and does not "
+                f"return {provisional}; a call written above a `def` is typed "
+                "from the annotation, or Int without one, so annotate the "
+                "return type (`-> String`, `-> Bool`)",
+            )
+        self.defined.add(func.name)
 
         if actual != UNIT and _falls_through(body):
             _unsupported(
@@ -714,7 +780,8 @@ def _calls(body, c_name):
 def translate_program(stmts):
     """External entry point: a whole Pyking program as a `CProgram`."""
     translator = _Translator()
-    scope = Scope({}, frozenset())
+    scope = Scope(frozenset(), {}, frozenset())
+    scope = translator.declare_functions(stmts, scope)
     functions = []
     main_body = []
     for s in stmts:
@@ -959,15 +1026,34 @@ def pprint_c_program(program, standard, source="a Pyking program"):
             _CONCAT_HELPER,
         ]
 
-    for func in program.functions:
+    def signature(func):
         params = (
             ", ".join(_declaration(ctype, name, standard)
                       for ctype, name in func.params)
             or "void"
         )
+        return f"{_declaration(func.ret_type, func.name, standard)}({params})"
+
+    if program.functions:
+        # Prototypes for all of them, ahead of every definition. Pyking
+        # lets a function be used before it is written -- recursion,
+        # mutual recursion, a helper at the bottom of the file (see
+        # PYKING.md, "Names and scoping") -- and C has to be told a
+        # function exists before a call can name it. Emitting one for
+        # every function rather than only the ones that need it keeps
+        # this independent of the order the definitions happen to be in,
+        # which is what the language says does not matter.
         parts += [
             "",
-            f"{_declaration(func.ret_type, func.name, standard)}({params})",
+            _comment("Declared ahead of their definitions: a Pyking function "
+                     "may be called before it is written.", standard),
+            *[f"{signature(func)};" for func in program.functions],
+        ]
+
+    for func in program.functions:
+        parts += [
+            "",
+            signature(func),
             "{",
             _emit_block(func.body, standard, 1),
             "}",

@@ -1,0 +1,49 @@
+def factorial(n:Int) -> Int:
+    if n < 2:
+        1
+    else:
+        n * factorial(n - 1)
+def spell(n:Int) -> String:
+    if n < 1:
+        ''
+    else:
+        'x' + spell(n - 1)
+def is_even(n:Int) -> Bool:
+    if n == 0:
+        true
+    else:
+        is_odd(n - 1)
+def is_odd(n:Int) -> Bool:
+    if n == 0:
+        false
+    else:
+        is_even(n - 1)
+def describe(n:Int) -> String:
+    label(n) + '!'
+def label(n:Int) -> String:
+    if n < 0:
+        'negative'
+    else:
+        'positive'
+def parity(limit:Int) -> String:
+    def even(m:Int) -> Bool:
+        if m == 0:
+            true
+        else:
+            odd(m - 1)
+    def odd(m:Int) -> Bool:
+        if m == 0:
+            false
+        else:
+            even(m - 1)
+    if even(limit):
+        'even'
+    else:
+        'odd'
+alias: (Int) -> Int = factorial
+paired: (Int) -> Bool = is_even
+six: Int = factorial(3)
+word: String = spell(3)
+flag: Bool = is_even(4)
+told: String = describe(1)
+kind: String = parity(6)

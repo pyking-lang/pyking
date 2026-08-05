@@ -1,0 +1,44 @@
+# Mutual recursion: two functions that call each other, and a three-way
+# cycle. Neither is written before the other in any useful sense -- what
+# makes both work is that every `def` in a block is in scope throughout
+# it (see PYKING.md, "Names and scoping").
+
+def is_even(n:Int) -> Bool:
+    if n == 0:
+        true
+    else:
+        is_odd(n - 1)
+
+
+def is_odd(n:Int) -> Bool:
+    if n == 0:
+        false
+    else:
+        is_even(n - 1)
+
+
+# A cycle of three, so the pair above is not mistaken for a special case.
+def stage_a(n:Int) -> String:
+    if n < 1:
+        "a"
+    else:
+        stage_b(n - 1)
+
+
+def stage_b(n:Int) -> String:
+    if n < 1:
+        "b"
+    else:
+        stage_c(n - 1)
+
+
+def stage_c(n:Int) -> String:
+    if n < 1:
+        "c"
+    else:
+        stage_a(n - 1)
+
+
+print(is_even(0), is_even(7), is_even(10))
+print(is_odd(0), is_odd(7), is_odd(10))
+print(stage_a(0), stage_a(1), stage_a(2), stage_a(3), stage_a(4))

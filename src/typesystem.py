@@ -156,7 +156,7 @@ supplies unit whatever its one branch ends in, because there is a way
 through it that runs no branch at all.
 """
 
-from analyses import AnalysisError, BUILTINS
+from analyses import AnalysisError, BUILTINS, block_functions
 from lexer import Info
 from syntax import (
     pprint_type,
@@ -258,6 +258,49 @@ def type_check(stmts):
 # --- [Stmt] ----------------------------------------------------------
 
 
+def declare_functions(stmts, env):
+    """`env` with every `def` in this block already in scope, before any
+    of its statements are checked.
+
+    That one step is the whole of recursion, mutual recursion and
+    forward references: a body is checked in an environment that already
+    holds its own name, its siblings' names, and every function of every
+    enclosing block. It is deliberately *not* recursive -- a `def` inside
+    a branch belongs to that branch's block, and is declared when that
+    block is checked.
+
+    Only functions are declared ahead. An `=` binding stays strictly
+    sequential (see PYKING.md, "Names and scoping"), because its value is
+    an arbitrary expression that may read anything bound before it, while
+    a `def`'s type is written on the `def` itself and needs nothing that
+    surrounds it.
+
+    A `def` that is not fully annotated is declared with no type rather
+    than refused here: this pass is about *scope*, and refusing it here
+    would report a `def` on the last line before a type error on the
+    first. It is refused when its own statement is reached.
+
+    `block_functions` is `analyses.py`'s, and applies the two rules that
+    make a hoisted name unambiguous -- one `def` per name per block, and
+    no other binding of that name in the same block. Sharing it is what
+    keeps the two passes from drifting apart about which programs are
+    legal, and it raises `AnalysisError`, so the same wording comes out
+    whichever pass ran."""
+    for function in block_functions(stmts).values():
+        env = bind(env, function.name, declared_type(function))
+    return env
+
+
+def declared_type(node):
+    """The function type a `def` declares, or `None` when it does not
+    declare one -- an unannotated parameter or a missing return type. The
+    refusal itself belongs to `check_function`, which reports it against
+    the `def`."""
+    if node.return_type is None or any(p.type is None for p in node.params):
+        return None
+    return function_type(node)
+
+
 def check_stmts(stmts, env, tmap, return_type):
     """The type a block yields: its last statement's, or unit when it is
     empty.
@@ -274,6 +317,7 @@ def check_stmts(stmts, env, tmap, return_type):
 
     `return_type` is carried through untouched, for whatever `return`
     turns up anywhere inside; see `check_stmt`."""
+    env = declare_functions(stmts, env)
     yielded = unit(stmts[0].info if stmts else Info("<empty>", 1, 0, 1, 0))
     for statement in stmts:
         yielded, env = check_stmt(statement, env, tmap, return_type)
@@ -486,12 +530,12 @@ def check_function(node, env, tmap):
         check_param(param, tmap)
     tmap[node.sym] = ftype
 
-    # The function's own name is in scope in its own body (see PYKING.md,
-    # "Names and scoping"), so it is bound here -- with no type, which is
-    # what refuses recursion while still hiding any outer binding of the
-    # same name. The parameters bind over it, shadowing whatever they
-    # share a name with, exactly as `analyses.py` binds them.
-    body_env = bind(env, node.name, None)
+    # `env` already holds this function and every other `def` of the
+    # block it is in (see `declare_functions`), which is what lets a body
+    # call itself, its siblings, and functions written further down. The
+    # parameters bind over that, shadowing whatever they share a name
+    # with, exactly as `analyses.py` binds them.
+    body_env = env
     for param in node.params:
         body_env = bind(body_env, param.name, param.type)
 

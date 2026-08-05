@@ -55,11 +55,12 @@ def outer(x):
 print(outer(2))
 
 
-# A `def` binds a name like any other, so it can shadow a binding, and a
-# function sees its own name (this one calls itself).
-step = "not a function"
-
-
+# A `def` name may *not* be shared with another binding in the same
+# block -- that is a compile-time error (see PYKING.md, "Names and
+# scoping"), because a use of the name would have two candidates and no
+# reason to prefer either. A nested block may shadow it freely, though,
+# and there the answer is never in doubt: `describe`'s own `step` is a
+# string, and the function outside is untouched.
 def step(k):
     if k <= 0:
         return "done"
@@ -67,7 +68,12 @@ def step(k):
         return "." + step(k - 1)
 
 
-print(step(3))
+def local_step(k):
+    step = "not a function"
+    return step + ", " + str(k)
+
+
+print(step(3), local_step(2))
 
 
 # Shadowing chains: each scope rebinds the same name from the one outside

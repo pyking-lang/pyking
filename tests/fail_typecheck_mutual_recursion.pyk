@@ -1,0 +1,22 @@
+# Two mutually recursive functions that disagree about each other.
+#
+# `is_even` is declared to return Bool, and `is_odd` uses that result
+# where a String is required. Each function is checked against the
+# *declared* type of the other -- the declarations are in place before
+# either body is looked at -- so neither has to be checked twice, and the
+# error is reported where the two meet.
+#
+# This program is expected to FAIL type checking. Its `.out` holds the
+# error message, not a program's output.
+
+def is_even(n:Int) -> Bool:
+    if n == 0:
+        true
+    else:
+        is_odd(n - 1)
+
+def is_odd(n:Int) -> Bool:
+    if n == 0:
+        false
+    else:
+        is_even(n - 1) + "!"

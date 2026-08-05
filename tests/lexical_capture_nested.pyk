@@ -1,0 +1,77 @@
+# The same rule inside nested blocks, where a `def` *may* shadow a name
+# from an enclosing block (only sharing a block is forbidden).
+
+f = 1
+
+
+def use() -> Int:
+    # A nested block, so this `def f` is allowed to shadow the binding
+    # `f` above: there is no question which one `f()` means here.
+    def f() -> Int:
+        return 5
+    return f()
+
+
+print(f, use())
+
+
+# A branch is a block too. The `def` inside it shadows the outer
+# function for that branch only, and the other branch still sees the
+# outer one.
+def outer_step(n:Int) -> Int:
+    return n * 10
+
+
+def branchy(n:Int) -> Int:
+    if n > 0:
+        def outer_step(m:Int) -> Int:
+            return m + 1
+        return outer_step(n)
+    else:
+        return outer_step(n)
+
+
+print(branchy(0), branchy(5))
+
+
+# Nested functions capture the enclosing binding that is visible where
+# *they* are written, exactly like top-level ones.
+def generations(start:Int) -> String:
+    level = "one"
+
+    def first() -> String:
+        return level
+
+    level = "two"
+
+    def second() -> String:
+        return level
+
+    return first() + " " + second() + " " + level
+
+
+print(generations(0))
+
+
+# Mutual recursion between two nested functions that each shadow a
+# binding of the enclosing block.
+def alternate(n:Int) -> String:
+    up = "u"
+    down = "d"
+
+    def flip(m:Int) -> String:
+        if m < 1:
+            return up
+        else:
+            return flop(m - 1)
+
+    def flop(m:Int) -> String:
+        if m < 1:
+            return down
+        else:
+            return flip(m - 1)
+
+    return flip(n) + flop(n) + up + down
+
+
+print(alternate(0), alternate(1), alternate(4))

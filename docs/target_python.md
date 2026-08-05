@@ -160,6 +160,102 @@ comprehension (Python already scopes those), and not when the shadowed
 binding is unreachable anyway — rebinding within one block, or two
 sibling blocks that each use the same name.
 
+There is a second way the two scopings disagree, and it needs looking
+*ahead* rather than behind. Any binding of a name inside a Python
+function makes that name local to the **whole** function, so a block that
+shadows a name the rest of the function still reads cannot keep the
+plain name either:
+
+```pyking                          # generated Python
+def helper(n):                     def helper(n):
+    n                                  return n
+
+def branchy(n):                    def branchy(n):
+    if n > 0:                          if n > 0:
+        def helper(m):                     def helper2(m):
+            m * 10                             return m * 10
+        helper(n)                          return helper2(n)
+    else:                              else:
+        helper(n)                          return helper(n)
+```
+
+Spelling both `helper` would turn the else branch into a read of the
+local one — `UnboundLocalError` at run time, not a name that merely looks
+odd. The decision is made per `def` body, from what that body reads
+*freely*: names it uses without having bound them itself at that point
+(`_free_names`). Only those are protected, so a body that shadows a name
+it never reads from outside keeps the source's own spelling:
+
+```pyking                          # generated Python
+x = 1                              x = 1
+def f(n):                          def f(n):
+    x = 2                              x = 2
+    x + n                              return x + n
+```
+
+### A rebinding some function captured
+
+Pyking's `=` is a binding, so rebinding a name makes a *new* one and a
+function written earlier keeps the old (PYKING.md, "Names and scoping").
+Python has one variable per name per scope, so the second binding gets
+its own — but only when a function in that scope actually captured the
+first (`_captured_names`), so code without closures over the name is
+untouched:
+
+```pyking                          # generated Python
+x = 1                              x = 1
+def show() = x                     def show(): return x
+x = "two"                          x2 = 'two'
+print(x, show())                   print(x2, show())      → two 1
+```
+
+### A `def` inside a loop
+
+A loop binds afresh on every turn, so a function written in one keeps
+that turn's values. Python would leave every copy sharing the last, so
+the run of `def`s is built by a small factory taking the loop-carried
+names — the values passed are that turn's:
+
+```pyking                          # generated Python
+for i in range(3):                 for i in range(3):
+    def show() = i                     def __pyk_turn1(i):
+    fns := fns + [show]                    def show():
+                                               return i
+                                           return show
+                                       show = __pyk_turn1(i)
+                                       fns = fns + [show]
+```
+
+The `def`s that **name each other** go into *one* factory, wherever they
+are written in the body, so a recursive function calls this turn's copy
+and functions that call each other find each other there. The factory
+name is allocated like the comprehension helpers' (`__pm*`), checked
+against every identifier in the source, so it cannot collide.
+
+Nothing but `def`s moves: a `return` between the members still returns
+from the enclosing function, a `:=` still writes the variable it names,
+and side effects keep their order. The one exception is a capture bound
+*between* the members — a factory called at the first of them cannot
+take it as a parameter, so that binding travels with the group and is
+returned alongside the functions.
+
+Two narrowings keep this from firing where it is not needed. A `def`
+captures **positionally** — a name the block rebinds further *down* is a
+different binding, which no turn touches from where the `def` stands —
+and `var`s are excluded, because `:=` updates the one binding and a
+function reading a `var` is meant to see that.
+
+*Not optimal:* the factory is built whenever the capture exists, even
+for a function that never outlives its turn — knowing otherwise needs
+escape analysis, which this backend does not do. [gap.md](gap.md) has
+the whole mechanism, the cases it covers, and what remains.
+
+`tests/lexical_capture*.pyk` pin all of this, and
+`tests/shadowing_functions.pyk` runs the cases the renaming above covers — the sibling
+branch above, the outer name read *before* the shadowing binding, three
+levels of nesting that need no renaming at all, and a closure reading
+the outer name from a block that shadows it.
+
 *Not optimal:* a heavily shadowing program reads with `x2`, `x3` in the
 output where the source says `x` throughout. The alternative — leaving
 the names alone — would be wrong rather than ugly, so the trade is worth
@@ -330,6 +426,22 @@ allocation. A direct `filter`-style expression would be tighter, but
 Python's comprehension grammar cannot express a pattern test inline —
 this is the cheapest encoding that keeps the result a single
 comprehension.
+
+### Functions used before they are written
+
+Every `def` in a block is bound before the block is translated
+(`_declare_functions`), mirroring the front end. Python needs no help to
+*run* a forward reference — it resolves a global or a closure variable
+when the call happens — but the translation does, because a name here may
+be renamed: a nested `def` that shadows something in the same Python
+function scope compiles to `helper2`, and a call written above it has to
+say `helper2` too. Without the pre-pass that call would fall through to
+the name the *shadowed* binding compiled to and quietly call the wrong
+thing.
+
+Being in scope is not the same as having run: a call that executes before
+its `def` raises `NameError`/`UnboundLocalError`, which is Pyking's rule
+as much as Python's (see PYKING.md, "Names and scoping").
 
 ### Type annotations
 

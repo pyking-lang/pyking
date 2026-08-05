@@ -70,7 +70,7 @@ ignores `--target`.
 | `src/lexer.py` | Characters → tokens. `Info` (file, row/column span) is attached to every token and rides along on every later node, so any stage can report an error against the source. |
 | `src/parser.py` | Recursive descent, tokens → the AST in `syntax.py`. Also enforces the few rules the grammar cannot state (duplicate pattern bindings, "every branch of a bound `if` yields a value"). |
 | `src/syntax.py` | The AST itself — one dataclass per variant — plus a pretty printer that prints Pyking back out. |
-| `src/analyses.py` | Static passes over the AST. `analyze_program` checks names and scoping — it only rejects, never rewrites; it runs for every mode except `--typecheck`, which replaces it. `symbolize` then gives every node a unique integer `sym`, rebuilding the tree (nodes are frozen); it runs for every mode, `--ast` included. |
+| `src/analyses.py` | Static passes over the AST. `analyze_program` checks names and scoping — it only rejects, never rewrites; it binds every `def` in a block before walking it, which is what lets functions be recursive, mutually recursive or used before they are written; it runs for every mode except `--typecheck`, which replaces it. `symbolize` then gives every node a unique integer `sym`, rebuilding the tree (nodes are frozen); it runs for every mode, `--ast` included. |
 | `src/typesystem.py` | The type checker. Opt-in (`--typecheck`) while it covers only part of the language; it leaves the AST alone and reports what it inferred in `tmap`, a symbol → type table, which is what `--ast` then prints from. |
 | `src/target_python.py` | Python backend: its own `Py*` AST, translation, printer. |
 | `src/target_js_core.py` | JavaScript AST, translation, printer — with no knowledge of packaging. |
@@ -249,10 +249,20 @@ the start. A name that is not found raises `analyses.py`'s own
 error` whichever pass caught it.
 
 `Env` maps to `Type?` rather than `Type` for exactly this reason: a name
-can be in scope with no type the checker knows — a builtin, or the
-function whose own body is being checked, which is how recursion is
-refused. Using one is `Construct is not supported`; the name is bound,
-it is the type that is missing.
+can be in scope with no type the checker knows — a builtin, or a `def`
+that is not fully annotated. Using one is `Construct is not supported`;
+the name is bound, it is the type that is missing.
+
+Every `def` in a block is declared before any of that block is checked
+(`declare_functions`), which is the whole of recursion, mutual recursion
+and forward references: a body is checked in an environment that already
+holds its own name, its siblings', and every function of every enclosing
+block. It is not recursive — a `def` in a branch belongs to that
+branch's block — and it declares *only* functions, since an `=` binding's
+type is whatever its right-hand side works out to, while a `def`'s is
+written on the `def`. `analyses.py` does the same thing with names, and
+each backend does it with its own naming (see below), so all three agree
+about what is in scope where.
 
 The one rule left behind is the mutable one: a `var` may not be
 shadowed. This checker refuses `var` outright, so there is nothing here
@@ -291,12 +301,11 @@ comparable without either being a special case, and no separate
 "does every path return?" pass is needed the way `target_java.py` still
 needs one for `javac`.
 
-Recursion is refused rather than assumed: the function's own name is
-left unbound while its body is checked, so a recursive call is refused
-like anything else outside the fragment. It is *removed* from the body's
-environment rather than merely not added, since a `def`'s name is in
-scope in its own body and an outer binding of that name must not show
-through.
+Recursion needs nothing beyond the declaration pass: the function's own
+type is in scope while its body is checked, so a recursive call is
+checked against it argument by argument, like a call to anything else.
+Nothing is assumed — the declared type is what the body is checked
+*against*, and a body that does not honour it is refused.
 
 Anything else is refused with `Construct is not supported` against its
 own source position — a deliberate floor, since a checker that quietly

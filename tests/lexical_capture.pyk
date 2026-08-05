@@ -1,0 +1,83 @@
+# What a function body sees is what is bound *where the body is
+# written* -- not what the name holds when the function is called.
+#
+# `=` is a binding, not an assignment, so binding a name again makes a
+# *new* binding and a function written earlier keeps the old one. Only
+# `def` *names* are visible ahead of themselves (see PYKING.md, "Names
+# and scoping"); everything else is strictly positional, and that is
+# what makes each of these answers the only one it could be.
+
+x = 1
+
+
+def show() -> Int:
+    return x
+
+
+x = "two"
+
+# `x` here is the second binding; `show` still holds the first.
+print(x, show())
+
+
+# A forward reference and a rebinding in one block. `f` names `g`, which
+# is written below it -- allowed, because `g` is a function. `g` reads
+# `y`, and what `y` means to `g` is what it means *there*: the second
+# binding.
+y = 1
+
+
+def f() -> Int:
+    return g()
+
+
+y = 2
+
+
+def g() -> Int:
+    return y
+
+
+print(f(), g())
+
+
+# Three generations of one name, each captured by the function beside
+# it. Rebinding is not mutation: nothing that already exists changes.
+gen = "first"
+
+
+def first_gen() -> String:
+    return gen
+
+
+gen = "second"
+
+
+def second_gen() -> String:
+    return gen
+
+
+gen = "third"
+
+
+def third_gen() -> String:
+    return gen
+
+
+print(first_gen(), second_gen(), third_gen(), gen)
+
+
+# A `var` is the other half of the rule: `:=` updates the one binding
+# rather than making a new one, so a function reading it sees the
+# update. That is what `var` is for.
+var counter = 0
+
+
+def read_counter() -> Int:
+    return counter
+
+
+counter := 41
+counter := counter + 1
+
+print(read_counter(), counter)

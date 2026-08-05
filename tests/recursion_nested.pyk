@@ -1,0 +1,63 @@
+# Functions defined inside functions: recursive, mutually recursive, and
+# reading their enclosing function's parameters.
+#
+# A nested `def` belongs to the block it is written in, so it is in scope
+# exactly there -- for the whole of it, before its own definition
+# included, which is what lets the pair below call each other.
+
+def sum_to(limit:Int) -> Int:
+    def go(n:Int, acc:Int) -> Int:
+        if n > limit:
+            acc
+        else:
+            go(n + 1, acc + n)
+    go(1, 0)
+
+
+def parity(n:Int) -> String:
+    def even(m:Int) -> Bool:
+        if m == 0:
+            true
+        else:
+            odd(m - 1)
+    def odd(m:Int) -> Bool:
+        if m == 0:
+            false
+        else:
+            even(m - 1)
+    if even(n):
+        "even"
+    else:
+        "odd"
+
+
+# A nested function reading the enclosing function's parameter, and
+# recursing while it does.
+def scale_down(start:Int, step:Int) -> Int:
+    def shrink(value:Int) -> Int:
+        if value < step:
+            value
+        else:
+            shrink(value - step)
+    shrink(start)
+
+
+# Two levels of nesting, with the innermost pair mutually recursive and
+# closing over both enclosing parameters.
+def layered(depth:Int, width:Int) -> Int:
+    def middle(n:Int) -> Int:
+        def down(m:Int) -> Int:
+            if m < 1:
+                width
+            else:
+                up(m - 1)
+        def up(m:Int) -> Int:
+            down(m) + 1
+        up(n)
+    middle(depth)
+
+
+print(sum_to(0), sum_to(1), sum_to(10))
+print(parity(0), parity(3), parity(8))
+print(scale_down(17, 5), scale_down(4, 5))
+print(layered(0, 7), layered(3, 7))

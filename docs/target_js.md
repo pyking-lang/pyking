@@ -257,6 +257,19 @@ zone, the backend renames whenever a name is already in scope. That is
 always correct and sometimes unnecessary, so generated code occasionally
 says `x2` where plain `x` would have been fine.
 
+### Functions used before they are written
+
+Every `def` in a block is bound before the block is translated
+(`declare_functions`), mirroring the front end. JavaScript hoists a
+function declaration by itself, so a forward reference — a recursive
+call, two functions calling each other, a helper written below — *runs*
+without help; what needs the pre-pass is the renaming above. A nested
+`def` whose name is already taken compiles to `other2`, and a call
+written above it has to say `other2` too, or it would resolve to
+whatever the shadowed name holds. The `def` statement itself then reads
+the name back rather than binding again, since binding twice would
+rename twice.
+
 ### Numbers
 
 Pyking's `/` is Python's true division, so `(4 + 8) / 2` is a float and

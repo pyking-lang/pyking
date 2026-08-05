@@ -179,18 +179,47 @@ new Java local, which may well have a different type.
   conversion), so this backend refuses it rather than translate `+` into
   two different Pyking operators depending on its operands.
 
-### A recursive function returning non-`Int` without an annotation
+### A recursive or forward-called function returning non-`Int` without an annotation
 
 ```
 Unsupported by target 'java21': `f` calls itself and does not return Int;
 a recursive function's return type is assumed Int unless annotated, so
 annotate it (`-> String`, `-> Bool`)
+
+Unsupported by target 'java21': `g` is called before it is defined and
+does not return Int; a call written above a `def` is typed from the
+annotation, or Int without one, so annotate the return type
+(`-> String`, `-> Bool`)
 ```
 
-Same cause as the C targets: the signature must exist before the body is
-translated (so the body can call it recursively), and the return type
-starts as `Int` until the body says otherwise. Adding `-> String` or
-`-> Bool` resolves it.
+Same cause as the C targets: a signature must exist before a call can be
+translated, and for a body that has not been read yet the return type
+can only come from the annotation, so without one it starts as `Int`.
+Adding `-> String` or `-> Bool` resolves both.
+
+### A function reading a binding from around it
+
+```
+Unsupported by target 'java21': 'x' is bound outside this function --
+these are static methods, with no closure over the code around them: a method reads its parameters and calls other methods, nothing else
+```
+
+Pyking's functions may read the bindings in scope where they are written
+(PYKING.md, "Names and scoping"); this backend's cannot. A function body
+here starts from its own parameters, reaches other functions by name,
+and sees nothing else. Passing the value in as a parameter is the fix.
+
+Until this was checked, such a program compiled and then failed in the
+host compiler with a message about a name this backend had emitted --
+which is exactly what refusing it at compile time, with a Pyking source
+position, exists to avoid.
+
+### Forward references and mutual recursion
+
+These are supported, and need less than they do in C: every `def`'s
+signature is registered before any body is translated, and that is all —
+these are static methods of one class, so Java itself does not care what
+order they are written in and nothing has to be declared ahead.
 
 ## How types are inferred
 

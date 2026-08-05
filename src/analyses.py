@@ -226,9 +226,109 @@ def analyze_scope(stmts, env):
     analyze_stmts(stmts, env)
 
 
+def bound_names(stmt):
+    """The names a statement binds *in the block it is written in*, as
+    `(name, info)` pairs.
+
+    Only the binding forms whose names land in that block: a `for`
+    variable, a pattern variable and a parameter all bind in a nested
+    scope of their own, and a `def`'s own name is handled by
+    `block_functions` itself."""
+    match stmt:
+        case SLet(_, target, _) | SLetStmt(_, target, _):
+            return target_names(target)
+        case SVar(info, name, _):
+            return [(name, info)]
+        case _:
+            return []
+
+
+def target_names(target):
+    """The `(name, info)` pairs an assignment target binds."""
+    match target:
+        case TargetName(info, name):
+            return [(name, info)]
+        case TargetTuple(_, elements):
+            return [pair for e in elements for pair in target_names(e)]
+    return []
+
+
+def block_functions(stmts):
+    """The `def`s written at the top level of one block, as name ->
+    `SFunctionDef`, rejecting two of the same name.
+
+    A function name must mean exactly one thing in the block it is
+    written in. That is what lets the *names* be visible throughout the
+    block -- which is what recursion and mutual recursion need -- while
+    every other binding stays positional: since the name cannot be
+    rebound there, "the function visible at this line" and "the function
+    visible anywhere in this block" are the same function, and a body
+    that names it cannot mean two things (see PYKING.md, "Names and
+    scoping")."""
+    functions = {}
+    for stmt in stmts:
+        if not isinstance(stmt, SFunctionDef):
+            continue
+        earlier = functions.get(stmt.name)
+        if earlier is not None:
+            raise AnalysisError(
+                stmt.info,
+                f"'{stmt.name}' is already defined as a function in this "
+                f"block{where_bound(Binding(FUNCTION, earlier.info))}; a "
+                "function name may be defined once per block (a nested block "
+                "may shadow it)",
+            )
+        functions[stmt.name] = stmt
+    for stmt in stmts:
+        for name, info in bound_names(stmt):
+            check_no_function_clash(name, info, functions)
+    return functions
+
+
+def check_no_function_clash(name, info, functions):
+    """Refuses a binding that would share its block with a `def` of the
+    same name -- in either order, and whatever the binding form.
+
+    This is the other half of what makes a function name unambiguous:
+    with the name visible throughout the block, a second binding of it
+    would leave a reader unable to say which one a use refers to, and no
+    reading of it is more obviously right than another. So neither is
+    chosen; the program is refused (see PYKING.md, "Names and
+    scoping")."""
+    clash = functions.get(name)
+    if clash is not None:
+        raise AnalysisError(
+            info,
+            f"cannot bind '{name}': a function '{name}' is defined in this "
+            f"block{where_bound(Binding(FUNCTION, clash.info))}, and a "
+            "function's name may not also be bound there (a nested block may "
+            "shadow it)",
+        )
+
+
 def analyze_stmts(stmts, env):
     """Analyzes a statement sequence, threading the environment through
-    it, and returns the environment at the end."""
+    it, and returns the environment at the end.
+
+    Every `def` in the sequence is bound *first*, before any statement is
+    walked. That is what makes a function usable before it is written --
+    recursion, mutual recursion, a helper defined at the bottom of the
+    file -- and it is the one departure from binding in source order (see
+    PYKING.md, "Names and scoping"). It is not recursive: a `def` inside
+    a branch belongs to that branch's block, and is declared when
+    `analyze_scope` reaches it.
+
+    Only the *names* are hoisted, and only functions'. What a body sees
+    is still whatever is bound where the body is written, and an `=`
+    binding is still sequential -- its value is an expression that may
+    read anything above it, while a `def` needs nothing around it to say
+    what its name means.
+
+    `block_functions` and `check_no_function_clash` keep those names
+    unambiguous: one `def` per name per block, and no other binding of
+    that name in the same block."""
+    for stmt in block_functions(stmts).values():
+        env = bind(env, stmt.name, FUNCTION, stmt.info)
     for stmt in stmts:
         env = analyze_stmt(stmt, env)
     return env

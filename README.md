@@ -87,6 +87,13 @@ clean` but the cache itself only goes on `make distclean`.
   [JavaScript](docs/target_js.md), [C](docs/target_c.md),
   [Java](docs/target_java.md)) documenting how each construct is compiled
   and where the output is not optimal.
+- **[docs/defshadow.md](docs/defshadow.md)** — an open design question:
+  what a function body sees when a name it uses is rebound, and what a
+  `def` and an `=` sharing one name should mean. Options, consequences,
+  and how ten other languages answer it.
+- **[docs/gap.md](docs/gap.md)** — how a `def` written inside a loop
+  keeps its own turn's bindings: the mechanism, the shape that used to
+  defeat it, and what it still costs in generated code.
 - **[docs/architecture.md](docs/architecture.md)** — the compiler itself:
   pipeline diagram, the stages, the runtime interface that separates a
   program from the world it prints into, and how the tests work.

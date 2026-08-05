@@ -1,0 +1,45 @@
+# A loop binds its variable -- and everything in its body -- afresh on
+# every turn, so a `def` written there keeps the turn it was written on.
+#
+# This is the same rule as everywhere else (a function sees the binding
+# visible where it is written) applied to a block that runs repeatedly.
+# It is the one place where the Python backend has to do more than
+# rename: each turn's functions are built by a small factory that takes
+# the turn's values (see docs/target_python.md).
+
+var fns = []
+
+for i in range(4):
+    def show() = i * 10
+    fns := fns + [show]
+
+for f in fns:
+    print(f())
+
+
+# The functions of one turn may call each other -- and themselves --
+# and each turn's group is its own.
+var pairs = []
+
+for n in range(3):
+    def down(k) = if k < 1 then n else up(k - 1)
+    def up(k) = down(k)
+    def alone(k) = if k < 1 then n * 100 else alone(k - 1)
+    pairs := pairs + [down]
+    pairs := pairs + [alone]
+
+for g in pairs:
+    print(g(3))
+
+
+# Bindings made *inside* the body are per-turn too, not just the loop
+# variable.
+var doubled = []
+
+for m in range(3):
+    twice = m + m
+    def report() = twice
+    doubled := doubled + [report]
+
+for h in doubled:
+    print(h())

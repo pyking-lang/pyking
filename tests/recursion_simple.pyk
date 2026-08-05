@@ -1,0 +1,42 @@
+# Self-recursion: a function calling itself.
+#
+# Its own name is in scope in its own body (see PYKING.md, "Names and
+# scoping"), which is what makes this possible without anything being
+# declared first.
+
+def factorial(n:Int) -> Int:
+    if n < 2:
+        1
+    else:
+        n * factorial(n - 1)
+
+
+def fib(n:Int) -> Int:
+    if n < 2:
+        n
+    else:
+        fib(n - 1) + fib(n - 2)
+
+
+# Recursion with an explicit `return` in every branch, rather than a tail
+# value -- the same rule seen from the other side.
+def power(base:Int, exponent:Int) -> Int:
+    if exponent == 0:
+        return 1
+    else:
+        return base * power(base, exponent - 1)
+
+
+# Recursion that ends by returning a String rather than an Int, so the
+# recursive call is not typed by the arithmetic around it.
+def repeat(word:String, times:Int) -> String:
+    if times < 1:
+        ""
+    else:
+        word + repeat(word, times - 1)
+
+
+print(factorial(0), factorial(1), factorial(5), factorial(10))
+print(fib(0), fib(1), fib(10), fib(15))
+print(power(2, 0), power(2, 10), power(3, 4))
+print(repeat("ab", 0), repeat("ab", 3))

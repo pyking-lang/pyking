@@ -1,0 +1,2 @@
+'tests/fail_typecheck_forward_binding.pyk' 19:15-19:20 Name error:
+  unbound name 'later'

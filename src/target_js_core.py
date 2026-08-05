@@ -354,6 +354,9 @@ def translate_tail_stmts(stmts, scope):
     `target_python.py`; see PYKING.md's "Tail position"."""
     if not stmts:
         return []
+    # The whole block, last statement included: a `def` in tail position
+    # is still visible to everything above it.
+    scope = declare_functions(stmts, scope)
     body, tail_scope = translate_stmts(stmts[:-1], scope)
     return body + translate_tail_stmt(stmts[-1], tail_scope)
 
@@ -431,7 +434,12 @@ def translate_stmt(s, scope):
             # Type annotations are erased, as in the Python backend. The
             # single-expression form `def f(x) = e` becomes a body of one
             # `return`, the same desugaring both other backends use.
-            js_name, scope = _bind(name, scope)
+            #
+            # The name was bound when the block was declared (see
+            # `declare_functions`), so it is read back rather than bound
+            # again: binding twice would rename twice, and the callers
+            # already written above this `def` say the first name.
+            js_name = _lookup(name, scope)
             body_scope = _block_scope(scope)
             param_names = []
             for param in params:
@@ -450,8 +458,26 @@ def translate_stmt(s, scope):
             _unsupported(s, type(s).__name__)
 
 
+def declare_functions(stmts, scope):
+    """Binds every `def` in this block before any of the block is
+    translated, mirroring `declare_functions` in `src/typesystem.py` and
+    `_declare_functions` in `target_python.py`.
+
+    JavaScript hoists a function declaration by itself, so a forward
+    reference *runs*; what needs doing here is the renaming. A nested
+    `def` whose name is already taken in an enclosing scope compiles to
+    `other2`, and a call written above it must say `other2` too --
+    otherwise `_lookup` falls through to the enclosing name, and the
+    generated code calls whatever that happens to be."""
+    for s in stmts:
+        if isinstance(s, SFunctionDef) and s.name not in scope.block:
+            _, scope = _bind(s.name, scope)
+    return scope
+
+
 def translate_stmts(stmts, scope):
     """Translates a statement sequence, threading the scope through it."""
+    scope = declare_functions(stmts, scope)
     translated = []
     for s in stmts:
         js_stmt, scope = translate_stmt(s, scope)

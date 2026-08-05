@@ -1,0 +1,59 @@
+# A `def` inside a block shadowing a function from an enclosing scope,
+# while the *outer* one is still used elsewhere in the same function.
+#
+# Pyking scopes by block, Python by function: any binding of a name
+# inside a Python function makes that name local to the whole function.
+# So a nested `def helper` and a sibling branch that calls the outer
+# `helper` cannot both be spelled `helper` in the generated Python --
+# the second would read the local one and fail. The backend renames the
+# inner binding when, and only when, the body reads the outer name
+# somewhere (see "Blocks are scopes; Python's are not" in
+# docs/target_python.md).
+
+def helper(n:Int) -> Int:
+    n
+
+
+def branchy(n:Int) -> Int:
+    if n > 0:
+        def helper(m:Int) -> Int:
+            m * 10
+        helper(n)
+    else:
+        helper(n)
+
+
+# The same collision the other way round: the outer name is read
+# *before* the inner binding, in the same block.
+def readfirst(n:Int) -> Int:
+    first = helper(n)
+    helper = 100
+    first + helper
+
+
+# Three levels: each nested `def` shadows the one outside it, and each
+# level still calls the one it can see.
+def layered(n:Int) -> Int:
+    def helper(m:Int) -> Int:
+        def helper(k:Int) -> Int:
+            k + 1
+        helper(m) * 2
+    helper(n) + helper(n)
+
+
+# A nested function reading the outer `helper` through a closure, from a
+# block that also shadows it.
+def closes_over(n:Int) -> Int:
+    if n > 0:
+        def use(m:Int) -> Int:
+            helper(m) + 1
+        def helper(m:Int) -> Int:
+            m * 100
+        use(n)
+    else:
+        helper(n)
+
+
+print(helper(3), branchy(0), branchy(2))
+print(readfirst(5), layered(4))
+print(closes_over(0), closes_over(1))

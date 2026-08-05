@@ -226,6 +226,18 @@ The bootstrap is split into one module per compiler stage:
    Keep new analyses in this module as separate `analyze_*` entry points
    rather than folding more checking into the parser: the parser's job
    is shape, and only a scope-aware walk can judge names.
+   `analyze_stmts` binds every `def` in a block *before* walking any of
+   it, which is what makes functions usable ahead of their definition —
+   recursion, mutual recursion, a helper at the bottom of the file — and
+   is the one departure from binding in source order (see PYKING.md,
+   "Names and scoping"). Only the *names*, and only functions': an `=`
+   binding stays sequential, and what a body captures is whatever is
+   bound where the body is written. **`block_functions`** is what makes
+   hoisting a name safe — one `def` per name per block, and no other
+   binding of that name there (`check_no_function_clash`), so a hoisted
+   name has exactly one meaning in its block. `typesystem.py` imports
+   both rather than restating them; keep it that way.
+
    Also here: **`symbolize`**, which gives every AST node a unique
    integer `sym` (post-order from 1; `0` means "not symbolized yet").
    Unlike `analyze_program` it *rewrites* — nodes are frozen, so it
@@ -250,6 +262,19 @@ The bootstrap is split into one module per compiler stage:
    only on which variant of its own datatype. `Env` maps a name to its
    type and is used *immutably* — a binding hands what follows it an
    extended copy, the same discipline `analyses.py` follows.
+
+   `check_stmts` calls **`declare_functions`** first, binding every `def`
+   in the block before checking any of it — that one step is recursion,
+   mutual recursion and forward references, since a body is then checked
+   in an environment holding its own name, its siblings' and every
+   enclosing block's. It goes through `analyses.block_functions`, so the
+   two passes cannot disagree about which programs are legal. A body is
+   otherwise checked in the environment at its *own position*, which is
+   what the language says it captures — so what the checker proves is
+   what runs (see `tests/lexical_capture.pyk`). A `def` that is not fully annotated is declared
+   with no type rather than refused there, so errors stay in source
+   order. Mirror any change to it in `analyses.py` and in each backend's
+   own declaration pass.
 
    **`Env` is also the scope**, and the checker does its own name
    checking with it: bound-before-use, block bindings that do not escape,
@@ -392,7 +417,34 @@ The bootstrap is split into one module per compiler stage:
    backend and the JavaScript ones followed the same shape — keep it
    independent of `syntax.py`'s pretty-printing internals so the next one
    can too, without entangling target-specific logic into the Pyking
-   AST/pretty-printer.
+   AST/pretty-printer. `_declare_functions` binds every `def` in a block
+   before translating it, mirroring the front end: Python resolves a
+   forward reference by itself at call time, but a *renamed* function
+   (`helper2`) has to be renamed before the call written above it is
+   emitted. `target_js_core.py` does the same for the same reason; C and
+   Java instead register signatures ahead (and C prints prototypes),
+   since those two have to know a function exists before a call names
+   it. Two analyses carry the scoping story the rest of the way, both in
+   `target_python.py`: **`_free_names`** (a scope renames a binding that
+   shadows a name its body reads from *outside* itself, since any
+   binding inside a Python function makes that name local to all of it)
+   and **`_captured_names`** (a rebinding some function already captured
+   gets its own Python variable, because in Pyking it is a *new*
+   binding). A `def` inside a loop additionally goes through
+   `_translate_capturing_defs`, which builds each turn's functions with
+   a small factory so they keep that turn's values. See
+   `tests/lexical_capture*.pyk`, `tests/shadowing_functions.pyk` and
+   `docs/target_python.md`. A `def` inside a loop goes further: the
+   `def`s of that block which *name each other* are built together by a
+   per-turn factory (`_turn_groups`, `_absorbed`,
+   `_translate_turn_group`), so each turn's functions find each turn's
+   functions. Nothing but `def`s moves — keep it that way, since a
+   `return` or `:=` carried into a factory would change what it means —
+   and captures are read positionally, with `var`s excluded. See
+   `docs/gap.md` and `tests/lexical_capture_group.pyk`. The test script
+   additionally refuses a factory in any program with no `def` inside a
+   loop, which is what keeps ordinary output ordinary. C and Java instead *refuse* a function that
+   reads a binding from around it — they have no closures.
 12. **`src/pykboot.py`** — the entry point: parses `--tokens`/`--ast`/
    `--symbols`/`--typecheck`/`--stdout`/`--output <file>`/
    `--target|-t <target>`/the filename from argv, runs `lexer.lexing`,
