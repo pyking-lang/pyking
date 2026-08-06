@@ -281,9 +281,11 @@ That is the last thing standing between the two passes — when the
 checker covers the constructs the analysis walks, the analysis can go.
 
 Both halves of it are pinned down by tests, distinguished by filename:
-`tests/typecheck_*.pyk` must check, and its `.out` is the printed AST;
-`tests/fail_typecheck_*.pyk` must not, and its `.out` is the error
-message.
+`tests/typecheck_*.pyk` must check, and its `.ast.out` is the printed
+AST — while its `.out`, like every other program's, is what it prints
+when it runs, on each backend it lists. `tests/fail_typecheck_*.pyk`
+must not check, and its `.ast.out` is the error message; there is
+nothing to run.
 
 It currently covers immutable bindings, expression statements, `if`
 statements (in both the ordinary and the value form), and fully

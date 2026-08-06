@@ -571,25 +571,37 @@ sibling `.out` file. One `.out` serves every target, which is the property
 being tested. It warns about any `.pyk` missing from the manifest and
 prints a per-target summary.
 
+**Two kinds of expected output.** `<name>.out` is what the program
+*prints*, and every backend is compared against that one file.
+`<name>.ast.out` is what `pyk --typecheck --ast` prints for it — the
+program with the types the checker inferred — and only the `typecheck`
+target reads it. Keep the distinction: a `.out` is never an AST.
+
 `typecheck` is a target in that list but not a backend: it compiles and
-runs nothing. It invokes `pyk --typecheck --ast`, and two filename
-prefixes say what to expect:
+runs nothing. Two filename prefixes say what to expect:
 
-- **`typecheck_*.pyk`** must type-check, and its `.out` holds the
-  *printed AST* — so the test pins down the types the checker infers
-  rather than a program's output.
-- **`fail_typecheck_*.pyk`** must **not** type-check, and its `.out`
-  holds the *error message*. Type-checking cleanly is the failure.
+- **`typecheck_*.pyk`** must type-check, and its `.ast.out` holds the
+  *printed AST*, pinning the types inferred. It **also lists real
+  backends**, so the program whose types are pinned is one that actually
+  compiles and runs; its `.out` is that run's output, empty if it prints
+  nothing. The harness warns if such a file lists no backend, because a
+  type nobody executes is a type nobody has tested.
+- **`fail_typecheck_*.pyk`** must **not** type-check, and its
+  `.ast.out` holds the *error message*. It lists exactly
+  `targets = ["typecheck"]`: a program written to be refused is not one
+  to run.
 
-Together they pin down both halves of the checker: what it infers, and
-what it rejects and how it says so. The naming convention and the
-manifest have to agree — a file with either prefix must list exactly
-`targets = ["typecheck"]`, and no other file may use that target — and
-the harness warns when they drift apart. Such a program may call its own
-fully annotated functions and the four builtins (`check_builtin_call` in
-`typesystem.py`), so a `typecheck_*` fixture can print — see
-`tests/typecheck_builtins.pyk`, which is both a checked fixture and a
-runnable program.
+Together they pin down both halves of the checker — what it infers, and
+what it rejects and how it says so — while the backends keep the
+programs honest. Adding a runnable target to a `typecheck_*` file is how
+several backend bugs surfaced: a Java method name emitted as a value, a
+Pyking expression statement emitted as a Java one, and calls to `str`,
+`range` and `len` emitted as JavaScript that would not run.
+
+**Every runner checks the exit status** (`executed` in the harness). A
+program that prints and *then* dies leaves its prefix on stdout, so
+comparing output alone would call a crash a pass whenever the surviving
+prefix happened to match.
 
 No third-party dependencies. Requires Python 3.11+ (`match`/`case`, and
 `tomllib` for the manifest). Running the generated code needs `node` for

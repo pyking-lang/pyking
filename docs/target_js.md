@@ -257,6 +257,22 @@ zone, the backend renames whenever a name is already in scope. That is
 always correct and sometimes unnecessary, so generated code occasionally
 says `x2` where plain `x` would have been fine.
 
+### `str`, `range` and `len`
+
+```
+Unsupported by target 'nodejs': the builtin `str` is not supported yet
+```
+
+Refused at compile time rather than emitted. `String(x)` is not Pyking's
+`str` — the two disagree about booleans, among other things — and a
+Pyking list is not a JavaScript array here, so `range` and `len` have
+nothing to compile to either. Until they do, a call to one is a compile
+error with a source position; emitting it would produce a file that
+loads and then dies with `str is not defined` at the moment it runs.
+
+A program that defines its own `str` is naming its own function and
+compiles as usual.
+
 ### Functions used before they are written
 
 Every `def` in a block is bound before the block is translated

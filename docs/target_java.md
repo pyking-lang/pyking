@@ -214,6 +214,36 @@ host compiler with a message about a name this backend had emitted --
 which is exactly what refusing it at compile time, with a Pyking source
 position, exists to avoid.
 
+### A function used as a value
+
+```
+Unsupported by target 'java21': `double` is a function used as a value -- these are static methods, not values: only a call can name one
+```
+
+A `def`'s name may be *called* here, and nothing else. Binding it
+(`twice = double`) or passing it on would emit a bare method name in
+Java and a function pointer assigned to an `int` in C — code that does
+not compile, and did not, before this was checked. Under C89 it was
+merely a warning, which is why the same program built there and failed
+under C23.
+
+### An expression statement that is not a call
+
+Pyking lets any expression stand as a statement and discards its value.
+Java allows only a call, an assignment or an increment there, so `i + 1;`
+is *not a statement* to `javac`. An expression that calls nothing has no
+effect to keep, so it is emitted as a comment rather than as code:
+
+```pyking                          # generated Java
+i + 1                              // i + 1;   (no effect: value discarded)
+print(i)                           System.out.println(i);
+```
+
+One that *is* a call is a legal Java statement and is emitted as such.
+One in between — `f(1) + 2`, a call buried inside an expression — has an
+effect Java cannot express in statement position, so it is refused
+rather than silently dropped.
+
 ### Forward references and mutual recursion
 
 These are supported, and need less than they do in C: every `def`'s

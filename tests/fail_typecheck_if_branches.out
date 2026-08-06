@@ -1,2 +1,0 @@
-'tests/fail_typecheck_if_branches.pyk' 13:9-16:15 Type error: the
-  branches of this 'if' have different types: Int and String

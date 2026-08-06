@@ -156,6 +156,19 @@ host compiler with a message about a name this backend had emitted --
 which is exactly what refusing it at compile time, with a Pyking source
 position, exists to avoid.
 
+### A function used as a value
+
+```
+Unsupported by target 'c23': `double` is a function used as a value -- C has no function values here: a `def` becomes a C function, and only a call can name one
+```
+
+A `def`'s name may be *called* here, and nothing else. Binding it
+(`twice = double`) or passing it on would emit a bare method name in
+Java and a function pointer assigned to an `int` in C — code that does
+not compile, and did not, before this was checked. Under C89 it was
+merely a warning, which is why the same program built there and failed
+under C23.
+
 ### Forward references and mutual recursion
 
 These are supported. Pyking lets a function be used before it is written

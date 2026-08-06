@@ -83,13 +83,13 @@ testing — could be built end to end before the language surface grew:
 | `+ - *`, unary minus, comparisons | ✅ | ✅ | ✅ | ✅ |
 | `/` | ✅ | ✅ (prints `6`, not `6.0`) | ❌ | ❌ |
 | type annotations | erased | erased | used, when they name `Int`/`String`/`Bool` | used, when they name `Int`/`String`/`Bool` |
-| functions as values (passing a `def`, calling a parameter) | ✅ | ✅ | ❌ (`call to unknown function`) | ❌ (`call to unknown function`) |
+| functions as values (passing a `def`, calling a parameter) | ✅ | ✅ | ❌ (refused: a function used as a value, or a call to an unknown one) | ❌ (same) |
 | a function reading a binding from around it (a closure) | ✅ | ✅ | ❌ (no closures) | ❌ (no closures) |
 | lists, tuples, destructuring | ✅ | ❌ | ❌ | ❌ |
 | `for`, `match`/`case`, patterns | ✅ | ❌ | ❌ | ❌ |
 | list comprehensions | ✅ | ❌ | ❌ | ❌ |
 | value-form `x = if c:` / `x = match e:` | ✅ | ❌ | ❌ | ❌ |
-| `str`, `len`, `range` | ✅ | ❌ | ❌ | ❌ |
+| `str`, `len`, `range` | ✅ | ❌ (refused at compile time) | ❌ | ❌ |
 | nested `def` | ✅ | ✅ | ❌ | ❌ |
 | function must provably return on every path | n/a | n/a | n/a | ✅ (`javac` requires it; refused at compile time otherwise) |
 

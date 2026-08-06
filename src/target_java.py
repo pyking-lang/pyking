@@ -61,12 +61,13 @@ statements become the body of `public static void main`; `def`s become
 """
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 
 from lexer import Info
 import runtime_interface
 from syntax import (
-    EInt, EString, EBool, EVar,
+    pprint_expr,
+    Expr, EInt, EString, EBool, EVar,
     EAdd, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EIf,
     SLet, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SWhile, SIf, SFunctionDef,
@@ -248,6 +249,12 @@ class JAssign(JStmt):       # name = expr;
 
 
 @dataclass(frozen=True)
+class JNoEffect(JStmt):     # // a Pyking statement with nothing to run
+    info: Info
+    source: str
+
+
+@dataclass(frozen=True)
 class JExprStmt(JStmt):     # expr;
     info: Info
     expr: JExpr
@@ -405,6 +412,18 @@ class _Translator:
 
     # -- expressions --
 
+    def is_function_value(self, name, scope):
+        """Whether `name` here means a `def` itself rather than a value.
+
+        A function's name is bound in the scope as well as in
+        `signatures`, so the two are compared: if what the name resolves
+        to is the function's own generated name, this *is* the function;
+        if a parameter or binding has shadowed it, it is not."""
+        if name not in self.signatures:
+            return False
+        bound = scope.names.get(name)
+        return bound is None or bound[0] == self.signatures[name][0]
+
     def expr(self, e, scope, allow_unit=False):
         """`allow_unit` permits a call to a unit-returning (`void`)
         method, which is meaningful only as an expression statement --
@@ -416,6 +435,18 @@ class _Translator:
                 return JStr(info, s)
             case EBool(info, v):
                 return JBool(info, v)
+            case EVar(info, name) if self.is_function_value(name, scope):
+                # A `def`'s own name, used as a value rather than called.
+                # Emitting it would produce something that does not
+                # compile -- a bare method name in Java, a function
+                # pointer assigned to an `int` in C -- so it is refused
+                # here with a position, like every other construct this
+                # backend cannot represent.
+                _unsupported(
+                    _At(info),
+                    f"`{name}` is a function used as a value -- "
+                    "these are static methods, not values: only a call can name one",
+                )
             case EVar(info, name):
                 java_name, jtype = _lookup(name, scope, info)
                 return JVar(info, java_name, jtype)
@@ -599,7 +630,30 @@ class _Translator:
                 return JPrint(info, _build_print_expr(translated_args)), scope
 
             case SExprStmt(info, expr):
-                return JExprStmt(info, self.expr(expr, scope, allow_unit=True)), scope
+                # Java is stricter than Pyking about what may stand as a
+                # statement: a method call may, `i + 1;` may not ("not a
+                # statement"). A Pyking expression statement discards its
+                # value, so one that calls nothing has no effect at all
+                # and is simply not emitted; one that *is* a call is a
+                # legal Java statement; anything in between -- a call
+                # buried in an expression, `f(1) + 2` -- has an effect
+                # Java cannot express in statement position, and is
+                # refused rather than dropped.
+                match expr:
+                    case ECall():
+                        return (
+                            JExprStmt(info, self.expr(expr, scope, allow_unit=True)),
+                            scope,
+                        )
+                if _contains_call(expr):
+                    _unsupported(
+                        s,
+                        "an expression statement that is not itself a call: Java "
+                        "allows only a call, an assignment or an increment to "
+                        "stand as a statement, and dropping this one would skip "
+                        "the call inside it",
+                    )
+                return JNoEffect(info, pprint_expr(expr)), scope
 
             case SWhile(info, cond, body):
                 return JWhile(info, self.expr(cond, scope), self.block(body, scope)), scope
@@ -719,6 +773,26 @@ class _Translator:
             )
 
         return JFunc(func.info, java_name, params, body, actual), scope
+
+
+def _contains_call(e):
+    """Whether an expression performs a call anywhere inside it -- which
+    is what decides whether dropping it would lose an effect."""
+    if isinstance(e, ECall):
+        return True
+    return any(
+        _contains_call(child)
+        for field in fields(e)
+        for child in _children(getattr(e, field.name))
+    )
+
+
+def _children(value):
+    if isinstance(value, Expr):
+        return [value]
+    if isinstance(value, list):
+        return [v for v in value if isinstance(v, Expr)]
+    return []
 
 
 def _param_type(func, param):
@@ -959,6 +1033,13 @@ def pprint_java_stmt(s, version, level=1):
             return f"{pad}{prefix}{keyword} {name} = {pprint_java_expr(init, version)};"
         case JAssign(_, name, expr):
             return f"{pad}{name} = {pprint_java_expr(expr, version)};"
+        case JNoEffect(_, source):
+            # Pyking allows any expression to stand as a statement, and
+            # discards its value; Java allows only a call, an assignment
+            # or an increment. One that calls nothing has no effect to
+            # keep, so it is left as a comment rather than emitted as
+            # code javac would refuse.
+            return f"{pad}// {source};   (no effect: value discarded)"
         case JExprStmt(_, expr):
             return f"{pad}{pprint_java_expr(expr, version)};"
         case JReturn(_, expr):

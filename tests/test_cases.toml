@@ -330,39 +330,39 @@ targets = ["python"]
 
 [[cases]]
 file = "typecheck_builtins.pyk"
-targets = ["typecheck"]
+targets = ["python", "typecheck"]
 
 [[cases]]
 file = "typecheck_function_if.pyk"
-targets = ["typecheck"]
+targets = ["python", "typecheck"]
 
 [[cases]]
 file = "typecheck_function_types.pyk"
-targets = ["typecheck"]
+targets = ["python", "nodejs", "esm", "html", "typecheck"]
 
 [[cases]]
 file = "typecheck_functions.pyk"
-targets = ["typecheck"]
+targets = ["python", "nodejs", "esm", "html", "typecheck"]
 
 [[cases]]
 file = "typecheck_if.pyk"
-targets = ["typecheck"]
+targets = ["python", "typecheck"]
 
 [[cases]]
 file = "typecheck_int_string.pyk"
-targets = ["typecheck"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "typecheck"]
 
 [[cases]]
 file = "typecheck_lexical_capture.pyk"
-targets = ["typecheck"]
+targets = ["python", "nodejs", "esm", "html", "typecheck"]
 
 [[cases]]
 file = "typecheck_recursion.pyk"
-targets = ["typecheck"]
+targets = ["python", "nodejs", "esm", "html", "typecheck"]
 
 [[cases]]
 file = "typecheck_tail.pyk"
-targets = ["typecheck"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "typecheck"]
 
 [[cases]]
 file = "types_atoms.pyk"

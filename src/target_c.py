@@ -388,6 +388,18 @@ class _Translator:
 
     # -- expressions --
 
+    def is_function_value(self, name, scope):
+        """Whether `name` here means a `def` itself rather than a value.
+
+        A function's name is bound in the scope as well as in
+        `signatures`, so the two are compared: if what the name resolves
+        to is the function's own generated name, this *is* the function;
+        if a parameter or binding has shadowed it, it is not."""
+        if name not in self.signatures:
+            return False
+        bound = scope.names.get(name)
+        return bound is None or bound[0] == self.signatures[name][0]
+
     def expr(self, e, scope, allow_unit=False):
         """`allow_unit` permits a call to a unit-returning (`void`)
         function, which is meaningful only as an expression statement --
@@ -399,6 +411,18 @@ class _Translator:
                 return CStr(info, s)
             case EBool(info, v):
                 return CBool(info, v)
+            case EVar(info, name) if self.is_function_value(name, scope):
+                # A `def`'s own name, used as a value rather than called.
+                # Emitting it would produce something that does not
+                # compile -- a bare method name in Java, a function
+                # pointer assigned to an `int` in C -- so it is refused
+                # here with a position, like every other construct this
+                # backend cannot represent.
+                _unsupported(
+                    _At(info),
+                    f"`{name}` is a function used as a value -- "
+                    "C has no function values here: a `def` becomes a C function, and only a call can name one",
+                )
             case EVar(info, name):
                 c_name, ctype = _lookup(name, scope, info)
                 return CVar(info, c_name, ctype)

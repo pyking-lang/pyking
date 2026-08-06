@@ -1,2 +1,0 @@
-'tests/fail_typecheck_builtin_arity.pyk' 10:7-10:16 Type error: 'str'
-  takes 1 argument, but 2 were given

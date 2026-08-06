@@ -1,4 +1,0 @@
-'tests/fail_typecheck_def_binding_clash.pyk' 15:0-15:1 Name error:
-  cannot bind 'f': a function 'f' is defined in this block (declared
-  on line 20), and a function's name may not also be bound there (a
-  nested block may shadow it)

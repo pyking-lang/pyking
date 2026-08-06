@@ -254,6 +254,15 @@ def _bind(name, scope):
     return js_name, Scope({**scope.names, name: js_name}, scope.block | {name})
 
 
+# The builtins this backend has no translation for. `print` is the one
+# that does have one, through `runtime_interface`; these three would need
+# a Pyking list type and a `str` whose output matches every other
+# target's, neither of which exists here yet. Listed rather than inferred
+# so that adding a builtin to `analyses.BUILTINS` without translating it
+# fails loudly here rather than at the user's runtime.
+UNSUPPORTED_BUILTINS = ("str", "range", "len")
+
+
 # --- translation: Pyking AST (syntax.py) -> JavaScript AST ---
 
 _BINARY_OPS = {
@@ -318,6 +327,19 @@ def translate_expr(e, scope):
             return JsRuntimeCall(
                 info, name, [translate_expr(a, scope) for a in args]
             )
+        case ECall(info, EVar(_, name), _) if (
+            name in UNSUPPORTED_BUILTINS and _lookup(name, scope) == name
+        ):
+            # `str`, `range` and `len` are Pyking builtins with no
+            # JavaScript spelling: `String(x)` is not Pyking's `str`, and
+            # a Pyking list is not a JavaScript array here. Emitting the
+            # call would produce a file that loads and then dies with
+            # `str is not defined` at the moment it runs -- so it is
+            # refused at compile time with a position, the way every
+            # other construct outside this subset is. A program that
+            # binds one of these names itself is naming its own function,
+            # and passes through.
+            _unsupported(e, f"the builtin `{name}` is not supported yet")
         case ECall(info, func, args):
             return JsCall(
                 info,

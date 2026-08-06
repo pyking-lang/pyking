@@ -5,6 +5,21 @@ compiled, executed, and its output compared against the sibling `.out`
 file. The same `.out` serves every target -- that is the point of the
 exercise: a Pyking program means one thing, whichever backend ran it.
 
+Two kinds of expected output, and the distinction is worth keeping
+straight:
+
+  <name>.out       what the program *prints* when it runs. Every backend
+                   is compared against this one file.
+  <name>.ast.out   what `--typecheck --ast` prints for it: the program
+                   pretty-printed with the types the checker inferred,
+                   or -- for a `fail_typecheck_*` program -- the error it
+                   was written to provoke. Only the `typecheck` target
+                   reads this.
+
+A `typecheck_*` program therefore has *both*: its types are pinned by the
+`.ast.out`, and it still runs on the backends like any other program, so
+the two halves cannot drift apart.
+
 How each target is executed:
 
   python  compile to a temp .py, run it with python3, compare stdout.
@@ -40,20 +55,30 @@ PYKBOOT = os.path.join("src", "pykboot.py")
 CASES_FILE = os.path.join("tests", "test_cases.toml")
 # The `typecheck` target is not a backend: it compiles nothing and runs
 # nothing. It type-checks a program and compares the *printed AST*
-# against the `.out` file, which is how a `typecheck_*.pyk` test pins
+# against the `.ast.out` file, which is how a `typecheck_*.pyk` test pins
 # down the types the checker infers. See `run_typecheck` below.
 TYPECHECK_TARGET = "typecheck"
-# A `typecheck_*` program must type-check, and its `.out` holds the
-# printed AST. A `fail_typecheck_*` one must *not*, and its `.out` holds
-# the error message instead -- so the two prefixes together pin down both
-# halves of the checker: what it infers, and what it rejects and how it
-# says so.
+# A `typecheck_*` program must type-check, and its `.ast.out` holds the
+# printed AST; it lists real backends too, so the program it describes is
+# one that actually runs. A `fail_typecheck_*` one must *not* check, and
+# its `.ast.out` holds the error message instead -- and it is checked and
+# nothing more, since a program written to be refused is not one to run.
 TYPECHECK_PREFIX = "typecheck_"
 FAIL_TYPECHECK_PREFIX = "fail_typecheck_"
+# What the `typecheck` target compares against, beside the `.out` every
+# backend shares.
+AST_SUFFIX = ".ast.out"
 
 
 def is_typecheck_file(name):
     return name.startswith((TYPECHECK_PREFIX, FAIL_TYPECHECK_PREFIX))
+
+
+def expected_path(source, target):
+    """The file holding what this target should produce: the printed AST
+    for `typecheck`, the program's own output for every backend."""
+    stem = os.path.splitext(source)[0]
+    return stem + (AST_SUFFIX if target == TYPECHECK_TARGET else ".out")
 
 TARGETS = (
     "python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17",
@@ -86,6 +111,21 @@ SCRIPT_RE = re.compile(r'<script type="module">\n(.*?)\n</script>', re.S)
 
 def run(cmd):
     return subprocess.run(cmd, capture_output=True, text=True)
+
+
+def executed(result):
+    """The output of a program that ran, as `(stdout, error)`.
+
+    A program that dies part-way still has whatever it printed first on
+    stdout, so comparing that alone would call a crash a pass as long as
+    the surviving prefix matched. The exit status is the difference, and
+    every runner goes through here so that none of them forgets it."""
+    if result.returncode != 0:
+        return None, (
+            f"the program exited with status {result.returncode}\n"
+            f"{result.stderr}"
+        )
+    return result.stdout, None
 
 
 def compile_to(source, target, output):
@@ -138,7 +178,7 @@ def run_python(source, workdir):
             "with no `def` inside a loop -- ordinary programs must compile to "
             "ordinary Python"
         )
-    return run([sys.executable, generated]).stdout, None
+    return executed(run([sys.executable, generated]))
 
 
 def run_nodejs(source, workdir):
@@ -146,7 +186,7 @@ def run_nodejs(source, workdir):
     compiled = compile_to(source, "nodejs", generated)
     if compiled.returncode != 0:
         return None, compiled.stderr
-    return run(["node", generated]).stdout, None
+    return executed(run(["node", generated]))
 
 
 def run_esm(source, workdir):
@@ -159,7 +199,7 @@ def run_esm(source, workdir):
     compiled = compile_to(source, "esm", module)
     if compiled.returncode != 0:
         return None, compiled.stderr
-    return run(["node", os.path.join(workdir, "program.node.js")]).stdout, None
+    return executed(run(["node", os.path.join(workdir, "program.node.js")]))
 
 
 def run_html(source, workdir):
@@ -186,10 +226,7 @@ def run_html(source, workdir):
     harness = os.path.join(workdir, "program.page.mjs")
     with open(harness, "w") as f:
         f.write(DOM_STUB + script.group(1) + DOM_FLUSH)
-    executed = run(["node", harness])
-    if executed.returncode != 0:
-        return None, executed.stderr
-    return executed.stdout, None
+    return executed(run(["node", harness]))
 
 
 def run_c(source, workdir, standard):
@@ -205,7 +242,7 @@ def run_c(source, workdir, standard):
     built = run([C_COMPILER, f"-std={standard}", "-pedantic", "-o", binary, generated])
     if built.returncode != 0:
         return None, built.stderr
-    return run([binary]).stdout, None
+    return executed(run([binary]))
 
 
 def run_java(source, workdir, version):
@@ -222,7 +259,7 @@ def run_java(source, workdir, version):
     built = run([JAVA_COMPILER, "--release", release, "-d", workdir, generated])
     if built.returncode != 0:
         return None, built.stderr
-    return run([JAVA_RUNTIME, "-cp", workdir, "Program"]).stdout, None
+    return executed(run([JAVA_RUNTIME, "-cp", workdir, "Program"]))
 
 
 def run_typecheck(source, workdir):
@@ -230,7 +267,9 @@ def run_typecheck(source, workdir):
 
     For a `typecheck_*` program the result is its pretty-printed AST:
     the checker writes the types it inferred into it (`x: Int = 1`), so
-    printing it is what the `.out` records, and any error is a failure.
+    printing it is what the `.ast.out` records, and any error is a
+    failure. The same program's `.out` records what it *prints*, checked
+    by the backends it lists.
 
     For a `fail_typecheck_*` program it is the other way round -- the
     checker is *expected* to reject it, so the error message becomes the
@@ -274,26 +313,48 @@ def load_cases():
         print(f"WARNING: tests/{missing} is not listed in {CASES_FILE}")
     for missing in sorted(listed - on_disk):
         print(f"WARNING: {CASES_FILE} lists {missing}, which does not exist")
-    # A `typecheck_*` program is checked, never run, so its `.out` holds a
-    # printed AST rather than a program's output -- listing it against a
-    # real backend would compare those two unrelated things. The naming
-    # convention and the manifest have to agree about which files those
-    # are, so neither can drift silently.
+    # The naming convention and the manifest have to agree about which
+    # programs have their types pinned, and about which of those are also
+    # run, so that neither can drift silently.
     for case in cases:
-        typecheck_file = is_typecheck_file(case["file"])
-        uses_typecheck = TYPECHECK_TARGET in case["targets"]
-        if typecheck_file and case["targets"] != [TYPECHECK_TARGET]:
+        name = case["file"]
+        targets = case["targets"]
+        checks = name.startswith(TYPECHECK_PREFIX)
+        fails = name.startswith(FAIL_TYPECHECK_PREFIX)
+        uses_typecheck = TYPECHECK_TARGET in targets
+
+        if (checks or fails) and not uses_typecheck:
             print(
-                f"WARNING: {case['file']} is named {TYPECHECK_PREFIX}* or "
-                f"{FAIL_TYPECHECK_PREFIX}* so it must list exactly "
-                f"targets = [\"{TYPECHECK_TARGET}\"]"
+                f"WARNING: {name} is named {TYPECHECK_PREFIX}* or "
+                f"{FAIL_TYPECHECK_PREFIX}* but does not list the "
+                f"{TYPECHECK_TARGET} target"
             )
-        if uses_typecheck and not typecheck_file:
+        if uses_typecheck and not (checks or fails):
             print(
-                f"WARNING: {case['file']} uses the {TYPECHECK_TARGET} target "
+                f"WARNING: {name} uses the {TYPECHECK_TARGET} target "
                 f"but is named neither {TYPECHECK_PREFIX}* nor "
                 f"{FAIL_TYPECHECK_PREFIX}*"
             )
+        # A program whose types are pinned must also be a program that
+        # runs: `python` compiles the whole language, so a
+        # `typecheck_*` file that does not list it is describing
+        # something nothing ever executes.
+        if checks and "python" not in targets:
+            print(
+                f"WARNING: {name} pins its types but lists no backend; add "
+                f'"python" so the program it describes is one that runs'
+            )
+        # A `fail_typecheck_*` program is written to be refused, so there
+        # is nothing to run and no `.out` to compare.
+        if fails and targets != [TYPECHECK_TARGET]:
+            print(
+                f"WARNING: {name} is named {FAIL_TYPECHECK_PREFIX}* so it "
+                f'must list exactly targets = ["{TYPECHECK_TARGET}"]'
+            )
+        for target in targets:
+            path = expected_path(os.path.join("tests", name), target)
+            if not os.path.exists(path):
+                print(f"WARNING: {name} lists {target} but {path} is missing")
     return cases
 
 
@@ -307,8 +368,7 @@ def main():
             if target not in case["targets"]:
                 continue
             source = os.path.join("tests", case["file"])
-            expected_path = os.path.splitext(source)[0] + ".out"
-            with open(expected_path) as f:
+            with open(expected_path(source, target)) as f:
                 expected = f.read()
 
             with tempfile.TemporaryDirectory() as workdir:
