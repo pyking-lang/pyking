@@ -316,6 +316,81 @@ implement. The choice (fixed 64-bit with defined overflow, or arbitrary
 precision with a bignum runtime) belongs in PYKING.md before phase 2
 starts, not in whichever module happens to be written first.
 
+### 4.7 Stack, depth and long runs
+
+Putting Pyking's call stack in the machine's own data structure rather
+than on the host's is what makes long runs safe: `step` is driven from a
+flat `while` loop, so host stack depth is constant however deep the
+Pyking program goes. Two consequences worth stating outright.
+
+**Long runs are not the risk; depth is.** A loop of ten million turns
+pushes and pops the same continuation and accumulates nothing. Only
+recursion costs anything, and it costs heap, not C stack.
+
+**The interpreter can recurse deeper than the compiled targets.**
+Compiling to Python makes a Pyking recursion consume Python's own
+recursion limit (1000 by default); C and Java have their own stack
+limits. A 50 000-deep recursion would therefore run interpreted and die
+compiled — a target difference of the same kind as `Int` above, to be
+written down rather than discovered.
+
+Four ways a stack problem can still appear, and what each requires:
+
+1. **Accidental host recursion inside the machine.** The loop is flat,
+   but the helpers around it are tempting to write recursively. The
+   call-free-expression fast path (§4.4) is safe, because its depth is
+   bounded by *source* nesting; anything that walks **runtime data** is
+   not. `var v = []` followed by `v := [v]` in a loop nests a list one
+   deeper per turn, so a recursive `format_value`, structural equality,
+   or the debugger's variable expansion would blow the host stack on it
+   — CPython's own list `repr` fails the same way. Rule: every value
+   walk is iterative or depth-capped.
+
+2. **Continuation growth per iteration** — the classic machine bug, and
+   the easiest to write by accident. If a block of *n* statements pushes
+   *n* continuations, or a `while` pushes a frame per turn that is only
+   popped at loop exit, the problem has simply moved to the heap and
+   memory grows with iteration count. Sequencing therefore uses an
+   **index into the statement list** ("resume this block at statement
+   4"), and a loop re-enters with the same continuation rather than
+   stacking a new one.
+
+3. **Runaway recursion becomes OOM instead of an error** — the one thing
+   a heap stack makes *worse*. Under CPython, infinite recursion gives a
+   quick `RecursionError`; on the heap it consumes memory until the
+   machine swaps, the OOM killer fires, or a browser tab dies. So the
+   machine carries an explicit **maximum call depth** (configurable,
+   defaulting to something like 10 000) and raises a proper Pyking error
+   with a span and a truncated stack trace when it is reached. In the
+   playground this is not a nicety: an unbounded heap stack inside a
+   worker takes the tab with it.
+
+4. **The front end's own recursion is unchanged.** `parser.py` is
+   recursive descent, and the analyses, the type checker and the
+   backends all walk the AST recursively, so pathologically nested
+   *source* already hits Python's limit today. The interpreter neither
+   improves nor worsens that, and should not be assumed to.
+
+**Tail calls: an option, deliberately not taken at first.** Pyking
+already defines tail position as a language concept, so reusing a frame
+for a tail call — constant-space tail recursion — is natural in a
+machine. Two reasons to leave it out of the first version: it removes
+frames from the stack trace, so DAP and error messages show a gap that
+has to be marked explicitly; and it widens the interpreted-versus-
+compiled divergence, since a program that only terminates *with* tail
+calls would run interpreted and fail on every other target. With a heap
+stack, tail calls are not needed for depth — only for constant space —
+so this can be added later, behind the same API, once the language
+decides whether it wants to promise it.
+
+Two invariants to test in the same phase as the machine, because both
+are silent until they are not:
+
+```
+loop of 100 000 turns   ->  continuation depth at turn 100 000 == at turn 1
+recursion past the cap  ->  a Pyking error with a stack trace, never an OOM
+```
+
 ---
 
 ## 5. The new front-end pass: `resolve.py`
@@ -778,6 +853,7 @@ possible at all.
 |---|---|
 | interpreter semantics | a new `interp` "target" in `tests/test_cases.toml`, run like `typecheck` is: no compilation, run the program under the interpreter, compare against the **same** `.out` as the other nine targets |
 | interpreter errors | `fail_interp_*.pyk` fixtures whose `.out` is the runtime error message, mirroring the `fail_typecheck_*` convention |
+| stack behaviour (§4.7) | a long loop asserting the continuation stack is the same depth at the end as at the start, and a runaway recursion asserting a clean depth-limit error rather than an OOM |
 | REPL | transcript files (`tests/repl/*.txt`) of input lines and expected output, replayed by a small script — same style as the rest of the suite |
 | debug session | scripted sessions: set breakpoints, step *n* times, assert on stack/variable snapshots, in plain Python data, with no protocol involved |
 | DAP | a recorded JSON conversation driven over pipes; assert the responses |
@@ -798,7 +874,7 @@ Each phase is independently useful and ends with the suite green.
 |---|---|---|---|
 | 0 | decide `Int` (§4.6); introduce the `Diagnostic` object and codes across the five error types | small | `PYKING.md`, `docs/architecture.md` |
 | 1 | `resolve.py`, wired into `analyze_program`, no behaviour change | small | `docs/architecture.md`, `CLAUDE.md` |
-| 2 | values, environments, machine, `interp.py`, `pyk run`, `interp` test target | the bulk of the work | `docs/interpreter.md` (new), `PYKING.md` (runtime errors), `docs/targets.md`, `CLAUDE.md` |
+| 2 | values, environments, machine, `interp.py`, `pyk run`, `interp` test target, the depth cap and the two stack invariants (§4.7) | the bulk of the work | `docs/interpreter.md` (new), `PYKING.md` (runtime errors, recursion depth), `docs/targets.md`, `CLAUDE.md` |
 | 3 | REPL and meta-commands | small | `docs/repl.md` (new), `README.md` |
 | 4 | `debugsession.py` + playground debugger UI | medium | `docs/debugging.md` (new), `tools/playground/README.md` |
 | 5 | DAP server + VS Code/Emacs/Neovim configs | medium | `docs/debugging.md`, `tools/editors/` |
@@ -826,6 +902,9 @@ at the two cores.
 | Self-hosting drift | no generators, no metaclasses, no `sys.settrace`; one dataclass per variant and `match`, as everywhere else in `src/` |
 | Python's runtime leaking into the semantics (arbitrary-precision `Int`, host GC, host exceptions) | §4.5's rules, and deciding `Int` before phase 2 |
 | An editor experience that collapses on a syntax error | parser recovery in phase 5b, before the LSP server |
+| A heap call stack turning runaway recursion into an OOM (a browser tab, worst case) | an explicit depth cap raising a Pyking error, tested (§4.7) |
+| A construct that grows the continuation stack once per loop iteration | index-based sequencing, plus the long-loop invariant test (§4.7) |
+| Deep recursion working interpreted and failing compiled | documented as a target difference alongside `Int`, next to the other rows in `docs/targets.md` |
 
 ---
 
@@ -857,3 +936,9 @@ at the two cores.
     that an editor keeps working on a file being typed (§5b).
 11. **`Int` is decided before the interpreter is written** (§4.6),
     because the interpreter becomes the reference for it.
+12. **A depth cap raises a Pyking error; it never runs out of memory**
+    (§4.7). Machine state lives on the heap, so the limit has to be
+    explicit rather than inherited from the host.
+13. **No tail-call elimination in the first version** (§4.7): it costs
+    stack frames the debugger wants and widens the gap between
+    interpreted and compiled behaviour. Addable later, unchanged API.
