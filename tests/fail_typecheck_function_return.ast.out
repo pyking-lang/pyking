@@ -1,0 +1,2 @@
+'tests/fail_typecheck_function_return.pyk' 14:15-14:20 Type error:
+  this function returns Int, but this 'return' gives String

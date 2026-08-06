@@ -1,0 +1,2 @@
+'tests/fail_typecheck_call_argument.pyk' 14:17-14:22 Type error:
+  argument 1 has type String, but Int was expected

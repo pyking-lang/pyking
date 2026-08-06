@@ -1,0 +1,2 @@
+'tests/fail_typecheck_recursive_call.pyk' 15:14-15:24 Type error:
+  argument 1 has type String, but Int was expected
