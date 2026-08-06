@@ -56,3 +56,7 @@ compared = double(1) == 2
 # The parameters are in scope in the body and nowhere else, so this
 # top-level `n` is a different `n` from `double`'s -- and it is a String.
 n = 'not the parameter'
+
+
+print(four, eight, loud, kept, dropped)
+print(sum, message, compared, n)

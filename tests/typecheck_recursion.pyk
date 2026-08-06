@@ -76,3 +76,6 @@ word = spell(3)
 flag = is_even(4)
 told = describe(1)
 kind = parity(6)
+
+
+print(six, word, flag, told, kind)

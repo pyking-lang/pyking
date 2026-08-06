@@ -38,3 +38,5 @@ total: Int = if flag:
     step * 7
 else:
     0
+print(flag, same, never)
+print(best, greeting, grade, nested, d, total)

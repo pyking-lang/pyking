@@ -30,3 +30,4 @@ five: Int = apply(pick(true), 1)
 def guard(f:(Int) -> Bool, x:Int) -> Bool:
     return f(x)
 small: Bool = guard(is_small, 3)
+print(one, two, three, four, five, small)

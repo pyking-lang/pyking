@@ -20,3 +20,7 @@ i + 1
 greeting + '?'
 2 * 3 - 4
 annotated: Int = 7 + 1
+print(i, s, sum, greeting)
+print(difference, product, doubled, shifted)
+print(label, louder, mixed, grouped, deep)
+print(chain, words, value, after, annotated)

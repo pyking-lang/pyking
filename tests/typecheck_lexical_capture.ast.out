@@ -28,3 +28,4 @@ def uses_nested() -> Int:
         5
     outer()
 five: Int = uses_nested()
+print(label, count, one, two, three, five)

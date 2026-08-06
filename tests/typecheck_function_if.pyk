@@ -65,3 +65,7 @@ chosen = pick(true)
 said = pick_directly(false)
 described = describe(size)
 both = kind + said
+
+
+print(kind, bounded, size, chosen)
+print(said, described, both)

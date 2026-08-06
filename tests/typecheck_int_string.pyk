@@ -61,3 +61,11 @@ greeting + "?"
 
 # An annotation already written in the source is checked and kept.
 annotated: Int = 7 + 1
+
+
+# The types above are pinned by the `.ast.out` beside this file; printing
+# the values pins what they *are*, on every backend that runs it.
+print(i, s, sum, greeting)
+print(difference, product, doubled, shifted)
+print(label, louder, mixed, grouped, deep)
+print(chain, words, value, after, annotated)

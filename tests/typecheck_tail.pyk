@@ -88,3 +88,7 @@ picked = pick(true)
 inner = nested(11, true)
 folded = mixed(0 - 5)
 bounded = clamp(99, 10)
+
+
+print(four, nine, doubled, size)
+print(kind, picked, inner, folded, bounded)

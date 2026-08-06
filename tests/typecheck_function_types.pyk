@@ -69,3 +69,6 @@ def guard(f:(Int) -> Bool, x:Int) -> Bool:
     return f(x)
 
 small = guard(is_small, 3)
+
+
+print(one, two, three, four, five, small)
