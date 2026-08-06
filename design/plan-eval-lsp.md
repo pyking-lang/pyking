@@ -17,7 +17,8 @@ The short version:
   Pyodide, which the playground already runs.
 - **One new front-end pass** (name resolution), which serves the
   interpreter's speed, LSP's go-to-definition, and the debugger's
-  variable views at once.
+  variable views at once — folded into `analyses.py`, not a new module.
+- **Four new files in `src/`**, not nine (§3).
 
 ---
 
@@ -90,37 +91,85 @@ leaves; LSP and in-browser editor help likewise.
 
 ## 3. New modules
 
-In `src/` (the language implementation — subject to the eventual
-rewrite):
+`src/` holds twelve modules today, 86 to 2069 lines each. Nine more would
+nearly double the count and dilute the "one module per stage" story that
+makes it readable. **Four is enough**, because two of the pieces belong
+in modules that already exist.
 
-| module | holds |
-|---|---|
-| `values.py` | the runtime value ADT — `VInt`, `VString`, `VBool`, `VUnit`, `VList`, `VTuple`, `VClosure`, `VBuiltin` — one frozen dataclass per variant, plus `format_value` implementing `runtime_interface`'s rules |
-| `environ.py` | environment records, cells for `var`, the closure environment chain |
-| `resolve.py` | the new front-end pass (§5): every name occurrence → the binding it refers to, plus a scope tree |
-| `machine.py` | the machine: `State`, `Frame`, continuation objects, `step()`, `RuntimeError_` |
-| `interp.py` | the embedding API: `run(program, host)`, `run_to_completion`, `eval_in(frame, expr)` for REPL/DAP `evaluate` |
-| `host.py` | the `Host` protocol (`print`, and whatever `runtime_interface` grows), with a console host, a buffering host, and a callback host |
-| `debugsession.py` | breakpoints, stepping policy, stack and variable views — protocol-free |
-| `queries.py` | document analysis answers: diagnostics, hover, definition, references, completion, symbols, semantic tokens, inlay hints — protocol-free |
-| `repl.py` | the terminal REPL and its meta-commands |
+### Recommended: four new modules
 
-In `tools/` (things built *on* the language, not part of it):
+| module | holds | rough size |
+|---|---|---|
+| `interp.py` | the runtime value ADT (`VInt` … `VClosure`) with `format_value`, environment records and `var` cells, the machine (`State`, `Frame`, continuations, `step`), runtime errors, the embedding API (`run`, `run_to_completion`, `eval_in`), and the concrete hosts | ~1000 lines — half of `target_python.py` |
+| `debug.py` | the protocol-free session: breakpoints, stepping policy, the event stream, stack and variable views | ~350 |
+| `queries.py` | the protocol-free language service: diagnostics, hover, definition, references, completion, symbols, semantic tokens, inlay hints | ~500 |
+| `repl.py` | the terminal REPL and its meta-commands | ~250 |
 
-| directory | holds |
-|---|---|
-| `tools/lsp/` | the LSP server: JSON-RPC framing, capability negotiation, a thin mapping onto `queries.py` |
-| `tools/dap/` | the DAP server: same shape over `debugsession.py` |
-| `tools/vscode/` | the VS Code extension (TypeScript, thin) |
-| `tools/zed/` | the Zed extension (Rust → WASM, thin) |
-| `tools/editors/` | copy-paste configuration for Emacs, Neovim, Vim, Sublime, JetBrains, plus one page explaining the pattern |
+Three things deliberately get **no file of their own**:
 
-**Naming caution.** `src/` goes on `sys.path`, so a module named for a
-standard library one shadows it — this already bit the project once
-(`syntax.py` is not called `ast.py` for exactly this reason). Of the
-names above, avoid `types.py`, `code.py`, `token.py`, `builtins.py`;
-`values.py`, `environ.py`, `machine.py`, `interp.py`, `queries.py`,
-`resolve.py`, `repl.py` and `host.py` are clear.
+- **Name resolution goes into `analyses.py`.** It *is* an analysis, and
+  CLAUDE.md already says to keep new ones there as separate `analyze_*`
+  entry points. That module holds two passes already (`analyze_program`,
+  `symbolize`); resolution is the third, and it shares its walk with the
+  first rather than repeating it.
+- **The `Host` protocol goes into `runtime_interface.py`.** That module
+  already *names* the operations a host must provide and pins their
+  semantics; a base class with one method per operation is the same fact
+  in code rather than prose. The concrete hosts — console, buffering,
+  callback — are an embedding concern and live in `interp.py`, so the
+  module keeps its "no Python, no JavaScript" rule.
+- **`Diagnostic` goes beside `Info` in `lexer.py`**, which is already
+  where every module imports its source-position vocabulary from. If
+  that reads oddly, a 40-line `diagnostics.py` is a fifth file and no
+  great loss — but the precedent is there.
+
+The two service modules have to be in `src/` rather than under `tools/`:
+the playground ships `src/*.py` into Pyodide and nothing else, so
+anything the browser debugger or in-browser editor help needs must live
+there. The *servers* (`tools/lsp/`, `tools/dap/`) stay outside, being
+pure transport.
+
+### If `interp.py` grows too big: prefixed families, still flat
+
+The repository already has an answer for "modules that belong together":
+a shared prefix, not a directory — `target_js_core.py` and
+`target_js_packaging.py` beside `target_c.py` and `target_java.py`. The
+same idiom applies:
+
+```
+src/eval_values.py      values, environments, cells, formatting
+src/eval_machine.py     State, continuations, step, run
+src/ide_queries.py      language-service answers
+src/ide_debug.py        session, breakpoints, stepping, events
+src/repl.py             the terminal REPL
+```
+
+Five or six files instead of four, the grouping legible at a glance, and
+nothing changes about how modules are imported, built or shipped. Worth
+doing if `interp.py` passes roughly 1200 lines; not worth doing
+pre-emptively.
+
+### Why not subdirectories
+
+`src/eval/`, `src/services/` would be the conventional answer in most
+projects. Here it costs three specific things:
+
+1. **`src/` is deliberately not a package** — no `__init__.py`, no
+   relative imports; modules import each other flat because Python puts
+   `src/` on the path when `pykboot.py` runs. Subdirectories need either
+   per-directory `sys.path` surgery or real packages, and CLAUDE.md rules
+   the second out explicitly.
+2. **Pyking has no module system.** These files are to be replaced *in
+   place* by Pyking sources at the self-hosted rewrite, and a directory
+   hierarchy is not something the target language can express — it would
+   have to be flattened again.
+3. **The playground would need changing**: `compiler_modules()` is a flat
+   `glob("*.py")`, and the worker loads what it copies as top-level
+   modules inside Pyodide. Subdirectories mean touching the manifest, the
+   copy step and the import path.
+
+If Pyking ever grows modules, revisit — at that point the compiler's own
+layout should follow the language's.
 
 ---
 
@@ -620,9 +669,10 @@ interface; a third would only be needed for something they do not cover.
 
 ---
 
-## 9b. Where this differs from `design/eval-lsp1.md`, and why
+## 9b. Where this differs from the other design plan, and why
 
-That plan was written without access to this repository, and it converges
+The second plan (written for the same question, without access to this
+repository, and since merged away) converges
 on the same fundamentals: one shared core, a session model, a debuggable
 engine emitting events, thin JSON-RPC servers, editor plugins as
 launchers, and the rule that language semantics must never be
