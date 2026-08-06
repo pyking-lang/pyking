@@ -1111,7 +1111,11 @@ print(top(1))
 generated, and reported as a `Name error` against the offending source
 position. A handful of names are predefined and count as bound
 everywhere — `print`, `range`, `str` and `len` — since no Pyking program
-declares them; every other unbound name is an error. `print` produces no
+declares them; every other unbound name is an error. They are host
+*operations*, not values: each may be called, and using one as a value
+(`f = print`) is an error. `range(n)` yields a list of `Int`, which is
+what the language has — there is no lazy-sequence type — though
+iterating one with `for` need not build it. `print` produces no
 value: it yields unit, `()`, so it is meaningful as a statement and not
 as something to bind or return. Unit prints as `()` — the same in every
 backend, whatever the host language calls its own absence of a value.
@@ -1991,6 +1995,29 @@ Nothing is taken on faith: the declared type is what the body is checked
 *against*, and a body that does not honour it is refused. The same
 applies to nested functions, per block.
 
+**Builtins.** `print`, `range`, `str` and `len` are checked at the call,
+each by its own rule, because none of them is a function *value*: a
+builtin is a host operation (see "Names and scoping"), it has no type of
+its own, and it may be called and nothing else.
+
+| call | accepts | gives |
+|---|---|---|
+| `print(…)` | any number of arguments, of any type | `()` |
+| `str(x)` | one `Int`, `String` or `Bool` | `String` |
+| `len(x)` | one list or `String` | `Int` |
+| `range(n)` | one to three `Int`s | `[Int]` |
+
+```pyking
+count = len("hello")          # Int
+label = "n = " + str(count)   # String
+numbers = range(4)            # [Int]
+
+print(label, numbers, count)  # anything, any number of them
+```
+
+Using one as a value rather than calling it is an error — `shout = print`
+is refused — which is also what the C and Java backends do with `print`.
+
 Anything of function type may be called, not only a `def`'s own name, so
 a parameter annotated with a function type is callable inside the body
 and higher-order functions check like anything else:
@@ -2033,10 +2060,7 @@ loud = shout('hi')
 `match`, list and tuple literals, list comprehensions, `if` *expressions*
 (`if c then a else b`), `/`, unary minus, and a binding that destructures
 a tuple (`a, b = ...`) are all refused with `Construct is not supported`.
-So is any call to a builtin — `print` included: the builtins are in
-scope, but this checker has no type for a variadic `print` or a
-polymorphic `len`, and only a name known to have a function type can be
-called.
+A call to a builtin *is* checked — see below.
 
 **Functions that are not fully annotated.** A `def` with an unannotated
 parameter or no return type is refused, naming what is missing, rather

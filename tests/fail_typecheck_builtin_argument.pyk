@@ -1,0 +1,11 @@
+# A builtin applied to a type it does not accept.
+#
+# `len` measures a String or a list; an Int has no length. The error is
+# reported against the *argument*, since the builtin is fine and so is
+# the number -- it is the pair that has no meaning, the same reading the
+# operator errors take.
+#
+# This program is expected to FAIL type checking. Its `.out` holds the
+# error message, not a program's output.
+
+size = len(42)

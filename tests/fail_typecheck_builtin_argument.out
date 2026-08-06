@@ -1,0 +1,2 @@
+'tests/fail_typecheck_builtin_argument.pyk' 11:11-11:13 Type error:
+  'len' cannot be applied to Int; it accepts a list or a String

@@ -443,6 +443,24 @@ Being in scope is not the same as having run: a call that executes before
 its `def` raises `NameError`/`UnboundLocalError`, which is Pyking's rule
 as much as Python's (see PYKING.md, "Names and scoping").
 
+### `range`
+
+Pyking's `range` yields a **list** of `Int` — the language has lists and
+no lazy-sequence type, and the type checker says so. Python's own
+`range` is a lazy object that prints as `range(0, 2)` and matches no list
+pattern, so a range used as a *value* is materialised:
+
+```pyking                          # generated Python
+xs = range(2)                      xs = list(range(2))
+print(xs)                          print(xs)          → [0, 1]
+
+for i in range(3):                 for i in range(3):     ← still lazy
+    print(i)                           print(i)
+```
+
+The `for` header keeps the lazy form, which is where building the list
+would actually cost something.
+
 ### Type annotations
 
 Parsed, stored, pretty-printed back by `--ast`, and erased here —

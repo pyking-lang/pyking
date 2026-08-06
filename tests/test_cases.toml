@@ -53,6 +53,18 @@ file = "fail_typecheck_binding_after_def.pyk"
 targets = ["typecheck"]
 
 [[cases]]
+file = "fail_typecheck_builtin_argument.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_builtin_arity.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_builtin_value.pyk"
+targets = ["typecheck"]
+
+[[cases]]
 file = "fail_typecheck_call_argument.pyk"
 targets = ["typecheck"]
 
@@ -315,6 +327,10 @@ targets = ["python"]
 [[cases]]
 file = "tuples_match_destructure.pyk"
 targets = ["python"]
+
+[[cases]]
+file = "typecheck_builtins.pyk"
+targets = ["typecheck"]
 
 [[cases]]
 file = "typecheck_function_if.pyk"

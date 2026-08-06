@@ -1,0 +1,48 @@
+# The four builtins, type-checked.
+#
+# `print`, `range`, `str` and `len` are in scope in every program, and
+# none of them has a type the checker could write down: `print` takes any
+# number of arguments of any type, and a function type is one fixed list
+# of parameters. They are not values either -- `runtime_interface.py`
+# calls `print` an *operation*, and the C and Java backends refuse it as
+# a value -- so they are checked at the call and refused anywhere else.
+#
+# This file is never run by the harness, but unlike the other
+# `typecheck_*` fixtures it *is* a runnable program: before builtins were
+# checked, a program that printed anything could not be type-checked at
+# all.
+
+# `print` takes anything, and yields unit.
+print("plain")
+print(1, "two", true)
+print()
+
+# `str` turns a scalar into a String; `len` measures a String or a list;
+# `range` builds a list of Int.
+digits = str(42)
+label = "n = " + str(7)
+size = len("hello")
+numbers = range(4)
+counted = len(range(4))
+
+# The results are ordinary values of ordinary types, so they compose with
+# everything else the checker knows.
+total = size + counted
+same = str(1) == "1"
+long_enough = len("abc") > 2
+
+# A builtin call is an argument like any other.
+print(str(size), len("xyz"), range(2))
+
+# And the values a program computes for itself print just as well.
+def describe(n:Int) -> String:
+    "value " + str(n)
+
+print(describe(total), describe(counted))
+
+# A function returning unit prints as `()`, which is the formatting rule
+# `runtime_interface.py` pins down for every backend.
+def nothing(n:Int) -> ():
+    ignored = n
+
+print(nothing(1))

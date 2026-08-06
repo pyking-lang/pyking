@@ -844,6 +844,28 @@ def _loop_scope(scope):
     return replace(block, loop_names=frozenset(scope.loop_names or ()))
 
 
+def _is_bound(name, scope):
+    """Whether the program itself binds this name, rather than it being
+    one of the builtins that pass through untouched."""
+    return name in scope.local or name in scope.outer
+
+
+def _is_builtin_range(e, scope):
+    match e:
+        case ECall(_, EVar(_, "range"), _):
+            return not _is_bound("range", scope)
+    return False
+
+
+def _lazy_range(call, scope):
+    """`range(n)` as Python's own lazy range, for a `for` header."""
+    return PyCall(
+        call.info,
+        PyVar(call.info, "range"),
+        [translate_expr(a, scope) for a in call.args],
+    )
+
+
 def _lookup(name, scope):
     """The Python name a Pyking name reads as. A name bound nowhere is a
     builtin (`print`, `len`, ...) and passes through unchanged -- the
@@ -1121,6 +1143,26 @@ def translate_expr(e, scope):
                 info,
                 PyVar(info, name),
                 [_wrap_print_argument(a, translate_expr(a, scope), info) for a in args],
+            )
+        case ECall(info, EVar(_, "range"), args) if not _is_bound("range", scope):
+            # Pyking's `range` yields a *list* of Int -- the language has
+            # lists and no lazy-sequence type, and the type checker says
+            # so (`check_builtin_call` in `src/typesystem.py`). Python's
+            # own `range` is a lazy object instead, which prints as
+            # `range(0, 2)` and matches no list pattern, so a range used
+            # as a value is materialised. The `for` header keeps the lazy
+            # form (see `SFor` in `translate_stmt`), which is where the
+            # difference would cost something.
+            return PyCall(
+                info,
+                PyVar(info, "list"),
+                [
+                    PyCall(
+                        info,
+                        PyVar(info, "range"),
+                        [translate_expr(a, scope) for a in args],
+                    )
+                ],
             )
         case ECall(info, f, args):
             return PyCall(
@@ -1459,7 +1501,14 @@ def translate_stmt(s, scope):
             return PyExprStmt(info, translate_expr(expr, scope)), scope
 
         case SFor(info, name, iterable, body):
-            py_iterable = translate_expr(iterable, scope)
+            # `for i in range(n)` iterates lazily, as Python's own does:
+            # only a range used as a *value* is materialised into the list
+            # its type says it is (see `translate_expr`).
+            py_iterable = (
+                _lazy_range(iterable, scope)
+                if _is_builtin_range(iterable, scope)
+                else translate_expr(iterable, scope)
+            )
             # The loop variable belongs to the body's scope, and Python's
             # `for` target is function-scoped, so it renames like anything
             # else when it shadows.

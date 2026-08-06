@@ -1,0 +1,18 @@
+print('plain')
+print(1, 'two', true)
+print()
+digits: String = str(42)
+label: String = 'n = ' + str(7)
+size: Int = len('hello')
+numbers: [Int] = range(4)
+counted: Int = len(range(4))
+total: Int = size + counted
+same: Bool = str(1) == '1'
+long_enough: Bool = len('abc') > 2
+print(str(size), len('xyz'), range(2))
+def describe(n:Int) -> String:
+    'value ' + str(n)
+print(describe(total), describe(counted))
+def nothing(n:Int) -> ():
+    ignored: Int = n
+print(nothing(1))

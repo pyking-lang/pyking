@@ -156,6 +156,8 @@ supplies unit whatever its one branch ends in, because there is a way
 through it that runs no branch at all.
 """
 
+from dataclasses import dataclass
+
 from analyses import AnalysisError, BUILTINS, block_functions
 from lexer import Info
 from syntax import (
@@ -222,6 +224,36 @@ class TypeError_(Exception):
         self.message = message
 
 
+# ---------------------------------------------------------------------
+# What a builtin is to the checker
+#
+# `print`, `range`, `str` and `len` are in scope in every program
+# (`analyses.BUILTINS`), and not one of them has a type this checker can
+# write down: `print` takes any number of arguments of any type, `str`
+# and `len` accept more than one, and a `TFunction` is one fixed list of
+# parameters and one result.
+#
+# They are not values either. `runtime_interface.py` calls `print` an
+# *operation* rather than a function, the C and Java backends refuse it
+# as a value, and nothing in the language passes a builtin around. So a
+# builtin is checked where it is used -- at the call, by
+# `check_builtin_call` -- and refused anywhere else. That keeps
+# `TFunction` honest about what it can say, and it matches what the
+# backends already do.
+#
+# `env` therefore maps a name to one of three things:
+#
+#     Type       an ordinary name, of that type
+#     Builtin    one of the four operations; callable, never a value
+#     None       in scope with no type here (a `def` missing annotations)
+
+
+@dataclass(frozen=True)
+class Builtin:
+    """A name that denotes a host operation rather than a value."""
+    name: str
+
+
 UNSUPPORTED = "Construct is not supported"
 
 
@@ -246,11 +278,10 @@ def type_check(stmts):
     type is discarded: nothing is waiting for a program's value the way a
     branch's caller waits for a branch's. Its environment starts with the
     builtins in scope -- `analyses.BUILTINS`, the same list, so the two
-    passes cannot disagree about what a program may name -- but with no
-    type for any of them, since this checker cannot yet describe a
-    variadic `print` or a polymorphic `len`."""
+    passes cannot disagree about what a program may name -- each bound to
+    a `Builtin`, which is checked at the call rather than given a type."""
     tmap = {}
-    env = {name: None for name in BUILTINS}
+    env = {name: Builtin(name) for name in BUILTINS}
     check_stmts(stmts, env, tmap, None)
     return tmap
 
@@ -467,6 +498,12 @@ def check_expr(expr, env, tmap):
             if name not in env:
                 raise AnalysisError(info, f"unbound name '{name}'")
             type_ = env[name]
+            if isinstance(type_, Builtin):
+                raise TypeError_(
+                    info,
+                    f"'{name}' is a builtin operation: it can be called, but "
+                    f"not used as a value",
+                )
             if type_ is None:
                 # In scope, but with no type here: a builtin, or the
                 # function whose own body this is (which is how recursion
@@ -579,7 +616,11 @@ def check_call(call, env, tmap):
     """The type of a call: its function's result, once the arguments
     have been checked against that function's parameters. Anything of
     function type may be called, so a parameter annotated `(Int) -> Int`
-    is as callable as a `def`'s own name."""
+    is as callable as a `def`'s own name -- and so is a builtin, which is
+    the one callable thing with no type of its own."""
+    match call.func:
+        case EVar(_, name, _) if isinstance(env.get(name), Builtin):
+            return check_builtin_call(name, call, env, tmap)
     func_type = check_expr(call.func, env, tmap)
     if not isinstance(func_type, TFunction):
         raise TypeError_(
@@ -603,6 +644,80 @@ def check_call(call, env, tmap):
                 f"{pprint_type(expected)} was expected",
             )
     return func_type.result
+
+
+def check_builtin_call(name, call, env, tmap):
+    """A call to one of the four host operations.
+
+    Their signatures live here rather than in `env` because none of them
+    fits a `TFunction` (see the note beside `Builtin`), and because that
+    is the only position a builtin may appear in. Each argument is
+    checked like any other expression first; what differs is what the
+    operation accepts and what it gives back:
+
+        print(...)   any number of arguments, of any type   -> ()
+        str(x)       one Int, String or Bool                -> String
+        len(x)       one [T] or String                      -> Int
+        range(n)     one to three Ints                      -> [Int]
+
+    `print` accepting anything is `runtime_interface.py`'s rule, not a
+    shortcut: it pins how every type is formatted, unit included.
+    `range`'s arity is the one thing here the language reference does
+    not pin down -- the backends inherit Python's `range` -- so all
+    three forms are accepted rather than guessed at."""
+    args = [check_expr(argument, env, tmap) for argument in call.args]
+
+    match name:
+        case "print":
+            return unit(call.info)
+
+        case "str":
+            check_builtin_arity(name, call, 1, 1)
+            if not isinstance(args[0], (TInt, TString, TBool)):
+                raise builtin_argument_error(
+                    name, call.args[0], args[0], "Int, String or Bool"
+                )
+            return TString(call.info)
+
+        case "len":
+            check_builtin_arity(name, call, 1, 1)
+            if not isinstance(args[0], (TList, TString)):
+                raise builtin_argument_error(
+                    name, call.args[0], args[0], "a list or a String"
+                )
+            return TInt(call.info)
+
+        case "range":
+            check_builtin_arity(name, call, 1, 3)
+            for argument, actual in zip(call.args, args):
+                if not isinstance(actual, TInt):
+                    raise builtin_argument_error(name, argument, actual, "Int")
+            return TList(call.info, TInt(call.info))
+
+    # Unreachable while `BUILTINS` and the cases above agree; a new
+    # builtin without a signature here should say so rather than be
+    # quietly accepted.
+    unsupported(call)
+
+
+def check_builtin_arity(name, call, low, high):
+    given = len(call.args)
+    if low <= given <= high:
+        return
+    expected = f"{low}" if low == high else f"{low} to {high}"
+    raise TypeError_(
+        call.info,
+        f"'{name}' takes {expected} argument{'' if high == 1 else 's'}, but "
+        f"{given} {'was' if given == 1 else 'were'} given",
+    )
+
+
+def builtin_argument_error(name, argument, actual, accepted):
+    return TypeError_(
+        argument.info,
+        f"'{name}' cannot be applied to {pprint_type(actual)}; it accepts "
+        f"{accepted}",
+    )
 
 
 # --- operators -------------------------------------------------------

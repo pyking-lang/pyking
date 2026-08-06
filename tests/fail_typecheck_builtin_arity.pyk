@@ -1,0 +1,10 @@
+# A builtin called with the wrong number of arguments.
+#
+# `print` takes any number, but the other three do not: `str` turns one
+# value into a String. Their arities are checked at the call, which is
+# the only place a builtin may appear.
+#
+# This program is expected to FAIL type checking. Its `.out` holds the
+# error message, not a program's output.
+
+text = str(1, 2)

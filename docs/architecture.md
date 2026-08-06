@@ -249,9 +249,19 @@ the start. A name that is not found raises `analyses.py`'s own
 error` whichever pass caught it.
 
 `Env` maps to `Type?` rather than `Type` for exactly this reason: a name
-can be in scope with no type the checker knows — a builtin, or a `def`
-that is not fully annotated. Using one is `Construct is not supported`;
-the name is bound, it is the type that is missing.
+can be in scope with no type the checker knows — a `def` that is not
+fully annotated. Using one is `Construct is not supported`; the name is
+bound, it is the type that is missing.
+
+The builtins are the third case. `print`, `range`, `str` and `len` are
+bound to a `Builtin` rather than a type, because none of them fits a
+`TFunction` — `print` takes any number of arguments of any type — and
+because they are not values: `runtime_interface.py` calls them
+operations, and the C and Java backends already refuse `print` as one.
+`check_builtin_call` gives each its own rule at the call site, and using
+one anywhere else is an error. `range` is typed `[Int]`, which is why
+`target_python.py` materialises a range used as a value while leaving a
+`for` header lazy.
 
 Every `def` in a block is declared before any of that block is checked
 (`declare_functions`), which is the whole of recursion, mutual recursion
@@ -280,7 +290,8 @@ statements (in both the ordinary and the value form), and fully
 annotated function definitions, over `Int`, `String` and `Bool`: `+`
 (overloaded: `Int + Int -> Int` and `String + String -> String`), `-`
 and `*` on `Int`, `<`/`<=`/`>`/`>=` on `Int` giving `Bool`, `==` on two
-values of one type giving `Bool`, and calls of a function-typed name.
+values of one type giving `Bool`, calls of a function-typed name, and
+calls of the four builtins.
 
 A binding takes its right-hand side's type, and an annotation it wrote
 is checked against that rather than replaced by it — `f: (Int, String)

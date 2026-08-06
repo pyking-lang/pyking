@@ -282,9 +282,14 @@ The bootstrap is split into one module per compiler stage:
    (imported, not re-listed) in scope from the start. An unbound name
    raises `analyses.AnalysisError`, in its words, so the message does not
    depend on which pass ran. The value type is `Type?`: `None` means "in
-   scope, no type here" — a builtin, or the function whose body is being
-   checked, which is how recursion is refused — and using one is
-   `Construct is not supported`, not "unbound". The one rule still only
+   scope, no type here" — a `def` that is not fully annotated — and using
+   one is `Construct is not supported`, not "unbound". A builtin is a
+   third case: `env` maps `print`/`range`/`str`/`len` to a `Builtin`,
+   checked at the call by `check_builtin_call` and refused as a value,
+   because none of them fits a `TFunction` (a variadic `print` is not a
+   `(T) -> ()`) and `runtime_interface.py` calls them operations rather
+   than functions. A new builtin needs a case there as well as an entry
+   in `analyses.BUILTINS`. The one rule still only
    in `analyses.py` is that a `var` may not be shadowed; this checker
    refuses `var` outright, so there is nothing here for it to protect
    yet. That is the last gap before the analysis can be deleted. `TMap` is
@@ -581,15 +586,40 @@ what it rejects and how it says so. The naming convention and the
 manifest have to agree — a file with either prefix must list exactly
 `targets = ["typecheck"]`, and no other file may use that target — and
 the harness warns when they drift apart. Such a program may call its own
-fully annotated functions but no builtin, `print` included: only a name
-the checker knows to have a function type can be called, and no builtin
-has one.
+fully annotated functions and the four builtins (`check_builtin_call` in
+`typesystem.py`), so a `typecheck_*` fixture can print — see
+`tests/typecheck_builtins.pyk`, which is both a checked fixture and a
+runnable program.
 
 No third-party dependencies. Requires Python 3.11+ (`match`/`case`, and
 `tomllib` for the manifest). Running the generated code needs `node` for
 the JavaScript targets and a C compiler (`$CC`, default `cc`) for the C
 ones — neither is needed to *produce* it, so the compiler itself stays
 Python-only.
+
+## Where the project is going
+
+**`design/plan-eval-lsp.md`** is the plan for the next large piece of
+work: an interpreter (`pyk <file>` runs rather than compiles), a REPL
+(`pyk repl`), step debugging in the playground, and LSP and DAP servers
+with editor integration. Read it before adding anything in that
+direction — it settles several things by design rather than by accident:
+
+- the evaluator is a **resumable machine over the AST** in `src/`, not a
+  second compilation to Python and not (yet) a bytecode VM;
+- **one debug session core and one query core, both protocol-free**, so
+  DAP and the playground are two transports over one session, and LSP
+  and in-browser editor help are two transports over one query service;
+- the servers stay **Python reusing `src/`**, with thin per-editor shims,
+  because the browser already runs the compiler under Pyodide;
+- **four new modules in `src/`**, with name resolution folded into
+  `analyses.py` and the `Host` protocol into `runtime_interface.py`;
+- what the machine may assume about its host, so none of it blocks the
+  eventual self-hosted, machine-code Pyking.
+
+Two language questions it raises are still open and worth settling
+before that work starts: what `Int` is (Python's arbitrary precision
+against C's and Java's fixed width), and the maximum call depth.
 
 ## Repository housekeeping
 
