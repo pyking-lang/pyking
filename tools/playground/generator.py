@@ -53,6 +53,7 @@ sys.path.insert(0, str(SRC_DIR))
 import target_c                                          # noqa: E402
 import target_java                                       # noqa: E402
 import target_js_packaging                               # noqa: E402
+import target_ocaml                                     # noqa: E402
 
 # --- what we vendor -------------------------------------------------------
 
@@ -71,6 +72,7 @@ ACE_FILES = [
     "mode-c_cpp.js",
     "mode-java.js",
     "mode-html.js",
+    "mode-ocaml.js",
     "theme-tomorrow_night.js",
 ]
 
@@ -89,9 +91,9 @@ PYODIDE_FILES = [
 COMPILER_SKIP = {"pykboot.py"}
 
 # Which Ace mode highlights each target's output, and how (or whether) the
-# browser can execute it. `c89`/`c23`/`java*` are display-only: there is no
-# C compiler or JVM in a browser, which is a property of the target, not a
-# shortcoming of the playground.
+# browser can execute it. `c89`/`c23`/`java*`/`ocaml` are display-only:
+# there is no C compiler, JVM or OCaml runtime in a browser, which is a
+# property of the target, not a shortcoming of the playground.
 TARGET_MODE = {
     "ast": "text",
     "python": "python",
@@ -103,6 +105,7 @@ TARGET_MODE = {
     "java8": "java",
     "java17": "java",
     "java21": "java",
+    "ocaml": "ocaml",
 }
 TARGET_RUN = {
     "python": "python",   # executed by Pyodide
@@ -121,6 +124,7 @@ TARGET_LABEL = {
     "java8": "Java 8",
     "java17": "Java 17",
     "java21": "Java 21",
+    "ocaml": "OCaml",
 }
 
 
@@ -159,6 +163,7 @@ def target_order():
         + list(target_js_packaging.TARGETS)
         + list(target_c.STANDARDS)
         + list(target_java.VERSIONS)
+        + [target_ocaml.TARGET]
     )
     missing = [n for n in names if n not in TARGET_MODE]
     if missing:
@@ -210,6 +215,7 @@ import target_c
 import target_java
 import target_js_core
 import target_js_packaging
+import target_ocaml
 import typesystem
 from target_python import translate_program, pprint_py_program
 
@@ -314,11 +320,22 @@ def compile_source(text, target="python", name="playground.pyk",
             return done({
                 cls + ".java": target_java.pprint_java_program(j, target, cls, name)})
 
+        if target == target_ocaml.TARGET:
+            # This backend type-checks the program itself, whatever the
+            # page's own checkbox says, since it compiles what the checker
+            # accepts and reads its types back.
+            o = target_ocaml.translate_program(program)
+            return done({
+                stem + target_ocaml.EXTENSION:
+                    target_ocaml.pprint_ocaml_program(o, name)})
+
     except (target_js_core.UnsupportedError,
             target_c.UnsupportedError,
-            target_java.UnsupportedError) as e:
-        # Each backend raises its own UnsupportedError class; all three carry
-        # an Info, so all three underline in the editor like any other error.
+            target_java.UnsupportedError,
+            target_ocaml.UnsupportedError) as e:
+        # Each backend raises its own UnsupportedError class; all of them
+        # carry an Info, so all of them underline in the editor like any
+        # other error.
         return _fail(e, f"Unsupported by target '{target}'")
 
     return {"ok": False, "stage": "Usage error",
@@ -355,7 +372,8 @@ def run_python(code):
 TARGETS = (("ast", "python")
            + target_js_packaging.TARGETS
            + target_c.STANDARDS
-           + target_java.VERSIONS)
+           + target_java.VERSIONS
+           + (target_ocaml.TARGET,))
 '''
 
 

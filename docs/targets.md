@@ -19,6 +19,7 @@ For how the compiler is put together see
 | `java8` | [Java](target_java.md) | `Foo.java` | `javac --release 8 Foo.java && java Foo` | subset, minus `/` |
 | `java17` | [Java](target_java.md) | `Foo.java` | `javac --release 17 Foo.java && java Foo` | subset, minus `/` |
 | `java21` | [Java](target_java.md) | `Foo.java` | `javac --release 21 Foo.java && java Foo` | subset, minus `/` |
+| `ocaml` | [OCaml](target_ocaml.md) | `foo.ml` | `ocamlfind ocamlopt foo.ml -o foo && ./foo` | whatever type-checks |
 
 Select one with `--target <name>` or `-t <name>`; `python` is the default.
 With no `--output`, the compiler names the file after the source, with the
@@ -28,6 +29,7 @@ target's extension, in the current directory:
 pyk -t python  tests/hello.pyk   # ./hello.py
 pyk -t nodejs  tests/hello.pyk   # ./hello.js
 pyk -t c23     tests/hello.pyk   # ./hello.c
+pyk -t ocaml   tests/hello.pyk   # ./hello.ml
 ```
 
 (`-t python` is spelled out because it is the *default* target, not
@@ -60,6 +62,11 @@ always accept exactly the same programs:
 - **[Java](target_java.md)** — `java8`, `java17`, `java21`. One backend
   (`src/target_java.py`) with a `version` parameter, the same shape as
   the C family. They differ only in how the same Java is printed.
+- **[OCaml](target_ocaml.md)** — `ocaml`. One backend
+  (`src/target_ocaml.py`), and the only family with one member. Its
+  subset is not a list of constructs but a *stage*: it compiles exactly
+  what the type checker accepts, by running it and reading the types
+  back.
 
 ## The shared subset
 
@@ -67,31 +74,37 @@ The Python target compiles all of Pyking. The others implement a common
 subset, chosen so that the whole pipeline — translation, packaging,
 testing — could be built end to end before the language surface grew:
 
-| feature | python | javascript | c | java |
-|---|---|---|---|---|
-| `print` | ✅ | ✅ | ✅ | ✅ |
-| `def`, parameters, `return`, recursion | ✅ | ✅ | ✅ | ✅ |
-| forward references, mutual recursion | ✅ | ✅ | ✅ (prototypes emitted) | ✅ |
-| `def f(x) = expr` | ✅ | ✅ | ✅ | ✅ |
-| tail position (last statement is the value) | ✅ | ✅ | ✅ | ✅ |
-| `return if c:` / `return match e:` | ✅ | ✅ (`if` only) | ✅ (`if` only) | ✅ (`if` only) |
-| unit-returning functions (`void`) | ✅ | ✅ | ✅ | ✅ |
-| `if` / `else if` / `else`, `while` | ✅ | ✅ | ✅ | ✅ |
-| `=`, `var`, `:=` | ✅ | ✅ | ✅ | ✅ |
-| `if … then … else …` expressions | ✅ | ✅ | ✅ (branches must agree in type) | ✅ (branches must agree in type) |
-| integers, strings, booleans | ✅ | ✅ | ✅ | ✅ |
-| `+ - *`, unary minus, comparisons | ✅ | ✅ | ✅ | ✅ |
-| `/` | ✅ | ✅ (prints `6`, not `6.0`) | ❌ | ❌ |
-| type annotations | erased | erased | used, when they name `Int`/`String`/`Bool` | used, when they name `Int`/`String`/`Bool` |
-| functions as values (passing a `def`, calling a parameter) | ✅ | ✅ | ❌ (refused: a function used as a value, or a call to an unknown one) | ❌ (same) |
-| a function reading a binding from around it (a closure) | ✅ | ✅ | ❌ (no closures) | ❌ (no closures) |
-| lists, tuples, destructuring | ✅ | ❌ | ❌ | ❌ |
-| `for`, `match`/`case`, patterns | ✅ | ❌ | ❌ | ❌ |
-| list comprehensions | ✅ | ❌ | ❌ | ❌ |
-| value-form `x = if c:` / `x = match e:` | ✅ | ❌ | ❌ | ❌ |
-| `str`, `len`, `range` | ✅ | ❌ (refused at compile time) | ❌ | ❌ |
-| nested `def` | ✅ | ✅ | ❌ | ❌ |
-| function must provably return on every path | n/a | n/a | n/a | ✅ (`javac` requires it; refused at compile time otherwise) |
+| feature | python | javascript | c | java | ocaml |
+|---|---|---|---|---|---|
+| `print` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `def`, parameters, `return`, recursion | ✅ | ✅ | ✅ | ✅ | ✅ (annotations required) |
+| forward references, mutual recursion | ✅ | ✅ | ✅ (prototypes emitted) | ✅ | ✅ (`let rec … and …`; the `def`s must be adjacent) |
+| `def f(x) = expr` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| tail position (last statement is the value) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `return if c:` / `return match e:` | ✅ | ✅ (`if` only) | ✅ (`if` only) | ✅ (`if` only) | ✅ (`if` only) |
+| unit-returning functions (`void`) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `if` / `else if` / `else`, `while` | ✅ | ✅ | ✅ | ✅ | ✅ (`if` only) |
+| `=`, `var`, `:=` | ✅ | ✅ | ✅ | ✅ | ✅ (`=` only) |
+| `if … then … else …` expressions | ✅ | ✅ | ✅ (branches must agree in type) | ✅ (branches must agree in type) | ✅ (same) |
+| integers, strings, booleans | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `+ - *`, unary minus, comparisons | ✅ | ✅ | ✅ | ✅ | ✅ (no unary minus) |
+| `/` | ✅ | ✅ (prints `6`, not `6.0`) | ❌ | ❌ | ❌ |
+| type annotations | erased | erased | used, when they name `Int`/`String`/`Bool` | used, when they name `Int`/`String`/`Bool` | checked, then erased — the output has none |
+| functions as values (passing a `def`, calling a parameter) | ✅ | ✅ | ❌ (refused: a function used as a value, or a call to an unknown one) | ❌ (same) | ✅ |
+| a function reading a binding from around it (a closure) | ✅ | ✅ | ❌ (no closures) | ❌ (no closures) | ✅ |
+| lists, tuples, destructuring | ✅ | ❌ | ❌ | ❌ | ❌ |
+| `for`, `match`/`case`, patterns | ✅ | ❌ | ❌ | ❌ | ❌ |
+| list comprehensions | ✅ | ❌ | ❌ | ❌ | ❌ |
+| value-form `x = if c:` / `x = match e:` | ✅ | ❌ | ❌ | ❌ | ✅ (`if` only) |
+| `str`, `len`, `range` | ✅ | ❌ (refused at compile time) | ❌ | ❌ | ✅ (`range` takes one argument) |
+| nested `def` | ✅ | ✅ | ❌ | ❌ | ✅ |
+| function must provably return on every path | n/a | n/a | n/a | ✅ (`javac` requires it; refused at compile time otherwise) | n/a |
+
+The `ocaml` column is the type checker's coverage, not a list this
+backend maintains: it compiles what `src/typesystem.py` accepts, so the
+two move together. That is also why it is the one target whose subset
+grows without touching the backend — and why a `def` there must be
+annotated, which no other target requires.
 
 A program outside a target's subset is refused at compile time, with a
 source position, rather than emitted as code that will not build:

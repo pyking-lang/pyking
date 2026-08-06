@@ -1,0 +1,43 @@
+def double(x:Int) -> Int:
+    x * 2
+def increment(x:Int) -> Int:
+    x + 1
+def square(x:Int) -> Int:
+    x * x
+def apply_twice(f:(Int) -> Int, x:Int) -> Int:
+    f(f(x))
+def adder(n:Int) -> (Int) -> Int:
+    def add(m:Int) -> Int:
+        n + m
+    add
+def compose(f:(Int) -> Int, g:(Int) -> Int) -> (Int) -> Int:
+    def composed(x:Int) -> Int:
+        f(g(x))
+    composed
+def pick(bigger:Bool) -> (Int) -> Int:
+    if bigger:
+        square
+    else:
+        increment
+def repeater(f:(Int) -> Int, n:Int) -> (Int) -> Int:
+    def repeat(x:Int) -> Int:
+        if n <= 0:
+            x
+        else:
+            repeater(f, n - 1)(f(x))
+    repeat
+add_three: (Int) -> Int = adder(3)
+add_ten: (Int) -> Int = adder(10)
+twice_doubled: Int = apply_twice(double, 5)
+twice_incremented: Int = apply_twice(increment, 5)
+twice_added: Int = apply_twice(add_three, 5)
+inc_then_double: (Int) -> Int = compose(double, increment)
+double_then_inc: (Int) -> Int = compose(increment, double)
+immediate: Int = adder(100)(23)
+grown: Int = pick(true)(7)
+nudged: Int = pick(false)(7)
+sixteen: Int = repeater(double, 4)(1)
+print(add_three(4), add_ten(4), immediate)
+print(twice_doubled, twice_incremented, twice_added)
+print(inc_then_double(10), double_then_inc(10))
+print(grown, nudged, sixteen)

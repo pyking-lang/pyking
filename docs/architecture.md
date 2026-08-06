@@ -39,18 +39,18 @@ AST variant, and `match`/`case` over them rather than method dispatch.
                    src/syntax.py AST — the one
                    thing every backend shares
                              │
-      ┌─────────────────┴──────────┬──────────────────┬──────────────────┐
-      ▼                            ▼                  ▼                  ▼
-┌──────────────┐   ┌────────────────────────┐  ┌──────────────┐  ┌───────────────┐
-│target_python │   │    target_js_core.py   │  │ target_c.py  │  │target_java.py │
-│ Py AST + pr. │   │    JS AST + printer    │  │ C AST + pr.  │  │ Java AST + pr.│
-└──────┬───────┘   └───────────┬────────────┘  └──────┬───────┘  └───────┬───────┘
-       │                       │ JsRuntimeCall(…)     │ standard=        │ version=
-       │           ┌───────────▼────────────┐         │ c89 | c23        │ java8 | 17 | 21
-       │           │ target_js_packaging.py │         │                  │
-       │           └─┬─────────┬──────────┬─┘         │                  │
-       ▼             ▼         ▼          ▼           ▼                  ▼
-    foo.py        foo.js   foo.html    foo.js       foo.c            Foo.java
+      ┌─────────────────┴──────────┬──────────────────┬──────────────────┬──────────────┐
+      ▼                            ▼                  ▼                  ▼              ▼
+┌──────────────┐   ┌────────────────────────┐  ┌──────────────┐  ┌───────────────┐ ┌──────────────┐
+│target_python │   │    target_js_core.py   │  │ target_c.py  │  │target_java.py │ │target_ocaml  │
+│ Py AST + pr. │   │    JS AST + printer    │  │ C AST + pr.  │  │ Java AST + pr.│ │ O AST + pr.  │
+└──────┬───────┘   └───────────┬────────────┘  └──────┬───────┘  └───────┬───────┘ └──────┬───────┘
+       │                       │ JsRuntimeCall(…)     │ standard=        │ version=       │ reads the
+       │           ┌───────────▼────────────┐         │ c89 | c23        │ java8|17|21    │ checker's
+       │           │ target_js_packaging.py │         │                  │                │ tmap
+       │           └─┬─────────┬──────────┬─┘         │                  │                │
+       ▼             ▼         ▼          ▼           ▼                  ▼                ▼
+    foo.py        foo.js   foo.html    foo.js       foo.c            Foo.java          foo.ml
                                      + foo.node.js
                                      + foo.html
                                      + package.json
@@ -77,6 +77,7 @@ ignores `--target`.
 | `src/target_js_packaging.py` | Wraps that output into the files each JS target delivers, and supplies the JavaScript side of the runtime interface. |
 | `src/target_c.py` | C AST, translation, printer, for both `c89` and `c23` — one backend with a `standard` parameter. Infers types, which C needs and Pyking does not have. |
 | `src/target_java.py` | Java AST, translation, printer, for `java8`, `java17` and `java21` — one backend with a `version` parameter, the same shape as `target_c.py`. Infers types the same way; also checks that every function provably returns, since `javac` (unlike C) refuses one that doesn't. |
+| `src/target_ocaml.py` | OCaml AST, translation, printer. The one backend that infers nothing: it *runs* `typesystem.py` and reads the types back out of `tmap`, so its subset is exactly what the checker accepts, and a program that does not check is refused with the checker's own message. Emits no type annotations. |
 | `src/runtime_interface.py` | The host/IO boundary. Backend-agnostic. |
 | `src/pykboot.py` | The driver: flags, stage sequencing, error reporting. |
 
@@ -348,6 +349,7 @@ pages it links to; what follows is the shape of the mechanism.
 | `java8` | `Foo.java` | `System.out.println`, `javac --release 8` |
 | `java17` | `Foo.java` | `System.out.println`, `javac --release 17` |
 | `java21` | `Foo.java` | `System.out.println`, `javac --release 21` |
+| `ocaml` | `foo.ml` | `print_endline`, `ocamlfind ocamlopt` |
 
 `esm` is the interesting one. The module exports `run(runtime)` and
 prints through `runtime.print(...)`, so it reaches nothing by itself:
@@ -454,10 +456,10 @@ file, runs it with `python3`, and cleans up afterwards.
 
 ## What each target supports
 
-The Python backend compiles the whole language; the JavaScript, C and
-Java backends implement a common subset, and refuse anything outside it
-at compile time with a source position rather than emitting code that
-will not build. The per-target detail — what is supported, how each
+The Python backend compiles the whole language; the JavaScript, C, Java
+and OCaml backends implement a subset, and refuse anything outside it at
+compile time with a source position rather than emitting code that will
+not build. The per-target detail — what is supported, how each
 construct is compiled, and where the output is not optimal — lives in its
 own page:
 
@@ -466,17 +468,25 @@ own page:
 - **[target_python.md](target_python.md)** — `python`.
 - **[target_js.md](target_js.md)** — `nodejs`, `html`, `esm`.
 - **[target_c.md](target_c.md)** — `c89`, `c23`.
+- **[target_ocaml.md](target_ocaml.md)** — `ocaml`. The subset that
+  type-checks, compiled with no annotations.
 - **[target_java.md](target_java.md)** — `java8`, `java17`, `java21`.
 
 Three differences are worth knowing before reading further, because they
 are the only cases where one Pyking program does not mean the same thing
 everywhere: JavaScript prints an integral float as `6` where Python
-prints `6.0`; the C and Java targets refuse `/` outright, since integer
-division there would produce a different *value* rather than a different
-rendering; and the Java targets additionally refuse a function whose
-control can fall off the end without returning, since `javac` — unlike
-Python, and unlike C — treats that as a compile error rather than
+prints `6.0`; the C, Java and OCaml targets refuse `/` outright, since
+integer division there would produce a different *value* rather than a
+different rendering; and the Java targets additionally refuse a function
+whose control can fall off the end without returning, since `javac` —
+unlike Python, and unlike C — treats that as a compile error rather than
 implicitly returning `None`.
+
+The `ocaml` target is the odd one out in a more interesting way: its
+subset is not a list this backend maintains but the type checker's, run
+for real. A program it accepts is one `typesystem.py` accepted, which
+also means the subset grows when the checker does, without the backend
+being touched.
 
 ## Tests
 
@@ -499,14 +509,18 @@ per-target summary.
 Each target is executed the way a user would run it: `python3` on the
 generated `.py`, `node` on the generated `.js`, `cc -std=… -pedantic` and
 then the binary for `c89`/`c23`, `javac --release <8|17|21>` and then
-`java` for `java8`/`java17`/`java21`, and, for `esm`, `node` on the
+`java` for `java8`/`java17`/`java21`, `ocamlfind ocamlopt -w +a` and then
+the binary for `ocaml`, and, for `esm`, `node` on the
 *generated node driver* rather than the module — the wrapper is the
 artifact a user runs, and exercising it also checks that `run(runtime)`
 is wired up. `-pedantic` matters for the C targets: the point of having a
 `c89` target is that its output really is C89, and a compiler that
-merely tolerated the difference would hide it. The C compiler comes from
-`$CC`, defaulting to `cc`; the Java tools come from `$JAVAC`/`$JAVA`,
-defaulting to `javac`/`java`.
+merely tolerated the difference would hide it. `-w +a` matters for the
+same kind of reason: that target's promise is *clean* OCaml, so a
+warning about generated code is a failing test rather than a note. The C
+compiler comes from `$CC`, defaulting to `cc`; the Java tools come from
+`$JAVAC`/`$JAVA`, defaulting to `javac`/`java`; the OCaml compiler comes
+from `$OCAMLOPT`, defaulting to `ocamlfind ocamlopt`.
 
 ### Testing the HTML target
 

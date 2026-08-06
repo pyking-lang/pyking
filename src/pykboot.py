@@ -11,10 +11,15 @@ import typesystem
 import target_java
 import target_js_core
 import target_js_packaging
+import target_ocaml
 from target_python import translate_program, pprint_py_program
 
 TARGETS = (
-    ("python",) + target_js_packaging.TARGETS + target_c.STANDARDS + target_java.VERSIONS
+    ("python",)
+    + target_js_packaging.TARGETS
+    + target_c.STANDARDS
+    + target_java.VERSIONS
+    + (target_ocaml.TARGET,)
 )
 
 # What the primary output file is called when `--output` doesn't say. Each
@@ -24,6 +29,7 @@ EXTENSIONS = {
     **target_js_packaging.PRIMARY_EXTENSIONS,
     **{standard: ".c" for standard in target_c.STANDARDS},
     **{version: ".java" for version in target_java.VERSIONS},
+    target_ocaml.TARGET: target_ocaml.EXTENSION,
 }
 
 # Every message this module prints is laid out for a terminal this wide.
@@ -360,6 +366,29 @@ elif target in target_java.VERSIONS:
         print(java_source, end="")
     else:
         write(output_path, java_source)
+elif target == target_ocaml.TARGET:
+    # The OCaml backend compiles exactly what the type checker accepts,
+    # and says so through the same `UnsupportedError` as the others -- a
+    # program that does not type-check is refused here with the checker's
+    # own message, whether or not `--typecheck` was passed.
+    try:
+        ocaml_program = target_ocaml.translate_program(program)
+    except target_ocaml.UnsupportedError as e:
+        print(
+            wrap(
+                f"{pprint_info(e.info)} Unsupported by target "
+                f"'{target}': {e.message}"
+            ),
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    ocaml_source = target_ocaml.pprint_ocaml_program(
+        ocaml_program, os.path.basename(filename)
+    )
+    if show_stdout:
+        print(ocaml_source, end="")
+    else:
+        write(output_path, ocaml_source)
 else:
     # The JavaScript backends support a subset of Pyking so far; anything
     # outside it is reported here rather than emitting broken JavaScript.

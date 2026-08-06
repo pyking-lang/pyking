@@ -42,7 +42,11 @@ targets = ["python"]
 
 [[cases]]
 file = "escapes.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml"]
+
+[[cases]]
+file = "evaluation_order.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml"]
 
 [[cases]]
 file = "fail_typecheck_binding_annotation.pyk"
@@ -130,7 +134,7 @@ targets = ["python"]
 
 [[cases]]
 file = "function_types.pyk"
-targets = ["python", "nodejs", "esm", "html"]
+targets = ["python", "nodejs", "esm", "html", "ocaml"]
 
 [[cases]]
 file = "if_expr.pyk"
@@ -158,7 +162,7 @@ targets = ["python"]
 
 [[cases]]
 file = "lexical_capture_nested.pyk"
-targets = ["python", "nodejs", "esm", "html"]
+targets = ["python", "nodejs", "esm", "html", "ocaml"]
 
 [[cases]]
 file = "list_complex.pyk"
@@ -218,23 +222,23 @@ targets = ["python"]
 
 [[cases]]
 file = "recursion_forward.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml"]
 
 [[cases]]
 file = "recursion_mutual.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml"]
 
 [[cases]]
 file = "recursion_nested.pyk"
-targets = ["python", "nodejs", "esm", "html"]
+targets = ["python", "nodejs", "esm", "html", "ocaml"]
 
 [[cases]]
 file = "recursion_shadowing.pyk"
-targets = ["python", "nodejs", "esm", "html"]
+targets = ["python", "nodejs", "esm", "html", "ocaml"]
 
 [[cases]]
 file = "recursion_simple.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml"]
 
 [[cases]]
 file = "renaming_keywords.pyk"
@@ -258,7 +262,7 @@ targets = ["python"]
 
 [[cases]]
 file = "shadowing_functions.pyk"
-targets = ["python", "nodejs", "esm", "html"]
+targets = ["python", "nodejs", "esm", "html", "ocaml"]
 
 [[cases]]
 file = "shadowing_mutable.pyk"
@@ -274,7 +278,7 @@ targets = ["python"]
 
 [[cases]]
 file = "strings.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml"]
 
 [[cases]]
 file = "subset_control.pyk"
@@ -330,43 +334,55 @@ targets = ["python"]
 
 [[cases]]
 file = "typecheck_builtins.pyk"
-targets = ["python", "typecheck"]
+targets = ["python", "ocaml", "typecheck"]
 
 [[cases]]
 file = "typecheck_function_if.pyk"
-targets = ["python", "typecheck"]
+targets = ["python", "ocaml", "typecheck"]
 
 [[cases]]
 file = "typecheck_function_types.pyk"
-targets = ["python", "nodejs", "esm", "html", "typecheck"]
+targets = ["python", "nodejs", "esm", "html", "ocaml", "typecheck"]
 
 [[cases]]
 file = "typecheck_functions.pyk"
-targets = ["python", "nodejs", "esm", "html", "typecheck"]
+targets = ["python", "nodejs", "esm", "html", "ocaml", "typecheck"]
+
+[[cases]]
+file = "typecheck_higher_order.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "typecheck"]
 
 [[cases]]
 file = "typecheck_if.pyk"
-targets = ["python", "typecheck"]
+targets = ["python", "ocaml", "typecheck"]
 
 [[cases]]
 file = "typecheck_int_string.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "typecheck"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "typecheck"]
 
 [[cases]]
 file = "typecheck_lexical_capture.pyk"
 targets = ["python", "nodejs", "esm", "html", "typecheck"]
 
 [[cases]]
+file = "typecheck_numeric_recursion.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "typecheck"]
+
+[[cases]]
 file = "typecheck_recursion.pyk"
-targets = ["python", "nodejs", "esm", "html", "typecheck"]
+targets = ["python", "nodejs", "esm", "html", "ocaml", "typecheck"]
+
+[[cases]]
+file = "typecheck_string_recursion.pyk"
+targets = ["python", "ocaml", "typecheck"]
 
 [[cases]]
 file = "typecheck_tail.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "typecheck"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "typecheck"]
 
 [[cases]]
 file = "types_atoms.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml"]
 
 [[cases]]
 file = "types_complex.pyk"

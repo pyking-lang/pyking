@@ -479,7 +479,21 @@ def check_stmt(statement, env, tmap, return_type):
 
 
 def check_expr(expr, env, tmap):
-    """The type of one expression."""
+    """The type of one expression, recorded in `tmap` under its symbol.
+
+    Every expression is recorded, not just the annotatable constructs:
+    the entry costs nothing to make and is what lets a consumer ask "what
+    type is *this* subexpression" -- which `pprint_program` never needs,
+    but a backend does. `src/target_ocaml.py` is the first: it compiles
+    only what this checker accepts, so rather than inferring types a
+    second time it reads them back from here."""
+    type_ = expr_type(expr, env, tmap)
+    tmap[expr.sym] = type_
+    return type_
+
+
+def expr_type(expr, env, tmap):
+    """`check_expr` without the recording -- the rules themselves."""
     match expr:
         case EInt(info, _, _):
             return TInt(info)

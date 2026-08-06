@@ -31,6 +31,7 @@ named after the source unless `--output` says otherwise:
 ./pyk -t java8   hello.pyk     # ./Hello.java   (Java 8)
 ./pyk -t java17  hello.pyk     # ./Hello.java   (Java 17)
 ./pyk -t java21  hello.pyk     # ./Hello.java   (Java 21)
+./pyk -t ocaml   hello.pyk     # ./hello.ml
 ```
 
 `--stdout` prints the generated code instead of writing it, `--ast` shows
@@ -85,8 +86,9 @@ clean` but the cache itself only goes on `make distclean`.
   one at a glance, which parts of the language each accepts, and links to
   a page per family ([Python](docs/target_python.md),
   [JavaScript](docs/target_js.md), [C](docs/target_c.md),
-  [Java](docs/target_java.md)) documenting how each construct is compiled
-  and where the output is not optimal.
+  [Java](docs/target_java.md), [OCaml](docs/target_ocaml.md))
+  documenting how each construct is compiled and where the output is not
+  optimal.
 - **[docs/defshadow.md](docs/defshadow.md)** — an open design question:
   what a function body sees when a name it uses is rebound, and what a
   `def` and an `=` sharing one name should mean. Options, consequences,

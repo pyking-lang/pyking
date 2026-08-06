@@ -36,6 +36,9 @@ How each target is executed:
   java17  run the class with `java`, compare stdout. All three share one
   java21  backend and differ only in how the Java is printed, the same
           reason all three run here.
+  ocaml   compile to a temp .ml, build it with `ocamlfind ocamlopt -w +a`,
+          run the binary, compare stdout. Every warning is on: the
+          target's promise is clean OCaml, so a warning is a failure.
   html    no browser is needed: the page's embedded module is extracted
           and run under node with a small `document` stub that captures
           what the program writes into the page, which is then compared
@@ -82,7 +85,7 @@ def expected_path(source, target):
 
 TARGETS = (
     "python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17",
-    "java21", TYPECHECK_TARGET,
+    "java21", "ocaml", TYPECHECK_TARGET,
 )
 
 # The compiler used for the C targets; `cc` is the standard name.
@@ -92,6 +95,11 @@ C_COMPILER = os.environ.get("CC", "cc")
 # names on `PATH`.
 JAVA_COMPILER = os.environ.get("JAVAC", "javac")
 JAVA_RUNTIME = os.environ.get("JAVA", "java")
+
+# The OCaml native compiler. `ocamlfind ocamlopt` rather than plain
+# `ocamlopt` for the same reason `cc` is used for C: it is the spelling a
+# user reaches for.
+OCAML_COMPILER = os.environ.get("OCAMLOPT", "ocamlfind ocamlopt").split()
 
 # Stands in for the browser: the generated page's only contact with the
 # outside world is the element it prints into, so a `document` with one
@@ -262,6 +270,58 @@ def run_java(source, workdir, version):
     return executed(run([JAVA_RUNTIME, "-cp", workdir, "Program"]))
 
 
+def run_ocaml(source, workdir):
+    """Compiles to OCaml, builds it with `ocamlfind ocamlopt`, runs the
+    binary.
+
+    The bytecode compiler would do as well, but the native one is the
+    stricter reader of the two and is what a user would reach for. The
+    generated module is compiled with no interface beside it, so an
+    unused top-level binding is exported rather than dead -- which is
+    exactly right for a translated Pyking program, where the top level's
+    bindings are the program's own."""
+    generated = os.path.join(workdir, "program.ml")
+    compiled = compile_to(source, "ocaml", generated)
+    if compiled.returncode != 0:
+        return None, compiled.stderr
+    binary = os.path.join(workdir, "program")
+    built = run(
+        OCAML_COMPILER + ["-w", "+a-70", "-I", workdir, "-o", binary, generated]
+    )
+    if built.returncode != 0:
+        return None, built.stderr
+    # `-w +a` turns every warning on: the point of a target whose output
+    # is meant to be clean OCaml is that a compiler reading it has nothing
+    # to say about it, so a warning here is a bug worth seeing. The one
+    # exception, `-70`, is "this module has no .mli" -- a fact about how
+    # the module is being built here, not about the code in it.
+    complaints = about_the_code(built.stderr)
+    if complaints:
+        return None, f"the OCaml compiler warned about generated code:\n{complaints}"
+    return executed(run([binary]))
+
+
+# `ocamlfind` writes its own diagnostics to the same stream the compiler
+# does, and they are about the *installation* rather than about anything
+# that was compiled -- a switch whose `ld.conf` names a `stublibs`
+# directory that is not there produces two of them on every single
+# invocation. Reading those as "the generated code is not clean" would
+# fail every OCaml case on a machine whose opam switch is merely untidy,
+# which is what this filter is for. A real warning comes from the
+# compiler and is not prefixed this way.
+TOOL_NOISE_PREFIX = "ocamlfind:"
+
+
+def about_the_code(stderr):
+    """What the OCaml compiler said about the file, with the wrapper's
+    own remarks about its installation dropped."""
+    return "\n".join(
+        line
+        for line in stderr.splitlines()
+        if line.strip() and not line.startswith(TOOL_NOISE_PREFIX)
+    )
+
+
 def run_typecheck(source, workdir):
     """Type-checks `source`. Nothing is compiled or executed.
 
@@ -299,6 +359,7 @@ RUNNERS = {
     "java8": lambda source, workdir: run_java(source, workdir, "java8"),
     "java17": lambda source, workdir: run_java(source, workdir, "java17"),
     "java21": lambda source, workdir: run_java(source, workdir, "java21"),
+    "ocaml": run_ocaml,
 }
 
 

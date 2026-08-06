@@ -1,0 +1,52 @@
+# The order the pieces of an expression run in.
+#
+# Pyking evaluates left to right, and that is only observable when more
+# than one piece of an expression prints -- which is exactly what this
+# program does. It is here because not every target language agrees:
+# OCaml leaves the order of an operator's operands and a call's arguments
+# unspecified, and in practice runs them right to left, so the `ocaml`
+# backend has to pin the order down rather than inherit it (see
+# docs/target_ocaml.md).
+#
+# Every line below would still print the same *number* under either
+# order. What differs is the "step" lines around it, which is why they
+# are here.
+
+def step(label:String, value:Int) -> Int:
+    print("step", label)
+    value
+
+def twice(n:Int) -> Int:
+    n + n
+
+# Two operands, both printing: the left one runs first.
+sum = step("a", 1) + step("b", 2)
+print("sum", sum)
+
+# Three of them, in a chain.
+chain = step("c", 1) + step("d", 2) + step("e", 4)
+print("chain", chain)
+
+# The arguments of a call, left to right, before the call itself runs.
+def add(x:Int, y:Int) -> Int:
+    x + y
+
+called = add(step("f", 10), step("g", 20))
+print("called", called)
+
+# Nesting: the whole left operand -- including everything inside it --
+# runs before the right one begins.
+nested = twice(step("h", 3)) + step("i", 5)
+print("nested", nested)
+
+# A comparison is no different from arithmetic here.
+compared = step("j", 1) < step("k", 2)
+print("compared", compared)
+
+# And the arguments of `print` itself run in the order they are written.
+print(step("l", 1), step("m", 2))
+
+# One printing operand and one that only computes needs no ordering at
+# all: there is nothing to see between them.
+quiet = step("n", 7) + twice(4)
+print("quiet", quiet)

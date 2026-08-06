@@ -79,7 +79,11 @@ last ones are the ones that get forgotten:
    decision, not just the Python one: either translate the construct in
    `target_js_core.py`, `target_c.py` and `target_java.py` too, or leave
    it to each of those modules' `_unsupported` so that target refuses it
-   with a source position.
+   with a source position. `target_ocaml.py` is the exception, and the
+   reason to keep `typesystem.py` honest: it compiles exactly what the
+   checker accepts, so a construct the checker refuses needs nothing
+   there, and one the checker *starts* accepting needs a translation
+   there or an explicit `_unsupported`.
 2. **`tests/`** — at least one `.pyk` file exercising the new construct,
    with its `.out` captured from an actual run, **and an entry in
    `tests/test_cases.toml`** listing the targets it works on. The harness
@@ -97,7 +101,8 @@ last ones are the ones that get forgotten:
    pipeline itself (a new stage or module, a change to how the driver
    works); `targets.md` for the target list and the shared-subset table;
    and the family page — `target_python.md`, `target_js.md`,
-   `target_c.md`, `target_java.md` — for what that family supports, how
+   `target_c.md`, `target_java.md`, `target_ocaml.md` — for what that
+   family supports, how
    the construct is compiled, and where its output is not optimal. A
    construct a backend *refuses* belongs in its family page too, with the
    reason.
@@ -303,7 +308,13 @@ The bootstrap is split into one module per compiler stage:
    (`SFunctionDef`, `Param`, `SLet`, `SLetStmt`) — a `SFunctionDef`'s
    being its *function* type, since the type of a thing is the type of
    the thing and `-> T` in the syntax is only part of it (the printer
-   takes `TFunction.result` for that slot). Types are `syntax.py`'s own
+   takes `TFunction.result` for that slot) — **and for every expression
+   besides**, which is what the split between `check_expr` (record) and
+   `expr_type` (the rules) is for. `pprint_program` never asks for those;
+   `src/target_ocaml.py` does, and is the reason to keep making them: it
+   compiles only what this checker accepts, so rather than inferring
+   types a second time the way `target_c.py` and `target_java.py` each
+   must, it reads them back from here. Types are `syntax.py`'s own
    `T*` nodes, not a separate vocabulary, so a checked binding prints as
    `x: Int = 1` — syntax the parser accepts, which keeps
    `--typecheck --ast` output re-parsable; they are synthesized here, so
@@ -396,7 +407,25 @@ The bootstrap is split into one module per compiler stage:
    style rather than the source's, since Java requires the two to match
    (`default_class_name`; see `pykboot.py` below for where the exception
    is applied).
-11. **`src/target_python.py`** — the Python code-generation backend: its
+11. **`src/target_ocaml.py`** — the OCaml backend, serving the `ocaml`
+   target: an `O*` AST, translation, and a printer. The only backend
+   that infers nothing — it *runs* `typesystem.type_check` and reads the
+   types back out of `tmap` (which is why `check_expr` records an entry
+   for every expression, not just annotatable ones), so its supported
+   subset is exactly the checker's and a program that does not check is
+   refused with the checker's own message. OCaml fits Pyking closely
+   enough that most of the translation is direct — `let ... in` is a
+   block scope, a rebinding is a new binding, `let rec ... and ...` is
+   Pyking's rule that every `def` in a block is visible throughout it,
+   and `true`/`false`/`()` are spelled identically — so the interesting
+   work is in what it emits *around* that: no type annotations at all,
+   `rec` only where something recurses, `_name` for a binding nothing
+   reads, and a `let` inserted wherever two operands of one expression
+   can both print, since Pyking evaluates left to right and OCaml does
+   not promise to (`_Effects`, `in_order`). The test harness builds its
+   output with `-w +a`, so a compiler warning about generated code is a
+   failing test.
+12. **`src/target_python.py`** — the Python code-generation backend: its
    own `Py*` AST (`PyInt`, `PyAssign`, `PyFor`, ... — structurally the same
    shape as `src/syntax.py`'s `E*`/`S*`, except Pyking's `SLet`/`SVar`/
    `SMutate` all collapse into one `PyAssign`, since Python has no
@@ -450,7 +479,7 @@ The bootstrap is split into one module per compiler stage:
    additionally refuses a factory in any program with no `def` inside a
    loop, which is what keeps ordinary output ordinary. C and Java instead *refuse* a function that
    reads a binding from around it — they have no closures.
-12. **`src/pykboot.py`** — the entry point: parses `--tokens`/`--ast`/
+13. **`src/pykboot.py`** — the entry point: parses `--tokens`/`--ast`/
    `--symbols`/`--typecheck`/`--stdout`/`--output <file>`/
    `--target|-t <target>`/the filename from argv, runs `lexer.lexing`,
    `parser.parse`, `analyses.analyze_program` and `analyses.symbolize`,
@@ -532,14 +561,17 @@ required:
   tests/foo_bar.pyk` writes `./FooBar.java`, not `./foo_bar.java`.
 
 `--target`/`-t` selects the backend: `python` (the default), `nodejs`,
-`html`, `esm`, `c89`, `c23`, `java8`, `java17`, or `java21`. Targets come
-in groups sharing a backend: the JavaScript three differ only in
-`src/target_js_packaging.py`, the C two only in a `standard` parameter
-to `src/target_c.py`'s printer, and the Java three only in a `version`
-parameter to `src/target_java.py`'s printer. All of them support a
-subset of the language, and anything outside it is refused at compile
-time with a source position rather than emitted as code that will not
-build. See `docs/architecture.md` for the subsets and the target table.
+`html`, `esm`, `c89`, `c23`, `java8`, `java17`, `java21`, or `ocaml`.
+Targets come in groups sharing a backend: the JavaScript three differ
+only in `src/target_js_packaging.py`, the C two only in a `standard`
+parameter to `src/target_c.py`'s printer, and the Java three only in a
+`version` parameter to `src/target_java.py`'s printer; `ocaml` is a
+family of one. All of them support a subset of the language, and
+anything outside it is refused at compile time with a source position
+rather than emitted as code that will not build. `ocaml` is the one
+whose subset is not a list it maintains: it is whatever
+`src/typesystem.py` accepts, checked by running it. See
+`docs/architecture.md` for the subsets and the target table.
 
 The `pyk` wrapper script at the repository root forwards flags as-is
 (`./pyk --ast <file>`, `./pyk -t nodejs --stdout <file>`, ...), but adds
@@ -565,9 +597,10 @@ eventually delete someone's own file. Keep it that way.
 reads `tests/test_cases.toml`, and for every (program, target) pair the
 manifest declares, compiles the program to a temp directory, runs it the
 way a user would — `python3` on the `.py`, `node` on the `.js`, `node` on
-the *generated driver* for `esm`, and, for `html`, the page's extracted
-module under a small `document` stub — and compares stdout against the
-sibling `.out` file. One `.out` serves every target, which is the property
+the *generated driver* for `esm`, `cc`/`javac`/`ocamlfind ocamlopt` and
+then the binary for the C, Java and OCaml targets, and, for `html`, the
+page's extracted module under a small `document` stub — and compares
+stdout against the sibling `.out` file. One `.out` serves every target, which is the property
 being tested. It warns about any `.pyk` missing from the manifest and
 prints a per-target summary.
 
@@ -605,9 +638,13 @@ prefix happened to match.
 
 No third-party dependencies. Requires Python 3.11+ (`match`/`case`, and
 `tomllib` for the manifest). Running the generated code needs `node` for
-the JavaScript targets and a C compiler (`$CC`, default `cc`) for the C
-ones — neither is needed to *produce* it, so the compiler itself stays
-Python-only.
+the JavaScript targets, a C compiler (`$CC`, default `cc`) for the C
+ones, a JDK (`$JAVAC`/`$JAVA`) for the Java ones and an OCaml compiler
+(`$OCAMLOPT`, default `ocamlfind ocamlopt`) for `ocaml` — none of them
+is needed to *produce* the code, so the compiler itself stays
+Python-only. The OCaml cases are built with `-w +a`: that target's
+promise is clean OCaml, so a warning about generated code fails the
+test.
 
 ## Where the project is going
 

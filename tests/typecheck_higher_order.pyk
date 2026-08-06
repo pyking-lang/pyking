@@ -1,0 +1,83 @@
+# Functions as values: taken as arguments, returned, and built out of
+# each other.
+#
+# Everything here is inside the fragment the type checker covers, and
+# every type in the program is *written down* -- a parameter of function
+# type declares the shape of what may be passed, and a function that
+# returns a function declares that too. What the checker then has to do
+# is compare those shapes structurally, which is what this file exercises.
+#
+# It is also the shape of program the `ocaml` target is happiest with: a
+# nested `def` returned as a value is a closure in both languages, and
+# the generated OCaml says it in one line.
+
+def double(x:Int) -> Int:
+    x * 2
+
+def increment(x:Int) -> Int:
+    x + 1
+
+def square(x:Int) -> Int:
+    x * x
+
+# A function taken as an argument. `f` is called like any other name.
+def apply_twice(f:(Int) -> Int, x:Int) -> Int:
+    f(f(x))
+
+# A function returned: the nested `def` closes over `n`, so calling
+# `adder(3)` gives back something that adds 3 to whatever it is given.
+def adder(n:Int) -> (Int) -> Int:
+    def add(m:Int) -> Int:
+        n + m
+    add
+
+# Composition, which is both at once: two functions in, one out.
+def compose(f:(Int) -> Int, g:(Int) -> Int) -> (Int) -> Int:
+    def composed(x:Int) -> Int:
+        f(g(x))
+    composed
+
+# Choosing a function is choosing a value, so an `if` may yield one.
+def pick(bigger:Bool) -> (Int) -> Int:
+    if bigger:
+        square
+    else:
+        increment
+
+# A closure over a function *and* a number: `n` and `f` are both fixed
+# when `repeater` is called, and read again on every later call.
+def repeater(f:(Int) -> Int, n:Int) -> (Int) -> Int:
+    def repeat(x:Int) -> Int:
+        if n <= 0:
+            x
+        else:
+            repeater(f, n - 1)(f(x))
+    repeat
+
+add_three = adder(3)
+add_ten = adder(10)
+
+# The whole point of a function value: `double` here is not called, it is
+# passed, and `apply_twice` decides when to call it.
+twice_doubled = apply_twice(double, 5)
+twice_incremented = apply_twice(increment, 5)
+twice_added = apply_twice(add_three, 5)
+
+# `compose(f, g)(x)` is `f(g(x))`, and composing is not commutative --
+# these two differ, which is what makes them worth printing.
+inc_then_double = compose(double, increment)
+double_then_inc = compose(increment, double)
+
+# A returned function may be called straight away, without a name.
+immediate = adder(100)(23)
+
+grown = pick(true)(7)
+nudged = pick(false)(7)
+
+# Four doublings of 1, by repeated application.
+sixteen = repeater(double, 4)(1)
+
+print(add_three(4), add_ten(4), immediate)
+print(twice_doubled, twice_incremented, twice_added)
+print(inc_then_double(10), double_then_inc(10))
+print(grown, nudged, sixteen)
