@@ -578,18 +578,29 @@ The bootstrap is split into one module per compiler stage:
    one written before it. Do not go back to checking the accumulated
    program as one block: that made the checker describe a program the
    machine was not running.
-   `Session(seen, state, types)` holds the two environments -- the
-   machine's and the checker's, extended in step -- plus every statement
-   the session has seen, which exists only so `symbolize` keeps handing
-   out fresh symbols (the machine's call-free table is keyed by them).
+   `Session(seen, state, types, sources)` holds the two environments --
+   the machine's and the checker's, extended in step -- plus every
+   statement the session has seen (which exists only so `symbolize` keeps
+   handing out fresh symbols; the machine's call-free table is keyed by
+   them) and, per name, the *text* that defined it, sliced from the entry
+   it arrived in by the statement's own span. That text is what `:edit
+   <name>` puts back in the prompt, and it is text rather than a printed
+   AST so a definition comes back with its comments and spacing.
    Values print as `value : Type`, with the value from the machine and
-   the type from the checker; `:vals` lists the bindings the same way.
+   the type from the checker; `:ls` lists the bindings the same way.
+   An entry refused for naming something not defined yet is *not* thrown
+   away: two mutually recursive functions have to arrive in one entry, so
+   `undefined_message` offers the entry back to keep editing (Escape
+   drops it). `submit` therefore returns a refusal rather than reporting
+   it, and `accept` is for callers with nothing better to do with one.
    Whether an entry is finished is the *parser's* answer, not a guess
    from a trailing `:` (`INCOMPLETE`), and `start(format_error, ...)`
    takes the driver's own error formatting so a mistake at the prompt is
    reported in the words a file would get. Meta-commands are a dict of
    `(session, argument, report) -> session`; add one there rather than in
-   the loop.
+   the loop, and return an `Outcome` instead of a bare session only if it
+   has something to say about what happens next (today only `:edit`,
+   which asks for its text to be put back in the prompt).
 
    **`Editor`** is a small multi-line editor over a terminal in raw mode,
    used when there is a terminal and skipped for piped input, which takes
@@ -598,10 +609,13 @@ The bootstrap is split into one module per compiler stage:
    is impossible with it: here the buffer is a frozen
    `Buffer(lines, row, col)` with pure operations over it, history holds
    whole *entries*, Up and Down move within the entry and then into
-   history, Escape abandons what is being typed, and Enter opens a new
-   line -- already indented, one level in after a line ending in `:` --
-   until a blank line ends the block. Keep the buffer operations pure and
-   the terminal in the class: that split is what makes the editing
+   history, Escape abandons what is being typed, Enter opens a new line
+   -- already indented, one level in after a line ending in `:` -- until
+   a blank line ends the block, and Backspace inside a line's indentation
+   removes a whole level rather than one space. `read(initial)` is how
+   text that was not typed there arrives: an entry handed back to be
+   finished, or what `:edit` brought up. Keep the buffer operations pure
+   and the terminal in the class: that split is what makes the editing
    testable without a tty.
 
 15. **`src/pyk.py`** — the entry point (formerly `pykboot.py`): parses a

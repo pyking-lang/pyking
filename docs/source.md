@@ -496,12 +496,20 @@ function written now is invisible to one written before it.
 
 ### Data structures
 
-- **`Session(seen, state, types)`** — the machine's environment and the
-  checker's, extended in step, plus every statement the session has been
-  given. `seen` exists for one narrow reason: `symbolize` numbers a tree
-  from the highest symbol already in it, so handing it the accumulated
-  statements is what keeps a later entry from reusing an earlier entry's
-  symbols — which the machine's call-free table is keyed by.
+- **`Session(seen, state, types, sources)`** — the machine's environment
+  and the checker's, extended in step, plus two records of what has
+  arrived. `seen` exists for one narrow reason: `symbolize` numbers a
+  tree from the highest symbol already in it, so handing it the
+  accumulated statements is what keeps a later entry from reusing an
+  earlier entry's symbols — which the machine's call-free table is keyed
+  by. `sources` is name → the text that defined it, sliced out of the
+  entry it arrived in by the statement's own span: that is what `:edit`
+  brings back, and it is the text rather than a printed AST, so a
+  definition returns with its comments and spacing intact.
+- **`Outcome(session, pending)`** — what a meta-command leaves behind.
+  Only `:edit` has anything to put in `pending` (text to place in front
+  of the user instead of an empty prompt); every other command returns a
+  bare session, which `run_meta` wraps.
 - **`Buffer(lines, row, col)`** — the entry being typed, as a frozen
   value with pure operations over it (`insert`, `newline`, `backspace`,
   `left`, `up`, …). Everything about *what the text is* can therefore be
@@ -523,24 +531,40 @@ function written now is invisible to one written before it.
   reported in exactly the words it would have been reported in from a
   file; the other two arguments let something other than a terminal drive
   the REPL (a transcript test, another front end).
-- **`submit(session, stmts, report)`** / **`check_entry(entry, types)`**
-  — check the whole entry first, then run it a statement at a time,
-  stopping at the first runtime error with both environments left
-  describing exactly the statements that ran.
-- **`make_reader()`** — the editor when there is a terminal, plain
-  `input()` (via `read_entry`) otherwise: a pipe has no cursor to move
-  and no history to walk.
+- **`submit(session, stmts, report, source)`** /
+  **`check_entry(entry, types)`** — check the whole entry first, then run
+  it a statement at a time, stopping at the first runtime error with both
+  environments left describing exactly the statements that ran. A
+  *refusal* is returned rather than reported, because the caller may have
+  something better to do with it than print it; `accept` is the wrapper
+  for callers that do not.
+- **`undefined_name(error)` / `undefined_message(name)`** — an entry
+  refused for naming something that does not exist yet is usually one
+  that is still being written, so a `def` that calls an unknown name gets
+  the offer to keep editing rather than the error and a lost entry.
+  Pressing Escape drops it; anything else hands it back with the text
+  intact, which is how two mutually recursive functions are entered
+  together — they have to arrive in one entry, since an entry is the
+  group whose `def`s are declared before it is checked.
+- **`make_reader()`** — the editor when there is a terminal,
+  `PipeReader` otherwise: a pipe has no cursor to move and no history to
+  walk. Both answer the same two calls, `read(initial="")` and
+  `ask(message)`, which is what lets the loop be written once.
 - **`complete(source)` / `next_indent(source)`** — the two things the
   editor needs to know about the language: whether Enter submits, and
   how far in the next line starts. Both are answers, not guesses:
   completeness is the parser's, and indentation follows the one rule
   that a line ending in `:` opens a block.
-- **`meta_help`, `meta_vals`, `meta_type`, `meta_ast`, `meta_tokens`,
-  `meta_load`, `meta_reset`** — the commands. `:vals` lists what the
-  session bound as `name = value : Type`, reading the values from the
-  machine's environment and the types from the checker's; `:type` checks
-  an expression in that same type environment, so it can name whatever
-  the session bound.
+- **`meta_help`, `meta_ls`, `meta_type`, `meta_edit`, `meta_ast`,
+  `meta_tokens`, `meta_load`, `meta_reset`** — the commands. `:ls`
+  lists what the session bound as `name = value : Type`, reading the
+  values from the machine's environment and the types from the checker's;
+  `:type` checks an expression in that same type environment, so it can
+  name whatever the session bound; `:edit <name>` puts the text that
+  defined a name back in the prompt, so a definition can be grown a piece
+  at a time instead of retyped — re-entering it is an ordinary entry, so
+  the new definition shadows the old one and whatever was built from the
+  old one keeps it.
 
 ### The line editor
 
@@ -558,6 +582,15 @@ the session. Enter submits a single line that parses, and otherwise opens
 a new line, already indented to where it belongs; a blank line ends a
 block, which is Python's REPL rule and the only one that lets a block
 have more than one statement in it.
+
+Backspace inside a line's indentation removes a whole level at a time,
+back to the previous stop rather than by a fixed four — indentation *is*
+the block structure in Pyking, so a dedent is one thing the user meant to
+do, and a line that has drifted off the grid is put back on it.
+
+`read(initial="")` is how text arrives that was not typed here: an entry
+handed back to be finished, or a definition `:edit` brought up. From the
+first keystroke it is an ordinary buffer.
 
 Drawing is one redraw per keystroke: go back to the top of the last
 drawing, clear it, write the entry again, and put the cursor where the

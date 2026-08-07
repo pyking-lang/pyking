@@ -516,7 +516,7 @@ def lookup(env, name):
 
 def bindings_in_scope(env):
     """Every name visible from `env`, as name -> value, innermost first.
-    Not used by the machine; it is what a REPL's `:vals` and, later, a
+    Not used by the machine; it is what a REPL's `:ls` and, later, a
     debugger's variable view ask for."""
     seen = {}
     while env is not None:

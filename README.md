@@ -76,7 +76,7 @@ Pyking REPL.  :help for commands, :quit to leave.
 .
 > double(x)
 42 : Int
-> :vals
+> :ls
 x      = 21 : Int
 double = <function> : (Int) -> Int
 ```
@@ -84,7 +84,8 @@ double = <function> : (Int) -> Int
 The arrow keys move through the whole entry, not just its last line, and
 Up at the top of one steps back through earlier entries — so a function
 comes back whole, can be edited anywhere in it, and re-submitted.
-`:help` lists the rest.
+`:edit <name>` does the same for anything the session defined, however
+long ago. `:help` lists the rest.
 
 ## Make targets
 
