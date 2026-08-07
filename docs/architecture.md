@@ -39,19 +39,19 @@ AST variant, and `match`/`case` over them rather than method dispatch.
                    src/syntax.py AST — the one
                    thing every backend shares
                              │
-      ┌─────────────────┴──────────┬──────────────────┬──────────────────┬──────────────┐
-      ▼                            ▼                  ▼                  ▼              ▼
-┌──────────────┐   ┌────────────────────────┐  ┌──────────────┐  ┌───────────────┐ ┌──────────────┐
-│target_python │   │    target_js_core.py   │  │ target_c.py  │  │target_java.py │ │target_ocaml  │
-│ Py AST + pr. │   │    JS AST + printer    │  │ C AST + pr.  │  │ Java AST + pr.│ │ O AST + pr.  │
-└──────┬───────┘   └───────────┬────────────┘  └──────┬───────┘  └───────┬───────┘ └──────┬───────┘
-       │                       │ JsRuntimeCall(…)     │ standard=        │ version=       │ reads the
-       │           ┌───────────▼────────────┐         │ c89 | c23        │ java8|17|21    │ checker's
-       │           │ target_js_packaging.py │         │                  │                │ tmap
-       │           └─┬─────────┬──────────┬─┘         │                  │                │
-       ▼             ▼         ▼          ▼           ▼                  ▼                ▼
-    foo.py        foo.js   foo.html    foo.js       foo.c            Foo.java          foo.ml
-                                     + foo.node.js
+      ┌─────────────────┴──────────┬──────────────────┬──────────────────┬──────────────┬──────────────┐
+      ▼                            ▼                  ▼                  ▼              ▼              ▼
+┌──────────────┐   ┌────────────────────────┐  ┌──────────────┐  ┌───────────────┐ ┌──────────────┐ ┌──────────────┐
+│target_python │   │    target_js_core.py   │  │ target_c.py  │  │target_java.py │ │target_ocaml  │ │interpreter.py│
+│ Py AST + pr. │   │    JS AST + printer    │  │ C AST + pr.  │  │ Java AST + pr.│ │ O AST + pr.  │ │values+machine│
+└──────┬───────┘   └───────────┬────────────┘  └──────┬───────┘  └───────┬───────┘ └──────┬───────┘ └──────┬───────┘
+       │                       │ JsRuntimeCall(…)     │ standard=        │ version=       │ reads the     │ runs the
+       │           ┌───────────▼────────────┐         │ c89 | c23        │ java8|17|21    │ checker's     │ checker,
+       │           │ target_js_packaging.py │         │                  │                │ tmap          │ then the
+       │           └─┬─────────┬──────────┬─┘         │                  │                │               │ program
+       ▼             ▼         ▼          ▼           ▼                  ▼                ▼               ▼
+    foo.py        foo.js   foo.html    foo.js       foo.c            Foo.java          foo.ml        (no file:
+                                     + foo.node.js                                                    it runs)
                                      + foo.html
                                      + package.json
 
@@ -59,9 +59,15 @@ AST variant, and `match`/`case` over them rather than method dispatch.
         reference: what a program may observe of the outside world
 ```
 
-Everything above the split is target-independent, and every backend
-starts from the same checked AST. `--ast` prints that AST and therefore
-ignores `--target`.
+Everything above the split is target-independent, and every backend —
+and the interpreter — starts from the same checked AST. `--ast` prints
+that AST and therefore ignores `--target`.
+
+The interpreter is on the same line as the backends because it is their
+peer, not their supervisor: it consumes the AST every one of them
+consumes. What it does with it differs — it *runs* the program rather
+than writing a file — which is why it is a command (`pyk run`, `pyk
+repl`) rather than a `--target`.
 
 ## Stages
 
@@ -78,8 +84,10 @@ ignores `--target`.
 | `src/target_c.py` | C AST, translation, printer, for both `c89` and `c23` — one backend with a `standard` parameter. Infers types, which C needs and Pyking does not have. |
 | `src/target_java.py` | Java AST, translation, printer, for `java8`, `java17` and `java21` — one backend with a `version` parameter, the same shape as `target_c.py`. Infers types the same way; also checks that every function provably returns, since `javac` (unlike C) refuses one that doesn't. |
 | `src/target_ocaml.py` | OCaml AST, translation, printer. The one backend that infers nothing: it *runs* `typesystem.py` and reads the types back out of `tmap`, so its subset is exactly what the checker accepts, and a program that does not check is refused with the checker's own message. Emits no type annotations. |
+| `src/interpreter.py` | The interpreter: runtime values, environments, and a resumable small-step machine over the AST. Runs the fragment the checker accepts, and is the reference for what a program *means* at run time. |
+| `src/repl.py` | `pyk repl`: a session as a program written one statement at a time — checked as one program, run one statement at a time. |
 | `src/runtime_interface.py` | The host/IO boundary. Backend-agnostic. |
-| `src/pykboot.py` | The driver: flags, stage sequencing, error reporting. |
+| `src/pyk.py` | The driver: argv, stage sequencing, error reporting, and the four commands (`pyk <file>`, `run`, `repl`, `compile`). |
 
 ## The runtime interface
 
@@ -143,7 +151,7 @@ depend on the node's identity or its position in the tree. `--symbols`
 prints them, as an `@n` suffix, alongside `--ast`:
 
 ```
-$ pyk --ast --symbols prog.pyk
+$ pyk compile --ast --symbols prog.pyk
 x@1 = (12@2 + 20@3)@4  @5
 ```
 
@@ -327,14 +335,80 @@ accepted what it had not reasoned about would be worse than one that
 says where it stops:
 
 ```
-$ pyk --typecheck prog.pyk
+$ pyk compile --typecheck prog.pyk
 'prog.pyk' 1:4-1:16 Type error: `+` cannot be applied to Int and String;
   it accepts Int + Int or String + String
 ```
 
+## The interpreter
+
+`src/interpreter.py` runs a program instead of translating it, and it is
+where the language's *runtime* semantics are defined. Where a compiled
+target disagrees with it, the target is wrong. `pyk run` and `pyk repl`
+are its two front ends; `src/repl.py` adds a prompt and nothing else to
+the semantics.
+
+It runs the fragment the type checker accepts, and the gate is the
+checker itself — `interpreter.check` is `typesystem.type_check` — so
+there is no second list of supported constructs to keep in step, the
+same arrangement `target_ocaml.py` uses.
+
+**It is a machine, not a walker.** Execution is `step(State) -> State`,
+driven from a flat loop:
+
+```
+State = (control, env, kont, stack, runtime)
+
+control   CEval(expr) | CStmt(stmt) | CApply(value) | CDone(v) | CFailed(e)
+kont      a linked chain of continuations: KSeq, KBind, KBinaryLeft,
+          KBinaryRight, KCallee, KArgument, KBranch, KDiscard, KReturnTo
+stack     Pyking's own call stack: Frame(name, info, kont, env, parent, depth)
+runtime   what a run never changes: the host, the call-free table, max_depth
+```
+
+A recursive `eval` would be shorter and a dead end. A debugger, a
+step-through in the playground and a DAP adapter all need execution that
+can be paused, inspected and resumed, and a recursive walker can only be
+paused by blocking a host thread — so the pending work is data
+(`kont`), a paused `State` is an ordinary value, and `run(state,
+steps=n)` stops after *n* steps and hands it back. Three properties
+follow:
+
+- **Depth costs heap, not host stack**, so an interpreted recursion goes
+  deeper than the compiled targets manage — and an explicit `max_depth`
+  (10 000) turns a runaway one into a Pyking error with a stack trace
+  rather than an out-of-memory kill.
+- **A block does not grow the continuation chain**: sequencing is an
+  *index* into a statement list, so re-entering a block replaces its
+  continuation instead of stacking another.
+- **An error is a machine state** (`CFailed`), never a host exception
+  thrown through `step`, so nothing unwinds and a debugger could stop at
+  the error with the frames intact.
+
+**Environments are Pyking's own.** An `Env` is a persistent chain of
+frames: a block runs in a chain of its own, `=` makes a new frame (a
+rebinding shadows, it never updates), and a `def` captures the chain it
+was created in. Everything `target_python.py` needs machinery for —
+renaming a shadowed binding, a per-turn factory so a closure keeps its
+own turn's values — is simply what this representation does. The one
+mutation is Pyking's `def` rule: `declare` puts a write-once cell per
+`def` in the block's frame, and `define` fills it when the definition is
+reached, which is how a function name can be visible throughout its block
+while its body still captures what was bound where it is written.
+
+**An `Int` is 32 bits**, wrapping on overflow — the language's answer,
+since this is the reference. Which targets differ, and why none of them
+is forced to agree, is in
+[targets.md](targets.md#integers-are-32-bit).
+
+`src/interpreter.py`'s own docstring and [source.md](source.md) carry the
+detail; `design/plan-eval-lsp.md` is where the debugger, DAP and LSP
+built on top of it are planned.
+
 ## Targets
 
-Selected with `--target <name>` or `-t <name>`; `python` is the default.
+Selected with `pyk compile --target <name>`, or `-t <name>`; `python` is
+the default.
 Each family is documented in full in [targets.md](targets.md) and the
 pages it links to; what follows is the shape of the mechanism.
 
@@ -374,12 +448,12 @@ wrapper behaves exactly like the `nodejs` and `html` targets.
 
 With no `--output`, the compiler names the file itself: the source file's
 own name, the target's extension, in the directory the command was run
-from. `pykboot.py -t nodejs tests/hello.pyk` writes `./hello.js`, and
+from. `pyk compile -t nodejs tests/hello.pyk` writes `./hello.js`, and
 `-t python` would have written `./hello.py`.
 
 The Java targets are the one exception: Java requires the file holding a
 `public` class to share that class's name exactly, so the source's own
-spelling would not do. `pykboot.py -t java21 tests/foo_bar.pyk` writes
+spelling would not do. `pyk compile -t java21 tests/foo_bar.pyk` writes
 `./FooBar.java`, holding `public final class FooBar` — see "Naming the
 class" in [target_java.md](target_java.md#naming-the-class) for the exact
 rule and what an explicit `--output` does instead.
@@ -422,37 +496,61 @@ disk, which is why it is a separate target rather than a wrapper.
 ## Command line
 
 ```
-pyk [options] <filename>
+pyk [options] <filename>          run it with the python backend
+pyk run [options] <filename>      run it with the interpreter
+pyk repl                          start the REPL
+pyk compile [options] <filename>  compile it (alias: pyk c)
 ```
 
-Run `pyk` with no arguments for the full option and target list, which
-`src/pykboot.py` builds from `TARGETS`/`EXTENSIONS` so it cannot drift
-from what the backends actually support.
+`pyk` at the repository root is a two-line script: it runs
+`src/pyk.py` with the directory it lives in on Python's path, and passes
+every argument through. Run it with no arguments for the full option and
+target list, which the driver builds from `TARGETS`/`EXTENSIONS` so it
+cannot drift from what the backends actually support.
 
-With none of `--ast`, `--stdout` or `--output`, the program is compiled to
-a file the compiler names (see "Naming the output" above). `--tokens`
-additionally dumps the token stream first, `--symbols` makes `--ast` show
-each node's symbol, and `--typecheck` runs the type checker (see
-"Symbols and types" below).
-A file that fails to lex, parse, resolve its names, or that uses a
-construct the chosen target does not support, reports
+Two of the four commands *run* a program, by two different routes, and
+the difference is worth knowing:
+
+- **`pyk <file>`** compiles with the Python backend to a temporary file,
+  runs that with the host's own `python3`, and removes it. What runs is
+  generated Python, with Python's semantics under it (arbitrary-precision
+  integers, Python's recursion limit). It covers the whole language.
+- **`pyk run <file>`** runs the AST with `src/interpreter.py`. Pyking's
+  own semantics: 32-bit integers, Pyking runtime errors with spans and a
+  stack trace, and the type checker's fragment rather than the whole
+  language.
+
+The flags are shared by every command rather than being per-command, so
+`--tokens`, `--ast`, `--symbols` and `--typecheck` mean the same thing
+wherever they are written. `--target`/`-t`, `--output`/`-o` and
+`--stdout` only affect `pyk compile`, which with none of them writes a
+file the compiler names (see "Naming the output" above).
+
+A file that fails to lex, parse, resolve its names, or type-check, that
+uses a construct the chosen target does not support, or that fails while
+being interpreted, reports
 
 ```
 'file' row:col-row:col Lexing error: ...
 'file' row:col-row:col Parsing error: ...
 'file' row:col-row:col Name error: ...
+'file' row:col-row:col Type error: ...
+'file' row:col-row:col Runtime error: ...
 'file' row:col-row:col Unsupported by target 'nodejs': ...
 ```
 
-to stderr and produces no output. Every message the driver prints is
-reflowed to 70 columns first (`wrap` in `src/pykboot.py`), with
-continuation lines indented two spaces, so a long one stays readable in
-a narrow terminal instead of wrapping raggedly at whatever width it
-happens to find.
+to stderr and produces no output. The first five all come from one
+function — `format_error` in `src/pyk.py` — because every error type in
+the front end carries an `Info` and differs only in its label; `pyk repl`
+is handed that same function, so a mistake made at the prompt is
+reported in exactly the words a file would get. A runtime error is
+followed by the calls that were in progress under it, innermost first,
+truncated after ten.
 
-The `pyk` wrapper script at the repository root forwards flags as-is, and
-adds one convenience: called with *only* a filename it compiles to a temp
-file, runs it with `python3`, and cleans up afterwards.
+Every message the driver prints is reflowed to 70 columns first (`wrap`
+in `src/pyk.py`), with continuation lines indented two spaces, so a long
+one stays readable in a narrow terminal instead of wrapping raggedly at
+whatever width it happens to find.
 
 ## What each target supports
 
@@ -464,7 +562,10 @@ construct is compiled, and where the output is not optimal — lives in its
 own page:
 
 - **[targets.md](targets.md)** — every target at a glance, the shared
-  subset as a table, and the differences that survive it.
+  subset as a table, and the differences that survive it — including
+  what an `Int` is on each of them.
+- **[source.md](source.md)** — every module in `src/`, its data
+  structures and its main functions.
 - **[target_python.md](target_python.md)** — `python`.
 - **[target_js.md](target_js.md)** — `nodejs`, `html`, `esm`.
 - **[target_c.md](target_c.md)** — `c89`, `c23`.
@@ -488,6 +589,14 @@ for real. A program it accepts is one `typesystem.py` accepted, which
 also means the subset grows when the checker does, without the backend
 being touched.
 
+The interpreter (`pyk run`) shares that arrangement: it runs the checker
+and then the program, so its coverage grows with the checker's too. It is
+not in the target pages because it emits nothing to document — what it
+supports is [typesystem.py](../src/typesystem.py)'s fragment, and what it
+*means* is the language itself, which is the point of having it: it is
+the reference the compiled targets are measured against rather than
+another translation to check.
+
 ## Tests
 
 `tests/test_cases.toml` lists every program and the targets it is
@@ -505,6 +614,15 @@ output against the sibling `.out` file — the same `.out` file serving
 every target listed for a program, which is the property being tested.
 It warns about any `.pyk` missing from the manifest, and finishes with a
 per-target summary.
+
+Two of the names in a `targets` list compile nothing. `typecheck` checks
+a program and compares the printed AST against its `.ast.out`;
+`interpret` runs it with `src/interpreter.py` and compares its stdout
+against the same `.out` as every compiling target. That last comparison
+is the whole reason the interpreter is cheap to trust: it is a second
+definition of the language's semantics, and holding it to the files the
+nine backends are held to is worth more than any amount of care in
+review.
 
 Each target is executed the way a user would run it: `python3` on the
 generated `.py`, `node` on the generated `.js`, `cc -std=… -pedantic` and

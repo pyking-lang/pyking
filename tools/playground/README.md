@@ -22,11 +22,12 @@ all. That rules out MicroPython, Transcrypt and the other lightweight
 runtimes, and leaves a real CPython. Pyodide *is* real CPython, so the
 compiler ships unmodified: `src/*.py` is copied into the build verbatim.
 
-The one thing missing from `src/` is a callable entry point — `pykboot.py` is
+The one thing missing from `src/` is a callable entry point — `pyk.py` is
 a script that reads `argv`, opens files and calls `sys.exit`. The generator
 emits a small `pyking_web.py` beside the copied modules that exposes the same
 stage sequence as two functions returning values. Everything else in `src/`
-is already pure: `os` and `sys` appear only in `pykboot.py`.
+is already pure: `os` and `sys` appear only in the two front ends, `pyk.py`
+and `repl.py`, and neither is copied.
 
 ## What `make` does
 
@@ -312,7 +313,7 @@ The playground cannot drift from the compiler, because it does not restate
 anything the compiler already knows:
 
 1. **The compiler modules** are copied from `src/` at build time — never
-   forked. `pykboot.py` is excluded; it is the CLI.
+   forked. `pyk.py` and `repl.py` are excluded; they are the front ends.
 2. **The keyword and builtin lists** in `pyking-mode.js` are lifted out of
    `src/lexer.py` and `src/analyses.py` while generating it, and **the value
    formatter** in `js-worker.js` out of `src/target_js_packaging.py`.
@@ -425,7 +426,7 @@ uses it to keep its Run button honest, and an embedder that runs generated
 code should skip them the same way.
 
 `compile()` never throws for a bad program — a refusal is data, with the same
-wording `pykboot.py` prints and the raw span for highlighting. Rows count from
+wording `pyk.py` prints and the raw span for highlighting. Rows count from
 1 and columns from 0, exactly as `lexer.Info` records them (Ace counts both
 from 0, hence the `row1 - 1` in `playground.js`).
 

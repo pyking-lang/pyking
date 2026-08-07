@@ -452,7 +452,7 @@ Notes that don't fall out of the grammar alone:
 - `assignment`'s `[ ":" , type ]` annotates the *binding*, e.g.
   `x: Int = 1`. Like every other annotation it is optional and nothing
   verifies it (see "Type annotations"), but it is the one the type
-  checker writes back into: `pyk --typecheck --ast` prints each binding
+  checker writes back into: `pyk compile --typecheck --ast` prints each binding
   with the type it inferred, in exactly this syntax, so that output can
   be fed back to the compiler. A destructuring target takes one
   annotation for the whole binding, not one per name.
@@ -573,6 +573,23 @@ Integers are sequences of digits. Strings are delimited by either single or
 double quotes, and support backslash escapes: `\n`, `\t`, `\r`, `\\`, `\'`,
 and `\"` (so a string can contain its own delimiter, or the other quote
 character, once escaped).
+
+An `Int` is a **signed 32-bit integer**: its values run from
+−2 147 483 648 to 2 147 483 647, and `+`, `-` and `*` *wrap* rather than
+overflowing, two's complement, so `2147483647 + 1` is −2 147 483 648.
+Arithmetic is therefore total — there is no overflow error to handle —
+and every result is again an `Int`.
+
+```pyking
+biggest = 2147483647
+wrapped = biggest + 1     # -2147483648
+```
+
+This is what the interpreter implements, and the interpreter is what
+defines the language's runtime behaviour. Not every compiler target
+enforces the same width — some hosts count wider, and none of them is
+made to pretend otherwise; `docs/targets.md` lists which and why. A
+program that stays inside 32 bits means the same thing everywhere.
 
 ```python
 count = 42
@@ -1807,7 +1824,7 @@ types `(T1, T2, ...) -> T`.
 
 The function type is the one a program rarely writes but the checker
 constantly infers, since it is what a `def`'s *name* means. So it is
-what `pyk --typecheck --ast` prints for a name bound to a function,
+what `pyk compile --typecheck --ast` prints for a name bound to a function,
 whether or not the source said so:
 
 ```pyking

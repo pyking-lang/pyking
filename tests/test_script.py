@@ -44,6 +44,13 @@ How each target is executed:
           what the program writes into the page, which is then compared
           like any other output. See `run_html` for what that does and
           does not prove.
+  interpret
+          nothing is compiled: `pyk run` runs the program on the AST with
+          src/interpreter.py and its stdout is compared like any other
+          backend's. That comparison is the point -- the interpreter is a
+          second definition of the language's semantics, and the cheapest
+          way to keep it honest is to hold it to the same `.out` files
+          the nine compiling targets are held to.
 """
 
 import glob
@@ -54,13 +61,20 @@ import sys
 import tempfile
 import tomllib
 
-PYKBOOT = os.path.join("src", "pykboot.py")
+PYK = os.path.join("src", "pyk.py")
 CASES_FILE = os.path.join("tests", "test_cases.toml")
 # The `typecheck` target is not a backend: it compiles nothing and runs
 # nothing. It type-checks a program and compares the *printed AST*
 # against the `.ast.out` file, which is how a `typecheck_*.pyk` test pins
 # down the types the checker infers. See `run_typecheck` below.
 TYPECHECK_TARGET = "typecheck"
+# Nor is `interpret` a backend: it compiles nothing either, and runs the
+# program on the AST with src/interpreter.py. It is still compared
+# against the same `.out` as every compiling target, which is what makes
+# it a test of the *language* rather than of the interpreter alone. Its
+# subset is the type checker's (see `interpreter.check`), so a program
+# outside that fragment simply does not list it.
+INTERPRET_TARGET = "interpret"
 # A `typecheck_*` program must type-check, and its `.ast.out` holds the
 # printed AST; it lists real backends too, so the program it describes is
 # one that actually runs. A `fail_typecheck_*` one must *not* check, and
@@ -85,7 +99,7 @@ def expected_path(source, target):
 
 TARGETS = (
     "python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17",
-    "java21", "ocaml", TYPECHECK_TARGET,
+    "java21", "ocaml", INTERPRET_TARGET, TYPECHECK_TARGET,
 )
 
 # The compiler used for the C targets; `cc` is the standard name.
@@ -137,7 +151,9 @@ def executed(result):
 
 
 def compile_to(source, target, output):
-    return run([sys.executable, PYKBOOT, "--target", target, "--output", output, source])
+    return run(
+        [sys.executable, PYK, "compile", "--target", target, "--output", output, source]
+    )
 
 
 # The Python backend builds a per-turn factory (`__pyk_turn1`) for a
@@ -322,6 +338,19 @@ def about_the_code(stderr):
     )
 
 
+def run_interpret(source, _workdir):
+    """Runs the program with the interpreter, and compares what it
+    printed against the same `.out` every compiling target is compared
+    against.
+
+    Nothing is written to the work directory: `pyk run` produces no file
+    at all, which is the whole difference between this and the nine
+    targets above it. The exit status still goes through `executed`, so
+    a program that prints its output and *then* hits a runtime error is a
+    failure rather than a pass."""
+    return executed(run([sys.executable, PYK, "run", source]))
+
+
 def run_typecheck(source, workdir):
     """Type-checks `source`. Nothing is compiled or executed.
 
@@ -335,7 +364,7 @@ def run_typecheck(source, workdir):
     checker is *expected* to reject it, so the error message becomes the
     output to compare and type-checking cleanly is the failure."""
     expect_failure = os.path.basename(source).startswith(FAIL_TYPECHECK_PREFIX)
-    result = run([sys.executable, PYKBOOT, "--typecheck", "--ast", source])
+    result = run([sys.executable, PYK, "compile", "--typecheck", "--ast", source])
     if expect_failure:
         if result.returncode == 0:
             return None, (
@@ -350,6 +379,7 @@ def run_typecheck(source, workdir):
 
 RUNNERS = {
     TYPECHECK_TARGET: run_typecheck,
+    INTERPRET_TARGET: run_interpret,
     "python": run_python,
     "nodejs": run_nodejs,
     "esm": run_esm,
@@ -404,6 +434,15 @@ def load_cases():
             print(
                 f"WARNING: {name} pins its types but lists no backend; add "
                 f'"python" so the program it describes is one that runs'
+            )
+        # The interpreter runs the checker's fragment, so a program whose
+        # types are pinned is one it can run -- and the cheapest check
+        # that the two agree is to actually run it.
+        if checks and INTERPRET_TARGET not in targets:
+            print(
+                f"WARNING: {name} pins its types but does not list "
+                f'"{INTERPRET_TARGET}"; the interpreter runs exactly the '
+                f"fragment the checker accepts"
             )
         # A `fail_typecheck_*` program is written to be refused, so there
         # is nothing to run and no `.out` to compare.

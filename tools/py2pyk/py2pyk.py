@@ -60,7 +60,7 @@ def unsupported(node, message):
 # standalone and never reaches into src/'s internals. Doing this analysis
 # ourselves, on the Python source positions, gives errors that point at the
 # *Python* line the trouble is on, rather than round-tripping through
-# pykboot.
+# the Pyking compiler.
 # ---------------------------------------------------------------------------
 
 BUILTIN_NAMES = ("print", "range", "str", "len")

@@ -9,29 +9,38 @@ rather than an assignment, mutable variables are declared with `var` and
 updated with `:=`, and every block is a real scope, checked at compile
 time.
 
-Pyking has no interpreter. It compiles, and the same program can be
-emitted for several targets. The `pyk` script at the repository root is
-the front end for all of it:
+A program can be compiled for any of ten targets, or run directly by the
+interpreter. The `pyk` script at the repository root is the front end for
+all of it, and has four commands:
 
 ```sh
-./pyk hello.pyk                # compile and run it, leaving nothing behind
+./pyk hello.pyk                # compile with the python backend and run it
+./pyk run hello.pyk            # run it with the interpreter
+./pyk repl                     # a prompt, with the same interpreter behind it
+./pyk compile hello.pyk        # compile it (alias: ./pyk c)
 ```
 
-Given a filename and nothing else, `pyk` compiles to a temporary file,
-runs it, and cleans up. Add any flag and it compiles to a file instead,
-named after the source unless `--output` says otherwise:
+`./pyk hello.pyk` compiles to a temporary file, runs it, and cleans up;
+it covers the whole language. `./pyk run` runs the AST directly, with
+Pyking's own semantics — 32-bit integers, and runtime errors reported
+against Pyking source positions — and covers the fragment the type
+checker accepts. Where the two disagree, the interpreter is the
+reference; see [docs/targets.md](docs/targets.md).
+
+`compile` writes a file named after the source, unless `--output` (`-o`)
+says otherwise:
 
 ```sh
-./pyk -t python  hello.pyk     # ./hello.py     (python is the default)
-./pyk -t nodejs  hello.pyk     # ./hello.js
-./pyk -t html    hello.pyk     # ./hello.html
-./pyk -t esm     hello.pyk     # ./hello.js + .node.js + .html + package.json
-./pyk -t c89     hello.pyk     # ./hello.c      (C89)
-./pyk -t c23     hello.pyk     # ./hello.c      (C23)
-./pyk -t java8   hello.pyk     # ./Hello.java   (Java 8)
-./pyk -t java17  hello.pyk     # ./Hello.java   (Java 17)
-./pyk -t java21  hello.pyk     # ./Hello.java   (Java 21)
-./pyk -t ocaml   hello.pyk     # ./hello.ml
+./pyk c -t python  hello.pyk   # ./hello.py     (python is the default)
+./pyk c -t nodejs  hello.pyk   # ./hello.js
+./pyk c -t html    hello.pyk   # ./hello.html
+./pyk c -t esm     hello.pyk   # ./hello.js + .node.js + .html + package.json
+./pyk c -t c89     hello.pyk   # ./hello.c      (C89)
+./pyk c -t c23     hello.pyk   # ./hello.c      (C23)
+./pyk c -t java8   hello.pyk   # ./Hello.java   (Java 8)
+./pyk c -t java17  hello.pyk   # ./Hello.java   (Java 17)
+./pyk c -t java21  hello.pyk   # ./Hello.java   (Java 21)
+./pyk c -t ocaml   hello.pyk   # ./hello.ml
 ```
 
 `--stdout` prints the generated code instead of writing it, `--ast` shows
@@ -41,15 +50,41 @@ the parsed program, and `--tokens` the token stream. Two flags go with
 so the printed program carries the types it inferred:
 
 ```sh
-./pyk --typecheck --ast hello.pyk    # x: Int = 12 + 20
-./pyk --ast --symbols hello.pyk      # x@1 = (12@2 + 20@3)@4  @5
+./pyk c --typecheck --ast hello.pyk    # x: Int = 12 + 20
+./pyk c --ast --symbols hello.pyk      # x@1 = (12@2 + 20@3)@4  @5
 ```
 
-The type checker is opt-in because it covers only part of the language
-so far — see [docs/architecture.md](docs/architecture.md#symbols-and-types).
-Every flag is passed straight through to the compiler
-(`src/pykboot.py`), so running `./pyk` with no arguments prints the full
+The type checker is opt-in for compiling because it covers only part of
+the language so far — see
+[docs/architecture.md](docs/architecture.md#symbols-and-types); `./pyk
+run` and `./pyk repl` always run it, since it is what decides what they
+can run. Every flag is passed straight through to the compiler
+(`src/pyk.py`), so running `./pyk` with no arguments prints the full
 usage.
+
+The REPL is a session read as a program written one entry at a time: each
+entry is checked against what the entries before it left behind, and then
+run there. A value comes back with its type, and a block indents itself
+as you type it.
+
+```
+$ ./pyk repl
+Pyking REPL.  :help for commands, :quit to leave.
+> x = 21
+> def double(n:Int) -> Int:
+.     n * 2
+.
+> double(x)
+42 : Int
+> :vals
+x      = 21 : Int
+double = <function> : (Int) -> Int
+```
+
+The arrow keys move through the whole entry, not just its last line, and
+Up at the top of one steps back through earlier entries — so a function
+comes back whole, can be edited anywhere in it, and re-submitted.
+`:help` lists the rest.
 
 ## Make targets
 
@@ -97,8 +132,11 @@ clean` but the cache itself only goes on `make distclean`.
   keeps its own turn's bindings: the mechanism, the shape that used to
   defeat it, and what it still costs in generated code.
 - **[docs/architecture.md](docs/architecture.md)** — the compiler itself:
-  pipeline diagram, the stages, the runtime interface that separates a
-  program from the world it prints into, and how the tests work.
+  pipeline diagram, the stages, the interpreter's machine, the runtime
+  interface that separates a program from the world it prints into, and
+  how the tests work.
+- **[docs/source.md](docs/source.md)** — every file in `src/`: what it
+  is, its data structures, and its main functions.
 - **[CLAUDE.md](CLAUDE.md)** — repository conventions, for anyone (or
   anything) making changes here.
 
@@ -116,5 +154,6 @@ clean` but the cache itself only goes on `make distclean`.
 
 Requires Python 3.11+ (`match`/`case`, `tomllib`). Running the generated
 code needs `node` for the JavaScript targets, a C compiler for the C
-ones, and a JDK (`javac`/`java`) for the Java ones; producing it needs
-none of them. No third-party dependencies.
+ones, a JDK (`javac`/`java`) for the Java ones and an OCaml compiler for
+`ocaml`; producing it needs none of them, and `./pyk run` needs nothing
+at all. No third-party dependencies.

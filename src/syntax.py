@@ -308,7 +308,7 @@ class TFunction(Type):      # (T1, T2, ...) -> T
 # (see `symbolize` in src/analyses.py). This is a module-level display
 # setting rather than a parameter threaded through every printer:
 # `pprint_program` is the only entry point any caller uses (see
-# `src/pykboot.py` and `tools/playground/generator.py`), it sets and
+# `src/pyk.py` and `tools/playground/generator.py`), it sets and
 # restores this around its one call, and the printers are pure and
 # single-threaded -- so nothing can observe the flag outside that call,
 # and no recursive call site has to remember to pass it along.

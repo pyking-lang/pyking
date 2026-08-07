@@ -62,7 +62,7 @@ to give. All are refused at compile time with a source position.
 ### `/`
 
 ```
-$ pyk -t c23 divide.pyk
+$ pyk compile -t c23 divide.pyk
 'divide.pyk' 1:6-1:11 Unsupported by target 'c23': `/` is true
   division in Pyking and truncating integer division in C; matching it
   needs a floating-point type this backend does not have yet

@@ -4,7 +4,7 @@ A standalone tool that translates a subset of Python source into
 [Pyking](../../PYKING.md) source. It is independent of the rest of this
 repository's compiler (`src/`): it does not import from it, and nothing
 outside `tools/py2pyk/` depends on it either. The only place the two
-touch is the test harness, which uses `src/pykboot.py` as a black box to
+touch is the test harness, which uses `src/pyk.py` as a black box to
 check that what py2pyk produces is valid, working Pyking.
 
 ## Summary
@@ -26,7 +26,7 @@ exceptions, no `import`, no dict/set, no indexing, no attribute access, no
 `and`/`or`/`not`, no `%`/`//`/`**`, no `break`/`continue`. py2pyk
 translates the subset that *is* expressible, and refuses everything else
 with a specific, explained error rather than emitting something that
-looks plausible but means something else, or that pykboot itself will
+looks plausible but means something else, or that the compiler itself will
 choke on. **When py2pyk accepts a program, the translation is meant to be
 behaviourally exact** -- same output for the same input, always -- not an
 approximation. That is also what the test suite (`make test`) checks: it
@@ -73,9 +73,9 @@ make test
 runs `test_script.py`, which for every `tests/*.py` file:
 
 1. translates it with `py2pyk.py`;
-2. compiles the result back to Python with `src/pykboot.py` -- this
+2. compiles the result back to Python with `src/pyk.py` -- this
    step is also, as a side effect, the check that py2pyk produced *valid*
-   Pyking, since an invalid translation fails here with pykboot's own
+   Pyking, since an invalid translation fails here with the compiler's own
    error;
 3. runs the original `.py` and the round-tripped `.py`, and compares
    their stdout.
@@ -376,7 +376,7 @@ each other, and a `def` cannot refer to a binding written below it" (see
 enforces the identical rule itself, with its own scope-chain
 implementation (`Scope` in `py2pyk.py`, deliberately not imported from
 `src/analyses.py` -- see "Design notes" below) so that a forward
-reference is reported against the *Python* source line, before pykboot
+reference is reported against the *Python* source line, before the compiler
 ever sees the (invalid) output:
 
 ```
@@ -544,7 +544,7 @@ than guess. Each gives a specific, worded error naming the construct.
 - **Why py2pyk re-implements Pyking's scope rules instead of importing
   `src/analyses.py`.** Doing so gives errors positioned against the
   Python source line the trouble is actually on -- far more useful than
-  translating first and letting `pykboot` reject the *generated* Pyking
+  translating first and letting `pyk` reject the *generated* Pyking
   file, which would point at a line number in a file the user never
   wrote. It also keeps py2pyk genuinely independent, per the brief:
   nothing under `tools/py2pyk/` reaches into `src/`, and nothing outside
@@ -560,7 +560,7 @@ than guess. Each gives a specific, worded error naming the construct.
 - **Safety net, not just a claim.** py2pyk's own scope-checking pass
   really does mirror Pyking's rules (no shadowing a `var`, sequential-only
   visibility, and so on), but as a second line of defence, `make test`'s
-  step 2 -- compiling the generated `.pyk` with the *real* `pykboot` --
+  step 2 -- compiling the generated `.pyk` with the *real* compiler --
   means any gap in py2pyk's own checking still gets caught, just with a
-  less specific error, rather than silently producing a program pykboot
+  less specific error, rather than silently producing a program the compiler
   itself would refuse.

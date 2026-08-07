@@ -54,7 +54,7 @@ not allow.
 The generated file is named, and its class is named, in Java's own style:
 `foo_bar.pyk` compiles by default to `FooBar.java`, holding
 `public final class FooBar`, because Java requires the two to match
-exactly (`default_class_name`; `src/pykboot.py` derives the class name
+exactly (`default_class_name`; `src/pyk.py` derives the class name
 from an explicit `--output` instead, when one is given). Top-level Pyking
 statements become the body of `public static void main`; `def`s become
 `private static` methods.
@@ -928,7 +928,7 @@ def translate_program(stmts):
 #
 # Java requires the public class in a file to share that file's name
 # exactly, so the compiler cannot simply reuse the source's own stem the
-# way the other targets do (see `src/pykboot.py`): `foo_bar.pyk` must
+# way the other targets do (see `src/pyk.py`): `foo_bar.pyk` must
 # become `FooBar.java`, class `FooBar`, not `foo_bar.java`. Only the
 # *default* name goes through this conversion; an explicit `--output`
 # path is trusted as-is, and its class name is just that file's stem.

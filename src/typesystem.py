@@ -25,7 +25,7 @@ variant of its own datatype.
 AST is left exactly as it was parsed -- this checker rebuilds nothing
 and writes into no node's `type` field -- so what a program *says* and
 what the checker *inferred* stay separable, and a caller that wants the
-latter asks `tmap` for it. `src/pykboot.py` hands the finished `tmap` to
+latter asks `tmap` for it. `src/pyk.py` hands the finished `tmap` to
 `syntax.pprint_program`, which is what makes `pyk --typecheck --ast`
 print inferred types rather than written ones.
 
@@ -102,7 +102,7 @@ and it is not written yet.
 ## Names and scoping
 
 `--typecheck` runs *instead of* the name analysis, not after it (see
-`src/pykboot.py`), so this pass is on its own about names -- and checks
+`src/pyk.py`), so this pass is on its own about names -- and checks
 them itself rather than leaving them unchecked. `env` is the scope: a
 name is in it or it is not, and one that is not raises `analyses.py`'s
 own `AnalysisError` with `analyses.py`'s own wording, so a program is
@@ -211,7 +211,7 @@ from syntax import (
 class TypeError_(Exception):
     """Raised for a type error, or for a construct this checker does not
     cover. Carries the source position, like `LexError`/`ParseError`/
-    `AnalysisError` do for their own stages, so `pykboot.py` can report
+    `AnalysisError` do for their own stages, so `pyk.py` can report
     it in the same `'file' row:col-row:col ...` form.
 
     Named with a trailing underscore so it cannot be confused with -- or
@@ -281,9 +281,20 @@ def type_check(stmts):
     passes cannot disagree about what a program may name -- each bound to
     a `Builtin`, which is checked at the call rather than given a type."""
     tmap = {}
-    env = {name: Builtin(name) for name in BUILTINS}
-    check_stmts(stmts, env, tmap, None)
+    check_stmts(stmts, builtin_env(), tmap, None)
     return tmap
+
+
+def builtin_env():
+    """The environment a program starts in: every name in
+    `analyses.BUILTINS`, each denoting an operation rather than a value.
+
+    Its own function because `type_check` is not the only way in. A
+    caller that checks a program a piece at a time -- `src/repl.py`
+    checks one entry against the environment the last one left behind --
+    needs the same starting point, and building it by hand somewhere else
+    is how two ideas of what a program may name start to drift apart."""
+    return {name: Builtin(name) for name in BUILTINS}
 
 
 # --- [Stmt] ----------------------------------------------------------

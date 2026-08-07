@@ -51,7 +51,7 @@ begins, with the checker's own message framed as this target's
 limitation:
 
 ```
-$ pyk -t ocaml program.pyk
+$ pyk compile -t ocaml program.pyk
 'program.pyk' 1:0-1:9 Unsupported by target 'ocaml': this target
   compiles only programs that type-check, and this one does not:
   Construct is not supported

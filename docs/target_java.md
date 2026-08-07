@@ -75,7 +75,7 @@ position.
 ### `/`
 
 ```
-$ pyk -t java21 divide.pyk
+$ pyk compile -t java21 divide.pyk
 'divide.pyk' 1:6-1:11 Unsupported by target 'java21': `/` is true
   division in Pyking and truncating integer division in Java; matching
   it needs a floating-point type this backend does not have yet
@@ -273,8 +273,8 @@ spelling the way every other target does. With no `--output`, the
 default name is **Java-cased**, not the source's:
 
 ```
-$ pyk -t java21 foo_bar.pyk     # writes FooBar.java
-$ pyk -t java21 test1.pyk       # writes Test1.java
+$ pyk compile -t java21 foo_bar.pyk   # writes FooBar.java
+$ pyk compile -t java21 test1.pyk     # writes Test1.java
 ```
 
 Words are split on anything that is not a letter or digit, each

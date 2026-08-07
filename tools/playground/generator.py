@@ -16,9 +16,9 @@ and the copies of the compiler and the example programs. Run it through
 Three things are read out of the repository rather than restated here, so
 that the playground cannot drift from the compiler it ships:
 
-  - the compiler modules themselves, copied from `src/` (minus
-    `pykboot.py`, which is the CLI driver and the only module that touches
-    the filesystem);
+  - the compiler modules themselves, copied from `src/` (minus `pyk.py`
+    and `repl.py`, the two front ends, which are the only modules that
+    touch the filesystem or a terminal);
   - the keyword list in `src/lexer.py` and the builtin list in
     `src/analyses.py`, which become the Ace highlighting mode;
   - `tests/*.pyk` and `tests/test_cases.toml`, which become the example
@@ -88,7 +88,10 @@ PYODIDE_FILES = [
 
 # --- the compiler, and what each target means to the page -----------------
 
-COMPILER_SKIP = {"pykboot.py"}
+# The two front ends: `pyk.py` reads argv, opens files and calls
+# `sys.exit`; `repl.py` reads a terminal. Everything else in `src/` --
+# the interpreter included -- is pure and ships to the browser.
+COMPILER_SKIP = {"pyk.py", "repl.py"}
 
 # Which Ace mode highlights each target's output, and how (or whether) the
 # browser can execute it. `c89`/`c23`/`java*`/`ocaml` are display-only:
@@ -196,7 +199,7 @@ def read_list_literal(path, name):
 
 PYKING_WEB_PY = '''"""The browser-side entry point to the Pyking compiler.
 
-`src/pykboot.py` is a script: it reads argv, opens files and calls
+`src/pyk.py` is a script: it reads argv, opens files and calls
 `sys.exit`, none of which a web page can use. This module is the same
 sequence of stages exposed as two plain functions that take and return
 values, so JavaScript (or a test) can call them directly.
@@ -250,7 +253,7 @@ def compile_source(text, target="python", name="playground.pyk",
     program, and never touches the filesystem.
 
     Both flags are `pyk`'s own, and mean what they mean there: `typecheck`
-    runs `src/typesystem.py` (and, exactly as in `src/pykboot.py`,
+    runs `src/typesystem.py` (and, exactly as in `src/pyk.py`,
     *replaces* the name analysis with it), and `ast` stops after the front
     end and yields the pretty-printed Pyking AST whatever `target` says.
 
@@ -268,7 +271,7 @@ def compile_source(text, target="python", name="playground.pyk",
 
     # `--typecheck` stands in for the name analysis rather than following
     # it: the checker carries a name environment of its own (see
-    # src/typesystem.py), and src/pykboot.py makes the same choice.
+    # src/typesystem.py), and src/pyk.py makes the same choice.
     if not typecheck:
         try:
             analyze_program(program)
@@ -556,7 +559,7 @@ async function boot({ pyodideIndexURL, pykingURL }) {
 
   // `src/` is a flat set of script modules, not a package, so the compiler is
   // mounted on one directory and put on sys.path -- what running
-  // `python3 src/pykboot.py` does natively.
+  // `python3 src/pyk.py` does natively.
   pyodide.FS.mkdirTree("/pyking");
   for (const [name, text] of sources) {
     pyodide.FS.writeFile("/pyking/" + name, text);

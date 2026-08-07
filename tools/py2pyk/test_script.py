@@ -4,10 +4,10 @@
 For every `tests/*.py` file:
 
   1. translate it with py2pyk.py into Pyking source;
-  2. compile that Pyking source back into Python with src/pykboot.py
+  2. compile that Pyking source back into Python with src/pyk.py
      (the project's real bootstrap compiler -- this is also, as a side
      effect, the ground truth check that py2pyk produced *valid* Pyking:
-     an invalid translation fails here with pykboot's own error);
+     an invalid translation fails here with the compiler's own error);
   3. run the original `.py` and the round-tripped `.py` each with
      `python3`, and compare their stdout.
 
@@ -30,7 +30,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 PY2PYK = HERE / "py2pyk.py"
-PYKBOOT = HERE.parent.parent / "src" / "pykboot.py"
+PYK = HERE.parent.parent / "src" / "pyk.py"
 TESTS_DIR = HERE / "tests"
 
 
@@ -74,11 +74,12 @@ def run_case(py_file, tmp_dir):
         return False, f"py2pyk failed:\n{_indent(translate.stderr)}"
 
     compile_back = subprocess.run(
-        [sys.executable, str(PYKBOOT), "--output", str(roundtrip_py), str(pyk_file)],
+        [sys.executable, str(PYK), "compile", "--output", str(roundtrip_py),
+         str(pyk_file)],
         capture_output=True, text=True, timeout=30,
     )
     if compile_back.returncode != 0:
-        return False, f"pykboot failed to compile the generated .pyk:\n{_indent(compile_back.stderr)}"
+        return False, f"pyk failed to compile the generated .pyk:\n{_indent(compile_back.stderr)}"
 
     original = run_python(py_file, cwd=py_file.parent)
     if original.returncode != 0:
@@ -103,8 +104,8 @@ def _indent(text, prefix="    "):
 
 
 def main():
-    if not PYKBOOT.exists():
-        print(f"test_script.py: cannot find pykboot at {PYKBOOT}", file=sys.stderr)
+    if not PYK.exists():
+        print(f"test_script.py: cannot find the compiler at {PYK}", file=sys.stderr)
         return 1
 
     cases = sorted(TESTS_DIR.glob("*.py"))
