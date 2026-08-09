@@ -137,7 +137,8 @@ clean` but the cache itself only goes on `make distclean`.
   interface that separates a program from the world it prints into, and
   how the tests work.
 - **[docs/source.md](docs/source.md)** — every file in `src/`: what it
-  is, its data structures, and its main functions.
+  is, its data structures, and its main functions, each linking to a
+  dedicated page working through that module's own design in depth.
 - **[docs/type_inference.md](docs/type_inference.md)** — how a function
   nobody annotated still gets a type: checked at the call rather than at
   the definition, why it is done that way, and what it deliberately

@@ -64,6 +64,8 @@ pop.
 Everything downstream reports errors against `Info`, so this module is
 imported by every other one.
 
+**Design, in depth:** [lexer.md](lexer.md).
+
 ### Data structures
 
 - **`Info(file, row1, col1, row2, col2)`** — a frozen dataclass: the span
@@ -117,6 +119,8 @@ The name is not an accident: `src/` is a flat set of script modules, so a
 module named `ast.py` would shadow the standard library's `ast` on
 `sys.path` — which breaks `dataclasses` itself, since it reaches `ast`
 through `inspect`. Do not rename it back.
+
+**Design, in depth:** [syntax.md](syntax.md).
 
 ### Data structures
 
@@ -177,6 +181,8 @@ rebuild it with `dataclasses.replace`.
 
 **Recursive descent: tokens → AST.**
 
+**Design, in depth:** [parser.md](parser.md).
+
 ### Main functions
 
 The expression grammar is one function per precedence level, each taking
@@ -229,6 +235,8 @@ cannot state because it cannot see line boundaries).
 
 **Static analyses over the parsed AST**, run between the parser and
 anything else, for every mode. Errors are `AnalysisError(info, message)`.
+
+**Design, in depth:** [analyses.md](analyses.md).
 
 ### Data structures
 
@@ -283,6 +291,10 @@ cannot find.
 
 What it means for a *program* is PYKING.md's "Type checking" section;
 this file is how those rules are applied.
+
+**Design, in depth:** [typesystem.md](typesystem.md) (the module
+itself); [type_inference.md](type_inference.md) (the deferred-checking
+scheme specifically).
 
 ### Data structures
 
@@ -385,6 +397,8 @@ semantics, including the value-formatting rules, because every backend
 has to agree on those before one program can print the same characters
 everywhere.
 
+**Design, in depth:** [runtime_interface.md](runtime_interface.md).
+
 - **`Operation(name, variadic, doc)`** — one operation a host must
   provide.
 - **`PRINT`**, **`OPERATIONS`**, **`NAMES`** — today's whole interface:
@@ -414,6 +428,8 @@ where a backend disagrees with it, the backend is wrong.
 It runs exactly the fragment `typesystem.py` accepts. The gate is the
 checker itself (`check`), the same arrangement `target_ocaml.py` uses, so
 there is no second list of supported constructs to keep in step.
+
+**Design, in depth:** [interpreter.md](interpreter.md).
 
 ### Why a machine
 
@@ -543,6 +559,8 @@ than the "one `def` per name per block" error it would be inside one
 block, a function written earlier keeps whatever it captured, and a
 function written now is invisible to one written before it.
 
+**Design, in depth:** [repl.md](repl.md).
+
 ### Data structures
 
 - **`Session(seen, state, types, sources)`** — the machine's environment
@@ -656,6 +674,11 @@ a line long enough to wrap is still followed correctly.
 **The Python backend** — the first one written, the reference for the
 others, and the only one that compiles the whole language.
 
+**Design, in depth:** [target_python.md](target_python.md) (what
+compiles to what); [target_python_internals.md](target_python_internals.md)
+(this module's own machinery — `Scope`, renaming, the loop-capture
+factory).
+
 ### Data structures
 
 - **The `Py*` AST** — `PyInt`, `PyString`, `PyVar`, `PyAdd`, `PyCall`,
@@ -710,6 +733,10 @@ others, and the only one that compiles the whole language.
 **The JavaScript backend's language half.** Knows nothing about
 packaging.
 
+**Design, in depth:** [target_js_core.md](target_js_core.md) (this
+module); [target_js.md](target_js.md) (what compiles to what, across
+all three JS targets).
+
 - **The `Js*` AST** — `JsExpr`/`JsStmt` and their variants, including
   **`JsRuntimeCall`**, whose spelling is supplied by the packager. That
   one node is why the same core output serves all three JS targets.
@@ -733,6 +760,8 @@ packaging.
 the runtime interface — each host's `print`, and the shared `pykFormat`,
 which is exactly what differs between the three targets.
 
+**Design, in depth:** [target_js_packaging.md](target_js_packaging.md).
+
 - **`TARGETS`** = `("nodejs", "html", "esm")`, **`PRIMARY_EXTENSIONS`**.
 - **`package_nodejs` / `package_html` / `package_esm_module` /
   `package_esm_node_driver` / `package_esm_html`** — one self-contained
@@ -753,6 +782,10 @@ which is exactly what differs between the three targets.
 two because the standards disagree about *printing* — comments, whether
 declarations may follow statements, whether `bool` exists — not about
 meaning, so `standard` reaches only the printer.
+
+**Design, in depth:** [target_c_internals.md](target_c_internals.md)
+(this module's own inference and translation machinery);
+[target_c.md](target_c.md) (what compiles to what, and what's refused).
 
 - **The `C*` AST**, and the type vocabulary `INT`/`BOOL`/`STRING`/`UNIT`
   with `_C_TYPES` and `_FORMATS` (the `printf` conversion per type).
@@ -778,6 +811,11 @@ shape as the C backend, with a `version` parameter instead of a
 writes `var` (Java 10's local-variable type inference) or spells its type
 out.
 
+**Design, in depth:** [target_java_internals.md](target_java_internals.md)
+(this module — mostly a repeat of `target_c.py`'s own machinery, so
+that page focuses on the differences); [target_java.md](target_java.md)
+(what compiles to what, and what's refused).
+
 - **The `J*` AST** — `JInt`, `JStr`, `JBool`, `JVar`, `JBinary`,
   `JCall`, `JCond`, **`JEquals`** (`.equals()`, since Java's `==` on
   strings compares references), and the statement variants.
@@ -801,6 +839,12 @@ out.
 why the checker records an entry for every expression. Its supported
 subset is therefore exactly the checker's, and a program that does not
 check is refused with the checker's own message.
+
+**Design, in depth:** [target_ocaml_internals.md](target_ocaml_internals.md)
+(this module — why it infers nothing, the block-as-expression
+translation, evaluation-order fixing, mutual-recursion grouping);
+[target_ocaml.md](target_ocaml.md) (what compiles to what, and what's
+refused).
 
 - **`TARGET`** = `"ocaml"`, **`EXTENSION`** = `".ml"`, and the `O*` AST.
 - **`translate_program(stmts)`** — most of the translation is direct
@@ -831,6 +875,8 @@ pyk run <file>          run it with the interpreter
 pyk repl                start the REPL
 pyk compile <file>      compile it (alias: pyk c)
 ```
+
+**Design, in depth:** [pyk.md](pyk.md).
 
 ### Data structures
 
