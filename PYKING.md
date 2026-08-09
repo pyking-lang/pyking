@@ -296,6 +296,33 @@ escape      = "n" | "t" | "r" | "\" | "'" | '"' ;
 
 Notes that don't fall out of the grammar alone:
 
+- **A statement starts a line of its own**, and so does a `case` clause.
+  There is no statement separator in Pyking: a statement ends where the
+  tokens stop being able to continue it, which by itself would make
+
+  ```
+  print h
+  ```
+
+  *two* statements — a bare `print`, then a bare `h` — and so a program
+  that reads as though it prints and does not. The rule cannot be stated
+  in the EBNF, because the grammar cannot see line boundaries: the lexer
+  turns indentation into block structure and emits nothing at all for the
+  end of a line. It is checked against the source positions the tokens
+  carry, and reported as an ordinary `Parsing error`:
+
+  ```
+  'prog.pyk' 2:6-2:7 Parsing error: each statement must start on a new
+    line. In this case, 'print' and 'h' are seen as two different
+    statements
+  ```
+
+  Both are quoted back, because the mistake is not that something is in
+  the wrong place but that *two* things were read where one was meant.
+
+  One line may still hold a whole statement whose header opens a block
+  (`x = if c:`), and a statement may still span as many lines as its
+  blocks need. What one line may not hold is *two* statements.
 - `comp_op` does not repeat — `1 < 2 < 3` is not a valid `expr` (comparisons
   don't chain).
 - `while_stmt` has no `else` clause (unlike Python's `while`/`else`).

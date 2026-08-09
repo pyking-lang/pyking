@@ -1,0 +1,21 @@
+# Two statements may not share a line.
+#
+# Pyking has no statement separator: a statement ends where the tokens
+# stop being able to continue it. Without a rule about lines, `print h`
+# below would be *two* statements -- a bare `print`, then a bare `h` --
+# and the program would read as though it printed something and do
+# nothing at all. That is the shape this pins.
+#
+# The rule cannot be written in the grammar, since the grammar cannot see
+# where a line ends: the lexer turns indentation into block structure and
+# emits nothing for a line break. It is checked in `src/parser.py`
+# against the positions the tokens carry, beside the other rules the EBNF
+# cannot state, and so is reported as a `Parsing error` -- earlier than
+# the name and type checking this file's `typecheck` target usually
+# exercises, but refused all the same, which is what the target is for.
+#
+# This program is expected to FAIL, and its `.ast.out` holds the error
+# message rather than a program's output.
+
+h = 5
+print h

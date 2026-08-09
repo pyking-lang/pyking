@@ -149,6 +149,10 @@ file = "fail_typecheck_scope_escape.pyk"
 targets = ["typecheck"]
 
 [[cases]]
+file = "fail_typecheck_statement_line.pyk"
+targets = ["typecheck"]
+
+[[cases]]
 file = "fail_typecheck_unbound_name.pyk"
 targets = ["typecheck"]
 

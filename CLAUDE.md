@@ -236,9 +236,14 @@ The bootstrap is split into one module per compiler stage:
    errors raise `ParseError(info, message)`. A few restrictions that the
    grammar can't express are checked here too, so they fail at parse time
    with a source position rather than in a later stage: duplicate
-   bindings in a pattern (`_check_no_duplicate_captures`) and the "every
+   bindings in a pattern (`_check_no_duplicate_captures`), the "every
    branch yields a value" rules of a value-form `if`/`match`
-   (`_check_value_stmt`, on which `target_python.py` relies).
+   (`_check_value_stmt`, on which `target_python.py` relies), and
+   "a statement starts a line of its own" (`_check_own_line`) -- the rule
+   that stops `print h` being read as a bare `print` followed by a bare
+   `h`. That one is checked from the `Info` positions the tokens carry,
+   since the lexer emits no token for the end of a line; adding one is
+   the alternative, and a bigger change than the rule is worth.
 4. **`src/analyses.py`** — static analyses over the parsed AST, run
    between the parser and any backend (for every mode, `--ast` included);
    errors raise `AnalysisError(info, message)`. Currently one analysis,

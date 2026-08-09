@@ -51,8 +51,8 @@ lets a block have more than one statement in it.
 **A block indents itself.** The next line is offered already indented to
 where it belongs: one level in after a line ending in `:`, and the same
 level otherwise, however deeply the blocks nest. It is offered, not
-imposed -- backspace takes it away, which is how a branch dedents to its
-`else`.
+imposed -- tab adds a level and backspace over indentation takes one
+away, which is how a branch dedents to its `else`.
 
 **A value is shown when there is one**, as `value : Type`. A statement's
 value is what PYKING.md's "Tail position" calls the value it supplies --
@@ -387,10 +387,20 @@ _ARROWS = {"A": "up", "B": "down", "C": "right", "D": "left",
 _TILDES = {"1": "home", "3": "delete", "4": "end", "7": "home", "8": "end"}
 _CONTROL = {
     "\r": "enter", "\n": "enter",
+    "\t": "tab",
     "\x7f": "backspace", "\x08": "backspace",
     "\x01": "home", "\x05": "end", "\x0b": "kill",
     "\x03": "interrupt", "\x04": "eof", "\x0c": "clear",
 }
+
+# The keycode a terminal reports for Return when it reports keys as
+# numbers rather than as characters, and the modifier bit for Shift. A
+# terminal in "CSI u" mode sends Shift+Return as `\x1b[13;2u`, and one
+# using xterm's older `modifyOtherKeys` as `\x1b[27;2;13~`; both are read
+# below. A terminal doing neither sends a plain `\r` for Shift+Return,
+# indistinguishable from Return itself -- see `submit` in HELP.
+_RETURN_KEY = 13
+_SHIFT = 2
 
 # How long to wait for the rest of an escape sequence before concluding
 # that the Escape key was pressed on its own. An arrow key sends its
@@ -454,6 +464,14 @@ class Editor:
                         return self._finish(buf, self._submitted(buf))
                     case "enter":
                         buf = newline(buf, self.indent_for(self._before(buf)))
+                    case "submit":
+                        # Shift+Return: this entry is finished, whatever
+                        # it looks like -- the way out of a block without
+                        # the blank line, and the only key here that is
+                        # about *ending* rather than editing.
+                        return self._finish(buf, self._submitted(buf))
+                    case "tab":
+                        buf = insert(buf, INDENT)
                     case "escape" | "interrupt":
                         return self._finish(buf, "")
                     case "eof":
@@ -591,17 +609,53 @@ class Editor:
         return "text", char
 
     def _escape(self):
+        """What an Escape byte turned out to be: the key itself when
+        nothing follows it, and otherwise whichever key the sequence
+        encodes.
+
+        Two shapes arrive. `\x1b\r` is Return with a modifier held, which
+        a terminal that cannot say *which* modifier reports this way;
+        anything else is a `\x1b[` sequence, whose parameters run up to a
+        final letter (`\x1b[A`, `\x1b[3~`, `\x1b[13;2u`). Reading the
+        parameters as a list rather than one character at a time is what
+        lets the modified keys through."""
         if not self._waiting():
             return "escape"
-        if self._char() != "[":
-            return "ignored"
-        char = self._char()
-        if char in _ARROWS:
-            return _ARROWS[char]
-        if char is not None and char.isdigit():
-            # A `\x1b[<n>~` key: Delete, Home and End on some terminals.
-            rest = self._char()
-            return _TILDES.get(char, "ignored") if rest == "~" else "ignored"
+        match self._char():
+            case "\r" | "\n":
+                # Return with something held down -- Alt or Shift,
+                # depending on the terminal. Either way it means "this
+                # entry is finished".
+                return "submit"
+            case "[":
+                return self._control_sequence()
+        return "ignored"
+
+    def _control_sequence(self):
+        """A `\x1b[` sequence, read to its final letter and named."""
+        parameters = ""
+        while True:
+            char = self._char()
+            if char is None:
+                return "ignored"
+            if not (char.isdigit() or char == ";"):
+                return self._named(parameters, char)
+            parameters += char
+
+    def _named(self, parameters, final):
+        """The key a control sequence stands for, from its parameters and
+        its final letter."""
+        numbers = [int(part) for part in parameters.split(";") if part.isdigit()]
+        match (final, numbers):
+            case ("u", [_RETURN_KEY, modifier, *_]) if modifier >= _SHIFT:
+                return "submit"
+            case ("~", [27, modifier, _RETURN_KEY]) if modifier >= _SHIFT:
+                # xterm's `modifyOtherKeys`, which says the keycode last.
+                return "submit"
+            case ("~", [number, *_]):
+                return _TILDES.get(str(number), "ignored")
+            case (letter, _) if letter in _ARROWS:
+                return _ARROWS[letter]
         return "ignored"
 
     def _waiting(self):
@@ -1053,8 +1107,13 @@ becomes '.', and each line starts indented where it belongs -- until a
 blank line ends it.
 
 Editing: the arrow keys move through the whole entry, up and down step
-through earlier entries once they leave it, backspace over indentation
-removes a whole level, and Escape abandons what is being typed."""
+through earlier entries once they leave it, tab inserts one level of
+indentation and backspace over indentation removes one, Shift+Return
+finishes an entry without the blank line, and Escape abandons what is
+being typed.
+
+Shift+Return needs a terminal that distinguishes it from Return, which
+not all do; where it does not arrive, a blank line still ends a block."""
 
 
 def run_meta(session, line, report):

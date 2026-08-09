@@ -17,6 +17,7 @@ from syntax import (
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList, ETuple,
     EIf, EListComp, CompFor, CompIf,
     PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, ListRest, MatchCase,
+    pprint_stmt, pprint_pattern,
     Stmt,
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SFor, SWhile, SIf,
     SFunctionDef, SMatch,
@@ -602,6 +603,70 @@ def _try_parse_assignment_target(tokens):
             return None
 
 
+# How much of a construct an error message quotes before it gives up and
+# says "...". Long enough for the whole of a short statement -- which is
+# what the message is usually about -- and short enough that two of them
+# and a sentence still fit on a line.
+_QUOTE_LIMIT = 32
+
+
+def _check_own_line(previous, current, what, describe):
+    """Refuses a construct that begins on the same line the one before it
+    ended on, naming both of them.
+
+    Pyking has no statement separator: a statement ends when the tokens
+    stop being able to continue it, which by itself would make
+
+        f 34
+
+    two statements -- a bare `f`, then a bare `34` -- and so a program
+    that reads as one thing and does another. Nothing in the grammar can
+    say this, because the grammar cannot see line boundaries: the lexer
+    emits INDENT and DEDENT for block structure and nothing at all for
+    the end of a line. What it *can* be said with is the position every
+    node carries, which is why this check lives here, beside the other
+    rules the EBNF cannot state (see `_check_no_duplicate_captures` and
+    `_check_value_stmt`) rather than in a later pass -- it is a fact
+    about the text, and it should be reported the moment the text is
+    read.
+
+    Both constructs are named, because the mistake is not that something
+    is in the wrong place but that *two* things were read where one was
+    meant: seeing `'f' and '34'` quoted back is what makes it obvious
+    which two. That is also why this runs after the second one has been
+    parsed rather than before -- until then there is nothing to name.
+
+    One line may still hold a whole statement with a block-opening header
+    in it (`x = if c:`); what it may not hold is *two* of them."""
+    if current.info.row1 > previous.info.row2:
+        return
+    raise ParseError(
+        current.info,
+        f"each {what} must start on a new line. In this case, "
+        f"'{describe(previous)}' and '{describe(current)}' are seen as two "
+        f"different {what}s",
+    )
+
+
+def _statement_text(stmt):
+    """How a statement reads, for an error message: its own syntax,
+    printed back."""
+    return _shorten(pprint_stmt(stmt))
+
+
+def _case_text(clause):
+    """The same for a `case` clause, which is named by its pattern."""
+    return _shorten(f"case {pprint_pattern(clause.pattern)}")
+
+
+def _shorten(text):
+    """One line of a construct, short enough to quote in a sentence."""
+    first = text.split("\n")[0].strip()
+    if len(first) <= _QUOTE_LIMIT:
+        return first
+    return first[: _QUOTE_LIMIT - 3] + "..."
+
+
 def parse_block(tokens):
     match tokens:
         case [TokIndent(_), *rest]:
@@ -612,6 +677,10 @@ def parse_block(tokens):
                         return stmts, rest
                     case _:
                         stmt, rest = parse_statement(rest)
+                        if stmts:
+                            _check_own_line(
+                                stmts[-1], stmt, "statement", _statement_text
+                            )
                         stmts.append(stmt)
         case _:
             raise ParseError(_here(tokens), "expected an indented block")
@@ -823,6 +892,10 @@ def parse_cases(tokens):
                         return cases, rest
                     case _:
                         case_clause, rest = parse_case(rest)
+                        if cases:
+                            _check_own_line(
+                                cases[-1], case_clause, "'case' clause", _case_text
+                            )
                         cases.append(case_clause)
         case _:
             raise ParseError(_here(tokens), "expected an indented block of 'case' clauses")
@@ -1108,5 +1181,7 @@ def parse(tokens):
     rest = tokens
     while rest:
         stmt, rest = parse_statement(rest)
+        if stmts:
+            _check_own_line(stmts[-1], stmt, "statement", _statement_text)
         stmts.append(stmt)
     return stmts

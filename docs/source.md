@@ -212,11 +212,14 @@ end — a new grammar rule combines infos the same way rather than reusing
 one token's span. **`_here(tokens)`** is the position to blame when the
 input has run out.
 
-Two checks live here rather than in a later stage, so that they fail with
-a source position at parse time: **`_check_no_duplicate_captures`** (a
-pattern may not bind one name twice) and **`_check_value_stmt`** (every
+Three checks live here rather than in a later stage, so that they fail
+with a source position at parse time: **`_check_no_duplicate_captures`**
+(a pattern may not bind one name twice), **`_check_value_stmt`** (every
 branch of a value-form `if`/`match` must yield a value — which
-`target_python.py` then relies on).
+`target_python.py` then relies on), and **`_check_own_line`** (a
+statement, and a `case` clause, begins a line of its own — the rule that
+stops `print h` from being read as two statements, which the grammar
+cannot state because it cannot see line boundaries).
 
 `ParseError(info, message)` carries the position.
 
@@ -616,9 +619,12 @@ function offers its last line, which is not a program.
 Here the buffer is a list of lines: Up and Down move within the entry and,
 at its edges, step through the history of entries — so a function comes
 back whole and can be edited anywhere in it. Left and Right move through
-it a character at a time (across line boundaries), Escape abandons what
-is being typed, Ctrl-C does the same, and Ctrl-D at an empty prompt ends
-the session. Enter submits a single line that parses, and otherwise opens
+it a character at a time (across line boundaries), Tab inserts one level
+of indentation, Shift+Return finishes an entry without the blank line
+(where the terminal distinguishes it from Return — `_named` reads both
+the `CSI u` and the older `modifyOtherKeys` encodings), Escape abandons
+what is being typed, Ctrl-C does the same, and Ctrl-D at an empty prompt
+ends the session. Enter submits a single line that parses, and otherwise opens
 a new line, already indented to where it belongs; a blank line ends a
 block, which is Python's REPL rule and the only one that lets a block
 have more than one statement in it.
