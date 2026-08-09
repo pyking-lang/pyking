@@ -900,29 +900,18 @@ META = {
 
 QUIT = (":quit", ":q")
 
-HELP = """Commands:
-  :help            this list
+HELP = """
+Commands:
+  :help            this help list
   :quit, :q        leave (or type Ctrl-D)
-  :ls              what this session has bound: name = value : Type
-  :type <expr>     the type the checker gives <expr> here
-  :edit <name>     bring back what defined <name>, to edit and re-enter
+  :ls              list all bound values and variables
+  :type <expr>     the type of expression <expr>
+  :edit <name>     edit defined <name> again
   :ast <stmt>      the parsed form of <stmt>
   :tokens <line>   the token stream for <line>
   :load <file>     read a file into the session
   :reset           forget everything and start again
-
-Anything else is a Pyking statement. A block keeps reading -- the prompt
-becomes '.', and each line starts indented where it belongs -- until a
-blank line ends it.
-
-Editing: the arrow keys move through the whole entry, up and down step
-through earlier entries once they leave it, tab inserts one level of
-indentation and backspace over indentation removes one, Shift+Return
-finishes an entry without the blank line, and Escape abandons what is
-being typed.
-
-Shift+Return needs a terminal that distinguishes it from Return, which
-not all do; where it does not arrive, a blank line still ends a block."""
+"""
 
 
 def run_meta(session, line, report):
