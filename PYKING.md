@@ -203,7 +203,8 @@ function_def = "def" , ident , "(" , [ params ] , ")" , [ "->" , type ] ,
 params       = param , { "," , param } ;
 param        = ident , [ ":" , type ] ;
 
-type         = "Int" | "String" | "Bool"
+type         = type_atom , { "|" , type_atom } ;
+type_atom    = "Int" | "String" | "Bool"
              | "[" , type , "]"
              | "(" , [ type , { "," , type } ] , ")" , [ "->" , type ] ;
 
@@ -1819,8 +1820,32 @@ always be refused.
 
 The checker works in the types "Type annotations" lists, and no others:
 `Int`, `String`, `Bool`, list types `[T]`, tuple types `(T1, T2, ...)`
-— with `()`, the zero-element tuple, as the unit type — and function
-types `(T1, T2, ...) -> T`.
+— with `()`, the zero-element tuple, as the unit type — function types
+`(T1, T2, ...) -> T`, and *alternative* types `T1 | T2`.
+
+An alternative type is a value that is one of several: `Int | String` is
+satisfied by an integer and by a string, and by nothing else. It is
+written with `|`, which binds looser than everything else a type is
+built from, so a function alternative needs its own parentheses:
+
+```pyking
+first: Int | String = 41
+second: Int | String = 'forty-two'
+
+
+def render(value:Int | String) -> String:
+    str(value)
+
+
+print(render(first), render(second))
+```
+
+A builtin accepts an alternative type when it accepts every one of the
+alternatives — `str` above takes `Int | String` because it takes each of
+them. An operator does not: `+` needs to know which signature it is,
+and `Int | String` is not one of them. There is no narrowing, and there
+are no type variables; alternatives are the whole of what the language
+can say about "one of these".
 
 The function type is the one a program rarely writes but the checker
 constantly infers, since it is what a `def`'s *name* means. So it is
@@ -1910,15 +1935,32 @@ else:
     b = 'two'
 ```
 
+The **expression** form is checked the same way, and always yields a
+value: its `else` is mandatory, so there is no way through it that
+produces nothing, and its two branches must agree on a type just as a
+statement's do. It is an expression like any other — an argument, an
+operand, the right-hand side of a binding, or the whole body of a
+function:
+
+```pyking
+def fact(n) = if n <= 1 then 1 else fact(n - 1) * n
+
+
+picked = if 3 < 4 then 10 else 20
+print(fact(7), picked, 'grade ' + (if picked > 5 then 'a' else 'b'))
+```
+
 An `if` with no `else` supplies unit, whatever its one branch ends in:
 there is a way through such a statement that runs no branch at all, so
 there is no value it can be counted on for. A function that needed that
 value is refused where the value was needed — at the function, not at
 the `if`. A condition must be `Bool` — there is no truthiness.
 
-**Functions.** A `def` is checked only when it is *fully* annotated:
-every parameter and the return type. Its type is then the function type
-above, and:
+**Functions.** A `def` that is *fully* annotated — every parameter and
+the return type — is checked where it is written. One that is not is
+checked where it is *called*, and by exactly the same rules; see
+"Functions without annotations" below. Either way, its type is the
+function type above, and:
 
 - every `return` must give the declared return type;
 - the body must *produce* that type, either by returning on every path
@@ -2071,22 +2113,115 @@ kind = sign(4)
 loud = shout('hi')
 ```
 
+### Functions without annotations
+
+A `def` that did not write its type down is not checked where it is
+written. It is checked the first time something **calls** it, with its
+parameters taken from that call — so the annotations a program leaves
+out are supplied by its own use of the function, and everything above
+applies unchanged:
+
+```pyking
+def double(n):
+    n * 2                    # nothing is checked here ...
+
+
+doubled = double(21)         # ... here: n is Int, so double is (Int) -> Int
+```
+
+Three rules follow from "checked at the call", and they are the whole of
+what a program has to know:
+
+**An annotation that *is* written is still a claim.** A half-annotated
+`def` is checked against what it did say, at every call, exactly as a
+fully annotated one is. Only what it left out comes from the call:
+
+```pyking
+def scale(n:Int, factor):    # `n` is a claim; `factor` is a question
+    n * factor
+
+
+print(scale(6, 7))
+# print(scale('six', 7))     # error: argument 1 has type String, but
+                             #        Int was expected
+```
+
+**A body is still checked where it is written.** The call decides what
+the parameters are; it does not decide what else is in scope. A body
+that names something bound *after* the `def` is an error, however late
+the call comes:
+
+```pyking
+def f(n):
+    n + offset               # error: unbound name 'offset'
+
+
+offset = 10
+print(f(1))
+```
+
+**A function used at two types is checked twice**, once each way, and
+each call has the type its own arguments give it. Such a function has
+*two types*, and that is what it is — one alternative per shape of call,
+each keeping its own parameters and result together, since Pyking has no
+type variables:
+
+```pyking
+def echo(x):
+    x
+
+
+number = echo(1)             # number : Int
+word = echo('two')           # word   : String
+same = echo                  # same : ((Int) -> Int) | ((String) -> String)
+```
+
+The alternatives are not interchangeable: `((Int, Int) -> Int) |
+((String, String) -> String)` accepts two Ints or two Strings, and
+refuses one of each — which a single `(Int | String, Int | String) ->
+Int | String` would have allowed. A `def` with several types is printed
+as it was *written* by `--typecheck --ast`, since a `def` header has one
+slot per parameter and no way to say which result goes with which; bind
+it to a name to see the whole type.
+
+**Recursion needs a value on some path.** A recursive call cannot be
+typed while the type it would give is still being worked out, so the
+checker takes the answer from the paths that do *not* recurse and then
+checks the whole body against it. A function whose every path recurses
+has nothing to be worked out from, and is refused:
+
+```pyking
+def fact(n):                 # fine: the first branch says Int
+    if n < 1:
+        1
+    else:
+        n * fact(n - 1)
+
+
+# def forever(n):            # error: cannot work out what 'forever'
+#     forever(n + 1)         #        returns: every way through its
+                             #        body calls it again
+```
+
+Annotating the return type removes the question entirely, and is the
+answer for a function that genuinely has no non-recursive path.
+
+**Two functions of unknown type are indistinguishable**, so an `if` that
+yields one of them is refused: nothing could say which of the two a
+later call would be checking. Annotating either one settles it.
+
+Which functions ended up with which types is what
+`pyk compile --typecheck --ast` prints, and is the best way to see what
+was worked out — the reasoning behind all of this is in
+[docs/type_inference.md](docs/type_inference.md).
+
 ### What is not checked
 
 **Constructs outside the fragment.** `var` and `:=`, `for`, `while`,
-`match`, list and tuple literals, list comprehensions, `if` *expressions*
-(`if c then a else b`), `/`, unary minus, and a binding that destructures
-a tuple (`a, b = ...`) are all refused with `Construct is not supported`.
-A call to a builtin *is* checked — see below.
-
-**Functions that are not fully annotated.** A `def` with an unannotated
-parameter or no return type is refused, naming what is missing, rather
-than inferred:
-
-```
-'prog.pyk' 1:0-2:12 Type error: 'f' can only be checked when every
-  parameter and the return type is annotated; parameter 'n' is not
-```
+`match`, list and tuple literals, list comprehensions, `/`, unary minus,
+and a binding that destructures a tuple (`a, b = ...`) are all refused
+with `Construct is not supported`. A call to a builtin *is* checked —
+see below.
 
 **Names, while `--typecheck` is on.** The type checker replaces the name
 analysis rather than running after it, and does that checking itself:

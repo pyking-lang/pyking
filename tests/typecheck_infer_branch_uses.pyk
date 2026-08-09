@@ -1,0 +1,38 @@
+# What a call learns in *both* branches of an `if`.
+#
+# Only one branch of an `if` runs, but both are checked -- so a function
+# used at one type in one branch and at another in the other has been
+# used at both, and what the call made of it is both. Nothing about that
+# depends on which branch a particular run would take.
+#
+# This is the shape that broke when the checker's inference stopped
+# keeping its state in mutable records and started passing it along as a
+# value: both branches were being checked against the state they
+# *started* from, so whatever the first branch worked out was thrown away
+# when the second one's answer won, and `use` below came out as taking
+# only a `(String) -> String`. With a heap that everything wrote into,
+# the question could not even be asked. The rule is that the second
+# branch is checked against what the first found out -- knowledge is true
+# whichever way the program goes.
+
+def identity(x) = x
+
+# The statement form: `f` is used at Int in one branch and at String in
+# the other.
+def use(f, first):
+    if first:
+        print(f(1))
+    else:
+        print(f('x'))
+
+# The expression form, which needs the same rule for the same reason.
+def label(f, first) = if first then str(f(2)) else f('y')
+
+use(identity, true)
+print(label(identity, true), label(identity, false))
+
+# Bound so the printed AST shows the types: each function reports both
+# shapes it used its argument at, and `identity` the two it was used at.
+both = use
+labelled = label
+same = identity

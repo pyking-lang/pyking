@@ -1,0 +1,12 @@
+def apply_twice(f, x):
+    f(f(x))
+def add_one(n:Int) -> Int:
+    n + 1
+def repeat(word:String) -> String:
+    word + word
+print(apply_twice(add_one, 5))
+print(apply_twice(repeat, 'ab'))
+def apply_once(f:(Int) -> Int, x:Int) -> Int:
+    f(x)
+print(apply_once(add_one, 10))
+applied: (((Int) -> Int, Int) -> Int) | (((String) -> String, String) -> String) = apply_twice

@@ -1,0 +1,40 @@
+# One function, two kinds of use.
+#
+# A function with no annotations is worked out per call, and a call is
+# the only thing that decides anything -- so the same `def` called with
+# an Int and then with a String is checked twice, once each way, and
+# each *call* has the type its own arguments give it. What is recorded
+# against the definition is the summary: `Int | String`, the "or" type,
+# since there are no type variables to say "whichever it was given".
+#
+# The bindings below are the interesting half: each one is the exact
+# type of its own call, not the summary.
+
+def echo(x):
+    x
+
+def announce(value):
+    'got ' + str(value)
+
+number = echo(1)
+word = echo('two')
+flag = echo(true)
+
+print(number, word, flag)
+print(announce(1), announce(true), announce('x'))
+
+# Calling it a fourth time with a type already seen costs nothing: the
+# answer was remembered the first time, which is what keeps a function
+# from being checked once per call site.
+again = echo(3)
+print(again + number)
+
+# The function's own type is the alternatives it was used at, and each
+# one keeps its own parameters and result together -- `(Int) -> Int` and
+# `(String) -> String`, never a single function that would take an Int
+# and give back a String. Binding it is how that type gets printed: a
+# `def` with several types is printed as it was written, since the
+# syntax has one slot per parameter and no way to say "these go
+# together".
+same = echo
+told = announce

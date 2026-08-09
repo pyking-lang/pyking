@@ -117,6 +117,8 @@ last ones are the ones that get forgotten:
    `architecture.md` for the pipeline itself (a new stage or module, a
    change to how the driver works, the interpreter's machine);
    `source.md` for what the module in question now holds;
+   `type_inference.md` for anything about how a type is *worked out*
+   rather than what the rules are;
    `targets.md` for the target list, the shared-subset table, and the
    differences that survive it;
    and the family page — `target_python.md`, `target_js.md`,
@@ -187,6 +189,12 @@ The bootstrap is split into one module per compiler stage:
    standard library `ast` module on `sys.path` — which breaks `dataclasses`
    itself (`dataclasses` → `inspect` → `annotationlib` needs the real `ast`
    at import time). Don't rename this back to `ast.py`.
+
+   The `Type` group is the one with fields that are not the source's:
+   `TFunction` carries `tmsym` and `body` for a function whose type was
+   not written down (see `typesystem.py` below), and `TUnknown` is a type
+   nothing has decided yet. Neither is ever produced by the parser, and
+   neither takes part in comparing two function types.
 
    **The AST is documented as algebraic data types** in one block of
    `datatype` comments at the top of the file, listing every group's
@@ -370,11 +378,87 @@ The bootstrap is split into one module per compiler stage:
    scope in its own body and an outer binding of it must not show
    through.
 
+   Both forms of `if` are covered -- the statement and the
+   `if c then a else b` *expression* -- and both are places a trace can
+   be abandoned when it meets the recursion it is working out
+   (`try_branch`, `try_expr`). A construct the checker starts accepting
+   needs the interpreter to run it as well, since the interpreter's
+   subset *is* this fragment: the `if` expression needed `KChoose` and a
+   case in the call-free fast path, and a construct added without them
+   type-checks and then fails at run time.
+
    Everything outside that fragment raises
    `TypeError_(info, "Construct is not supported")` — including a name
    it cannot find, since no name analysis has run ahead of it in this
    mode. Keep that floor explicit rather than silently accepting what it
    has not reasoned about.
+
+   **Inference is the same machinery run later, not a second pass.** A
+   `def` that annotated everything is checked where it is written, as
+   above. One that did not is *not checked there at all*: `declared_type`
+   gives it a `TFunction` with `TUnknown` where the annotations are
+   missing, `definition` holding the `def` itself and `tmsym` its symbol
+   -- the name the checker's tables use for it -- and `check_call`
+   checks it the first time something calls it, with the parameters that
+   call passes (`argument_type`, `infer_call`). There is no constraint solver and no unification, which
+   is the whole point: every error stays a sentence about one place, in
+   the words the checker already uses. Four things are easy to break and
+   are why it works:
+   - **The `Store`** is everything inference has worked out, threaded
+     through the pass as a value: `environments` (where each `def` was
+     written -- a deferred body is checked in *its own* scope, never the
+     call site's), `instances` (the cache), `checking` (the recursion
+     guard) and `frame` (what this inference has gone through). Nothing
+     in it is written to; `learned(store, inner)` is the one place the
+     difference between knowledge and context is stated. Keep it that
+     way: the mutable records this replaced were reachable from types,
+     and changed under everyone holding them.
+   - **`store.instances`** is the cache, keyed by parameter types.
+     Without it mutual recursion does not terminate. Match a key with
+     **`same_instance`**, never `same_type`: two functions nobody has
+     worked out yet are both `(?) -> ?`, and treating them as one
+     argument returns the first call's answer for the second. Each
+     `Instance` also keeps what the call *reported* -- the arguments
+     narrowed to what this call went through -- separately from the key,
+     because resolving a function argument against every use of it
+     anywhere over-claims in exactly the way the collapse used to. The
+     narrowing counts **uses, not creations** (`noting`, and the frame
+     in the store): a body that
+     calls a function at a shape some earlier call already worked out
+     still went through it, and counting only what was new under-claims
+     just as badly.
+   - **`_Recursive`** is a signal, never a user-facing error. It is
+     caught by the nearest `if` (`try_branch`), by a body that has
+     already collected a `return` (`trace`), or by the inference of the
+     definition it *names* — which is what makes a cycle of three
+     functions work, and what an earlier version got wrong by converting
+     it too early.
+   - **`record`** merges into `tmap` rather than overwriting, since a
+     function checked at two argument types has two true answers for
+     everything inside it, and `merge` builds the `TOr`. Function types
+     are alternatives like anything else: keep each instantiation
+     *whole*. Collapsing them into one function of union parameters --
+     which an earlier version did -- reports a type the checker would
+     refuse to honour, and a reported type must be one the checker
+     enforces (see `docs/type_inference.md`, "The mistake that made this
+     page necessary"). When a type cannot be written in the syntax at
+     hand, print less rather than something stronger: that is why a `def`
+     with several types prints as it was written.
+
+   `docs/type_inference.md` is the long form, including the decisions
+   that could have gone the other way; keep it in step with this module.
+
+   **Nothing in this module changes anything, except `tmap`.** An
+   environment, a store, a type, an instance: each is handed on, extended
+   by being rebuilt, and left alone by whoever passed it. A function
+   given a store returns one, because what it worked out is knowledge its
+   caller needs. `record` filling in `tmap` is the single exception, and
+   it is the pass's *result*. Do not put state back into a record the
+   types point at, however convenient -- that is what this replaced.
+   `docs/type_inference.md` records why, including the bug that only
+   became *visible* once the state was a value: two branches of an `if`
+   were being checked against the store they started from, so what the
+   first worked out was lost (`tests/typecheck_infer_branch_uses.pyk`).
 6. **`src/runtime_interface.py`** — the boundary between pure Pyking code
    and the outside world, in the spirit of WebAssembly's split between a
    core language that cannot observe anything and a separate host spec.
@@ -668,7 +752,12 @@ The bootstrap is split into one module per compiler stage:
 When extending the lexer (new operators, keywords, string escapes, etc.),
 follow the existing pattern: add a `case [...]:` arm in the `match rest:`
 block inside `lexing`, add a corresponding `Tok*` dataclass, and add a
-`case Tok*():` arm to `pprint_token`.
+`case Tok*():` arm to `pprint_token`. `TokPipe` (`|`, the alternative
+type separator) is the most recent one and shows the three edits
+together; it is also a reminder that a token used only in *types* still
+needs all three, and that `tools/emacs/pyking-mode.el` has to be checked
+even when the answer turns out to be "nothing to do" (it highlights no
+operators, so `|` needed none).
 
 ## Running
 
@@ -798,6 +887,14 @@ expect of it:
   `.ast.out` holds the *error message*. It lists exactly
   `targets = ["typecheck"]`: a program written to be refused is not one
   to run.
+
+The `typecheck_infer_*` and `fail_typecheck_infer_*` files are the same
+two conventions applied to inference: programs with no annotations whose
+`.ast.out` pins the types that were *worked out*, and programs whose
+`.ast.out` pins the refusal and its wording. They are the only tests
+where the printed AST differs from the source in the interesting way, so
+regenerate them deliberately rather than by habit when a message
+changes.
 
 Together they pin down both halves of the checker — what it infers, and
 what it rejects and how it says so — while the backends keep the

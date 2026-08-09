@@ -310,9 +310,8 @@ is checked against that rather than replaced by it — `f: (Int, String)
 against the annotation, since the value is a perfectly good value of its
 own type.
 
-A `def` is checked only when *every* parameter and the return type is
-annotated — this checker infers nothing about a function it was not told
-— and then two rules apply: every `return` must give the declared type,
+A `def` that annotated *every* parameter and its return type is checked
+where it is written, and then two rules apply: every `return` must give the declared type,
 and the body must *produce* it, either by returning on every path or by
 ending in a value of that type. Those are the two halves of PYKING.md's
 "Tail position", and one check covers both, because every statement is
@@ -328,6 +327,23 @@ type is in scope while its body is checked, so a recursive call is
 checked against it argument by argument, like a call to anything else.
 Nothing is assumed — the declared type is what the body is checked
 *against*, and a body that does not honour it is refused.
+
+A `def` that did **not** write its type down is not checked where it is
+written at all. It is put aside with `TUnknown` where its type should be
+and checked the first time something *calls* it, with its parameters
+taken from that call — the same `check_stmt` and `check_expr`, in the
+same order, with the call supplying what the source did not. There is no
+inference pass and no constraint solver, which is the point: every error
+stays a statement about one place, in the words the checker already
+uses. A recursion is resolved by abandoning the trace that reaches it —
+at the nearest `if`, or wherever a `return` has already said enough —
+and then checking the whole body a second time with the candidate result
+in place. `TOr` (`Int | String`) is how a function used at two types is described,
+since there are no type variables: one alternative per shape of call,
+each keeping its parameters and result together.
+
+That is a mechanism with several decisions inside it, and it has a page
+of its own: [type_inference.md](type_inference.md).
 
 Anything else is refused with `Construct is not supported` against its
 own source position — a deliberate floor, since a checker that quietly

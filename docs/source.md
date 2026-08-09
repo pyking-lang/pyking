@@ -21,21 +21,21 @@ module system to express a directory hierarchy with.
 
 | module | lines | what it is |
 |---|---:|---|
-| [`lexer.py`](#lexerpy) | ~585 | Characters → tokens. Also defines `Info`, the source span every later node carries. |
-| [`syntax.py`](#syntaxpy) | ~980 | The AST: one frozen dataclass per variant, documented as algebraic data types, plus the pretty printer that prints Pyking back out. |
-| [`parser.py`](#parserpy) | ~1085 | Recursive descent, tokens → AST, and the few rules the grammar cannot state. |
-| [`analyses.py`](#analysespy) | ~515 | Static analyses over the AST: names and scoping (`analyze_program`), and `symbolize`, which numbers every node. |
-| [`typesystem.py`](#typesystempy) | ~850 | The type checker: one function per AST datatype, producing `tmap` (symbol → type). Its fragment is also the interpreter's and the OCaml backend's. |
+| [`lexer.py`](#lexerpy) | ~600 | Characters → tokens. Also defines `Info`, the source span every later node carries. |
+| [`syntax.py`](#syntaxpy) | ~1030 | The AST: one frozen dataclass per variant, documented as algebraic data types, plus the pretty printer that prints Pyking back out. |
+| [`parser.py`](#parserpy) | ~1110 | Recursive descent, tokens → AST, and the few rules the grammar cannot state. |
+| [`analyses.py`](#analysespy) | ~520 | Static analyses over the AST: names and scoping (`analyze_program`), and `symbolize`, which numbers every node. |
+| [`typesystem.py`](#typesystempy) | ~1400 | The type checker: one function per AST datatype, producing `tmap` (symbol → type). Also the type *inference*, which is the same machinery run at a call site rather than at a definition. Its fragment is the interpreter's and the OCaml backend's. |
 | [`runtime_interface.py`](#runtime_interfacepy) | ~86 | The boundary between a pure Pyking program and the world: the operations a host must provide, and how values are formatted. No host code at all. |
-| [`interpreter.py`](#interpreterpy) | ~1470 | The interpreter: values, environments, and a resumable small-step machine that runs the AST. The reference for runtime semantics. |
-| [`repl.py`](#replpy) | ~900 | `pyk repl`: a session as a program written one entry at a time, and the multi-line editor it is typed into. |
+| [`interpreter.py`](#interpreterpy) | ~1460 | The interpreter: values, environments, and a resumable small-step machine that runs the AST. The reference for runtime semantics. |
+| [`repl.py`](#replpy) | ~1160 | `pyk repl`: a session as a program written one entry at a time, and the multi-line editor it is typed into. |
 | [`target_python.py`](#target_pythonpy) | ~2120 | The Python backend, and the only one that compiles the whole language. |
 | [`target_js_core.py`](#target_js_corepy) | ~647 | The JavaScript backend's language half: a `Js*` AST, translation, printer. |
 | [`target_js_packaging.py`](#target_js_packagingpy) | ~316 | Its packaging half: `nodejs`, `html`, `esm`, and the JavaScript side of the runtime interface. |
 | [`target_c.py`](#target_cpy) | ~1093 | The C backend, for `c89` and `c23`. Infers the types C insists on. |
 | [`target_java.py`](#target_javapy) | ~1127 | The Java backend, for `java8`/`java17`/`java21`. Also proves every function returns. |
 | [`target_ocaml.py`](#target_ocamlpy) | ~1217 | The OCaml backend. Infers nothing: it reads the checker's `tmap`. |
-| [`pyk.py`](#pykpy) | ~570 | The driver: argv, stage sequencing, error reporting, the four commands. |
+| [`pyk.py`](#pykpy) | ~590 | The driver: argv, stage sequencing, error reporting, the four commands. |
 
 Two shapes recur everywhere and are worth reading once rather than
 sixteen times:
@@ -133,9 +133,17 @@ The groups:
 - **`Expr`** — `EInt`, `EString`, `EBool`, `EVar`, `EAdd`, `ESub`,
   `EMul`, `EDiv`, `ENeg`, `ELessThan`, `ELessThanEq`, `EGreatThan`,
   `EGreatThanEq`, `EEq`, `ECall`, `EList`, `ETuple`, `EIf`, `EListComp`.
-- **`Type`** — `TInt`, `TString`, `TBool`, `TList`, `TTuple`,
-  `TFunction`. `TTuple` with no elements is the unit type `()`.
-  `TFunction` is both written in source and built by the checker.
+- **`Type`** — `TInt`, `TString`, `TBool`, `TList`, `TTuple`, `TOr`,
+  `TUnknown`, `TFunction`. `TTuple` with no elements is the unit type
+  `()`; `TOr` is an alternative type, written `Int | String`; `TUnknown`
+  is a type nothing has decided yet, which only the checker produces.
+  `TFunction` is both written in source and built by the checker, and
+  carries two fields that belong to the checker alone — `definition`, the
+  `def` whose body is still to be checked, and `tmsym`, that
+  definition's symbol, which is how the checker names it in the tables it
+  keeps (see [type_inference.md](type_inference.md)). Neither is part of what a
+  function type *means*, so neither takes part in comparing two of
+  them.
 - **`Pattern`** — `PInt`, `PString`, `PBool`, `PWildcard`, `PCapture`,
   `PTuple`, `PList`.
 - **`CompClause`** — `CompFor`, `CompIf` (list comprehensions).
@@ -187,9 +195,11 @@ Around them:
 - **`parse_block(tokens)`** — a `TokIndent`-delimited block; a missing
   one is `expected an indented block`, which is also what tells the REPL
   an entry is unfinished.
-- **`parse_type` / `parse_param` / `parse_params`** — annotations. A
-  parenthesized list followed by `->` is a `TFunction`; without the
-  arrow it is a `TTuple`.
+- **`parse_type` / `parse_type_atom` / `parse_param` / `parse_params`** —
+  annotations. A parenthesized list followed by `->` is a `TFunction`;
+  without the arrow it is a `TTuple`. `|` binds looser than either, so
+  `parse_type` reads the alternatives and `parse_type_atom` everything
+  else.
 - **`parse_pattern`, `parse_case`, `parse_cases`, `parse_match_stmt`** —
   `match`/`case`, including list patterns with a `..rest` marker.
 - **`parse_target`** and `_try_parse_assignment_target` — assignment
@@ -277,7 +287,20 @@ this file is how those rules are applied.
   `Type` worked out for it. Every expression gets an entry, not just the
   annotatable constructs, which is what lets `target_ocaml.py` read types
   back instead of inferring them again. A `SFunctionDef`'s entry is its
-  *function* type, not its return type.
+  *function* type, not its return type. Entries are written through
+  `record`, which **merges**: a function checked at two argument types
+  has two answers for everything inside it, and both are true.
+- **`Store`** — everything inference has worked out, as one immutable
+  value threaded through the pass exactly as the environment is: where
+  each definition was written, what has been inferred about it, which
+  definitions are being checked right now, and what the innermost
+  inference has gone through (`Instance`, `Use`, `Frame`). Nothing in it
+  is ever written to; an update rebuilds the one field that changed, and
+  a nested inference "ends" by the caller simply using its own store
+  again.
+- **`Inferring`** — stands in for a declared return type while one is
+  being worked out; a `return` checked against it contributes its type to
+  the store's frame instead of being compared with one.
 - **`env`** — name → `Type`, a `Builtin`, or `None`. Used immutably: a
   binding hands what follows it an extended copy. `None` means "in scope
   with no type here" (a `def` that is not fully annotated); `Builtin` is
@@ -308,9 +331,25 @@ OCaml-style near the top of the file):
   compare without either being a special case.
 - **`check_expr(expr, env, tmap) -> Type`** — records into `tmap`;
   `expr_type` holds the rules themselves.
-- **`check_function`, `function_type`, `check_param`** — a `def` is
-  checked only when every parameter and the return type is annotated;
-  its type is then a `TFunction`.
+- **`check_function`, `function_type`, `check_param`** — a `def` that
+  wrote its whole type down is checked here, where it is written; its
+  type is a `TFunction`.
+- **`declared_type` / `infer_call` / `infer_body` / `trace` /
+  `try_branch` / `try_expr`** — the deferred half. A `def` that did *not* write its
+  type down is put aside with `TUnknown` in place of what it did not say
+  and checked at the first call, with its parameters taken from that
+  call; a recursion is resolved by abandoning the trace that reaches it
+  and checking the body a second time with the candidate result in
+  place. See [type_inference.md](type_inference.md).
+- **`merge` / `accepts` / `resolved`** — alternatives. `merge` builds the
+  `Int | String` covering several types, keeping each function type
+  *whole* (`((Int) -> Int) | ((String) -> String)`, never one function of
+  union parameters — see
+  [type_inference.md](type_inference.md#8-the-mistake-that-made-this-page-necessary));
+  `accepts` is `same_type` plus the one bit of subtyping alternatives
+  need; and `resolved` replaces a function type that has since been
+  worked out with what it turned out to be, inside a larger type as well
+  as at the top of one.
 - **`check_call`, `check_builtin_call`** — anything of function type may
   be called; the four builtins are checked at the call site, where their
   signatures live.
@@ -406,7 +445,8 @@ three are design rather than accident:
   `CDone(value)`, `CFailed(error)`.
 - **`Kont`** — one class per "what to do with the value I am about to
   get": `KSeq`, `KBind`, `KBinaryLeft`, `KBinaryRight`, `KCallee`,
-  `KArgument`, `KBranch`, `KDiscard`, `KReturnTo`. Each holds `rest`, so
+  `KArgument`, `KBranch` (an `if` statement), `KChoose` (an `if`
+  expression), `KDiscard`, `KReturnTo`. Each holds `rest`, so
   the chain is a linked list — pushing and popping cost one allocation
   and no copying, and two states can share a tail, which is what makes a
   paused state cheap to keep. Most also hold the `env` their remaining

@@ -1144,6 +1144,20 @@ def translate_expr(e, scope):
                 PyVar(info, name),
                 [_wrap_print_argument(a, translate_expr(a, scope), info) for a in args],
             )
+        case ECall(info, EVar(_, "str"), [argument]) if not _is_bound("str", scope):
+            # `str` of a Bool is `true`/`false`, Pyking's own spelling --
+            # the same rule `print` follows, and for the same reason: the
+            # formatting of a value is the language's, not the host's
+            # (see src/runtime_interface.py, and `format_value` in
+            # src/interpreter.py, which is the reference). Python's own
+            # `str` would say `True`, so the argument is wrapped exactly
+            # as a printed one is -- which for anything that provably
+            # isn't a Bool is not wrapped at all.
+            return PyCall(
+                info,
+                PyVar(info, "str"),
+                [_wrap_print_argument(argument, translate_expr(argument, scope), info)],
+            )
         case ECall(info, EVar(_, "range"), args) if not _is_bound("range", scope):
             # Pyking's `range` yields a *list* of Int -- the language has
             # lists and no lazy-sequence type, and the type checker says

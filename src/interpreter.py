@@ -126,7 +126,7 @@ import runtime_interface
 import typesystem
 from syntax import (
     Expr, Stmt,
-    EInt, EString, EBool, EVar, EAdd, ESub, EMul, ECall,
+    EInt, EString, EBool, EVar, EAdd, ESub, EMul, ECall, EIf,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq,
     SLet, SLetStmt, SExprStmt, SIf, SReturn, SReturnStmt, SFunctionDef,
     TargetName,
@@ -175,6 +175,7 @@ from syntax import (
 #     KArgument(call: ECall, callee: Value, done: [Value], todo: [Expr],
 #               env: Env, rest: Kont?)
 #     KBranch(stmt: SIf, env: Env, rest: Kont?)
+#     KChoose(expr: EIf, env: Env, rest: Kont?)
 #     KDiscard(env: Env, rest: Kont?)
 #     KReturnTo(frame: Frame)
 #
@@ -715,6 +716,16 @@ class KBranch(Kont):
 
 
 @dataclass(frozen=True)
+class KChoose(Kont):
+    """The condition of an `if` *expression* has arrived; evaluate the
+    branch it chooses -- and only that one, since the other must not
+    happen."""
+    expr: EIf
+    env: Env
+    rest: Kont
+
+
+@dataclass(frozen=True)
 class KDiscard(Kont):
     """Throw the incoming value away and deliver unit instead: what an
     `if` with no `else` supplies, since there is a way through it that
@@ -896,6 +907,21 @@ def _evaluate(expr, env):
             left = _evaluate(expr.left, env)
             right = _evaluate(expr.right, env)
             return apply_binary(expr, left, right)
+        case EIf(_, cond, then_expr, else_expr, _):
+            # Only the branch that is chosen is evaluated, here as in the
+            # machine: an `if` expression chooses, it does not compute
+            # both and pick.
+            match _evaluate(cond, env):
+                case VBool(True):
+                    return _evaluate(then_expr, env)
+                case VBool(False):
+                    return _evaluate(else_expr, env)
+                case other:
+                    raise _Trap(RuntimeError_(
+                        cond.info,
+                        f"the condition of an 'if' must be Bool, not "
+                        f"{describe(other)}",
+                    ))
         case _:
             raise _Trap(unsupported(expr))
 
@@ -1091,6 +1117,12 @@ def _step_eval(state, expr):
                 control=CEval(func),
                 kont=KCallee(expr, state.env, state.kont),
             )
+        case EIf(_, cond, _, _, _):
+            return _go(
+                state,
+                control=CEval(cond),
+                kont=KChoose(expr, state.env, state.kont),
+            )
         case _:
             # A literal or a name: call-free, so the fast path above has
             # already dealt with it. Anything else is outside the
@@ -1224,6 +1256,20 @@ def _step_apply(state, value):
             # it does have ends in -- so the branch's value is discarded.
             after = rest if stmt.else_body is not None else KDiscard(env, rest)
             return enter_block(state, body, env, after)
+
+        case KChoose(node, env, rest):
+            match value:
+                case VBool(True):
+                    chosen = node.then_expr
+                case VBool(False):
+                    chosen = node.else_expr
+                case _:
+                    return failed(state, RuntimeError_(
+                        node.cond.info,
+                        f"the condition of an 'if' must be Bool, not "
+                        f"{describe(value)}",
+                    ))
+            return _go(state, control=CEval(chosen), env=env, kont=rest)
 
         case KDiscard(env, rest):
             return _go(state, control=CApply(UNIT), env=env, kont=rest)

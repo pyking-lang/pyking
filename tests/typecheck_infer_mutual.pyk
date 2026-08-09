@@ -1,0 +1,43 @@
+# Mutual recursion, with nothing written down.
+#
+# Two functions that call each other are the case where "check it when
+# something calls it" has to be careful: checking `is_even` needs
+# `is_odd`, which needs `is_even`. What stops the circle is that a
+# function being checked is *marked* as such, so the call back into it is
+# recognised for what it is and that trace is abandoned -- exactly as a
+# direct recursion is. Each function then takes its answer from the
+# branch that does not recurse.
+
+def is_even(n):
+    if n == 0:
+        true
+    else:
+        is_odd(n - 1)
+
+def is_odd(n):
+    if n == 0:
+        false
+    else:
+        is_even(n - 1)
+
+# A three-way cycle works for the same reason, and shows that nothing
+# here counts to two. It also shows the one thing the scheme does not
+# do: while the cycle is being resolved, `stage_two` and `stage_three`
+# are checked but every trace through them is abandoned, so nothing is
+# *recorded* about them until something outside the cycle calls one --
+# which the last line does.
+def stage_one(n):
+    if n < 1:
+        'done'
+    else:
+        stage_two(n - 1)
+
+def stage_two(n):
+    stage_three(n)
+
+def stage_three(n):
+    stage_one(n)
+
+print(is_even(4), is_odd(4), is_even(7), is_odd(7))
+print(stage_one(3))
+print(stage_two(2))

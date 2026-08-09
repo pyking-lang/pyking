@@ -1,0 +1,37 @@
+# Type inference: a function with nothing written on it still gets a
+# type, worked out from the call that uses it.
+#
+# Nothing here is annotated, and every function below is nevertheless
+# checked -- not where it is written, but where it is called, which is
+# the first place anything knows what its parameters are (see
+# docs/type_inference.md). The `.ast.out` beside this file is the proof:
+# it is this program printed with the types the checker gave it.
+
+def double(n):
+    n * 2
+
+def greet(name):
+    'hello, ' + name
+
+def is_big(n):
+    n > 100
+
+# Each call is what decides the function it calls. `double` is asked for
+# an Int here, so `n * 2` is Int arithmetic and the result is Int.
+doubled = double(21)
+greeting = greet('pyking')
+big = is_big(5)
+
+print(doubled, greeting, big)
+
+# A function may be called from inside another one, and the inner one is
+# worked out the same way -- when the outer one's body is checked.
+def announce(n):
+    greet(str(double(n)))
+
+print(announce(4))
+
+# What a binding gets is the type of *that* call, not a summary of the
+# function: `announced` is a String because `announce` returns one.
+announced = announce(1)
+print(announced + '!')

@@ -138,6 +138,10 @@ clean` but the cache itself only goes on `make distclean`.
   how the tests work.
 - **[docs/source.md](docs/source.md)** — every file in `src/`: what it
   is, its data structures, and its main functions.
+- **[docs/type_inference.md](docs/type_inference.md)** — how a function
+  nobody annotated still gets a type: checked at the call rather than at
+  the definition, why it is done that way, and what it deliberately
+  does not do.
 - **[CLAUDE.md](CLAUDE.md)** — repository conventions, for anyone (or
   anything) making changes here.
 

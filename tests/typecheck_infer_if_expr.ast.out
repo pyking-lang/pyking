@@ -1,0 +1,12 @@
+def fact(n:Int) -> Int = if n <= 1 then 1 else fact(n - 1) * n
+def sign(n:Int) -> String = if n < 0 then 'negative' else 'not negative'
+def grade(n:Int) -> String = if n > 89 then 'a' else if n > 79 then 'b' else 'c'
+def announce(n:Int) -> String = 'grade ' + grade(n) + (if n > 89 then '!' else '')
+flag: Bool = 3 < 4
+picked: Int = if flag then 10 else 20
+doubled: Int = fact(if flag then 3 else 4)
+def clamp(n:Int, hi:Int) -> Int = if n > hi then hi else n
+print(fact(7), sign(0 - 2), sign(2))
+print(grade(95), grade(85), grade(20))
+print(announce(95), announce(60))
+print(picked, doubled, clamp(9, 5), clamp(2, 5))

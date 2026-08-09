@@ -1,0 +1,45 @@
+# Passing a function that nobody has worked out yet -- twice, at two
+# different types.
+#
+# This is where a *cache* has to be careful. A function still to be
+# worked out is `(?) -> ?`, and two of them have the same *type* while
+# being entirely different *things*. Remembering what a call worked out,
+# keyed on what was passed, therefore has to compare arguments by which
+# function they are and not merely by what their type looks like --
+# otherwise the answer for the first call comes back for the second, and
+# a String is reported as an Int (see docs/type_inference.md, "Two
+# functions nobody has worked out yet are not the same argument").
+
+# The simple shape: one function applied to two different unannotated
+# functions whose results differ.
+def double(n) = n * 2
+
+def show(n) = str(n) + '!'
+
+def apply_to_two(f) = f(2)
+
+print(apply_to_two(double), apply_to_two(show))
+
+# The higher-rank shape: `extract` hands `id` to whatever it is given,
+# and what comes back depends on what that was. `id` is used at Int
+# through one and at String through the other, so it has both types --
+# and each of the packers has only the one it was used at, which is what
+# reporting per call rather than per definition means.
+def id(x) = x
+
+def extract(packed) = packed(id)
+
+def pack_int(k) = k(41)
+
+def pack_string(k) = k('hello')
+
+print(extract(pack_int), extract(pack_string))
+
+# Bound so that the printed AST shows the types themselves: a `def` with
+# several types prints as it was written, so its type is read where the
+# function is used.
+identity = id
+extracted = extract
+packed_int = pack_int
+packed_string = pack_string
+applied = apply_to_two

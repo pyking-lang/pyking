@@ -1,0 +1,5 @@
+'tests/fail_typecheck_infer_branch.pyk' 21:4-24:15 Type error: this
+  'if' yields one of two functions -- 'shout' and 'whisper' -- and
+  neither says what its type is, so there is no telling which one a
+  later call would be checking. Annotate them, or call them where they
+  are chosen

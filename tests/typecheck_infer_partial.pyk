@@ -1,0 +1,31 @@
+# Half-written types: a `def` that annotates some of itself.
+#
+# The rule is the same whichever half is missing. What the `def` *did*
+# write is a claim, checked at every call like any annotation; what it
+# left out is a question the call answers. A function is checked on
+# sight only when it wrote all of it down -- one missing piece is enough
+# to make it wait.
+
+# The return type is missing; the parameters are not.
+def scale(n:Int, factor:Int):
+    n * factor
+
+# The parameters are missing; the return type is not.
+def label(n) -> String:
+    'n = ' + str(n)
+
+# One of each.
+def total(a:Int, b) -> Int:
+    a + b
+
+scaled = scale(6, 7)
+labelled = label(3)
+summed = total(1, 2)
+
+print(scaled, labelled, summed)
+
+# A written annotation is still enforced: `total` says its first
+# parameter is an Int, and every call is held to it. What it did not say
+# -- `b` -- is whatever the call passes, which is what makes `total`
+# checkable at all.
+print(total(10, 20), label(scaled))

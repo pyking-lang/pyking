@@ -1,0 +1,15 @@
+# The branches of an `if` expression must agree on a type.
+#
+# The expression form always yields a value, and a binding, an argument
+# or an operand needs to know what that value is -- so two branches that
+# yield different things leave nothing that could be said about the
+# whole expression. The statement form has the same rule for the same
+# reason (see fail_typecheck_if_branches.pyk); this is that rule met in
+# an expression.
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+def describe(n) = if n < 0 then 'negative' else 0
+
+print(describe(3))

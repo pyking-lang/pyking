@@ -8,7 +8,7 @@ from lexer import (
     TokColon, TokIndent, TokDedent, TokEq, TokLParen, TokRParen, TokComma,
     TokLBracket, TokRBracket, TokDotDot,
     TokDef, TokReturn, TokFor, TokIn, TokIf, TokWhile, TokThen, TokElse, TokVar,
-    TokAssign, TokMatch, TokCase, TokArrow,
+    TokAssign, TokMatch, TokCase, TokArrow, TokPipe,
     TokTypeInt, TokTypeString, TokTypeBool, TokTrue, TokFalse,
 )
 from syntax import (
@@ -20,7 +20,7 @@ from syntax import (
     Stmt,
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SFor, SWhile, SIf,
     SFunctionDef, SMatch,
-    TInt, TString, TBool, TList, TTuple, TFunction, Param,
+    TInt, TString, TBool, TList, TTuple, TOr, TFunction, Param,
     TargetName, TargetTuple,
 )
 
@@ -391,6 +391,33 @@ def parse_tuple_tail(first, tokens):
 
 
 def parse_type(tokens):
+    """A type, including the `|` alternatives an "or" type is written
+    with: `Int | String` is one type whose values are either.
+
+    `|` binds looser than everything else a type can be built from, so it
+    is read here, around `parse_type_atom`, and a function type's result
+    picks it up by recursion -- `(Int) -> Int | String` is a function
+    returning either. A function *alternative* therefore needs its own
+    parentheses, `((Int) -> Bool) | String`, which is exactly how
+    `pprint_type` writes one."""
+    first, rest = parse_type_atom(tokens)
+    alternatives = [first]
+    while True:
+        match rest:
+            case [TokPipe(_), *after]:
+                alternative, rest = parse_type_atom(after)
+                alternatives.append(alternative)
+            case _:
+                break
+    if len(alternatives) == 1:
+        return first, rest
+    return (TOr(combine_info(first.info, alternatives[-1].info), alternatives),
+            rest)
+
+
+def parse_type_atom(tokens):
+    """One type with no `|` in it -- which includes a whole function
+    type, since `->` binds tighter than `|` does."""
     match tokens:
         case [TokTypeInt(info), *rest]:
             return TInt(info), rest

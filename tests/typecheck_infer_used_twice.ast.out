@@ -1,0 +1,14 @@
+def identity(x) = x
+def use(f:((Int) -> Int) | ((Bool) -> Bool)) -> ():
+    a: Int = f(42)
+    b: Bool = f(true)
+    print(a, b)
+first: Int = identity(1)
+print(first)
+use(identity)
+def describe(f:((String) -> String) | ((Int) -> Int)) -> ():
+    print(f('x'), f(2))
+describe(identity)
+applied: (((Int) -> Int) | ((Bool) -> Bool)) -> () = use
+described: (((String) -> String) | ((Int) -> Int)) -> () = describe
+same: ((Int) -> Int) | ((Bool) -> Bool) | ((String) -> String) = identity

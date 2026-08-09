@@ -1,0 +1,22 @@
+def is_even(n:Int) -> Bool:
+    if n == 0:
+        true
+    else:
+        is_odd(n - 1)
+def is_odd(n:Int) -> Bool:
+    if n == 0:
+        false
+    else:
+        is_even(n - 1)
+def stage_one(n:Int) -> String:
+    if n < 1:
+        'done'
+    else:
+        stage_two(n - 1)
+def stage_two(n:Int) -> String:
+    stage_three(n)
+def stage_three(n:Int) -> String:
+    stage_one(n)
+print(is_even(4), is_odd(4), is_even(7), is_odd(7))
+print(stage_one(3))
+print(stage_two(2))

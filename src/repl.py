@@ -126,7 +126,10 @@ class Session:
 
     `state` is the machine's -- names to values. `types` is the
     checker's -- names to types, the same table `typesystem.py` threads
-    through a program. They are extended in step, one entry at a time,
+    through a program -- and `store` is what the checker has *worked
+    out*: which functions were inferred at which shapes, and where each
+    definition was written, carried as a value rather than left inside
+    something mutable. They are extended in step, one entry at a time,
     which is what lets the prompt answer both "what is `x`" and "what
     type is `x`" without inferring anything twice.
 
@@ -155,6 +158,7 @@ class Session:
     seen: tuple = ()
     state: interpreter.State = None
     types: dict = field(default_factory=typesystem.builtin_env)
+    store: typesystem.Store = field(default_factory=typesystem.empty_store)
     sources: dict = field(default_factory=dict)
 
 
@@ -213,13 +217,22 @@ def read_entry(read_line):
     line = read_line(PROMPT)
     if line is None:
         return None
+    if complete(line):
+        # A single line that parses is a whole entry -- which is most of
+        # them, and the only case that does not need a blank line to end
+        # it. Anything else keeps reading, because a block that parses is
+        # not necessarily a block that is *finished*: `def f():` with one
+        # statement under it parses perfectly, and the `else:` the user
+        # is about to type belongs to it. That is the editor's rule too
+        # (`Editor._submits`), and the two readers agree by having it
+        # once each rather than by accident.
+        return line
     lines = [line]
-    while not complete("\n".join(lines)):
+    while True:
         more = read_line(CONTINUATION)
         if more is None or not more.strip():
-            break
+            return "\n".join(lines)
         lines.append(more)
-    return "\n".join(lines)
 
 
 # --- the editing buffer ----------------------------------------------
@@ -735,7 +748,7 @@ def submit(session, stmts, report, source=""):
     seen = symbolize(list(session.seen) + list(stmts))
     entry = seen[len(session.seen):]
     try:
-        checked = check_entry(entry, session.types)
+        checked = check_entry(entry, session.types, session.store)
     except (AnalysisError, typesystem.TypeError_) as e:
         return session, e
 
@@ -743,7 +756,7 @@ def submit(session, stmts, report, source=""):
     # out once must not be handed out again.
     session = replace(session, seen=tuple(seen))
     state = interpreter.declare_entry(session.state, entry)
-    for stmt, supplied, types in checked:
+    for stmt, supplied, types, store in checked:
         after = interpreter.eval_in(state, stmt)
         error = interpreter.failure(after)
         if error is not None:
@@ -754,6 +767,7 @@ def submit(session, stmts, report, source=""):
             session,
             state=state,
             types=types,
+            store=store,
             sources={**session.sources, **defined_sources(stmt, source)},
         )
         show(interpreter.result(after), supplied)
@@ -801,22 +815,26 @@ def statement_source(source, stmt):
     return "\n".join(lines[stmt.info.row1 - 1: stmt.info.row2])
 
 
-def check_entry(entry, types):
+def check_entry(entry, types, store):
     """The entry checked as one group: for each statement, what it
-    supplies and the type environment it leaves behind.
+    supplies, and the type environment and store it leaves behind.
 
     `typesystem.py`'s own pieces do the work -- `declare_functions` for
     the group, then `check_stmt` for each statement in turn -- which is
     that module's `check_stmts` with the intermediate environments kept
     rather than discarded. Keeping them is what lets a runtime error
-    part-way through an entry leave the session's two environments in
-    step."""
-    types = typesystem.declare_functions(entry, types)
+    part-way through an entry leave the session's environments in step
+    with what actually ran.
+
+    The store is threaded the same way, and is what carries an earlier
+    entry's inferences into this one: with nothing mutable behind a
+    type, what the session knows is what it was handed."""
+    types, store = typesystem.declare_functions(entry, types, store)
     tmap = {}
     checked = []
     for stmt in entry:
-        supplied, types = typesystem.check_stmt(stmt, types, tmap, None)
-        checked.append((stmt, supplied, types))
+        supplied, types, store = typesystem.check_stmt(stmt, types, tmap, None, store)
+        checked.append((stmt, supplied, types, store))
     return checked
 
 
@@ -851,11 +869,13 @@ def binding_types(session):
     """name -> `Type` for what the session has bound, read straight out
     of the checker's environment rather than guessed from the values.
 
-    A name may be in scope with no type -- `None`, which is what a `def`
-    missing annotations gets -- and the builtins are there as operations
-    rather than values; both come back as "no type to show"."""
+    A function that had not been called when it was bound shows what it
+    turned out to be rather than the question marks it started as
+    (`typesystem.resolved`, against the session's store), which is the
+    same thing `--typecheck --ast` prints. The builtins are operations
+    rather than values and are left out by the caller."""
     return {
-        name: type_
+        name: typesystem.resolved(type_, session.store)
         for name, type_ in session.types.items()
         if not isinstance(type_, typesystem.Builtin)
     }
@@ -914,7 +934,10 @@ def meta_type(session, argument, report):
         print(":type takes one expression")
         return session
     try:
-        print(pprint_type(typesystem.check_expr(stmts[0].expr, session.types, {})))
+        checked, store = typesystem.check_expr(
+            stmts[0].expr, session.types, {}, session.store
+        )
+        print(pprint_type(typesystem.resolved(checked, store)))
     except (AnalysisError, typesystem.TypeError_) as e:
         report(e)
     return session

@@ -1,0 +1,43 @@
+# Recursion, with nothing written down.
+#
+# A recursive call is the one call a first pass cannot type: what it
+# returns is exactly what the pass is trying to work out. So the checker
+# abandons that trace -- at the enclosing `if`, or at the body if some
+# `return` has already said enough -- takes the answer from the paths
+# that do not recurse, and then checks the *whole* body again with that
+# answer in place. The second pass is the one that counts: in it, every
+# path has a type, the recursive call included.
+
+# The recursion is in a branch, so the other branch says what this
+# returns.
+def fact(n):
+    if n < 1:
+        1
+    else:
+        n * fact(n - 1)
+
+# The recursion is not in a branch at all: it is the last statement, and
+# the `return` above it is what the first pass learns from.
+def sum_to(n):
+    if n < 1:
+        return 0
+    return sum_to(n - 1) + n
+
+# Recursion that returns a String, to show that nothing here is about
+# numbers.
+def repeat(word, times):
+    if times < 1:
+        ''
+    else:
+        word + repeat(word, times - 1)
+
+# A recursion whose return type *is* written needs no second pass -- the
+# call has a type the moment it is reached.
+def countdown(n) -> String:
+    if n < 1:
+        return 'liftoff'
+    return countdown(n - 1)
+
+print(fact(5), sum_to(4))
+print(repeat('ab', 3))
+print(countdown(3))

@@ -66,6 +66,11 @@ class TokMul(Token):        # '*' user defined
 
 
 @dataclass(frozen=True)
+class TokPipe(Token):       # '|' -- only in a type: `Int | String`
+    info: Info
+
+
+@dataclass(frozen=True)
 class TokDiv(Token):        # '/' user defined
     info: Info
 
@@ -255,6 +260,8 @@ def pprint_token(tok):
             return "TokArrow"
         case TokMul():
             return "TokMul"
+        case TokPipe():
+            return "TokPipe"
         case TokDiv():
             return "TokDiv"
         case TokLessThanEq():
@@ -507,6 +514,9 @@ def lexing(file, chars):
                 c, rest = c + 1, xs
             case ["/", *xs]:
                 tokens.append(TokDiv(fi(r, c, 1)))
+                c, rest = c + 1, xs
+            case ["|", *xs]:
+                tokens.append(TokPipe(fi(r, c, 1)))
                 c, rest = c + 1, xs
             case ["<", "=", *xs]:
                 tokens.append(TokLessThanEq(fi(r, c, 2)))

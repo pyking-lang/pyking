@@ -1,0 +1,11 @@
+def scale(n:Int, factor:Int) -> Int:
+    n * factor
+def label(n:Int) -> String:
+    'n = ' + str(n)
+def total(a:Int, b:Int) -> Int:
+    a + b
+scaled: Int = scale(6, 7)
+labelled: String = label(3)
+summed: Int = total(1, 2)
+print(scaled, labelled, summed)
+print(total(10, 20), label(scaled))

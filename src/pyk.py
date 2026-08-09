@@ -115,7 +115,12 @@ def _target_table():
     return "\n".join(f"  {names.ljust(column)}{extension}" for names, extension in rows)
 
 
-USAGE = f"""Usage: pyk [options] <filename>          run it with the python backend
+# The help comes in two lengths, sharing the part nobody can do without.
+# What someone who typed `pyk` by itself needs is the shape of the
+# command and the flags; what someone who asked for `--help` wants is
+# everything, including the target table and the paragraphs explaining
+# what the commands actually do.
+_SYNOPSIS = """Usage: pyk [options] <filename>          run it with the python backend
        pyk run [options] <filename>      run it with the interpreter
        pyk repl                          start the REPL
        pyk compile [options] <filename>  compile it (alias: pyk c)
@@ -128,6 +133,18 @@ Options:
   --symbols             with --ast, also print each node's symbol
   --typecheck           type-check before doing anything else
   --tokens              print the token stream first
+  --help                this, in full: what each command does, and what
+                        each target writes"""
+
+# The short form names the targets in a sentence rather than a table:
+# someone who wants to know what `-t` takes is answered by the list, and
+# someone who wants to know what each one *writes* is asking for --help.
+USAGE = f"""{_SYNOPSIS}
+
+Targets:
+{wrap('  ' + ', '.join(TARGETS) + '.', indent='  ')}"""
+
+USAGE_FULL = f"""{_SYNOPSIS}
 
 Targets:
 {_target_table()}
@@ -194,6 +211,9 @@ def parse_args(argv):
     while rest:
         argument, rest = rest[0], rest[1:]
         match argument:
+            case "--help" | "-h":
+                print(USAGE_FULL)
+                sys.exit(0)
             case "--tokens":
                 flags["tokens"] = True
             case "--ast":

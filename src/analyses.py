@@ -254,8 +254,13 @@ def target_names(target):
 
 
 def block_functions(stmts):
-    """The `def`s written at the top level of one block, as name ->
-    `SFunctionDef`, rejecting two of the same name.
+    """
+    This function returns a dictionary, mapping names to statments,
+    for those statements that are function definintions (defs) inside
+    a block. It also checks the rules that functin names need to be
+    unique in the block, and that no other name binding in the block
+    is allowed to have the same name as a function. If not, it raises
+    analysis errors.
 
     A function name must mean exactly one thing in the block it is
     written in. That is what lets the *names* be visible throughout the

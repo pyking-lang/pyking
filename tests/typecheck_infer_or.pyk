@@ -1,0 +1,39 @@
+# The "or" type, written down.
+#
+# `Int | String` is one type whose values are either. Inference produces
+# these on its own -- a function used at two types is summarised as one
+# -- but they are ordinary types a program may also write, and this file
+# is about that half: what an `|` annotation accepts, and what it does
+# not.
+
+# A parameter that takes either. Every value passed to it is one of the
+# alternatives, which is exactly what makes the call legal.
+def render(value:Int | String) -> String:
+    str(value)
+
+print(render(1), render('two'))
+
+# `str` accepts an Int and it accepts a String, so it accepts an
+# `Int | String`: a builtin's question is asked of every alternative.
+def announce(value:Int | String | Bool):
+    'value: ' + str(value)
+
+print(announce(true), announce(7))
+
+# A binding may be annotated with one, and a value of either alternative
+# satisfies it. What the printed AST beside this file shows for these two
+# is `Int` and `String` -- the types the checker *worked out*, which is
+# what `--typecheck --ast` prints everywhere; the annotation was checked
+# against them and is not what is shown.
+first: Int | String = 41
+second: Int | String = 'forty-two'
+
+print(first, second)
+
+# An alternative type is a *claim about the value*, not a shortcut: a
+# function with no annotations is still worked out from its calls, and
+# `given` below ends up with the alternatives it was actually used at.
+def given(value):
+    render(value)
+
+print(given(3), given('four'))

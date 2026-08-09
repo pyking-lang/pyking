@@ -1,0 +1,3 @@
+'tests/fail_typecheck_infer_mixed.pyk' 19:20-19:25 Type error: `+`
+  cannot be applied to Int and String; it accepts Int + Int or String
+  + String

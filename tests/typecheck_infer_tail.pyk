@@ -1,0 +1,43 @@
+# What a function supplies, when nothing says what it should.
+#
+# PYKING.md's "Tail position" says a body's value is its last
+# statement's, and that a `return` supplies what it returns. Inference
+# asks exactly that question and takes the answer as the return type --
+# so the two ways of supplying a value need no separate handling here
+# either, and a function that supplies nothing gets unit.
+
+# A body that ends in a value.
+def area(width, height):
+    width * height
+
+# A body whose last statement is a `print`: it supplies nothing, so the
+# function returns unit -- `()`.
+def announce(message):
+    print('note: ' + message)
+
+# Statements first, value last. Only the last one is in tail position.
+def spaced(word):
+    padded = ' ' + word
+    padded + ' '
+
+# Every branch supplies a value, and they must agree -- the same rule as
+# anywhere else, and it is what gives this function one return type.
+def describe(n):
+    if n < 0:
+        'negative'
+    else if n == 0:
+        'zero'
+    else:
+        'positive'
+
+# A `return` and a tail value in one body: both supply the function's
+# value, and both are collected.
+def clamp(n, hi):
+    if n > hi:
+        return hi
+    n
+
+announce('starting')
+print(area(3, 4), spaced('x') + '|')
+print(describe(0), describe(7))
+print(clamp(9, 5), clamp(2, 5))

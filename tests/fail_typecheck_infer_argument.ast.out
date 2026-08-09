@@ -1,0 +1,2 @@
+'tests/fail_typecheck_infer_argument.pyk' 16:12-16:17 Type error:
+  argument 1 has type String, but Int was expected

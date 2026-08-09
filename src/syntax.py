@@ -61,7 +61,10 @@ from lexer import Info
 #     TBool(info: Info, sym: Int)
 #     TList(info: Info, element: Type, sym: Int)
 #     TTuple(info: Info, elements: [Type], sym: Int)
-#     TFunction(info: Info, params: [Type], result: Type, sym: Int)
+#     TOr(info: Info, alternatives: [Type], sym: Int)
+#     TUnknown(info: Info, sym: Int)
+#     TFunction(info: Info, params: [Type], result: Type, sym: Int,
+#               tmsym: Int, definition: SFunctionDef?)
 #
 # datatype Pattern:
 #     PInt(info: Info, value: Int, sym: Int)
@@ -292,6 +295,24 @@ class TTuple(Type):         # (e1, e2, ...); zero elements is the Unit type "()"
 
 
 @dataclass(frozen=True)
+class TOr(Type):            # T1 | T2 | ...
+    info: Info              # A value of this type is one of the alternatives.
+    alternatives: list      # There are no type variables, so this is how a
+    sym: int = 0            # name that means different things in different
+                            # places is described: `Int | String` (see
+                            # docs/type_inference.md).
+
+
+@dataclass(frozen=True)
+class TUnknown(Type):       # ?
+    info: Info              # A type nothing has decided yet: an unannotated
+    sym: int = 0            # parameter or return type, standing in until a
+                            # call site says what it is. Never written in
+                            # source, and never the final answer for anything
+                            # the checker finished checking.
+
+
+@dataclass(frozen=True)
 class TFunction(Type):      # (T1, T2, ...) -> T
     info: Info               # The parameter list is always parenthesized, so a
     params: list             # function of one *tuple* is ((Int, Bool)) -> Int
@@ -302,6 +323,21 @@ class TFunction(Type):      # (T1, T2, ...) -> T
     # `->` is a `TTuple`), and by the type checker, which puts a `def`'s
     # separately written parts (`p:Int`, `-> Int`) together into the
     # function's own type.
+    #
+    # The last two fields belong to a function whose type is not fully
+    # written down, and are the type checker's alone -- nothing in the
+    # source produces them, and no printer shows them. `definition` is
+    # the `def` whose body is still to be checked, and its presence is
+    # what says this type is a promise rather than an answer; `tmsym` is
+    # that definition's symbol (`definition.sym`), which is how the
+    # checker names it in the tables it keeps -- a symbol rather than an
+    # object, so that two types built for one `def` at different moments
+    # are the same function by value. Both are ignored when two function
+    # types are compared: what a function *is* is its parameters and its
+    # result (see `same_type` in src/typesystem.py, and
+    # docs/type_inference.md).
+    tmsym: int = 0
+    definition: object = None
 
 
 # Whether `--symbols` asked for each node's symbol number to be shown
@@ -379,6 +415,21 @@ def _pprint_type(t):
             return f"[{pprint_type(element)}]"
         case TTuple(_, elements):
             return f"({', '.join(pprint_type(e) for e in elements)})"
+        case TOr(_, alternatives):
+            # `|` binds looser than anything else a type can be, so the
+            # alternatives never need parentheses of their own -- except a
+            # function type, whose `->` would otherwise swallow what
+            # follows it.
+            return " | ".join(
+                f"({pprint_type(a)})" if isinstance(a, TFunction) else pprint_type(a)
+                for a in alternatives
+            )
+        case TUnknown(_):
+            # Only ever printed for something the checker was asked about
+            # before anything had decided it -- a parameter of a function
+            # nothing calls. It is deliberately not spellable in source:
+            # there is nothing a program could mean by it.
+            return "?"
         case TFunction(_, params, result):
             # The parentheses are the parameter *list*'s, not a tuple's, so
             # one parameter that happens to be a tuple keeps its own pair:
@@ -869,8 +920,7 @@ def _pprint_stmt(s, level=0):
                         break
             return "\n".join(lines)
         case SFunctionDef(_, name, params, body, return_type, expr):
-            header = f"{pad}def {name}({', '.join(pprint_param(p) for p in params)})"
-            header += _return_annotation(s, return_type)
+            header = _function_header(s, pad, name, params, return_type)
             if expr is not None:
                 return f"{header} = {pprint_expr(expr)}"
             lines = [header + ":"]
@@ -940,6 +990,30 @@ def _annotation(node, type_):
     syntax, keeps that output re-parsable."""
     type_ = _node_type(node, type_)
     return "" if type_ is None else f": {_pprint_annotation_type(type_)}"
+
+
+def _function_header(node, pad, name, params, return_type):
+    """`def name(params) -> result`, with the types the checker worked
+    out where there is a `tmap` to take them from.
+
+    A function may have *several* types -- one per shape of call, when it
+    wrote none of its own down (see docs/type_inference.md) -- and then
+    the syntax has nowhere to put them: `def f(x:?) -> ?` has one slot
+    per parameter and one for the result, and the alternatives do not
+    come apart that way without claiming that a parameter of one call
+    goes with the result of another. So such a function is printed
+    exactly as it was *written*, and its type is left to be read where
+    the function is used. Only the header is affected: the body's own
+    bindings still print what was inferred for them."""
+    global _tmap
+    saved = _tmap
+    if isinstance(_tmap.get(node.sym) if _tmap is not None else None, TOr):
+        _tmap = None
+    try:
+        return (f"{pad}def {name}({', '.join(pprint_param(p) for p in params)})"
+                + _return_annotation(node, return_type))
+    finally:
+        _tmap = saved
 
 
 def _return_annotation(node, return_type):

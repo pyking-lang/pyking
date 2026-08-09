@@ -22,7 +22,7 @@
 
 [[cases]]
 file = "arithmetic.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "interpret"]
 
 [[cases]]
 file = "arithmetic_division.pyk"
@@ -105,6 +105,26 @@ file = "fail_typecheck_if_branches.pyk"
 targets = ["typecheck"]
 
 [[cases]]
+file = "fail_typecheck_if_expr_branches.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_infer_argument.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_infer_branch.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_infer_mixed.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_infer_recursion.pyk"
+targets = ["typecheck"]
+
+[[cases]]
 file = "fail_typecheck_int_string1.pyk"
 targets = ["typecheck"]
 
@@ -150,11 +170,11 @@ targets = ["python"]
 
 [[cases]]
 file = "ifelse.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "interpret"]
 
 [[cases]]
 file = "indent.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "interpret"]
 
 [[cases]]
 file = "lexical_capture.pyk"
@@ -278,7 +298,7 @@ targets = ["python"]
 
 [[cases]]
 file = "short_function.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "interpret"]
 
 [[cases]]
 file = "short_function_values.pyk"
@@ -298,7 +318,7 @@ targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "
 
 [[cases]]
 file = "test1.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "interpret"]
 
 [[cases]]
 file = "tail_return_boundaries.pyk"
@@ -365,6 +385,58 @@ file = "typecheck_if.pyk"
 targets = ["python", "ocaml", "interpret", "typecheck"]
 
 [[cases]]
+file = "typecheck_infer_basic.pyk"
+targets = ["python", "ocaml", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_infer_branch_uses.pyk"
+targets = ["python", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_infer_higher_order.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_infer_higher_rank.pyk"
+targets = ["python", "ocaml", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_infer_if_expr.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_infer_mutual.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_infer_or.pyk"
+targets = ["python", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_infer_overload.pyk"
+targets = ["python", "nodejs", "esm", "html", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_infer_partial.pyk"
+targets = ["python", "ocaml", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_infer_recursion.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_infer_reuse.pyk"
+targets = ["python", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_infer_tail.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_infer_used_twice.pyk"
+targets = ["python", "nodejs", "esm", "html", "interpret", "typecheck"]
+
+[[cases]]
 file = "typecheck_int_string.pyk"
 targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "typecheck"]
 
@@ -402,7 +474,7 @@ targets = ["python"]
 
 [[cases]]
 file = "types_mixed.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "interpret"]
 
 [[cases]]
 file = "types_tuples.pyk"
