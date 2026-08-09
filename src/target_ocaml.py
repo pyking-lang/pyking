@@ -1,54 +1,20 @@
-"""The OCaml code-generation backend.
+"""The OCaml code-generation backend. Unlike the other backends, its
+subset is exactly what typesystem.py accepts: rather than inferring
+types again, this module runs the checker and reads translated
+expressions' types back out of its tmap, so a program that does not
+type-check is refused before translation begins. See docs/target_ocaml.md
+for what the checker's subset still refuses, how the checker is reused,
+and how each construct compiles.
 
-OCaml fits Pyking better than any other target here, and the generated
-code shows it. Three things line up exactly:
+Data structures: see the `datatype` comment block below (OExpr, OItem,
+OBinding).
 
-  - **Scoping.** A Pyking block is a scope and a rebinding is a *new*
-    binding; OCaml's `let ... in` is both. Nothing has to be renamed the
-    way `target_python.py` renames, and nothing has to be hoisted.
-  - **Spelling.** `true`, `false` and `()` are written the same way in
-    both languages, so the value-formatting contract in
-    `runtime_interface.py` needs no conversion for booleans or unit.
-  - **Recursion.** Pyking makes every `def` in a block visible
-    throughout it, which is what `let rec ... and ...` says in OCaml.
-    Mutual recursion, a helper written below its use, and a plain
-    recursive function are one construct there and one here.
-
-**The subset is exactly what `src/typesystem.py` accepts.** Rather than
-inferring types a second time, this backend *runs the checker* and reads
-the types back out of its `tmap` (see `check_expr` there, which records
-one for every expression). A program that does not type-check is refused
-before translation begins, with the checker's own message. That is why
-this is the only backend with no inference of its own -- and why its
-list of unsupported constructs is short: the checker has already turned
-most of them away.
-
-Two things it refuses that the checker accepts, both because OCaml has
-no way to say them:
-
-  - a `return` that is not in tail position and is not a guard --
-    OCaml expressions have no early exit;
-  - a `def` that names another `def` written further down and *not*
-    beside it, since `let rec ... and ...` binds a group that has to be
-    written together.
-
-And one thing the languages disagree about quietly rather than loudly:
-Pyking evaluates an operator's operands, and a call's arguments, left to
-right, and OCaml leaves the order unspecified. That is only observable
-when two of them print, so `_Effects` works out which expressions can
-and `in_order` pins those down with a `let`. A program whose functions
-only compute pays nothing for it.
-
-**The generated code carries no type annotations.** OCaml infers them,
-and a program that says `let f (n : int) : int = ...` reads worse than
-`let f n = ...` while proving nothing extra -- the types were already
-checked before a line of this was emitted. The same instinct runs
-through the rest of the output: `let rec` only where something recurses,
-`and` only between functions that really do name each other, `_name`
-for a binding nothing reads, and no parentheses that OCaml's own
-precedence does not need. What the compiler would warn about, the
-generator answers in advance -- `tests/test_script.py` builds every
-OCaml case with `-w +a` so that a warning is a failing test.
+Functions:
+    translate_program(stmts) -- type-checks and translates a whole
+        program to [OItem].
+    translate_expr(node, env, tmap) -- translates one Pyking expression
+        block to one OExpr.
+    pprint_program(items) -- [OItem] to OCaml source text.
 """
 
 from dataclasses import dataclass
@@ -80,6 +46,8 @@ class UnsupportedError(Exception):
 
 
 def _unsupported(node, message):
+    """Raises UnsupportedError at node with message. Expr|Stmt -> String
+    -> ()"""
     raise UnsupportedError(node.info, message)
 
 
@@ -199,16 +167,18 @@ class OItemUnit:
 
 @dataclass(frozen=True)
 class OProgram:
+    """A translated program. Fields: items, [OItem]; needs_list_printer,
+    Bool (whether the generated prelude's list-printing helper is
+    used)."""
     items: list
     needs_list_printer: bool = False
 
 
 # --- names ---
 #
-# An OCaml value name must start with a lowercase letter or an
-# underscore -- one starting with a capital is a constructor -- and must
-# not be a keyword. Both are fixed by mangling, and only when they have
-# to be, so an ordinary Pyking name reaches the output unchanged.
+# An OCaml value name must start lowercase or underscore, and must not
+# be a keyword; both are fixed by mangling, only when needed. See
+# docs/target_ocaml.md, "Names".
 
 RESERVED = frozenset("""
 and as assert asr begin class constraint do done downto else end
@@ -220,7 +190,7 @@ try type val virtual when while with
 
 
 def _mangle(name):
-    """`name` as a legal OCaml value name."""
+    """name as a legal OCaml value name. String -> String"""
     if name in RESERVED:
         return name + "_"
     if name[:1].isupper():
@@ -230,38 +200,23 @@ def _mangle(name):
 
 # --- what can print ---
 #
-# The one thing a Pyking expression can do besides produce a value is
-# print, and the only reason this backend has to care is *order*: Pyking
-# runs an operator's operands left to right, OCaml leaves the order
-# unspecified. Two operands that both print are the only case where the
-# difference is visible, so this is the analysis that says which
-# expressions those are -- and it is deliberately cheap and
-# conservative, because being wrong in the other direction would mean
-# a program that prints in the wrong order.
+# Says which expressions can produce output, since that is the only
+# thing OCaml's unspecified evaluation order can make observably
+# different from Pyking's left-to-right (docs/target_ocaml.md,
+# "Evaluation order"). Deliberately conservative.
 
 
 class _Effects:
-    """Which calls in a program can end up printing.
-
-    `print` is the only host operation there is, so this is a walk of the
-    call graph: a function prints if it calls `print`, or calls a
-    function that does. Names are read across the whole program rather
-    than per scope -- a shadowed name is rare and counting both meanings
-    can only make the answer more cautious than it needs to be.
-
-    A call whose target is not a `def` -- a parameter of function type, a
-    binding holding a function -- could be anything, so it is treated as
-    printing if *any* function in the program prints. In a program where
-    none does, nothing needs ordering and every expression stays exactly
-    where the source put it."""
+    """Which calls in a program can end up printing, by a fixed-point
+    walk of the call graph. A call whose target is not a known def is
+    treated as printing if any function in the program does."""
 
     def __init__(self, stmts):
+        """Computes self.printing (function names that print) and
+        self.unknown_prints (whether an unknown callee must be assumed
+        to) by iterating to a fixed point. [Stmt] -> _Effects"""
         self.functions = _all_functions(stmts)
         self.printing = set()
-        # What an unknown callee has to be assumed to do. It starts as
-        # "nothing" and turns on as soon as any function is found to
-        # print, which can make more functions print in turn -- so the
-        # two grow together until neither changes.
         self.unknown_prints = False
         changed = True
         while changed:
@@ -275,12 +230,16 @@ class _Effects:
                 changed = True
 
     def _body_prints(self, func):
+        """Whether func's body contains a call that may print, given
+        self.printing so far. SFunctionDef -> Bool"""
         for node in _walk(func):
             if isinstance(node, ECall) and self._call_prints(node):
                 return True
         return False
 
     def _call_prints(self, call):
+        """Whether call may print, given self.printing so far. ECall ->
+        Bool"""
         match call.func:
             case EVar(_, name, _):
                 if runtime_interface.lookup(name) is not None:
@@ -292,7 +251,7 @@ class _Effects:
         return self.unknown_prints
 
     def may_print(self, expr):
-        """Whether evaluating `expr` can produce output."""
+        """Whether evaluating expr can produce output. Expr -> Bool"""
         return any(
             isinstance(node, ECall) and self._call_prints(node)
             for node in _walk(expr)
@@ -300,7 +259,8 @@ class _Effects:
 
 
 def _all_functions(stmts):
-    """Every `def` in the program, at any depth, by name."""
+    """Every def in the program, at any depth, by name. [Stmt] ->
+    {String: SFunctionDef}"""
     functions = {}
     for node in _walk(stmts):
         if isinstance(node, SFunctionDef):
@@ -309,9 +269,8 @@ def _all_functions(stmts):
 
 
 def _walk(node):
-    """Every node in a tree, the tree itself included. Generic over
-    dataclass fields, the way `analyses.symbolize` is, so a construct
-    added to `syntax.py` is covered without touching this."""
+    """Every node in a tree, the tree itself included; generic over
+    dataclass fields. Expr|Stmt|[Stmt] -> (Expr|Stmt,)"""
     if isinstance(node, list):
         for item in node:
             yield from _walk(item)
@@ -323,8 +282,8 @@ def _walk(node):
 
 def _unused_prefix(stmts):
     """A prefix no name in the program starts with, for the temporaries
-    that fix evaluation order. Underscore-led, so OCaml never warns about
-    one that ends up unread."""
+    that fix evaluation order (docs/target_ocaml.md, "Evaluation
+    order"). [Stmt] -> String"""
     names = {
         getattr(node, "name")
         for node in _walk(stmts)
@@ -340,11 +299,8 @@ def _unused_prefix(stmts):
 
 
 def translate_program(stmts):
-    """A whole Pyking program as an `OProgram`.
-
-    The program is type-checked first: this backend compiles what the
-    checker accepts and reads its types back, so a program it would
-    refuse has no business reaching the translation below."""
+    """Type-checks stmts, then translates it to an OProgram; raises
+    UnsupportedError if it does not type-check. [Stmt] -> OProgram"""
     tmap = _checked_types(stmts)
     translator = _Translator(tmap, stmts)
     items = _polish_items(translator.items(stmts))
@@ -352,12 +308,9 @@ def translate_program(stmts):
 
 
 def _checked_types(stmts):
-    """The checker's `tmap` for this program, or a refusal that says the
-    program has to type-check first.
-
-    The checker's own message is kept -- it is more specific than
-    anything this backend could say about a construct it never reached --
-    and merely framed as this target's limitation, which is what it is."""
+    """The checker's tmap for stmts; raises UnsupportedError, framing
+    the checker's own message, if it does not type-check. [Stmt] ->
+    {Int: Type}"""
     try:
         return typesystem.type_check(stmts)
     except (typesystem.TypeError_, AnalysisError) as e:
@@ -369,28 +322,24 @@ def _checked_types(stmts):
 
 
 class _Translator:
-    """Holds the checker's types, and whether the list printer was
-    needed -- the one piece of prelude this backend can emit."""
+    """Holds the checker's types and translation-wide state. Fields:
+    tmap, {Int: Type}; needs_list_printer, Bool; printing, _Effects;
+    temporary_prefix, String (see _unused_prefix); temporaries, Int
+    (how many have been allocated)."""
 
     def __init__(self, tmap, stmts):
         self.tmap = tmap
         self.needs_list_printer = False
         self.printing = _Effects(stmts)
-        # A name for a temporary the source cannot have written: no
-        # Pyking name in the program starts with it.
         self.temporary_prefix = _unused_prefix(stmts)
         self.temporaries = 0
 
     # -- top level --
 
     def items(self, stmts):
-        """The top level, as a list of OCaml items.
-
-        A Pyking binding becomes a top-level `let`, which is sequential
-        in OCaml exactly as it is in Pyking, so rebinding a name needs
-        nothing special: the second `let` shadows the first. Runs of
-        statements that are not bindings become one `let () = ...`.
-        """
+        """The top level, as a list of OCaml items: each Pyking binding
+        becomes a top-level let, and each run of non-binding statements
+        one `let () = ...`. [Stmt] -> [OItem]"""
         items = []
         index = 0
         while index < len(stmts):
@@ -419,25 +368,11 @@ class _Translator:
         return items
 
     def groups(self, run, later=frozenset()):
-        """A run of consecutive `def`s, translated and split into the
-        smallest groups that still see each other, each as
-        `(bindings, recursive)` -- what both a top-level `let` and a
-        `let ... in` need to be built from.
-
-        Pyking makes every `def` in a block visible throughout it, and one
-        `let rec ... and ...` over the whole run would say exactly that --
-        but it would also say that two unrelated functions are mutually
-        recursive, which reads badly and is not what the source meant. So
-        a group is closed as soon as nothing in it names anything further
-        down: two independent helpers become two plain `let`s, and only
-        functions that really do refer to each other end up in one `and`
-        chain.
-
-        The splitting reads the *translated* bindings rather than the
-        Pyking ones, because only there are the binders explicit: a body
-        that shadows the function's own name with a local `let` mentions
-        that name without recursing, and a free-variable walk sees the
-        difference where a search for the name alone would not."""
+        """A run of consecutive defs, translated and split into the
+        smallest groups that still see each other, each as (bindings,
+        recursive) (docs/target_ocaml.md, "A def naming one written
+        further down, with something in between"). [SFunctionDef] ->
+        {String} -> [([OBinding], Bool)]"""
         bindings = [self.function_binding(f) for f in run]
         free = [_free_in_binding(b) for b in bindings]
         _check_no_split_group(run, free, later)
@@ -464,7 +399,7 @@ class _Translator:
     # -- statements --
 
     def binding(self, statement):
-        """A `=` binding, as one OCaml binding."""
+        """A = binding, as one OCaml binding. SLet|SLetStmt -> OBinding"""
         match statement:
             case SLet(_, TargetName(_, name, _), expr, _, _):
                 value = self.expr(expr)
@@ -475,36 +410,34 @@ class _Translator:
         return OBinding(_mangle(name), [], value)
 
     def function_binding(self, func):
+        """One def, as an OBinding. SFunctionDef -> OBinding"""
         params = [_mangle(p.name) for p in func.params]
         if func.expr is not None:
             return OBinding(_mangle(func.name), params, self.expr(func.expr))
         return OBinding(_mangle(func.name), params, self.body(func.body))
 
     def body(self, stmts):
-        """A function body: a block whose last statement is its value."""
+        """A function body: a block whose last statement is its value.
+        [Stmt] -> OExpr"""
         return self.block(stmts, tail=True)
 
     def effects(self, stmts):
         """A block run only for what it does -- the top level's
-        statements, or a branch that produces nothing."""
+        statements, or a branch that produces nothing. [Stmt] -> OExpr"""
         return self.block(stmts, tail=False)
 
     def block(self, stmts, tail):
-        """A statement sequence as one expression.
-
-        `tail` says whether the last statement supplies a value (a
-        function body) or the block is run for its effects (the top
-        level, or a branch of a unit-valued `if`). Everything before the
-        last statement becomes a `let ... in` or a `;` -- which is
-        precisely the shape a Pyking block already has."""
+        """A statement sequence as one expression. tail says whether the
+        last statement supplies a value or the block runs for effect.
+        [Stmt] -> Bool -> OExpr"""
         if not stmts:
             return OUnit()
 
         first, rest = stmts[0], stmts[1:]
 
-        # A guard: `if c: return x` with statements after it is the one
-        # early return OCaml can express -- as the `else` of the same
-        # `if`. Without this, ordinary guard-style code would be refused.
+        # A guard (docs/target_ocaml.md, "A return that is neither in
+        # tail position nor a guard"): `if c: return x` becomes the else
+        # of the same if.
         if rest and isinstance(first, SIf) and first.else_body is None:
             if _definitely_returns(first.then_body):
                 return OIf(
@@ -538,7 +471,7 @@ class _Translator:
                 return OSeq(self.discard(first), self.block(rest, tail))
 
     def last(self, statement, tail):
-        """The final statement of a block."""
+        """The final statement of a block. Stmt -> Bool -> OExpr"""
         match statement:
             case SExprStmt(_, expr, _) if tail:
                 return self.expr(expr)
@@ -553,10 +486,8 @@ class _Translator:
                     None if else_body is None else self.block(else_body, tail),
                 )
             case SLet() | SLetStmt():
-                # A block ending in a binding supplies no value -- the
-                # checker gives such a body the unit type -- and the
-                # binding cannot be seen from outside the block, so `in
-                # ()` is the whole of it.
+                # A block ending in a binding supplies unit; the binding
+                # itself is unreachable from outside the block.
                 return OLet([self.binding(statement)], OUnit())
             case SFunctionDef():
                 [(bindings, recursive)] = self.groups([statement])
@@ -570,7 +501,8 @@ class _Translator:
                 return self.discard(statement)
 
     def value_stmt(self, stmt):
-        """An `if` in value form -- `x = if c: ...` or `return if c:`."""
+        """An if in value form: x = if c: ... or return if c: ....
+        SIf -> OExpr"""
         match stmt:
             case SIf(_, cond, then_body, else_body, _):
                 if else_body is None:
@@ -583,8 +515,8 @@ class _Translator:
         _unsupported(stmt, f"{type(stmt).__name__} in value position")
 
     def discard(self, statement):
-        """A statement run for its effect, in a position where its value
-        is thrown away."""
+        """A statement run for its effect, its value thrown away.
+        Stmt -> OExpr"""
         match statement:
             case SExprStmt(_, expr, _):
                 translated = self.expr(expr)
@@ -602,10 +534,11 @@ class _Translator:
     # -- expressions --
 
     def type_of(self, expr):
-        """The type the checker gave this expression."""
+        """The type the checker gave this expression. Expr -> Type"""
         return self.tmap[expr.sym]
 
     def expr(self, e):
+        """Translates one expression. Expr -> OExpr"""
         match e:
             case EInt(_, value, _):
                 return OInt(value)
@@ -651,20 +584,15 @@ class _Translator:
         _unsupported(e, f"{type(e).__name__}")
 
     def binary(self, op, left, right):
+        """One binary operator application. String -> Expr -> Expr ->
+        OExpr"""
         pieces, sequence = self.in_order([left, right])
         return sequence(OBin(op, pieces[0], pieces[1]))
 
     def in_order(self, exprs):
-        """`exprs` translated, plus a wrapper that pins down the order
-        they run in.
-
-        Pyking evaluates left to right and OCaml leaves the order of an
-        operator's operands, and of a call's arguments, unspecified -- in
-        practice right to left. That is invisible unless two of them can
-        *print*, so when two of them can, the earlier ones are pulled out
-        into `let`s, which is the one construct that does fix the order.
-        A program whose functions only compute -- almost every program --
-        keeps operands where the source wrote them and pays nothing."""
+        """exprs translated, plus a wrapper pinning down their evaluation
+        order where two or more can print (docs/target_ocaml.md,
+        "Evaluation order"). [Expr] -> ([OExpr], OExpr -> OExpr)"""
         translated = [self.expr(e) for e in exprs]
         effectful = [i for i, e in enumerate(exprs) if self.printing.may_print(e)]
         if len(effectful) < 2:
@@ -686,18 +614,15 @@ class _Translator:
         return translated, sequence
 
     def fresh_name(self):
+        """A fresh evaluation-order temporary name. () -> String"""
         self.temporaries += 1
         return f"{self.temporary_prefix}{self.temporaries}"
 
     # -- the host operations --
 
     def print_call(self, call, args):
-        """`print(...)`: the arguments formatted per
-        `runtime_interface.py` and written as one line.
-
-        OCaml spells booleans and unit exactly as Pyking does, so the
-        only conversion is to a string; a single string argument needs
-        not even that."""
+        """print(...): the arguments formatted per runtime_interface.py
+        and written as one line. ECall -> [Expr] -> OExpr"""
         if not args:
             return OApp(OVar("print_newline"), [OUnit()])
         ordered, sequence = self.in_order(args)
@@ -714,10 +639,8 @@ class _Translator:
 
     def as_string(self, arg, translated=None):
         """One printed argument, as an OCaml string expression.
-
-        `translated` is the argument's OCaml form when the caller has
-        already produced it -- `print_call` has, since fixing the order
-        its arguments run in may have replaced one with a name."""
+        translated is arg's OCaml form when the caller already produced
+        it. Expr -> OExpr? -> OExpr"""
         type_ = self.type_of(arg)
         if translated is None:
             translated = self.expr(arg)
@@ -739,6 +662,8 @@ class _Translator:
         _unsupported(arg, f"printing a value of type {_name_of(type_)}")
 
     def builtin_call(self, call, name, args):
+        """Translates a call to str, len or range. ECall -> String ->
+        [Expr] -> OExpr"""
         match name, args:
             case "str", [value]:
                 return self.as_string(value)
@@ -763,9 +688,7 @@ class _Translator:
 
 _BUILTINS = ("str", "len", "range")
 
-# The one prelude this backend has. A Pyking list prints the way Python
-# prints it -- `[0, 1]` -- and OCaml's own list syntax uses `;`, so the
-# separator is spelled out here rather than borrowed.
+# The one prelude this backend has (docs/target_ocaml.md, "Builtins").
 _LIST_PRINTER = "pyk_string_of_int_list"
 _LIST_PRINTER_DEF = f"""let {_LIST_PRINTER} xs =
   "[" ^ String.concat ", " (List.map string_of_int xs) ^ "]\""""
@@ -775,20 +698,16 @@ _LIST_PRINTER_DEF = f"""let {_LIST_PRINTER} xs =
 
 
 def _later_functions(stmts):
-    """The names the `def`s in `stmts` bind, as OCaml spells them."""
+    """The names the defs in stmts bind, as OCaml spells them. [Stmt] ->
+    {String}"""
     return frozenset(
         _mangle(s.name) for s in stmts if isinstance(s, SFunctionDef)
     )
 
 
 def _function_run(stmts, start):
-    """The run of consecutive `def`s beginning at `start`.
-
-    A run is what a `let` group can be built from: OCaml binds mutually
-    recursive functions with `let rec ... and ...`, which has to be
-    written together, so a `def` separated from the one it names by
-    anything that is not a `def` cannot be part of the same group. See
-    `_check_no_split_group` for what happens when the source does that."""
+    """The run of consecutive defs beginning at start. [Stmt] -> Int ->
+    [SFunctionDef]"""
     run = []
     index = start
     while index < len(stmts) and isinstance(stmts[index], SFunctionDef):
@@ -798,17 +717,10 @@ def _function_run(stmts, start):
 
 
 def _check_no_split_group(run, free, later):
-    """Refuses a `def` that names one written further down in the same
-    block, with something other than a `def` in between.
-
-    Pyking makes such a reference legal -- every `def` in a block is
-    visible throughout it. OCaml can express that only for functions
-    written as one `let rec ... and ...` group, and a group has to be
-    written together; moving it down past the statement in between would
-    change which bindings its bodies see, which is the one thing this
-    backend must not do quietly. Only a name the block binds further down
-    can be the problem: anything else is a builtin or an enclosing
-    binding, which OCaml resolves exactly as Pyking does."""
+    """Raises UnsupportedError if a def in run names one in later with
+    something other than a def in between (docs/target_ocaml.md, "A def
+    naming one written further down, with something in between").
+    [SFunctionDef] -> [{String}] -> {String} -> ()"""
     names = {f.name for f in run}
     for func, used in zip(run, free):
         reached = sorted((used & later) - names)
@@ -825,16 +737,13 @@ def _check_no_split_group(run, free, later):
 # --- free variables of the generated OCaml ---
 #
 # Every question this backend asks about names -- is this group
-# recursive, is this parameter used, does this function reach one written
-# further down -- is a question about *free* variables, and the OCaml AST
-# is where the binders are explicit enough to answer it. A body that
-# shadows the function's own name with a local `let` mentions that name
-# without recursing, and only a walk that knows `let` binds can tell the
-# difference.
+# recursive, does this function reach one written further down -- is a
+# question about free variables, answered on the OCaml AST since that is
+# where the binders are explicit.
 
 
 def _free(e):
-    """Every name `e` reads from outside itself."""
+    """Every name e reads from outside itself. OExpr -> {String}"""
     match e:
         case OInt() | OStr() | OBool() | OUnit():
             return frozenset()
@@ -861,31 +770,21 @@ def _free(e):
 
 
 def _free_in_binding(binding):
-    """A binding's free names: its value's, less its own parameters."""
+    """A binding's free names: its value's, less its own parameters.
+    OBinding -> {String}"""
     return _free(binding.value) - set(binding.params)
 
 
 # --- unused names ---
 #
-# OCaml warns about a bound name nothing reads, and a reader of generated
-# code has no way to act on such a warning. So the generator answers it
-# in advance, the way an OCaml programmer would: a name that is bound and
-# not read is written `_name`, which says "deliberately discarded" and is
-# exactly what these bindings are -- Pyking's `x = expr` is a statement,
-# so a program may well write one purely to run the expression.
-#
-# A top-level binding is usually exempt: a module without an interface
-# exports every name it binds, so nothing there is unread. The exception
-# is a name a later `let` rebinds -- Pyking allows that and OCaml does
-# too, but the earlier binding is then neither read nor exported, which is
-# the one case OCaml complains about at the top level.
+# Renames every unread name to _name in advance, the way an OCaml
+# programmer would, rather than leaving a warning a reader cannot act
+# on. See docs/target_ocaml.md, "What the compiler would have said".
 
 
 def _polish_items(items):
-    """The top level, polished. Read back to front, because whether a
-    binding is live depends only on what comes after it: a name is live
-    if some later item reads it before another rebinds it, and one that
-    survives to the end of the module is exported and so live too."""
+    """The top level, polished, read back to front since a binding's
+    liveness depends only on what comes after it. [OItem] -> [OItem]"""
     polished = []
     for index, item in enumerate(items):
         match item:
@@ -902,8 +801,8 @@ def _polish_items(items):
 
 
 def _rename_dead(binding, later):
-    """`binding`, renamed `_name` if no later item reads it before one
-    rebinds it."""
+    """binding, renamed _name if no item in later reads it before one
+    rebinds it. OBinding -> [OItem] -> OBinding"""
     binding = _polish_binding(binding)
     for item in later:
         if binding.name in _free_in_item(item):
@@ -914,6 +813,7 @@ def _rename_dead(binding, later):
 
 
 def _free_in_item(item):
+    """Every name item reads from outside itself. OItem -> {String}"""
     match item:
         case OItemLet(bindings, recursive):
             free = frozenset().union(*[_free_in_binding(b) for b in bindings])
@@ -924,6 +824,7 @@ def _free_in_item(item):
 
 
 def _item_names(item):
+    """The names item binds. OItem -> {String}"""
     match item:
         case OItemLet(bindings, _):
             return frozenset(b.name for b in bindings)
@@ -933,8 +834,8 @@ def _item_names(item):
 
 
 def _polish_binding(binding):
-    """A binding with its unread parameters renamed and its value
-    polished."""
+    """binding with its unread parameters renamed and its value polished.
+    OBinding -> OBinding"""
     value = _polish(binding.value)
     used = _free(value)
     params = [p if p in used else "_" + p for p in binding.params]
@@ -942,6 +843,7 @@ def _polish_binding(binding):
 
 
 def _polish(e):
+    """e with every unread let binding renamed _name. OExpr -> OExpr"""
     match e:
         case OInt() | OStr() | OBool() | OUnit() | OVar():
             return e
@@ -977,8 +879,7 @@ def _polish(e):
 
 
 def _definitely_returns(stmts):
-    """Whether a block always leaves by a `return` -- the same reading
-    `target_java.py` and the type checker take."""
+    """Whether a block always leaves by a return. [Stmt] -> Bool"""
     match stmts:
         case [*_, SReturn() | SReturnStmt()]:
             return True
@@ -996,26 +897,32 @@ def _definitely_returns(stmts):
 
 
 def _is_int(t):
+    """Type -> Bool"""
     return isinstance(t, TInt)
 
 
 def _is_string(t):
+    """Type -> Bool"""
     return isinstance(t, TString)
 
 
 def _is_bool(t):
+    """Type -> Bool"""
     return isinstance(t, TBool)
 
 
 def _is_unit(t):
+    """Type -> Bool"""
     return isinstance(t, TTuple) and not t.elements
 
 
 def _is_int_list(t):
+    """Type -> Bool"""
     return isinstance(t, TList) and isinstance(t.element, TInt)
 
 
 def _name_of(t):
+    """t as it would be written in source. Type -> String"""
     return pprint_type(t)
 
 
@@ -1036,8 +943,8 @@ _OP_LEVEL = {
 
 
 def pprint_ocaml_program(program, source="a Pyking program"):
-    """The whole module: a header, the prelude if it was needed, and one
-    blank line between top-level items."""
+    """The whole module: a header, the prelude if needed, and the
+    top-level items. OProgram -> String -> String"""
     parts = [
         f"(* Generated from {source} by the Pyking compiler. Do not edit. *)",
         "(* Target: ocaml. Compile with:  ocamlfind ocamlopt <this file>",
@@ -1051,6 +958,7 @@ def pprint_ocaml_program(program, source="a Pyking program"):
 
 
 def _pprint_item(item):
+    """item as OCaml source text. OItem -> String"""
     match item:
         case OItemLet(bindings, recursive):
             keyword = "let rec" if recursive else "let"
@@ -1066,9 +974,8 @@ def _pprint_item(item):
 
 
 def _pprint_binding(binding, keyword, level):
-    """`let name params =` with its value, laid out the way OCaml is
-    normally written: a short value on the same line, anything longer on
-    its own indented line."""
+    """"keyword name params =" with its value, indented to level.
+    OBinding -> String -> Int -> String"""
     pad = "  " * level
     head = " ".join([keyword, binding.name] + binding.params) + " ="
     value = _pprint(binding.value, _SEQ, level + 1)
@@ -1078,13 +985,15 @@ def _pprint_binding(binding, keyword, level):
 
 
 def _indent(text, level):
+    """text with level's worth of indent prefixed to each non-blank
+    line. String -> Int -> String"""
     pad = "  " * level
     return "\n".join(pad + line if line else line for line in text.split("\n"))
 
 
 def _pprint(e, need, level):
-    """One expression, parenthesized when the context needs it tighter
-    than the expression binds."""
+    """e as OCaml source text, parenthesized if it binds looser than
+    need. OExpr -> Int -> Int -> String"""
     text, level_of = _pprint_bare(e, level)
     if level_of < need:
         if "\n" in text:
@@ -1094,7 +1003,8 @@ def _pprint(e, need, level):
 
 
 def _pprint_bare(e, level):
-    """`(text, precedence)` for an expression, unparenthesized."""
+    """(text, precedence) for e, unparenthesized. OExpr -> Int -> (String,
+    Int)"""
     match e:
         case OInt(value):
             # A negative literal has to be parenthesized wherever it is
@@ -1166,13 +1076,8 @@ def _pprint_bare(e, level):
 
 
 def _pprint_if(cond, then_, else_, level):
-    """`if c then a else b` on one line when it fits, and otherwise one
-    arm per line -- the way OCaml is usually written.
-
-    An `if` whose `else` is another `if` is one chain rather than a nest:
-    Pyking's `else:` followed by an `if` reads as `else if` here, and
-    indenting each one a level deeper would say something the program
-    does not."""
+    """if c then a else b, one line if it fits, else one arm per line as
+    a flat else-if chain. Expr -> OExpr -> OExpr? -> Int -> String"""
     condition = _pprint(cond, _CMP, level)
     then_text = _pprint(then_, _IF + 1, level)
     if else_ is not None:
@@ -1203,8 +1108,8 @@ def _pprint_if(cond, then_, else_, level):
 
 
 def _pprint_arm(head, body, level):
-    """One arm of an `if`: `head body` when that fits on a line, and the
-    body indented underneath when it does not."""
+    """One arm of an if: "head body" if it fits on a line, else body
+    indented underneath. String -> String -> Int -> String"""
     if "\n" not in body and len(head) + 1 + len(body) + 2 * level <= 70:
         return f"{head} {body}"
     return f"{head}\n{_indent(body, 1)}"
@@ -1214,4 +1119,5 @@ _ESCAPES = {"\\": "\\\\", '"': '\\"', "\n": "\\n", "\t": "\\t", "\r": "\\r"}
 
 
 def _quote(s):
+    """s as a double-quoted OCaml string literal. String -> String"""
     return '"' + "".join(_ESCAPES.get(ch, ch) for ch in s) + '"'

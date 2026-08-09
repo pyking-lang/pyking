@@ -1,197 +1,25 @@
-"""The type checker: a pass that gives every expression a type and
-records the type of every annotated construct in a symbol table.
+"""The type checker: one function per AST datatype, giving every
+expression a type and recording annotated constructs in a symbol
+table (tmap). Run only under --typecheck, after symbolize. A def that
+is fully annotated is checked where it is written; one that is not is
+checked (inferred) the first time something calls it. See PYKING.md
+("Type checking") and docs/type_inference.md for the rules and the
+inference design.
 
-Pyking has no type checker in the ordinary pipeline -- type annotations
-are parsed, stored and erased (see PYKING.md, "Type annotations"), and
-every backend infers whatever it needs for itself. This module is the
-beginning of a real one, run only when `--typecheck` asks for it, after
-`symbolize` and before anything is printed or compiled. What it means
-for a *program* -- the rules, and what it refuses -- is PYKING.md's
-"Type checking" section; this file is how those rules are applied.
+Data structures:
+    TypeError_ -- a type-check failure, with the source position.
+    Builtin -- a name denoting a host operation, not a value.
+    Instance / Use / Frame / Store -- inference's working state (see
+        docs/type_inference.md).
+    Inferring -- marks a return type being worked out.
 
-The entry point is `type_check(stmts) -> tmap`: a whole program in, the
-types it worked out back. Everything else is one function per AST
-datatype -- `check_stmts` for a block, `check_stmt` for a statement,
-`check_expr` for an expression, `check_param` for a parameter -- each
-taking a node of exactly that type and returning exactly one kind of
-answer. The signatures are written out in the "Signatures" block below
-in the same OCaml-ish notation `syntax.py` uses for the AST itself,
-because that is the shape this pass is really written in: no function
-here dispatches on which *sort* of node it was handed, only on which
-variant of its own datatype.
+Functions:
+    type_check(stmts) -- checks a whole program; returns tmap.
+    check_stmt(stmt, env, tmap, return_type, store) -- checks one statement.
+    check_expr(expr, env, tmap, store) -- checks one expression.
+    same_type(a, b) / accepts(expected, actual) -- type comparison.
 
-`tmap` is the pass's result: one mutable dict, mapping a node's *symbol*
-(see `symbolize` in `analyses.py`) to the type worked out for it. The
-AST is left exactly as it was parsed -- this checker rebuilds nothing
-and writes into no node's `type` field -- so what a program *says* and
-what the checker *inferred* stay separable, and a caller that wants the
-latter asks `tmap` for it. `src/pyk.py` hands the finished `tmap` to
-`syntax.pprint_program`, which is what makes `pyk --typecheck --ast`
-print inferred types rather than written ones.
-
-Once checking is done, `tmap` holds an entry for every construct that
-can carry a type annotation -- `SFunctionDef`, `Param`, `SLet` and
-`SLetStmt` -- that the checker actually reached. A `SFunctionDef`'s entry
-is its *function* type, not its return type: the type of a thing is the
-type of the thing, and the syntax's `-> T` slot holds only part of it,
-which is why `pprint_program` prints `TFunction.result` there.
-
-`env` is the opposite kind of table: it maps a name to what that name
-means *here*, and it is used immutably -- a binding produces an extended
-copy rather than mutating the one it was handed, the same discipline
-`analyses.py` follows and for the same reason. What a name means is
-decided by where it is written, and a pass that mutates one shared table
-cannot say that.
-
-Types are the `T*` nodes from `syntax.py`, not a separate vocabulary, so
-`pprint_type` already renders them and a checked binding prints as
-`x: Int = 1` -- syntax the parser accepts, which is what keeps
-`pyk --typecheck --ast` output re-parsable. The ones this pass builds
-carry no symbols of their own. That includes `TFunction`, whose syntax
-`(Int, Bool) -> Int` the parser reads as well as prints, so a name bound
-to a function prints as `g: (Int) -> Int = f` and can be read back.
-
-Types are compared with `same_type`, never with `==`: two `TInt` nodes
-built at different places are different *nodes* (a dataclass compares
-its `info` and `sym` too) and the same *type*.
-
-## What this version covers
-
-A program is a list of immutable bindings (`=`), expression statements,
-`if` statements and function definitions. A binding takes its right-hand
-side's type, and an annotation it wrote is checked against that rather
-than replaced by it (`check_annotation`). Expressions are integer,
-string and boolean literals, names bound earlier, calls of a
-function-typed name, and:
-
-    +          Int + Int -> Int,  String + String -> String  (overloaded)
-    - *        Int -> Int
-    < <= > >=  Int, Int -> Bool
-    ==         Int, String or Bool, both sides alike -> Bool
-
-Every other construct -- `var`, `for`, `while`, `match`, lists, tuples,
-comprehensions, `/` -- is refused with `Construct is not supported`
-against its own source position. That is a *deliberate* floor rather
-than a gap to paper over: a checker that quietly accepted what it had
-not reasoned about would be worse than one that says where it stops.
-
-### Functions, and the two places one can be checked
-
-A `def` that annotated *everything* -- every parameter and the return
-type -- is checked where it is written. Its type is then
-`(P1, P2, ...) -> R`, a `TFunction`, and that is what its name means to
-the statements that follow it.
-
-A body supplies that return type in either of the two ways PYKING.md's
-"Tail position" describes, and they mix: a `return`, or a last statement
-that is simply an expression of the right type, or some branches doing
-one and some the other. One rule covers all of it, because every
-statement is asked the same question -- *what value do you supply?* --
-and `return e` answers "e's", exactly as the tail-position table says.
-A body that supplies nothing, or the wrong thing, is refused: a function
-that says `-> Int` and does neither has a type it does not honour.
-
-Recursion needs nothing beyond the declaration pass: the function's own
-type is in scope while its body is checked, so a recursive call is
-checked against it argument by argument, like any other call.
-
-A `def` that did **not** annotate everything is not checked where it is
-written at all. It is declared with `TUnknown` in place of whatever it
-did not say, and checked the first time something *calls* it, with its
-parameters taken from that call -- the same functions, in the same
-order, with the call supplying what the source did not. That is the
-whole of the inference in this module: there is no second pass, no
-constraint store and no unification, which is what keeps every error a
-sentence about one place. `TOr` (`Int | String`) is how a function used
-at two types is summarised, since there are no type variables.
-
-The pieces are the **`Store`** (everything inference has worked out --
-where each definition was written, what has been inferred about it, what
-is being checked right now, and what the current inference has gone
-through), `_Recursive` (the signal that a trace has reached the very
-function it is working out), `infer_call`/`infer_body`/`trace` (the check
-itself, and the second trace a recursion needs), and
-`merge`/`accepts`/`resolved` (alternatives). `docs/type_inference.md`
-explains why each of them is shaped the way it is, and what was rejected.
-
-## Nothing here changes anything
-
-One rule holds throughout this module, and it is worth stating because
-the inference half looks at first like the kind of thing that needs
-state: **no value is written to after it is built.** An environment, a
-store, a type, an instance -- each is handed on, extended by being
-rebuilt, and left alone by whoever passed it. A function that is given a
-store returns one, because what it worked out is knowledge its caller
-needs; a function that is given an environment does not, because a
-block's bindings are its own.
-
-The single exception is `tmap`, and it is deliberate: it is the pass's
-*result*, a table filled in as the walk goes, and threading a second one
-through every function to build it functionally would put machinery in
-front of the rules for no gain. `record` is the only function that
-writes.
-
-That rule is what makes this pass explainable. Everything a call knows
-came to it in its arguments; nothing arrives by having been left
-somewhere earlier.
-
-## Names and scoping
-
-`--typecheck` runs *instead of* the name analysis, not after it (see
-`src/pyk.py`), so this pass is on its own about names -- and checks
-them itself rather than leaving them unchecked. `env` is the scope: a
-name is in it or it is not, and one that is not raises `analyses.py`'s
-own `AnalysisError` with `analyses.py`'s own wording, so a program is
-told the same thing about an unbound name whichever pass found it.
-
-The scoping falls out of how `env` is threaded, and needs no separate
-machinery: a block is a scope because `check_stmts` hands its extended
-environment to nobody, a name is visible only after its own binding
-because the thread runs forwards, and shadowing works because `bind`
-replaces an entry in a *copy*. Parameters bind in the body, a `def`'s
-name binds in the enclosing scope and in its own body, and the builtins
-are in scope from the start.
-
-A name may be in scope and still have no type here -- that is what a
-`None` in `env` means, and a use of one is refused as unsupported rather
-than as unbound. Nothing produces one today: a `def` that annotated
-nothing gets an incomplete `TFunction` rather than no type at all, and
-the builtins are `Builtin`s. It is kept as the floor for whatever the
-checker reaches next.
-
-One rule from `analyses.py` is deliberately *not* here yet: a `var` may
-not be shadowed. This checker does not cover `var` at all -- a mutable
-declaration is refused as unsupported -- so there is nothing for the
-rule to protect, and it stays in `analyses.py` until there is. That, and
-the constructs this checker refuses outright, are the whole difference
-between the two passes' idea of names; when the rest arrives, the
-analysis can go.
-
-## What a statement's type is
-
-A statement's type is the type of the value it *supplies* -- the
-question PYKING.md's "Tail position" asks of a function body's last
-statement, asked here of every statement, since only its position
-decides whether the answer is wanted. Most statements supply nothing and
-so have type unit, `()`, as does a whole program. Four supply something:
-
-    an expression statement    its expression
-    a `return`                 what it returns
-    an `if`/`else`             what its branches agree on
-    a block                    its last statement's
-
-So a branch that ends in an expression supplies that expression's value,
-and
-
-    if c:
-        1
-    else:
-        'x'
-
-is an error -- `Int` against `String` -- while two branches that end in
-ordinary statements both supply unit and agree. An `if` with no `else`
-supplies unit whatever its one branch ends in, because there is a way
-through it that runs no branch at all.
+See the Signatures block below for every function's type.
 """
 
 from dataclasses import dataclass, replace
@@ -281,14 +109,9 @@ from syntax import (
 
 
 class TypeError_(Exception):
-    """Raised for a type error, or for a construct this checker does not
-    cover. Carries the source position, like `LexError`/`ParseError`/
-    `AnalysisError` do for their own stages, so `pyk.py` can report
-    it in the same `'file' row:col-row:col ...` form.
-
-    Named with a trailing underscore so it cannot be confused with -- or
-    accidentally shadow -- Python's own built-in `TypeError`, which this
-    is not and which the driver must still be able to see."""
+    """A type-check failure, or a refusal of an unsupported construct,
+    with the source position. Named with a trailing underscore to avoid
+    shadowing Python's own TypeError."""
 
     def __init__(self, info, message):
         super().__init__(message)
@@ -296,60 +119,23 @@ class TypeError_(Exception):
         self.message = message
 
 
-# ---------------------------------------------------------------------
-# What a builtin is to the checker
-#
-# `print`, `range`, `str` and `len` are in scope in every program
-# (`analyses.BUILTINS`), and not one of them has a type this checker can
-# write down: `print` takes any number of arguments of any type, `str`
-# and `len` accept more than one, and a `TFunction` is one fixed list of
-# parameters and one result.
-#
-# They are not values either. `runtime_interface.py` calls `print` an
-# *operation* rather than a function, the C and Java backends refuse it
-# as a value, and nothing in the language passes a builtin around. So a
-# builtin is checked where it is used -- at the call, by
-# `check_builtin_call` -- and refused anywhere else. That keeps
-# `TFunction` honest about what it can say, and it matches what the
-# backends already do.
-#
-# `env` therefore maps a name to one of three things:
-#
-#     Type       an ordinary name, of that type
-#     Builtin    one of the four operations; callable, never a value
-#     None       in scope with no type here (a `def` missing annotations)
+# `env` maps a name to a Type, a Builtin (one of the four operations,
+# checked at the call by check_builtin_call), or None (in scope, no
+# type yet -- an unannotated def).
 
 
 @dataclass(frozen=True)
 class Builtin:
-    """A name that denotes a host operation rather than a value."""
+    """A name denoting a host operation, not a value. Field: name: String."""
     name: str
 
 
 @dataclass(frozen=True)
 class Instance:
-    """One shape a deferred function has already been checked at.
-
-    Three things that look alike and are not, which is why they are named
-    separately here rather than being one list of pairs:
-
-        params    what was *passed* -- the cache key, compared with
-                  `same_instance`, and kept exactly as it arrived so that
-                  a later call passing the same things finds it
-        result    what came back, also as it arrived: a caller may want
-                  to call it in turn, which needs whatever definition it
-                  carries
-        reported  the same call with everything that has since been
-                  worked out filled in -- what `resolved` shows for the
-                  function, and what a reader sees
-        uses      which instances of which other functions this call went
-                  through, so that a *later* call that reuses this answer
-                  inherits what it was based on
-
-    `params` and `reported` differ exactly when an argument was itself a
-    function nobody had worked out yet: the key remembers *which*
-    function was passed, and the report remembers what it turned out to
-    be at that call."""
+    """One shape a deferred function has been checked at. See
+    docs/type_inference.md. Fields: params: [Type] (cache key, as
+    passed), result: Type, reported: Type (params/result as they turned
+    out, for display), uses: (Use,) (instances this call went through)."""
     params: list
     result: Type
     reported: Type
@@ -358,52 +144,28 @@ class Instance:
 
 @dataclass(frozen=True)
 class Use:
-    """One instance of one deferred function, gone through by an
-    inference.
-
-    A definition is named by `tmsym`, the symbol of its `def`, and an
-    instance by where it sits in that definition's list -- two integers,
-    so a use is a value that can be compared and put in a tuple without
-    anything being asked about object identity."""
+    """One instance of one deferred function. Fields: tmsym: Int (the
+    definition), index: Int (its position in that definition's instances)."""
     tmsym: int
     index: int
 
 
 @dataclass(frozen=True)
 class Frame:
-    """What the inference currently in progress has gathered: the
-    instances it has gone through, and what its `return`s have supplied.
-
-    One frame per inference, replaced when one starts and restored --
-    simply by using the outer store again -- when it ends."""
+    """What the current inference has gathered. Fields: uses: (Use,),
+    returns: (Type,)."""
     uses: tuple = ()
     returns: tuple = ()
 
 
 @dataclass(frozen=True)
 class Store:
-    """Everything inference has worked out, as one value.
-
-    It is threaded through this pass exactly as `env` is, and for exactly
-    the same reason: what a function knows is decided by what it was
-    handed, and a table that changed under its readers could not say
-    that. Four fields, and each of them replaced a mutation that used to
-    happen inside a record reachable from a type:
-
-        environments  tmsym -> the environment that `def` was *written*
-                      in, which is where its body is checked from
-                      wherever it is called
-        instances     tmsym -> what has been worked out about it, in the
-                      order it was worked out; `Use.index` points into
-                      this
-        checking      the definitions whose bodies are being checked
-                      right now, which is how a recursive call is
-                      recognised as one
-        frame         the innermost inference's `Frame`
-
-    Nothing here is ever written to. An update builds a new `Store` with
-    the one field replaced -- `{**old, key: value}` for the two tables,
-    the same discipline `bind` uses for environments."""
+    """Everything inference has worked out, threaded through the pass
+    like env (see docs/type_inference.md). Fields:
+    environments: {Int: Env} (tmsym -> where that def was written),
+    instances: {Int: (Instance,)} (tmsym -> what has been worked out),
+    checking: {Int} (tmsyms whose bodies are being checked right now),
+    frame: Frame (the innermost inference's)."""
     environments: dict
     instances: dict
     checking: frozenset
@@ -411,38 +173,30 @@ class Store:
 
 
 def empty_store():
-    """The store a program starts checking in: nothing worked out, and
-    nothing in progress."""
+    """The store a program starts checking in. () -> Store"""
     return Store({}, {}, frozenset(), Frame())
 
 
 def with_environment(store, tmsym, env):
-    """`store` recording where a definition was written.
-
-    Written twice for the same definition: once when its block declares
-    it, with the environment at the block's start, and once when its own
-    statement is reached, with the environment there -- which is the one
-    the language says its body captures. The second replaces the first,
-    and because the key is the definition's symbol rather than an object,
-    every type that names that definition sees the newer answer without
-    anything having been mutated under it."""
+    """store recording where the definition tmsym was written.
+    Store -> Int -> Env -> Store"""
     return replace(store, environments={**store.environments, tmsym: env})
 
 
 def environment_of(store, tmsym):
-    """Where that definition was written, or `None` if nothing has said
-    -- which only happens if a call is checked before the block that
-    declares it."""
+    """Where tmsym was written, or None. Store -> Int -> Env?"""
     return store.environments.get(tmsym)
 
 
 def instances_of(store, tmsym):
-    """What has been worked out about that definition, oldest first."""
+    """What has been worked out about tmsym, oldest first.
+    Store -> Int -> (Instance,)"""
     return store.instances.get(tmsym, ())
 
 
 def remembering(store, tmsym, instance):
-    """`store` with one more thing worked out about a definition."""
+    """store with one more Instance recorded for tmsym.
+    Store -> Int -> Instance -> Store"""
     return replace(
         store,
         instances={**store.instances, tmsym: instances_of(store, tmsym) + (instance,)},
@@ -450,82 +204,57 @@ def remembering(store, tmsym, instance):
 
 
 def instance_at(store, use):
-    """The instance a use points at."""
+    """The Instance a Use points at. Store -> Use -> Instance"""
     return instances_of(store, use.tmsym)[use.index]
 
 
 def checking_now(store, tmsym):
-    """`store` in which that definition's body is being checked. The
-    caller keeps the store *without* it, which is how the mark comes off
-    again -- there is nothing to undo."""
+    """store with tmsym's body marked as being checked.
+    Store -> Int -> Store"""
     return replace(store, checking=store.checking | {tmsym})
 
 
 def with_frame(store, frame):
-    """`store` gathering into a different frame -- a fresh one when an
-    inference begins."""
+    """store gathering into a different frame. Store -> Frame -> Store"""
     return replace(store, frame=frame)
 
 
 def returning(store, type_):
-    """`store` whose frame has seen a `return` of this type."""
+    """store whose frame has seen a return of type_.
+    Store -> Type -> Store"""
     return with_frame(store, replace(store.frame, returns=store.frame.returns + (type_,)))
 
 
 def noting(store, uses):
-    """`store` whose frame records that the inference in progress went
-    through these instances, in the order it first went through them and
-    without repeating one.
-
-    Order matters: it is the order the alternatives of an inferred type
-    are printed in."""
+    """store whose frame records that the inference in progress went
+    through these uses (in order, without repeats).
+    Store -> (Use,) -> Store"""
     fresh = tuple(use for use in uses if use not in store.frame.uses)
     return with_frame(store, replace(store.frame, uses=store.frame.uses + fresh))
 
 
 def learned(store, inner):
-    """`store` with what an inner check found out, and nothing else.
-
-    The two tables are *knowledge* -- true whoever asked -- so they come
-    back out of a nested inference. The other two fields are *context*:
-    which definitions the caller was in the middle of, and what the
-    caller was gathering. Those revert by simply using the caller's
-    store, which is the one line where this rewrite differs from the
-    flags-and-`finally` it replaced."""
+    """store with what an inner check found out (environments,
+    instances) merged in; frame and checking stay store's own.
+    Store -> Store -> Store"""
     return replace(store, environments=inner.environments, instances=inner.instances)
 
 
 @dataclass(frozen=True)
 class Inferring:
     """Stands in for a declared return type while one is being worked
-    out. A `return` checked against this contributes its type to the
-    store's frame instead of being compared with one, and what a function
-    returns is then what its `return`s and its tail position between them
-    supply."""
+    out; a return checked against it contributes to the frame instead
+    of being compared."""
 
 
 INFERRING = Inferring()
 
 
 class _Recursive(Exception):
-    """Internal signal: this trace has reached a call to a function that
-    is already being checked, whose result is exactly what something is
-    still trying to work out.
-
-    Not an error -- the program may be perfectly good -- so it never
-    reaches a user as one. It is caught by the nearest enclosing `if`,
-    whose other branch may well say what the function returns; by a body
-    where some `return` has already said it; and, failing both, by
-    whichever inference is *waiting* on the function it names, since only
-    that one can turn it into a sentence about the program. It carries
-    the definition it is about for exactly that reason: in a cycle of
-    three functions, the answer has to come from the one the cycle closes
-    on, not from whichever one happened to notice.
-
-    It carries the store as well, for a reason particular to a pass that
-    threads its state: an exception unwinds past every `store` a caller
-    was about to receive, and the one thing a trace needs from an
-    abandoned attempt is what its `return`s had already supplied. See
+    """Internal signal: a trace reached a call to a function whose
+    body is already being checked. Not an error -- caught by the
+    nearest if, by a body with a return already seen, or by the
+    inference waiting on the named definition. See
     docs/type_inference.md, "Recursion"."""
 
     def __init__(self, definition, info, store):
@@ -543,8 +272,7 @@ UNSUPPORTED = "Construct is not supported"
 
 
 def unsupported(node):
-    """Refuses `node`, against its own source position. The floor of the
-    fragment this checker covers -- see the module docstring."""
+    """Raises TypeError_ refusing node. Node -> ()"""
     raise TypeError_(node.info, UNSUPPORTED)
 
 
@@ -552,22 +280,8 @@ def unsupported(node):
 
 
 def type_check(stmts):
-    """Type-checks a whole program: a list of top-level statements.
-
-    Returns the `tmap` it built -- symbol -> type for every annotatable
-    construct it reached. Raises `TypeError_` for the first thing that
-    does not check out; there is no error recovery, and a program that
-    returns is a program that type-checks.
-
-    A program is a block, checked with no enclosing function, and its own
-    type is discarded: nothing is waiting for a program's value the way a
-    branch's caller waits for a branch's. Its environment starts with the
-    builtins in scope -- `analyses.BUILTINS`, the same list, so the two
-    passes cannot disagree about what a program may name -- each bound to
-    a `Builtin`, which is checked at the call rather than given a type.
-    Its store starts empty: nothing has been worked out about anything
-    yet, and the store it ends with is discarded too, since what a
-    consumer wants is `tmap`."""
+    """Type-checks a whole program. Raises TypeError_ for the first
+    thing that does not check out. [Stmt] -> {Int: Type}"""
     tmap = {}
     check_stmts(stmts, builtin_env(), tmap, None, empty_store())
     return tmap
@@ -575,13 +289,9 @@ def type_check(stmts):
 
 def builtin_env():
     """The environment a program starts in: every name in
-    `analyses.BUILTINS`, each denoting an operation rather than a value.
-
-    Its own function because `type_check` is not the only way in. A
-    caller that checks a program a piece at a time -- `src/repl.py`
-    checks one entry against the environment the last one left behind --
-    needs the same starting point, and building it by hand somewhere else
-    is how two ideas of what a program may name start to drift apart."""
+    analyses.BUILTINS, as a Builtin. Its own function so src/repl.py
+    can reuse it when checking a session one entry at a time.
+    () -> Env"""
     return {name: Builtin(name) for name in BUILTINS}
 
 
@@ -589,41 +299,11 @@ def builtin_env():
 
 
 def declare_functions(stmts, env, store):
-    """`env` with every `def` in this block already in scope, before any
-    of its statements are checked, and `store` recording where each of
-    them was written.
-
-    That one step is the whole of recursion, mutual recursion and
-    forward references: a body is checked in an environment that already
-    holds its own name, its siblings' names, and every function of every
-    enclosing block. It is deliberately *not* recursive -- a `def` inside
-    a branch belongs to that branch's block, and is declared when that
-    block is checked.
-
-    Only functions are declared ahead. An `=` binding stays strictly
-    sequential (see PYKING.md, "Names and scoping"), because its value is
-    an arbitrary expression that may read anything bound before it, while
-    a `def`'s type is written on the `def` itself and needs nothing that
-    surrounds it.
-
-    A `def` that is not fully annotated is declared too, with the type it
-    has so far: the annotations it did write, `TUnknown` for the rest,
-    and the definition itself for later. Nothing about it is checked here
-    -- what an unannotated parameter is depends on what is passed to it,
-    and that is a call site's business.
-
-    Each deferred definition is recorded against the finished
-    environment, so every body of the group sees the whole group; a
-    definition's own statement records the environment at its own
-    position over the top of it, which is the one the language says its
-    body captures.
-
-    `block_functions` is `analyses.py`'s, and applies the two rules that
-    make a hoisted name unambiguous -- one `def` per name per block, and
-    no other binding of that name in the same block. Sharing it is what
-    keeps the two passes from drifting apart about which programs are
-    legal, and it raises `AnalysisError`, so the same wording comes out
-    whichever pass ran."""
+    """env with every def in this block bound (recursion, mutual
+    recursion, forward references); store recording where each
+    unannotated one was written. Not recursive: a def inside a branch
+    is declared when that branch's block is checked.
+    [Stmt] -> Env -> Store -> (Env, Store)"""
     functions = list(block_functions(stmts).values())
     for function in functions:
         env = bind(env, function.name, declared_type(function))
@@ -634,18 +314,15 @@ def declare_functions(stmts, env, store):
 
 
 def fully_annotated(node):
-    """Whether a `def` wrote down every parameter type and the return
-    type -- the difference between a function this checker can check on
-    sight and one it has to wait for a call to explain."""
+    """Whether a def wrote down every parameter type and the return
+    type. SFunctionDef -> Bool"""
     return node.return_type is not None and all(p.type is not None for p in node.params)
 
 
 def declared_type(node):
-    """The type a `def` has as far as anyone can tell from the `def`
-    itself: its written type when it wrote one, and otherwise an
-    incomplete one, with `TUnknown` standing in for what it did not
-    say and the `def` node itself in the `definition` field, which is
-    what says the type is still a promise."""
+    """The type a def has from the def alone: its written type, or an
+    incomplete TFunction with TUnknown for what it did not say.
+    SFunctionDef -> TFunction"""
     if fully_annotated(node):
         return function_type(node)
     return TFunction(
@@ -658,23 +335,9 @@ def declared_type(node):
 
 
 def check_stmts(stmts, env, tmap, return_type, store):
-    """The type a block yields: its last statement's, or unit when it is
-    empty.
-
-    Only the *last* statement supplies a value, which is what PYKING.md's
-    "Tail position" says: a statement in the middle is run for its
-    effect, however interesting its type.
-
-    `env` is threaded from one statement to the next, so a binding is
-    visible to what follows it -- and the extended environment is
-    returned to nobody, which is exactly what makes a block a scope:
-    what it binds cannot escape it (`analyses.py` says the same thing
-    with `analyze_scope`). `store` is threaded the same way but *is*
-    returned: what has been worked out about a function is true wherever
-    it was worked out.
-
-    `return_type` is carried through untouched, for whatever `return`
-    turns up anywhere inside; see `check_stmt`."""
+    """The type a block yields: its last statement's, or unit if
+    empty. env is not returned (a block is a scope); store is.
+    [Stmt] -> Env -> {Int: Type} -> Type? -> Store -> (Type, Store)"""
     env, store = declare_functions(stmts, env, store)
     yielded = unit(stmts[0].info if stmts else Info("<empty>", 1, 0, 1, 0))
     for statement in stmts:
@@ -686,27 +349,11 @@ def check_stmts(stmts, env, tmap, return_type, store):
 
 
 def check_stmt(statement, env, tmap, return_type, store):
-    """One statement: the type of the value it supplies, the environment
-    the statements after it are checked in, and the store.
-
-    "Supplies" is PYKING.md's "Tail position" question, asked of every
-    statement: in the tail of a function body this is the function's
-    value, and anywhere else it is simply ignored. Most statements supply
-    nothing and so have type unit; an expression statement supplies its
-    expression, an `if` supplies whatever its branches agree on, and a
-    `return` supplies what it returns -- which is why nothing special is
-    needed to let one branch `return` while the other ends in a value.
-
-    `return_type` is the enclosing function's declared return type,
-    `INFERRING` while one is being worked out, or `None` at the top
-    level. It is what a `return` is checked against, and it is threaded
-    down through every nested block rather than consulted once at the
-    end, because only the *last* statement's value reaches
-    `check_function`: a `return` written anywhere else -- inside an `if`
-    with no `else`, before a later statement -- supplies nothing to the
-    body and would otherwise never be checked at all. It is also what
-    makes `return` outside a function an error rather than a silent
-    nothing."""
+    """The type statement supplies (PYKING.md, "Tail position"), the
+    environment for the statements after it, and the store.
+    return_type is the enclosing function's declared return type,
+    INFERRING while one is worked out, or None at the top level.
+    Stmt -> Env -> {Int: Type} -> Type? -> Store -> (Type, Env, Store)"""
     match statement:
         case SLet(info, TargetName(_, name, _), expr, annotation, sym):
             # The binding's symbol records what its right-hand side
@@ -832,15 +479,9 @@ def check_stmt(statement, env, tmap, return_type, store):
 
 
 def check_not_conflated(then_type, else_type, info):
-    """Refuses an `if` that yields one of two *different* functions
-    neither of which wrote its type down.
-
-    They compare equal -- `(?) -> ?` against `(?) -> ?` -- because
-    nothing has decided either of them, and taking one to stand for both
-    would mean checking the wrong function's body at every later call.
-    Since there are no type variables to say "whichever of the two this
-    turns out to be", the honest answer is to say so and ask for an
-    annotation. See docs/type_inference.md, "What this does not do"."""
+    """Raises TypeError_ if an if yields one of two different
+    unannotated functions (see docs/type_inference.md).
+    Type -> Type -> Info -> ()"""
     match (then_type, else_type):
         case (TFunction(_, _, _, _, _, SFunctionDef() as mine),
               TFunction(_, _, _, _, _, SFunctionDef() as theirs)) if mine.sym != theirs.sym:
@@ -855,15 +496,9 @@ def check_not_conflated(then_type, else_type, info):
 
 
 def try_expr(expr, env, tmap, store):
-    """One branch of an `if` *expression*, as `(type, store, signal)` --
-    the same bargain `try_branch` makes for a block, and for the same
-    reason.
-
-    A recursive function written as an expression, `def fact(n) = if
-    n <= 1 then 1 else fact(n - 1) * n`, has its recursion in a branch of
-    an expression rather than of a statement; without this the trace
-    would have nowhere to be abandoned and the type could not be worked
-    out at all."""
+    """One branch of an if expression, as (type, store, signal): signal
+    is the _Recursive that stopped it, or None.
+    Expr -> Env -> {Int: Type} -> Store -> (Type?, Store, _Recursive?)"""
     try:
         type_, store = check_expr(expr, env, tmap, store)
         return type_, store, None
@@ -872,17 +507,10 @@ def try_expr(expr, env, tmap, store):
 
 
 def try_branch(body, env, tmap, return_type, store):
-    """One branch of an `if`, as `(type, store, signal)`.
-
-    The signal is the `_Recursive` that stopped the branch, or `None` if
-    nothing did. A branch that ran into a call it could not type is
-    simply not evidence about anything, and its sibling is asked instead;
-    the signal is kept rather than dropped so that, if the sibling cannot
-    answer either, the question moves outwards unchanged. The store that
-    comes back with a signal is the one the branch *started* from: what
-    an abandoned trace worked out was provisional, and the trace that
-    replaces it works it out again. Nothing else is caught here: a type
-    error in a branch is still a type error."""
+    """One branch of an if statement, as (type, store, signal). On a
+    signal, store is the one the branch started from (its own work was
+    provisional).
+    [Stmt] -> Env -> {Int: Type} -> Type? -> Store -> (Type?, Store, _Recursive?)"""
     try:
         type_, store = check_stmts(body, env, tmap, return_type, store)
         return type_, store, None
@@ -891,13 +519,9 @@ def try_branch(body, env, tmap, return_type, store):
 
 
 def check_return(actual, return_type, info, store):
-    """A `return`, against what the function it is in returns.
-
-    Two cases, and the second is where inference lives: a function that
-    *said* what it returns has this compared against that, and one that
-    did not has it collected into the store's frame, because what such a
-    function returns is whatever its `return`s and its tail position
-    supply."""
+    """Checks a return's type against return_type, or -- if
+    return_type is Inferring -- collects it into store's frame.
+    Type -> Type -> Info -> Store -> Store"""
     match return_type:
         case Inferring():
             return returning(store, actual)
@@ -914,21 +538,18 @@ def check_return(actual, return_type, info, store):
 
 
 def check_expr(expr, env, tmap, store):
-    """The type of one expression, recorded in `tmap` under its symbol.
-
-    Every expression is recorded, not just the annotatable constructs:
-    the entry costs nothing to make and is what lets a consumer ask "what
-    type is *this* subexpression" -- which `pprint_program` never needs,
-    but a backend does. `src/target_ocaml.py` is the first: it compiles
-    only what this checker accepts, so rather than inferring types a
-    second time it reads them back from here."""
+    """The type of one expression, recorded in tmap under its symbol
+    (every expression, not just annotatable ones -- target_ocaml.py
+    reads these back rather than inferring a second time).
+    Expr -> Env -> {Int: Type} -> Store -> (Type, Store)"""
     type_, store = expr_type(expr, env, tmap, store)
     record(tmap, expr.sym, type_, store)
     return type_, store
 
 
 def expr_type(expr, env, tmap, store):
-    """`check_expr` without the recording -- the rules themselves."""
+    """check_expr without the recording -- the rules themselves.
+    Expr -> Env -> {Int: Type} -> Store -> (Type, Store)"""
     match expr:
         case EInt(info, _, _):
             return TInt(info), store
@@ -1009,14 +630,9 @@ def expr_type(expr, env, tmap, store):
 
 
 def check_param(param, tmap, store):
-    """A parameter's declared type, recorded under its symbol.
-
-    Only ever called for a parameter that *has* an annotation:
-    `function_type` refuses a `def` with any parameter missing one
-    before this is reached, since a function whose type is written down
-    is checked as a whole or not at all. A parameter with no annotation
-    is recorded by `infer_call` instead, once a call has said what it
-    is."""
+    """A parameter's declared type, recorded under its symbol. Only
+    called for a parameter that has one (see infer_call for the rest).
+    Param -> {Int: Type} -> Store -> Type"""
     record(tmap, param.sym, param.type, store)
     return param.type
 
@@ -1025,12 +641,9 @@ def check_param(param, tmap, store):
 
 
 def function_type(node):
-    """ 'function_type' takes a node of form SFunctionDef and
-    checks that it is completely annotated with types (both params
-    and return type). If not, raises type error. If OK, the
-    function returns the function type 'TFunction'"""
+    """node's TFunction, if every parameter and the return type are
+    annotated. Raises TypeError_ otherwise. SFunctionDef -> TFunction"""
     unannotated = [p.name for p in node.params if p.type is None]
-    # Comment: It seems unnessary to save all names in the list
     if unannotated or node.return_type is None:
         missing = ", ".join(
             [f"parameter '{n}'" for n in unannotated]
@@ -1045,24 +658,21 @@ def function_type(node):
 
 
 def check_function(node, env, tmap, store):
-    """Checks a `def` against its annotations, and returns unit: the
-    definition is a statement, whatever the function's own type is."""
+    """Checks a fully annotated def's body against its declared types.
+    Always yields unit, whatever the function's own type is: a def is a
+    statement. SFunctionDef -> Env -> {Int: Type} -> Store -> (Type, Store)"""
     ftype = function_type(node)
     for param in node.params:
         check_param(param, tmap, store)
     record(tmap, node.sym, ftype, store)
 
-    # `env` already holds this function and every other `def` of the
-    # block it is in (see `declare_functions`), which is what lets a body
-    # call itself, its siblings, and functions written further down. The
-    # parameters bind over that, shadowing whatever they share a name
-    # with, exactly as `analyses.py` binds them.
+    # env already binds every def of this block (declare_functions); the
+    # parameters shadow over that, as analyses.py binds them.
     body_env = env
     for param in node.params:
         body_env = bind(body_env, param.name, param.type)
 
     if node.expr is not None:
-        # `def f(x:Int) -> Int = expr`: the expression *is* the result.
         actual, store = check_expr(node.expr, body_env, tmap, store)
         if not accepts(node.return_type, actual):
             raise TypeError_(
@@ -1072,11 +682,8 @@ def check_function(node, env, tmap, store):
             )
         return unit(node.info), store
 
-    # The body's last statement is the one in tail position, and what it
-    # supplies is the function's value -- whether it supplies it with a
-    # `return` or by simply being an expression. One check covers both,
-    # because `check_stmt` already answers that one question for every
-    # kind of statement.
+    # The body's last statement is in tail position; check_stmt already
+    # answers what it supplies, by return or by value (PYKING.md).
     supplied, store = check_stmts(node.body, body_env, tmap, node.return_type, store)
     if accepts(node.return_type, supplied):
         return unit(node.info), store
@@ -1096,22 +703,16 @@ def check_function(node, env, tmap, store):
 
 # --- inference -------------------------------------------------------
 #
-# A function that did not write its type down is checked when something
-# calls it, in the environment it was written in, with its parameters
-# taken from the call. Everything here is that one idea and what it
-# costs: a cache so a function is not checked once per call, a recursion
-# guard so a function does not wait for itself, and a second trace for
-# the recursion the first one could not see through. See
-# docs/type_inference.md.
+# An unannotated function is checked the first time something calls it,
+# in the environment it was written in, with parameters taken from that
+# call. See docs/type_inference.md.
 
 
 def infer_call(func_type, params, call, tmap, store):
-    """The result of calling a function whose type was not written down,
-    with parameters `params` -- what this call is passing it.
-
-    The answer comes from the body, and is remembered in the store, so a
-    program that calls a function a hundred times with the same argument
-    types checks it once."""
+    """The result type of calling an unannotated function with these
+    argument types, checking its body the first time and remembering the
+    result afterward. TFunction -> [Type] -> Expr -> {Int: Type} -> Store
+    -> (Type, Store)"""
     match func_type:
         case TFunction(_, _, declared, _, tmsym, SFunctionDef() as node):
             pass
@@ -1191,22 +792,10 @@ def infer_call(func_type, params, call, tmap, store):
 
 
 def recall(store, tmsym, params):
-    """The use pointing at what was worked out last time this function
-    was called with these parameter types, or `None` if it has not been.
-
-    This is the cache the whole scheme leans on: without it a chain of
-    calls would re-check the same body once per call, and a recursive one
-    would not finish at all.
-
-    The comparison is `same_instance`, *not* `same_type`, and that
-    distinction is the whole correctness of the cache. Two functions
-    nobody has worked out yet are both `(?) -> ?`, so `same_type` calls
-    them equal -- which is right about types and wrong about *things*:
-    handing this function `pack_int` and handing it `pack_string` are
-    different calls with different answers. A cache keyed on the weaker
-    relation returns the first answer for the second call (see
-    docs/type_inference.md, "Two functions nobody has worked out yet are
-    not the same argument")."""
+    """The Use recording what was worked out last time this function was
+    called with these parameter types, or None. Compares with
+    same_instance, not same_type (docs/type_inference.md, section 9).
+    Store -> Int -> [Type] -> Use?"""
     for index, instance in enumerate(instances_of(store, tmsym)):
         if len(instance.params) == len(params) and all(
             map(same_instance, instance.params, params)
@@ -1216,16 +805,10 @@ def recall(store, tmsym, params):
 
 
 def same_instance(a, b):
-    """Whether two types are the same *thing* to have been passed --
-    `same_type`, except that a function still to be worked out is only
-    ever the same as itself.
-
-    `same_type` answers a question about the language: two function types
-    are the same when their parameters and results are. That is the right
-    answer for checking a program and the wrong one for keying a cache,
-    because a `TUnknown` is the absence of an answer rather than an
-    answer two things can share. Which function it is is said by its
-    symbol, so this is a comparison of values throughout."""
+    """Whether two types are the same thing to have been passed:
+    same_type, except a function not yet worked out is only ever the
+    same as itself (docs/type_inference.md, section 9). Type -> Type ->
+    Bool"""
     match (a, b):
         case (TFunction(_, mine, my_result, _, my_sym, SFunctionDef()),
               TFunction(_, theirs, their_result, _, their_sym, SFunctionDef())):
@@ -1245,22 +828,8 @@ def same_instance(a, b):
 
 
 def reported_type(type_, store):
-    """What an argument turned out to be *at this call* -- which is not
-    the same question as what it turned out to be overall.
-
-    `id` passed to one function and used there at `Int`, and passed to
-    another and used there at `String`, is `(Int) -> Int` in the first
-    call and `(String) -> String` in the second; saying `((Int) -> Int) |
-    ((String) -> String)` in both would claim each of them accepts what
-    only the other does. And a function used *twice* in one body, at
-    `Int` and at `Bool`, is both of those in that one call -- so what is
-    reported is every instance this call went through, whether this call
-    worked it out or found it already worked out.
-
-    A function passed to a call whose body never calls it has taught this
-    call nothing, and everything known about it is reported instead: it
-    is the best answer available, and the alternative -- `?` -- would say
-    less than is known rather than more."""
+    """What an argument turned out to be at this call, not overall
+    (docs/type_inference.md, section 9). Type -> Store -> Type"""
     match type_:
         case TFunction(_, _, _, _, tmsym, SFunctionDef()):
             gone_through = [
@@ -1276,27 +845,11 @@ def reported_type(type_, store):
 
 
 def infer_body(node, body_env, params, declared, tmap, store):
-    """What a function's body supplies, when the `def` did not say.
-
-    Three cases, in increasing order of how much work they are.
-
-    A function whose *return* type was written needs no inference of the
-    result at all: its own name means `(params) -> declared` while its
-    body is checked, so a recursive call is checked like any other, and
-    the body is checked against that type exactly as an annotated one is.
-
-    A function with no return type is checked with its `return`s
-    collected rather than compared (`INFERRING`). If it does not recurse,
-    that one trace is the answer.
-
-    If it does recurse, the first trace cannot type the recursive call --
-    it is what is being worked out -- so `_Recursive` is raised there and
-    caught at the nearest `if`, or by the trace itself if the `return`s
-    already seen say enough. Either way the first trace ends with a
-    candidate result, and a *second* trace then checks the whole body
-    with the function's own name bound to `(params) -> candidate`. The
-    second trace is the one that counts: it is the first one in which
-    every path, including the recursive one, has a type."""
+    """What a function's body supplies, when the def did not say. A
+    recursive, unannotated one is checked twice, per
+    docs/type_inference.md ("Recursion, and why there are two traces").
+    SFunctionDef -> Env -> [Type] -> Type? -> {Int: Type} -> Store ->
+    (Type, Store)"""
     if known(declared):
         env = bind(body_env, node.name, TFunction(node.info, params, declared))
         result, store = supplied_type(node, env, tmap, declared, store)
@@ -1314,16 +867,10 @@ def infer_body(node, body_env, params, declared, tmap, store):
 
 
 def trace(node, env, tmap, store):
-    """One pass over a body with its `return`s collected: what the
-    function supplies, as far as this trace could see.
-
-    A `_Recursive` that reaches here means the recursion was not inside
-    an `if` -- a body that returns in one statement and recurses in the
-    next, say. The `return`s already collected are then the evidence, and
-    they are read off the store the signal carried out, since the
-    exception unwound past every store this function was about to be
-    handed. A body that collected none has told this trace nothing at
-    all, and the question moves outwards."""
+    """One pass over a body with its returns collected: what the
+    function supplies, as far as this trace could see (see
+    docs/type_inference.md, "Recursion, and why there are two traces").
+    SFunctionDef -> Env -> {Int: Type} -> Store -> (Type, Store)"""
     started = with_frame(store, replace(store.frame, returns=()))
     try:
         supplied, ended = supplied_type(node, env, tmap, INFERRING, started)
@@ -1342,39 +889,20 @@ def trace(node, env, tmap, store):
 
 
 def supplied_type(node, env, tmap, return_type, store):
-    """What a function body supplies -- its `= expr` form's expression,
-    or what its last statement yields. The same question
-    `check_function` asks of an annotated body, asked here of a body
-    whose type is being worked out."""
+    """What a function body supplies: its = expr form's expression, or
+    its last statement's value. SFunctionDef -> Env -> {Int: Type} ->
+    Type? -> Store -> (Type, Store)"""
     if node.expr is not None:
         return check_expr(node.expr, env, tmap, store)
     return check_stmts(node.body, env, tmap, return_type, store)
 
 
 def merge(types):
-    """One type covering all of `types`: that type when they agree, and
-    an "or" type of the distinct ones when they do not.
-
-    A function that returns an Int on one path and a String on another
-    really does return `Int | String`, and saying so is more useful than
-    refusing the program -- the mistake, if it is one, then shows up
-    where the value is used, in terms of what it is. Nested alternatives
-    are flattened, so `Int | (String | Bool)` and `Int | String | Bool`
-    are one type written one way.
-
-    Two *function* types are alternatives like anything else. A function
-    called with two Ints and then with two Strings is
-
-        ((Int, Int) -> Int) | ((String, String) -> String)
-
-    and emphatically **not** `(Int | String, Int | String) -> Int | String`:
-    the second says an Int and a String may be mixed in one call, which
-    is a claim the checker does not make and would refuse. Whatever the
-    parameters and the result of one call were, they belong together --
-    see docs/type_inference.md, "The mistake that made this page
-    necessary".
-
-    At least one type is needed; every caller has one."""
+    """One type covering all of types: that type when they agree, a TOr
+    of the distinct ones (flattened, function types kept as whole
+    alternatives) when they do not. See docs/type_inference.md, "The
+    mistake that made this page necessary". At least one type is
+    required. [Type] -> Type"""
     match distinct_types([one for type_ in types for one in alternatives_of(type_)]):
         case [only]:
             return only
@@ -1383,8 +911,8 @@ def merge(types):
 
 
 def alternatives_of(type_):
-    """What a type offers as alternatives: an "or" type's, flattened, and
-    any other type on its own."""
+    """A type's alternatives: a TOr's, flattened; any other type, alone.
+    Type -> [Type]"""
     match type_:
         case TOr(_, alternatives):
             return [one for alternative in alternatives for one in alternatives_of(alternative)]
@@ -1392,9 +920,8 @@ def alternatives_of(type_):
 
 
 def distinct_types(types):
-    """`types` with later duplicates dropped, in the order they were
-    given -- which is the order the alternatives of an inferred type are
-    printed in."""
+    """types with later duplicates (by same_type) dropped, order
+    preserved. [Type] -> [Type]"""
     match types:
         case []:
             return []
@@ -1405,37 +932,20 @@ def distinct_types(types):
 
 
 def record(tmap, sym, type_, store):
-    """Records what a node's type turned out to be. The one thing in this
-    module that changes something rather than returning a new one:
-    `tmap` is the pass's result, and building it functionally would mean
-    threading a second table through everything for no gain.
-
-    Merging rather than overwriting, because a deferred function checked
-    at two different argument types has two answers for everything inside
-    it, and both are true: what `--typecheck --ast` then shows for such a
-    function is `Int | String`, which is what it is used as. A node
-    reached once -- every node of an annotated function, and most of a
-    program -- merges with nothing and simply records its type."""
+    """Records a node's type in tmap, merging with what is already there
+    for a node checked more than once (an unannotated function checked
+    at several argument types). The one place in this module that
+    mutates rather than returns a new value, since tmap is the pass's
+    result. {Int: Type} -> Int -> Type -> Store -> ()"""
     resolved_type = resolved(type_, store)
     existing = tmap.get(sym)
     tmap[sym] = resolved_type if existing is None else merge([existing, resolved_type])
 
 
 def resolved(type_, store, seen=()):
-    """A type as it finally turned out.
-
-    The one thing that can still change after a type is first written
-    down is a function that had not been called yet: its parameters were
-    `TUnknown` when it was passed around, and are known once something
-    called it. What is *recorded* should be what it turned out to be, so
-    a program that passes an unannotated function to another one shows
-    the types both of them ended up with rather than the question marks
-    they started as -- inside a larger type as well as at the top of one,
-    which is why this recurses.
-
-    `seen` stops it recursing forever on a function whose own type
-    mentions it, which two mutually recursive functions manage between
-    them."""
+    """type_ with every not-yet-called function inside it replaced by
+    what it was worked out to be. seen guards against a function whose
+    own type mentions it. Type -> Store -> (Int,) -> Type"""
     match type_:
         case TOr(_, alternatives):
             return merge([resolved(one, store, seen) for one in alternatives])
@@ -1456,13 +966,9 @@ def resolved(type_, store, seen=()):
 
 
 def accepts(expected, actual):
-    """Whether a value of type `actual` may be used where `expected` is
-    wanted.
-
-    The same question as `same_type` for everything except an "or" type,
-    which is the point of having one: `Int` is acceptable where
-    `Int | String` is wanted, and `Int | String` is not acceptable where
-    `Int` is. There is no other subtyping in Pyking."""
+    """Whether a value of type actual may be used where expected is
+    wanted -- same_type, plus TOr on either side. No other subtyping
+    exists in Pyking. Type -> Type -> Bool"""
     match (expected, actual):
         case (_, TOr(_, alternatives)):
             return all(accepts(expected, alternative) for alternative in alternatives)
@@ -1475,18 +981,10 @@ def accepts(expected, actual):
 
 
 def check_call(call, env, tmap, store):
-    """The type of a call: its function's result, once the arguments have
-    been checked against that function's parameters.
-
-    Anything of function type may be called, so a parameter annotated
-    `(Int) -> Int` is as callable as a `def`'s own name -- and so is a
-    builtin, which is the one callable thing with no type of its own.
-
-    A call is also where a function that did not write its type down
-    gets one. Its parameters are whatever this call passes it, its body
-    is checked in that light, and what the body supplies is the result
-    (see `infer_call`). That is the whole of the deferral: a definition
-    says what it can, and a use says the rest."""
+    """A call's type: its function's result, once the arguments are
+    checked against its parameters. Also where an unannotated function
+    is deferred and checked (see infer_call). ECall -> Env -> {Int:
+    Type} -> Store -> (Type, Store)"""
     match call.func:
         case EVar(_, name, _) if isinstance(env.get(name), Builtin):
             return check_builtin_call(name, call, env, tmap, store)
@@ -1515,13 +1013,10 @@ def check_call(call, env, tmap, store):
 
 
 def check_arguments(args, declared, env, tmap, store, position=1):
-    """The parameter types for this call, argument by argument, as
-    `(params, store)`.
-
-    Each argument is checked and then compared with what the `def` said
-    about it before the next one is looked at, so a mistake in the first
-    argument is reported before a mistake in the second -- the order a
-    reader reads them in."""
+    """Checks each argument in turn (left to right, so the first mistake
+    is the one reported) and returns the parameter types for this call.
+    [Expr] -> [Type] -> Env -> {Int: Type} -> Store -> Int -> ([Type],
+    Store)"""
     match (args, declared):
         case ([], _):
             return [], store
@@ -1535,15 +1030,9 @@ def check_arguments(args, declared, env, tmap, store, position=1):
 
 
 def argument_type(expected, actual, arg, position):
-    """What one parameter is, for this call: what the `def` said it was,
-    or -- where it said nothing -- what is being passed to it.
-
-    An annotation is still an annotation: where the `def` wrote one, the
-    argument is checked against it and a mismatch is an error, exactly as
-    before. Two function types meet in the middle: whatever *both* of
-    them know is compared, and the argument's own type is what the body
-    then sees, so a function passed to a function is inferred where it is
-    finally called rather than guessed at here."""
+    """What one parameter is for this call: expected where the def
+    annotated it, actual otherwise. Raises TypeError_ on a mismatch.
+    Type -> Type -> Expr -> Int -> Type"""
     match (expected, actual):
         case (TUnknown(), _):
             return actual
@@ -1556,14 +1045,8 @@ def argument_type(expected, actual, arg, position):
 
 
 def argument_error(position, actual, expected, arg):
-    """What a call says when an argument is not what the `def` asked for.
-
-    One sentence for every kind of mismatch, naming both whole types: a
-    reader comparing `(Int) -> Bool` with `(Int) -> Int` can see which
-    part differs, and a message that pointed only at the part would have
-    hidden which argument and which function it was talking about. A `?`
-    in it is a type nothing has decided yet (see
-    docs/type_inference.md)."""
+    """The TypeError_ for an argument that does not match the declared
+    parameter type. Int -> Type -> Type -> Expr -> TypeError_"""
     return TypeError_(
         arg.info,
         f"argument {position} has type {pprint_type(actual)}, but "
@@ -1572,14 +1055,9 @@ def argument_error(position, actual, expected, arg):
 
 
 def check_compatible(expected, actual, position, arg):
-    """Checks that two function types agree about everything they both
-    know, and raises if they do not.
-
-    A `TUnknown` on either side agrees with anything, because it is not a
-    claim about anything -- it is the absence of one. Everything else is
-    compared as usual, so passing a `(String) -> Int` where a
-    `(Int) -> Int` was written is still an error, and passing a function
-    whose parameter nobody has annotated is still allowed."""
+    """Checks that two function types agree on everything both know
+    (TUnknown agrees with anything); raises TypeError_ if not. Type ->
+    Type -> Int -> Expr -> ()"""
     match (expected, actual):
         case (TFunction(_, mine, my_result, _, _, _),
               TFunction(_, theirs, their_result, _, _, _)):
@@ -1602,7 +1080,8 @@ def check_compatible(expected, actual, position, arg):
 
 
 def known(type_):
-    """Whether anything has decided this type yet."""
+    """Whether anything has decided this type yet (not TUnknown). Type ->
+    Bool"""
     match type_:
         case TUnknown():
             return False
@@ -1610,24 +1089,9 @@ def known(type_):
 
 
 def check_builtin_call(name, call, env, tmap, store):
-    """A call to one of the four host operations.
-
-    Their signatures live here rather than in `env` because none of them
-    fits a `TFunction` (see the note beside `Builtin`), and because that
-    is the only position a builtin may appear in. Each argument is
-    checked like any other expression first; what differs is what the
-    operation accepts and what it gives back:
-
-        print(...)   any number of arguments, of any type   -> ()
-        str(x)       one Int, String or Bool                -> String
-        len(x)       one [T] or String                      -> Int
-        range(n)     one to three Ints                      -> [Int]
-
-    `print` accepting anything is `runtime_interface.py`'s rule, not a
-    shortcut: it pins how every type is formatted, unit included.
-    `range`'s arity is the one thing here the language reference does
-    not pin down -- the backends inherit Python's `range` -- so all
-    three forms are accepted rather than guessed at."""
+    """A call to print, str, len or range, checked by its own rule since
+    none of them has a TFunction type (PYKING.md, "Builtins"). String ->
+    ECall -> Env -> {Int: Type} -> Store -> (Type, Store)"""
     args, store = check_each(call.args, env, tmap, store)
 
     match (name, args):
@@ -1665,12 +1129,9 @@ def check_builtin_call(name, call, env, tmap, store):
 
 
 def check_each(exprs, env, tmap, store):
-    """Every expression in a list, checked left to right, as their types
-    and the store they leave behind.
-
-    Left to right because that is the order Pyking evaluates in, and a
-    checker that looked at them in another order could report the second
-    mistake in a line before the first."""
+    """Checks every expression left to right (Pyking's evaluation order)
+    and returns their types. [Expr] -> Env -> {Int: Type} -> Store ->
+    ([Type], Store)"""
     match exprs:
         case []:
             return [], store
@@ -1681,17 +1142,14 @@ def check_each(exprs, env, tmap, store):
 
 
 def every(type_, kinds):
-    """Whether a type is one of `kinds` -- and, for an "or" type, whether
-    *every* alternative is.
-
-    `str` accepts an `Int` and it accepts a `String`, so it accepts an
-    `Int | String`: a value of that type is one or the other, and either
-    would do. Asking the question this way is what lets an inferred
-    alternative type reach a builtin at all."""
+    """Whether type_ is one of kinds, or (for a TOr) every alternative
+    is. Type -> (type,) -> Bool"""
     return all(isinstance(one, kinds) for one in alternatives_of(type_))
 
 
 def check_builtin_arity(name, call, low, high):
+    """Raises TypeError_ if call does not pass between low and high
+    arguments. String -> ECall -> Int -> Int -> ()"""
     given = len(call.args)
     if low <= given <= high:
         return
@@ -1704,6 +1162,8 @@ def check_builtin_arity(name, call, low, high):
 
 
 def builtin_argument_error(name, argument, actual, accepted):
+    """The TypeError_ for a builtin argument of the wrong type. String ->
+    Expr -> Type -> String -> TypeError_"""
     return TypeError_(
         argument.info,
         f"'{name}' cannot be applied to {pprint_type(actual)}; it accepts "
@@ -1713,13 +1173,8 @@ def builtin_argument_error(name, argument, actual, accepted):
 
 # --- operators -------------------------------------------------------
 
-# The binary operators this checker knows, as
-# `node class -> (spelling, [(operand type, result type), ...])`. Several
-# are overloaded, which is why the table maps to a *list* of signatures
-# rather than one: `12 + 20` is `Int`, `'hi' + 'there'` is `String`, and
-# `13 + 'hello'` matches neither and is an error. Both operands must
-# match the *same* signature, which is what makes `1 == 'x'` an error
-# rather than a comparison that is merely always false.
+# node class -> (spelling, [(operand type, result type), ...]).
+# PYKING.md, "Operators", is the table this implements.
 OPERATORS = {
     EAdd: ("+", [(TInt, TInt), (TString, TString)]),
     ESub: ("-", [(TInt, TInt)]),
@@ -1733,18 +1188,15 @@ OPERATORS = {
 
 
 def check_binary(expr, env, tmap, store):
-    """The type of a binary operator application, from `OPERATORS`."""
+    """The type of a binary operator application, from OPERATORS.
+    Expr -> Env -> {Int: Type} -> Store -> (Type, Store)"""
     spelling, signatures = OPERATORS[type(expr)]
     left_type, store = check_expr(expr.left, env, tmap, store)
     right_type, store = check_expr(expr.right, env, tmap, store)
     for operand, result in signatures:
         if isinstance(left_type, operand) and isinstance(right_type, operand):
             return result(expr.info), store
-    # Every type in the message is spelled by `pprint_type`, the same
-    # function that prints a type in source and in `--ast` output, so an
-    # error can never name a type differently from the way the program
-    # would have to write it. A signature's operand is a *class* here, so
-    # it is instantiated to be printed -- only ever on this error path.
+    # A signature's operand is a class here; instantiate it to print it.
     accepted = " or ".join(
         f"{name} {spelling} {name}"
         for name in (pprint_type(operand(expr.info)) for operand, _ in signatures)
@@ -1760,17 +1212,9 @@ def check_binary(expr, env, tmap, store):
 
 
 def check_annotation(annotation, actual):
-    """Checks a binding's own annotation, if it wrote one, against what
-    its right-hand side turned out to be.
-
-    An annotation is a claim about the program, so where one exists it is
-    checked rather than replaced -- which is the whole difference between
-    an annotation and a comment. A binding that wrote none claims
-    nothing, and takes whatever its value has.
-
-    The error is reported against the *annotation*: the value is a
-    perfectly good value of its own type, and the disagreement is
-    something the program stated."""
+    """Checks a binding's annotation, if any, against its right-hand
+    side's actual type; raises TypeError_ at the annotation on a
+    mismatch. Type? -> Type -> ()"""
     if annotation is None or accepts(annotation, actual):
         return
     raise TypeError_(
@@ -1781,13 +1225,9 @@ def check_annotation(annotation, actual):
 
 
 def same_type(a, b):
-    """Whether two types *are* the same type.
-
-    Not `a == b`: types are frozen dataclasses, so `==` compares their
-    `info` and `sym` too, and `Int` written in one place would differ
-    from `Int` inferred in another. What matters is the structure, so
-    that is what is compared -- recursively, since a type can contain
-    types."""
+    """Whether two types are the same type, structurally -- never a == b,
+    since Type nodes are dataclasses whose info and sym also differ.
+    Type -> Type -> Bool"""
     match (a, b):
         case (TInt(), TInt()) | (TString(), TString()) | (TBool(), TBool()):
             return True
@@ -1818,12 +1258,12 @@ def same_type(a, b):
 
 
 def unit(info):
-    """The unit type, `()` -- an empty tuple type. What a statement, and
-    a program, has."""
+    """The unit type, (), an empty tuple type. Info -> TTuple"""
     return TTuple(info, [])
 
 
 def is_unit(t):
+    """Whether t is the unit type. Type -> Bool"""
     return isinstance(t, TTuple) and not t.elements
 
 
@@ -1831,13 +1271,7 @@ def is_unit(t):
 
 
 def bind(env, name, type_):
-    """`env` with `name` in scope, of `type_` -- or of no type this
-    checker knows, when `type_` is `None`. A fresh dict, never a mutation
-    of the one passed in: what a name means is decided by where it is
-    written, and rebinding one here would change what it meant somewhere
-    else.
-
-    Every binding form goes through this, which is what makes shadowing
-    work by construction -- an inner binding simply replaces the entry
-    the outer one made, and the outer dict is untouched."""
+    """env with name bound to type_ (or to no known type, if None). A
+    fresh dict, so shadowing works by construction. Env -> String ->
+    Type? -> Env"""
     return {**env, name: type_}

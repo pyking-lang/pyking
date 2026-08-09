@@ -178,10 +178,10 @@ writes out as OCaml-style signatures:
 
 ```
 type_check    : [Stmt] -> TMap
-check_stmts   : [Stmt] -> Env -> TMap -> Type? -> Type
-check_stmt    : Stmt -> Env -> TMap -> Type? -> (Type, Env)
-check_expr    : Expr -> Env -> TMap -> Type
-check_param   : Param -> TMap -> Type
+check_stmts   : [Stmt] -> Env -> TMap -> Type? -> Store -> (Type, Store)
+check_stmt    : Stmt -> Env -> TMap -> Type? -> Store -> (Type, Env, Store)
+check_expr    : Expr -> Env -> TMap -> Store -> (Type, Store)
+check_param   : Param -> TMap -> Store -> Type
 same_type     : Type -> Type -> Bool
 ```
 
@@ -195,6 +195,11 @@ The `Type?` each statement function takes is the enclosing function's
 return type, absent at the top level — that is what a `return` is
 checked against, and why `return` outside a function is an error rather
 than a special case somewhere else.
+
+`Store` is threaded the same way `Env` is: an immutable value handed
+along and rebuilt where it changes, holding everything the deferred
+half of the checker (below) has worked out about a function that did
+not write its type down. See [type_inference.md](type_inference.md).
 
 `TMap` is the deliberate opposite of `Env`: one mutable dict, mapping a
 node's *symbol* to the type worked out for it, built up as the pass runs
@@ -637,7 +642,7 @@ a program and compares the printed AST against its `.ast.out`;
 against the same `.out` as every compiling target. That last comparison
 is the whole reason the interpreter is cheap to trust: it is a second
 definition of the language's semantics, and holding it to the files the
-nine backends are held to is worth more than any amount of care in
+ten targets are held to is worth more than any amount of care in
 review.
 
 Each target is executed the way a user would run it: `python3` on the

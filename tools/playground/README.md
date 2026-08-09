@@ -45,8 +45,8 @@ and `repl.py`, and neither is copied.
 Variables: `PORT=9000` (auto-advances if busy), `CDN=1` (see below),
 `PYTHON=python3.12`.
 
-`make check` is worth knowing about: it runs all 54 examples through the
-generated `pyking_web.py` under your host CPython — 244 example/target pairs —
+`make check` is worth knowing about: it runs all 124 examples through the
+generated `pyking_web.py` under your host CPython — 653 example/target pairs —
 so a broken shim or a regressed backend fails the build without a browser
 being involved.
 
@@ -99,7 +99,7 @@ static host will do; nothing runs server-side.
 - **Target** lists every target the compiler has, plus `ast` — the
   target-independent view of the parsed program, which is what every backend
   starts from.
-- **Example** lists all 54 programs from `tests/`, grouped by whether they
+- **Example** lists all 124 programs from `tests/`, grouped by whether they
   work on every target or only on `python`. Picking a python-only example with
   a JavaScript target selected is *not* prevented: seeing the compiler refuse
   it, with a source position, is the point.
@@ -468,7 +468,7 @@ geometry of the toolbar, boots Pyodide in a real worker, runs a program that
 never terminates, and checks the page stays responsive while Stop ends it.
 
 The build was additionally validated by driving the real vendored Pyodide from
-node — mounting the compiler, compiling all nine targets, and confirming the
+node — mounting the compiler, compiling all ten targets, and confirming the
 Python output matches `tests/subset_control.out` byte for byte — and by
 running the generated `nodejs` and `esm` output against their `.out` files
 using the same drivers the iframe uses. If you change how code is generated,

@@ -1,8 +1,29 @@
+"""Turns source text into a list of tokens. Also defines Info, the
+source-position type every later stage (parser, analyses, type checker,
+backends) attaches to its own nodes. See docs/architecture.md and
+docs/source.md ("lexer.py") for the pipeline this feeds into and the
+indentation rules.
+
+Data structures:
+    Info -- a source span (file, row1, col1, row2, col2).
+    LexError -- a lexical failure, with the source position.
+    Token -- the token ADT; one frozen dataclass per kind (below).
+
+Functions:
+    lexing(file, chars) -- lexes a character list into a list of tokens.
+    pprint_info(info) -- formats a source span as 'file' row:col-row:col.
+    pprint_token(tok) -- formats one token for display.
+    keyword_token(name, info) -- the keyword token for a reserved word.
+    string_until(pred, chars) -- splits off the longest prefix matching pred.
+    scan_string(file, r, c, quote, chars) -- reads a string literal body.
+    is_digit(x) / is_letter(x) / is_digit_letter(x) -- character classes.
+"""
+
 from dataclasses import dataclass
 
 
 class LexError(Exception):
-    """Raised for lexical errors; carries the source position of the error."""
+    """A lexical failure, with the source position."""
 
     def __init__(self, info, message):
         super().__init__(message)
@@ -14,6 +35,8 @@ class LexError(Exception):
 
 @dataclass(frozen=True)
 class Info:
+    """A source span. Rows count from 1, columns from 0. Fields:
+    file: String, row1: Int, col1: Int, row2: Int, col2: Int."""
     file: str
     row1: int
     col1: int
@@ -22,6 +45,7 @@ class Info:
 
 
 def pprint_info(info):
+    """Formats a source span. Info -> String"""
     match info:
         case Info(file, r1, c1, r2, c2):
             return f"'{file}' {r1}:{c1}-{r2}:{c2}"
@@ -30,7 +54,8 @@ def pprint_info(info):
 # --- token ADT ---
 
 class Token:
-    """Base class for the token ADT."""
+    """Base class for the token ADT. One frozen dataclass per kind,
+    listed with `pprint_token` below; each carries its source Info."""
 
 
 @dataclass(frozen=True)
@@ -247,6 +272,7 @@ class TokIdent(Token):
 
 
 def pprint_token(tok):
+    """Formats one token for display. Token -> String"""
     match tok:
         case TokInt(_,x):
             return f"TokInt({x})"
@@ -337,14 +363,17 @@ def pprint_token(tok):
 # --- lexer ---
 
 def is_digit(x):
+    """Whether x is one decimal digit. String -> Bool"""
     return "0" <= x <= "9"
 
 
 def is_letter(x):
+    """Whether x is a letter or underscore. String -> Bool"""
     return x == "_" or ("a" <= x <= "z") or ("A" <= x <= "Z")
 
 
 def is_digit_letter(x):
+    """Whether x is a digit, letter, or underscore. String -> Bool"""
     return is_digit(x) or is_letter(x)
 
 
@@ -355,6 +384,7 @@ keywords = [
 
 
 def keyword_token(name, info):
+    """The keyword token `name` denotes. String -> Info -> Token"""
     match name:
         case "for":
             return TokFor(info)
@@ -391,7 +421,8 @@ def keyword_token(name, info):
 
 
 def string_until(pred, chars):
-    """Returns the longest prefix of `chars` matching `pred`, and the rest."""
+    """Splits off the longest prefix of chars matching pred.
+    (Char -> Bool) -> [Char] -> (String, [Char])"""
     i = 0
     while i < len(chars) and pred(chars[i]):
         i += 1
@@ -409,12 +440,11 @@ _ESCAPES = {
 
 
 def scan_string(file, r, c, quote, chars):
-    """Consumes a string body up to and including the closing `quote`,
-    decoding backslash escapes as it goes. `r`/`c` is the position of the
-    opening quote, used to build precise Info for any error raised here.
-    Returns `(value, length, rest)` where `length` is the number of source
-    characters consumed (including the closing quote, excluding the opening
-    one already consumed by the caller)."""
+    """Reads a string literal body up to and including the closing
+    quote, decoding backslash escapes. `r`/`c` is the position of the
+    opening quote, for error reporting. `length` counts source
+    characters consumed, including the closing quote.
+    String -> Int -> Int -> Char -> [Char] -> (String, Int, [Char])"""
     value = []
     length = 0
     rest = chars
@@ -439,7 +469,8 @@ def scan_string(file, r, c, quote, chars):
 
 
 def lexing(file, chars):
-    """Lexes a list of characters into a list of tokens."""
+    """Lexes a character list into a list of tokens.
+    String -> [Char] -> [Token]"""
 
     def fi(r, c, length):
         return Info(file, r, c, r, c + length)

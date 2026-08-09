@@ -21,21 +21,21 @@ module system to express a directory hierarchy with.
 
 | module | lines | what it is |
 |---|---:|---|
-| [`lexer.py`](#lexerpy) | ~600 | Characters → tokens. Also defines `Info`, the source span every later node carries. |
-| [`syntax.py`](#syntaxpy) | ~1030 | The AST: one frozen dataclass per variant, documented as algebraic data types, plus the pretty printer that prints Pyking back out. |
-| [`parser.py`](#parserpy) | ~1110 | Recursive descent, tokens → AST, and the few rules the grammar cannot state. |
-| [`analyses.py`](#analysespy) | ~520 | Static analyses over the AST: names and scoping (`analyze_program`), and `symbolize`, which numbers every node. |
-| [`typesystem.py`](#typesystempy) | ~1400 | The type checker: one function per AST datatype, producing `tmap` (symbol → type). Also the type *inference*, which is the same machinery run at a call site rather than at a definition. Its fragment is the interpreter's and the OCaml backend's. |
-| [`runtime_interface.py`](#runtime_interfacepy) | ~86 | The boundary between a pure Pyking program and the world: the operations a host must provide, and how values are formatted. No host code at all. |
-| [`interpreter.py`](#interpreterpy) | ~1460 | The interpreter: values, environments, and a resumable small-step machine that runs the AST. The reference for runtime semantics. |
-| [`repl.py`](#replpy) | ~1160 | `pyk repl`: a session as a program written one entry at a time, and the multi-line editor it is typed into. |
-| [`target_python.py`](#target_pythonpy) | ~2120 | The Python backend, and the only one that compiles the whole language. |
-| [`target_js_core.py`](#target_js_corepy) | ~647 | The JavaScript backend's language half: a `Js*` AST, translation, printer. |
-| [`target_js_packaging.py`](#target_js_packagingpy) | ~316 | Its packaging half: `nodejs`, `html`, `esm`, and the JavaScript side of the runtime interface. |
-| [`target_c.py`](#target_cpy) | ~1093 | The C backend, for `c89` and `c23`. Infers the types C insists on. |
-| [`target_java.py`](#target_javapy) | ~1127 | The Java backend, for `java8`/`java17`/`java21`. Also proves every function returns. |
-| [`target_ocaml.py`](#target_ocamlpy) | ~1217 | The OCaml backend. Infers nothing: it reads the checker's `tmap`. |
-| [`pyk.py`](#pykpy) | ~590 | The driver: argv, stage sequencing, error reporting, the four commands. |
+| [`lexer.py`](#lexerpy) | ~630 | Characters → tokens. Also defines `Info`, the source span every later node carries. |
+| [`syntax.py`](#syntaxpy) | ~1050 | The AST: one frozen dataclass per variant, documented as algebraic data types, plus the pretty printer that prints Pyking back out. |
+| [`parser.py`](#parserpy) | ~1100 | Recursive descent, tokens → AST, and the few rules the grammar cannot state. |
+| [`analyses.py`](#analysespy) | ~440 | Static analyses over the AST: names and scoping (`analyze_program`), and `symbolize`, which numbers every node. |
+| [`typesystem.py`](#typesystempy) | ~1280 | The type checker: one function per AST datatype, producing `tmap` (symbol → type). Also the type *inference*, which is the same machinery run at a call site rather than at a definition. Its fragment is the interpreter's and the OCaml backend's. |
+| [`runtime_interface.py`](#runtime_interfacepy) | ~50 | The boundary between a pure Pyking program and the world: the operations a host must provide, and how values are formatted. No host code at all. |
+| [`interpreter.py`](#interpreterpy) | ~1240 | The interpreter: values, environments, and a resumable small-step machine that runs the AST. The reference for runtime semantics. |
+| [`repl.py`](#replpy) | ~1030 | `pyk repl`: a session as a program written one entry at a time, and the multi-line editor it is typed into. |
+| [`target_python.py`](#target_pythonpy) | ~1800 | The Python backend, and the only one that compiles the whole language. |
+| [`target_js_core.py`](#target_js_corepy) | ~610 | The JavaScript backend's language half: a `Js*` AST, translation, printer. |
+| [`target_js_packaging.py`](#target_js_packagingpy) | ~280 | Its packaging half: `nodejs`, `html`, `esm`, and the JavaScript side of the runtime interface. |
+| [`target_c.py`](#target_cpy) | ~1050 | The C backend, for `c89` and `c23`. Infers the types C insists on. |
+| [`target_java.py`](#target_javapy) | ~1050 | The Java backend, for `java8`/`java17`/`java21`. Also proves every function returns. |
+| [`target_ocaml.py`](#target_ocamlpy) | ~1120 | The OCaml backend. Infers nothing: it reads the checker's `tmap`. |
+| [`pyk.py`](#pykpy) | ~540 | The driver: argv, stage sequencing, error reporting, the four commands. |
 
 Two shapes recur everywhere and are worth reading once rather than
 sixteen times:
@@ -325,15 +325,17 @@ and returning exactly one kind of answer (the signatures are written out
 OCaml-style near the top of the file):
 
 - **`type_check(stmts) -> tmap`** — the entry point.
-- **`check_stmts(stmts, env, tmap, return_type) -> Type`** — a block's
-  type: its last statement's. Calls `declare_functions` first.
-- **`check_stmt(stmt, …) -> (Type, Env)`** — the type of the value a
-  statement *supplies*, plus the environment the statements after it are
-  checked in. That single question — what value does this supply? — is
-  why a branch that `return`s and a branch that ends in an expression
-  compare without either being a special case.
-- **`check_expr(expr, env, tmap) -> Type`** — records into `tmap`;
-  `expr_type` holds the rules themselves.
+- **`check_stmts(stmts, env, tmap, return_type, store) -> (Type,
+  Store)`** — a block's type: its last statement's (`env` is not
+  returned; a block is a scope). Calls `declare_functions` first.
+- **`check_stmt(stmt, env, tmap, return_type, store) -> (Type, Env,
+  Store)`** — the type of the value a statement *supplies*, the
+  environment the statements after it are checked in, and the store.
+  That single question — what value does this supply? — is why a branch
+  that `return`s and a branch that ends in an expression compare without
+  either being a special case.
+- **`check_expr(expr, env, tmap, store) -> (Type, Store)`** — records
+  into `tmap`; `expr_type` holds the rules themselves.
 - **`check_function`, `function_type`, `check_param`** — a `def` that
   wrote its whole type down is checked here, where it is written; its
   type is a `TFunction`.
@@ -343,7 +345,11 @@ OCaml-style near the top of the file):
   and checked at the first call, with its parameters taken from that
   call; a recursion is resolved by abandoning the trace that reaches it
   and checking the body a second time with the candidate result in
-  place. See [type_inference.md](type_inference.md).
+  place. `Store` (above) is what makes this safe to run more than once
+  per program: an immutable value threaded like `env`, recording what
+  has already been worked out so a function called a hundred times with
+  the same argument types is checked once. See
+  [type_inference.md](type_inference.md).
 - **`merge` / `accepts` / `resolved`** — alternatives. `merge` builds the
   `Int | String` covering several types, keeping each function type
   *whole* (`((Int) -> Int) | ((String) -> String)`, never one function of
@@ -361,9 +367,9 @@ OCaml-style near the top of the file):
   and a comment.
 - **`same_type(a, b)`** — structural equality. Never `==`: `T*` nodes are
   dataclasses, so `==` would compare `info` and `sym` too.
-- **`declare_functions(stmts, env)`** — every `def` of a block bound
-  before any of it is checked, through `analyses.block_functions`. That
-  one step is recursion, mutual recursion and forward references.
+- **`declare_functions(stmts, env, store)`** — every `def` of a block
+  bound before any of it is checked, through `analyses.block_functions`.
+  That one step is recursion, mutual recursion and forward references.
 
 ---
 

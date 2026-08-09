@@ -1,38 +1,22 @@
-"""The C code-generation backend, for both the `c89` and `c23` targets.
+"""The C code-generation backend, serving both the c89 and c23 targets --
+one translation; standard is a printer parameter for where the two
+differ (comments, declaration placement, booleans). C is statically
+typed and Pyking is not, so this backend infers a type (Int, String, or
+Bool) for every binding, parameter and function; where inference is not
+enough it refuses with a source position. See docs/target_c.md for the
+inference rules and how each construct compiles.
 
-One translation serves both standards: they differ in what the *printer*
-emits, not in what the program means, so the difference is a `standard`
-parameter threaded through the printer rather than two backends. What it
-changes:
+Data structures:
+    UnsupportedError -- a construct this backend cannot compile, with
+        the source position.
+    CExpr / CStmt -- base classes for the C AST; every CExpr also
+        carries its inferred ctype.
 
-  standard  comments   declarations        booleans        headers
-  --------  --------   ------------        --------        -------
-  c89       /* ... */  hoisted to the      `int`, 1/0      as needed
-                       top of each block
-  c23       // ...     where they appear   `bool`,         as needed
-                                           true/false      (no stdbool)
-
-C is statically typed and Pyking is not, so this backend has to *infer* a
-type for every binding, parameter and function. The types are the three
-Pyking has values of -- integers, strings and booleans -- and inference
-is deliberately simple:
-
-  - a binding takes the type of its initializer;
-  - a parameter takes its annotation when that annotation names a type C
-    can represent, and is otherwise inferred from how the body uses it,
-    falling back to `int`;
-  - a function's return type is read back off the body once translated.
-
-That is enough for a language with no polymorphism and no containers.
-Where it is not enough, the backend refuses with a source position rather
-than emitting C that will not compile -- see `docs/architecture.md`,
-"What the C backends support".
-
-Strings are `const char *`. Concatenation allocates and never frees:
-Pyking has no notion of ownership to compile into one, so a generated
-program leaks whatever it concatenates. That is acceptable for the
-programs this backend targets and would not be for real ones; it is the
-main thing standing between this and a serious C backend.
+Functions:
+    translate_program(stmts) -- translates a whole program to CProgram.
+    translate_expr(e, env) -- translates one expression.
+    translate_stmt(s, env) -- translates one statement.
+    pprint_c_program(program, standard) -- CProgram to C source text.
 """
 
 from dataclasses import dataclass
@@ -74,6 +58,8 @@ _CONSTRUCT_NAMES = {
 
 
 def _unsupported(node, message):
+    """Raises UnsupportedError at node, naming message (a construct or
+    an AST class name) via _CONSTRUCT_NAMES. Expr|Stmt -> String -> ()"""
     raise UnsupportedError(node.info, _CONSTRUCT_NAMES.get(message, message))
 
 
@@ -86,11 +72,7 @@ def _unsupported(node, message):
 INT = "Int"
 BOOL = "Bool"
 STRING = "String"
-# Pyking's unit type `()`. A function that produces no value has this as
-# its return type -- `print` yields unit, and so does a body whose tail
-# is a loop or a binding -- and C spells that `void`. Without it such a
-# function would be typed `int` and simply fall off its end, which is
-# undefined behaviour rather than merely untidy.
+# Pyking's unit type (), spelled void in C.
 UNIT = "Unit"
 
 _C_TYPES = {
@@ -98,21 +80,17 @@ _C_TYPES = {
     "c23": {INT: "int", BOOL: "bool", STRING: "const char *", UNIT: "void"},
 }
 
-# How each type is printed, per `runtime_interface.PRINT`: integers in
-# base 10, strings bare, booleans as `true`/`false` -- which C spells
-# neither way (c89 has `1`/`0`, c23's `bool` prints the same via `%d`),
-# so a boolean argument becomes a conditional expression.
+# printf conversion per type (docs/target_c.md, "Booleans"): a Bool
+# argument becomes a conditional expression, since neither standard's
+# spelling prints directly with %d/%s.
 _FORMATS = {INT: "%d", BOOL: "%s", STRING: "%s"}
 
 _ANNOTATIONS = {TInt: INT, TString: STRING, TBool: BOOL}
 
 
 def _annotated_type(annotation):
-    """The type an annotation names, or `None` if it names one C has no
-    representation for (a tuple or list). Nothing checks annotations, so
-    an unrepresentable one is ignored in favour of inference rather than
-    treated as an error -- `tests/types_tuples.pyk` annotates parameters
-    as tuples and then passes integers."""
+    """The type an annotation names, or None for one C cannot represent
+    (docs/target_c.md, "How types are inferred"). Type? -> String?"""
     return _ANNOTATIONS.get(type(annotation))
 
 
@@ -267,10 +245,9 @@ class CFunc:                # <ret> name(params) { body }
 
 @dataclass(frozen=True)
 class CProgram:
-    """A translated program: the functions, the statements that become
-    `main`, and which runtime helpers were used -- the last decides which
-    headers the file needs, so that a program printing one integer does
-    not drag in `<string.h>`."""
+    """A translated program. Fields: functions, [CFunc]; main_body,
+    [CStmt]; uses_print/uses_concat/uses_strcmp, Bool (which runtime
+    helpers are used, and so which headers the file needs)."""
     functions: list
     main_body: list
     uses_print: bool = False
@@ -280,29 +257,33 @@ class CProgram:
 
 # --- scope ---
 #
-# C blocks are lexical scopes, as Pyking's are, so shadowing across blocks
-# needs no help. Rebinding does: C has no way to declare one name twice in
-# a block, and Pyking's `x = 1` then `x = 2` is two bindings -- which is
-# convenient here, because the second may hold a different *type*, and two
-# C variables is exactly what that needs.
+# C blocks are lexical scopes, as Pyking's are. Rebinding gets a fresh C
+# variable, since C cannot declare one name twice in a block and a
+# rebinding may hold a different type.
 
 
 @dataclass(frozen=True)
 class Scope:
-    # `outside` is what is in scope in the Pyking program but *not*
-    # reachable from here -- the bindings around a function, which this
-    # backend's functions cannot see. Kept so that reading one can say
-    # why rather than claiming the name does not exist.
+    """The names in scope during translation. Fields: outside, {String}
+    (bound in the Pyking program but not reachable here -- this
+    backend's functions have no closures); names, {String: (String,
+    String)} (Pyking name -> (C name, ctype)); block, {String} (names
+    bound by the innermost block)."""
     outside: frozenset
-    names: dict             # Pyking name -> (C name, type)
+    names: dict
     block: frozenset
 
 
 def _block_scope(scope):
+    """The scope for a nested block: sees outside and names; drops
+    block. Scope -> Scope"""
     return Scope(scope.outside, scope.names, frozenset())
 
 
 def _lookup(name, scope, info):
+    """The (C name, ctype) a Pyking name reads as; raises
+    UnsupportedError for a name out of this function's reach or with no
+    C representation. String -> Scope -> Info -> (String, String)"""
     if name not in scope.names:
         if name in scope.outside:
             _unsupported(
@@ -318,19 +299,15 @@ def _lookup(name, scope, info):
 
 @dataclass(frozen=True)
 class _At:
-    """Carries an `Info` for `_unsupported` when the offending thing is a
+    """Carries an Info for _unsupported when the offending thing is a
     name rather than a node."""
     info: Info
 
 
-# Names that are legal Pyking identifiers but reserved words in C, so a
-# program with `def double(n):` would otherwise compile to code that will
-# not parse. Covers C89, the C99/C11 additions, and the C23 keywords --
-# one list for both standards, since a name renamed under c23 and not
-# under c89 would make the two targets disagree about the generated code
-# for no good reason. `main`, `printf` and the generated helpers are in
-# here too: those are not keywords, but a Pyking function shadowing one
-# would break the file just as thoroughly.
+# Legal Pyking identifiers that are reserved in C (both standards'
+# keywords, plus main/printf/the generated helpers, so a shadowing
+# def can't break the file). See docs/target_c.md, "Names that are
+# keywords in C".
 RESERVED = frozenset("""
 auto break case char const continue default do double else enum extern
 float for goto if inline int long register restrict return short signed
@@ -343,6 +320,8 @@ main printf strcmp strlen malloc size_t pyk_concat
 
 
 def _fresh_c_name(name, scope):
+    """name2, name3, ... -- the first not already used. String -> Scope
+    -> String"""
     taken = set(scope.names) | {c_name for c_name, _ in scope.names.values()}
     n = 2
     while f"{name}{n}" in taken or f"{name}{n}" in RESERVED:
@@ -351,6 +330,8 @@ def _fresh_c_name(name, scope):
 
 
 def _bind(name, ctype, scope):
+    """Binds a Pyking name at ctype, returning (c_name, extended_scope).
+    String -> String -> Scope -> (String, Scope)"""
     c_name = name
     if (
         name in RESERVED
@@ -374,14 +355,20 @@ _BINARY_OPS = {
 
 
 class _Translator:
-    """Holds what the walk accumulates: function signatures, and which
-    runtime helpers have been used."""
+    """Accumulates what the whole-program walk needs across functions:
+    signatures, which have been defined, and which runtime helpers are
+    used. Fields: signatures, {String: (String, [String], String)}
+    (Pyking name -> (C name, param ctypes, return ctype)); declared,
+    {String: String} (Pyking name -> C name, from the declaration pass);
+    defined, {String} (functions whose body has been translated);
+    called_early, {String} (functions called before that);
+    uses_print/uses_concat/uses_strcmp, Bool."""
 
     def __init__(self):
-        self.signatures = {}    # Pyking name -> (C name, [param types], return type)
-        self.declared = {}      # Pyking name -> C name, from the declaration pass
-        self.defined = set()    # functions whose body has been translated
-        self.called_early = set()   # ... and those called before that happened
+        self.signatures = {}
+        self.declared = {}
+        self.defined = set()
+        self.called_early = set()
         self.uses_print = False
         self.uses_concat = False
         self.uses_strcmp = False
@@ -389,21 +376,17 @@ class _Translator:
     # -- expressions --
 
     def is_function_value(self, name, scope):
-        """Whether `name` here means a `def` itself rather than a value.
-
-        A function's name is bound in the scope as well as in
-        `signatures`, so the two are compared: if what the name resolves
-        to is the function's own generated name, this *is* the function;
-        if a parameter or binding has shadowed it, it is not."""
+        """Whether name here means a def itself rather than a value.
+        String -> Scope -> Bool"""
         if name not in self.signatures:
             return False
         bound = scope.names.get(name)
         return bound is None or bound[0] == self.signatures[name][0]
 
     def expr(self, e, scope, allow_unit=False):
-        """`allow_unit` permits a call to a unit-returning (`void`)
-        function, which is meaningful only as an expression statement --
-        everywhere else there is no value to use."""
+        """Translates one expression. allow_unit permits a call to a
+        void function, meaningful only as an expression statement.
+        Expr -> Scope -> Bool -> CExpr"""
         match e:
             case EInt(info, v):
                 return CInt(info, v)
@@ -412,12 +395,8 @@ class _Translator:
             case EBool(info, v):
                 return CBool(info, v)
             case EVar(info, name) if self.is_function_value(name, scope):
-                # A `def`'s own name, used as a value rather than called.
-                # Emitting it would produce something that does not
-                # compile -- a bare method name in Java, a function
-                # pointer assigned to an `int` in C -- so it is refused
-                # here with a position, like every other construct this
-                # backend cannot represent.
+                # A def's own name used as a value (docs/target_c.md,
+                # "A function used as a value").
                 _unsupported(
                     _At(info),
                     f"`{name}` is a function used as a value -- "
@@ -431,6 +410,7 @@ class _Translator:
                 self._require(inner, INT, "negation")
                 return CUnary(info, "-", inner, INT)
             case EDiv(info, _, _):
+                # docs/target_c.md, "/".
                 _unsupported(
                     e,
                     "`/` is true division in Pyking and truncating integer "
@@ -472,17 +452,11 @@ class _Translator:
                 if name not in self.signatures:
                     _unsupported(e, f"call to unknown function `{name}`")
                 if name not in self.defined:
-                    # Typed from the signature registered ahead of the
-                    # body; `function` checks that guess when the body
-                    # arrives.
                     self.called_early.add(name)
                 c_name, param_types, ret = self.signatures[name]
                 if len(args) != len(param_types):
                     _unsupported(e, f"`{name}` takes {len(param_types)} argument(s)")
                 if ret == UNIT and not allow_unit:
-                    # A `void` call has no value to use. Only an
-                    # expression *statement* may call one, which is what
-                    # `allow_unit` marks.
                     _unsupported(
                         e,
                         f"`{name}` produces no value (it returns unit), so it "
@@ -505,6 +479,8 @@ class _Translator:
                 _unsupported(e, type(e).__name__)
 
     def _require(self, node, ctype, what):
+        """Raises UnsupportedError if node's ctype is not ctype. CExpr ->
+        String -> String -> ()"""
         if node.ctype != ctype:
             _unsupported(
                 _At(node.info),
@@ -514,6 +490,8 @@ class _Translator:
     # -- statements --
 
     def stmts(self, stmts, scope):
+        """Translates a statement sequence, threading the scope through
+        it. [Stmt] -> Scope -> ([CStmt], Scope)"""
         out = []
         for s in stmts:
             translated, scope = self.stmt(s, scope)
@@ -521,11 +499,9 @@ class _Translator:
         return out, scope
 
     def tail_stmts(self, stmts, scope):
-        """Translates a statement list whose last statement is in **tail
-        position** -- a function body, or a branch of one that is itself
-        in tail position -- so the value it produces becomes the
-        function's return value. Mirrors `_translate_tail_block` in
-        `target_python.py`; see PYKING.md's "Tail position"."""
+        """Translates a statement list whose last statement is in tail
+        position (PYKING.md, "Tail position"). [Stmt] -> Scope ->
+        [CStmt]"""
         if not stmts:
             return []
         body, tail_scope = self.stmts(stmts[:-1], scope)
@@ -533,9 +509,7 @@ class _Translator:
 
     def tail_stmt(self, s, scope):
         """The last statement of a body in tail position, as a list of C
-        statements: an expression becomes the returned value, an `if`
-        pushes the rule into its branches, and anything else -- a loop, a
-        binding, a `print` (which yields unit) -- translates normally."""
+        statements. Stmt -> Scope -> [CStmt]"""
         match s:
             case SExprStmt(_, ECall(_, EVar(_, name), _)) if (
                 runtime_interface.lookup(name) is not None
@@ -559,10 +533,14 @@ class _Translator:
                 return [translated]
 
     def block(self, stmts, scope):
+        """Translates a nested block; its bindings do not escape.
+        [Stmt] -> Scope -> [CStmt]"""
         translated, _ = self.stmts(stmts, _block_scope(scope))
         return translated
 
     def stmt(self, s, scope):
+        """Translates one statement, returning it with the scope it
+        leaves behind. Stmt -> Scope -> (CStmt, Scope)"""
         match s:
             case SLet(info, TargetName(_, name), expr):
                 value = self.expr(expr, scope)
@@ -592,9 +570,6 @@ class _Translator:
                 return CReturn(info, self.expr(expr, scope)), scope
 
             case SReturnStmt(_, stmt):
-                # `return if c:` -- the same push-down as a tail-position
-                # `if`, written explicitly so it also works before the
-                # end of the body.
                 return self.tail_stmt(stmt, scope)[0], scope
 
             case SExprStmt(info, ECall(_, EVar(_, name), args)) if (
@@ -629,21 +604,11 @@ class _Translator:
     # -- functions --
 
     def declare_functions(self, stmts, scope):
-        """Registers every top-level `def`'s signature before any body is
-        translated, so a call may name a function written further down --
-        forward references and mutual recursion (see PYKING.md, "Names
-        and scoping").
-
-        C, unlike Java, does care about order: a call must have seen a
-        declaration. That is what the prototypes `pprint_c_program`
-        emits ahead of the definitions are for, and this pass is what
-        makes the call itself translatable in the first place.
-
-        The return type registered here is *provisional* -- the
-        annotation, or `Int` for an unannotated function, since only its
-        translated body can say otherwise. `function` checks that
-        assumption once the body is in, which is why calls made before
-        that point are remembered in `called_early`."""
+        """Registers every top-level def's signature (return type
+        provisional: its annotation, or Int) before any body is
+        translated, enabling forward references and mutual recursion
+        (docs/target_c.md, "Forward references and mutual recursion").
+        [Stmt] -> Scope -> Scope"""
         for s in stmts:
             if isinstance(s, SFunctionDef):
                 c_name, scope = _bind(s.name, INT, scope)
@@ -656,9 +621,8 @@ class _Translator:
         return scope
 
     def function(self, func, scope):
-        """Translates a `def`. Its signature is already registered (see
-        `declare_functions`), which is what lets the body call itself,
-        its siblings, and functions defined below it."""
+        """Translates a def; its signature is already registered
+        (declare_functions). SFunctionDef -> Scope -> (CFunc, Scope)"""
         param_types = [_param_type(func, p) for p in func.params]
         if func.name in self.declared:
             c_name = self.declared[func.name]
@@ -667,11 +631,8 @@ class _Translator:
         provisional = _annotated_type(func.return_type) or INT
         self.signatures[func.name] = (c_name, param_types, provisional)
 
-        # A function body starts from *nothing*: its parameters bind
-        # into it below, and other functions are reached through
-        # `self.signatures`. What it cannot see is the bindings around
-        # it -- there are no closures here -- and `outside` remembers
-        # those names so reading one says why (see `_lookup`).
+        # A function body starts from nothing but its own parameters; no
+        # closures, so outside remembers what it cannot see (_lookup).
         body_scope = Scope(frozenset(scope.names), {}, frozenset())
         params = []
         for param, ctype in zip(func.params, param_types):
@@ -682,17 +643,11 @@ class _Translator:
             value = self.expr(func.expr, body_scope)
             body = [CReturn(value.info, value)]
         else:
-            # The body's last statement is in tail position: whatever
-            # value it produces is the function's result.
             body = self.tail_stmts(func.body, body_scope)
 
         returned = _return_types(body)
         recursive = _calls(body, c_name)
         if len(returned) > 1 or (returned and returned != {provisional} and recursive):
-            # A recursive call was typed with the provisional return type
-            # before the body could say otherwise, so disagreement here is
-            # usually that assumption rather than a genuinely mixed
-            # function -- say which, since the fix differs.
             if recursive:
                 _unsupported(
                     func,
@@ -701,9 +656,6 @@ class _Translator:
                     "annotated, so annotate it (`-> String`, `-> Bool`)",
                 )
             _unsupported(func, "a function returning more than one type")
-        # No `return` anywhere means the function produces no value:
-        # that is unit, i.e. `void`, not the provisional `Int` it was
-        # registered with (which would fall off the end -- UB).
         actual = returned.pop() if returned else UNIT
         self.signatures[func.name] = (c_name, param_types, actual)
         if func.name in self.called_early and actual != provisional:
@@ -730,7 +682,8 @@ class _Translator:
 
 def _param_type(func, param):
     """A parameter's type: its annotation when C can represent it, else
-    what the body's use of it suggests, else `Int`."""
+    what the body's use of it suggests, else Int (docs/target_c.md,
+    "How types are inferred"). SFunctionDef -> Param -> String"""
     annotated = _annotated_type(param.type)
     if annotated is not None:
         return annotated
@@ -739,9 +692,8 @@ def _param_type(func, param):
 
 
 def _used_as_string(name, node):
-    """Whether `name` is added to, or compared with, a string literal
-    anywhere in `node` -- the one piece of evidence worth chasing, since
-    an unannotated parameter is otherwise an integer."""
+    """Whether name is added to, or compared with, a string literal
+    anywhere in node. String -> Expr|Stmt|... -> Bool"""
     from dataclasses import fields, is_dataclass
 
     match node:
@@ -761,7 +713,8 @@ def _used_as_string(name, node):
 
 
 def _walk_c(node):
-    """Every C AST node under `node`, itself included."""
+    """Every C AST node under node, itself included. CExpr|CStmt|... ->
+    (CExpr|CStmt|...,)"""
     from dataclasses import fields, is_dataclass
 
     if is_dataclass(node):
@@ -774,12 +727,10 @@ def _walk_c(node):
 
 
 def _falls_through(body):
-    """Whether control can reach the end of `body` without returning.
-    Falling off the end of a non-`void` function is undefined behaviour
-    in C, so a function that can do it is refused rather than emitted --
-    the same rule `target_java.py` enforces because `javac` demands it,
-    here because the C standard does not and the compiler would happily
-    produce a program that returns whatever was in the return register."""
+    """Whether control can reach the end of body without returning --
+    undefined behavior for a non-void C function (docs/target_c.md,
+    "A function that produces a value on some paths and none on
+    others"). [CStmt] -> Bool"""
     if not body:
         return True
     match body[-1]:
@@ -792,17 +743,20 @@ def _falls_through(body):
 
 
 def _return_types(body):
+    """Every ctype returned anywhere in body. [CStmt] -> {String}"""
     return {n.expr.ctype for n in _walk_c(body) if isinstance(n, CReturn)}
 
 
 def _calls(body, c_name):
+    """Whether body calls the C function named c_name. [CStmt] ->
+    String -> Bool"""
     return any(
         isinstance(n, CCall) and n.name == c_name for n in _walk_c(body)
     )
 
 
 def translate_program(stmts):
-    """External entry point: a whole Pyking program as a `CProgram`."""
+    """A whole Pyking program as a CProgram. [Stmt] -> CProgram"""
     translator = _Translator()
     scope = Scope(frozenset(), {}, frozenset())
     scope = translator.declare_functions(stmts, scope)
@@ -840,20 +794,25 @@ _ESCAPES = {"\\": "\\\\", '"': '\\"', "\n": "\\n", "\t": "\\t", "\r": "\\r"}
 
 
 def _quote(s):
+    """s as a double-quoted C string literal. String -> String"""
     return '"' + "".join(_ESCAPES.get(ch, ch) for ch in s) + '"'
 
 
 def _wrap(prec, min_prec, text):
+    """text, parenthesized if prec is below min_prec. Int -> Int ->
+    String -> String"""
     return f"({text})" if prec < min_prec else text
 
 
 def _bool_literal(value, standard):
+    """value as this standard's Bool literal. Bool -> String -> String"""
     if standard == "c23":
         return "true" if value else "false"
     return "1" if value else "0"
 
 
 def pprint_c_expr(e, standard, min_prec=0):
+    """e as C source text. CExpr -> String -> Int -> String"""
     match e:
         case CInt(_, v, _):
             return str(v)
@@ -899,9 +858,8 @@ def pprint_c_expr(e, standard, min_prec=0):
 
 
 def _print_argument(arg, standard):
-    """A `printf` argument. A boolean becomes a conditional expression,
-    since c89 spells its booleans `1`/`0` (c23's `bool` at least prints
-    with `%d` the same way) but Pyking prints them `true`/`false`."""
+    """One printf argument; a Bool becomes a conditional expression
+    (docs/target_c.md, "Booleans"). CExpr -> String -> String"""
     text = pprint_c_expr(arg, standard, _CONDITIONAL_PRECEDENCE + 1)
     if arg.ctype == BOOL:
         return f'{text} ? "true" : "false"'
@@ -909,11 +867,12 @@ def _print_argument(arg, standard):
 
 
 def pprint_c_stmt(s, standard, level=1):
+    """s as C source text, indented to level. CStmt -> String -> Int ->
+    String"""
     pad = "    " * level
     match s:
         case CDecl(_, ctype, name, init):
-            # Only reached for c23; c89 splits declarations out (see
-            # `_c89_declarations`).
+            # Only reached for c23; c89 splits declarations out (_emit_block).
             return (
                 f"{pad}{_declaration(ctype, name, standard)} = "
                 f"{pprint_c_expr(init, standard)};"
@@ -961,18 +920,16 @@ def pprint_c_stmt(s, standard, level=1):
 
 
 def _declaration(ctype, name, standard):
-    """`int x`, `const char *s` -- the pointer star binds to the name, so
-    the type text cannot simply be prefixed."""
+    """A variable declaration, e.g. `int x` or `const char *s`.
+    String -> String -> String -> String"""
     text = _C_TYPES[standard][ctype]
     return f"{text}{name}" if text.endswith("*") else f"{text} {name}"
 
 
 def _emit_block(stmts, standard, level):
-    """A block's statements. Under c89 every declaration is hoisted to the
-    top -- C89 allows them only at the start of a block -- and what is
-    left behind is the assignment, which may run anywhere. Because each
-    binding already has a name of its own, hoisting cannot capture the
-    wrong variable."""
+    """A block's statements, indented to level; under c89, declarations
+    are hoisted to the top (docs/target_c.md, "Declaration hoisting").
+    [CStmt] -> String -> Int -> String"""
     pad = "    " * level
     if standard != "c89":
         return "\n".join(pprint_c_stmt(s, standard, level) for s in stmts)
@@ -994,12 +951,13 @@ def _emit_block(stmts, standard, level):
 
 
 def _comment(text, standard):
+    """text as a comment in this standard's own style. String -> String
+    -> String"""
     return f"/* {text} */" if standard == "c89" else f"// {text}"
 
 
-# Written in the subset both standards accept -- declarations before
-# statements, no `//` -- so one helper serves c89 and c23 alike. Anything
-# the standards disagree about lives in the printer, not here.
+# Written in the subset both standards accept, so one copy serves both
+# (docs/target_c.md, "Strings").
 _CONCAT_HELPER = """static const char *pyk_concat(const char *a, const char *b)
 {
     size_t la = strlen(a);
@@ -1012,9 +970,8 @@ _CONCAT_HELPER = """static const char *pyk_concat(const char *a, const char *b)
 
 
 def _headers(program, standard):
-    """Only what the program actually uses. C23 needs no `<stdbool.h>` --
-    `bool` is a keyword there -- but it still needs `<stdio.h>` for
-    `printf`: C23 removed the need for some headers, not for all of them."""
+    """The #include lines the program actually needs. CProgram -> String
+    -> [String]"""
     needed = []
     if program.uses_print:
         needed.append("stdio.h")
@@ -1026,8 +983,8 @@ def _headers(program, standard):
 
 
 def pprint_c_program(program, standard, source="a Pyking program"):
-    """The whole translation unit: headers, the string helper if used, the
-    program's functions, and `main` holding its top-level statements."""
+    """The whole translation unit: headers, the string helper if used,
+    the functions, and main. CProgram -> String -> String -> String"""
     if standard not in STANDARDS:
         raise NotImplementedError(f"unknown C standard {standard!r}")
 

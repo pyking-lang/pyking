@@ -971,6 +971,64 @@ differ are listed in `docs/targets.md`), and the **maximum call depth is
 10 000** (`interpreter.MAX_CALL_DEPTH`), raising a Pyking error rather
 than exhausting memory.
 
+## Documentation style
+
+Applies to every `.py` file under `src/` and `tools/`, and to the `.md`
+files under `docs/`. Plain, direct, technical. No jargon, no rhetorical
+flourishes, no filler words.
+
+**Module docstring** (top of the file): what the file is for, in a few
+sentences. No design rationale, no history of alternatives considered.
+Link to the `docs/*.md` page(s) that cover the design. End with two short
+lists: the data structures defined in the file, and the functions,
+each as one line naming it and saying what it does. Example:
+
+```python
+"""Recursive-descent parser: tokens (from lexer.py) to the AST defined
+in syntax.py. Also enforces the handful of grammar rules that cannot be
+expressed in EBNF (see docs/architecture.md).
+
+Data structures:
+    ParseError -- a parse failure, with the source position.
+
+Functions:
+    parse(tokens) -- parses a full token stream into a list of statements.
+    parse_expr(tokens) -- parses one expression.
+    parse_block(tokens) -- parses one indented block.
+"""
+```
+
+**Function docstrings**: two parts, nothing else.
+
+1. One or two sentences: what the function does.
+2. A type signature, written as it would be in a statically typed
+   functional language, e.g. `[Token] -> (Expr, [Token])` or
+   `Env -> String -> Type -> Env`. Use the same notation `syntax.py`'s
+   `datatype` comments use (`[T]`, `T?`, `(A, B)`).
+
+```python
+def parse_expr(tokens):
+    """Parses one expression. [Token] -> (Expr, [Token])"""
+```
+
+No worked examples, no "why" in a function docstring. If a function's
+behavior needs more than the two parts above to explain, that is a sign
+the explanation belongs in `docs/`, not that the docstring should be
+longer.
+
+**Data structures**: describe precisely, not narratively — the
+`datatype` blocks at the top of `syntax.py` are the model. Name every
+field and its type; a one-line comment per variant is enough.
+
+**Everything else — why a design was chosen, what alternatives were
+rejected, how a bug happened, how pieces fit together — belongs in
+`docs/*.md`, never in a docstring or inline comment.** A code comment may
+state a non-obvious invariant in one line; it does not tell a story.
+
+`docs/*.md` files keep their existing structure and content. When editing
+them, tighten the prose to this same standard: state the fact, drop the
+rest.
+
 ## Repository housekeeping
 
 - Editor backup files ending in `~` (e.g. `tests/arithmetic.py~`,

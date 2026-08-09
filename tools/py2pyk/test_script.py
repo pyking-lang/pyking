@@ -1,26 +1,15 @@
 #!/usr/bin/env python3
-"""Test harness for py2pyk.
+"""Test harness for py2pyk: translates each tests/*.py, compiles the
+result back to Python with src/pyk.py, and diffs the two programs'
+stdout. Black-box throughout -- never compares source text, only
+observable behavior. See README.md, "Testing", for what each step
+checks and how the comparison normalizes boolean spelling. Run via
+`make test`, or `python3 test_script.py` directly.
 
-For every `tests/*.py` file:
-
-  1. translate it with py2pyk.py into Pyking source;
-  2. compile that Pyking source back into Python with src/pyk.py
-     (the project's real bootstrap compiler -- this is also, as a side
-     effect, the ground truth check that py2pyk produced *valid* Pyking:
-     an invalid translation fails here with the compiler's own error);
-  3. run the original `.py` and the round-tripped `.py` each with
-     `python3`, and compare their stdout.
-
-A test passes if both programs run to completion and print identical
-output (after normalizing one, permanent, documented difference: Python's
-`print` spells a boolean `True`/`False`, Pyking's spells it `true`/`false`
--- see `_normalized_for_comparison` below). This is deliberately
-black-box otherwise: it never compares source text, only observable
-behaviour, which is the property py2pyk is supposed to preserve.
-
-Run via `make test` in this directory, or directly:
-
-    python3 test_script.py
+Functions:
+    run_case(py_file, tmp_dir) -- translates, compiles back, runs both
+        programs, and compares one test case; returns (ok, detail).
+    main() -- runs every tests/*.py file and prints the summary.
 """
 
 import re
@@ -35,6 +24,8 @@ TESTS_DIR = HERE / "tests"
 
 
 def run_python(path, cwd):
+    """Runs a Python file with python3. Path -> Path ->
+    subprocess.CompletedProcess"""
     return subprocess.run(
         [sys.executable, str(path)],
         cwd=cwd, capture_output=True, text=True, timeout=30,
@@ -45,24 +36,14 @@ _PYTHON_BOOL_RE = re.compile(r"\bTrue\b|\bFalse\b")
 
 
 def _normalized_for_comparison(text):
-    """Python's own `print` writes a bool `True`/`False`; Pyking's own
-    `print` writes `true`/`false` (see PYKING.md's "Boolean literals" --
-    a deliberate, permanent difference between the two languages, not
-    something py2pyk's translation could or should paper over). Comparing
-    raw stdout would therefore report a mismatch on every test that
-    prints a boolean, even one translated perfectly, so the *original*
-    Python program's output is normalized to Pyking's spelling before
-    comparing -- the round-tripped program's output already uses it.
-
-    This is a whole-word substitution, so it would incorrectly normalize
-    a string that happens to *contain* the word "True" or "False" as data
-    rather than as a boolean's repr (e.g. `print("True Story")`); none of
-    the programs in tests/ do that."""
+    """text with Python's True/False lowercased to Pyking's spelling
+    (README.md, "Testing"). String -> String"""
     return _PYTHON_BOOL_RE.sub(lambda m: m.group(0).lower(), text)
 
 
 def run_case(py_file, tmp_dir):
-    """Returns (ok, detail) for one tests/*.py file."""
+    """Translates, compiles back, runs, and compares one tests/*.py
+    file. Path -> Path -> (Bool, String?)"""
     pyk_file = tmp_dir / (py_file.stem + ".pyk")
     roundtrip_py = tmp_dir / (py_file.stem + ".roundtrip.py")
 
@@ -100,10 +81,13 @@ def run_case(py_file, tmp_dir):
 
 
 def _indent(text, prefix="    "):
+    """text with prefix before each line. String -> String -> String"""
     return "\n".join(prefix + line for line in text.rstrip("\n").splitlines())
 
 
 def main():
+    """Runs every tests/*.py file and prints a pass/fail summary.
+    () -> Int (exit status)"""
     if not PYK.exists():
         print(f"test_script.py: cannot find the compiler at {PYK}", file=sys.stderr)
         return 1

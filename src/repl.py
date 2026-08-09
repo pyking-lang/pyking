@@ -1,84 +1,21 @@
-"""The REPL: `pyk repl`.
+"""The REPL: `pyk repl`. A session is a program written one entry at a
+time: each entry is checked against what the entries before it left
+behind, then run there. Includes a multi-line terminal line editor
+(Editor) with history, indentation, and Pyking-aware line completion.
+See docs/source.md ("repl.py") and README.md.
 
-A session is a *program being written one entry at a time*, and that is
-exactly how this is built. Each entry is checked against what the entries
-before it left behind, and then run there -- in two environments extended
-in step, the checker's and the machine's.
+Data structures:
+    Session -- a REPL session: statements seen, machine state, types,
+        store, source text of each definition.
+    Buffer -- the entry being typed: lines, cursor row/col.
+    Editor -- the terminal line editor.
+    PipeReader -- the non-terminal (piped input) reader.
+    Outcome -- what a meta-command leaves behind.
 
-    $ pyk repl
-    Pyking REPL.  :help for commands, :quit to leave.
-    > x = 21
-    > def double(n:Int) -> Int:
-    .     n * 2
-    .
-    > double(x)
-    42 : Int
-    > :ls
-    x      = 21 : Int
-    double = <function> : (Int) -> Int
-
-**An entry is checked the way it is run**, and that one rule settles
-everything a prompt does differently from a file. An entry is a group:
-its `def`s are declared together, so two of them may call each other
-(`interpreter.declare_entry` does the same with the values), and
-everything in it is checked and run against the environments already
-there. A later entry is a later group -- so redefining a name is
-ordinary Pyking shadowing rather than the "one `def` per name per block"
-error it would be inside one block, a function written earlier keeps
-whatever it captured, and a function written now is invisible to one
-written before it, because it was not there when that one was written.
-`:reset` starts again from nothing.
-
-Nothing here reimplements anything. Reading is `lexer.lexing` and
-`parser.parse`; checking is `typesystem.declare_functions` and
-`check_stmt`, whose environment the session keeps, so `:ls`, `:type`
-and the echoed value of an expression all name types the checker worked
-out rather than types inferred a second time; running is
-`interpreter.eval_in`; showing a value is `interpreter.display_value`.
-Even the error messages are the driver's: `start` takes `src/pyk.py`'s
-own `format_error`, so a mistake made at the prompt is reported in the
-words it would have been reported in from a file.
-
-Three mechanics are worth spelling out.
-
-**Deciding an entry is finished** uses the parser's own answer rather
-than guessing from a trailing `:`. A single line that parses is
-submitted as soon as it is typed; anything else -- a block header, an
-unclosed bracket -- keeps reading, with the prompt as `.`, until a blank
-line ends it. That is Python's REPL rule, and it is the only one that
-lets a block have more than one statement in it.
-
-**A block indents itself.** The next line is offered already indented to
-where it belongs: one level in after a line ending in `:`, and the same
-level otherwise, however deeply the blocks nest. It is offered, not
-imposed -- tab adds a level and backspace over indentation takes one
-away, which is how a branch dedents to its `else`.
-
-**A value is shown when there is one**, as `value : Type`. A statement's
-value is what PYKING.md's "Tail position" calls the value it supplies --
-the machine hands back the value and the checker the type, so the two
-halves of the line come from the two places that know: an expression
-shows, a binding or a `def` supplies unit and shows nothing.
-
-## The line editor
-
-`Editor` is a small multi-line editor over a terminal in raw mode, used
-when the REPL is talking to a terminal at all; piped input takes the
-plain `input()` path below it, which is what the tests and
-`pyk repl < file` use.
-
-It exists because `readline` cannot do the one thing a REPL with blocks
-in it needs: recall a *whole* entry. `readline` history is one line per
-`input()` call, so pressing Up after defining a five-line function
-offers its last line, which is not a program. Here the buffer is a list
-of lines, Up and Down walk within it and then into history, and what
-history holds is entries -- so a function comes back whole and can be
-edited anywhere in it.
-
-The editing state is a frozen `Buffer(lines, row, col)` with pure
-operations over it; the class holds only what is unavoidably stateful --
-the terminal, the history, and how much of the screen the last redraw
-used.
+Functions:
+    start(format_error) -- runs the REPL loop.
+    submit(session, stmts, report, source) -- checks and runs one entry.
+    new_session() -- an empty session.
 """
 
 import os
@@ -121,40 +58,14 @@ INCOMPLETE = ("unexpected end of input", "expected an indented block")
 
 @dataclass(frozen=True)
 class Session:
-    """A REPL session: two environments, and a record of what has been
-    seen.
-
-    `state` is the machine's -- names to values. `types` is the
-    checker's -- names to types, the same table `typesystem.py` threads
-    through a program -- and `store` is what the checker has *worked
-    out*: which functions were inferred at which shapes, and where each
-    definition was written, carried as a value rather than left inside
-    something mutable. They are extended in step, one entry at a time,
-    which is what lets the prompt answer both "what is `x`" and "what
-    type is `x`" without inferring anything twice.
-
-    `sources` is what each name was *written* as -- the text of the
-    statement that bound it, sliced out of the entry it arrived in by its
-    own source span. That is what `:edit` brings back, and it is the
-    text, not a printed AST: a definition comes back with its comments,
-    its spacing and its own choices intact, which is the difference
-    between editing what you wrote and editing a rendering of it.
-
-    `seen` is every statement the session has been given, kept for one
-    narrow purpose: `symbolize` numbers a tree from the highest symbol
-    already in it, so handing it the accumulated statements is what stops
-    a later entry from reusing an earlier entry's symbols -- which the
-    machine's call-free table is keyed by.
-
-    **An entry is checked the way it is run.** Each one is its own group:
-    its `def`s are declared together, so they may call each other, and it
-    is checked against the environment the entries before it left behind
-    -- exactly what `interpreter.declare_entry` and `eval_in` do with the
-    values. So redefining a name is what it is anywhere else in Pyking, a
-    binding that shadows an earlier one; a function written earlier keeps
-    whatever it captured; and a function written now is invisible to one
-    written before it, because it was not there when that one was
-    written."""
+    """A REPL session. An entry is checked the way it is run: each is
+    its own group, checked and run against what earlier entries left
+    behind (see docs/source.md, "repl.py"). Fields:
+    seen: (Stmt,) (every statement given so far, for symbolize),
+    state: interpreter.State (the machine's names -> values),
+    types: {String: Type} (the checker's names -> types),
+    store: typesystem.Store (what the checker has worked out),
+    sources: {String: String} (each name's own source text, for :edit)."""
     seen: tuple = ()
     state: interpreter.State = None
     types: dict = field(default_factory=typesystem.builtin_env)
@@ -163,8 +74,7 @@ class Session:
 
 
 def new_session():
-    """A session with nothing in it: the builtins in scope, in both
-    environments, and nothing seen yet."""
+    """An empty session: builtins in scope, nothing seen. () -> Session"""
     return Session(state=interpreter.initial_state([], interpreter.ConsoleHost()))
 
 
@@ -172,10 +82,8 @@ def new_session():
 
 
 def complete(source):
-    """Whether `source` is a whole entry, as far as the parser is
-    concerned. An entry that failed for any reason other than running out
-    of input is complete: it is wrong, and waiting for more would only
-    delay saying so."""
+    """Whether source is a whole entry, per the parser (anything wrong
+    for another reason counts as complete). String -> Bool"""
     try:
         parse(lexing("<repl>", list(source + "\n")))
         return True
@@ -184,14 +92,9 @@ def complete(source):
 
 
 def next_indent(source):
-    """The indentation the line after `source` belongs at: one level in
-    from the last line if it opened a block, and level with it otherwise.
-
-    A block is opened by a line ending in `:` -- `def`, `if`, `else`,
-    `while`, `for`, `case`, and a bound `x = if c:` alike -- so one rule
-    covers all of them, at whatever depth they are nested. It is an
-    offer, not a decision: what the user does with the indentation
-    afterwards is what actually decides the block."""
+    """The indentation the line after source belongs at: one level in
+    if the last line opened a block (ends in ':'), level with it
+    otherwise. String -> String"""
     lines = [line for line in source.splitlines() if line.strip()]
     if not lines:
         return ""
@@ -201,31 +104,22 @@ def next_indent(source):
 
 
 def parse_source(source, name="<repl>"):
-    """`source` as a list of statements. Raises `LexError`/`ParseError`
-    like the driver's own front end does."""
+    """source as a list of statements. Raises LexError/ParseError.
+    String -> String -> [Stmt]"""
     return parse(lexing(name, list(source + "\n")))
 
 
 def read_entry(read_line):
-    """One entry, read a line at a time from `read_line` -- the fallback
-    for input that is not a terminal (a pipe, a transcript), where there
-    is nothing to edit and no cursor to move.
-
-    Returns the source text, or `None` at end of input. Whether it
-    *parses* is decided again by the caller; this only decides when to
-    stop reading, and it uses the parser to do it."""
+    """One entry, a line at a time from read_line (the non-terminal
+    fallback). Returns the source text, or None at end of input.
+    (String -> String) -> String?"""
     line = read_line(PROMPT)
     if line is None:
         return None
     if complete(line):
-        # A single line that parses is a whole entry -- which is most of
-        # them, and the only case that does not need a blank line to end
-        # it. Anything else keeps reading, because a block that parses is
-        # not necessarily a block that is *finished*: `def f():` with one
-        # statement under it parses perfectly, and the `else:` the user
-        # is about to type belongs to it. That is the editor's rule too
-        # (`Editor._submits`), and the two readers agree by having it
-        # once each rather than by accident.
+        # A block that parses is not necessarily finished (`def f():`
+        # with one statement parses fine, but `else:` may follow), so
+        # only a single complete line is submitted without a blank line.
         return line
     lines = [line]
     while True:
@@ -245,8 +139,8 @@ def read_entry(read_line):
 
 @dataclass(frozen=True)
 class Buffer:
-    """The entry being typed: its lines, and where the cursor is in
-    them."""
+    """The entry being typed. Fields: lines: (String,), row: Int,
+    col: Int (cursor position)."""
     lines: tuple = ("",)
     row: int = 0
     col: int = 0
@@ -261,8 +155,8 @@ class Buffer:
 
 
 def buffer_of(text, at_end=True):
-    """A buffer holding `text`, with the cursor at the end of it (where a
-    recalled history entry wants it) or at the very start."""
+    """A Buffer holding text, cursor at the end (default) or the start.
+    String -> Bool -> Buffer"""
     lines = tuple(text.split("\n")) or ("",)
     if not at_end:
         return Buffer(lines, 0, 0)
@@ -270,20 +164,23 @@ def buffer_of(text, at_end=True):
 
 
 def _indent_step(line, col):
-    """How much one backspace at `col` removes: back to the previous
-    indentation stop when there is nothing but spaces to the left, and
-    one character everywhere else."""
+    """How much one backspace at col removes: back to the previous
+    indentation stop if only spaces precede col, else one character.
+    String -> Int -> Int"""
     if line[:col].strip():
         return 1
     return col - (col - 1) // len(INDENT) * len(INDENT)
 
 
 def _with_line(buf, row, text, col):
+    """buf with line row replaced by text, cursor at col.
+    Buffer -> Int -> String -> Int -> Buffer"""
     lines = buf.lines[:row] + (text,) + buf.lines[row + 1:]
     return Buffer(lines, row, col)
 
 
 def insert(buf, text):
+    """Inserts text at the cursor. Buffer -> String -> Buffer"""
     line = buf.line
     return _with_line(
         buf, buf.row, line[: buf.col] + text + line[buf.col:], buf.col + len(text)
@@ -291,7 +188,8 @@ def insert(buf, text):
 
 
 def newline(buf, indent):
-    """Split the line at the cursor, carrying `indent` onto the new one."""
+    """Splits the line at the cursor, carrying indent onto the new one.
+    Buffer -> String -> Buffer"""
     line = buf.line
     head, tail = line[: buf.col], line[buf.col:]
     lines = buf.lines[: buf.row] + (head, indent + tail) + buf.lines[buf.row + 1:]
@@ -299,15 +197,9 @@ def newline(buf, indent):
 
 
 def backspace(buf):
-    """Delete backwards -- a whole level of indentation at a time when
-    that is what is being deleted.
-
-    Inside the indentation, where everything to the left of the cursor is
-    spaces, one press goes back to the previous multiple of four rather
-    than removing one space. Indentation *is* the block structure in
-    Pyking, so a dedent is one thing the user meant to do, not four; and
-    since it moves to a stop rather than by a fixed four, a line that has
-    drifted off the grid is put back on it."""
+    """Deletes backwards: a whole level of indentation at a time when
+    that is what is being deleted (see _indent_step), else one
+    character. Buffer -> Buffer"""
     if buf.col > 0:
         line = buf.line
         width = _indent_step(line, buf.col)
@@ -325,6 +217,7 @@ def backspace(buf):
 
 
 def delete(buf):
+    """Deletes the character at the cursor. Buffer -> Buffer"""
     line = buf.line
     if buf.col < len(line):
         return _with_line(buf, buf.row, line[: buf.col] + line[buf.col + 1:], buf.col)
@@ -336,10 +229,13 @@ def delete(buf):
 
 
 def kill_to_end(buf):
+    """Deletes from the cursor to the end of the line. Buffer -> Buffer"""
     return _with_line(buf, buf.row, buf.line[: buf.col], buf.col)
 
 
 def left(buf):
+    """Moves the cursor left one character, across line boundaries.
+    Buffer -> Buffer"""
     if buf.col > 0:
         return replace(buf, col=buf.col - 1)
     if buf.row == 0:
@@ -348,6 +244,8 @@ def left(buf):
 
 
 def right(buf):
+    """Moves the cursor right one character, across line boundaries.
+    Buffer -> Buffer"""
     if buf.col < len(buf.line):
         return replace(buf, col=buf.col + 1)
     if buf.row == len(buf.lines) - 1:
@@ -356,24 +254,28 @@ def right(buf):
 
 
 def up(buf):
-    """One line up, keeping the column where it fits. `None` when there
-    is no line above -- which is where the editor reaches for history."""
+    """One line up, keeping the column where it fits, or None if
+    already on the first line. Buffer -> Buffer?"""
     if buf.row == 0:
         return None
     return Buffer(buf.lines, buf.row - 1, min(buf.col, len(buf.lines[buf.row - 1])))
 
 
 def down(buf):
+    """One line down, or None if already on the last line.
+    Buffer -> Buffer?"""
     if buf.row == len(buf.lines) - 1:
         return None
     return Buffer(buf.lines, buf.row + 1, min(buf.col, len(buf.lines[buf.row + 1])))
 
 
 def home(buf):
+    """Moves the cursor to the start of the line. Buffer -> Buffer"""
     return replace(buf, col=0)
 
 
 def end(buf):
+    """Moves the cursor to the end of the line. Buffer -> Buffer"""
     return replace(buf, col=len(buf.line))
 
 
@@ -410,17 +312,10 @@ _ESCAPE_DELAY = 0.05
 
 
 class Editor:
-    """A multi-line line editor over a terminal in raw mode.
-
-    `read()` returns one entry: the whole text, however many lines it
-    took. Up and Down move within the entry and, at its edges, step
-    through the history of *entries* -- which is the thing `readline`
-    cannot do and the reason this exists.
-
-    Everything it needs to know about the language it is given:
-    `is_complete(text)` decides when Enter submits rather than opening a
-    new line, and `indent_for(text)` says how far in that new line
-    starts."""
+    """A multi-line line editor over a terminal in raw mode, with
+    history of whole entries (not lines, unlike readline). is_complete
+    and indent_for are the only things it needs to know about the
+    language: whether Enter submits, and how far the next line indents."""
 
     interactive = True
 
@@ -438,15 +333,9 @@ class Editor:
     # --- reading ---
 
     def read(self, initial=""):
-        """One entry, or `None` at end of input. An entry abandoned with
-        Escape or Ctrl-C comes back as `''`, which the caller ignores the
-        way it ignores a blank line.
-
-        `initial` is text to start from rather than an empty line: an
-        entry handed back to be finished (see `undefined_message`), or
-        the definition `:edit` brought up. It is an ordinary buffer from
-        the first keystroke on -- there is nothing special about text
-        that was not typed here."""
+        """One entry, or None at end of input; '' if abandoned with
+        Escape/Ctrl-C. initial, if given, seeds the buffer instead of
+        starting empty. self -> String -> String?"""
         buf = buffer_of(initial) if initial else Buffer()
         live, index = None, len(self.history)
         with self._raw():
@@ -516,46 +405,36 @@ class Editor:
                 self._draw(buf)
 
     def ask(self, message):
-        """Put a question to the user and wait for one key: Escape means
-        no, anything else means yes.
-
-        One key rather than a line, because the answer decides what
-        happens to the entry that is already half-written -- asking for a
-        line and an Enter would be asking them to type something that is
-        not Pyking into a Pyking prompt."""
+        """Shows message and waits for one key: Escape means "cancel",
+        anything else means "edit". self -> String -> String"""
         self._write(message.replace("\n", "\r\n") + "\r\n")
         with self._raw():
             _, key = self._key()
         return "cancel" if key in ("escape", "interrupt", "eof") else "edit"
 
     def _submits(self, buf):
-        """Whether Enter ends the entry rather than opening a line.
-
-        A single line that parses is done -- that is most entries. A
-        block is not, however complete it looks, because a block may have
-        more statements in it and only a blank line can say that it does
-        not; that is Python's REPL rule, and the reason `def f():` on one
-        line and its body on the next do not submit themselves."""
+        """Whether Enter ends the entry: a single complete line does; a
+        multi-line block ends only on a blank line. self -> Buffer -> Bool"""
         if len(buf.lines) == 1:
             return self.is_complete(buf.text)
         return not buf.line.strip()
 
     def _submitted(self, buf):
-        """The entry's text, with the blank line that ended a block
-        dropped."""
+        """buf's text, with the trailing blank line dropped.
+        self -> Buffer -> String"""
         lines = buf.lines
         while len(lines) > 1 and not lines[-1].strip():
             lines = lines[:-1]
         return "\n".join(lines)
 
     def _before(self, buf):
-        """What has been typed above the cursor -- what the indentation
-        of the next line is decided from."""
+        """The text above and including the cursor's line, for
+        indent_for. self -> Buffer -> String"""
         return "\n".join(buf.lines[: buf.row + 1])
 
     def _finish(self, buf, result):
-        """Leave the entry on the screen, put the cursor below it, and
-        remember it."""
+        """Leaves the entry on screen, moves the cursor below it, and
+        records result in history. self -> Buffer -> String? -> String?"""
         self._to_bottom()
         self._write("\r\n")
         if result and result.strip() and (not self.history or self.history[-1] != result):
@@ -565,9 +444,8 @@ class Editor:
     # --- the terminal ---
 
     class _Raw:
-        """Raw mode for the duration of one `read`, restored afterwards
-        so that everything the program itself prints is written to an
-        ordinary terminal."""
+        """A context manager: raw terminal mode for one read(), restored
+        on exit."""
 
         def __init__(self, fd):
             self.fd = fd
@@ -592,11 +470,8 @@ class Editor:
         self.stream.flush()
 
     def _key(self):
-        """The next key, as `("text", characters)` or `("key", name)`.
-
-        Escape is the one ambiguous byte on a terminal: it begins every
-        arrow key and is also a key of its own. Waiting `_ESCAPE_DELAY`
-        for what follows is how the two are told apart."""
+        """The next key, as ("text", characters) or ("key", name).
+        self -> (String, String)"""
         char = self._char()
         if char is None:
             return "key", "eof"
@@ -609,16 +484,8 @@ class Editor:
         return "text", char
 
     def _escape(self):
-        """What an Escape byte turned out to be: the key itself when
-        nothing follows it, and otherwise whichever key the sequence
-        encodes.
-
-        Two shapes arrive. `\x1b\r` is Return with a modifier held, which
-        a terminal that cannot say *which* modifier reports this way;
-        anything else is a `\x1b[` sequence, whose parameters run up to a
-        final letter (`\x1b[A`, `\x1b[3~`, `\x1b[13;2u`). Reading the
-        parameters as a list rather than one character at a time is what
-        lets the modified keys through."""
+        """The key an Escape byte started: "escape" alone, "submit" for
+        a modified Return, or a control-sequence key. self -> String"""
         if not self._waiting():
             return "escape"
         match self._char():
@@ -632,7 +499,8 @@ class Editor:
         return "ignored"
 
     def _control_sequence(self):
-        """A `\x1b[` sequence, read to its final letter and named."""
+        """Reads a \\x1b[ sequence to its final letter and names it.
+        self -> String"""
         parameters = ""
         while True:
             char = self._char()
@@ -662,9 +530,8 @@ class Editor:
         return bool(select.select([sys.stdin.fileno()], [], [], _ESCAPE_DELAY)[0])
 
     def _char(self):
-        """One character, decoding a UTF-8 sequence if that is what
-        arrives -- the terminal hands over bytes, and a Pyking string may
-        hold anything."""
+        """Reads one character, decoding UTF-8 if needed, or None at
+        end of input. self -> String?"""
         first = os.read(sys.stdin.fileno(), 1)
         if not first:
             return None
@@ -723,8 +590,8 @@ class Editor:
         self._write("".join(out))
 
     def _move(self, from_row, to):
-        """The escapes that take the cursor from the end of what was just
-        drawn to where the buffer says it belongs."""
+        """Escapes that move the cursor from from_row to the (row,
+        column) pair to. self -> Int -> (Int, Int) -> String"""
         to_row, to_column = to
         moves = ""
         if from_row > to_row:
@@ -741,18 +608,14 @@ class Editor:
 
 
 class PipeReader:
-    """Reading entries from something that is not a terminal: a pipe, a
-    transcript, a file fed in on stdin.
-
-    It has the same two methods as the editor and can do neither of the
-    interesting things with them -- there is no cursor to put text under
-    and no key to press -- so `initial` is ignored and a question answers
-    itself. Keeping the shape identical is what lets `start` be written
-    once."""
+    """Reads entries from something that is not a terminal (a pipe, a
+    transcript). Same interface as Editor; ignores initial and answers
+    every ask() with "cancel"."""
 
     interactive = False
 
     def read(self, initial=""):
+        """One entry, or None at end of input. self -> String -> String?"""
         def read_line(prompt):
             try:
                 return input(prompt)
@@ -762,14 +625,13 @@ class PipeReader:
         return read_entry(read_line)
 
     def ask(self, _message):
+        """Always "cancel" (there is no key to press). self -> String -> String"""
         return "cancel"
 
 
 def make_reader():
-    """How this session reads entries: the editor when there is a
-    terminal to edit on, and `PipeReader` otherwise -- a pipe has no
-    cursor to move and no history to walk, and a transcript test wants
-    exactly the lines it was given."""
+    """An Editor if stdin is a terminal, a PipeReader otherwise.
+    () -> Editor | PipeReader"""
     if termios is None or not sys.stdin.isatty():
         return PipeReader()
     return Editor(complete, next_indent)
@@ -779,26 +641,12 @@ def make_reader():
 
 
 def submit(session, stmts, report, source=""):
-    """Check `stmts` as one entry, run whichever of them the checker
-    accepted, and return `(session, refused)` -- the session to carry on
-    with, and the error that stopped the entry being accepted at all, if
-    one did.
-
-    Checking happens for all of them and before any of them runs, which
-    is the only order that can work: the entry's `def`s are declared
-    together, so the checker has to see the whole entry, and a statement
-    that would not check must not be allowed to bind anything first.
-
-    A *refusal* comes back rather than being reported here, because the
-    caller may have something better to do with it than print it -- an
-    entry refused for naming something not defined yet is one the user is
-    probably still writing (see `undefined_message`). A *runtime* error
-    is different: half the entry has already happened, so it is reported
-    here and the session keeps what ran.
-
-    `source` is the text the statements were parsed from, and the only
-    use it has is `:edit`: each accepted statement records the slice of
-    it that defined the name."""
+    """Checks stmts as one entry (all of it, before any of it runs),
+    then runs whichever of them the checker accepted, reporting any
+    runtime error via report. source is kept per-name for :edit.
+    Returns (session, refused) -- refused is the check-time error, if
+    any, left for the caller to handle rather than reported here.
+    Session -> [Stmt] -> (Exception -> ()) -> String -> (Session, Exception?)"""
     seen = symbolize(list(session.seen) + list(stmts))
     entry = seen[len(session.seen):]
     try:
@@ -838,12 +686,9 @@ def accept(session, stmts, report, source=""):
 
 
 def defined_sources(stmt, source):
-    """What this statement defined, as name -> the text that defined it.
-
-    The text is sliced out of `source` by the statement's own span, whole
-    lines, so a `def` comes back exactly as it was written. With no
-    source to slice -- a caller that had only an AST -- the statement is
-    printed instead, which is still valid Pyking and still editable."""
+    """What stmt defined, as name -> the source text that defined it
+    (sliced from source by whole lines, or pprint_program if no
+    source). Stmt -> String -> {String: String}"""
     names = defined_names(stmt)
     if not names:
         return {}
@@ -852,9 +697,7 @@ def defined_sources(stmt, source):
 
 
 def defined_names(stmt):
-    """The names a top-level statement binds. `analyses.bound_names`
-    answers it for every binding form; a `def`'s own name is the one it
-    leaves out, since there it is `block_functions`' business."""
+    """The names a top-level statement binds. Stmt -> [String]"""
     match stmt:
         case SFunctionDef(_, name, _, _, _, _, _):
             return [name]
@@ -862,27 +705,17 @@ def defined_names(stmt):
 
 
 def statement_source(source, stmt):
-    """The lines of `source` a statement covers. Whole lines, rather than
-    the exact span: what is wanted back is something to edit and
-    re-enter, and that is a statement with its indentation on it."""
+    """The whole lines of source a statement covers.
+    String -> Stmt -> String"""
     lines = source.splitlines()
     return "\n".join(lines[stmt.info.row1 - 1: stmt.info.row2])
 
 
 def check_entry(entry, types, store):
-    """The entry checked as one group: for each statement, what it
-    supplies, and the type environment and store it leaves behind.
-
-    `typesystem.py`'s own pieces do the work -- `declare_functions` for
-    the group, then `check_stmt` for each statement in turn -- which is
-    that module's `check_stmts` with the intermediate environments kept
-    rather than discarded. Keeping them is what lets a runtime error
-    part-way through an entry leave the session's environments in step
-    with what actually ran.
-
-    The store is threaded the same way, and is what carries an earlier
-    entry's inferences into this one: with nothing mutable behind a
-    type, what the session knows is what it was handed."""
+    """Checks entry as one group (defs declared together via
+    declare_functions, then check_stmt per statement), keeping each
+    statement's environment and store rather than only the last.
+    [Stmt] -> {String: Type} -> Store -> [(Stmt, Type, {String: Type}, Store)]"""
     types, store = typesystem.declare_functions(entry, types, store)
     tmap = {}
     checked = []
@@ -893,21 +726,16 @@ def check_entry(entry, types, store):
 
 
 def show(value, type_):
-    """Print a statement's value, if it supplied one, as `value : Type`.
-
-    Unit is what a binding, a `def` and a `print` supply, and a prompt
-    that echoed `() : ()` after every one of them would say nothing worth
-    reading."""
+    """Prints value as `value : Type`, or nothing for unit/None.
+    Value? -> Type? -> ()"""
     if value is None or isinstance(value, interpreter.VUnit):
         return
     print(value_text(value) + type_suffix(type_))
 
 
 def value_text(value):
-    """A value as the prompt shows it: `display_value`'s spelling, so a
-    string is quoted and cannot be mistaken for a name, except that a
-    function is shown as `<function>` -- what it *is* comes from the type
-    that follows, and repeating the name there would only be noise."""
+    """A value as the prompt shows it: display_value, except a
+    function shows as <function>. Value -> String"""
     match value:
         case interpreter.VClosure() | interpreter.VBuiltin():
             return "<function>"
@@ -915,19 +743,14 @@ def value_text(value):
 
 
 def type_suffix(type_):
-    """` : Type`, or nothing where the checker recorded no type."""
+    """` : Type`, or "" if type_ is None. Type? -> String"""
     return f" : {pprint_type(type_)}" if type_ is not None else ""
 
 
 def binding_types(session):
-    """name -> `Type` for what the session has bound, read straight out
-    of the checker's environment rather than guessed from the values.
-
-    A function that had not been called when it was bound shows what it
-    turned out to be rather than the question marks it started as
-    (`typesystem.resolved`, against the session's store), which is the
-    same thing `--typecheck --ast` prints. The builtins are operations
-    rather than values and are left out by the caller."""
+    """name -> Type for what the session has bound, resolved against
+    its store (so a deferred function shows what it turned out to be).
+    Session -> {String: Type}"""
     return {
         name: typesystem.resolved(type_, session.store)
         for name, type_ in session.types.items()
@@ -944,20 +767,17 @@ def binding_types(session):
 
 
 def meta_help(session, _argument, _report):
+    """Prints the command list. Session -> String -> (Exception -> ()) -> Session"""
     print(HELP)
     return session
 
 
 def meta_ls(session, _argument, _report):
-    """What the session has bound, as `name = value : Type`. The builtins
-    are in scope too and are left out: they are in every session, so
-    listing them would only bury what this one did."""
+    """Prints what the session has bound, as `name = value : Type`
+    (builtins excluded), in binding order.
+    Session -> String -> (Exception -> ()) -> Session"""
     bindings = interpreter.bindings_in_scope(session.state.env)
     types = binding_types(session)
-    # In the order the session bound them: the checker's environment is
-    # extended binding by binding, while the machine's is a chain walked
-    # innermost-first, and a listing reads better in the session's own
-    # order.
     names = [name for name in types if name in bindings]
     names += [n for n in bindings if n not in types and n not in BUILTINS]
     if not names:
@@ -971,11 +791,9 @@ def meta_ls(session, _argument, _report):
 
 
 def meta_type(session, argument, report):
-    """The type of an expression, from the checker itself.
-
-    Checked in the session's own type environment, so it can name
-    whatever the session bound -- and gives the answer a file would get,
-    since it is the same function run over the same kind of table."""
+    """Prints the type of the expression argument, checked in the
+    session's own type environment.
+    Session -> String -> (Exception -> ()) -> Session"""
     if not argument:
         print("usage: :type <expression>")
         return session
@@ -998,8 +816,8 @@ def meta_type(session, argument, report):
 
 
 def meta_ast(session, argument, report):
-    """The parsed form of a statement, printed by the same
-    pretty-printer `--ast` uses."""
+    """Prints the parsed form of the statement argument.
+    Session -> String -> (Exception -> ()) -> Session"""
     if not argument:
         print("usage: :ast <statement>")
         return session
@@ -1011,7 +829,8 @@ def meta_ast(session, argument, report):
 
 
 def meta_tokens(session, argument, report):
-    """The token stream for a line, as `--tokens` prints it."""
+    """Prints the token stream for the line argument.
+    Session -> String -> (Exception -> ()) -> Session"""
     try:
         for token in lexing("<repl>", list(argument + "\n")):
             print(f"{pprint_info(token.info)} {pprint_token(token)}")
@@ -1022,21 +841,16 @@ def meta_tokens(session, argument, report):
 
 @dataclass(frozen=True)
 class Outcome:
-    """What a meta-command leaves behind: the session to carry on with,
-    and -- for `:edit`, the only one that has anything to say about it --
-    text to put back in front of the user.
-
-    Most commands have nothing to add and return a bare session;
-    `run_meta` wraps one of those, so a command only mentions `Outcome`
-    when it means something by it."""
+    """What a meta-command leaves behind. Fields: session: Session,
+    pending: String (text to put back in front of the user; only :edit
+    sets this)."""
     session: Session
     pending: str = ""
 
 
 def meta_load(session, argument, report):
-    """Read a file and submit its statements as one entry. The file joins
-    the session's program, so what it defines is usable afterwards --
-    which is the point."""
+    """Reads a file and submits its statements as one entry.
+    Session -> String -> (Exception -> ()) -> Session"""
     if not argument:
         print("usage: :load <file>")
         return session
@@ -1055,13 +869,8 @@ def meta_load(session, argument, report):
 
 
 def meta_edit(session, argument, _report):
-    """Bring a definition back to be edited: `:edit foo` puts the text
-    that defined `foo` into the prompt, exactly as it was written.
-
-    Editing it and pressing Enter defines it again -- which is an
-    ordinary entry, so the new definition shadows the old one and
-    everything already built from the old one keeps it. That is how a
-    function grows in a session without being retyped."""
+    """Puts the source text that defined argument back into the prompt
+    to edit and re-enter. Session -> String -> (Exception -> ()) -> Outcome"""
     if not argument:
         print("usage: :edit <name>")
         return session
@@ -1073,7 +882,7 @@ def meta_edit(session, argument, _report):
 
 
 def meta_reset(_session, _argument, _report):
-    """Start over: a new block, with nothing bound and nothing checked."""
+    """Starts a new, empty session. Session -> String -> (Exception -> ()) -> Session"""
     print("session reset")
     return new_session()
 
@@ -1117,10 +926,8 @@ not all do; where it does not arrive, a blank line still ends a block."""
 
 
 def run_meta(session, line, report):
-    """Run a meta-command, as an `Outcome`. An unknown one says so rather
-    than being parsed as Pyking: a leading ':' is never valid Pyking, so
-    a typo here would otherwise be reported as a syntax error, which
-    explains nothing."""
+    """Runs the meta-command in line, or reports "unknown command".
+    Session -> String -> (Exception -> ()) -> Outcome"""
     word, _, argument = line.partition(" ")
     command = META.get(word)
     if command is None:
@@ -1141,21 +948,16 @@ UNBOUND = "unbound name '"
 
 
 def undefined_name(error):
-    """The name an "unbound name" error is about, or `None` for any
-    other error."""
+    """The name an "unbound name" error is about, or None.
+    Exception -> String?"""
     if isinstance(error, AnalysisError) and error.message.startswith(UNBOUND):
         return error.message[len(UNBOUND):].rstrip("'")
     return None
 
 
 def undefined_message(name):
-    """What to say when a `def` names something that does not exist yet.
-
-    Two functions that call each other have to arrive together, because
-    an entry is a group and only the names in it are declared before it
-    is checked (see `Session`). That is a rule about *entries*, not a
-    mistake in the program, so the entry is not thrown away: the choice
-    of what to do with it belongs to the person who typed it."""
+    """The prompt shown when a def names something not yet defined
+    (see docs/source.md, "repl.py"). String -> String"""
     return (
         f"Identifier '{name}' is not yet defined. Press <esc> to cancel or "
         f"<space> to continue editing."
@@ -1163,23 +965,14 @@ def undefined_message(name):
 
 
 def defines_function(stmts):
+    """Whether stmts includes a def. [Stmt] -> Bool"""
     return any(isinstance(stmt, SFunctionDef) for stmt in stmts)
 
 
 def start(format_error, read=None, session=None):
-    """Run the REPL until end of input or `:quit`, and return an exit
-    status.
-
-    `format_error` is the driver's own (see `src/pyk.py`), so that every
-    error the session can produce -- lexical, syntactic, name, type,
-    runtime -- is reported here in exactly the words the compiler reports
-    it in. `read` and `session` are for a caller that drives the REPL
-    from something other than a terminal: a transcript test, or a front
-    end that has its own idea of where entries come from.
-
-    `pending` is the one piece of state the loop carries: text that goes
-    back in front of the user instead of an empty prompt -- an entry
-    being finished, or a definition `:edit` brought up."""
+    """Runs the REPL loop until end of input or :quit. format_error is
+    the driver's (src/pyk.py); read/session let a non-terminal caller
+    drive the loop. (Exception -> String?) -> reader? -> Session? -> Int"""
     reader = read or make_reader()
     session = session or new_session()
     pending = ""

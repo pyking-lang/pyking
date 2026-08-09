@@ -1,51 +1,26 @@
-"""Packaging for the JavaScript backends: wraps the target-independent
-output of `src/target_js_core.py` into the files each target delivers,
-and supplies the JavaScript side of the runtime interface.
+"""Packaging for the JavaScript backends: wraps target_js_core.py's
+target-independent output into the files each of nodejs/html/esm
+delivers, and supplies the JavaScript side of the runtime interface
+(where print goes). See docs/target_js.md, "The three targets".
 
-The core emits a `JsRuntimeCall` wherever a program reaches the outside
-world (see `src/runtime_interface.py`) without deciding what that call
-looks like. Deciding is this module's job, and it is the only real
-difference between the three targets:
-
-  target    files                                          print goes to
-  ------    -----                                          -------------
-  nodejs    prog.js                                        console.log, directly
-  html      prog.html                                      an element on the page
-  esm       prog.js, prog.node.js, prog.html, package.json a supplied function
-
-`esm` is the interesting one: the module itself cannot reach anything: it
-exports `run(runtime)` and calls `runtime.print(...)`, so the same module
-prints to a terminal under the node driver and onto the page under the
-HTML wrapper, with no recompilation. The two wrappers exist so that
-running either one behaves exactly like the `nodejs` and `html` targets,
-and the `package.json` exists so that the plain `.js` files are read as
-ES modules -- node decides that from the extension first and the nearest
-manifest second, so `.js` without one means CommonJS and the driver's
-`import` fails.
-
-Value formatting is duplicated (a few lines) into each host rather than
-shared from the module, deliberately: formatting is what a *host* does
-with the values it is handed, and a module that formatted its own output
-would already have decided what output looks like.
+Functions:
+    package(target, js_program, source, output_path) -- every file a
+        target emits, as {path: contents}.
+    primary_source(target, js_program, source) -- the one artifact
+        --stdout prints.
+    package_nodejs / package_html / package_esm_module(js_program,
+        source) -- one target's file(s).
+    esm_paths(output_path) -- the four paths the esm target writes.
 """
 
 from target_js_core import pprint_js_program
 
 TARGETS = ("nodejs", "html", "esm")
 
-# The formatter every host needs, implementing the rules in
-# `runtime_interface.PRINT`. JavaScript already spells its booleans
-# `true`/`false`, exactly the way Pyking's own boolean literals do, so
-# those need no conversion; going through one function regardless keeps
-# every host's output identical and gives later value types (lists,
-# tuples) one place to land.
-#
-# Unit is the exception. A Pyking function that produces no value
-# compiles to one that returns nothing, which JavaScript reports as
-# `undefined` -- but Pyking's unit is `()`, and every backend has to
-# print it the same way. Converting here rather than making such a
-# function `return` something keeps the generated code unchanged: this
-# is the one place a JS host already inspects a value.
+# The formatter every host needs, implementing runtime_interface's
+# print rules. JavaScript's undefined (a unit-returning function's
+# actual result) is the one value that needs converting; everything
+# else already prints the way Pyking wants.
 _FORMAT_JS = """function pykFormat(value) {
   if (value === undefined) return '()';
   return String(value);
@@ -55,8 +30,8 @@ _HEADER = "// Generated from {source} by the Pyking compiler. Do not edit."
 
 
 def _print_via(sink):
-    """A `print` implementing the runtime interface: format each argument,
-    join with single spaces, emit one line through `sink`."""
+    """A print implementing the runtime interface, emitting one line
+    through sink. String -> String"""
     return f"""function print(...values) {{
   {sink}(values.map(pykFormat).join(' '));
 }}"""
@@ -73,17 +48,16 @@ _PRELUDE_END = "// --- prelude ends; the compiled program follows ---"
 
 
 def _prelude(*parts):
-    """The host definitions, delimited. `esm` has no prelude at all -- its
-    module is handed a `runtime` instead of building one -- which is the
-    same boundary drawn a different way."""
+    """The host definitions, delimited (esm has none: its module is
+    handed a runtime instead of building one). (String,) -> String"""
     return "\n".join([_PRELUDE_BEGIN, "", *parts, "", _PRELUDE_END])
 
 
 # --- nodejs: one self-contained script ---
 
 def package_nodejs(js_program, source):
-    """A single file runnable as `node prog.js`. `print` goes straight to
-    `console.log` -- no module boundary, nothing injected."""
+    """A single file runnable as `node prog.js`; print goes straight to
+    console.log. [JsStmt] -> String -> String"""
     body = pprint_js_program(js_program, {"print": "print"})
     return "\n".join([
         _HEADER.format(source=source),
@@ -129,9 +103,8 @@ _PAGE = """<!doctype html>
 
 
 def _page_print_js():
-    """`print` for a browser: append a line to the visible output box,
-    which is the whole point of the html target -- output the reader can
-    see without opening a developer console."""
+    """print for a browser: appends a line to the page's visible output
+    box. () -> String"""
     return _prelude(
         "const pykOutput = document.getElementById('pyk-output');",
         "",
@@ -146,9 +119,8 @@ def _page_print_js():
 
 
 def package_html(js_program, source):
-    """A single page that runs the program on load and prints into it.
-    Self-contained on purpose: nothing is imported, so the file works
-    when opened straight from disk."""
+    """A single, self-contained page that runs the program on load and
+    prints into it. [JsStmt] -> String -> String"""
     body = pprint_js_program(js_program, {"print": "print"})
     script = "\n".join([
         _HEADER.format(source=source),
@@ -163,8 +135,8 @@ def package_html(js_program, source):
 # --- esm: a module plus a wrapper for each host ---
 
 def package_esm_module(js_program, source):
-    """The module: `run(runtime)`, printing through `runtime.print`. It
-    reaches nothing by itself -- every effect arrives as an argument."""
+    """The esm module: run(runtime), printing through runtime.print.
+    Reaches nothing by itself. [JsStmt] -> String -> String"""
     body = pprint_js_program(js_program, {"print": "runtime.print"}, level=1)
     return "\n".join([
         _HEADER.format(source=source),
@@ -182,8 +154,8 @@ def package_esm_module(js_program, source):
 
 
 def package_esm_node_driver(module_name, source):
-    """Runs the module under node, printing with `console.log` -- the same
-    behaviour as the `nodejs` target."""
+    """Runs the esm module under node, printing with console.log (the
+    nodejs target's behavior). String -> String -> String"""
     return "\n".join([
         _HEADER.format(source=source),
         "// Target: esm (node driver). Run with:  node <this file>",
@@ -202,10 +174,9 @@ def package_esm_node_driver(module_name, source):
 
 
 def package_esm_html(module_name, source):
-    """Runs the module in a browser, printing onto the page -- the same
-    behaviour as the `html` target. Unlike that target this page *imports*
-    the module, and browsers refuse module imports over `file://`, so it
-    needs to be served (`python3 -m http.server`, then open the page)."""
+    """Runs the esm module in a browser, printing onto the page (the
+    html target's behavior); must be served, not opened from disk (see
+    docs/target_js.md). String -> String -> String"""
     script = "\n".join([
         _HEADER.format(source=source),
         "// Served, not opened from disk: browsers block module imports",
@@ -231,18 +202,15 @@ def package_esm_html(module_name, source):
 PRIMARY_EXTENSIONS = {"nodejs": ".js", "html": ".html", "esm": ".js"}
 _KNOWN_EXTENSIONS = (".node.js", ".node.mjs", ".mjs", ".js", ".html", ".py")
 
-# `esm` emits plain `.js` files, which node reads as CommonJS unless the
-# nearest package.json says otherwise -- so the target writes that
-# manifest alongside them. This is what `.mjs` buys you for free, traded
-# for the extension every JavaScript project already uses.
+# esm emits plain .js files, so the target writes package.json alongside
+# them to put node into ES module mode (docs/target_js.md).
 MODULE_MANIFEST = "package.json"
 MODULE_MANIFEST_JSON = '{\n  "type": "module"\n}\n'
 
 
 def manifest_declares_module(text):
-    """Whether an existing `package.json` already puts its directory in ES
-    module mode. Parsed, not pattern-matched, so a `"type"` mentioned in
-    some unrelated field doesn't read as a yes."""
+    """Whether an existing package.json already puts its directory in ES
+    module mode. String -> Bool"""
     import json
 
     try:
@@ -252,9 +220,7 @@ def manifest_declares_module(text):
 
 
 def output_stem(path):
-    """`path` with a known output extension removed, so a name can be
-    rebuilt with the right one. `out/prog.mjs`, `out/prog.js` and
-    `out/prog` all yield `out/prog`."""
+    """path with a known output extension removed. String -> String"""
     for extension in _KNOWN_EXTENSIONS:
         if path.endswith(extension):
             return path[: -len(extension)]
@@ -262,13 +228,9 @@ def output_stem(path):
 
 
 def esm_paths(output_path):
-    """The paths the `esm` target writes. `output_path` is read as a
-    *stem*, not as one of the files: the target produces a module, a node
-    driver, an HTML wrapper and the manifest that puts the first two in
-    module mode, so their endings are the compiler's to choose --
-    `out/prog`, `out/prog.js` and `out/prog.html` all yield the same four.
-    Naming one file with `--output` and deriving the rest from whatever
-    ending it happened to have is where the confusion lives."""
+    """The four paths the esm target writes: module, node driver, HTML
+    wrapper, manifest. output_path is read as a stem, not one of the
+    files. String -> (String, String, String, String)"""
     stem = output_stem(output_path)
     directory = stem.rsplit("/", 1)[0] + "/" if "/" in stem else ""
     return (
@@ -280,10 +242,8 @@ def esm_paths(output_path):
 
 
 def package(target, js_program, source, output_path):
-    """Every file `target` emits, as `{path: contents}` in write order.
-    A single-file target writes exactly `output_path`, which the caller
-    chose; `esm` reads it as a stem and names all three files itself (see
-    `esm_paths`)."""
+    """Every file target emits, as {path: contents} in write order.
+    String -> [JsStmt] -> String -> String -> {String: String}"""
     match target:
         case "nodejs":
             return {output_path: package_nodejs(js_program, source)}
@@ -303,8 +263,8 @@ def package(target, js_program, source, output_path):
 
 
 def primary_source(target, js_program, source):
-    """The one artifact `--stdout` prints: the script, the page, or -- for
-    `esm`, whose wrappers only exist as files -- the module."""
+    """The one artifact --stdout prints (for esm, the module). String ->
+    [JsStmt] -> String -> String"""
     match target:
         case "nodejs":
             return package_nodejs(js_program, source)

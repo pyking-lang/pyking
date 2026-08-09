@@ -1,37 +1,30 @@
-"""Static analyses over the Pyking AST (`src/syntax.py`).
+"""Static analyses over the Pyking AST (src/syntax.py): name and scope
+checking, and symbolizing (giving every node a unique integer id). Runs
+after parsing and before any backend, for every mode except
+--typecheck, which does its own name checking. See PYKING.md, "Names
+and scoping", and docs/architecture.md, docs/source.md ("analyses.py").
 
-Currently one analysis: names. Pyking is lexically scoped -- every name
-resolves in the innermost enclosing scope that binds it, decided purely
-by where it is written, and a scope's bindings never escape it. That is
-checked here, after parsing and before any backend runs, so a name error
-is reported against the source position rather than surfacing as broken
-generated code (or, worse, as a program that runs and quietly means
-something else).
+Data structures:
+    AnalysisError -- a name/scoping failure, with the source position.
+    Binding -- what the environment records for one name in scope.
 
-The analysis is a single recursive walk carrying a *name environment*: a
-mapping from a name in scope to the kind of binding that introduced it.
-The environment is rebuilt rather than mutated (`bind` returns a new
-dict), so entering a nested scope is just "keep using the environment you
-were handed" and leaving one is "go back to using the caller's" -- there
-is no scope stack to pop, and no way for a nested binding to leak out by
-accident. Statement sequences thread the environment: each statement is
-analyzed in the environment left by the ones before it.
-
-Two rules are enforced (see "Names and scoping" in PYKING.md):
-
-  1. Every name used must be bound, in the lexical sense above -- an
-     enclosing scope, not merely somewhere earlier in the file.
-  2. A `var` (mutable variable) may not be shadowed. Every other kind of
-     binding shadows freely: a parameter, `for` variable, pattern
-     variable, `def`, or `=` binding may reuse any name that is not a
-     mutable one, including reusing its own name in a nested scope.
-
-Rule 2 is what keeps `:=` unambiguous. `name := expr` updates the
-mutable variable that `name` denotes; if some inner scope could rebind
-that name to something immutable, a reader of `x := 1` would have to
-scan every enclosing scope to know whether it updates the variable, is
-an error, or silently updates a *different* variable of the same name.
-Forbidding the shadow means the answer is always the nearest `var`.
+Functions:
+    analyze_program(stmts) -- checks a whole program's names.
+    analyze_stmts(stmts, env) -- analyzes a statement sequence.
+    analyze_stmt(s, env) -- analyzes one statement.
+    analyze_expr(e, env) -- analyzes one expression.
+    analyze_scope(stmts, env) -- analyzes a nested block.
+    bind(env, name, kind, info) -- extends env with one binding.
+    bind_target(env, target, kind) -- binds every name in an assign target.
+    bind_pattern(env, pattern) -- binds every name a pattern captures.
+    check_bound(name, env, info) -- checks that name is in scope.
+    pattern_bindings(pattern) -- the (name, info) pairs a pattern binds.
+    bound_names(stmt) -- the (name, info) pairs a statement binds in its block.
+    target_names(target) -- the (name, info) pairs an assign target binds.
+    block_functions(stmts) -- the defs at the top of a block, name -> node.
+    check_no_function_clash(name, info, functions) -- checks no other
+        binding in the block shares a def's name.
+    symbolize(stmts) -- gives every node a unique integer sym.
 """
 
 import itertools
@@ -51,8 +44,8 @@ from syntax import (
 
 
 class AnalysisError(Exception):
-    """Raised for a name/scoping error; carries the source position of the
-    offending name, like `LexError`/`ParseError` do for their stages."""
+    """A name/scoping failure, with the source position of the offending
+    name."""
 
     def __init__(self, info, message):
         super().__init__(message)
@@ -61,15 +54,6 @@ class AnalysisError(Exception):
 
 
 # --- kinds of binding ---
-#
-# The environment records which kind introduced each name, for two
-# reasons: `MUTABLE` is the one kind that may not be shadowed and the one
-# `:=` accepts, and naming the kind makes an error message say what the
-# name actually is rather than just that it is wrong. It records the
-# binding's `Info` alongside, so an error about a name can also point at
-# where the name it collides with came from -- with lexical scoping that
-# other line is the whole explanation, and it can be far away or in an
-# enclosing scope the reader isn't looking at.
 
 MUTABLE = "mutable variable"      # var name = ...
 BINDING = "binding"               # name = ...
@@ -79,41 +63,32 @@ PATTERN_VAR = "pattern variable"  # case ...name...:
 FUNCTION = "function"             # def name(...)
 BUILTIN = "builtin"               # see `BUILTINS`
 
-# Pyking's grammar has no notion of a builtin -- any identifier can be a
-# call target (see PYKING.md) -- but the generated Python runs against
-# Python's, and a program calling `print` has not bound it anywhere. They
-# are seeded into the top-level environment so that rule 1 above can flag
-# every *other* unbound name instead of having to give up on all of them.
-# Extend this when a Pyking program starts using another one.
+# Names that are not bound in a Pyking program but that the generated
+# Python calls directly. Extend when a program starts using another one.
 BUILTINS = ("print", "range", "str", "len")
 
 
 @dataclass(frozen=True)
 class Binding:
-    """What the environment records for a name in scope: the kind of
-    binding that introduced it, and where that was."""
+    """What the environment records for one name in scope. Fields:
+    kind: String (one of the constants above), info: Info? (None for a
+    builtin, which has no source position)."""
     kind: str
     info: Info = None    # None for a builtin, which has no source position
 
 
 def where_bound(binding):
-    """`" (declared on line 7)"` for an error message to hang off the
-    name it is complaining about -- under lexical scoping the other line
-    *is* the explanation, and it can be far away, or in an enclosing
-    scope the reader is not currently looking at. A builtin has no source
-    position to report, so it contributes nothing."""
+    """Formats where a binding was declared, for an error message; empty
+    for a builtin. Binding -> String"""
     if binding.info is None:
         return ""
     return f" (declared on line {binding.info.row1})"
 
 
 def bind(env, name, kind, info):
-    """The environment `env` extended with `name` bound as `kind`.
-
-    Rejects shadowing a mutable variable (rule 2 above). Note it is the
-    *existing* binding that decides: what the new binding happens to be
-    -- parameter, pattern variable, another `var` -- never matters, which
-    is why every binding form in the walk below funnels through here."""
+    """Extends env with name bound as kind. Raises AnalysisError if name
+    is already bound as a mutable variable.
+    {String: Binding} -> String -> String -> Info -> {String: Binding}"""
     existing = env.get(name)
     if existing is not None and existing.kind == MUTABLE:
         raise AnalysisError(
@@ -126,17 +101,15 @@ def bind(env, name, kind, info):
 
 
 def check_bound(name, env, info):
-    """Rule 1: the name must be bound in the environment reaching here."""
+    """Raises AnalysisError if name is not bound in env.
+    String -> {String: Binding} -> Info -> ()"""
     if name not in env:
         raise AnalysisError(info, f"unbound name '{name}'")
 
 
 def pattern_bindings(pattern):
-    """The names `pattern` binds, as `(name, info)` pairs, in source
-    order. Mirrors `_pattern_captures` in `parser.py` and
-    `pattern_captured_names` in `target_python.py`; kept as its own copy
-    so this analysis depends on `syntax.py` alone, the same way each
-    backend does."""
+    """The names a pattern binds, as (name, info) pairs, in source
+    order. Pattern -> [(String, Info)]"""
     match pattern:
         case PCapture(info, name):
             return [(name, info)]
@@ -153,15 +126,17 @@ def pattern_bindings(pattern):
 
 
 def bind_pattern(env, pattern):
-    """`env` extended with everything `pattern` binds."""
+    """Extends env with everything pattern binds.
+    {String: Binding} -> Pattern -> {String: Binding}"""
     for name, info in pattern_bindings(pattern):
         env = bind(env, name, PATTERN_VAR, info)
     return env
 
 
 def bind_target(env, target, kind=BINDING):
-    """`env` extended with every name in an assignment target, which may
-    destructure a tuple (`a, b = ...`)."""
+    """Extends env with every name in an assignment target (which may
+    destructure a tuple, `a, b = ...`).
+    {String: Binding} -> AssignTarget -> String -> {String: Binding}"""
     match target:
         case TargetName(info, name):
             return bind(env, name, kind, info)
@@ -172,13 +147,11 @@ def bind_target(env, target, kind=BINDING):
 
 
 # --- the walk ---
-#
-# `analyze_expr` only reads the environment; the `analyze_*` statement
-# functions return the environment their statement leaves behind, which
-# is how a sequence of statements accumulates bindings. A *nested* scope
-# is entered simply by not using what it returns -- see `analyze_scope`.
 
 def analyze_expr(e, env):
+    """Checks that every name e uses is bound in env. Raises
+    AnalysisError on the first unbound name.
+    Expr -> {String: Binding} -> ()"""
     match e:
         case EInt(_, _) | EString(_, _) | EBool(_, _):
             pass
@@ -220,20 +193,15 @@ def analyze_expr(e, env):
 
 
 def analyze_scope(stmts, env):
-    """Analyzes a nested block: it sees `env`, and whatever it binds is
-    discarded on the way out -- that discarding is the whole of lexical
-    scoping here."""
+    """Analyzes a nested block in env; whatever it binds is not visible
+    outside it. [Stmt] -> {String: Binding} -> ()"""
     analyze_stmts(stmts, env)
 
 
 def bound_names(stmt):
-    """The names a statement binds *in the block it is written in*, as
-    `(name, info)` pairs.
-
-    Only the binding forms whose names land in that block: a `for`
-    variable, a pattern variable and a parameter all bind in a nested
-    scope of their own, and a `def`'s own name is handled by
-    `block_functions` itself."""
+    """The names a statement binds in the block it is written in
+    (excludes for/pattern/parameter names, and a def's own name), as
+    (name, info) pairs. Stmt -> [(String, Info)]"""
     match stmt:
         case SLet(_, target, _) | SLetStmt(_, target, _):
             return target_names(target)
@@ -244,7 +212,8 @@ def bound_names(stmt):
 
 
 def target_names(target):
-    """The `(name, info)` pairs an assignment target binds."""
+    """The (name, info) pairs an assignment target binds.
+    AssignTarget -> [(String, Info)]"""
     match target:
         case TargetName(info, name):
             return [(name, info)]
@@ -254,22 +223,10 @@ def target_names(target):
 
 
 def block_functions(stmts):
-    """
-    This function returns a dictionary, mapping names to statments,
-    for those statements that are function definintions (defs) inside
-    a block. It also checks the rules that functin names need to be
-    unique in the block, and that no other name binding in the block
-    is allowed to have the same name as a function. If not, it raises
-    analysis errors.
-
-    A function name must mean exactly one thing in the block it is
-    written in. That is what lets the *names* be visible throughout the
-    block -- which is what recursion and mutual recursion need -- while
-    every other binding stays positional: since the name cannot be
-    rebound there, "the function visible at this line" and "the function
-    visible anywhere in this block" are the same function, and a body
-    that names it cannot mean two things (see PYKING.md, "Names and
-    scoping")."""
+    """The def statements at the top of a block, name -> node. Raises
+    AnalysisError if two defs in the block share a name, or if any other
+    binding in the block shares a def's name.
+    [Stmt] -> {String: SFunctionDef}"""
     functions = {}
     for stmt in stmts:
         if not isinstance(stmt, SFunctionDef):
@@ -291,15 +248,8 @@ def block_functions(stmts):
 
 
 def check_no_function_clash(name, info, functions):
-    """Refuses a binding that would share its block with a `def` of the
-    same name -- in either order, and whatever the binding form.
-
-    This is the other half of what makes a function name unambiguous:
-    with the name visible throughout the block, a second binding of it
-    would leave a reader unable to say which one a use refers to, and no
-    reading of it is more obviously right than another. So neither is
-    chosen; the program is refused (see PYKING.md, "Names and
-    scoping")."""
+    """Raises AnalysisError if name is one of functions' keys.
+    String -> Info -> {String: SFunctionDef} -> ()"""
     clash = functions.get(name)
     if clash is not None:
         raise AnalysisError(
@@ -312,26 +262,10 @@ def check_no_function_clash(name, info, functions):
 
 
 def analyze_stmts(stmts, env):
-    """Analyzes a statement sequence, threading the environment through
-    it, and returns the environment at the end.
-
-    Every `def` in the sequence is bound *first*, before any statement is
-    walked. That is what makes a function usable before it is written --
-    recursion, mutual recursion, a helper defined at the bottom of the
-    file -- and it is the one departure from binding in source order (see
-    PYKING.md, "Names and scoping"). It is not recursive: a `def` inside
-    a branch belongs to that branch's block, and is declared when
-    `analyze_scope` reaches it.
-
-    Only the *names* are hoisted, and only functions'. What a body sees
-    is still whatever is bound where the body is written, and an `=`
-    binding is still sequential -- its value is an expression that may
-    read anything above it, while a `def` needs nothing around it to say
-    what its name means.
-
-    `block_functions` and `check_no_function_clash` keep those names
-    unambiguous: one `def` per name per block, and no other binding of
-    that name in the same block."""
+    """Analyzes a statement sequence in env, threading the environment
+    from one statement to the next; every def in the sequence is bound
+    first. Returns the environment left after the last statement.
+    [Stmt] -> {String: Binding} -> {String: Binding}"""
     for stmt in block_functions(stmts).values():
         env = bind(env, stmt.name, FUNCTION, stmt.info)
     for stmt in stmts:
@@ -340,10 +274,8 @@ def analyze_stmts(stmts, env):
 
 
 def analyze_value_stmt(stmt, env):
-    """A value-form `if`/`match` (the right-hand side of a binding, see
-    `SLetStmt`): its branches are ordinary nested scopes. The bound
-    target is *not* bound here -- it belongs to the enclosing scope, and
-    `analyze_stmt` binds it after this returns."""
+    """Analyzes a value-form if/match (the right-hand side of a binding);
+    does not bind the target itself. Stmt -> {String: Binding} -> ()"""
     match stmt:
         case SIf(_, cond, then_body, else_body):
             analyze_expr(cond, env)
@@ -356,8 +288,8 @@ def analyze_value_stmt(stmt, env):
 
 
 def analyze_case(case_clause, env):
-    """One `case` clause: the pattern's variables are bound in the arm's
-    own scope, whether the arm is a block or a single `-> expr`."""
+    """Analyzes one case clause; the pattern's variables are bound in
+    the arm's own scope. MatchCase -> {String: Binding} -> ()"""
     case_env = bind_pattern(env, case_clause.pattern)
     if case_clause.expr is not None:
         analyze_expr(case_clause.expr, case_env)
@@ -366,6 +298,8 @@ def analyze_case(case_clause, env):
 
 
 def analyze_stmt(s, env):
+    """Analyzes one statement in env. Returns the environment the
+    statements after it should see. Stmt -> {String: Binding} -> {String: Binding}"""
     match s:
         case SLet(_, target, expr):
             # The right-hand side is analyzed *before* the target is
@@ -454,32 +388,19 @@ def analyze_stmt(s, env):
 
 
 def analyze_program(stmts):
-    """External entry point: checks a whole program's names, raising
-    `AnalysisError` on the first problem. Returns nothing -- the analysis
-    only rejects, it never rewrites the AST."""
+    """Checks a whole program's names, with the builtins in scope.
+    Raises AnalysisError on the first problem; never rewrites the AST.
+    [Stmt] -> ()"""
     env = {name: Binding(BUILTIN) for name in BUILTINS}
     analyze_stmts(stmts, env)
 
 
 # --- symbolize ---
-#
-# A second pass over the checked AST, giving every node a unique integer
-# `sym` (see `syntax.py`). Nothing in the compiler consumes these yet --
-# `--symbols` prints them, and a later stage that needs to attach
-# information to a node (a type, a storage location, a use-def edge) has
-# a stable key to hang it on that does not depend on the node's identity
-# or position.
-#
-# The walk is generic over dataclass fields rather than one case per node
-# type, the same way `_collect_identifiers` in `target_python.py` is: a
-# new node in `syntax.py` gets a symbol without anyone remembering to
-# update this file. Nodes are frozen, so the tree is rebuilt with
-# `replace` rather than mutated, and the pass returns the new one.
 
 
 def _highest_sym(node):
-    """The largest `sym` anywhere in `node`, or 0 if nothing is
-    symbolized yet."""
+    """The largest sym anywhere in node, or 0 if none is symbolized.
+    a -> Int"""
     if is_dataclass(node) and hasattr(node, "sym"):
         return max(
             [node.sym]
@@ -491,16 +412,10 @@ def _highest_sym(node):
 
 
 def symbolize(stmts):
-    """Every node in `stmts`, rebuilt so that all of them have a unique
-    `sym`. Numbering is post-order and starts at 1, so 0 -- every node's
-    default -- means "not symbolized yet" and can never collide with a
-    real symbol.
-
-    A node that *already* has a symbol keeps it, and fresh numbers
-    continue past the highest one in the tree. That makes the pass safe
-    to run a second time, which is what gives nodes synthesized after
-    the first run -- the types the checker writes into bindings, say --
-    symbols of their own without renumbering everything around them."""
+    """Rebuilds stmts so every node has a unique sym, numbered
+    post-order starting at 1 (0 means "not symbolized"). A node that
+    already has a symbol keeps it; safe to run more than once.
+    [Stmt] -> [Stmt]"""
     counter = itertools.count(_highest_sym(stmts) + 1)
 
     def walk(node):

@@ -85,6 +85,16 @@ reason on failure) and a final `N/M passed` summary. `tests/` currently
 holds 35 programs, all of which pass; see the next section for what each
 demonstrates.
 
+The stdout comparison normalizes one permanent, documented difference
+before diffing: Python's `print` writes a boolean `True`/`False`,
+Pyking's writes `true`/`false` (see ["`True`/`False`"](#truefalse)
+above). The *original* Python program's output has that spelling
+lowercased before comparing, since the round-tripped program's output
+already uses Pyking's. This is a whole-word substitution, so it would
+incorrectly normalize a string that happens to *contain* the word
+"True" or "False" as data rather than as a boolean's repr; none of the
+programs in `tests/` do that.
+
 ## What's in `tests/`
 
 Every file is ordinary, directly-runnable Python (`python3 tests/foo.py`

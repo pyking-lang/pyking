@@ -1,3 +1,19 @@
+"""The Pyking AST: one frozen dataclass per node kind, plus a pretty
+printer that prints it back out as Pyking source. Every stage after
+parsing (analyses, type checker, backends) consumes exactly this. See
+docs/source.md ("syntax.py") and docs/architecture.md.
+
+Data structures: see the `datatype` comment block below, which lists
+every group (Expr, Type, Pattern, CompClause, AssignTarget, Stmt) and
+its variants.
+
+Functions:
+    pprint_program(stmts, symbols, tmap) -- the whole program as source;
+        the only entry point callers use.
+    pprint_expr(e) / pprint_stmt(s) / pprint_type(t) / pprint_pattern(p) /
+        pprint_param(p) / pprint_target(t) -- print one node of that kind.
+"""
+
 from dataclasses import dataclass
 
 from lexer import Info
@@ -361,8 +377,8 @@ _show_symbols = False
 _tmap = None
 
 def _sym(node, text):
-    """`text` with the node's symbol number appended, when `--symbols`
-    asked for it; `text` unchanged otherwise."""
+    """Appends the node's symbol number to text if --symbols was
+    requested; returns text unchanged otherwise. a -> String -> String"""
     if not _show_symbols:
         return text
     body = text if isinstance(node, _SELF_DELIMITED) else f"({text})"
@@ -370,32 +386,40 @@ def _sym(node, text):
 
 
 def pprint_type(t):
+    """Formats one type. Type -> String"""
     return _sym(t, _pprint_type(t))
 
 
 def pprint_param(p):
+    """Formats one parameter. Param -> String"""
     return _sym(p, _pprint_param(p))
 
 
 def pprint_expr(e, min_prec=0):
+    """Formats one expression, parenthesized if needed for min_prec.
+    Expr -> Int -> String"""
     return _sym(e, _pprint_expr(e, min_prec))
 
 
 def pprint_pattern(p):
+    """Formats one pattern. Pattern -> String"""
     return _sym(p, _pprint_pattern(p))
 
 
 def pprint_comp_clause(c):
+    """Formats one list-comprehension clause. CompClause -> String"""
     return _sym(c, _pprint_comp_clause(c))
 
 
 def pprint_target(t):
+    """Formats one assignment target. AssignTarget -> String"""
     return _sym(t, _pprint_target(t))
 
 
 def pprint_stmt(s, level=0):
-    """A statement may span several lines; its symbol goes on the header
-    line, where the construct it belongs to is."""
+    """Formats one statement, indented to level. A multi-line
+    statement's symbol (under --symbols) goes on its header line.
+    Stmt -> Int -> String"""
     text = _pprint_stmt(s, level)
     if not _show_symbols:
         return text
@@ -952,25 +976,17 @@ _SELF_DELIMITED = (
 
 
 def _node_type(node, annotation):
-    """The type to print for a node that can carry one: the one the type
-    checker inferred for it when `pprint_program` was given a `tmap`,
-    and the node's own annotation -- what the source wrote -- otherwise.
-
-    When there is a `tmap`, it is the *only* authority: a node with no
-    entry in it prints without a type even if the source annotated it,
-    since nothing has checked that annotation and printing it would
-    claim otherwise."""
+    """The type to print for a node: from tmap if one was given,
+    otherwise the node's own annotation. Node -> Type? -> Type?"""
     if _tmap is None:
         return annotation
     return _tmap.get(node.sym)
 
 
 def _pprint_annotation_type(t):
-    """A type in an annotation position, printed bare under `--symbols`
-    when it came from a `tmap`: the type checker synthesizes those, so
-    neither it nor anything inside it is a node of the AST with a symbol
-    of its own, and printing the `@0` that means "not symbolized yet"
-    would read as a bug rather than as a fact about the type."""
+    """Formats a type in annotation position, without a symbol suffix
+    when it came from tmap (a checker-built type has no symbol of its
+    own). Type -> String"""
     if _tmap is None:
         return pprint_type(t)
     global _show_symbols
@@ -983,28 +999,18 @@ def _pprint_annotation_type(t):
 
 
 def _annotation(node, type_):
-    """`: Int` for a binding whose type is known, nothing otherwise. The
-    annotation is optional in the source and worked out by the type
-    checker otherwise, so this is what makes `pyk --typecheck --ast`
-    show what was inferred -- and, since the parser accepts the same
-    syntax, keeps that output re-parsable."""
+    """Formats `: Type` for a node whose type is known, "" otherwise.
+    Node -> Type? -> String"""
     type_ = _node_type(node, type_)
     return "" if type_ is None else f": {_pprint_annotation_type(type_)}"
 
 
 def _function_header(node, pad, name, params, return_type):
-    """`def name(params) -> result`, with the types the checker worked
-    out where there is a `tmap` to take them from.
-
-    A function may have *several* types -- one per shape of call, when it
-    wrote none of its own down (see docs/type_inference.md) -- and then
-    the syntax has nowhere to put them: `def f(x:?) -> ?` has one slot
-    per parameter and one for the result, and the alternatives do not
-    come apart that way without claiming that a parameter of one call
-    goes with the result of another. So such a function is printed
-    exactly as it was *written*, and its type is left to be read where
-    the function is used. Only the header is affected: the body's own
-    bindings still print what was inferred for them."""
+    """Formats `def name(params) -> result`, from tmap where given.
+    A function with several inferred types (see docs/type_inference.md)
+    prints as written, with no annotations, since the syntax has no way
+    to keep each call's parameters and result together.
+    SFunctionDef -> String -> String -> [Param] -> Type? -> String"""
     global _tmap
     saved = _tmap
     if isinstance(_tmap.get(node.sym) if _tmap is not None else None, TOr):
@@ -1017,15 +1023,11 @@ def _function_header(node, pad, name, params, return_type):
 
 
 def _return_annotation(node, return_type):
-    """` -> Int` for a function whose return type is known, nothing
-    otherwise -- `_annotation`'s counterpart for the one annotation that
-    is not written with a colon."""
+    """Formats ` -> Type` for a function whose return type is known,
+    "" otherwise. SFunctionDef -> Type? -> String"""
     if _tmap is not None:
-        # A `tmap` holds the function's *type*, and the slot in the
-        # syntax is only its result: the parameters have been written out
-        # one by one already. The node's own annotation is the opposite
-        # -- it is the result, and is unwrapped no further, since a
-        # function may perfectly well return a function.
+        # tmap holds the function's whole type; only its result is
+        # printed here (the parameters are printed one by one already).
         return_type = _tmap.get(node.sym)
         if isinstance(return_type, TFunction):
             return_type = return_type.result
@@ -1033,17 +1035,11 @@ def _return_annotation(node, return_type):
 
 
 def pprint_program(stmts, symbols=False, tmap=None):
-    """The whole program as Pyking source. `symbols` additionally prints
-    each node's symbol number (see `symbolize` in src/analyses.py) as an
-    `@n` suffix -- what `--symbols` asks for.
-
-    `tmap` is what the type checker inferred, as symbol -> `Type` (see
-    `type_check` in src/typesystem.py). Given one, every annotation
-    printed comes from it and none from the AST: a node it knows about
-    prints the *checked* type, and one it does not prints no type at
-    all, whatever the source wrote. Given none -- every mode but
-    `--typecheck` -- the annotations in the AST are printed as they
-    were parsed."""
+    """Formats a whole program as Pyking source. symbols=True appends
+    each node's symbol as @n. tmap, if given, is the type checker's
+    symbol -> Type table; every annotation then comes from it instead
+    of from the source.
+    [Stmt] -> Bool -> {Int: Type}? -> String"""
     global _show_symbols, _tmap
     _show_symbols = symbols
     _tmap = tmap

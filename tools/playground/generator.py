@@ -1,31 +1,31 @@
 #!/usr/bin/env python3
 """Builds the Pyking playground: a static web page that runs the real
 compiler in the browser under Pyodide, with no server-side execution.
+Nothing under build/ is checked in; this file is the single source for
+every generated artifact. See README.md for the design, what each
+generated file does, and what is read out of the repository so the
+playground cannot drift from the compiler it ships.
 
-Nothing under `build/` is checked in. This file is the single source for
-every generated artifact -- the page, the stylesheet, both JavaScript
-modules, the Ace syntax mode for Pyking, the browser-side compiler shim,
-and the copies of the compiler and the example programs. Run it through
-`make`, or directly:
+Usage: `make`, or directly:
 
     python3 generator.py vendor     download Ace + Pyodide into vendor/
     python3 generator.py build      generate build/
     python3 generator.py check      compile every example, headless
     python3 generator.py serve      serve build/ and print the URL
 
-Three things are read out of the repository rather than restated here, so
-that the playground cannot drift from the compiler it ships:
+Data structures:
+    QuietHandler -- the HTTP handler build/ is served with.
 
-  - the compiler modules themselves, copied from `src/` (minus `pyk.py`
-    and `repl.py`, the two front ends, which are the only modules that
-    touch the filesystem or a terminal);
-  - the keyword list in `src/lexer.py` and the builtin list in
-    `src/analyses.py`, which become the Ace highlighting mode;
-  - `tests/*.pyk` and `tests/test_cases.toml`, which become the example
-    dropdown and the per-example record of which targets accept it.
+Functions:
+    vendor(cdn) -- downloads Ace and Pyodide into vendor/.
+    build(cdn) -- generates build/ from scratch.
+    check() -- compiles every example for every target it claims, headless.
+    serve(port) -- serves build/ and prints the URL.
+    main(argv) -- the command-line entry point.
 
-The target list is likewise imported from the backends, so adding a target
-to the compiler adds it to the playground.
+Everything from PYKING_WEB_PY onward is a module-level string constant
+holding one generated artifact's full source (Python, JavaScript, CSS,
+or HTML) -- see the section comments below for which is which.
 """
 
 import argparse
@@ -132,15 +132,9 @@ TARGET_LABEL = {
 
 
 def js_value_formatter():
-    """The `pykFormat` the JavaScript backend generates for every host it
-    packages, lifted straight out of the backend.
-
-    The playground's JS worker drives the `esm` target's `run(runtime)` and
-    so has to supply `print`, which means formatting values -- and how a
-    value prints is fixed by `src/runtime_interface.py`, not chosen per host.
-    Reading the backend's own copy is the only way to be sure the playground
-    agrees with `node prog.js`; a hand-written copy silently disagreed the
-    moment booleans stopped printing capitalised."""
+    """The pykFormat helper the JavaScript backend generates, read out
+    of the backend rather than hand-copied (README.md, "Three things
+    read out of the repository"). () -> String"""
     formatter = getattr(target_js_packaging, "_FORMAT_JS", None)
     if not formatter or "pykFormat" not in formatter:
         raise SystemExit(
@@ -153,14 +147,16 @@ def js_value_formatter():
 
 
 def compiler_modules():
+    """Every src/ module the playground ships, excluding the two front
+    ends. () -> [String]"""
     return sorted(
         p.name for p in SRC_DIR.glob("*.py") if p.name not in COMPILER_SKIP
     )
 
 
 def target_order():
-    """Every target the compiler has, in the order the dropdown shows them,
-    with `ast` first because it is the one view that is target-independent."""
+    """Every target the compiler has, in the order the dropdown shows
+    them (ast first). () -> [String]"""
     names = (
         ["ast", "python"]
         + list(target_js_packaging.TARGETS)
@@ -178,10 +174,9 @@ def target_order():
 
 
 def read_list_literal(path, name):
-    """The string entries of a simple `name = [...]` list literal in a source
-    file. Used to lift the lexer's keywords and the analyses' builtins into
-    the editor mode, so highlighting cannot fall out of step the way
-    `tools/emacs/pyking-mode.el` warns its own keyword list can."""
+    """The string entries of a simple `name = [...]` list literal in
+    path's source (README.md, "Three things read out of the
+    repository"). Path -> String -> [String]"""
     text = path.read_text()
     match = re.search(rf"^{name}\s*=\s*\((.*?)\)|^{name}\s*=\s*\[(.*?)\]",
                       text, re.S | re.M)
@@ -2193,8 +2188,8 @@ INDEX_HTML = r'''<!doctype html>
 # ==========================================================================
 
 def vendor(cdn=False):
-    """Download Ace and Pyodide into vendor/, once. Cached: a file already
-    present is left alone, so repeat builds are offline and instant."""
+    """Downloads Ace and Pyodide into vendor/, once; a file already
+    present is left alone. Bool -> ()"""
     if cdn:
         print("vendor: CDN=1, nothing to download "
               "(the page will load Ace and Pyodide from jsdelivr)")
@@ -2225,7 +2220,7 @@ def vendor(cdn=False):
 
 
 def build(cdn=False):
-    """Generate build/ from scratch."""
+    """Generates build/ from scratch. Bool -> ()"""
     if BUILD.exists():
         shutil.rmtree(BUILD)
     assets = BUILD / "assets"
@@ -2295,7 +2290,8 @@ def build(cdn=False):
 
 
 def patch_for_cdn(assets):
-    """Point the loader at jsdelivr instead of a vendor/ directory."""
+    """Points the loader at jsdelivr instead of a vendor/ directory.
+    Path -> ()"""
     path = assets / "playground.js"
     path.write_text(path.read_text().replace(
         'cfg.base + "/vendor/ace/ace.js"', f'"{ACE_CDN}/ace.js"').replace(
@@ -2304,18 +2300,10 @@ def patch_for_cdn(assets):
 
 
 def build_examples(code_targets):
-    """Copy `tests/*.pyk` and record which targets each one is known to
-    accept, straight out of `tests/test_cases.toml` -- the same manifest
-    `make test` runs from, so the playground cannot claim support the test
-    suite does not.
-
-    The manifest also names modes that are not code generation at all --
-    `typecheck` is a `--typecheck` flag over the front end, and several of
-    its programs are meant to be *rejected*. The playground compiles, so
-    those entries are filtered out here rather than being mistaken for
-    backends; a program left with no code-generation target simply makes no
-    claim about which ones accept it.
-    """
+    """Copies tests/*.pyk and records which targets each is known to
+    accept, straight out of tests/test_cases.toml (README.md, "Three
+    things read out of the repository") -- so the playground cannot
+    claim support the test suite does not. [String] -> [{...}]"""
     with open(TESTS_DIR / "test_cases.toml", "rb") as f:
         cases = tomllib.load(f)["cases"]
     known = {case["file"]: case["targets"] for case in cases}
@@ -2344,18 +2332,10 @@ def build_examples(code_targets):
 
 
 def check():
-    """Compile every example for every target it claims to support, using the
-    generated shim under the host CPython. Catches a broken shim or a
-    regressed backend without needing a browser.
-
-    The settings dialog's two front-end flags are checked here too, since
-    neither is reachable by selecting a target: every example is compiled
-    once more with `--ast` *against a code-generation target*, which is
-    what that flag has to override, and the type-checker fixtures are held
-    to the same rule the test suite holds them to -- a `typecheck_*`
-    program must check and a `fail_typecheck_*` one must not (see
-    tests/test_script.py, which owns *what* they infer; this only proves
-    the flag reaches the checker through the shim)."""
+    """Compiles every example for every target it claims to support,
+    through the generated shim under the host CPython, catching a
+    broken shim or regressed backend without a browser (README.md,
+    "Verifying without a browser"). () -> ()"""
     manifest = json.loads((BUILD / "assets" / "playground.json").read_text())
     sys.path.insert(0, str(BUILD / "pyking"))
     import pyking_web                                     # noqa: E402
@@ -2364,7 +2344,8 @@ def check():
     checked = 0
 
     def expect(label, ok, result):
-        """One check: `ok` says whether compiling was supposed to succeed."""
+        """One check; ok says whether compiling was supposed to
+        succeed. String -> Bool -> {...} -> ()"""
         nonlocal failures, checked
         checked += 1
         if result["ok"] == ok:
@@ -2378,12 +2359,8 @@ def check():
         name = entry["file"]
         source = (BUILD / "examples" / name).read_text()
         if name.startswith("fail_typecheck_"):
-            # A fixture whose whole point is to be refused. Only the
-            # refusal is asserted: some of these are ordinary programs
-            # with a type error in them, but others are not programs at
-            # all -- one names something that is not bound -- and
-            # expecting those to compile any other way would be
-            # expecting the front end to miss what they exist to catch.
+            # Only the refusal is asserted (README.md, "Verifying
+            # without a browser").
             expect(f"{name} -> --typecheck", False,
                    pyking_web.compile_source(source, "python", name,
                                              typecheck=True, ast=True))
@@ -2405,17 +2382,16 @@ def check():
 
 
 def serve(port):
-    """Serve build/ and print a URL the terminal will linkify."""
+    """Serves build/ and prints a URL the terminal will linkify.
+    Int -> ()"""
     if not (BUILD / "index.html").exists():
         raise SystemExit("serve: nothing built yet -- run `make build` first.")
 
     port = first_free_port(port)
     handler = functools.partial(QuietHandler, directory=str(BUILD))
-    # Threaded, not the stdlib default. A browser opens several connections at
-    # once and speculatively pre-connects ones it may never use; a
-    # single-threaded server blocks on the idle one while the page waits for
-    # ~20 files including an 8 MB WebAssembly binary, which looks exactly like
-    # a hang. `python3 -m http.server` has the same flaw.
+    # Threaded, not the stdlib default: a single-threaded server blocks
+    # on an idle speculative connection while the page waits for ~20
+    # files including an 8 MB WebAssembly binary, which looks like a hang.
     http.server.ThreadingHTTPServer.allow_reuse_address = True
     with http.server.ThreadingHTTPServer(("", port), handler) as httpd:
         url = f"http://localhost:{port}/"
@@ -2441,6 +2417,8 @@ def serve(port):
 
 
 def first_free_port(start, tries=20):
+    """The first free port at or after start, checked up to tries times.
+    Int -> Int -> Int"""
     for port in range(start, start + tries):
         with socket.socket() as probe:
             probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -2453,8 +2431,8 @@ def first_free_port(start, tries=20):
 
 
 class QuietHandler(http.server.SimpleHTTPRequestHandler):
-    """Same as the stdlib handler, minus a log line per asset -- Pyodide
-    alone is five requests, and the useful output is the URL above."""
+    """The stdlib handler, minus a log line per asset (Pyodide alone is
+    five requests)."""
 
     # Keep-alive, so the browser does not reopen a connection per file.
     protocol_version = "HTTP/1.1"
@@ -2463,11 +2441,9 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         pass
 
     def end_headers(self):
-        # Two different caching needs. Everything `make` regenerates must
-        # never be served stale, or you debug the previous build. The
-        # vendored Ace and Pyodide are version-pinned and never regenerated,
-        # so letting the browser keep them turns a reload from a 12 MB
-        # download plus a WebAssembly recompile into no work at all.
+        # Vendored Ace/Pyodide are version-pinned and never regenerated,
+        # so they cache; everything make regenerates must not, or you
+        # debug the previous build.
         if "/assets/vendor/" in self.path:
             self.send_header("Cache-Control", "public, max-age=86400")
         else:
@@ -2476,6 +2452,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
 
 
 def main(argv=None):
+    """The command-line entry point. [String]? -> ()"""
     parser = argparse.ArgumentParser(
         prog="generator.py", description="Build the Pyking web playground.")
     parser.add_argument("command",

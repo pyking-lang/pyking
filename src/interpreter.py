@@ -1,120 +1,26 @@
-"""The interpreter: a resumable machine that runs a Pyking program
-directly from the AST, rather than translating it to a host language.
+"""The interpreter: a resumable small-step machine that runs a Pyking
+program directly from the AST, instead of translating it to a host
+language. Runs the fragment src/typesystem.py accepts (type-checks
+first). Values are 32-bit signed integers, wrapping on overflow. This
+is the reference implementation of Pyking's runtime semantics. See
+docs/architecture.md ("The interpreter") and docs/source.md
+("interpreter.py").
 
-Every other backend in `src/` answers the question "what would this
-program look like in C, in Java, in Python?". This module answers a
-different one -- "what does this program *do*?" -- and it answers it in
-Pyking's own terms: its environments are Pyking scopes, its closures
-capture Pyking bindings, and its errors carry Pyking source positions.
-That is what makes it the reference for runtime semantics: where a
-backend disagrees with it, the backend is wrong.
+Data structures: see the `datatype` comment block below (Value, Env,
+Control, Kont, Frame, Runtime, State), and:
+    RuntimeError_ -- a runtime failure, with the source position.
+    Host / ConsoleHost / BufferHost / CallbackHost -- where print goes.
 
-## Why a machine, and not a recursive walk
-
-A recursive `eval` would be shorter. It would also be a dead end: a
-debugger, a step-through in the playground and a DAP adapter all need
-execution that can be *paused, inspected and resumed*, and a recursive
-walk can only be paused by blocking a host thread. So execution here is
-an explicit small-step machine --
-
-    step(State) -> State
-
--- driven from a flat loop in `run`. Nothing about the machine's own
-progress lives on the host's call stack: the pending work is a
-continuation chain, and the Pyking call stack is a chain of `Frame`s, so
-a paused `State` is an ordinary value that can be stored, inspected,
-copied and resumed later. `run(state, steps=n)` stops after `n` steps
-and hands the state back; that one signature is what a debugger, a REPL
-`:step`, and a browser worker that must not block all need.
-
-Three consequences worth stating, because they are properties of this
-design rather than accidents of it (see design/plan-eval-lsp.md, §4.7):
-
-  - **Depth costs heap, not host stack.** Recursion in the interpreted
-    program grows `State.stack`, so it cannot overflow Python's own
-    stack -- which is why an explicit `max_depth` exists and raises a
-    proper Pyking error instead of letting a runaway recursion eat
-    memory.
-  - **A block does not grow the continuation chain.** Sequencing is an
-    *index* into a statement list (`KSeq`), so re-entering a block
-    replaces its continuation rather than stacking a new one.
-  - **Errors are a machine state**, `CFailed`, not a host exception
-    thrown through `step`. A debugger wants to stop *at* an error with
-    the frames intact, and a machine that unwinds the host stack has
-    already lost them.
-
-## What it runs
-
-Exactly the fragment `src/typesystem.py` accepts -- bindings, expression
-statements, `if`, `return`, fully annotated `def`s, the arithmetic and
-comparison operators, calls, and the four builtins. The gate is the
-checker itself: callers run `type_check` first (see `check` below), the
-same way `src/target_ocaml.py` does, so this module never has to decide
-separately what "supported" means and the two cannot drift apart. A
-construct that gets past the checker anyway is still refused here, with
-its own source position, rather than silently doing something.
-
-## Integers are 32 bits
-
-A Pyking `Int` is a signed 32-bit integer here, and `+`, `-` and `*`
-wrap on overflow, two's complement, exactly as they do in the C and Java
-backends. The interpreter is the reference, so this is the language's
-answer; the Python and OCaml backends are wider (see docs/targets.md),
-which is a target difference to know about rather than something to
-paper over by making every backend agree with its host.
-
-## Values, environments and closures
-
-Values are one frozen dataclass per variant, in the same style
-`syntax.py` writes the AST in, with the `datatype` block below naming
-the closed set. They hold no host objects and no host dictionaries: the
-representation has to survive being rewritten in Pyking and, after that,
-compiled to machine code.
-
-An environment is a chain of frames, each frame a small map from name to
-value, and it is *persistent*: binding a name builds a new head frame
-rather than mutating anything. Pyking's scoping then needs no machinery
-at all --
-
-    a block entered      the block's statements run in a chain of their
-                         own; the enclosing chain is what the block's
-                         continuation resumes with, so nothing escapes
-    `=`                  a new frame; a rebinding shadows, it never
-                         updates
-    a `def`              a `VClosure` holding *the chain it was created
-                         in*, which is what lexical capture means
-
--- and everything `src/target_python.py` has to work for (renaming a
-shadowed binding, a per-turn factory so a closure keeps its own turn's
-values) is simply what this representation does.
-
-One deliberate exception to "nothing is mutated", and it is exactly
-Pyking's rule about `def`s. A block's function *names* are bound before
-any of the block runs -- that is what makes recursion, mutual recursion
-and a helper written at the bottom of the file work -- while what a body
-*captures* is whatever is bound where the body is written. Those two
-facts cannot both be true of an environment built strictly by extension,
-so `declare` puts one write-once cell in the block's frame per `def`,
-holding `VUndefined` until the `def` statement itself is reached and
-fills it with the closure it makes *there*. Every closure in the block
-holds that same frame, so each of them sees the others; a name used
-before its `def` has run is still `VUndefined`, and says so ("its 'def'
-has not run yet") rather than being silently missing. A cell is written
-once and never again -- `analyses.block_functions`, which is also where
-the list of a block's `def`s comes from, allows one `def` per name per
-block and no other binding of that name there, so nothing else can
-touch it.
-
-## The host
-
-A Pyking program cannot observe anything except through the operations
-`src/runtime_interface.py` names, so the machine reaches the outside
-world through a `Host` -- one method per operation, and three
-implementations here for the three ways a caller wants output: to a
-stream, into a buffer, or through a callback. `format_value` implements
-that module's formatting rules, so what a program prints under the
-interpreter is character-for-character what it prints under every
-backend.
+Functions:
+    check(stmts) -- type-checks a program; the interpreter's gate.
+    run_program(stmts, host) -- runs a whole program to completion.
+    initial_state(stmts, host) -- a machine about to run stmts.
+    step(state) -- one small step.
+    run(state, steps) -- steps until the machine stops or steps run out.
+    eval_statement(state, stmt) -- runs one statement in an existing
+        machine's environment (for the REPL).
+    format_value(value) / display_value(value) -- formats a value as
+        print emits it / as a value is shown.
 """
 
 from dataclasses import dataclass, field, fields, is_dataclass, replace
@@ -211,20 +117,9 @@ from syntax import (
 
 
 class RuntimeError_(Exception):
-    """A Pyking runtime error: a program that type-checked and still
-    could not be run to the end -- a call deeper than `max_depth`, a
-    construct outside the fragment, a value that turned out not to be
-    what it was used as.
-
-    Carries the source position, like `LexError`/`ParseError`/
-    `AnalysisError`/`TypeError_` do for their own stages, so `src/pyk.py`
-    reports it in the same `'file' row:col-row:col ...` form.
-
-    It is an `Exception` so that an embedder may raise it (`unwrap`
-    does), but the machine never *throws* it: a failing step produces a
-    `CFailed` state holding one. Named with a trailing underscore for the
-    same reason `typesystem.TypeError_` is -- so it cannot be confused
-    with Python's own `RuntimeError`."""
+    """A Pyking runtime error, with the source position. The machine
+    never raises it directly -- a failing step produces a CFailed state
+    holding one instead."""
 
     def __init__(self, info, message):
         super().__init__(message)
@@ -236,11 +131,8 @@ UNSUPPORTED = "Construct is not supported"
 
 
 def unsupported(node):
-    """A refusal of a construct outside the fragment this machine runs,
-    worded exactly as `typesystem.py` words it -- because it is the same
-    fragment, and a caller has usually been told so already by the
-    checker. Reaching this means a program got past the checker and into
-    the machine anyway, so it says where rather than guessing."""
+    """A RuntimeError_ refusing a construct outside the fragment this
+    machine runs. Node -> RuntimeError_"""
     return RuntimeError_(node.info, UNSUPPORTED)
 
 
@@ -259,10 +151,8 @@ _INT_MODULUS = 1 << INT_BITS
 
 
 def wrap32(n):
-    """`n` as a signed 32-bit integer: the value it would have in a
-    register that wide, two's complement, wrapping rather than
-    overflowing. Applied to every literal and to every `+`, `-` and `*`,
-    so no value in the machine is ever outside the range."""
+    """n wrapped to a signed 32-bit integer, two's complement.
+    Int -> Int"""
     return ((n - INT_MIN) % _INT_MODULUS) + INT_MIN
 
 
@@ -302,13 +192,9 @@ class VList(Value):
 
 @dataclass(frozen=True)
 class VClosure(Value):
-    """A function together with the environment it was written in.
-
-    `body` and `expr` are the two forms a `def` takes (a block, or
-    `= expr`), exactly as `SFunctionDef` holds them; one of the two is
-    always `None`. `env` is what makes this a closure rather than a
-    function pointer, and it is the environment at the definition -- not
-    at the call -- which is the whole of Pyking's lexical capture."""
+    """A function and the environment it was written in. Exactly one of
+    body/expr is set, matching SFunctionDef. Fields: name: String,
+    params: [String], body: [Stmt]?, expr: Expr?, env: Env."""
     name: str
     params: tuple
     body: tuple
@@ -318,23 +204,15 @@ class VClosure(Value):
 
 @dataclass(frozen=True)
 class VBuiltin(Value):
-    """One of `analyses.BUILTINS`, in scope in every program. A builtin is
-    callable and is not a value the language can otherwise use -- the type
-    checker refuses it as one -- but it is a value *here*, because making
-    a call evaluate its callee like any other expression is simpler than
-    special-casing the name."""
+    """One of analyses.BUILTINS, callable as a value here even though
+    the type checker refuses it as one. Field: name: String."""
     name: str
 
 
 @dataclass(frozen=True)
 class VUndefined(Value):
-    """What a hoisted `def` name holds until its `def` is reached.
-
-    A function's name is in scope throughout the block it is written in,
-    but the function itself does not exist until the definition runs --
-    so a *body* may name it (bodies run later) while a statement above it
-    may not call it yet. This value is the difference between those two,
-    and using one is an error that can say which of them happened."""
+    """What a hoisted def name holds until its def statement runs.
+    Field: name: String."""
     name: str
 
 
@@ -344,6 +222,7 @@ FALSE = VBool(False)
 
 
 def boolean(b):
+    """VBool for b. Bool -> VBool"""
     return TRUE if b else FALSE
 
 
@@ -353,17 +232,9 @@ def boolean(b):
 
 
 def format_value(value):
-    """A value as `print` writes it, following the rules
-    `src/runtime_interface.py` pins down for every host: a string as-is
-    with no quoting, an integer in base 10, unit as `()`, and a boolean
-    as `true`/`false` -- Pyking's own spelling, not the host language's.
-
-    A list is written the way the backends' hosts write one, with its
-    *elements* quoted, since a list is a value being displayed rather
-    than text being emitted. It is formatted iteratively, with an
-    explicit stack: a value can nest arbitrarily deep, and a recursive
-    printer would overflow the host stack on one that nests deeper than
-    the host allows (see design/plan-eval-lsp.md, §4.7)."""
+    """Formats a value as print writes it (runtime_interface.py's
+    rules): a string bare, everything else as display_value.
+    Value -> String"""
     match value:
         case VString(text):
             return text
@@ -372,14 +243,10 @@ def format_value(value):
 
 
 def display_value(value):
-    """A value as it appears *inside* a larger one, and as something
-    showing a value rather than emitting it wants to write it: like
-    `format_value`, except that a string is quoted.
-
-    `print` uses `format_value`, because a program printing a string is
-    emitting text. A REPL, a debugger's variable view and the elements of
-    a printed list use this, because there the string is a *value* being
-    displayed, and `hi` would be indistinguishable from the name `hi`."""
+    """Formats a value as it appears inside a larger one, or as a
+    prompt/debugger shows it: like format_value, but a string is
+    quoted. Iterative, so nesting cannot overflow the host stack.
+    Value -> String"""
     out = []
     # Each item is either a value still to be written or a literal piece
     # of text; the stack is walked to exhaustion, so nesting costs heap
@@ -427,13 +294,7 @@ def _quote(text):
 
 class Host:
     """What a Pyking program may observe: one method per operation in
-    `runtime_interface.OPERATIONS`.
-
-    That module names the operations and pins their meaning and holds no
-    host code at all; this is the code side of the same boundary, and the
-    three implementations below are the three ways an embedder wants
-    output -- straight to a stream (`pyk run`), collected (a test, a
-    transcript), or handed to a callback (a debugger, the playground)."""
+    runtime_interface.OPERATIONS."""
 
     def print(self, text):
         raise NotImplementedError
@@ -441,7 +302,7 @@ class Host:
 
 @dataclass
 class ConsoleHost(Host):
-    """Writes to a stream, `sys.stdout` unless told otherwise."""
+    """Writes to a stream (sys.stdout by default). Field: stream: object?"""
     stream: object = None
 
     def print(self, text):
@@ -451,7 +312,7 @@ class ConsoleHost(Host):
 
 @dataclass
 class BufferHost(Host):
-    """Collects what the program printed, one entry per line."""
+    """Collects printed output, one entry per line. Field: lines: [String]"""
     lines: list = field(default_factory=list)
 
     def print(self, text):
@@ -464,8 +325,7 @@ class BufferHost(Host):
 
 @dataclass
 class CallbackHost(Host):
-    """Hands each line to a function -- the shape a debugger or a browser
-    worker wants, since it turns output into an event."""
+    """Hands each printed line to a function. Field: write_line: String -> ()"""
     write_line: object
 
     def print(self, text):
@@ -479,35 +339,27 @@ class CallbackHost(Host):
 
 @dataclass(frozen=True)
 class Env:
-    """A chain of frames: `bindings` are the names this frame introduces,
-    `parent` is the scope around it, `None` at the top.
-
-    Persistent by construction -- `extend` builds a new head rather than
-    writing into an existing frame -- which is what lets a closure hold
-    "the environment as it was where I was written" without copying it.
-    The one place a frame is written to is `declare`, and only before
-    anyone can see it."""
+    """A persistent chain of frames. Fields: bindings: {String: Value}
+    (names this frame introduces), parent: Env? (None at the top)."""
     bindings: dict
     parent: "Env" = None
 
 
 def extend(env, name, value):
-    """`env` with `name` bound to `value`: a new frame in front of it. A
-    rebinding shadows; nothing is updated in place, which is what makes
-    `=` a binding rather than an assignment."""
+    """env with name bound to value, as a new frame.
+    Env -> String -> Value -> Env"""
     return Env({name: value}, env)
 
 
 def extend_all(env, bindings):
-    """`env` with a whole group of names bound at once -- a call's
-    parameters, which all come into scope together."""
+    """env with a whole group of names bound at once, as a new frame.
+    Env -> {String: Value} -> Env"""
     return Env(dict(bindings), env)
 
 
 def lookup(env, name):
-    """The value `name` denotes here, or `None` if it denotes nothing.
-    Walks outwards, so the innermost binding wins -- lexical scoping,
-    with the chain doing all of the work."""
+    """The value name denotes in env, or None. Walks outward, so the
+    innermost binding wins. Env -> String -> Value?"""
     while env is not None:
         if name in env.bindings:
             return env.bindings[name]
@@ -516,9 +368,8 @@ def lookup(env, name):
 
 
 def bindings_in_scope(env):
-    """Every name visible from `env`, as name -> value, innermost first.
-    Not used by the machine; it is what a REPL's `:ls` and, later, a
-    debugger's variable view ask for."""
+    """Every name visible from env, as name -> value, innermost first.
+    Env -> {String: Value}"""
     seen = {}
     while env is not None:
         for name, value in env.bindings.items():
@@ -528,30 +379,15 @@ def bindings_in_scope(env):
 
 
 def top_level_env():
-    """The environment a program starts in: the builtins, and nothing
-    else. `analyses.BUILTINS` is the list, imported rather than repeated,
-    so what a program may name cannot differ between the passes that
-    check it and the machine that runs it."""
+    """The environment a program starts in: the builtins, nothing else.
+    () -> Env"""
     return Env({name: VBuiltin(name) for name in BUILTINS})
 
 
 def declare(stmts, env):
-    """`env` with every `def` written at the top of this block already in
-    scope -- as a name, not yet as a function.
-
-    Pyking hoists function *names* to the top of their block, so that
-    recursion, mutual recursion and a helper written further down all
-    work, while what a body captures is still whatever is bound where the
-    body is written (see PYKING.md, "Names and scoping"). Those two rules
-    meet here: this puts one cell per `def` in a frame of its own, holding
-    `VUndefined`, and `define` fills it when the definition is reached.
-    Every closure the block makes holds this frame, so each of them can
-    see the others however they are ordered.
-
-    Which `def`s count, and the rules that keep a hoisted name
-    unambiguous, come from `analyses.block_functions`: one `def` per name
-    per block, and no other binding of that name in the same block --
-    which is also what makes each cell written exactly once."""
+    """env with every def at the top of this block bound as a name
+    (VUndefined, not yet a function; see PYKING.md, "Names and
+    scoping"). [Stmt] -> Env -> Env"""
     functions = block_functions(stmts)
     if not functions:
         return env
@@ -559,14 +395,9 @@ def declare(stmts, env):
 
 
 def define(env, node):
-    """Fill in the cell `declare` made for this `def`, with the closure it
-    denotes *here*: capturing the environment at its own position, which
-    is what lexical capture means.
-
-    The write is the one mutation in this module. It is a cell that held
-    `VUndefined` and now holds a function, in the nearest frame that has
-    the name -- which is the block's own, since nothing between here and
-    there may bind that name."""
+    """Fills in the cell declare() made for this def, with the closure
+    it denotes here. The one mutation in this module.
+    Env -> SFunctionDef -> Env"""
     frame = env
     while frame is not None and node.name not in frame.bindings:
         frame = frame.parent
@@ -580,7 +411,8 @@ def define(env, node):
 
 
 def closure(node, env):
-    """The `VClosure` a `def` denotes, capturing `env`."""
+    """The VClosure a def denotes, capturing env.
+    SFunctionDef -> Env -> VClosure"""
     return VClosure(
         name=node.name,
         params=tuple(param.name for param in node.params),
@@ -644,13 +476,9 @@ class Kont:
 
 @dataclass(frozen=True)
 class KSeq(Kont):
-    """Run `stmts` from `index` onwards, then deliver the last one's
-    value to `rest` with `exit_env` restored.
-
-    The index is what keeps a block from growing the continuation chain:
-    re-entering the block replaces this continuation rather than stacking
-    another, so a hundred statements cost one continuation, not a
-    hundred."""
+    """Runs stmts from index onwards, then delivers the last one's
+    value to rest with exit_env restored. The index is what keeps a
+    block from growing the continuation chain."""
     stmts: tuple
     index: int
     exit_env: Env
@@ -659,9 +487,7 @@ class KSeq(Kont):
 
 @dataclass(frozen=True)
 class KBind(Kont):
-    """Bind the incoming value to `name`, then carry on with the rest of
-    the block. The statement itself supplies unit: a binding is a
-    statement, whatever its right-hand side was."""
+    """Binds the incoming value to name, then supplies unit."""
     name: str
     env: Env
     rest: Kont
@@ -695,9 +521,8 @@ class KCallee(Kont):
 
 @dataclass(frozen=True)
 class KArgument(Kont):
-    """One argument has arrived; take the next, or make the call.
-    Arguments are evaluated strictly left to right -- the order Pyking
-    promises (see PYKING.md, "Evaluation order")."""
+    """One argument has arrived; takes the next, or makes the call.
+    Arguments are evaluated left to right."""
     call: ECall
     callee: Value
     done: tuple
@@ -743,13 +568,8 @@ class KReturnTo(Kont):
 
 @dataclass(frozen=True)
 class Frame:
-    """One Pyking call in progress: the function's name, the source
-    position of the call, and everything needed to get back -- the
-    caller's continuation and environment.
-
-    This is Pyking's call stack, held in the machine's own data rather
-    than on the host's, which is what makes deep recursion a heap cost
-    and a stack trace something the machine can simply read off."""
+    """One Pyking call in progress. Pyking's call stack, held in the
+    machine's own data rather than the host's."""
     name: str
     info: Info
     kont: Kont
@@ -758,24 +578,14 @@ class Frame:
     depth: int
 
 
-# How deep Pyking recursion may go before the machine refuses to go
-# further. The stack lives on the heap, so nothing else would stop a
-# runaway recursion until the process ran out of memory -- an explicit
-# limit turns that into an ordinary Pyking error with a position and a
-# stack trace (see design/plan-eval-lsp.md, §4.7).
+# Maximum Pyking call depth before the machine raises a runtime error.
 MAX_CALL_DEPTH = 10_000
 
 
 @dataclass(frozen=True)
 class Runtime:
-    """The part of a run that never changes while it runs: the host it
-    may speak to, the call-free table (see `_evaluate`), and how deep it
-    may recurse.
-
-    Kept apart from `State` for two reasons. It says which parts of a
-    machine are *settings* and which are progress -- and it makes a step
-    cheap, since building the next state then copies one reference
-    instead of three."""
+    """The part of a State that never changes while it runs: the host,
+    the call-free symbol table (see _evaluate), and the depth limit."""
     host: Host
     simple: frozenset
     max_depth: int = MAX_CALL_DEPTH
@@ -783,12 +593,9 @@ class Runtime:
 
 @dataclass(frozen=True)
 class State:
-    """Everything the machine is: what it is doing, the environment it is
-    doing it in, what is waiting for the answer, the calls in progress,
-    and the settings all of that runs under.
-
-    A `State` is a plain value. Keeping one is how a debugger pauses, and
-    two states sharing a continuation tail is why that is cheap."""
+    """A machine state: what it is doing, the environment, the pending
+    continuation, the call stack, and the run's settings. A plain
+    value; keeping one is how a debugger pauses."""
     control: Control
     env: Env
     kont: Kont
@@ -800,12 +607,9 @@ _SAME = object()
 
 
 def _go(state, control, env=_SAME, kont=_SAME, stack=_SAME):
-    """The next state: `state`, with these parts of it different.
-
-    Written out rather than reached through `dataclasses.replace`, which
-    walks a class's field list on every call. `step` is the one function
-    in this repository that runs millions of times, and this is the
-    allocation it makes each time."""
+    """state with these fields replaced. Written out instead of using
+    dataclasses.replace, which is the hot path in step().
+    State -> Control -> Env? -> Kont? -> Frame? -> State"""
     return State(
         control,
         state.env if env is _SAME else env,
@@ -833,17 +637,13 @@ def _go(state, control, env=_SAME, kont=_SAME, stack=_SAME):
 
 
 def call_free_symbols(node):
-    """The symbols of every expression in `node` that contains no call.
-
-    Generic over dataclass fields rather than one case per node type --
-    the same walk `symbolize` in `analyses.py` uses, and for the same
-    reason: a construct added to `syntax.py` is covered without anyone
-    remembering this file exists."""
+    """The symbols of every expression in node that contains no call.
+    Generic over dataclass fields. a -> {Int}"""
     found = set()
 
     def walk(item):
-        """Whether `item` is free of calls, recording the expressions
-        that are."""
+        """Whether item is free of calls; records the expressions that
+        are. a -> Bool"""
         if isinstance(item, ECall):
             for f in fields(item):
                 walk(getattr(item, f.name))
@@ -862,13 +662,9 @@ def call_free_symbols(node):
 
 
 class _Trap(Exception):
-    """How the helpers that compute a value report a failure to the step
-    that called them -- `_evaluate`, `apply_binary`, `apply_builtin`.
-
-    It never crosses `step`'s boundary: each of the three call sites
-    catches it immediately and turns it into a `CFailed` state, so the
-    machine's own rule -- errors are states, not exceptions -- still
-    holds from outside."""
+    """Internal: how _evaluate/apply_binary/apply_builtin report a
+    failure to their caller. Caught before it crosses step()'s
+    boundary and turned into a CFailed state."""
 
     def __init__(self, error):
         super().__init__(error.message)
@@ -876,10 +672,8 @@ class _Trap(Exception):
 
 
 def _evaluate(expr, env):
-    """A call-free expression's value, computed directly.
-
-    Only ever called for an expression `call_free_symbols` vouched for,
-    so there is no call to suspend at and no host to reach."""
+    """A call-free expression's value, computed directly (only called
+    for expr in call_free_symbols). Expr -> Env -> Value"""
     match expr:
         case EInt(_, value, _):
             return VInt(wrap32(value))
@@ -985,9 +779,9 @@ OPERATORS = {
 
 
 def apply_binary(node, left, right):
-    """The value of one binary operator application. Raises a `_Trap` for
-    operands the operator does not accept -- a program the type checker
-    would have refused."""
+    """The value of one binary operator application. Raises _Trap for
+    operands the operator does not accept.
+    Expr -> Value -> Value -> Value"""
     spelling, rule = OPERATORS[type(node)]
     value = rule(left, right)
     if value is None:
@@ -1000,8 +794,8 @@ def apply_binary(node, left, right):
 
 
 def describe(value):
-    """What a value is, for an error message: its type as Pyking spells
-    it, which is what a reader of the error is thinking in."""
+    """A value's type name, as Pyking spells it, for an error message.
+    Value -> String"""
     match value:
         case VInt():
             return "Int"
@@ -1024,21 +818,9 @@ def describe(value):
 
 
 def apply_builtin(name, args, call, host):
-    """One of `analyses.BUILTINS`, applied.
-
-    `print` is the one that crosses the runtime interface, so it goes
-    through the host and through `format_value`, which is what makes the
-    interpreter's output identical to every backend's. The other three
-    are pure and are computed here. Their signatures are
-    `typesystem.check_builtin_call`'s, and a call that got past the
-    checker cannot disagree with them; the arity checks below are for
-    calls that reached the machine another way.
-
-    Which names are operations is `runtime_interface.py`'s to say, not
-    this module's, so the one case that reaches the host is written
-    against the operation itself rather than against the string
-    `'print'` -- an operation added there will not be quietly answered
-    here by a coincidence of spelling."""
+    """Applies one of analyses.BUILTINS. print crosses the runtime
+    interface through host; the rest are pure.
+    String -> [Value] -> ECall -> Host -> Value"""
     match (name, args):
         case (runtime_interface.PRINT.name, _):
             host.print(" ".join(format_value(argument) for argument in args))
@@ -1077,12 +859,8 @@ def _range(start, stop, step, call):
 
 
 def step(state):
-    """One small step: a state in, the next state out.
-
-    Total -- every state has a successor, including a finished or failed
-    one, which is what lets `run` be a bare loop with one test in it.
-    Nothing here touches the outside world except `apply_builtin`'s
-    `print`, and nothing raises: a failure becomes a `CFailed` state."""
+    """One small step. Total: every state, including a finished or
+    failed one, has a successor. State -> State"""
     match state.control:
         case CEval(expr):
             return _step_eval(state, expr)
@@ -1095,9 +873,9 @@ def step(state):
 
 
 def _step_eval(state, expr):
-    """Start on an expression. A call-free one is finished here and now;
-    anything else is taken apart, one continuation per piece of work that
-    has to wait."""
+    """Starts on an expression: evaluates it directly if call-free,
+    otherwise pushes the first continuation it needs.
+    State -> Expr -> State"""
     if expr.sym in state.runtime.simple:
         try:
             return _go(state, control=CApply(_evaluate(expr, state.env)))
@@ -1131,10 +909,8 @@ def _step_eval(state, expr):
 
 
 def _step_stmt(state, stmt):
-    """Start on a statement. What it *supplies* -- the question
-    PYKING.md's "Tail position" asks, and the one `typesystem.py` answers
-    for types -- is what it delivers to its continuation; what it *binds*
-    travels with the environment, which only `KSeq` adopts."""
+    """Starts on a statement: delivers what it supplies (PYKING.md,
+    "Tail position") to its continuation. State -> Stmt -> State"""
     match stmt:
         case SLet(_, TargetName(_, name, _), expr, _, _):
             return _go(
@@ -1186,7 +962,8 @@ def _step_stmt(state, stmt):
 
 
 def _step_apply(state, value):
-    """Hand a value to whatever was waiting for it."""
+    """Hands value to whatever was waiting for it (state.kont).
+    State -> Value -> State"""
     match state.kont:
         case None:
             return _go(state, control=CDone(value))
@@ -1285,8 +1062,8 @@ def _step_apply(state, value):
 
 
 def _start_arguments(state, call, callee, done, todo, env, rest):
-    """Evaluate the next argument, or -- when there are none left -- make
-    the call."""
+    """Evaluates the next argument, or makes the call if todo is empty.
+    State -> ECall -> Value -> (Value,) -> (Expr,) -> Env -> Kont -> State"""
     if todo:
         return _go(
             state,
@@ -1298,15 +1075,8 @@ def _start_arguments(state, call, callee, done, todo, env, rest):
 
 
 def _call(state, call, callee, args, env, rest):
-    """Apply a value to its arguments.
-
-    A builtin is performed on the spot -- it is one operation, and
-    `print` is the only one that reaches the world. A closure is entered:
-    a frame records where to come back to, and the body runs in the
-    environment the closure captured, extended with the parameters. The
-    body is *not* a fresh nested scope on top of that: the parameters are
-    the function's own scope, and `declare` then adds whatever `def`s the
-    body opens with."""
+    """Applies callee (a builtin or closure) to args.
+    State -> ECall -> Value -> (Value,) -> Env -> Kont -> State"""
     match callee:
         case VBuiltin(name):
             try:
@@ -1351,13 +1121,9 @@ def _call(state, call, callee, args, env, rest):
 
 
 def enter_block(state, stmts, env, rest):
-    """Begin a block: declare its `def`s, then run its statements in
-    order, delivering the last one's value to `rest`.
-
-    Entering is spelled as "deliver unit to a fresh `KSeq`", which is
-    also exactly what happens between two statements -- so a block has
-    one code path, whether it is a program, a branch or a function
-    body."""
+    """Enters a block: declares its defs, then runs its statements in
+    order, delivering the last one's value to rest.
+    State -> [Stmt] -> Env -> Kont -> State"""
     return _go(
         state,
         control=CApply(UNIT),
@@ -1367,10 +1133,8 @@ def enter_block(state, stmts, env, rest):
 
 
 def failed(state, error):
-    """The state a runtime error leaves behind: everything as it was --
-    the environment, the continuations, the frames -- with the error in
-    the control position. Nothing is unwound, so a debugger stopping here
-    can still show the stack the error happened on."""
+    """state with error in the control position; nothing else changed
+    or unwound. State -> RuntimeError_ -> State"""
     return _go(state, control=CFailed(error))
 
 
@@ -1380,23 +1144,16 @@ def failed(state, error):
 
 
 def check(stmts):
-    """The gate: a program is runnable exactly when `typesystem.py`
-    accepts it, so this runs the checker and hands back its `tmap`.
-
-    The interpreter covers the checker's fragment, and this is how that
-    stays true without a second list of supported constructs to keep in
-    step -- the same arrangement `src/target_ocaml.py` uses. Raises
-    `typesystem.TypeError_` or `analyses.AnalysisError`, which the driver
-    already knows how to report."""
+    """Type-checks stmts; the interpreter's gate (it runs exactly the
+    fragment typesystem.py accepts). Raises TypeError_ or
+    AnalysisError. [Stmt] -> {Int: Type}"""
     return typesystem.type_check(stmts)
 
 
 def initial_state(stmts, host, env=None, max_depth=MAX_CALL_DEPTH):
-    """A machine about to run `stmts`, not yet having taken a step.
-
-    `env` lets a caller continue an earlier session -- the REPL passes
-    the environment its previous entries left behind -- and defaults to a
-    fresh top level with the builtins in scope."""
+    """A machine about to run stmts, not yet stepped. env, if given,
+    lets a caller continue an earlier session (default: a fresh top
+    level). [Stmt] -> Host -> Env? -> Int -> State"""
     start = top_level_env() if env is None else env
     runtime = Runtime(host, call_free_symbols(stmts), max_depth)
     state = State(CApply(UNIT), start, None, None, runtime)
@@ -1404,18 +1161,13 @@ def initial_state(stmts, host, env=None, max_depth=MAX_CALL_DEPTH):
 
 
 def finished(state):
-    """Whether the machine has stopped, either way."""
+    """Whether the machine has stopped (done or failed). State -> Bool"""
     return isinstance(state.control, (CDone, CFailed))
 
 
 def run(state, steps=None):
-    """Step until the machine stops, or until `steps` steps have been
-    taken -- whichever comes first.
-
-    The bounded form is what makes this usable from somewhere that must
-    not block: a debugger, a browser worker, a REPL that wants to stay
-    interruptible. The state that comes back is a state like any other,
-    so running it further is just calling this again."""
+    """Steps until the machine stops or steps steps have been taken,
+    whichever comes first. State -> Int? -> State"""
     taken = 0
     while not finished(state) and (steps is None or taken < steps):
         state = step(state)
@@ -1424,8 +1176,8 @@ def run(state, steps=None):
 
 
 def result(state):
-    """The value a finished machine produced, or `None` if it failed or
-    has not finished."""
+    """The value a finished machine produced, or None if it failed or
+    has not finished. State -> Value?"""
     match state.control:
         case CDone(value):
             return value
@@ -1433,7 +1185,8 @@ def result(state):
 
 
 def failure(state):
-    """The `RuntimeError_` a machine stopped on, or `None`."""
+    """The RuntimeError_ a machine stopped on, or None.
+    State -> RuntimeError_?"""
     match state.control:
         case CFailed(error):
             return error
@@ -1441,9 +1194,7 @@ def failure(state):
 
 
 def unwrap(state):
-    """`state`, or its error raised -- for a caller that would rather
-    handle a failure as an exception than as a state. The machine itself
-    never does this."""
+    """state, or its error raised. State -> State"""
     error = failure(state)
     if error is not None:
         raise error
@@ -1451,41 +1202,21 @@ def unwrap(state):
 
 
 def run_program(stmts, host=None, max_depth=MAX_CALL_DEPTH):
-    """Run a whole program to completion and return the final state.
-
-    The program must already have been checked (`check`) and symbolized
-    (`analyses.symbolize` -- the fast path is keyed by symbol). The state
-    that comes back says how it ended: `failure(state)` for a runtime
-    error, `result(state)` for the value the program's last statement
-    supplied."""
+    """Runs a whole (already checked and symbolized) program to
+    completion. [Stmt] -> Host? -> Int -> State"""
     return run(initial_state(stmts, host or ConsoleHost(), max_depth=max_depth))
 
 
 def declare_entry(state, stmts):
-    """`state` with every `def` in `stmts` declared, as one group.
-
-    What entering a block does, for a group of statements that is not
-    one: a REPL entry, or a file read into a session. Its functions come
-    into scope together, so two of them may call each other, exactly as
-    they could inside a block -- while a *later* entry is a later group,
-    which is why a function written now cannot be called by one written
-    before it."""
+    """state with every def in stmts declared, as one group (their
+    names come into scope together). State -> [Stmt] -> State"""
     return _go(state, control=state.control, env=declare(stmts, state.env))
 
 
 def eval_in(state, stmt):
-    """Run one statement in `state`'s environment as it stands, and
-    return the state it leaves behind -- `state.env` extended if it bound
-    anything, `result(state)` the value it supplied.
-
-    Nothing is declared first: the caller has already done that for the
-    group this statement belongs to. A statement typed at a prompt is not
-    a nested scope, so what it binds stays bound for whatever is typed
-    next.
-
-    It is run with a continuation chain of its own, so it cannot resume
-    anything the machine was in the middle of -- an entry starts and
-    finishes."""
+    """Runs one statement in state's environment as it stands (nothing
+    is declared first), with a continuation chain of its own. Returns
+    the state it leaves behind. State -> Stmt -> State"""
     runtime = replace(
         state.runtime, simple=state.runtime.simple | call_free_symbols(stmt)
     )
@@ -1493,15 +1224,13 @@ def eval_in(state, stmt):
 
 
 def eval_statement(state, stmt):
-    """One statement, declared and run: `eval_in` for the common case of
-    a group of one. This is what a debugger's "evaluate this in the
-    paused frame" request wants."""
+    """Declares and runs one statement: eval_in for a group of one.
+    State -> Stmt -> State"""
     return eval_in(declare_entry(state, [stmt]), stmt)
 
 
 def stack_trace(state):
-    """The calls in progress, innermost first, as `(name, info)` pairs --
-    what an error report or a debugger's stack view reads."""
+    """The calls in progress, innermost first. State -> [(String, Info)]"""
     trace = []
     frame = state.stack
     while frame is not None:

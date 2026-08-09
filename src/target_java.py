@@ -1,63 +1,26 @@
-"""The Java code-generation backend, serving `java8`, `java17` and
-`java21`.
+"""The Java code-generation backend, serving java8, java17 and java21 --
+structured like target_c.py: one translation, and a printer whose shape
+never changes across versions, gated by a small per-version feature
+table (_FEATURES). Like target_c.py, Java is statically typed and
+Pyking is not, so this backend infers a type (Int, String, or Bool) for
+every binding, parameter and function. Unlike C, javac requires every
+non-void method to provably return on every path and rejects
+unreachable code, so this backend checks both. See docs/target_java.md
+for the version differences, the inference rules, and how each
+construct compiles.
 
-Structured exactly like `src/target_c.py`: one translation for every
-version (a `J*` AST, built by `_Translator`), and a printer whose *shape*
-never changes across versions -- only a handful of spellings do, gated by
-a small per-version feature table (`_FEATURES`) rather than three copies
-of the printer:
+Data structures:
+    UnsupportedError -- a construct this backend cannot compile, with
+        the source position.
+    JExpr / JStmt -- base classes for the Java AST; every JExpr also
+        carries its inferred jtype.
 
-  version   local declarations         compile with
-  -------   -------------------        --------------------------------
-  java8     `final int x = 1;`         javac --release 8  <file>
-  java17    `final var x = 1;`         javac --release 17 <file>
-  java21    `final var x = 1;`         javac --release 21 <file>
-
-`var` is local-variable type inference (JEP 286, Java 10); java8 predates
-it and spells out the type, java17/java21 use it -- "more language
-features in higher targets" here means exactly this one axis, because the
-subset this backend accepts (see below) never reaches a construct newer
-Java versions would translate differently. A `match` on real values, or
-tuples as records, would give java21 something java17 lacks; neither is
-implemented yet, so the two currently emit identical code beyond the
-`--release` number.
-
-Java is statically typed and Pyking is not, so -- exactly as in
-`target_c.py` -- this backend *infers* a type for every binding, parameter
-and function, from the same three rules: a binding takes its
-initializer's type, a parameter takes its annotation when representable
-else a guess from the body, and a function's return type is read back off
-its translated body.
-
-Two things Java gives this backend that C does not:
-
-  - string concatenation is Java's own `+` (`"a" + "b"` needs no helper,
-    unlike C's `pyk_concat`), so `EAdd` between two strings translates
-    straight across;
-  - string equality goes through `.equals()`, not `strcmp`, and needs no
-    extra header either.
-
-One thing Java is stricter about than C: a non-void method that falls off
-its end without returning is a compile error (C merely warns), so this
-backend requires every function body to *provably* return on every path
-(`_definitely_returns`) and refuses one that does not -- the same spirit
-as refusing `/`, just enforced by the target rather than chosen by this
-backend. The same strictness makes code after an unconditional return
-unreachable to `javac` (`_check_reachable`), where Python simply never
-runs it, so that is refused too.
-
-Nested `def` is refused, as in C: Java has no local functions with
-Pyking's closure semantics, and a lambda would need a functional-interface
-type this backend does not infer, plus mutable capture Java's lambdas do
-not allow.
-
-The generated file is named, and its class is named, in Java's own style:
-`foo_bar.pyk` compiles by default to `FooBar.java`, holding
-`public final class FooBar`, because Java requires the two to match
-exactly (`default_class_name`; `src/pyk.py` derives the class name
-from an explicit `--output` instead, when one is given). Top-level Pyking
-statements become the body of `public static void main`; `def`s become
-`private static` methods.
+Functions:
+    translate_program(stmts, version) -- translates a whole program to
+        JProgram.
+    default_class_name(stem) -- the Java class name for a source stem.
+    pprint_j_program(program, version, class_name) -- JProgram to Java
+        source text.
 """
 
 import re
@@ -76,12 +39,9 @@ from syntax import (
 
 VERSIONS = ("java8", "java17", "java21")
 
-# What each version's printer may use. `var_locals` gates local-variable
-# type inference (JEP 286, Java 10 -- absent from java8, present from
-# java17 on); `release` is the `--release` value the compile-with comment
-# suggests. The subset this backend accepts never exercises a feature
-# that distinguishes java17 from java21 (see the module docstring), so
-# the two rows agree beyond `release`.
+# What each version's printer may use (docs/target_java.md, "The three
+# targets"). var_locals gates JEP 286 local-variable type inference;
+# release is the --release value the compile-with comment suggests.
 _FEATURES = {
     "java8": {"release": "8", "var_locals": False},
     "java17": {"release": "17", "var_locals": True},
@@ -99,10 +59,9 @@ class UnsupportedError(Exception):
         self.message = message
 
 
-# What each unsupported construct is called in an error message, so a
-# message names what the programmer wrote rather than the node the parser
-# built for it. Shared with `target_c.py`'s list; kept as its own copy so
-# this backend depends on `syntax.py` alone, the way each backend does.
+# What each unsupported construct is called in an error message. Its
+# own copy of target_c.py's list, so this backend depends on syntax.py
+# alone.
 _CONSTRUCT_NAMES = {
     "EList": "list literals",
     "ETuple": "tuples",
@@ -114,25 +73,20 @@ _CONSTRUCT_NAMES = {
 
 
 def _unsupported(node, message):
+    """Raises UnsupportedError at node, naming message (a construct or
+    an AST class name) via _CONSTRUCT_NAMES. Expr|Stmt -> String -> ()"""
     raise UnsupportedError(node.info, _CONSTRUCT_NAMES.get(message, message))
 
 
 # --- types ---
 #
-# The three kinds of value a Pyking program in this subset can hold, kept
-# as their own names (rather than the Java spelling) since a boolean's
-# spelling never varies here the way it does in `target_c.py` -- Java has
-# had `boolean`/`true`/`false` since 1.0.
+# The three kinds of value a Pyking program in this subset can hold.
 
 INT = "Int"
 BOOL = "Bool"
 STRING = "String"
 
-# Pyking's unit type `()`. A function that produces no value has this as
-# its return type -- `print` yields unit, and so does a body whose tail is
-# a loop or a binding -- and Java spells that `void`. Without it such a
-# function would be typed `int` and rejected by the definitely-returns
-# check below, even though it is perfectly well-formed Pyking.
+# Pyking's unit type (), spelled void in Java.
 UNIT = "Unit"
 
 _JAVA_TYPES = {INT: "int", BOOL: "boolean", STRING: "String", UNIT: "void"}
@@ -298,47 +252,48 @@ class JFunc:                # <ret> name(params) { body }
 
 @dataclass(frozen=True)
 class JProgram:
-    """A translated program: the methods, and the statements that become
-    the body of `main`. Unlike `target_c.py`'s `CProgram`, there is
-    nothing to record about which runtime helpers were used -- string
-    concatenation and equality are Java operators/methods, not generated
-    helpers, and `System.out.println` needs no import."""
+    """A translated program. Fields: functions, [JFunc]; main_body,
+    [JStmt]."""
     functions: list
     main_body: list
 
 
 # --- scope ---
 #
-# Java blocks are lexical scopes, as Pyking's are, so shadowing across
-# blocks needs no help. Rebinding does: Java has no way to declare one
-# local twice in a block, and Pyking's `x = 1` then `x = 2` is two
-# bindings -- which is convenient here, because the second may hold a
-# different *type*, and two Java locals is exactly what that needs.
+# Java blocks are lexical scopes, as Pyking's are. Rebinding gets a fresh
+# local, since Java cannot declare one name twice in a block and a
+# rebinding may hold a different type.
 
 
 @dataclass(frozen=True)
 class Scope:
-    # `outside` is what is in scope in the Pyking program but *not*
-    # reachable from here -- the bindings around a function, which this
-    # backend's functions cannot see. Kept so that reading one can say
-    # why rather than claiming the name does not exist.
+    """The names in scope during translation. Fields: outside, {String}
+    (bound in the Pyking program but not reachable here -- this
+    backend's methods have no closures); names, {String: (String,
+    String)} (Pyking name -> (Java name, jtype)); block, {String} (names
+    bound by the innermost block)."""
     outside: frozenset
-    names: dict              # Pyking name -> (Java name, type)
+    names: dict
     block: frozenset
 
 
 def _block_scope(scope):
+    """The scope for a nested block: sees outside and names; drops
+    block. Scope -> Scope"""
     return Scope(scope.outside, scope.names, frozenset())
 
 
 @dataclass(frozen=True)
 class _At:
-    """Carries an `Info` for `_unsupported` when the offending thing is a
+    """Carries an Info for _unsupported when the offending thing is a
     name rather than a node."""
     info: Info
 
 
 def _lookup(name, scope, info):
+    """The (Java name, jtype) a Pyking name reads as; raises
+    UnsupportedError for a name out of this method's reach or with no
+    Java representation. String -> Scope -> Info -> (String, String)"""
     if name not in scope.names:
         if name in scope.outside:
             _unsupported(
@@ -352,12 +307,9 @@ def _lookup(name, scope, info):
     return scope.names[name]
 
 
-# Names that are legal Pyking identifiers but reserved words in Java, so
-# a program with `def static(n):` would otherwise compile to code that
-# will not parse. Covers the keywords (including the reserved-but-unused
-# `const`/`goto`), the literals, and the few names generated code leans
-# on -- `String`, `System`, `args` and `main` are not keywords, but a
-# Pyking function shadowing one would break the file just as thoroughly.
+# Legal Pyking identifiers that are reserved in Java (keywords, literals,
+# and the names generated code leans on). See docs/target_java.md,
+# "Names that are keywords in Java".
 RESERVED = frozenset("""
 abstract assert boolean break byte case catch char class const continue
 default do double else enum extends final finally float for goto if
@@ -370,6 +322,8 @@ String System Object Integer Boolean Math args main
 
 
 def _fresh_java_name(name, scope):
+    """name2, name3, ... -- the first not already used. String -> Scope
+    -> String"""
     taken = set(scope.names) | {java_name for java_name, _ in scope.names.values()}
     n = 2
     while f"{name}{n}" in taken or f"{name}{n}" in RESERVED:
@@ -378,6 +332,8 @@ def _fresh_java_name(name, scope):
 
 
 def _bind(name, jtype, scope):
+    """Binds a Pyking name at jtype, returning (java_name,
+    extended_scope). String -> String -> Scope -> (String, Scope)"""
     java_name = name
     if (
         name in RESERVED
@@ -401,33 +357,34 @@ _BINARY_OPS = {
 
 
 class _Translator:
-    """Holds what the walk accumulates: every function's signature, so a
-    later call (including a recursive one) can be checked and typed."""
+    """Accumulates what the whole-program walk needs across functions:
+    signatures, which have been defined. Fields: signatures, {String:
+    (String, [String], String)} (Pyking name -> (Java name, param
+    jtypes, return jtype)); declared, {String: String} (Pyking name ->
+    Java name, from the declaration pass); defined, {String} (functions
+    whose body has been translated); called_early, {String} (functions
+    called before that)."""
 
     def __init__(self):
-        self.signatures = {}    # Pyking name -> (Java name, [param types], return type)
-        self.declared = {}      # Pyking name -> Java name, from the declaration pass
-        self.defined = set()    # functions whose body has been translated
-        self.called_early = set()   # ... and those called before that happened
+        self.signatures = {}
+        self.declared = {}
+        self.defined = set()
+        self.called_early = set()
 
     # -- expressions --
 
     def is_function_value(self, name, scope):
-        """Whether `name` here means a `def` itself rather than a value.
-
-        A function's name is bound in the scope as well as in
-        `signatures`, so the two are compared: if what the name resolves
-        to is the function's own generated name, this *is* the function;
-        if a parameter or binding has shadowed it, it is not."""
+        """Whether name here means a def itself rather than a value.
+        String -> Scope -> Bool"""
         if name not in self.signatures:
             return False
         bound = scope.names.get(name)
         return bound is None or bound[0] == self.signatures[name][0]
 
     def expr(self, e, scope, allow_unit=False):
-        """`allow_unit` permits a call to a unit-returning (`void`)
-        method, which is meaningful only as an expression statement --
-        everywhere else there is no value to use."""
+        """Translates one expression. allow_unit permits a call to a
+        void method, meaningful only as an expression statement.
+        Expr -> Scope -> Bool -> JExpr"""
         match e:
             case EInt(info, v):
                 return JInt(info, v)
@@ -436,12 +393,8 @@ class _Translator:
             case EBool(info, v):
                 return JBool(info, v)
             case EVar(info, name) if self.is_function_value(name, scope):
-                # A `def`'s own name, used as a value rather than called.
-                # Emitting it would produce something that does not
-                # compile -- a bare method name in Java, a function
-                # pointer assigned to an `int` in C -- so it is refused
-                # here with a position, like every other construct this
-                # backend cannot represent.
+                # A def's own name used as a value (docs/target_java.md,
+                # "A function used as a value").
                 _unsupported(
                     _At(info),
                     f"`{name}` is a function used as a value -- "
@@ -455,6 +408,7 @@ class _Translator:
                 self._require(inner, INT, "negation")
                 return JUnary(info, "-", inner, INT)
             case EDiv(info, _, _):
+                # docs/target_java.md, "/".
                 _unsupported(
                     e,
                     "`/` is true division in Pyking and truncating integer "
@@ -464,8 +418,6 @@ class _Translator:
             case EAdd(info, l, r):
                 left, right = self.expr(l, scope), self.expr(r, scope)
                 if left.ctype == STRING and right.ctype == STRING:
-                    # Java's `+` already means concatenation once either
-                    # side is a String -- no helper needed, unlike C.
                     return JBinary(info, "+", left, right, STRING)
                 self._require(left, INT, "`+`")
                 self._require(right, INT, "`+`")
@@ -496,17 +448,11 @@ class _Translator:
                 if name not in self.signatures:
                     _unsupported(e, f"call to unknown function `{name}`")
                 if name not in self.defined:
-                    # Typed from the signature registered ahead of the
-                    # body; `function` checks that guess when the body
-                    # arrives.
                     self.called_early.add(name)
                 java_name, param_types, ret = self.signatures[name]
                 if len(args) != len(param_types):
                     _unsupported(e, f"`{name}` takes {len(param_types)} argument(s)")
                 if ret == UNIT and not allow_unit:
-                    # A `void` call has no value to use. Only an
-                    # expression *statement* may call one, which is what
-                    # `allow_unit` marks.
                     _unsupported(
                         e,
                         f"`{name}` produces no value (it returns unit), so it "
@@ -529,6 +475,8 @@ class _Translator:
                 _unsupported(e, type(e).__name__)
 
     def _require(self, node, ctype, what):
+        """Raises UnsupportedError if node's ctype is not ctype. JExpr ->
+        String -> String -> ()"""
         if node.ctype != ctype:
             _unsupported(
                 _At(node.info),
@@ -538,6 +486,10 @@ class _Translator:
     # -- statements --
 
     def stmts(self, stmts, scope):
+        """Translates a statement sequence, threading the scope through
+        it; raises UnsupportedError for code after an unconditional
+        return (docs/target_java.md, "Unreachable code after a
+        return"). [Stmt] -> Scope -> ([JStmt], Scope)"""
         out = []
         for s in stmts:
             translated, scope = self.stmt(s, scope)
@@ -546,11 +498,9 @@ class _Translator:
         return out, scope
 
     def tail_stmts(self, stmts, scope):
-        """Translates a statement list whose last statement is in **tail
-        position** -- a function body, or a branch of one that is itself
-        in tail position -- so the value it produces becomes the
-        method's return value. Mirrors `_translate_tail_block` in
-        `target_python.py`; see PYKING.md's "Tail position"."""
+        """Translates a statement list whose last statement is in tail
+        position (PYKING.md, "Tail position"). [Stmt] -> Scope ->
+        [JStmt]"""
         if not stmts:
             return []
         body, tail_scope = self.stmts(stmts[:-1], scope)
@@ -558,10 +508,7 @@ class _Translator:
 
     def tail_stmt(self, s, scope):
         """The last statement of a body in tail position, as a list of
-        Java statements: an expression becomes the returned value, an
-        `if` pushes the rule into its branches, and anything else -- a
-        loop, a binding, a `print` (which yields unit) -- translates
-        normally."""
+        Java statements. Stmt -> Scope -> [JStmt]"""
         match s:
             case SExprStmt(_, ECall(_, EVar(_, name), _)) if (
                 runtime_interface.lookup(name) is not None
@@ -585,10 +532,14 @@ class _Translator:
                 return [translated]
 
     def block(self, stmts, scope):
+        """Translates a nested block; its bindings do not escape.
+        [Stmt] -> Scope -> [JStmt]"""
         translated, _ = self.stmts(stmts, _block_scope(scope))
         return translated
 
     def stmt(self, s, scope):
+        """Translates one statement, returning it with the scope it
+        leaves behind. Stmt -> Scope -> (JStmt, Scope)"""
         match s:
             case SLet(info, TargetName(_, name), expr):
                 value = self.expr(expr, scope)
@@ -615,9 +566,6 @@ class _Translator:
                 return JAssign(info, java_name, value), scope
 
             case SReturnStmt(_, stmt):
-                # `return if c:` -- the same push-down as a tail-position
-                # `if`, written explicitly so it also works before the
-                # end of the body.
                 return self.tail_stmt(stmt, scope)[0], scope
 
             case SReturn(info, expr):
@@ -630,15 +578,8 @@ class _Translator:
                 return JPrint(info, _build_print_expr(translated_args)), scope
 
             case SExprStmt(info, expr):
-                # Java is stricter than Pyking about what may stand as a
-                # statement: a method call may, `i + 1;` may not ("not a
-                # statement"). A Pyking expression statement discards its
-                # value, so one that calls nothing has no effect at all
-                # and is simply not emitted; one that *is* a call is a
-                # legal Java statement; anything in between -- a call
-                # buried in an expression, `f(1) + 2` -- has an effect
-                # Java cannot express in statement position, and is
-                # refused rather than dropped.
+                # docs/target_java.md, "An expression statement that is
+                # not a call".
                 match expr:
                     case ECall():
                         return (
@@ -680,18 +621,11 @@ class _Translator:
     # -- functions --
 
     def declare_functions(self, stmts, scope):
-        """Registers every top-level `def`'s signature before any body is
-        translated, so a call may name a function written further down --
-        forward references and mutual recursion (see PYKING.md, "Names
-        and scoping"). Java itself does not care about order: these are
-        static methods of one class, so nothing has to be emitted ahead
-        of anything else, unlike C.
-
-        The return type registered here is *provisional* -- the
-        annotation, or `Int` for an unannotated function, since only its
-        translated body can say otherwise. `function` checks that
-        assumption once the body is in, which is why calls made before
-        that point are remembered in `called_early`."""
+        """Registers every top-level def's signature (return type
+        provisional: its annotation, or Int) before any body is
+        translated, enabling forward references and mutual recursion
+        (docs/target_java.md, "Forward references and mutual
+        recursion"). [Stmt] -> Scope -> Scope"""
         for s in stmts:
             if isinstance(s, SFunctionDef):
                 java_name, scope = _bind(s.name, INT, scope)
@@ -704,9 +638,8 @@ class _Translator:
         return scope
 
     def function(self, func, scope):
-        """Translates a `def`. Its signature is already registered (see
-        `declare_functions`), which is what lets the body call itself,
-        its siblings, and functions defined below it."""
+        """Translates a def; its signature is already registered
+        (declare_functions). SFunctionDef -> Scope -> (JFunc, Scope)"""
         param_types = [_param_type(func, p) for p in func.params]
         if func.name in self.declared:
             java_name = self.declared[func.name]
@@ -715,11 +648,8 @@ class _Translator:
         provisional = _annotated_type(func.return_type) or INT
         self.signatures[func.name] = (java_name, param_types, provisional)
 
-        # A function body starts from *nothing*: its parameters bind
-        # into it below, and other functions are reached through
-        # `self.signatures`. What it cannot see is the bindings around
-        # it -- there are no closures here -- and `outside` remembers
-        # those names so reading one says why (see `_lookup`).
+        # A function body starts from nothing but its own parameters; no
+        # closures, so outside remembers what it cannot see (_lookup).
         body_scope = Scope(frozenset(scope.names), {}, frozenset())
         params = []
         for param, jtype in zip(func.params, param_types):
@@ -730,17 +660,11 @@ class _Translator:
             value = self.expr(func.expr, body_scope)
             body = [JReturn(value.info, value)]
         else:
-            # The body's last statement is in tail position: whatever
-            # value it produces is the function's result.
             body = self.tail_stmts(func.body, body_scope)
 
         returned = _return_types(body)
         recursive = _calls(body, java_name)
         if len(returned) > 1 or (returned and returned != {provisional} and recursive):
-            # A recursive call was typed with the provisional return type
-            # before the body could say otherwise, so disagreement here is
-            # usually that assumption rather than a genuinely mixed
-            # function -- say which, since the fix differs.
             if recursive:
                 _unsupported(
                     func,
@@ -749,8 +673,6 @@ class _Translator:
                     "annotated, so annotate it (`-> String`, `-> Bool`)",
                 )
             _unsupported(func, "a function returning more than one type")
-        # No `return` anywhere means the function produces no value:
-        # that is unit, i.e. `void`, not the provisional `Int`.
         actual = returned.pop() if returned else UNIT
         self.signatures[func.name] = (java_name, param_types, actual)
         if func.name in self.called_early and actual != provisional:
@@ -776,8 +698,7 @@ class _Translator:
 
 
 def _contains_call(e):
-    """Whether an expression performs a call anywhere inside it -- which
-    is what decides whether dropping it would lose an effect."""
+    """Whether e performs a call anywhere inside it. Expr -> Bool"""
     if isinstance(e, ECall):
         return True
     return any(
@@ -788,6 +709,8 @@ def _contains_call(e):
 
 
 def _children(value):
+    """The Expr nodes directly in value (itself, or its list elements).
+    Expr|[Expr]|Any -> [Expr]"""
     if isinstance(value, Expr):
         return [value]
     if isinstance(value, list):
@@ -796,8 +719,10 @@ def _children(value):
 
 
 def _param_type(func, param):
-    """A parameter's type: its annotation when Java can represent it, else
-    what the body's use of it suggests, else `Int`."""
+    """A parameter's type: its annotation when Java can represent it,
+    else what the body's use of it suggests, else Int
+    (docs/target_java.md, "How types are inferred"). SFunctionDef ->
+    Param -> String"""
     annotated = _annotated_type(param.type)
     if annotated is not None:
         return annotated
@@ -841,10 +766,13 @@ def _walk_java(node):
 
 
 def _return_types(body):
+    """Every jtype returned anywhere in body. [JStmt] -> {String}"""
     return {n.expr.ctype for n in _walk_java(body) if isinstance(n, JReturn)}
 
 
 def _calls(body, java_name):
+    """Whether body calls the Java method named java_name. [JStmt] ->
+    String -> Bool"""
     return any(
         isinstance(n, JCall) and n.name == java_name for n in _walk_java(body)
     )
@@ -852,19 +780,14 @@ def _calls(body, java_name):
 
 # --- definite return / reachability ---
 #
-# C only warns when control can fall off the end of a non-void function;
-# `javac` refuses to compile it, and refuses code after a statement that
-# always returns too. Both checks are conservative by construction: they
-# recognise exactly the shapes this backend emits (an unconditional
-# `return`, or an `if`/`else` whose *both* arms definitely return), which
-# is a subset of what `javac`'s own flow analysis accepts -- so anything
-# this backend calls "definitely returns" really does, even though it
-# will reject some programs `javac` could technically prove return too
-# (a `while` loop that can never fall through, for instance -- unreachable
-# here anyway, since Pyking has no boolean literal to spell `while true:`
-# with).
+# Conservative by construction (docs/target_java.md, "A function that
+# does not return on every path"): recognises an unconditional return,
+# or an if/else whose both arms definitely return, a subset of what
+# javac's own flow analysis accepts.
 
 def _stmt_definitely_returns(s):
+    """Whether s, as the last statement of a block, guarantees a return.
+    Stmt -> Bool"""
     match s:
         case JReturn():
             return True
@@ -875,10 +798,13 @@ def _stmt_definitely_returns(s):
 
 
 def _definitely_returns(stmts):
+    """Whether stmts guarantees a return on every path. [JStmt] -> Bool"""
     return bool(stmts) and _stmt_definitely_returns(stmts[-1])
 
 
 def _check_reachable(stmts):
+    """Raises UnsupportedError at the first statement after one that
+    definitely returns. [JStmt] -> ()"""
     for i, s in enumerate(stmts[:-1]):
         if _stmt_definitely_returns(s):
             _unsupported(
@@ -890,13 +816,9 @@ def _check_reachable(stmts):
 
 
 def _build_print_expr(args):
-    """One `JExpr` computing the line `print(args...)` writes: each
-    argument joined with single spaces via Java's `+`, which already means
-    string concatenation once either side is a `String` -- and Java's own
-    boolean-to-string conversion already spells `true`/`false`, exactly
-    matching Pyking's, so a boolean argument needs no special handling
-    (unlike `target_c.py`, where the two standards disagree with Pyking
-    and with each other). `None` for no arguments at all."""
+    """One JExpr computing the line print(args...) writes, joined with
+    single spaces via Java's own +; None for no arguments. [JExpr] ->
+    JExpr?"""
     if not args:
         return None
     result = args[0]
@@ -907,7 +829,7 @@ def _build_print_expr(args):
 
 
 def translate_program(stmts):
-    """External entry point: a whole Pyking program as a `JProgram`."""
+    """A whole Pyking program as a JProgram. [Stmt] -> JProgram"""
     translator = _Translator()
     scope = Scope(frozenset(), {}, frozenset())
     scope = translator.declare_functions(stmts, scope)
@@ -926,23 +848,16 @@ def translate_program(stmts):
 
 # --- naming the class/file ---
 #
-# Java requires the public class in a file to share that file's name
-# exactly, so the compiler cannot simply reuse the source's own stem the
-# way the other targets do (see `src/pyk.py`): `foo_bar.pyk` must
-# become `FooBar.java`, class `FooBar`, not `foo_bar.java`. Only the
-# *default* name goes through this conversion; an explicit `--output`
-# path is trusted as-is, and its class name is just that file's stem.
+# Only the default name goes through this conversion; an explicit
+# --output path is trusted as-is. See docs/target_java.md, "Naming the
+# class".
 
 _WORD_RE = re.compile(r"[A-Za-z0-9]+")
 
 
 def default_class_name(stem):
-    """The Java class (and file) name picked when nothing else says one:
-    words split on anything that is not a letter or digit, each
-    capitalised and run together -- `foo_bar` -> `FooBar`, `test1` ->
-    `Test1`. Falls back to `Program` if the stem has no such word, and
-    prefixes an underscore if the result would start with a digit (not a
-    legal Java identifier otherwise)."""
+    """The Java class (and file) name picked when nothing else says one,
+    e.g. foo_bar -> FooBar. String -> String"""
     words = _WORD_RE.findall(stem)
     name = "".join(word[:1].upper() + word[1:] for word in words)
     if not name:
@@ -968,14 +883,18 @@ _ESCAPES = {"\\": "\\\\", '"': '\\"', "\n": "\\n", "\t": "\\t", "\r": "\\r"}
 
 
 def _quote(s):
+    """s as a double-quoted Java string literal. String -> String"""
     return '"' + "".join(_ESCAPES.get(ch, ch) for ch in s) + '"'
 
 
 def _wrap(prec, min_prec, text):
+    """text, parenthesized if prec is below min_prec. Int -> Int ->
+    String -> String"""
     return f"({text})" if prec < min_prec else text
 
 
 def pprint_java_expr(e, version, min_prec=0):
+    """e as Java source text. JExpr -> String -> Int -> String"""
     match e:
         case JInt(_, v, _):
             return str(v)
@@ -1016,15 +935,16 @@ def pprint_java_expr(e, version, min_prec=0):
 
 
 def _local_type(jtype, version):
-    """The keyword a local declaration uses for its type: `var` from
-    java17 on, the spelled-out type in java8, which predates local-
-    variable type inference."""
+    """The keyword a local declaration uses for its type: var from
+    java17 on, else jtype's Java spelling. String -> String -> String"""
     if _FEATURES[version]["var_locals"]:
         return "var"
     return _JAVA_TYPES[jtype]
 
 
 def pprint_java_stmt(s, version, level=1):
+    """s as Java source text, indented to level. JStmt -> String -> Int
+    -> String"""
     pad = "    " * level
     match s:
         case JDecl(_, jtype, name, init, is_final):
@@ -1034,11 +954,8 @@ def pprint_java_stmt(s, version, level=1):
         case JAssign(_, name, expr):
             return f"{pad}{name} = {pprint_java_expr(expr, version)};"
         case JNoEffect(_, source):
-            # Pyking allows any expression to stand as a statement, and
-            # discards its value; Java allows only a call, an assignment
-            # or an increment. One that calls nothing has no effect to
-            # keep, so it is left as a comment rather than emitted as
-            # code javac would refuse.
+            # docs/target_java.md, "An expression statement that is not
+            # a call".
             return f"{pad}// {source};   (no effect: value discarded)"
         case JExprStmt(_, expr):
             return f"{pad}{pprint_java_expr(expr, version)};"
@@ -1079,10 +996,14 @@ def pprint_java_stmt(s, version, level=1):
 
 
 def _emit_block(stmts, version, level):
+    """A block's statements, indented to level. [JStmt] -> String -> Int
+    -> String"""
     return "\n".join(pprint_java_stmt(s, version, level) for s in stmts)
 
 
 def _pprint_method(func, version, level=1):
+    """func as a private static method. JFunc -> String -> Int ->
+    String"""
     pad = "    " * level
     ret = _JAVA_TYPES[func.ret_type]
     params = ", ".join(
@@ -1096,6 +1017,8 @@ def _pprint_method(func, version, level=1):
 
 
 def _pprint_main(main_body, version, level=1):
+    """main_body as the public static void main method. [JStmt] ->
+    String -> Int -> String"""
     pad = "    " * level
     return "\n".join([
         f"{pad}public static void main(String[] args) {{",
@@ -1105,9 +1028,9 @@ def _pprint_main(main_body, version, level=1):
 
 
 def pprint_java_program(program, version, class_name, source="a Pyking program"):
-    """The whole compilation unit: the header comment, the class holding
-    every translated function as a `private static` method, and `main`
-    holding the top-level statements."""
+    """The whole compilation unit: the class holding every function as a
+    private static method, and main. JProgram -> String -> String ->
+    String -> String"""
     if version not in VERSIONS:
         raise NotImplementedError(f"unknown Java version {version!r}")
     release = _FEATURES[version]["release"]

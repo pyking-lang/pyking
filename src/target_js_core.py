@@ -1,24 +1,24 @@
 """The JavaScript code-generation core: a JS AST, a translation from
-`src/syntax.py` into it, and a printer.
+syntax.py, and a printer. Knows nothing about packaging (node script, ES
+module, or HTML page): that is src/target_js_packaging.py's job. See
+docs/target_js.md for how each construct compiles and where the output
+is not optimal.
 
-This module knows nothing about *packaging* -- whether the result ends up
-as a node script, an ES module, or an HTML page is decided entirely by
-`src/target_js_packaging.py`. What it does know is that some calls cross
-the runtime interface (`src/runtime_interface.py`): those become
-`JsRuntimeCall`, and the packager says what expression each one is
-spelled as (`print`, or `runtime.print`, ...).
+Data structures:
+    UnsupportedError -- a construct this backend cannot compile, with
+        the source position.
+    JsExpr / JsStmt -- base classes for the JavaScript AST; see the
+        trailing comment on each variant for its shape.
+    Scope -- Pyking name -> JavaScript name, threaded through
+        translation.
 
-JavaScript is a closer fit for Pyking than Python is, and the translation
-leans on that rather than working around it:
-
-  - `const` is an immutable binding and `let` a mutable variable, so
-    Pyking's `=` and `var` map straight onto them, and `:=` onto ordinary
-    assignment -- a distinction the Python backend has to erase;
-  - `{ }` blocks are scopes, exactly as Pyking's blocks are.
-
-Only a subset of Pyking is supported so far (see docs/architecture.md);
-anything outside it raises `UnsupportedError`, which carries a source
-position so the driver can report it like any other compile error.
+Functions:
+    translate_program(stmts) -- translates a whole program to [JsStmt].
+    translate_expr(e, scope) -- translates one expression.
+    translate_stmt(s, scope) -- translates one statement; returns
+        (JsStmt, Scope).
+    pprint_js_program(stmts, runtime) -- [JsStmt] to JavaScript source
+        text; runtime maps each runtime operation to its call spelling.
 """
 
 from dataclasses import dataclass
@@ -184,15 +184,8 @@ class JsReturn(JsStmt):     # return expr;
 
 # --- scope ---
 #
-# JavaScript's `{ }` blocks are lexical scopes, so Pyking's blocks map
-# onto them directly and shadowing across blocks needs no help. Two
-# JavaScript rules still force a rename, and both are about `const`:
-# redeclaring one in the same block is a syntax error, and a `const`
-# shadowing an outer name makes that name unreadable *anywhere earlier in
-# the block* (the temporal dead zone), so `x = 1` then a block containing
-# `print(x)` before its own `x = 2` would throw rather than read the outer
-# one. Renaming whenever a name is already in scope keeps both away, and
-# the new name stays close to the old: `total`, then `total2`, `total3`.
+# Renames only where JavaScript's own const rules force it (redeclaration,
+# the temporal dead zone); see docs/target_js.md, "Scope and renaming".
 
 
 @dataclass(frozen=True)
@@ -216,14 +209,8 @@ def _lookup(name, scope):
     return scope.names.get(name, name)
 
 
-# Names that are legal Pyking identifiers but reserved words in
-# JavaScript, so a program with `def class(n):` would otherwise compile
-# to code that will not parse. Covers ES2015+ reserved words, the
-# strict-mode-only ones (generated code is `const`/`let` throughout, so
-# it is effectively strict), the literals, and the handful of globals a
-# generated file relies on -- shadowing `undefined` or `console` would
-# break the prelude rather than the program's own syntax, which is
-# harder to spot.
+# Legal Pyking identifiers that are reserved words in JavaScript (see
+# docs/target_js.md, "Names that are keywords in JavaScript").
 RESERVED = frozenset("""
 await break case catch class const continue debugger default delete do
 else enum export extends false finally for function if implements import
@@ -254,12 +241,8 @@ def _bind(name, scope):
     return js_name, Scope({**scope.names, name: js_name}, scope.block | {name})
 
 
-# The builtins this backend has no translation for. `print` is the one
-# that does have one, through `runtime_interface`; these three would need
-# a Pyking list type and a `str` whose output matches every other
-# target's, neither of which exists here yet. Listed rather than inferred
-# so that adding a builtin to `analyses.BUILTINS` without translating it
-# fails loudly here rather than at the user's runtime.
+# Builtins this backend has no translation for yet (docs/target_js.md,
+# "str, range and len").
 UNSUPPORTED_BUILTINS = ("str", "range", "len")
 
 
@@ -295,6 +278,8 @@ _CONSTRUCT_NAMES = {
 
 
 def _unsupported(node, what):
+    """Raises UnsupportedError naming what (a construct or an AST class
+    name) at node. Expr|Stmt -> String -> ()"""
     name = _CONSTRUCT_NAMES.get(what, what)
     raise UnsupportedError(
         node.info, f"{name} are not supported by the JavaScript backends yet"
@@ -302,6 +287,8 @@ def _unsupported(node, what):
 
 
 def translate_expr(e, scope):
+    """Translates one expression. Raises UnsupportedError for a
+    construct outside this backend's subset. Expr -> Scope -> JsExpr"""
     match e:
         case EInt(info, v):
             return JsNum(info, v)
@@ -330,15 +317,6 @@ def translate_expr(e, scope):
         case ECall(info, EVar(_, name), _) if (
             name in UNSUPPORTED_BUILTINS and _lookup(name, scope) == name
         ):
-            # `str`, `range` and `len` are Pyking builtins with no
-            # JavaScript spelling: `String(x)` is not Pyking's `str`, and
-            # a Pyking list is not a JavaScript array here. Emitting the
-            # call would produce a file that loads and then dies with
-            # `str is not defined` at the moment it runs -- so it is
-            # refused at compile time with a position, the way every
-            # other construct outside this subset is. A program that
-            # binds one of these names itself is naming its own function,
-            # and passes through.
             _unsupported(e, f"the builtin `{name}` is not supported yet")
         case ECall(info, func, args):
             return JsCall(
@@ -369,11 +347,9 @@ def _yields_unit(expr):
 
 
 def translate_tail_stmts(stmts, scope):
-    """Translates a statement list whose last statement is in **tail
-    position** -- a function body, or a branch of one that is itself in
-    tail position -- so that the value it produces becomes the
-    function's return value. Mirrors `_translate_tail_block` in
-    `target_python.py`; see PYKING.md's "Tail position"."""
+    """Translates a statement list whose last statement is in tail
+    position (PYKING.md, "Tail position"; docs/target_js.md, "Tail
+    position"). [Stmt] -> Scope -> [JsStmt]"""
     if not stmts:
         return []
     # The whole block, last statement included: a `def` in tail position
@@ -385,8 +361,7 @@ def translate_tail_stmts(stmts, scope):
 
 def translate_tail_stmt(s, scope):
     """The last statement of a body in tail position, as a list of JS
-    statements: an expression becomes the return value, an `if` pushes
-    the rule into its branches, anything else translates normally."""
+    statements. Stmt -> Scope -> [JsStmt]"""
     match s:
         case SExprStmt(_, expr) if _yields_unit(expr):
             translated, _ = translate_stmt(s, scope)
@@ -408,8 +383,7 @@ def translate_tail_stmt(s, scope):
 
 def translate_stmt(s, scope):
     """Translates one statement, returning it with the scope it leaves
-    behind, so a sequence accumulates bindings and any rename is visible
-    to what follows."""
+    behind. Stmt -> Scope -> (JsStmt, Scope)"""
     match s:
         case SLet(info, TargetName(_, name), expr):
             js_expr = translate_expr(expr, scope)
@@ -453,14 +427,8 @@ def translate_stmt(s, scope):
             return JsIf(info, translate_expr(cond, scope), js_then, js_else), scope
 
         case SFunctionDef(info, name, params, body, _return_type, expr):
-            # Type annotations are erased, as in the Python backend. The
-            # single-expression form `def f(x) = e` becomes a body of one
-            # `return`, the same desugaring both other backends use.
-            #
-            # The name was bound when the block was declared (see
-            # `declare_functions`), so it is read back rather than bound
-            # again: binding twice would rename twice, and the callers
-            # already written above this `def` say the first name.
+            # The name was bound by declare_functions; read it back
+            # rather than binding again, which would rename it twice.
             js_name = _lookup(name, scope)
             body_scope = _block_scope(scope)
             param_names = []
@@ -471,8 +439,6 @@ def translate_stmt(s, scope):
                 js_expr = translate_expr(expr, body_scope)
                 js_body = [JsReturn(js_expr.info, js_expr)]
             else:
-                # The body's last statement is in tail position: whatever
-                # it produces is the function's result.
                 js_body = translate_tail_stmts(body, body_scope)
             return JsFunc(info, js_name, param_names, js_body), scope
 
@@ -481,16 +447,9 @@ def translate_stmt(s, scope):
 
 
 def declare_functions(stmts, scope):
-    """Binds every `def` in this block before any of the block is
-    translated, mirroring `declare_functions` in `src/typesystem.py` and
-    `_declare_functions` in `target_python.py`.
-
-    JavaScript hoists a function declaration by itself, so a forward
-    reference *runs*; what needs doing here is the renaming. A nested
-    `def` whose name is already taken in an enclosing scope compiles to
-    `other2`, and a call written above it must say `other2` too --
-    otherwise `_lookup` falls through to the enclosing name, and the
-    generated code calls whatever that happens to be."""
+    """Binds every def in this block before any of it is translated
+    (docs/target_js.md, "Functions used before they are written").
+    [Stmt] -> Scope -> Scope"""
     for s in stmts:
         if isinstance(s, SFunctionDef) and s.name not in scope.block:
             _, scope = _bind(s.name, scope)
@@ -508,8 +467,8 @@ def translate_stmts(stmts, scope):
 
 
 def translate_program(stmts):
-    """External entry point: a whole Pyking program as JavaScript
-    statements, ready for a packager to wrap."""
+    """A whole Pyking program as JavaScript statements, ready for a
+    packager to wrap. [Stmt] -> [JsStmt]"""
     translated, _ = translate_stmts(stmts, Scope({}, frozenset()))
     return translated
 
@@ -533,16 +492,20 @@ _ESCAPES = {"\\": "\\\\", "'": "\\'", "\n": "\\n", "\t": "\\t", "\r": "\\r"}
 
 
 def _quote(s):
+    """s as a single-quoted JavaScript string literal. String -> String"""
     return "'" + "".join(_ESCAPES.get(ch, ch) for ch in s) + "'"
 
 
 def _wrap(prec, min_prec, text):
+    """text, parenthesized if prec is below min_prec. Int -> Int ->
+    String -> String"""
     return f"({text})" if prec < min_prec else text
 
 
 def pprint_js_expr(e, runtime, min_prec=0):
-    """`runtime` maps each runtime operation to the JavaScript expression
-    that performs it -- see `src/target_js_packaging.py`."""
+    """e as JavaScript source text. runtime maps each runtime operation
+    to the JavaScript expression that performs it. JsExpr -> {String:
+    String} -> Int -> String"""
     match e:
         case JsNum(_, v):
             return str(v)
@@ -581,11 +544,9 @@ def pprint_js_expr(e, runtime, min_prec=0):
 
 
 def _join_stmts(stmts, runtime, level):
-    """Joins a statement sequence, setting every function definition off
-    with a blank line before and after it -- the spacing a JavaScript
-    programmer would write, and the one thing a run of `const`s and calls
-    does not need. Never at the start or end of a block, where a blank
-    line would only pad the braces."""
+    """Renders a statement list as one string, with a blank line around
+    each function definition (never at the block's own start or end).
+    [JsStmt] -> {String: String} -> Int -> String"""
     lines = []
     for index, stmt in enumerate(stmts):
         set_off = isinstance(stmt, JsFunc) or (
@@ -598,6 +559,8 @@ def _join_stmts(stmts, runtime, level):
 
 
 def pprint_js_stmt(s, runtime, level=0):
+    """s as JavaScript source text, indented to level. JsStmt -> {String:
+    String} -> Int -> String"""
     pad = "  " * level
     match s:
         case JsConst(_, name, expr):
@@ -644,4 +607,6 @@ def pprint_js_stmt(s, runtime, level=0):
 
 
 def pprint_js_program(stmts, runtime, level=0):
+    """stmts as JavaScript source text. [JsStmt] -> {String: String} ->
+    Int -> String"""
     return _join_stmts(stmts, runtime, level)

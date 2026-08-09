@@ -1,21 +1,31 @@
 #!/usr/bin/env python3
-"""py2pyk: translate a subset of Python source into Pyking source.
+"""py2pyk: translates a subset of Python source into Pyking source.
+Parses with Python's own ast module; everything downstream -- which
+constructs Pyking can express, where Python's function-scoped mutation
+needs Pyking's explicit var/:=, and printing Pyking's own syntax -- is
+this file's own code, independent of src/. See README.md for what is
+and is not supported, why, and the design notes behind the trickiest
+part (variable classification).
 
-Usage:
+Data structures:
+    UnsupportedFeature -- a Python construct this tool does not
+        translate, with the source position.
+    Scope -- one node of py2pyk's own copy of Pyking's lexical scope
+        chain (see its own docstring).
+    FunctionInfo -- one function's classification result (see its own
+        docstring).
+    ExprTranslator -- translates Python expressions to Pyking source
+        text, one _t_<NodeType> method per Python AST node type.
+    FunctionTranslator -- translates one Python function's body to
+        Pyking source text, one _s_<NodeType> method per statement type.
 
-    python3 py2pyk.py foo.py            # writes foo.pyk
-    python3 py2pyk.py foo.py -o out.pyk # writes out.pyk
-    python3 py2pyk.py foo.py --stdout   # prints the translation instead
-
-Parsing is done with Python's own `ast` module (the standard library's
-parser for Python itself -- there is no reason to hand-write another one
-here). Everything downstream -- picking which constructs Pyking can
-express, deciding where Python's implicit function-scoped mutation needs
-Pyking's explicit `var`/`:=`, and printing Pyking's own syntax -- is
-specific to this tool and lives entirely in this file. It does not import
-anything from `src/`, and it does not modify anything outside
-`tools/py2pyk/`; see `tools/py2pyk/README.md` for what is and is not
-supported and why.
+Functions:
+    translate_source(source, filename) -- translates a whole .py file's
+        text to Pyking source text.
+    translate_module(tree, filename) -- translates a parsed ast.Module.
+    classify_function(body) -- decides var/=/value-form-if for every
+        name a function assigns (see its own docstring).
+    main(argv) -- the command-line entry point.
 """
 
 import argparse
@@ -51,16 +61,14 @@ class UnsupportedFeature(Exception):
 
 
 def unsupported(node, message):
+    """Raises UnsupportedFeature at node with message. ast.AST -> String
+    -> ()"""
     raise UnsupportedFeature(node, message)
 
 
 # ---------------------------------------------------------------------------
-# Scope: mirrors Pyking's own name-scoping rules (src/analyses.py), kept as
-# an independent re-implementation rather than an import, so py2pyk works
-# standalone and never reaches into src/'s internals. Doing this analysis
-# ourselves, on the Python source positions, gives errors that point at the
-# *Python* line the trouble is on, rather than round-tripping through
-# the Pyking compiler.
+# Scope: mirrors Pyking's own name-scoping rules (src/analyses.py), as an
+# independent re-implementation (README.md, "Design notes").
 # ---------------------------------------------------------------------------
 
 BUILTIN_NAMES = ("print", "range", "str", "len")
@@ -75,21 +83,22 @@ BUILTIN = "builtin"
 
 
 class Scope:
-    """One node of the lexical scope chain. `child()` opens a nested scope
-    (an if/for/while/def body); its bindings are simply never merged back
-    into the parent, which is what makes them disappear on the way out --
-    the same trick src/analyses.py plays with a plain dict."""
+    """One node of the lexical scope chain. Fields: parent, Scope?;
+    names, {String: (String, Int|String)} (name -> (kind, its binding's
+    line number)). A child's bindings never merge back into the parent,
+    which is what makes them disappear on the way out."""
 
     def __init__(self, parent=None):
         self.parent = parent
         self.names = {}
 
     def child(self):
+        """A nested scope (an if/for/while/def body). () -> Scope"""
         return Scope(self)
 
     def lookup(self, name):
-        """The *kind* a name is bound as (see the MUTABLE/BINDING/...
-        constants), or None if it isn't in scope."""
+        """The kind name is bound as (MUTABLE/BINDING/...), or None.
+        String -> String?"""
         s = self
         while s is not None:
             if name in s.names:
@@ -98,9 +107,13 @@ class Scope:
         return None
 
     def is_bound(self, name):
+        """String -> Bool"""
         return self.lookup(name) is not None
 
     def bind(self, name, kind, node):
+        """Binds name at this scope; raises UnsupportedFeature if a
+        MUTABLE binding of it is already in scope. String -> String ->
+        ast.AST -> ()"""
         s = self
         while s is not None:
             existing = s.names.get(name)
@@ -116,6 +129,8 @@ class Scope:
         self.names[name] = (kind, getattr(node, "lineno", "?"))
 
     def check_bound(self, name, node):
+        """Raises UnsupportedFeature if name is not in scope. String ->
+        ast.AST -> ()"""
         if not self.is_bound(name):
             unsupported(
                 node,
@@ -127,6 +142,7 @@ class Scope:
 
 
 def new_root_scope():
+    """A fresh top-level Scope with the builtins bound. () -> Scope"""
     root = Scope()
     for name in BUILTIN_NAMES:
         root.names[name] = (BUILTIN, None)
@@ -138,10 +154,10 @@ def new_root_scope():
 # ---------------------------------------------------------------------------
 
 def flatten_target_names(target):
-    """Names bound by an assignment target (Name, or nested Tuple/List of
-    Names), in left-to-right order, as (name, node) pairs. Anything else
-    (Attribute, Subscript, Starred) is not a name-binding target Pyking can
-    express and is rejected by the caller before this is used."""
+    """Names bound by an assignment target (a Name, or nested Tuple/List
+    of Names), left to right, as (name, node) pairs; raises
+    UnsupportedFeature for any other target shape. ast.expr ->
+    [(String, ast.AST)]"""
     if isinstance(target, ast.Name):
         return [(target.id, target)]
     if isinstance(target, (ast.Tuple, ast.List)):
@@ -158,17 +174,11 @@ def flatten_target_names(target):
 
 
 def target_binding_key(target):
-    """A hashable description of a target's shape *and* the names in it, in
-    order -- used to check that every branch of a value-form-if candidate
-    binds exactly the same names in exactly the same positions.
-
-    The names have to be part of the key, not just the shape: Pyking's
-    value-form `if` writes the target *once*, above the branches, so the
-    branches only supply values. Two branches that destructure the same
-    shape under different names (`lo, hi = a, b` in one and `hi, lo = a, b`
-    in the other) are therefore not interchangeable -- keying on shape
-    alone would quietly adopt the first branch's target for all of them and
-    silently swap the values."""
+    """A hashable description of a target's shape and the names in it, in
+    order -- used to check that every branch of a value-form-if
+    candidate binds exactly the same names in the same positions
+    (README.md, "Branches of one conditional binding the same names in
+    different positions"). ast.expr -> Any"""
     if isinstance(target, ast.Name):
         return ("name", target.id)
     if isinstance(target, (ast.Tuple, ast.List)):
@@ -177,9 +187,8 @@ def target_binding_key(target):
 
 
 def assign_tail_target(stmt):
-    """The single target of `stmt` if it is an assignment a value-form `if`
-    branch could end in -- `x = v` or the annotated `x: T = v`, whose
-    annotation Pyking erases anyway -- else None."""
+    """The single target of stmt if it is an assignment a value-form if
+    branch could end in, else None. ast.stmt -> ast.expr?"""
     if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
         return stmt.targets[0]
     if isinstance(stmt, ast.AnnAssign) and stmt.value is not None:
@@ -188,11 +197,10 @@ def assign_tail_target(stmt):
 
 
 def _comprehension_bound_names(node):
-    """Every name the generators of a comprehension bind as a target. Only
-    `ast.ListComp` ever reaches this: dict/set comprehensions, generator
-    expressions and lambdas are all rejected up front by
-    `_check_supported_early`, so a list comprehension is the one scope-
-    introducing expression left in the accepted subset."""
+    """Every name the generators of a comprehension bind as a target.
+    Only ast.ListComp ever reaches this; other comprehension/lambda
+    forms are rejected earlier by _check_supported_early.
+    ast.ListComp -> {String}"""
     names = set()
     for gen in node.generators:
         for sub in ast.walk(gen.target):
@@ -202,18 +210,10 @@ def _comprehension_bound_names(node):
 
 
 def _collect_scope(node, bound, loads, nested):
-    """Accumulate, for one scope, the names `node` binds, the `ast.Name`
-    loads it performs, and the scopes nested directly inside it -- without
-    descending into any of those nested scopes' own bodies.
-
-    Python's rule is that a name assigned anywhere in a function is local to
-    it, so `bound` is exactly that set. The two scope-introducing forms that
-    survive into py2pyk's accepted subset are a nested `def` (recorded by
-    name, and collected into `nested` for the caller to handle) and a list
-    comprehension (whose targets bind only inside it). Lambdas, dict/set
-    comprehensions, generator expressions and the walrus operator are all
-    rejected by `_check_supported_early` before any of this runs.
-    """
+    """Accumulates, into bound/loads/nested, one scope's bound names,
+    ast.Name loads, and directly nested scopes -- without descending
+    into those nested scopes' own bodies. ast.AST -> {String} ->
+    [ast.Name] -> [ast.FunctionDef] -> ()"""
     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
         bound.add(node.name)
         nested.append(node)
@@ -239,15 +239,9 @@ def _collect_scope(node, bound, loads, nested):
 
 
 def function_free_loads(fn):
-    """The `ast.Name` loads in `fn` that read a name from *outside* `fn` --
-    the names it closes over.
-
-    Classification needs these because a closure's read of an enclosing name
-    can happen at any point after the `def`, so a name the enclosing
-    function mutates inside a loop really is observed outside that loop. A
-    nested `def`'s own body is classified separately, but its free reads
-    belong to the enclosing function's picture of where each name is used.
-    """
+    """The ast.Name loads in fn that read a name from outside fn -- the
+    names it closes over (README.md, "A nested def counts as a use of
+    every name it closes over"). ast.FunctionDef -> [ast.Name]"""
     bound = {a.arg for a in fn.args.args}
     for group in (fn.args.posonlyargs, fn.args.kwonlyargs):
         bound |= {a.arg for a in group or []}
@@ -266,15 +260,14 @@ def function_free_loads(fn):
 
 
 def is_elif_chain(if_node):
-    """True if `if_node.orelse` is exactly Python's encoding of an
-    `elif ...:` (a single nested `If`), as opposed to a real `else:`."""
+    """Whether if_node.orelse is Python's encoding of elif rather than a
+    real else. ast.If -> Bool"""
     return len(if_node.orelse) == 1 and isinstance(if_node.orelse[0], ast.If)
 
 
 def flatten_if_chain(if_node):
-    """An `if`/`elif`/.../`else` ladder as (list of (test, body) branches,
-    final_else_body_or_None) -- mirrors how Pyking's own parser flattens
-    the identical nested-If shape when printing `else if`."""
+    """An if/elif/.../else ladder as ([(test, body)], final_else_body?).
+    ast.If -> ([(ast.expr, [ast.stmt])], [ast.stmt]?)"""
     branches = []
     node = if_node
     while True:
@@ -300,18 +293,12 @@ def flatten_if_chain(if_node):
 # ---------------------------------------------------------------------------
 
 class FunctionInfo:
-    """The result of classifying one function (or the module) body:
-    `var_names`: names that need 'var'/':=' rather than plain '='.
-    `var_decl_node`: for each var name, the id() of the assignment node
-        that becomes its 'var name = ...' declaration (every other
-        assignment to it becomes ':=').
-    `valueif_targets`: id(if_node) -> list of names that `if` supplies as
-        a value-form binding (so the caller must not also translate its
-        branches' tail assignments as ordinary statements).
-    `valueif_owner`: name -> id(if_node) it is supplied by.
-    `errors` is not populated here; classification raises immediately via
-    `unsupported` when a name's assignments can't be reconciled at all.
-    """
+    """One function's classification result (README.md, "Variable
+    classification"). Fields: var_names, {String} (names needing
+    var/:=); var_decl_node, {String: Int} (name -> id() of its `var`
+    declaration node); valueif_targets, {Int: [String]} (id(if_node) ->
+    names it supplies as a value-form binding); valueif_owner, {String:
+    Int} (name -> id(if_node) that supplies it)."""
 
     def __init__(self):
         self.var_names = set()
@@ -321,6 +308,7 @@ class FunctionInfo:
 
 
 def _common_prefix(paths):
+    """The longest shared prefix of paths. [(Int,)] -> (Int,)"""
     if not paths:
         return ()
     shortest = min(paths, key=len)
@@ -335,31 +323,17 @@ def _common_prefix(paths):
 
 
 def _encloses(outer, inner):
-    """True if block path `outer` *is* `inner` or encloses it -- that is, a
-    binding made at `outer` is lexically visible at `inner`."""
+    """Whether a binding made at path outer is lexically visible at
+    path inner. (Int,) -> (Int,) -> Bool"""
     return inner[:len(outer)] == outer
 
 
 def _uses_stay_block_local(assigns, reads, binding_paths):
-    """Whether every assignment to a name can stay a plain Pyking `=`.
-
-    True when no *write* ever has to be observed from outside the block that
-    made it, and every *read* has a binding visible in an enclosing block.
-    Both halves are about the single way the two languages disagree: a
-    Python `if`/`for`/`while` body is not a scope, so a name written inside
-    one outlives it; a Pyking block is, so it does not.
-
-      - a read with no enclosing binding can only be seeing a write that
-        leaked out of a sibling block, which Pyking would lose;
-      - a write nested *inside* a block that some read encloses is that same
-        leak seen from the other end.
-
-    Either needs `var`/`:=`. What this deliberately does *not* reject is one
-    name used independently in several sibling blocks -- a reused temporary
-    like `t` in two separate loop bodies. Neither block can observe the
-    other's `t` in either language, so a plain `=` in each means exactly
-    what the Python meant.
-    """
+    """Whether every assignment to a name can stay a plain Pyking =: no
+    write is observed from outside the block that made it, and every
+    read has a binding visible in an enclosing block (README.md,
+    "Variable classification", outcome 1). [(...)] -> [(...)] ->
+    [(Int,)] -> Bool"""
     for _kind, read_path, _node, _stmt in reads:
         if not any(_encloses(bp, read_path) for bp in binding_paths):
             return False
@@ -373,10 +347,10 @@ def _uses_stay_block_local(assigns, reads, binding_paths):
 
 
 def classify_function(body):
-    """`body`: the list of statements making up one function's (or the
-    module's) top-level block. Does not descend into nested `def`s -- each
-    gets its own independent `classify_function` call when the translator
-    reaches it."""
+    """Decides var/=/value-form-if for every name assigned in body (one
+    function's or the module's top-level block; does not descend into
+    nested defs). See README.md, "Variable classification".
+    [ast.stmt] -> FunctionInfo"""
 
     occurrences = {}     # name -> list of ("load"|"store"|"augstore", path, node, stmt)
     path_to_stmts = {}    # path -> the actual statement list at that path
@@ -390,16 +364,10 @@ def classify_function(body):
         occurrences.setdefault(name, []).append((kind, path, node, stmt))
 
     def record_loads(expr, path, shadowed=frozenset()):
-        """Record every name `expr` *reads from the enclosing block*, at
-        `path`.
-
-        A comprehension is its own scope in both languages, so the names its
-        own generators bind are not reads of anything at `path` and must not
-        be recorded as such: `[x for x in xs]` sitting next to a `for x in
-        ...:` loop would otherwise look like a use of that loop's variable
-        outside its body, and get rejected on a conflict that does not
-        exist. `shadowed` carries the names an enclosing comprehension has
-        bound as we descend."""
+        """Records every name expr reads from the enclosing block, at
+        path. shadowed carries names an enclosing comprehension has
+        bound, since those are not reads of path's own scope.
+        ast.expr? -> (Int,) -> {String} -> ()"""
         if expr is None:
             return
         if isinstance(expr, ast.ListComp):
@@ -462,18 +430,11 @@ def classify_function(body):
             record_loads(stmt.value, path)
         elif isinstance(stmt, ast.FunctionDef):
             record(stmt.name, "store", path, stmt, stmt)
-            # A nested def's body is classified independently later, but the
-            # names it closes over have to be recorded here: the closure can
-            # be *called* at any point after the def, so a read inside it is
-            # a read at this level. Without this, a name the enclosing
-            # function mutates inside a loop would look like one whose
-            # writes never leave that loop -- and would wrongly keep a plain
-            # '=' (see README "Variable classification").
+            # The closure's free reads count as reads here too (README.md,
+            # "A nested def counts as a use of every name it closes over").
             for free in function_free_loads(stmt):
                 record(free.id, "load", path, free, None)
-        # Anything else is left to the real translation pass to accept or
-        # reject; classification is best-effort and only needs to be
-        # right about the constructs it recognizes above.
+        # Anything else is left to the translation pass to accept or reject.
 
     scan_block(body, ())
 
@@ -485,13 +446,8 @@ def classify_function(body):
     for name, occs in occurrences.items():
         forstores = [o for o in occs if o[0] == "forstore"]
         if forstores:
-            # A 'for' loop's own target is scoped to its body alone in
-            # Pyking (unlike Python, where it leaks into the rest of the
-            # enclosing function) -- see PYKING.md "Names and scoping" and
-            # analyses.py's SFor case. Every other occurrence of this name
-            # (read, write, or another loop reusing it) must fall inside
-            # one of the loop bodies that bind it as their target, or
-            # there is no faithful translation.
+            # README.md, "A name a for-loop binds as its own loop
+            # variable...".
             loop_paths = [o[1] for o in forstores]
             outside = [
                 o for o in occs
@@ -522,10 +478,8 @@ def classify_function(body):
         if not deeper_assigns and not has_aug:
             continue  # every assignment is a plain '=' at the same block
 
-        # The assignments straddle a block boundary, but that only matters if
-        # a value actually has to cross one. A name written and read entirely
-        # within independent blocks (the same temporary reused in two loop
-        # bodies, say) needs no 'var' -- see `_uses_stay_block_local`.
+        # A reused temporary (README.md, outcome 1's second route) needs
+        # no var; see _uses_stay_block_local.
         reads = [o for o in occs if o[0] == "load"]
         binding_paths = [
             o[1] for o in occs if o[0] in ("store", "augstore", "forstore")
@@ -570,10 +524,9 @@ def classify_function(body):
                 "before it -- Pyking's 'var' needs an initializer",
             )
 
-        # CASE C: every assignment to `name` is nested strictly deeper than
-        # its LCA -- the only shape py2pyk can still express without a
-        # 'var' is an exhaustive if/elif/.../else whose every branch ends
-        # by assigning exactly this name (Pyking's value-form 'if').
+        # Every assignment is nested strictly deeper than the LCA: the
+        # only shape left is an exhaustive if/elif/.../else (README.md,
+        # outcome 3).
         owning_if = _find_valueif_owner(path_to_stmts.get(lca, []), name, deeper_assigns)
         if owning_if is None:
             lines = sorted({o[3].lineno for o in deeper_assigns})
@@ -598,10 +551,10 @@ def classify_function(body):
 
 
 def _find_valueif_owner(lca_stmts, name, deeper_assigns):
-    """Search the statements directly in `name`'s LCA block for a single
-    if/elif/.../else statement whose every branch ends in an assignment to
-    `name` (same target shape throughout), covering exactly the deeper
-    assignments recorded for it. Returns that `ast.If` node, or None."""
+    """The single if/elif/.../else statement in lca_stmts whose every
+    branch ends in an assignment to name (same target shape throughout),
+    covering exactly deeper_assigns, or None. [ast.stmt] -> String ->
+    [(...)] -> ast.If?"""
     wanted_nodes = {id(o[3]) for o in deeper_assigns}
     for stmt in lca_stmts:
         if not isinstance(stmt, ast.If):
@@ -676,14 +629,16 @@ COMPARE_UNSUPPORTED = {
 }
 
 def _wrap(prec, min_prec, text):
+    """text, parenthesized if prec is below min_prec. Int -> Int ->
+    String -> String"""
     return f"({text})" if prec < min_prec else text
 
 
 def translate_type(node):
-    """Best-effort mapping of a Python annotation to a Pyking type. Returns
-    None (meaning: omit the annotation) for anything not immediately
-    obvious -- annotations are erased by every Pyking backend anyway (see
-    PYKING.md "Type annotations"), so dropping one is always safe."""
+    """A Python annotation as a Pyking type, or None (meaning: omit the
+    annotation) for anything not immediately obvious -- always safe,
+    since every Pyking backend erases annotations (README.md, "Type
+    annotations"). ast.expr? -> String?"""
     if node is None:
         return None
     if isinstance(node, ast.Constant) and node.value is None:
@@ -705,14 +660,22 @@ def translate_type(node):
 
 
 class ExprTranslator:
+    """Translates Python expressions to Pyking source text, one
+    _t_<NodeType> method per Python AST node type. Field: scope, Scope
+    (for name lookups)."""
+
     def __init__(self, scope):
         self.scope = scope
 
     def name_ref(self, node):
+        """The Pyking name node refers to; raises UnsupportedFeature if
+        unbound. ast.Name -> String"""
         self.scope.check_bound(node.id, node)
         return node.id
 
     def translate(self, node, min_prec=0):
+        """node as Pyking source text, parenthesized if it binds looser
+        than min_prec. ast.expr -> Int -> String"""
         method = getattr(self, f"_t_{type(node).__name__}", None)
         if method is None:
             unsupported(node, f"the '{type(node).__name__}' expression form is not supported")
@@ -721,8 +684,8 @@ class ExprTranslator:
     def _t_Constant(self, node, min_prec):
         v = node.value
         if isinstance(v, bool):
-            # Pyking's own boolean literals -- lowercase, unlike Python's
-            # capitalised True/False (see PYKING.md's "Boolean literals").
+            # Pyking's own lowercase true/false (PYKING.md, "Boolean
+            # literals").
             return "true" if v else "false"
         if isinstance(v, int):
             return str(v)
@@ -863,15 +826,16 @@ class ExprTranslator:
 
 
 def _quote_pyking_string(s):
+    """s as a single-quoted Pyking string literal. String -> String"""
     escapes = {"\\": "\\\\", "'": "\\'", "\n": "\\n", "\t": "\\t", "\r": "\\r"}
     body = "".join(escapes.get(ch, ch) for ch in s)
     return f"'{body}'"
 
 
 def translate_pattern(target, scope):
-    """A comprehension target -- Name or nested Tuple/List -- as a Pyking
-    pattern, binding each captured name into `scope` (comprehensions are
-    their own scope, matching Pyking's EListComp)."""
+    """A comprehension target (Name or nested Tuple/List) as a Pyking
+    pattern, binding each captured name into scope. ast.expr -> Scope ->
+    String"""
     if isinstance(target, ast.Name):
         scope.bind(target.id, PATTERN_VAR, target)
         return target.id
@@ -898,14 +862,17 @@ INDENT = "    "
 
 
 class FunctionTranslator:
-    """Translates one function body (or the module top level). Holds the
-    `FunctionInfo` classification for *this* function only -- a nested
-    `def` gets its own `FunctionTranslator` over its own `FunctionInfo`."""
+    """Translates one function body (or the module top level), one
+    _s_<NodeType> method per statement type. A nested def gets its own
+    FunctionTranslator over its own FunctionInfo. Field: info,
+    FunctionInfo."""
 
     def __init__(self, info):
         self.info = info
 
     def block(self, stmts, scope, level):
+        """stmts as a list of indented Pyking source lines. [ast.stmt]
+        -> Scope -> Int -> [String]"""
         lines = []
         for stmt in stmts:
             lines.extend(self.stmt(stmt, scope, level))
@@ -915,20 +882,26 @@ class FunctionTranslator:
         return lines
 
     def expr_of(self, scope):
+        """An ExprTranslator over scope. Scope -> ExprTranslator"""
         return ExprTranslator(scope)
 
     def stmt(self, node, scope, level):
+        """node as a list of indented Pyking source lines. ast.stmt ->
+        Scope -> Int -> [String]"""
         method = getattr(self, f"_s_{type(node).__name__}", None)
         if method is None:
             unsupported(node, f"the '{type(node).__name__}' statement form is not supported")
         return method(node, scope, level)
 
     def _pad(self, level):
+        """Int -> String"""
         return INDENT * level
 
     # -- assignment family --------------------------------------------
 
     def _emit_target(self, target):
+        """target as Pyking assignment-target source text. ast.expr ->
+        String"""
         if isinstance(target, ast.Name):
             return target.id
         if isinstance(target, (ast.Tuple, ast.List)):
@@ -937,8 +910,9 @@ class FunctionTranslator:
         unsupported(target, "unsupported assignment target")
 
     def _assign_like(self, name_kind_node, target, value_text, scope, level, source_node):
-        """Emit the right Pyking statement for one assignment to a single
-        Name, given this function's classification of that name."""
+        """The Pyking statement for one assignment to a single Name,
+        given this function's classification of it. String -> ast.expr
+        -> String -> Scope -> Int -> ast.stmt -> [String]"""
         pad = self._pad(level)
         if name_kind_node in self.info.var_names:
             if self.info.var_decl_node[name_kind_node] == id(source_node):
@@ -957,6 +931,7 @@ class FunctionTranslator:
         return [f"{pad}{name_kind_node} = {value_text}"]
 
     def _s_Assign(self, node, scope, level):
+        """ast.Assign -> Scope -> Int -> [String]"""
         if len(node.targets) != 1:
             unsupported(node, "chained assignment ('a = b = value') is not "
                                "supported -- assign one target per statement")
@@ -981,12 +956,9 @@ class FunctionTranslator:
         if isinstance(target, ast.Name):
             name, _ = names[0]
             return self._assign_like(name, target, value_text, scope, level, node)
-        # A Tuple/List target -- even a singleton like '(h,) = (99,)' --
-        # always needs real destructuring syntax; only a bare ast.Name
-        # target can take the direct-bind fast path above.
-        # Tuple/list destructuring: none of the destructured names can
-        # individually be a promoted 'var' (classification only promotes
-        # single-Name assignments), so this is always a plain binding.
+        # A Tuple/List target always destructures; classification only
+        # promotes single-Name assignments, so this is always a plain
+        # binding.
         for name, n in names:
             if name in self.info.var_names:
                 unsupported(
@@ -1019,13 +991,9 @@ class FunctionTranslator:
                 "it needs an unconditional plain assignment before this point",
             )
         et = self.expr_of(scope)
-        # `x -= a` becomes `x := x - a`, so the original right-hand side lands
-        # in the *right* operand position of a left-associative operator and
-        # must be printed at `prec + 1` -- exactly as `_t_BinOp` does for its
-        # own right operand. Printing it at `prec` instead would drop the
-        # parentheses that keep `x -= 3 - 1` from becoming `x := x - 3 - 1`,
-        # i.e. `(x - 3) - 1`. Only `-` and `/` actually misbehave (`+`/`*`
-        # associate either way), which is what made this easy to miss.
+        # Printed at prec + 1, keeping the grouping README.md's
+        # "augassign_precedence.py" entry describes (- and / matter; +
+        # and * associate either way).
         rhs = et.translate(node.value, prec + 1)
         pad = self._pad(level)
         return [f"{pad}{name} := {name} {sym} {rhs}"]
@@ -1080,12 +1048,9 @@ class FunctionTranslator:
         return lines
 
     def _value_if(self, node, names, scope, level):
-        # An exhaustive if/elif/.../else whose every branch ends by
-        # assigning the same name(s) -- classify_function only reaches
-        # here after confirming that shape (see _find_valueif_owner) --
-        # translates to Pyking's value-form 'if': one binding statement
-        # whose branches supply the value instead of assigning it
-        # themselves (see PYKING.md "if/match statements as bound values").
+        """node (already confirmed exhaustive by _find_valueif_owner) as
+        Pyking's value-form if. ast.If -> [String] -> Scope -> Int ->
+        [String]"""
         pad = self._pad(level)
         inner = level + 1
         branches, final_else = flatten_if_chain(node)
@@ -1133,10 +1098,7 @@ class FunctionTranslator:
             header = f"{pad}for {loop_var} in {iterable}:"
             body_lines = self.block(node.body, body_scope, level + 1)
             return [header] + body_lines
-        # Tuple/list target: Pyking's 'for' statement only binds a single
-        # name, so bind a fresh element name and destructure it as the
-        # body's first statement (irrefutable, exactly matching Python's
-        # own for-loop unpacking semantics).
+        # README.md, "for a, b in pairs: (tuple-target for)".
         names = [n for n, _ in flatten_target_names(node.target)]
         loop_var = _fresh_name("item", names, scope)
         body_scope.bind(loop_var, LOOP_VAR, node.target)
@@ -1196,10 +1158,13 @@ class FunctionTranslator:
 
 
 def _is_single_return_body(body):
+    """Whether body is exactly one return statement. [ast.stmt] -> Bool"""
     return len(body) == 1 and isinstance(body[0], ast.Return)
 
 
 def _fresh_name(base, avoid, scope):
+    """base, or base2/base3/... -- the first not in avoid or scope.
+    String -> {String} -> Scope -> String"""
     if base not in avoid and not scope.is_bound(base):
         return base
     i = 2
@@ -1240,15 +1205,10 @@ if hasattr(ast, "Match"):
 
 
 def _annotation_node_ids(tree):
-    """id()s of every node inside a type annotation -- parameter, return,
-    or 'x: T = ...' -- anywhere in the tree. Annotations get their own
-    lenient, best-effort translation (`translate_type`, which drops
-    anything not obviously expressible rather than rejecting it, since
-    Pyking erases annotations completely anyway), so the general
-    unsupported-construct scan below must not also walk into them: a
-    perfectly fine 'list[int]' annotation is an `ast.Subscript` and would
-    otherwise trip the blanket "no indexing" rejection meant for actual
-    subscript *expressions*."""
+    """id()s of every node inside a type annotation anywhere in tree, so
+    _check_supported_early's scan can skip them (an annotation like
+    list[int] is an ast.Subscript, but translate_type handles
+    annotations separately and leniently). ast.AST -> {Int}"""
     ids = set()
     for node in ast.walk(tree):
         annotations = []
@@ -1265,10 +1225,10 @@ def _annotation_node_ids(tree):
 
 
 def _check_supported_early(tree):
-    """A pre-pass purely for better error messages: walk the whole tree
-    once up front and reject module-scope-only constructs (import, class,
-    try, ...) wherever they appear, before the main translation gets deep
-    enough into a function to report a less on-topic error first."""
+    """Raises UnsupportedFeature for the first construct with no Pyking
+    equivalent anywhere in tree, so a clearly unsupported program is
+    rejected before translation gets deep enough to report a less
+    on-topic error first. ast.AST -> ()"""
     skip = _annotation_node_ids(tree)
     for node in ast.walk(tree):
         if id(node) in skip:
@@ -1309,6 +1269,8 @@ def _check_supported_early(tree):
 
 
 def translate_module(tree, filename="<input>"):
+    """Translates a parsed ast.Module to Pyking source text.
+    ast.Module -> String -> String"""
     _check_supported_early(tree)
     scope = new_root_scope()
     info = classify_function(tree.body)
@@ -1326,6 +1288,8 @@ def translate_module(tree, filename="<input>"):
 
 
 def translate_source(source, filename="<input>"):
+    """Parses and translates a whole .py file's text to Pyking source
+    text. String -> String -> String"""
     tree = ast.parse(source, filename=filename)
     return translate_module(tree, filename)
 
@@ -1335,6 +1299,7 @@ def translate_source(source, filename="<input>"):
 # ---------------------------------------------------------------------------
 
 def main(argv=None):
+    """The command-line entry point. [String]? -> Int (exit status)"""
     parser = argparse.ArgumentParser(
         prog="py2pyk",
         description="Translate a Python source file into Pyking source.",

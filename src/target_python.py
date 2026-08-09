@@ -1,3 +1,26 @@
+"""The Python code-generation backend: Pyking AST (syntax.py) to a
+Python-shaped AST (Py*) to Python source text. See docs/target_python.md
+for how each construct compiles and where the output is not optimal.
+
+Data structures:
+    PyExpr / PyPattern / PyTarget / PyCompClause / PyStmt -- base classes
+        for the Python-target AST; see the trailing comment on each
+        variant for its shape.
+    PyProgram -- a translated program (see its own docstring).
+    Scope -- Pyking name -> Python name, threaded through translation
+        (see its own docstring).
+
+Functions:
+    translate_program(stmts) -- translates a whole program to PyProgram.
+    translate_expr(e, scope) -- translates one expression.
+    translate_stmt(s, scope) -- translates one statement; returns
+        (PyStmt, Scope).
+    translate_pattern(p, scope) / translate_target(t, scope, ...) --
+        translate a match pattern / assignment target.
+    pprint_py_program(program) -- PyProgram to Python source text.
+    pprint_py_expr(e) / pprint_py_stmt(s) -- one node to source text.
+"""
+
 import keyword
 from dataclasses import dataclass, fields, is_dataclass, replace
 
@@ -314,99 +337,36 @@ class PyMatch(PyStmt):      # match subject: case pattern: body ...
 
 @dataclass(frozen=True)
 class PyProgram:
-    """The result of translating a whole Pyking program (`translate_program`'s
-    return value, and `pprint_py_program`'s sole argument): the compiled
-    statements, plus an optional `prelude` -- currently just the
-    boolean-print-formatting helper (see `_bool_format_helper_name`),
-    present only when the program actually printed something this
-    backend could not prove, from its Pyking source form alone, was or
-    wasn't a Bool (see `_bool_shape`). The prelude prints separately, in
-    its own commented-off block, because it's boilerplate for the host
-    Python interpreter, not a translation of anything the Pyking source
-    wrote -- the same reason the JavaScript targets mark their own
-    prelude off in `target_js_packaging.py`."""
-    prelude: list        # PyStmt list, usually empty
-    stmts: list          # PyStmt list: the translated program
+    """A translated program. Fields: prelude, [PyStmt] (host boilerplate,
+    e.g. the Bool-printing helper; usually empty), stmts, [PyStmt] (the
+    translated program)."""
+    prelude: list
+    stmts: list
 
 
 # --- translation: Pyking AST (syntax.py) -> Python target AST ---
 #
-# List comprehensions need special handling: Pyking allows an arbitrary
-# *pattern* in a comprehension's `for` clause, whereas Python only allows
-# an irrefutable assignment target there. There are two cases (decided by
-# `_is_irrefutable`), so that the common ones stay as readable as the
-# Pyking source:
-#
-#  1. Irrefutable pattern (a name, `_`, or a tuple built from those) --
-#     it always binds, never filters, so it compiles straight to the
-#     equivalent native Python `for`-target with no helper at all:
-#         [x + 1 for x in xs]            ->  [x + 1 for x in xs]
-#         [x for (x, _) in pairs]        ->  [x for (x, _) in pairs]
-#
-#  2. Refutable pattern (a literal, or any list pattern -- possibly nested
-#     inside a tuple) -- it may reject some values, which Python's own
-#     `for`-target grammar can't express. Such a clause is desugared into
-#     two Python comprehension clauses: iterate the raw items, then run
-#     each through an auto-generated helper that attempts the match using
-#     Python's own `match` statement (which _does_ support arbitrary
-#     patterns, just not inside a comprehension) and returns either `[]`
-#     (no match) or a one-element list holding a tuple of the bound names
-#     (match). A single `for <names> in helper(item)` clause then does
-#     double duty as both the filter -- iterating zero times drops the
-#     element -- and the bind -- iterating once unpacks the names:
-#         [a + b for [a, b] in rows]
-#             ->  [a + b for item1 in rows for (a, b) in __pm1(item1)]
-#     These helper functions are pattern-only (no references to anything
-#     in the enclosing scope), so they're always safe to hoist to the top
-#     of the generated file; `_pending_comp_helpers` collects them during
-#     translation and `translate_program` (the sole external entry point,
-#     see `_translate_stmts` below) drains and prepends them once, at the
-#     very end, regardless of how deeply the comprehension was nested. The
-#     `item*`/`__pm*` names are allocated by `_fresh_comp_names`, which
-#     guarantees they never collide with any source identifier.
+# Refutable comprehension patterns compile to a generated __pm* helper;
+# see docs/target_python.md, "List comprehensions with refutable
+# patterns".
 
 _comp_counter = 0
 _pending_comp_helpers = []
-# Every identifier that appears anywhere in the source program (see
-# `_collect_identifiers`), so the synthesized comprehension names below can
-# be guaranteed never to collide with -- or shadow -- a user name, whatever
-# the program happens to call its variables.
+# Every identifier used anywhere in the source, so generated names never
+# collide with one.
 _used_identifiers = set()
 
-# A call to a runtime_interface operation (currently just `print`) needs
-# each argument that might be a Bool passed through
-# `_bool_format_helper_name()`'s helper first: Pyking spells its boolean
-# values `true`/`false`, but they are represented as Python's own
-# `True`/`False` throughout translation (see `PyBool` above), and
-# Python's own `print` would write those back out capitalised. Most
-# printed values need no such check at all -- see `_bool_shape` and
-# `_wrap_print_argument`, which decide *per argument* whether Pyking's own
-# grammar already proves it one way or the other -- and the ones that do
-# are handled with an inline conditional, no helper involved. The helper
-# below exists only for the residue: an argument (a variable, a function
-# call, ...) genuinely could be a Bool at runtime and the translator
-# cannot tell from its Pyking source form alone. It is synthesized once,
-# lazily, the first time it's actually needed -- so a program that never
-# hits that case never gets one at all -- the same way `_build_match_helper`
-# builds a comprehension helper on first use, and named via the same
-# collision-avoidance scheme as `_fresh_comp_names`, so it can never
-# collide with a real Pyking identifier. It prints separately from
-# ordinary generated code, in a commented-off prelude block (see
-# `pprint_py_program`), because it's host boilerplate the Pyking source
-# didn't write, not a translation of anything in it.
+# Lazily generated helper for printing an argument that might be a Bool
+# at runtime but isn't provably one from its Pyking source form; see
+# docs/target_python.md, "Booleans".
 _bool_format_helper_name_value = None
 _bool_format_helper_def = None
 
 
 def _collect_identifiers(node, acc=None):
-    """Every identifier used anywhere in the Pyking AST `node`, as a set.
-
-    Relies on an invariant of `syntax.py`: every field literally named
-    `name` holds an identifier (`EVar`, `PCapture`, `ListRest`, `Param`,
-    `TargetName`, `SVar`, `SMutate`, `SFor`, `SFunctionDef`, ...), and
-    nothing else does. So a generic walk that grabs each `name` field and
-    recurses through all other fields collects exactly the identifiers,
-    without a per-node-type case to keep in sync."""
+    """Every identifier used anywhere in node, as a set. Relies on every
+    field literally named name holding an identifier in syntax.py.
+    Expr|Stmt|... -> {String}? -> {String}"""
     if acc is None:
         acc = set()
     if is_dataclass(node):
@@ -423,11 +383,9 @@ def _collect_identifiers(node, acc=None):
 
 
 def _fresh_comp_names():
-    """A fresh `(item_var, helper_name)` pair for one refutable
-    comprehension clause -- e.g. `('item1', '__pm1')`. Both are checked
-    against `_used_identifiers` and the counter is bumped until neither
-    collides, so a generated name can never clash with (or shadow) any
-    identifier in the source program, no matter what it's named."""
+    """A fresh (item_var, helper_name) pair for one refutable
+    comprehension clause, e.g. ('item1', '__pm1'), guaranteed not to
+    collide with any source identifier. () -> (String, String)"""
     global _comp_counter
     while True:
         _comp_counter += 1
@@ -441,10 +399,8 @@ _turn_counter = 0
 
 
 def _fresh_turn_name():
-    """A fresh name for a per-iteration factory (`__pyk_turn1`), checked
-    against every identifier in the source the same way
-    `_fresh_comp_names` checks its own, so it can never collide with a
-    name the program uses."""
+    """A fresh name for a per-iteration factory (__pyk_turn1), guaranteed
+    not to collide with any source identifier. () -> String"""
     global _turn_counter
     while True:
         _turn_counter += 1
@@ -454,9 +410,7 @@ def _fresh_turn_name():
 
 
 def pattern_captured_names(pattern):
-    """The names `pattern` would bind, in order, by walking its
-    sub-patterns (mirrors `parser.py`'s `_pattern_captures`, but this
-    copy works on top of `syntax.py` alone, with no parser dependency)."""
+    """The names pattern would bind, in order. Pattern -> [String]"""
     match pattern:
         case PCapture(_, name):
             return [name]
@@ -473,21 +427,10 @@ def pattern_captured_names(pattern):
 
 
 def _is_irrefutable(pattern):
-    """Whether `pattern` matches *every* value it could be given -- so, in
-    a comprehension `for` clause, it only ever binds and never filters,
-    and can compile straight to a native Python `for`-target (no match
-    helper). This holds for names, `_`, and tuples built recursively from
-    those.
-
-    Notably it does *not* hold for a `PList`: a list pattern tests the
-    runtime *length* of the value (that's the whole point of `[a, b]` vs.
-    `[a, ..rest]`), so it genuinely rejects non-matching lengths and must
-    keep the filtering match-helper. A `PTuple`, by contrast, corresponds
-    to a fixed-arity tuple type `(T1, ..., Tn)`, so like Python's own
-    unpacking it's treated as a total destructuring -- a wrong-arity value
-    is a shape error surfaced by Python at runtime, not a silent filter.
-    Literal patterns (`PInt`/`PString`/`PBool`) are refutable by value,
-    which Python's `for`-target grammar can't express at all."""
+    """Whether pattern matches every value it could be given -- names,
+    `_`, and tuples built from those -- so it needs no match helper in a
+    comprehension (docs/target_python.md, "List comprehensions with
+    refutable patterns"). Pattern -> Bool"""
     match pattern:
         case PCapture(_, _) | PWildcard(_):
             return True
@@ -498,11 +441,8 @@ def _is_irrefutable(pattern):
 
 
 def _pattern_to_target(pattern, scope):
-    """Compiles an irrefutable `pattern` (see `_is_irrefutable`) directly
-    to the equivalent Python assignment/`for` target -- e.g. `(x, _)`
-    stays `(x, _)`, so the generated comprehension reads just like the
-    Pyking source, with no helper indirection. Returns it with the scope
-    its names extend, like `translate_target`."""
+    """An irrefutable pattern compiled directly to a Python
+    assignment/for target. Pattern -> Scope -> (PyTarget, Scope)"""
     match pattern:
         case PCapture(info, name):
             py_name, scope = _bind(name, scope)
@@ -523,55 +463,25 @@ def _pattern_to_target(pattern, scope):
 
 # --- scopes and renaming ---
 #
-# Pyking makes every block a scope, so a binding inside an `if`/`for`/
-# `while`/`case` body may shadow an outer name and disappear with the
-# block. Python only scopes at function (and comprehension) boundaries,
-# so translating both bindings to the same Python name would let the
-# inner one overwrite the outer -- the shadowed name would come back
-# changed after the block. The translation therefore carries a `Scope`
-# mapping each Pyking name to the Python name standing in for it, and
-# renames a binding when, and only when, Python would otherwise confuse
-# it with a live one.
-#
-# "Only when necessary" is the point: a rename is emitted just for a
-# binding that shadows another *within the same Python function scope*.
-# Everything else keeps the name the programmer wrote --
-#
-#   - a `def` body, a comprehension: Python opens a real scope there, so
-#     a parameter or comprehension variable may reuse any name freely;
-#   - rebinding in the same block (`x = 1` then `x = 2`): the first is
-#     unreachable afterwards in Pyking too, so one Python name serves
-#     both;
-#   - sibling blocks that each bind `t`: neither can see the other's, so
-#     they share the name.
-#
-# A renamed name stays close to the original: `total` becomes `total2`,
-# or `total3` if `total2` is itself taken here (see `_fresh_py_name`).
+# Pyking blocks are scopes; Python's are not. A binding is renamed only
+# when it would otherwise be confused with a live one in the same Python
+# function scope. See docs/target_python.md, "Blocks are scopes;
+# Python's are not".
 
 
 @dataclass(frozen=True)
 class Scope:
-    """The names in scope during translation.
-
-    `local` is the current Python function scope: Pyking name -> the
-    Python name it compiles to. `outer` is everything visible from
-    enclosing Python function scopes, kept separate because a binding
-    only has to dodge names in `local` -- Python's own scoping already
-    keeps it apart from `outer` -- while reads must still find both.
-    `block` is the set of names bound by the innermost Pyking block, the
-    one thing that distinguishes rebinding a name (reuse) from shadowing
-    it (rename). `shadowed` is what this Python function scope reads from
-    outside itself (see `_free_names`): binding one of those names here
-    would make it local to the whole scope and break those reads, so such
-    a binding is always renamed. `captured` points the other way: names
-    the functions defined *in* this scope read from around them, which a
-    later binding may not reuse either -- see `_captured_names`.
-
-    `loop_names` is the names the nearest enclosing loop rebinds on every
-    turn -- its loop variable, and everything bound in its body -- or
-    `None` outside a loop. A `def` that reads one of those needs its own
-    copy per iteration, since each turn of the loop is a new binding (see
-    `_translate_capturing_defs`)."""
+    """The names in scope during translation. Fields:
+    outer: {String: String} (Pyking name -> Python name, from enclosing
+        Python function scopes),
+    local: {String: String} (same, for the current Python function scope),
+    block: {String} (names bound by the innermost Pyking block),
+    shadowed: {String} (outer names this Python scope reads; see
+        _free_names),
+    captured: {String} (names functions defined in this scope read from
+        around them; see _captured_names),
+    loop_names: {String}? (names the nearest enclosing loop rebinds each
+        turn, or None outside a loop)."""
     outer: dict
     local: dict
     block: frozenset
@@ -599,63 +509,26 @@ def _function_scope(scope, shadowed=frozenset(), captured=frozenset()):
 
 # --- what a body reads from outside itself ---
 #
-# Pyking scopes by block; Python scopes by function. Within one Python
-# function scope that difference is usually handled by renaming a name
-# bound twice (see `_bind`), but there is a second way the two disagree,
-# and it needs looking *ahead* rather than behind:
-#
-#     def helper(n): n
-#
-#     def branchy(n):
-#         if n > 0:
-#             def helper(m): m * 10      # Pyking: this block only
-#             helper(n)
-#         else:
-#             helper(n)                  # Pyking: the one above
-#
-# In Pyking the two `helper`s are different bindings in different blocks.
-# In Python, *any* binding of a name inside a function makes that name
-# local to the whole function -- so emitting both as `helper` turns the
-# else branch into a read of the local one, which raises
-# `UnboundLocalError` at run time rather than calling the function above.
-#
-# The fix is to rename the inner binding, and the question is when: doing
-# it for every name that merely exists outside would rename constantly
-# and for nothing, since shadowing a name a body never reads is exactly
-# what Python's own scoping already handles. So the body is asked what it
-# reads *freely* -- names it uses without having bound them itself, at the
-# point it uses them -- and only those are protected. `def f(n): x = 2;
-# x + n` reads its own `x` and keeps the name; the `branchy` above reads
-# an outer `helper` and gets `helper2` for the inner one.
+# Any binding inside a Python function makes that name local to the
+# whole function, so a block that shadows a name the rest of the
+# function still reads cannot keep the plain name either. See
+# docs/target_python.md, "Blocks are scopes; Python's are not".
 
 
 def _captured_names(stmts, bound):
     """The names the functions defined anywhere in this Python function
-    scope read from *around* them.
-
-    Pyking's `=` is a binding, not an assignment, so rebinding a name
-    makes a *new* one and a function written earlier keeps the old:
-
-        x = 1
-        def show() = x
-        x = "two"
-        print(x, show())        # two 1
-
-    Python has one variable per name per scope, so the second binding
-    has to become a second variable (`x2`) for that to hold -- but only
-    when some function actually captured the first. This is what says
-    which names those are, computed once for the whole scope, so the
-    decision does not depend on how far the translation has got.
-
-    A `var` is deliberately *not* included by `_free_in_stmt`'s reading
-    of `:=`: mutating a `var` changes the one binding rather than making
-    a new one, so a function reading it is meant to see the update."""
+    scope read from around them -- a rebinding of one of those names
+    needs its own Python variable (docs/target_python.md, "A rebinding
+    some function captured"). [Stmt] -> {String} -> {String}"""
     captured = set()
     _captured_in_block(stmts, set(bound), captured)
     return frozenset(captured)
 
 
 def _captured_in_block(stmts, bound, captured):
+    """Adds to captured every name a function defined in stmts (or a
+    nested block) reads from around it. [Stmt] -> {String} -> {String}
+    -> ()"""
     for s in stmts:
         if isinstance(s, SFunctionDef):
             bound.add(s.name)
@@ -693,23 +566,17 @@ def _captured_in_block(stmts, bound, captured):
 
 
 def _free_names(stmts, bound):
-    """The names `stmts` reads from outside itself: every name used
-    where nothing in `stmts` (or `bound`) had yet bound it.
-
-    `bound` is what is already in scope from this same Python function
-    scope -- the parameters, at the top of a `def` body. Blocks nested
-    inside are walked with a *copy*, which is what makes a binding inside
-    an `if` invisible to the code after it, and a nested `def` body is
-    walked too: it opens its own Python scope, but a name it reads from
-    around it still resolves to this scope's variable."""
+    """The names stmts reads from outside itself: every name used before
+    stmts (or bound) has bound it. [Stmt] -> {String} -> {String}"""
     free = set()
     _free_in_block(stmts, set(bound), free)
     return frozenset(free)
 
 
 def _free_in_block(stmts, bound, free):
-    """Walks one block, adding to `free` and extending `bound` in place
-    as the block's own bindings appear."""
+    """Walks one block, adding to free and extending bound in place as
+    the block's own bindings appear. [Stmt] -> {String} -> {String} ->
+    ()"""
     # Every `def` in the block is in scope throughout it (see
     # `_declare_functions`), so they are bound before anything is walked.
     for s in stmts:
@@ -720,12 +587,14 @@ def _free_in_block(stmts, bound, free):
 
 
 def _free_in_nested(stmts, bound, free):
-    """A nested block: it sees `bound`, and what it binds does not
-    escape."""
+    """A nested block: sees bound; what it binds does not escape.
+    [Stmt] -> {String} -> {String} -> ()"""
     _free_in_block(stmts, set(bound), free)
 
 
 def _free_in_stmt(s, bound, free):
+    """Adds s's free names to free, extending bound in place. Stmt ->
+    {String} -> {String} -> ()"""
     match s:
         case SLet(_, target, expr, _):
             _free_in_expr(expr, bound, free)
@@ -777,6 +646,7 @@ def _free_in_stmt(s, bound, free):
 
 
 def _free_in_expr(e, bound, free):
+    """Adds e's free names to free. Expr -> {String} -> {String} -> ()"""
     match e:
         case EVar(_, name):
             if name not in bound:
@@ -815,7 +685,7 @@ def _free_in_expr(e, bound, free):
 
 
 def _target_names(target):
-    """The names an assignment target binds."""
+    """The names an assignment target binds. AssignTarget -> [String]"""
     match target:
         case TargetName(_, name):
             return [name]
@@ -836,21 +706,22 @@ def _block_scope(scope):
 
 
 def _loop_scope(scope):
-    """The scope for a loop body: a block scope that also remembers that
-    everything bound inside it is bound afresh on every turn of the loop.
-    A `def` written there and read afterwards must keep the turn it was
-    written on -- see `_translate_capturing_defs`."""
+    """The scope for a loop body: a block scope that also tracks names
+    bound afresh each turn (docs/target_python.md, "A def inside a
+    loop"). Scope -> Scope"""
     block = _block_scope(scope)
     return replace(block, loop_names=frozenset(scope.loop_names or ()))
 
 
 def _is_bound(name, scope):
-    """Whether the program itself binds this name, rather than it being
-    one of the builtins that pass through untouched."""
+    """Whether the program itself binds name, rather than it being a
+    builtin passed through untouched. String -> Scope -> Bool"""
     return name in scope.local or name in scope.outer
 
 
 def _is_builtin_range(e, scope):
+    """Whether e is a call to the builtin range (not a shadowed name).
+    Expr -> Scope -> Bool"""
     match e:
         case ECall(_, EVar(_, "range"), _):
             return not _is_bound("range", scope)
@@ -858,7 +729,8 @@ def _is_builtin_range(e, scope):
 
 
 def _lazy_range(call, scope):
-    """`range(n)` as Python's own lazy range, for a `for` header."""
+    """range(n) as Python's own lazy range, for a for header. ECall ->
+    Scope -> PyCall"""
     return PyCall(
         call.info,
         PyVar(call.info, "range"),
@@ -867,29 +739,21 @@ def _lazy_range(call, scope):
 
 
 def _lookup(name, scope):
-    """The Python name a Pyking name reads as. A name bound nowhere is a
-    builtin (`print`, `len`, ...) and passes through unchanged -- the
-    name analysis has already rejected every other unbound name."""
+    """The Python name a Pyking name reads as; a name bound nowhere is a
+    builtin and passes through unchanged. String -> Scope -> String"""
     if name in scope.local:
         return scope.local[name]
     return scope.outer.get(name, name)
 
 
-# Names that are legal Pyking identifiers but reserved words in Python,
-# so a program with `def lambda(n):` would otherwise compile to code that
-# will not parse. Taken from the `keyword` module rather than written out,
-# so the set can never go stale against the Python this runs on;
-# `softkwlist` (`match`, `case`, `type`, `_`) is included too -- most are
-# already Pyking keywords and so unreachable here, and renaming the rest
-# costs nothing.
+# Legal Pyking identifiers that are reserved words in Python (see
+# docs/target_python.md, "Names that are keywords in Python").
 RESERVED = frozenset(keyword.kwlist) | frozenset(keyword.softkwlist)
 
 
 def _fresh_py_name(name, scope):
-    """`name2`, or `name3`, ... -- the first that no name in scope is
-    already using. Both sides of both maps are checked: a Python name in
-    use (a value) would be overwritten, and a Pyking name in scope (a
-    key) is one this same translation may yet have to emit as itself."""
+    """name2, or name3, ... -- the first not already used, as a Python
+    name or a Pyking one, anywhere in scope. String -> Scope -> String"""
     taken = (
         set(scope.local) | set(scope.local.values())
         | set(scope.outer) | set(scope.outer.values())
@@ -901,24 +765,12 @@ def _fresh_py_name(name, scope):
 
 
 def _bind(name, scope, rebinding=False, loop_carried=True):
-    """Binds a Pyking name, returning `(python_name, extended_scope)`.
-
-    Renames only when this binding would land on a Python name that is
-    still live in this function scope: the same name bound by an
-    enclosing *block* (`name in scope.local` without being block-local
-    here), a Python name some earlier rename already handed out
-    (`name in scope.local.values()`), or a name this scope reads from
-    *outside* itself (`name in scope.shadowed`) -- binding that one here
-    would make it local to the whole Python function and break every one
-    of those reads.
-
-    `rebinding` says this is a value binding (`=` or `var`), which may
-    land on a name this same block already bound. That is normally free
-    -- the earlier binding is unreachable afterwards, so both can be the
-    one Python variable -- but not when a function defined earlier
-    *captured* it: in Pyking the rebinding is a new binding and the
-    function keeps the old one, so the two need separate Python
-    variables to stay separate values."""
+    """Binds a Pyking name, renaming only where it would otherwise land
+    on a Python name still live in this function scope
+    (docs/target_python.md, "Blocks are scopes; Python's are not").
+    rebinding marks a value binding (= or var) that may reuse this
+    block's own prior binding of name, unless a function already
+    captured it. String -> Scope -> Bool -> Bool -> (String, Scope)"""
     if name in scope.block and not (rebinding and name in scope.captured):
         return scope.local[name], scope
     py_name = name
@@ -945,18 +797,10 @@ def _bind(name, scope, rebinding=False, loop_carried=True):
 
 
 def _build_match_helper(pattern, helper_name):
-    """Synthesizes a closure-free `PyFunctionDef` named `helper_name` that
-    tests a single value against `pattern`: returns `[(bound names...)]`
-    if it matches, or `[]` if it doesn't. Registers it in
-    `_pending_comp_helpers` and returns the captured names.
-
-    The parameter is a fixed `v`, not a fresh name, because it needs
-    no collision protection: it's only ever referenced as the `match`
-    subject *before* `pattern` binds anything, so even a pattern that
-    itself captures a name `v` (which would then shadow the
-    parameter inside the `case` body) stays correct. For the same reason
-    the helper needs no renaming: its body is a Python function scope of
-    its own, holding nothing but this pattern's own names."""
+    """Synthesizes a closure-free PyFunctionDef named helper_name that
+    tests one value against pattern -- [(bound names...)] on a match,
+    [] otherwise -- registers it in _pending_comp_helpers, and returns
+    the captured names. Pattern -> String -> [String]"""
     info = pattern.info
     v = PyVar(info, "v")
     names = pattern_captured_names(pattern)
@@ -973,28 +817,10 @@ def _build_match_helper(pattern, helper_name):
 
 
 def _bool_format_helper_name(info):
-    """The name of the print-formatting helper for a value that genuinely
-    might be a Bool at runtime and can't be proven either way from its
-    Pyking source form (see `_bool_shape`) -- building and registering it
-    the first time *that* happens, synthesized as:
-
-        def __pyk_bool_str(v):
-            if isinstance(v, bool):
-                return 'true' if v else 'false'
-            return v
-
-    `isinstance` rather than `v is True`/`v is False`, because Python's
-    `bool` is a subclass of `int` and `1 == True`, but never
-    `isinstance(1, bool)` -- so a Pyking `Int` that happens to be `0` or
-    `1` is never misidentified as a boolean this way. Only a call's
-    *top-level* arguments are ever wrapped (see `_wrap_print_argument`),
-    matching the granularity `runtime_interface.py`'s formatting contract
-    already documents at (an integer nested inside a printed list is
-    already however Python's own `repr` renders it, not specially handled
-    either). Kept separate from `_pending_comp_helpers`: it's boilerplate
-    for the host, not a translation of anything the source wrote, so it
-    prints in its own commented-off prelude block -- see
-    `pprint_py_program`."""
+    """The name of the print-formatting helper for a value that might be
+    a Bool at runtime and can't be proven either way from its Pyking
+    source form (docs/target_python.md, "Booleans"), building and
+    registering it the first time this is called. Info -> String"""
     global _bool_format_helper_name_value, _bool_format_helper_def
     if _bool_format_helper_name_value is None:
         candidate = "__pyk_bool_str"
@@ -1012,22 +838,10 @@ def _bool_format_helper_name(info):
 
 
 def _translate_comp_for(clause, scope):
-    """Expands one Pyking `CompFor(pattern, sequence)` into Python
-    comprehension clause(s), returning them with the scope its pattern
-    extends (later clauses and the element expression see those names).
-
-    An *irrefutable* pattern (see `_is_irrefutable`) needs no filtering,
-    so it becomes a single, plain `for <target> in <seq>` -- the same
-    shape Python itself would use, with the pattern compiled directly to
-    a Python target. This covers plain names (`for x in seq`), wildcards,
-    and tuple destructuring (`for (x, _) in seq`).
-
-    A *refutable* pattern (a literal, or any list pattern -- possibly
-    nested inside a tuple) may reject some values, which Python's own
-    `for`-target grammar can't express, so it takes the two-clause
-    match-helper path described in the module comment above: iterate the
-    raw items, then `for <names> in helper(item)`, where the helper
-    returns `[]` (filtered out) or `[(names...)]` (matched)."""
+    """Expands one Pyking CompFor into one or two Python comprehension
+    clauses -- one for an irrefutable pattern, two (raw items, then a
+    match helper) for a refutable one -- with the scope its pattern
+    extends. CompFor -> Scope -> ([PyCompClause], Scope)"""
     info = clause.info
     sequence = translate_expr(clause.sequence, scope)
     if _is_irrefutable(clause.pattern):
@@ -1067,14 +881,9 @@ _PROVABLY_NOT_BOOL_EXPRS = (EInt, EString, EAdd, ESub, EMul, EDiv, ENeg, EList, 
 
 
 def _bool_shape(e):
-    """'bool', 'not-bool', or 'unknown' for whether `e` provably produces
-    a Bool, provably doesn't, or can't be told without a type checker.
-    Recurses into an `if` expression's branches -- if both agree, so does
-    the whole expression -- since `if cond then true else false` and
-    similar are common enough to be worth not falling back to a runtime
-    check for. A variable or a function call is always 'unknown': its
-    value could be anything, including a Bool, from where this backend is
-    standing."""
+    """'bool', 'not-bool', or 'unknown' for whether e provably produces a
+    Bool, provably doesn't, or can't be told without a type checker
+    (docs/target_python.md, "Booleans"). Expr -> String"""
     if isinstance(e, EBool) or isinstance(e, _PROVABLY_BOOL_EXPRS):
         return "bool"
     if isinstance(e, _PROVABLY_NOT_BOOL_EXPRS):
@@ -1086,14 +895,10 @@ def _bool_shape(e):
 
 
 def _wrap_print_argument(pyking_expr, translated, info):
-    """One argument to a `print` call, formatted for Pyking's boolean
-    spelling: an inline `'true' if <expr> else 'false'` when `_bool_shape`
-    proves `pyking_expr` is always a Bool (no runtime check needed at
-    all -- this is the common case, e.g. any comparison), the translated
-    expression completely unwrapped when it proves the opposite (an Int,
-    a String, a list, ...), and only otherwise -- genuinely unknown --
-    a call through the `_bool_format_helper_name` helper, which is what
-    actually brings that helper into existence in the first place."""
+    """One print argument, formatted for Pyking's true/false spelling:
+    inline where _bool_shape proves the type, a call through the
+    generated helper otherwise (docs/target_python.md, "Booleans").
+    Expr -> PyExpr -> Info -> PyExpr"""
     shape = _bool_shape(pyking_expr)
     if shape == "bool":
         return PyIfExp(info, translated, PyString(info, "true"), PyString(info, "false"))
@@ -1104,6 +909,7 @@ def _wrap_print_argument(pyking_expr, translated, info):
 
 
 def translate_expr(e, scope):
+    """Translates one expression. Expr -> Scope -> PyExpr"""
     match e:
         case EInt(info, v):
             return PyInt(info, v)
@@ -1134,39 +940,23 @@ def translate_expr(e, scope):
         case EEq(info, l, r):
             return PyEq(info, translate_expr(l, scope), translate_expr(r, scope))
         case ECall(info, EVar(_, name), args) if runtime_interface.lookup(name) is not None:
-            # A call to a runtime_interface operation (just `print` today):
-            # its arguments are formatted, not merely printed, and Pyking's
-            # own `true`/`false` spelling for a Bool is one place that
-            # differs from Python's `True`/`False` -- see
-            # `_wrap_print_argument`.
+            # A runtime_interface call's arguments are formatted, not
+            # merely translated -- see _wrap_print_argument.
             return PyCall(
                 info,
                 PyVar(info, name),
                 [_wrap_print_argument(a, translate_expr(a, scope), info) for a in args],
             )
         case ECall(info, EVar(_, "str"), [argument]) if not _is_bound("str", scope):
-            # `str` of a Bool is `true`/`false`, Pyking's own spelling --
-            # the same rule `print` follows, and for the same reason: the
-            # formatting of a value is the language's, not the host's
-            # (see src/runtime_interface.py, and `format_value` in
-            # src/interpreter.py, which is the reference). Python's own
-            # `str` would say `True`, so the argument is wrapped exactly
-            # as a printed one is -- which for anything that provably
-            # isn't a Bool is not wrapped at all.
+            # str follows print's own Bool formatting rule.
             return PyCall(
                 info,
                 PyVar(info, "str"),
                 [_wrap_print_argument(argument, translate_expr(argument, scope), info)],
             )
         case ECall(info, EVar(_, "range"), args) if not _is_bound("range", scope):
-            # Pyking's `range` yields a *list* of Int -- the language has
-            # lists and no lazy-sequence type, and the type checker says
-            # so (`check_builtin_call` in `src/typesystem.py`). Python's
-            # own `range` is a lazy object instead, which prints as
-            # `range(0, 2)` and matches no list pattern, so a range used
-            # as a value is materialised. The `for` header keeps the lazy
-            # form (see `SFor` in `translate_stmt`), which is where the
-            # difference would cost something.
+            # A range used as a value is materialised (docs/target_python.md,
+            # "range"); the for header keeps Python's lazy form.
             return PyCall(
                 info,
                 PyVar(info, "list"),
@@ -1221,9 +1011,7 @@ def translate_expr(e, scope):
 
 def translate_pattern(p, scope):
     """Translates a pattern, returning it with the scope its captures
-    extend -- a `case` arm's pattern binds in the enclosing Python
-    function scope (Python's `match` is not a scope), so those names go
-    through `_bind` and may be renamed like any other binding."""
+    extend. Pattern -> Scope -> (PyPattern, Scope)"""
     match p:
         case PInt(info, v):
             return PyPInt(info, v), scope
@@ -1265,8 +1053,7 @@ def translate_pattern(p, scope):
 
 def translate_target(t, scope, rebinding=False):
     """Translates an assignment target, returning it with the scope its
-    names extend. `rebinding` is passed on to `_bind`: a value binding
-    may not reuse a Python name a function has already captured."""
+    names extend. AssignTarget -> Scope -> Bool -> (PyTarget, Scope)"""
     match t:
         case TargetName(info, name):
             py_name, scope = _bind(name, scope, rebinding)
@@ -1282,13 +1069,8 @@ def translate_target(t, scope, rebinding=False):
 
 
 def translate_case(c, scope):
-    # Pyking's single-expression `case pattern -> expr` has no Python
-    # equivalent, so it desugars here into an ordinary case block whose
-    # body is just `return expr` -- the Python target AST itself gains no
-    # new node for this; PyMatchCase always just has a `body`.
-    #
-    # The arm is a block: its pattern binds into a scope of its own, and
-    # neither the pattern's names nor the arm's bindings escape it.
+    """One case arm outside a binding: `-> expr` desugars to a body of
+    just `return expr`. MatchCase -> Scope -> PyMatchCase"""
     py_pattern, arm_scope = translate_pattern(c.pattern, _block_scope(scope))
     if c.expr is not None:
         translated_expr = translate_expr(c.expr, arm_scope)
@@ -1299,12 +1081,8 @@ def translate_case(c, scope):
 
 
 def _yields_unit(expr):
-    """Whether `expr` is a call across the runtime interface (`print`
-    today). Those yield unit, and Python's own implicit `None` already
-    *is* unit, so a function whose tail is one needs no `return` emitted
-    at all -- writing `return print(x)` would say the same thing less
-    clearly, and is the one form the C and Java backends cannot express
-    (they refuse `print` as a value)."""
+    """Whether expr is a runtime_interface call (print), which needs no
+    return emitted in tail position. Expr -> Bool"""
     match expr:
         case ECall(_, EVar(_, name), _):
             return runtime_interface.lookup(name) is not None
@@ -1313,15 +1091,9 @@ def _yields_unit(expr):
 
 
 def _translate_tail_block(stmts, scope):
-    """Translates a statement list whose last statement is in **tail
-    position** -- a function body, or a branch of one that is itself in
-    tail position. Everything but the last statement translates
-    normally; the last goes through `_translate_tail_stmt`.
-
-    This is the same recursion `_translate_value_block` performs for a
-    value-form binding, with `return` in place of the assignment, which
-    is why an `if` nested in a `match` nested in an `if` needs no case of
-    its own: each level hands its branch tails back to this function."""
+    """Translates a statement list whose last statement is in tail
+    position (PYKING.md, "Tail position"; docs/target_python.md, "Tail
+    position"). [Stmt] -> Scope -> [PyStmt]"""
     if not stmts:
         return []
     # Over the whole block, including the last statement: a `def` in tail
@@ -1333,10 +1105,7 @@ def _translate_tail_block(stmts, scope):
 
 def _translate_tail_stmt(s, scope):
     """The last statement of a body in tail position, as a list of Python
-    statements. An expression becomes the function's return value; an
-    `if`/`match` pushes the rule down into its branches (so each branch
-    returns its own tail); anything else -- a loop, a binding, an
-    explicit `return` -- translates exactly as it would anywhere else."""
+    statements. Stmt -> Scope -> [PyStmt]"""
     match s:
         case SExprStmt(_, expr) if _yields_unit(expr):
             translated, _ = translate_stmt(s, scope)
@@ -1371,14 +1140,9 @@ def _translate_tail_stmt(s, scope):
 
 
 def _falls_through(py_body):
-    """Whether control can reach the end of `py_body` without returning.
-
-    Used to decide whether a function needs an explicit `return ()`:
-    Pyking's unit is the empty tuple, and Python's own implicit `None` is
-    *not* it -- printing one would write `None` where every other backend
-    writes `()`. Emitting the return where control can fall out keeps
-    unit a real value rather than a formatting special case, so no
-    print-time conversion (and no prelude) is needed for it."""
+    """Whether control can reach the end of py_body without returning --
+    if so, an explicit `return ()` is needed, since unit is the empty
+    tuple and Python's implicit None is not it. [PyStmt] -> Bool"""
     if not py_body:
         return True
     match py_body[-1]:
@@ -1397,9 +1161,8 @@ def _falls_through(py_body):
 
 
 def _translate_tail_case(c, scope):
-    """One `case` arm of a `match` in tail position. `case p -> expr`
-    already means `return expr`, so it is exactly `translate_case`'s job;
-    a block arm hands its own tail back to `_translate_tail_block`."""
+    """One case arm of a match in tail position. MatchCase -> Scope ->
+    PyMatchCase"""
     if c.expr is not None:
         return translate_case(c, scope)
     py_pattern, arm_scope = translate_pattern(c.pattern, _block_scope(scope))
@@ -1407,17 +1170,10 @@ def _translate_tail_case(c, scope):
 
 
 def _translate_value_stmt(s, py_target, scope):
-    """Translates an if/match statement in *value form* -- one bound with
-    '=' (see `SLetStmt` in syntax.py) -- into the very same PyIf/PyMatch
-    the plain statement form produces, except that each branch's final
-    expression becomes an assignment of that expression to `py_target`.
-
-    Python has no statement that evaluates to a value, so the binding is
-    pushed down into the branch tails instead of the whole construct
-    being made an expression; that keeps everything else about a branch
-    (bindings, mutations of an enclosing `var`, prints) working exactly
-    as it does in the statement form, which wrapping the branches in a
-    helper function would not."""
+    """Translates a value-form if/match (docs/target_python.md,
+    "Value-form if/match"): the same PyIf/PyMatch the statement form
+    produces, with each branch's tail assigned to py_target. Stmt ->
+    PyTarget -> Scope -> PyStmt"""
     match s:
         case SIf(info, cond, then_body, else_body):
             # The parser guarantees `else_body` is not None here.
@@ -1438,12 +1194,8 @@ def _translate_value_stmt(s, py_target, scope):
 
 
 def _translate_value_block(stmts, py_target, scope):
-    """Translates one branch of a value-form if/match: every statement but
-    the last is translated normally, and the last -- which the parser has
-    checked yields a value (see `_check_value_block` there) -- either
-    becomes the assignment to `py_target`, or, when it is itself an
-    if/match, has the same treatment applied to *its* branch tails. The
-    branch is a block, so it gets its own scope."""
+    """Translates one branch of a value-form if/match. [Stmt] ->
+    PyTarget -> Scope -> [PyStmt]"""
     branch_scope = _declare_functions(stmts, _block_scope(scope))
     body, branch_scope = _translate_stmts(stmts[:-1], branch_scope)
     match stmts[-1]:
@@ -1457,10 +1209,8 @@ def _translate_value_block(stmts, py_target, scope):
 
 
 def _translate_value_case(c, py_target, scope):
-    # `case pattern -> expr` binds the expression directly; the block form
-    # goes through `_translate_value_block` like an `if` branch. (Contrast
-    # `translate_case`, which desugars `->` to a `return` instead -- that
-    # is what a case arm means outside a binding.)
+    """One case arm of a value-form match. MatchCase -> PyTarget -> Scope
+    -> PyMatchCase"""
     py_pattern, arm_scope = translate_pattern(c.pattern, _block_scope(scope))
     if c.expr is not None:
         translated_expr = translate_expr(c.expr, arm_scope)
@@ -1472,8 +1222,7 @@ def _translate_value_case(c, py_target, scope):
 
 def translate_stmt(s, scope):
     """Translates one statement, returning it with the scope it leaves
-    behind -- that is how a sequence of statements accumulates bindings,
-    and how a binding's rename becomes visible to what follows it."""
+    behind. Stmt -> Scope -> (PyStmt, Scope)"""
     match s:
         case SLet(info, target, expr):
             # The right-hand side is translated *before* the target binds,
@@ -1542,20 +1291,8 @@ def translate_stmt(s, scope):
             return PyIf(info, translate_expr(cond, scope), py_then, py_else), scope
 
         case SFunctionDef(info, name, params, body, _return_type, expr):
-            # Pyking's single-expression `def name(...) = expr` has no
-            # Python equivalent, so it desugars here into an ordinary
-            # function body of just `return expr` -- mirrors
-            # `translate_case`'s handling of `case pattern -> expr`.
-            #
-            # The function's own name binds in the enclosing scope (and so
-            # may be renamed); its parameters and body open a fresh Python
-            # scope, where nothing can collide with the outside and so
-            # nothing is renamed.
+            # `= expr` desugars to a body of just `return expr`.
             py_name, scope = _bind(name, scope)
-            # What the body reads from around it decides which of its own
-            # bindings have to be renamed -- see `_free_names`. The
-            # parameters and the function's own name are bound by the
-            # time the body runs, so they are not "outside".
             body_stmts = body if body is not None else []
             body_bound = {name} | {p.name for p in params}
             body_scope = _function_scope(
@@ -1571,21 +1308,14 @@ def translate_stmt(s, scope):
                 translated_expr = translate_expr(expr, body_scope)
                 py_body = [PyReturn(translated_expr.info, translated_expr)]
             else:
-                # The body's last statement is in tail position: whatever
-                # value it produces is the function's result. See
-                # `_translate_tail_block`. A body that can fall out of
-                # the end produces unit on that path, and unit is `()`,
-                # not Python's implicit `None` -- see `_falls_through`.
                 py_body = _translate_tail_block(body, body_scope)
                 if _falls_through(py_body):
                     py_body.append(PyReturn(info, PyTuple(info, [])))
             return PyFunctionDef(info, py_name, param_names, py_body), scope
 
         case SReturnStmt(_, stmt):
-            # `return if c:` / `return match e:` -- the same push-down as
-            # a tail-position if/match, just written explicitly, so it
-            # also works where the implicit rule cannot reach: before the
-            # end of the body.
+            # `return if c: ...` -- the same push-down as a tail-position
+            # if/match, written explicitly.
             return _translate_tail_stmt(stmt, scope)[0], scope
 
         case SMatch(info, subject, cases):
@@ -1597,22 +1327,9 @@ def translate_stmt(s, scope):
 
 
 def _declare_functions(stmts, scope):
-    """Binds every `def` in this block before any of the block is
-    translated, mirroring what the front end does with the same
-    statements (see `declare_functions` in `src/typesystem.py`).
-
-    Python needs no hoisting of its own to *run* a forward reference --
-    it resolves a global or a closure variable when the call happens, not
-    when the `def` is read -- but the translation does, because a name
-    here may be renamed. A `def` that shadows something in the same
-    Python function scope compiles to `helper2`, and a use written above
-    it must say `helper2` too; without this it would fall through
-    `_lookup` to the name the *shadowed* binding compiled to, and quietly
-    call the wrong thing.
-
-    Binding a name twice is harmless: `_bind` hands back the same Python
-    name for a name already bound in this block, which is the same path a
-    rebinding takes."""
+    """Binds every def in this block before any of it is translated
+    (docs/target_python.md, "Functions used before they are written").
+    [Stmt] -> Scope -> Scope"""
     for s in stmts:
         if isinstance(s, SFunctionDef):
             _, scope = _bind(s.name, scope)
@@ -1620,24 +1337,18 @@ def _declare_functions(stmts, scope):
 
 
 def _loop_captures(s, loop_names):
-    """The loop-carried names a `def` reads, or an empty set for anything
-    else. Empty outside a loop, since then nothing is rebound underneath
-    the function."""
+    """The loop-carried names a def reads, or an empty set for anything
+    else or outside a loop. Stmt -> {String}? -> {String}"""
     if loop_names is None or not isinstance(s, SFunctionDef):
         return frozenset()
     return frozenset(_def_body_names(s) & loop_names)
 
 
 def _loop_names_before(stmts, index, scope):
-    """Everything a turn of the loop rebinds, as seen from `index` in
-    this block: what the loop already carried, plus what the block binds
-    *above* that point.
-
-    Positional, because that is what a `def` there can see. A name the
-    block binds further down is not the name this `def` reads -- that one
-    is whatever was in scope outside the loop, which no turn rebinds, so
-    reading it needs nothing done about it. `var`s are left out, as
-    everywhere else: they are one location, not one per turn."""
+    """Everything a turn of the loop rebinds, as seen positionally from
+    index in this block: what the loop already carries, plus what the
+    block binds above that point (var excluded). [Stmt] -> Int -> Scope
+    -> {String}?"""
     if scope.loop_names is None:
         return None
     names = set(scope.loop_names)
@@ -1648,8 +1359,8 @@ def _loop_names_before(stmts, index, scope):
 
 
 def _def_body_names(s):
-    """The names a `def`'s body reads freely -- its own name and its
-    parameters excluded, since those are bound by the `def` itself."""
+    """The names a def's body reads freely (own name and parameters
+    excluded). SFunctionDef -> {String}"""
     bound = {s.name} | {p.name for p in s.params}
     if s.expr is not None:
         free = set()
@@ -1659,20 +1370,11 @@ def _def_body_names(s):
 
 
 def _turn_groups(stmts, scope):
-    """Which `def`s of this loop body have to be built together, one turn
-    at a time, keyed by the index each group starts at.
-
-    A `def` needs per-turn treatment when it reads something the loop
-    rebinds (`_loop_captures`). It cannot be built alone, though, if it
-    names another `def` of the same block: that one must be *this*
-    turn's too, or the call would find whatever the loop variable holds
-    by the time anyone looks -- which is the last turn's. So the groups
-    are the connected components of "names each other" among the block's
-    `def`s, keeping those that contain at least one capturing member.
-
-    Components rather than neighbours: it is the reference that has to
-    be resolved, and whether the two `def`s happen to be written next to
-    each other has nothing to do with it."""
+    """Which defs of this loop body have to be built together, one turn
+    at a time, keyed by the index each group starts at: the connected
+    components of "names another def of this block" that capture
+    something the loop rebinds (docs/gap.md). [Stmt] -> Scope -> {Int:
+    ([Int], [Int], {String})}"""
     if scope.loop_names is None:
         return {}
     defs = {i: s for i, s in enumerate(stmts) if isinstance(s, SFunctionDef)}
@@ -1725,17 +1427,9 @@ def _turn_groups(stmts, scope):
 
 
 def _absorbed(stmts, defs, members, captures):
-    """The statements between a group's `def`s that have to travel with
-    them into the factory.
-
-    A capture bound *between* the members cannot be a parameter of a
-    factory called at the first of them, so the binding comes along.
-    Everything up to it comes too, as long as it *can* move -- which
-    keeps the group's statements in the order they were written, side
-    effects included. When something in the way cannot move (a `return`
-    would leave the factory rather than the function, a `:=` would write
-    the factory's own local), only the bindings the group actually needs
-    are taken, and those move ahead of the statements left behind."""
+    """The statement indices between a group's defs that have to travel
+    with them into the factory (docs/gap.md). [Stmt] -> {Int:
+    SFunctionDef} -> [Int] -> {String} -> [Int]"""
     needed = [
         j
         for j in range(members[0], members[-1])
@@ -1752,11 +1446,10 @@ def _absorbed(stmts, defs, members, captures):
 
 
 def _movable(s):
-    """Whether a statement may be lifted into a factory: it must contain
-    no `return`, which would leave the factory instead of the function
-    around it, and no `:=`, which would write the factory's own local
-    rather than the variable it names. A nested `def` is opaque -- its
-    own `return`s are its own."""
+    """Whether a statement may be lifted into a factory: no return
+    (would leave the factory, not the enclosing function) and no :=
+    (would write the factory's own local). A nested def's own returns
+    don't count against it. Stmt -> Bool"""
     match s:
         case SReturn() | SReturnStmt() | SMutate():
             return False
@@ -1777,7 +1470,8 @@ def _movable(s):
 
 
 def _stmt_bound_names(s):
-    """The names a statement binds in the block it is written in."""
+    """The names a statement binds in the block it is written in. Stmt ->
+    [String]"""
     match s:
         case SLet(_, target, _) | SLetStmt(_, target, _):
             return _target_names(target)
@@ -1790,22 +1484,10 @@ def _stmt_bound_names(s):
 
 
 def _translate_turn_group(members, absorbed, captures, stmts, scope):
-    """One group of `def`s inside a loop, built by a factory that takes
-    what the loop rebinds as parameters -- so the functions of one turn
-    hold that turn's values:
-
-        for i in range(3):          def __pyk_turn1(i):
-            def show() = i     ->       def show():
-                                            return i
-                                        return show
-                                    show = __pyk_turn1(i)
-
-    Everything the group needs is defined *inside* the factory, so a
-    recursive function calls this turn's copy and functions that name
-    each other find each other there -- whether or not they were written
-    side by side. Nothing else moves: the statements between them stay
-    where they are, keeping their order, their side effects, and any
-    `return` or `:=` exactly as written."""
+    """One group of defs inside a loop, built by a factory taking the
+    captured names as parameters (docs/target_python.md, "A def inside a
+    loop"; docs/gap.md). [Int] -> [Int] -> {String} -> [Stmt] -> Scope ->
+    ([PyStmt], Scope)"""
     order = sorted(members + absorbed)
     py_captures = [_lookup(name, scope) for name in sorted(captures)]
 
@@ -1839,11 +1521,9 @@ def _translate_turn_group(members, absorbed, captures, stmts, scope):
 
 
 def _translate_stmts(stmts, scope):
-    """Translates a statement sequence, threading the scope through it,
-    and returns the statements with the scope they leave behind. A caller
-    that is entering a *block* passes a `_block_scope` and ignores the
-    returned scope -- that is what keeps a block's bindings from escaping
-    into the code after it."""
+    """Translates a statement sequence, threading the scope through it.
+    A caller entering a block passes a _block_scope and discards the
+    returned scope. [Stmt] -> Scope -> ([PyStmt], Scope)"""
     scope = _declare_functions(stmts, scope)
     groups = _turn_groups(stmts, scope)
     # Everything a group takes with it is emitted where the group starts,
@@ -1871,12 +1551,9 @@ def _translate_stmts(stmts, scope):
 
 
 def translate_program(stmts):
-    """External entry point: translates a full program, resetting the
-    comprehension-helper and boolean-print-helper state first and
-    prepending every comprehension helper synthesized along the way (see
-    the module comment above) to the translated statements, returned
-    together with any boolean-print-formatting prelude as a `PyProgram`
-    for `pprint_py_program` to print."""
+    """Translates a full program: comprehension and Bool-format helper
+    state is reset first, and every helper synthesized along the way is
+    prepended. [Stmt] -> PyProgram"""
     global _comp_counter, _pending_comp_helpers, _used_identifiers, _turn_counter
     global _bool_format_helper_name_value, _bool_format_helper_def
     _comp_counter = 0
@@ -1898,6 +1575,8 @@ def translate_program(stmts):
 # --- pretty printer: Python target AST -> Python source text ---
 
 def _wrap(prec, min_prec, s):
+    """s, parenthesized if prec is below min_prec. Int -> Int -> String
+    -> String"""
     return f"({s})" if prec < min_prec else s
 
 
@@ -1911,11 +1590,15 @@ _PRINT_ESCAPES = {
 
 
 def _quote_string(s):
+    """s as a single-quoted Python string literal, escapes applied.
+    String -> String"""
     body = "".join(_PRINT_ESCAPES.get(ch, ch) for ch in s)
     return f"'{body}'"
 
 
 def pprint_py_expr(e, min_prec=0):
+    """e as Python source text, parenthesized if its precedence is below
+    min_prec. PyExpr -> Int -> String"""
     match e:
         case PyInt(_, v):
             return str(v)
@@ -1979,13 +1662,9 @@ def pprint_py_expr(e, min_prec=0):
 
 
 def pprint_py_comp_clause(c):
-    # Both sub-expressions print at min_prec 1, which parenthesizes a
-    # PyIfExp (precedence 0). These parens are *required*, not cosmetic:
-    # Python's comprehension grammar admits only an `or_test` after `in`
-    # and after a filtering `if`, deliberately excluding the conditional
-    # expression so its `if`/`else` can't be confused with the
-    # comprehension's own. Without them, `[x for x in xs if b if a else c]`
-    # and `[x for x in b if a else c]` are both Python syntax errors.
+    """c as Python source text. PyCompClause -> String"""
+    # min_prec 1 forces parens around a PyIfExp: Python's comprehension
+    # grammar excludes a bare conditional expression after `in`/`if`.
     match c:
         case PyCompFor(_, target, sequence):
             return f"for {pprint_py_target(target)} in {pprint_py_expr(sequence, 1)}"
@@ -1994,16 +1673,14 @@ def pprint_py_comp_clause(c):
 
 
 def pprint_py_pattern(p):
+    """p as Python source text. PyPattern -> String"""
     match p:
         case PyPInt(_, v):
             return str(v)
         case PyPString(_, s):
             return _quote_string(s)
         case PyPBool(_, v):
-            # `True`/`False` (capitalised) are two of the handful of names
-            # Python's own `match` treats as a *value* pattern rather than
-            # a capture, per PEP 634 -- exactly the literal-match behaviour
-            # `PBool` needs, with no extra work here.
+            # True/False are value patterns to Python's match (PEP 634).
             return "True" if v else "False"
         case PyPWildcard(_):
             return "_"
@@ -2026,6 +1703,7 @@ def pprint_py_pattern(p):
 
 
 def pprint_py_target(t):
+    """t as Python source text. PyTarget -> String"""
     match t:
         case PyTargetName(_, name):
             return name
@@ -2040,11 +1718,9 @@ def pprint_py_target(t):
 
 
 def _render_block(stmts, level):
-    """Renders a same-scope statement list as a list of lines, one blank
-    line before and after every nested `def` (but never at the very start
-    or end of the block, where it would only leave a dangling blank line
-    against the header or the dedent) -- ordinary Python style, and the
-    same rule `pprint_py_program` applies at the top level below."""
+    """Renders a statement list as source lines, with a blank line
+    around each nested def (never at the block's own start or end).
+    [PyStmt] -> Int -> [String]"""
     lines = []
     prev_was_def = False
     for i, st in enumerate(stmts):
@@ -2057,6 +1733,8 @@ def _render_block(stmts, level):
 
 
 def pprint_py_stmt(s, level=0):
+    """s as Python source text, indented to level. PyStmt -> Int ->
+    String"""
     pad = "    " * level
     match s:
         case PyAssign(_, target, expr):
@@ -2076,12 +1754,8 @@ def pprint_py_stmt(s, level=0):
         case PyIf(_, cond, then_body, else_body):
             lines = [f"{pad}if {pprint_py_expr(cond)}:"]
             lines += _render_block(then_body, level + 1)
-            # An else body of exactly one `if` prints as Python's `elif`,
-            # which is defined as precisely that nesting -- same semantics,
-            # but a Pyking `else if` ladder (which translates to nested
-            # `PyIf`s, see `parse_if_stmt_tail` in parser.py) then comes out
-            # as a flat `if`/`elif`/`else` chain in the generated source
-            # instead of stepping one indent level right per branch.
+            # An else body of exactly one if prints as elif, flattening
+            # an else-if ladder instead of nesting one indent per branch.
             while True:
                 match else_body:
                     case [PyIf(_, elif_cond, elif_body, else_body2)]:
@@ -2109,11 +1783,8 @@ def pprint_py_stmt(s, level=0):
             raise NotImplementedError(f"no pretty printer for Python statement {s!r}")
 
 
-# Markers around the prelude, matching the convention
-# `target_js_packaging.py` uses for the same reason: so a reader can see
-# at a glance which lines came from the `.pyk` source and which are host
-# boilerplate around it. Only ever present when `_bool_format_helper_name`
-# actually built the helper -- see `translate_program`/`PyProgram`.
+# Markers around the prelude, separating host boilerplate from the
+# translated source (docs/target_python.md, "Booleans").
 _PRELUDE_BEGIN = "\n".join([
     "# --- prelude begins ---",
     "# Pyking prints a Bool as `true`/`false`, not Python's own capitalised",
@@ -2125,6 +1796,7 @@ _PRELUDE_END = "# --- prelude ends; the compiled program follows ---"
 
 
 def pprint_py_program(program):
+    """program as Python source text. PyProgram -> String"""
     body = "\n".join(_render_block(program.stmts, 0))
     if not program.prelude:
         return body

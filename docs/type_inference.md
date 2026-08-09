@@ -527,11 +527,11 @@ one part of the compiler catching a disagreement in another.
 
 ## Testing it
 
-Eight `tests/typecheck_infer_*.pyk` programs pin what is inferred — each
-has an `.ast.out` holding the printed AST with the inferred types, and an
-`.out` holding what the program prints, checked on every backend that
-accepts it. Three `tests/fail_typecheck_infer_*.pyk` pin what is refused
-and how it is worded.
+Thirteen `tests/typecheck_infer_*.pyk` programs pin what is inferred —
+each has an `.ast.out` holding the printed AST with the inferred types,
+and an `.out` holding what the program prints, checked on every backend
+that accepts it. Four `tests/fail_typecheck_infer_*.pyk` pin what is
+refused and how it is worded.
 
 The most valuable of these is the plainest: because the `interpret`
 target runs each of them and compares against the same `.out` as the

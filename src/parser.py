@@ -1,3 +1,22 @@
+"""Recursive-descent parser: tokens (from lexer.py) to the AST defined
+in syntax.py. Also enforces the handful of grammar rules that cannot be
+expressed in EBNF -- duplicate pattern captures, value-form if/match
+branches, one statement per line. See PYKING.md for the grammar and
+docs/source.md ("parser.py").
+
+Data structures:
+    ParseError -- a parse failure, with the source position.
+
+Functions:
+    parse(tokens) -- parses a full token stream into a list of statements.
+    parse_statement(tokens) -- parses one statement.
+    parse_expr(tokens) -- parses one expression.
+    parse_block(tokens) -- parses one indented block.
+    parse_type(tokens) -- parses one type annotation.
+    parse_pattern(tokens) -- parses one match/case pattern.
+    combine_info(start, end) -- spans an Info from two nodes' Infos.
+"""
+
 from dataclasses import replace
 
 from lexer import (
@@ -27,7 +46,7 @@ from syntax import (
 
 
 class ParseError(Exception):
-    """Raised for syntax errors; carries the source position of the error."""
+    """A syntax failure, with the source position."""
 
     def __init__(self, info, message):
         super().__init__(message)
@@ -36,9 +55,8 @@ class ParseError(Exception):
 
 
 def combine_info(start, end):
-    """Builds an Info spanning from the start of `start` to the end of `end`,
-    e.g. for an AST node built from several tokens: the first token's start
-    position and the last token's end position."""
+    """Spans an Info from the start of start to the end of end.
+    Info -> Info -> Info"""
     return Info(start.file, start.row1, start.col1, end.row2, end.col2)
 
 
@@ -46,19 +64,16 @@ _eof_info = None
 
 
 def _here(tokens):
-    """Returns the Info to blame for a parse error at the current position:
-    the next token's info if there is one, otherwise the end of the file."""
+    """The Info to blame for a parse error at the current position: the
+    next token's, or end-of-file. [Token] -> Info"""
     return tokens[0].info if tokens else _eof_info
 
 
 # --- parser ---
-#
-# There are no newline/separator tokens in the token stream (see `lexing`);
-# statement boundaries fall out naturally because each statement's grammar
-# stops consuming as soon as the next token can't extend it. Blocks are
-# delimited by the TokIndent/TokDedent tokens produced by the lexer.
 
 def parse_atom(tokens):
+    """Parses one atom: a literal, name, parenthesized expression,
+    tuple, list, or list comprehension. [Token] -> (Expr, [Token])"""
     match tokens:
         case [TokInt(info, v), *rest]:
             return parse_call_tail(EInt(info, v), rest)
@@ -122,15 +137,11 @@ def parse_atom(tokens):
 
 
 def parse_call_tail(expr, tokens):
+    """Parses zero or more call suffixes onto expr, chaining `f(1)(2)`.
+    A `(` only extends expr if it starts on the same source row expr
+    ended on, so it cannot swallow the next statement's.
+    Expr -> [Token] -> (Expr, [Token])"""
     match tokens:
-        # The `row1 ==` guard restricts call-chaining (`f(1)(2)`) to a '('
-        # on the same source row as where `expr` ended. Without it, this
-        # would also (wrongly) chain onto a '(' that starts the *next*
-        # statement -- there are no statement-separator tokens in this
-        # grammar (see the module comment above), so e.g. `print(x)`
-        # followed on the next line by a parenthesized tuple statement
-        # like `(a, b) = ...` would otherwise be misparsed as one giant
-        # call `print(x)(a, b)`.
         case [TokLParen(lp_info), *rest] if lp_info.row1 == expr.info.row2:
             args, rparen_info, rest = parse_args(rest)
             call_info = combine_info(expr.info, rparen_info)
@@ -140,6 +151,8 @@ def parse_call_tail(expr, tokens):
 
 
 def parse_args(tokens):
+    """Parses comma-separated call arguments up to and including ')'.
+    [Token] -> ([Expr], Info, [Token])"""
     match tokens:
         case [TokRParen(info), *rest]:
             return [], info, rest
@@ -156,6 +169,8 @@ def parse_args(tokens):
 
 
 def parse_list_elements(tokens):
+    """Parses comma-separated list elements up to and including ']'.
+    [Token] -> ([Expr], Info, [Token])"""
     match tokens:
         case [TokRBracket(info), *rest]:
             return [], info, rest
@@ -172,10 +187,8 @@ def parse_list_elements(tokens):
 
 
 def parse_comp_clauses(tokens):
-    """Parses a list comprehension's clauses -- at least one `for`,
-    followed by any mix of further `for`/`if` clauses (the caller has
-    already peeked that `tokens` starts with `for`) -- up to and
-    including the closing ']'."""
+    """Parses a list comprehension's for/if clauses up to and including
+    ']'. [Token] -> ([CompClause], Info, [Token])"""
     clauses = []
     rest = tokens
     while True:
@@ -205,12 +218,8 @@ def parse_comp_clauses(tokens):
 
 
 def parse_unary(tokens):
-    """Unary minus: `-expr`, binding tighter than `*`/`/` and looser than
-    a call, so `-x * y` is `(-x) * y` and `-f(x)` negates the result of
-    the call. Recursing on itself allows `- -x`, and it is the same `-`
-    token as subtraction -- the two never compete, since a binary `-`
-    only ever appears where an expression has just ended and a unary one
-    only where an expression is about to begin."""
+    """Parses unary minus (`-expr`) or falls through to an atom.
+    [Token] -> (Expr, [Token])"""
     match tokens:
         case [TokSub(info), *rest]:
             operand, rest = parse_unary(rest)
@@ -220,6 +229,7 @@ def parse_unary(tokens):
 
 
 def parse_multiplicative(tokens):
+    """Parses `*`/`/`, left-associative. [Token] -> (Expr, [Token])"""
     left, rest = parse_unary(tokens)
     while True:
         match rest:
@@ -234,6 +244,7 @@ def parse_multiplicative(tokens):
 
 
 def parse_additive(tokens):
+    """Parses `+`/`-`, left-associative. [Token] -> (Expr, [Token])"""
     left, rest = parse_multiplicative(tokens)
     while True:
         match rest:
@@ -248,15 +259,10 @@ def parse_additive(tokens):
 
 
 def parse_expr(tokens):
-    """The lowest-precedence expression level: either an if expression
-    (`if e then e else e` -- Pyking extension, see PYKING.md) or a
-    comparison. Which one it is shows in the very first token, so this
-    stays LL(1); it's only at *statement* level that `if` is ambiguous
-    (see the `TokIf` case in `parse_statement`)."""
+    """Parses the lowest-precedence expression level: an if expression
+    or a comparison. [Token] -> (Expr, [Token])"""
     match tokens:
         case [TokIf(info), *rest]:
-            # The condition is a full `expr`, so a nested if expression may
-            # appear here unparenthesized (`if if a then b else c then ...`).
             cond, rest = parse_expr(rest)
             return parse_if_expr_tail(info, cond, rest)
         case _:
@@ -264,23 +270,10 @@ def parse_expr(tokens):
 
 
 def parse_if_expr_tail(if_info, cond, tokens):
-    """Parses the `then expr else expr` tail of an if expression, given the
-    already-parsed `if` token info and condition. Split out from
-    `parse_expr` because `parse_statement` reaches this same point by a
-    different route: it has to consume `if` and the condition itself before
-    it can tell an if statement from an if expression.
-
-    Both branches are `expr`, not `tuple_or_expr`, so a comma ends the if
-    expression rather than being swallowed by it -- `if a then b else c, d`
-    is a 2-tuple whose first element is the if expression, matching how
-    Python reads `b if a else c, d`. The `else` branch recurses through
-    `parse_expr`, making the construct right-associative, so a chained
-    `else if ...` reads (and parses) like an `elif` ladder. Unlike the if
-    *statement*, `else` is mandatory: that is what keeps `if a then if b
-    then c else d else e` unambiguous, since each `else` then has exactly
-    one possible owner -- the classic dangling-else problem comes from the
-    `else` being *optional*, which is true of Pyking's if statement but
-    deliberately not of its if expression."""
+    """Parses the `then expr else expr` tail of an if expression (see
+    PYKING.md, "if/then/else expressions"), given the already-parsed
+    `if` and condition.
+    Info -> Expr -> [Token] -> (EIf, [Token])"""
     match tokens:
         case [TokThen(_), *rest]:
             then_expr, rest = parse_expr(rest)
@@ -298,19 +291,10 @@ def parse_if_expr_tail(if_info, cond, tokens):
 
 
 def parse_if_stmt_tail(if_info, cond, tokens):
-    """Parses the block and optional `else` tail of an if statement, given
-    the already-parsed `if` token info and condition; `tokens` starts just
-    after the header's ':'. The mirror image of `parse_if_expr_tail` --
-    `parse_statement` reaches one or the other only after consuming the
-    `"if" , expr` prefix the statement and the expression share.
-
-    `else if` (two keywords -- Pyking has no `elif`) recurses here and
-    becomes a nested `SIf` that is the outer statement's entire else
-    body: exactly the AST an explicit `else:` block containing a single
-    if statement produces, so a ladder needs no AST node of its own. The
-    nested header must be the *statement* form, i.e. end in ':' -- an if
-    expression is not allowed to start an `else` tail, which is what
-    keeps `else if` unambiguous."""
+    """Parses the block and optional else/else-if tail of an if
+    statement (see PYKING.md, "else if instead of elif"), given the
+    already-parsed `if` and condition; tokens starts just after ':'.
+    Info -> Expr -> [Token] -> (SIf, [Token])"""
     then_body, rest = parse_block(tokens)
     match rest:
         case [TokElse(_), TokIf(elif_info), *rest]:
@@ -336,6 +320,8 @@ def parse_if_stmt_tail(if_info, cond, tokens):
 
 
 def parse_comparison(tokens):
+    """Parses a comparison operator; comparisons do not chain.
+    [Token] -> (Expr, [Token])"""
     left, rest = parse_additive(tokens)
     match rest:
         case [TokLessThan(_), *rest]:
@@ -358,22 +344,16 @@ def parse_comparison(tokens):
 
 
 def parse_tuple_or_expr(tokens):
-    """Parses either a single `expr`, or a *bare* (unparenthesized) tuple:
-    `expr , expr , ...` -- Pyking's Python-like implicit-tuple
-    construction. Deliberately requires at least two elements and forbids
-    a trailing comma: since this grammar has no statement-separator
-    tokens (see the module comment above), a trailing comma here would be
-    indistinguishable from the start of the following statement -- a
-    singleton tuple must be written with explicit parens, `(e,)`."""
+    """Parses one expression, or a bare (unparenthesized) tuple
+    `expr, expr, ...`. [Token] -> (Expr, [Token])"""
     first, rest = parse_expr(tokens)
     return parse_tuple_tail(first, rest)
 
 
 def parse_tuple_tail(first, tokens):
-    """Given an already-parsed first `expr`, continues a bare tuple if the
-    next token is a comma, otherwise returns `first` unchanged. Split out of
-    `parse_tuple_or_expr` so `parse_statement` can reuse it after having
-    parsed the first element by a different route (see its `TokIf` case)."""
+    """Continues a bare tuple from an already-parsed first element if
+    the next token is a comma, otherwise returns first unchanged.
+    Expr -> [Token] -> (Expr, [Token])"""
     match tokens:
         case [TokComma(_), *rest]:
             elements = [first]
@@ -392,15 +372,9 @@ def parse_tuple_tail(first, tokens):
 
 
 def parse_type(tokens):
-    """A type, including the `|` alternatives an "or" type is written
-    with: `Int | String` is one type whose values are either.
-
-    `|` binds looser than everything else a type can be built from, so it
-    is read here, around `parse_type_atom`, and a function type's result
-    picks it up by recursion -- `(Int) -> Int | String` is a function
-    returning either. A function *alternative* therefore needs its own
-    parentheses, `((Int) -> Bool) | String`, which is exactly how
-    `pprint_type` writes one."""
+    """Parses a type, including `|` alternatives (Int | String); `|`
+    binds looser than everything else a type is built from.
+    [Token] -> (Type, [Token])"""
     first, rest = parse_type_atom(tokens)
     alternatives = [first]
     while True:
@@ -417,8 +391,8 @@ def parse_type(tokens):
 
 
 def parse_type_atom(tokens):
-    """One type with no `|` in it -- which includes a whole function
-    type, since `->` binds tighter than `|` does."""
+    """Parses one type with no `|` in it (a function type included,
+    since `->` binds tighter than `|`). [Token] -> (Type, [Token])"""
     match tokens:
         case [TokTypeInt(info), *rest]:
             return TInt(info), rest
@@ -461,6 +435,8 @@ def parse_type_atom(tokens):
 
 
 def parse_type_elements(tokens):
+    """Parses comma-separated types up to and including ')'.
+    [Token] -> ([Type], Info, [Token])"""
     match tokens:
         case [TokRParen(info), *rest]:
             return [], info, rest
@@ -477,6 +453,7 @@ def parse_type_elements(tokens):
 
 
 def parse_param(tokens):
+    """Parses one parameter, `name` or `name:type`. [Token] -> (Param, [Token])"""
     match tokens:
         case [TokIdent(info, name), TokColon(_), *rest]:
             type_, rest = parse_type(rest)
@@ -488,6 +465,8 @@ def parse_param(tokens):
 
 
 def parse_params(tokens):
+    """Parses comma-separated parameters up to and including ')'.
+    [Token] -> ([Param], [Token])"""
     match tokens:
         case [TokRParen(_), *rest]:
             return [], rest
@@ -504,10 +483,8 @@ def parse_params(tokens):
 
 
 def parse_target_atom(tokens):
-    """A single assignment target: a name, or a fully parenthesized
-    tuple-target group (0, 1 [singleton, trailing comma required], or 2+
-    comma-separated targets, trailing comma optional for 2+ -- same
-    shape as a parenthesized tuple expression)."""
+    """Parses one assignment target: a name, or a parenthesized
+    tuple-target group. [Token] -> (AssignTarget, [Token])"""
     match tokens:
         case [TokIdent(info, name), *rest]:
             return TargetName(info, name), rest
@@ -534,6 +511,8 @@ def parse_target_atom(tokens):
 
 
 def parse_target_paren_tail(tokens):
+    """Parses comma-separated targets up to and including ')'.
+    [Token] -> ([AssignTarget], Info, [Token])"""
     match tokens:
         case [TokRParen(info), *rest]:
             return [], info, rest
@@ -550,10 +529,8 @@ def parse_target_paren_tail(tokens):
 
 
 def parse_target(tokens):
-    """The full assignment-target grammar: a single `parse_target_atom`,
-    or a *bare* (unparenthesized) comma-separated sequence of 2+ of them
-    -- like bare tuple expressions, deliberately with no trailing comma
-    (see `parse_tuple_or_expr`)."""
+    """Parses an assignment target: one parse_target_atom, or a bare
+    comma-separated sequence of them. [Token] -> (AssignTarget, [Token])"""
     first, rest = parse_target_atom(tokens)
     match rest:
         case [TokComma(_), *rest]:
@@ -573,16 +550,9 @@ def parse_target(tokens):
 
 
 def _try_parse_assignment_target(tokens):
-    """Speculatively parses `tokens` as `target [: type] =`, returning
-    `(target, type_or_None, rest)` positioned just after the '=' on
-    success, or `None` if `tokens` doesn't begin with one -- callers fall
-    back to parsing `tokens` as a general statement/expression instead.
-    Since this parser is purely functional over immutable token lists, a
-    failed speculative parse has no side effects to undo.
-
-    The optional `: type` cannot be confused with anything else here:
-    `:=` is a single token (`TokAssign`), so a `TokColon` after a target
-    can only begin an annotation."""
+    """Speculatively parses tokens as `target [: type] =`. Returns None,
+    positioned just after '=' on success, if tokens does not begin with
+    one. [Token] -> (AssignTarget, Type?, [Token])?"""
     try:
         target, rest = parse_target(tokens)
     except ParseError:
@@ -611,33 +581,9 @@ _QUOTE_LIMIT = 32
 
 
 def _check_own_line(previous, current, what, describe):
-    """Refuses a construct that begins on the same line the one before it
-    ended on, naming both of them.
-
-    Pyking has no statement separator: a statement ends when the tokens
-    stop being able to continue it, which by itself would make
-
-        f 34
-
-    two statements -- a bare `f`, then a bare `34` -- and so a program
-    that reads as one thing and does another. Nothing in the grammar can
-    say this, because the grammar cannot see line boundaries: the lexer
-    emits INDENT and DEDENT for block structure and nothing at all for
-    the end of a line. What it *can* be said with is the position every
-    node carries, which is why this check lives here, beside the other
-    rules the EBNF cannot state (see `_check_no_duplicate_captures` and
-    `_check_value_stmt`) rather than in a later pass -- it is a fact
-    about the text, and it should be reported the moment the text is
-    read.
-
-    Both constructs are named, because the mistake is not that something
-    is in the wrong place but that *two* things were read where one was
-    meant: seeing `'f' and '34'` quoted back is what makes it obvious
-    which two. That is also why this runs after the second one has been
-    parsed rather than before -- until then there is nothing to name.
-
-    One line may still hold a whole statement with a block-opening header
-    in it (`x = if c:`); what it may not hold is *two* of them."""
+    """Raises ParseError if current begins on the same source line
+    previous ended on (see PYKING.md, "a statement starts a line of its
+    own"). a -> a -> String -> (a -> String) -> ()"""
     if current.info.row1 > previous.info.row2:
         return
     raise ParseError(
@@ -649,18 +595,20 @@ def _check_own_line(previous, current, what, describe):
 
 
 def _statement_text(stmt):
-    """How a statement reads, for an error message: its own syntax,
-    printed back."""
+    """A statement's own syntax, shortened for an error message.
+    Stmt -> String"""
     return _shorten(pprint_stmt(stmt))
 
 
 def _case_text(clause):
-    """The same for a `case` clause, which is named by its pattern."""
+    """A case clause's pattern, shortened for an error message.
+    MatchCase -> String"""
     return _shorten(f"case {pprint_pattern(clause.pattern)}")
 
 
 def _shorten(text):
-    """One line of a construct, short enough to quote in a sentence."""
+    """Truncates text to one line, short enough to quote in a sentence.
+    String -> String"""
     first = text.split("\n")[0].strip()
     if len(first) <= _QUOTE_LIMIT:
         return first
@@ -668,6 +616,8 @@ def _shorten(text):
 
 
 def parse_block(tokens):
+    """Parses one indented block, TokIndent to matching TokDedent.
+    [Token] -> ([Stmt], [Token])"""
     match tokens:
         case [TokIndent(_), *rest]:
             stmts = []
@@ -687,16 +637,15 @@ def parse_block(tokens):
 
 
 def _block_end_info(header_info, body):
-    """The Info to use as the end of a header+block construct: the last
-    statement's info, or the header's own info if the block is empty."""
+    """The Info ending a header+block construct: the last statement's,
+    or the header's own if the block is empty.
+    Info -> [Stmt] -> Info"""
     return body[-1].info if body else header_info
 
 
 def parse_pattern_atom(tokens):
-    """A single pattern: int/string/bool/'_'/identifier, or a fully
-    parenthesized tuple pattern (0, 1 [singleton, trailing comma
-    required], or 2+ comma-separated patterns, trailing comma optional
-    for 2+ -- same shape as a parenthesized tuple expression)."""
+    """Parses one pattern: literal, wildcard, name, or parenthesized
+    tuple pattern. [Token] -> (Pattern, [Token])"""
     match tokens:
         case [TokSub(info), TokInt(int_info, v), *rest]:
             # A negative integer *literal* pattern (`case -1:`). Only a
@@ -756,10 +705,9 @@ def parse_pattern_atom(tokens):
 
 
 def parse_list_pattern_items(tokens):
-    """Parses comma-separated list-pattern items up to ']', where each
-    item is either a `..`/`..name` rest marker or an ordinary pattern.
-    Returns `(items, rbracket_info, rest)`; `items` is `Pattern | ListRest`
-    values in source order (the caller enforces "at most one `ListRest`")."""
+    """Parses comma-separated list-pattern items up to ']' (each a
+    pattern, or a `..`/`..name` rest marker), in source order.
+    [Token] -> ([Pattern | ListRest], Info, [Token])"""
     match tokens:
         case [TokRBracket(info), *rest]:
             return [], info, rest
@@ -802,9 +750,8 @@ def parse_pattern_paren_tail(tokens):
 
 
 def parse_pattern(tokens):
-    """Top-level pattern grammar: `parse_pattern_atom`, or a *bare*
-    (unparenthesized) comma-separated sequence of 2+ of them -- like bare
-    tuple expressions, deliberately with no trailing comma."""
+    """Parses a pattern: one parse_pattern_atom, or a bare
+    comma-separated sequence of them. [Token] -> (Pattern, [Token])"""
     first, rest = parse_pattern_atom(tokens)
     match rest:
         case [TokComma(_), *rest]:
@@ -824,8 +771,8 @@ def parse_pattern(tokens):
 
 
 def _pattern_captures(pattern):
-    """Collects every name `pattern` would bind, as `(name, info)` pairs,
-    by walking its sub-patterns (tuple/list patterns nest arbitrarily)."""
+    """Every name pattern binds, as (name, info) pairs.
+    Pattern -> [(String, Info)]"""
     match pattern:
         case PCapture(info, name):
             return [(name, info)]
@@ -842,11 +789,8 @@ def _pattern_captures(pattern):
 
 
 def _check_no_duplicate_captures(pattern):
-    """Raises ParseError if `pattern` binds the same name more than once
-    -- mirroring Python's own restriction on repeated names within a
-    single `match` pattern, since both plain `match`/`case` and the list
-    comprehension desugaring in `target_python.py` compile a Pyking
-    pattern down to a real Python `case` pattern."""
+    """Raises ParseError if pattern binds the same name more than once.
+    Pattern -> ()"""
     seen = set()
     for name, info in _pattern_captures(pattern):
         if name in seen:
@@ -855,6 +799,8 @@ def _check_no_duplicate_captures(pattern):
 
 
 def parse_case(tokens):
+    """Parses one case clause: `case pattern:` block, or
+    `case pattern -> expr`. [Token] -> (MatchCase, [Token])"""
     match tokens:
         case [TokCase(info), *rest]:
             pattern, rest = parse_pattern(rest)
@@ -879,6 +825,8 @@ def parse_case(tokens):
 
 
 def parse_cases(tokens):
+    """Parses an indented block of one or more case clauses.
+    [Token] -> ([MatchCase], [Token])"""
     match tokens:
         case [TokIndent(_), *rest]:
             cases = []
@@ -902,7 +850,8 @@ def parse_cases(tokens):
 
 
 def parse_match_stmt(match_info, tokens):
-    """Parses a match statement from just after its `match` keyword."""
+    """Parses a match statement, from just after the `match` keyword.
+    Info -> [Token] -> (SMatch, [Token])"""
     subject, rest = parse_expr(tokens)
     match rest:
         case [TokColon(_), *rest]:
@@ -913,23 +862,12 @@ def parse_match_stmt(match_info, tokens):
             raise ParseError(_here(rest), "expected ':' after match header")
 
 
-# --- value-form if/match (`x = if c:` / `x = match e:`) ---
-#
-# These stay ordinary if/match *statements*; binding one with '=' just
-# additionally requires that it yield a value on every path, which the
-# two checks below enforce -- neither restriction is expressible in the
-# grammar itself, so they're checked here rather than falling out of the
-# parse. `target_python.py` relies on both holding.
+# --- value-form if/match (`x = if c:` / `x = match e:`) -- see
+# PYKING.md, "if/match statements as bound values" ---
 
 def _check_value_stmt(stmt):
-    """Checks that `stmt` -- an if/match statement in value form, on the
-    right-hand side of a binding or after `return` -- yields a value
-    whichever way it branches: an `if` must have its `else` (there is no
-    value to produce if the condition fails), and every branch must end
-    in a value (see `_check_value_block`). A `match`
-    needs no such existence check: `parse_cases` already requires at least
-    one case, and an unmatched subject is a runtime error, not a branch
-    that silently falls through."""
+    """Raises ParseError unless stmt (an if/match in value form) yields
+    a value on every path. Stmt -> ()"""
     match stmt:
         case SIf(info, _, then_body, else_body):
             if else_body is None:
@@ -947,13 +885,9 @@ def _check_value_stmt(stmt):
 
 
 def _check_value_block(stmts, info):
-    """Checks that one branch of a value-form if/match ends in something
-    that yields a value: an expression statement, or a nested if/match
-    that recursively does the same -- which is also what makes an
-    `else if` ladder work in value form, since the ladder *is* a nested
-    if statement as the else branch's only statement (see
-    `parse_if_stmt_tail`). Every statement before the last is an ordinary
-    statement, run for its effect."""
+    """Raises ParseError unless stmts ends in an expression statement or
+    a nested if/match that recursively does.
+    [Stmt] -> Info -> ()"""
     match stmts:
         case [*_, SExprStmt()]:
             return
@@ -972,26 +906,10 @@ def _check_value_block(stmts, info):
 
 
 def parse_bound_value(tokens):
-    """Parses the right-hand side of a binding's '=': either an ordinary
-    `tuple_or_expr`, or -- Pyking extension -- an `if`/`match` statement
-    in *value form*. Returns `(node, rest)`, where the node is an `Expr`
-    for the ordinary case and the `SIf`/`SMatch` itself for the value
-    form; callers tell them apart by type (`Stmt` vs. `Expr`).
-
-    A `match` on the right of '=' is unambiguously the value form --
-    `match` is a reserved keyword, so it can never start an expression.
-    An `if` is the same standoff `parse_statement` faces between an if
-    statement and an if expression, resolved the same way: parse the
-    shared `"if" , expr` prefix once, then dispatch on ':' (value form)
-    versus 'then' (an ordinary if expression).
-
-    The value may also start on the *next* line, indented -- which the
-    lexer reports as an INDENT/DEDENT pair around it, exactly as for any
-    other block. That is the only way to write a value-form `match` whose
-    subject would otherwise crowd the '=' line, and it works for any
-    bound value (`x =` then an indented expression, if, or match).
-    Recursing keeps one rule for all of them; the block must hold exactly
-    one value, so anything left before the DEDENT is an error."""
+    """Parses the right-hand side of a binding's '=': an expression, or
+    an if/match statement in value form (an SIf/SMatch; callers tell
+    the two apart by type). May be indented onto the next line.
+    [Token] -> (Expr | Stmt, [Token])"""
     match tokens:
         case [TokIndent(_), *rest]:
             value, rest = parse_bound_value(rest)
@@ -1026,15 +944,9 @@ def parse_bound_value(tokens):
 
 
 def _expect_expr_value(value, what):
-    """Rejects a value-form if/match in a position that takes only an
-    expression, naming that position (`what`) in the error. The value
-    form works by assigning to the target in each branch's tail, which is
-    exactly what an immutable binding does -- and what a `var`
-    declaration, a `:=` mutation, or a `def ... =` body does not (the
-    last would have to `return` from every tail instead). See PYKING.md.
-
-    Note the *indented* form is fine everywhere: `parse_bound_value`
-    handles where a value starts, this handles what kind it may be."""
+    """Raises ParseError if value is a value-form if/match, naming what
+    (the position that requires a plain expression). Otherwise returns
+    value. (Expr | Stmt) -> String -> Expr"""
     match value:
         case Stmt():
             raise ParseError(
@@ -1047,6 +959,7 @@ def _expect_expr_value(value, what):
 
 
 def parse_statement(tokens):
+    """Parses one statement. [Token] -> (Stmt, [Token])"""
     match tokens:
         case [TokDef(info), TokIdent(_, name), TokLParen(_), *rest]:
             params, rest = parse_params(rest)
@@ -1174,7 +1087,8 @@ def parse_statement(tokens):
 
 
 def parse(tokens):
-    """Parses a full token stream into a list of top-level statements."""
+    """Parses a full token stream into a list of top-level statements.
+    [Token] -> [Stmt]"""
     global _eof_info
     _eof_info = tokens[-1].info if tokens else Info("<empty>", 1, 0, 1, 0)
     stmts = []
