@@ -1,0 +1,127 @@
+# Recursion whose base case is reached through nested `if`s.
+#
+# `typecheck_infer_recursion.pyk` pins the basic shape: a trace that
+# meets a recursive call is abandoned at the nearest enclosing `if`, and
+# the other branch says what the function returns. This file pins that
+# the same thing holds *wherever* in a nest of `if`s the answer happens
+# to sit -- the checker has no preferred arm and no preferred depth.
+#
+# Each name says where the one non-recursive path is. The digits are the
+# branch taken at each level, `1` for `then` and `2` for `else`:
+#
+#     f1    depth 1, answer in `then`
+#     f2    depth 1, answer in `else`
+#     f11   depth 2, answer in `then`/`then`
+#     f12   depth 2, answer in `then`/`else`
+#     f21   depth 2, answer in `else`/`then`
+#     f22   depth 2, answer in `else`/`else`
+#     f33   depth 3, answer in `else`/`else`/`else`
+#
+# Every one of them returns Int, and every one of them terminates: the
+# printed values are what each function's own base case adds to 10, so a
+# checker that inferred the right type but a backend that compiled the
+# wrong branch would still be caught.
+
+def f1(x):
+    if x >= 10:
+        1000 + x
+    else:
+        f1(x+1)
+
+print(f1(0))
+
+
+def f2(x):
+    if x < 10:
+        f2(x+1)
+    else:
+        2000 + x
+
+print(f2(0))
+
+
+def f11(x):
+    if x >= 10:
+        if x >= 10:
+            1100 + x
+        else:
+            f11(x+1)
+    else:
+        if x < 5:
+            f11(x+1)
+        else:
+            f11(x+1)
+
+print(f11(0))
+
+
+def f12(x):
+    if x >= 10:
+        if x < 10:
+            f12(x+1)
+        else:
+            1200 + x
+    else:
+        if x < 5:
+            f12(x+1)
+        else:
+            f12(x+1)
+
+print(f12(0))
+
+
+def f21(x):
+    if x < 10:
+        if x >= 10:
+            f21(x+1)
+        else:
+            f21(x+1)
+    else:
+        if x >= 5:
+            2100 + x
+        else:
+            f21(x+1)
+
+print(f21(0))
+
+
+def f22(x):
+    if x < 10:
+        if x >= 10:
+            f22(x+1)
+        else:
+            f22(x+1)
+    else:
+        if x < 10:
+            f22(x+1)
+        else:
+            2200 + x
+
+print(f22(0))
+
+
+def f33(x):
+    if x < 10:
+        if x >= 10:
+            if x < 10:
+                f33(x+1)
+            else:
+                f33(x+1)
+        else:
+            if x < 10:
+                f33(x+1)
+            else:
+                f33(x+1)
+    else:
+        if x < 10:
+            if x < 10:
+                f33(x+1)
+            else:
+                f33(x+1)
+        else:
+            if x < 10:
+                f33(x+1)
+            else:
+                3300 + x
+
+print(f33(0))

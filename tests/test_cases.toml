@@ -413,6 +413,10 @@ file = "typecheck_infer_mutual.pyk"
 targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "typecheck"]
 
 [[cases]]
+file = "typecheck_infer_nested_recursion.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "typecheck"]
+
+[[cases]]
 file = "typecheck_infer_or.pyk"
 targets = ["python", "interpret", "typecheck"]
 
