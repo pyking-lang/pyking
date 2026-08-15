@@ -85,7 +85,8 @@ be changed, but is exposed as a customizable option the same way
   :group 'pyking)
 
 (defconst pyking-mode-keywords
-  '("for" "in" "if" "while" "then" "else" "var" "def" "return" "match" "case")
+  '("for" "in" "if" "while" "loop" "break" "continue" "then" "else" "var"
+    "def" "return" "match" "case")
   "Reserved keywords in Pyking.
 Mirrors the `keywords' list in src/lexer.py, minus the names broken out
 into `pyking-mode-types' and `pyking-mode-constants' below (each gets its
@@ -320,10 +321,11 @@ necessarily one level below the previous line the way `else' always is."
 
 (defun pyking--dedenter-line-p ()
   "Return non-nil if the current line is known to end its own block.
-A `return_stmt' always ends the statement sequence it's part of in
-every one of this repository's tests/*.pyk files (Pyking has no
-`pass'/`break'/`continue' to also check, unlike Python), so the line
-after one dedents a `pyking-indent-offset'. Mirrors `python-mode's own
+A `return_stmt' always ends the statement sequence it's part of, and so
+do `break' and `continue': each leaves the block it stands in, and
+src/parser.py refuses a statement written after one of the latter two at
+all (\"this statement cannot be reached\"). So the line after any of
+the three dedents a `pyking-indent-offset'. Mirrors `python-mode's own
 `python-indent-dedenters', and like it dedents exactly one level, not
 however many blocks actually closed -- no context-free indent heuristic
 can derive that; repeated TAB (see `pyking-indent-line') walks the rest.
@@ -335,7 +337,8 @@ after the block -- in every tests/*.pyk file using the arrow form, only
 the last clause of each group is followed by a dedent. Guessing the
 same column keeps the common case correct as it is typed; the rarer
 dedent out of the block is one TAB away."
-  (pyking--line-first-word-matches-p "\\_<return\\_>"))
+  (pyking--line-first-word-matches-p
+   (regexp-opt '("return" "break" "continue") 'symbols)))
 
 (defun pyking-calculate-indent ()
   "Compute the indentation column for the current line.
@@ -587,7 +590,8 @@ block opener that list holds a single forced column (see
   "Major mode for editing Pyking (.pyk) source files.
 
 Provides syntax highlighting for Pyking's keywords (`for', `in', `if',
-`while', `then', `else', `var', `def', `return', `match', `case'), the
+`while', `loop', `break', `continue', `then', `else', `var', `def',
+`return', `match', `case'), the
 `:=' mutation operator, the `..'/`..name' list-pattern rest marker,
 string literals (with backslash escapes), `#' comments, the name an
 annotated binding declares (`x: Int = 1'), integer and

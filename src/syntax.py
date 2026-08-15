@@ -111,6 +111,10 @@ from lexer import Info
 #     SExprStmt(info: Info, expr: Expr, sym: Int)
 #     SFor(info: Info, name: String, iterable: Expr, body: [Stmt], sym: Int)
 #     SWhile(info: Info, cond: Expr, body: [Stmt], sym: Int)
+#     SLoop(info: Info, target: AssignTarget?, init: Expr?, type: Type?,
+#           body: [Stmt], sym: Int)
+#     SBreak(info: Info, expr: Expr?, sym: Int)
+#     SContinue(info: Info, expr: Expr?, sym: Int)
 #     SIf(info: Info, cond: Expr, then_body: [Stmt], else_body: [Stmt]?,
 #         sym: Int)
 #     SFunctionDef(info: Info, name: String, params: [Param], body: [Stmt]?,
@@ -854,6 +858,36 @@ class SWhile(Stmt):         # while cond: body
 
 
 @dataclass(frozen=True)
+class SLoop(Stmt):          # loop [target[: type] = init]: body
+    info: Info               # Pyking extension: a loop whose state is a
+    target: AssignTarget      # binding rather than a mutable variable. The
+    init: Expr                # body's value (tail position, as everywhere
+                              # else) is the accumulator for the next turn,
+                              # and the loop's own value is the accumulator
+                              # it stopped with. `target`/`init` are both
+                              # None for the bare `loop:`, whose accumulator
+                              # is unit and whose body's value is discarded.
+    type: Type = None         # as `SLet.type`: what the source annotated,
+                              # never written back by the type checker.
+    body: list = None
+    sym: int = 0
+
+
+@dataclass(frozen=True)
+class SBreak(Stmt):         # break [expr]
+    info: Info               # Ends the innermost enclosing `loop`. With no
+    expr: Expr = None        # operand the loop yields the accumulator it
+    sym: int = 0             # has; with one, that operand.
+
+
+@dataclass(frozen=True)
+class SContinue(Stmt):      # continue [expr]
+    info: Info               # Starts the innermost enclosing loop's next
+    expr: Expr = None        # turn, with the same accumulator or with the
+    sym: int = 0             # operand as the new one.
+
+
+@dataclass(frozen=True)
 class SIf(Stmt):            # if cond: then_body [else: else_body]
     info: Info
     cond: Expr
@@ -922,6 +956,24 @@ def _pprint_stmt(s, level=0):
             lines = [f"{pad}while {pprint_expr(cond)}:"]
             lines += [pprint_stmt(st, level + 1) for st in body]
             return "\n".join(lines)
+        case SLoop(_, target, init, type_, body):
+            # The accumulator prints like a binding, annotation and all,
+            # so a `--typecheck --ast` run's header re-parses; a `loop:`
+            # with no accumulator has nothing to annotate.
+            if target is None:
+                lines = [f"{pad}loop:"]
+            else:
+                lines = [
+                    f"{pad}loop {pprint_target(target)}{_annotation(s, type_)}"
+                    f" = {pprint_expr(init)}:"
+                ]
+            lines += [pprint_stmt(st, level + 1) for st in body]
+            return "\n".join(lines)
+        case SBreak(_, expr):
+            return f"{pad}break" if expr is None else f"{pad}break {pprint_expr(expr)}"
+        case SContinue(_, expr):
+            return (f"{pad}continue" if expr is None
+                    else f"{pad}continue {pprint_expr(expr)}")
         case SIf(_, cond, then_body, else_body):
             lines = [f"{pad}if {pprint_expr(cond)}:"]
             lines += [pprint_stmt(st, level + 1) for st in then_body]

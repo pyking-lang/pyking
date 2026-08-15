@@ -243,7 +243,16 @@ The bootstrap is split into one module per compiler stage:
    that stops `print h` being read as a bare `print` followed by a bare
    `h`. That one is checked from the `Info` positions the tokens carry,
    since the lexer emits no token for the end of a line; adding one is
-   the alternative, and a bigger change than the rule is worth.
+   the alternative, and a bigger change than the rule is worth. Two more
+   belong to the `loop` construct and are here for the same reason --
+   both are shape, neither needs to know what a name means, and being
+   here they hold under `--typecheck` too, which replaces the name
+   analysis: `_check_loop_context` (a `break`/`continue` belongs to the
+   innermost `loop`, and may not reach out of a `for`, a `while` or a
+   `def` to find one) and `_check_reachable` (nothing may be written
+   after one in the same block). The operand of a `break`/`continue` is
+   taken only from the keyword's own line (`parse_exit_operand`), by the
+   same row check `call_tail` uses and for the same reason.
 4. **`src/analyses.py`** — static analyses over the parsed AST, run
    between the parser and any backend (for every mode, `--ast` included);
    errors raise `AnalysisError(info, message)`. Currently one analysis,
@@ -601,7 +610,8 @@ The bootstrap is split into one module per compiler stage:
    constructs to keep in step.
 
    **Values** are one frozen dataclass per variant (`VInt`, `VString`,
-   `VBool`, `VUnit`, `VList`, `VClosure`, `VBuiltin`, `VUndefined`),
+   `VBool`, `VUnit`, `VList`, `VTuple`, `VClosure`, `VBuiltin`,
+   `VUndefined`),
    documented in a `datatype` comment block like `syntax.py`'s and just
    as hand-written. They hold no host objects: the representation has to
    survive the rewrite into Pyking.
@@ -621,7 +631,7 @@ The bootstrap is split into one module per compiler stage:
    restated, exactly as `typesystem.py` imports it.
 
    **The machine** is `step(State) -> State`, driven from a flat loop in
-   `run`, with `State(control, env, kont, stack, runtime)` — `Runtime`
+   `run`, with `State(control, env, kont, stack, runtime, loops)` — `Runtime`
    holding what a run never changes (host, the call-free table,
    `max_depth`) so a step allocates one small object. `step` is *total*
    and never raises: an error becomes a `CFailed` state, with the
@@ -838,8 +848,9 @@ whose subset is not a list it maintains: it is whatever
 `pyk run` and `pyk repl` take no target: the interpreter emits nothing to
 name. What they accept is `src/typesystem.py`'s fragment, checked by
 running it — the same arrangement `ocaml` uses, and the reason a program
-with `var`, `for`, `while`, `match`, lists, tuples or an unannotated
-`def` is refused there with the checker's own message.
+with `var`, `for`, `while`, `match`, lists or an unannotated `def` is
+refused there with the checker's own message. A `loop` and a tuple are
+both inside that fragment.
 
 Plain `make` with no target prints the help: the `Makefile`'s first rule,
 `all`, is `help`, since nothing here is built and someone typing `make`

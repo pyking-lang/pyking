@@ -1,0 +1,2 @@
+'tests/fail_typecheck_loop_unit_value.pyk' 12:10-12:11 Type error:
+  this loop carries no accumulator, so its 'break' takes no value

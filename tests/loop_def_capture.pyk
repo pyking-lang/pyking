@@ -1,0 +1,42 @@
+# A `def` written inside a loop body, and what each turn's copy
+# captures.
+#
+# Every turn of a loop binds afresh -- the accumulator and everything
+# the body binds -- so a function written inside one keeps the turn it
+# was written on, exactly as a `for` body's does (PYKING.md, "Names and
+# scoping"; docs/gap.md). The Python backend has to work for this: its
+# blocks are not scopes, so each turn's functions are built by a
+# per-turn factory.
+
+var makers = []
+
+loop i = 0:
+    def show() = i
+
+    makers := makers + [show]
+    if i > 1:
+        break
+    else:
+        i + 1
+
+for f in makers:
+    print(f())
+
+
+# Two functions written on the same turn that name each other find that
+# turn's copies, wherever in the body they are written.
+var pairs = []
+
+loop n = 10:
+    def left() = right() + n
+
+    def right() = n * 2
+
+    pairs := pairs + [left]
+    if n >= 30:
+        break
+    else:
+        n + 10
+
+for f in pairs:
+    print(f())

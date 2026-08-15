@@ -166,8 +166,8 @@ FACTORY_MARKER = "__pyk_turn"
 
 
 def has_def_inside_loop(source):
-    """Whether `source` writes a `def` anywhere inside a `for`/`while`
-    body.
+    """Whether `source` writes a `def` anywhere inside a `for`, `while`
+    or `loop` body.
 
     Indentation is the block structure in Pyking, in strict multiples of
     four with no line continuations (see PYKING.md), so reading it off
@@ -185,7 +185,11 @@ def has_def_inside_loop(source):
                 is_loop for _, is_loop in open_blocks
             ):
                 return True
-            open_blocks.append((indent, stripped.startswith(("for ", "while "))))
+            open_blocks.append((
+                indent,
+                stripped.startswith(("for ", "while ", "loop "))
+                or stripped == "loop:",
+            ))
     return False
 
 

@@ -1,0 +1,23 @@
+def first_over(limit:Int) -> Int:
+    loop n: Int = 1:
+        if n > limit:
+            return n * 100
+        else:
+            n * 2
+print(first_over(10))
+def doubled_over(limit:Int) -> Int:
+    return loop n: Int = 1:
+        if n > limit:
+            break
+        else:
+            n * 2
+print(doubled_over(50))
+def capped(start:Int, cap:Int) -> Int:
+    loop n: Int = start:
+        if n > 1000:
+            return 0
+        if n > cap:
+            break
+        n * 3
+print(capped(1, 20))
+print(capped(500, 20))

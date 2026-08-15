@@ -51,8 +51,8 @@ it, which makes it the *reference* for what a Pyking program means at run
 time: where a compiled target disagrees with it, the target is wrong. Its
 coverage is the type checker's, run for real — the same arrangement the
 `ocaml` target uses — so a program with `var`, `for`, `while`, `match`,
-lists, tuples or an unannotated `def` is refused, with the checker's own
-message. `pyk repl` is the same interpreter with a prompt in front of
+lists or an unannotated `def` is refused, with the checker's own
+message. A `loop` and a tuple are both inside that fragment. `pyk repl` is the same interpreter with a prompt in front of
 it.
 
 Java is the one exception: it requires its file and public class to
@@ -133,6 +133,7 @@ testing — could be built end to end before the language surface grew:
 | `return if c:` / `return match e:` | ✅ | ✅ (`if` only) | ✅ (`if` only) | ✅ (`if` only) | ✅ (`if` only) |
 | unit-returning functions (`void`) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `if` / `else if` / `else`, `while` | ✅ | ✅ | ✅ | ✅ | ✅ (`if` only) |
+| `loop`, `break`, `continue` | ✅ | ✅ | ✅ (an accumulator is required) | ✅ (same) | ✅ (a local `let rec`, applied at once) |
 | `=`, `var`, `:=` | ✅ | ✅ | ✅ | ✅ | ✅ (`=` only) |
 | `if … then … else …` expressions | ✅ | ✅ | ✅ (branches must agree in type) | ✅ (branches must agree in type) | ✅ (same) |
 | integers, strings, booleans | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -141,7 +142,8 @@ testing — could be built end to end before the language surface grew:
 | type annotations | erased | erased | used, when they name `Int`/`String`/`Bool` | used, when they name `Int`/`String`/`Bool` | checked, then erased — the output has none |
 | functions as values (passing a `def`, calling a parameter) | ✅ | ✅ | ❌ (refused: a function used as a value, or a call to an unknown one) | ❌ (same) | ✅ |
 | a function reading a binding from around it (a closure) | ✅ | ✅ | ❌ (no closures) | ❌ (no closures) | ✅ |
-| lists, tuples, destructuring | ✅ | ❌ | ❌ | ❌ | ❌ |
+| lists | ✅ | ❌ | ❌ | ❌ | ❌ |
+| tuples, destructuring | ✅ | ✅ (arrays) | ❌ | ❌ | ✅ |
 | `for`, `match`/`case`, patterns | ✅ | ❌ | ❌ | ❌ | ❌ |
 | list comprehensions | ✅ | ❌ | ❌ | ❌ | ❌ |
 | value-form `x = if c:` / `x = match e:` | ✅ | ❌ | ❌ | ❌ | ✅ (`if` only) |

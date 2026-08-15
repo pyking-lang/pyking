@@ -1,0 +1,29 @@
+# A loop accumulating a String rather than an Int: nothing about the
+# construct is about numbers, and the checker works the type out from
+# the initializer either way.
+#
+# `banner` starts as the empty string and grows by one mark a turn; the
+# loop stops when it has enough, and is worth the string it stopped
+# with. Note the loop carries exactly one type from turn to turn: what
+# a `break` gives, and what the loop is finally worth, is a String
+# here because the initializer was one.
+
+banner = loop text = "":
+    if text == "*****":
+        break
+    else:
+        text + "*"
+
+print(banner)
+
+
+def grow(seed: String, target: String) -> String:
+    loop text = seed:
+        if text == target:
+            break text
+        else:
+            text + "ab"
+
+
+print(grow("", "abab"))
+print(grow("x", "x"))

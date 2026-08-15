@@ -720,7 +720,9 @@ def check_entry(entry, types, store):
     tmap = {}
     checked = []
     for stmt in entry:
-        supplied, types, store = typesystem.check_stmt(stmt, types, tmap, None, store)
+        supplied, types, store = typesystem.check_stmt(
+            stmt, types, tmap, None, None, store
+        )
         checked.append((stmt, supplied, types, store))
     return checked
 

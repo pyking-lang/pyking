@@ -1,8 +1,8 @@
 """Recursive-descent parser: tokens (from lexer.py) to the AST defined
 in syntax.py. Also enforces the handful of grammar rules that cannot be
 expressed in EBNF -- duplicate pattern captures, value-form if/match
-branches, one statement per line. See PYKING.md for the grammar and
-docs/source.md ("parser.py").
+branches, one statement per line, and where a 'break'/'continue' may
+stand. See PYKING.md for the grammar and docs/source.md ("parser.py").
 
 Data structures:
     ParseError -- a parse failure, with the source position.
@@ -12,6 +12,9 @@ Functions:
     parse_statement(tokens) -- parses one statement.
     parse_expr(tokens) -- parses one expression.
     parse_block(tokens) -- parses one indented block.
+    parse_loop_stmt(info, tokens) -- parses a loop after its 'loop'.
+    parse_exit_operand(info, tokens) -- the optional operand of a
+        'break'/'continue', taken only from the keyword's own line.
     parse_type(tokens) -- parses one type annotation.
     parse_pattern(tokens) -- parses one match/case pattern.
     combine_info(start, end) -- spans an Info from two nodes' Infos.
@@ -28,6 +31,7 @@ from lexer import (
     TokLBracket, TokRBracket, TokDotDot,
     TokDef, TokReturn, TokFor, TokIn, TokIf, TokWhile, TokThen, TokElse, TokVar,
     TokAssign, TokMatch, TokCase, TokArrow, TokPipe,
+    TokLoop, TokBreak, TokContinue,
     TokTypeInt, TokTypeString, TokTypeBool, TokTrue, TokFalse,
 )
 from syntax import (
@@ -39,6 +43,7 @@ from syntax import (
     pprint_stmt, pprint_pattern,
     Stmt,
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SFor, SWhile, SIf,
+    SLoop, SBreak, SContinue,
     SFunctionDef, SMatch,
     TInt, TString, TBool, TList, TTuple, TOr, TFunction, Param,
     TargetName, TargetTuple,
@@ -631,6 +636,7 @@ def parse_block(tokens):
                             _check_own_line(
                                 stmts[-1], stmt, "statement", _statement_text
                             )
+                            _check_reachable(stmts[-1], stmt)
                         stmts.append(stmt)
         case _:
             raise ParseError(_here(tokens), "expected an indented block")
@@ -905,10 +911,158 @@ def _check_value_block(stmts, info):
             )
 
 
+# --- the two rules a `loop` brings that the grammar cannot state ---
+#
+# Both are shape, which is why they are here rather than in
+# analyses.py: neither needs to know what any name means, and checking
+# them in the parser is what makes them hold in every mode, `--ast` and
+# `--typecheck` included, and be reported with a source position.
+
+
+def _always_exits(stmt):
+    """Whether stmt always leaves the block it is in, so nothing after
+    it can run. Only `break`/`continue` count -- a `return` after
+    which more is written is legal Pyking and none of this rule's
+    business. Stmt -> Bool"""
+    match stmt:
+        case SBreak() | SContinue():
+            return True
+        case SIf(_, _, then_body, else_body):
+            return (
+                else_body is not None
+                and bool(then_body) and _always_exits(then_body[-1])
+                and bool(else_body) and _always_exits(else_body[-1])
+            )
+        case _:
+            return False
+
+
+def _check_reachable(previous, current):
+    """Raises ParseError if current cannot be reached, previous having
+    left the block already. Stmt -> Stmt -> ()"""
+    if not _always_exits(previous):
+        return
+    raise ParseError(
+        current.info,
+        f"this statement cannot be reached: '{_statement_text(previous)}' "
+        f"has already left the loop, so nothing written after it in the "
+        f"same block runs",
+    )
+
+
+def _check_loop_context(stmts, held, crossed=None):
+    """Raises ParseError for a 'break'/'continue' outside a loop body.
+    held is the loop they would belong to (None outside one), and
+    crossed names the construct that cut them off from it, for the
+    message. [Stmt] -> SLoop? -> String? -> ()"""
+    for stmt in stmts:
+        match stmt:
+            case SBreak(info) | SContinue(info):
+                if held is None:
+                    _no_loop_here(stmt, info, crossed)
+            case SLoop(_, _, _, _, body):
+                _check_loop_context(body, stmt)
+            case SFor(_, _, _, body):
+                _check_loop_context(body, None, "for" if held else crossed)
+            case SWhile(_, _, body):
+                _check_loop_context(body, None, "while" if held else crossed)
+            case SFunctionDef(_, _, _, body):
+                if body is not None:
+                    _check_loop_context(body, None, "def" if held else crossed)
+            case SIf(_, _, then_body, else_body):
+                _check_loop_context(then_body, held, crossed)
+                if else_body is not None:
+                    _check_loop_context(else_body, held, crossed)
+            case SMatch(_, _, cases):
+                for case_clause in cases:
+                    if case_clause.body is not None:
+                        _check_loop_context(case_clause.body, held, crossed)
+            case SLetStmt(_, _, inner) | SReturnStmt(_, inner):
+                _check_loop_context([inner], held, crossed)
+
+
+def _no_loop_here(stmt, info, crossed):
+    """Raises the ParseError for a 'break'/'continue' with no loop of
+    its own. Stmt -> Info -> String? -> ()"""
+    keyword = "break" if isinstance(stmt, SBreak) else "continue"
+    if crossed is None:
+        raise ParseError(
+            info, f"'{keyword}' may only appear in the body of a 'loop'"
+        )
+    inside = "a function" if crossed == "def" else f"a '{crossed}'"
+    raise ParseError(
+        info,
+        f"'{keyword}' may only appear in the body of a 'loop', and this "
+        f"one is inside {inside}, which it may not reach out of",
+    )
+
+
+def parse_loop_stmt(loop_info, tokens):
+    """Parses a loop from just after its 'loop' keyword: the optional
+    accumulator, then the body. Info -> [Token] -> (SLoop, [Token])"""
+    target = None
+    annotation = None
+    init = None
+    rest = tokens
+    match rest:
+        case [TokColon(_), *after_colon]:
+            # `loop:` -- no accumulator, so nothing to bind and nothing
+            # for the body to produce.
+            rest = after_colon
+        case _:
+            parsed = _try_parse_assignment_target(rest)
+            if parsed is None:
+                raise ParseError(
+                    _here(rest),
+                    "expected ':' or an accumulator ('loop x = 0:') after 'loop'",
+                )
+            target, annotation, rest = parsed
+            init, rest = parse_tuple_or_expr(rest)
+            match rest:
+                case [TokColon(_), *after_colon]:
+                    rest = after_colon
+                case _:
+                    raise ParseError(_here(rest), "expected ':' after loop header")
+    body, rest = parse_block(rest)
+    return SLoop(
+        combine_info(loop_info, _block_end_info(loop_info, body)),
+        target,
+        init,
+        annotation,
+        body,
+    ), rest
+
+
+# The tokens an expression can begin with. `break`/`continue` take an
+# operand only when one follows on the same line (see
+# `parse_exit_operand`), and this is how "something follows" is decided:
+# a `break` at the end of a line otherwise swallows the statement below
+# it, which is the same trap `call_tail` and `_check_own_line` exist for.
+_EXPR_STARTERS = (
+    TokInt, TokString, TokIdent, TokTrue, TokFalse, TokSub, TokLParen,
+    TokLBracket, TokIf,
+)
+
+
+def parse_exit_operand(keyword_info, tokens):
+    """Parses the optional operand of a 'break'/'continue': one is
+    present only if it starts on the keyword's own line.
+    Info -> [Token] -> (Expr?, [Token])"""
+    match tokens:
+        case [first, *_] if (
+            isinstance(first, _EXPR_STARTERS)
+            and first.info.row1 == keyword_info.row2
+        ):
+            return parse_tuple_or_expr(tokens)
+        case _:
+            return None, tokens
+
+
 def parse_bound_value(tokens):
     """Parses the right-hand side of a binding's '=': an expression, or
-    an if/match statement in value form (an SIf/SMatch; callers tell
-    the two apart by type). May be indented onto the next line.
+    a statement in value form -- an if/match, or a loop (an SIf/SMatch/
+    SLoop; callers tell the two apart by type). May be indented onto the
+    next line.
     [Token] -> (Expr | Stmt, [Token])"""
     match tokens:
         case [TokIndent(_), *rest]:
@@ -925,6 +1079,12 @@ def parse_bound_value(tokens):
             stmt, rest = parse_match_stmt(info, rest)
             _check_value_stmt(stmt)
             return stmt, rest
+        case [TokLoop(info), *rest]:
+            # A loop needs no `_check_value_stmt`: its value is the
+            # accumulator, which every loop has (unit where none was
+            # written), so there is no path through one that produces
+            # nothing.
+            return parse_loop_stmt(info, rest)
         case [TokIf(info), *rest]:
             cond, rest = parse_expr(rest)
             match rest:
@@ -951,7 +1111,7 @@ def _expect_expr_value(value, what):
         case Stmt():
             raise ParseError(
                 value.info,
-                f"{what} takes an expression; a value-form 'if'/'match' "
+                f"{what} takes an expression; a value-form 'if'/'match'/'loop' "
                 "can only be bound with '=' or returned with 'return'",
             )
         case _:
@@ -1026,6 +1186,19 @@ def parse_statement(tokens):
                 case _:
                     raise ParseError(_here(rest), "expected ':' after while header")
 
+        case [TokLoop(info), *rest]:
+            return parse_loop_stmt(info, rest)
+
+        case [TokBreak(info), *rest]:
+            operand, rest = parse_exit_operand(info, rest)
+            end = info if operand is None else operand.info
+            return SBreak(combine_info(info, end), operand), rest
+
+        case [TokContinue(info), *rest]:
+            operand, rest = parse_exit_operand(info, rest)
+            end = info if operand is None else operand.info
+            return SContinue(combine_info(info, end), operand), rest
+
         case [TokMatch(info), *rest]:
             return parse_match_stmt(info, rest)
 
@@ -1097,5 +1270,7 @@ def parse(tokens):
         stmt, rest = parse_statement(rest)
         if stmts:
             _check_own_line(stmts[-1], stmt, "statement", _statement_text)
+            _check_reachable(stmts[-1], stmt)
         stmts.append(stmt)
+    _check_loop_context(stmts, None)
     return stmts

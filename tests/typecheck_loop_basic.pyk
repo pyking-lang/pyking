@@ -1,0 +1,36 @@
+# The `loop` construct at its simplest: a loop whose state is a binding
+# rather than a mutable variable.
+#
+# `loop x = 5:` binds `x` to 5 for the first turn. What the body
+# produces -- its value, by the ordinary tail-position rules -- is the
+# `x` the next turn gets, and `break` stops the loop with the `x` it
+# has. So this counts 5, 6, ... up to 11, then stops, and the loop
+# itself is worth 11.
+#
+# The `.ast.out` beside this file pins the types: the accumulator's, on
+# the loop header, and the binding's, which is the same type since a
+# loop is worth its accumulator.
+
+counted =
+loop x = 5:
+    if x <= 10:
+        x + 1
+    else:
+        break
+
+print(counted)
+
+
+# A loop is an expression's equal in every position a value-form
+# statement may stand: here it is a function's whole body, so what it
+# stops with is what the function returns.
+def multiple_over(start: Int, limit: Int) -> Int:
+    loop n = start:
+        if n > limit:
+            break
+        else:
+            n * 2
+
+
+print(multiple_over(1, 100))
+print(multiple_over(3, 3))

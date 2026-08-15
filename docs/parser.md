@@ -224,7 +224,7 @@ narrowed back down to "must have been a plain expression."
 
 ## Checks that live here because nowhere else can do them cheaply
 
-Three rules are enforced by this module even though they are, in a
+Five rules are enforced by this module even though they are, in a
 sense, "not parsing":
 
 - **`_check_no_duplicate_captures`** — a pattern may not bind the same
@@ -238,6 +238,23 @@ sense, "not parsing":
   pattern can appear in more than one place a program is built from.
 - **`_check_value_stmt`** (above) — a rule about tree shape once
   parsing already produced the tree, not about the token stream.
+- **`_check_loop_context`** — a `break`/`continue` belongs to the
+  innermost `loop` it is written in, and may not reach out of a `for`, a
+  `while` or a `def` to find one. It is a walk of the finished program
+  from `parse`, carrying two things: the loop currently in hand, and
+  what cut it off if something did — which is what lets the message say
+  *why* ("this one is inside a `for`, which it may not reach out of")
+  rather than only that no loop was found. It is here rather than in
+  `analyses.py` for the same reason `_check_value_stmt` is: it needs
+  only the tree's shape, never what a name means. Being here, it also
+  holds under `--typecheck`, which replaces the name analysis entirely.
+- **`_check_reachable`** — nothing may be written after a `break` or a
+  `continue` in the same block, since nothing there can run. It is
+  applied as each block is built, comparing the statement just parsed
+  with the one before it, so the position blamed is the unreachable
+  statement's own. Deliberately *not* extended to `return`: statements
+  after one are ordinary Pyking, and a branch that returns early is a
+  normal way to write a body.
 - **`_check_own_line`** — see below.
 
 ## `_check_own_line`: reconstructing a fact the lexer didn't record

@@ -1,0 +1,38 @@
+# Loops inside loops.
+#
+# A `break` or `continue` always belongs to the innermost `loop` it is
+# written in, so the inner loop below stops without touching the outer
+# one's accumulator -- and the inner loop, being worth its own
+# accumulator, is what the outer turn goes round with.
+
+total =
+loop row = 0:
+    if row > 3:
+        break
+    inner = loop column = 0:
+        if column > row:
+            break
+        else:
+            column + 1
+    print(row, inner)
+    row + 1
+
+print(total)
+
+
+# The same nesting inside a function, with the inner loop bound and
+# then used to decide what the outer one carries.
+def stepped(limit: Int) -> Int:
+    loop n = 0:
+        if n >= limit:
+            break
+        step = loop k = 1:
+            if k >= n:
+                break
+            else:
+                k + k
+        n + step + 1
+
+
+print(stepped(10))
+print(stepped(0))

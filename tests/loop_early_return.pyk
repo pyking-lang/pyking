@@ -1,0 +1,40 @@
+# A `return` that leaves a function from inside a loop whose value the
+# function still wants.
+#
+# `reached` binds what the loop stops with, and the `return` in the
+# middle of the body skips both that binding and everything after it.
+# This is the shape the OCaml backend refuses -- there a loop is a
+# local function, so returning from it and returning from the enclosing
+# function are two different things, and only the tail-position case
+# makes them one (see docs/target_ocaml.md).
+
+def described(n: Int) -> String:
+    reached =
+    loop k = n:
+        if k > 100:
+            break
+        if k == 13:
+            return "unlucky"
+        k * 3
+    "reached " + str(reached)
+
+
+print(described(1))
+print(described(13))
+print(described(200))
+
+
+# The same shape with the loop's value bound and then used twice.
+def twice_over(start: Int) -> String:
+    stopped =
+    loop n = start:
+        if n == 0:
+            return "zero all the way"
+        if n > 40:
+            break
+        n + n
+    str(stopped) + " from " + str(start)
+
+
+print(twice_over(3))
+print(twice_over(0))

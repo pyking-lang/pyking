@@ -33,6 +33,7 @@ from syntax import (
     EIf, EListComp, CompFor, CompIf,
     PInt, PString, PBool, PWildcard, PCapture, PTuple, PList,
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SFor, SWhile, SIf,
+    SLoop, SBreak, SContinue,
     SFunctionDef, SMatch,
     TargetName, TargetTuple,
 )
@@ -313,6 +314,16 @@ class PyWhile(PyStmt):      # while cond: body
 
 
 @dataclass(frozen=True)
+class PyBreak(PyStmt):      # break
+    info: Info
+
+
+@dataclass(frozen=True)
+class PyContinue(PyStmt):   # continue
+    info: Info
+
+
+@dataclass(frozen=True)
 class PyIf(PyStmt):         # if cond: then_body [else: else_body]
     info: Info
     cond: PyExpr
@@ -356,11 +367,16 @@ _pending_comp_helpers = []
 # collide with one.
 _used_identifiers = set()
 
-# Lazily generated helper for printing an argument that might be a Bool
+# The accumulator variable of each enclosing `loop`, innermost last: what
+# a `break`/`continue` with an operand assigns before it jumps. `None`
+# for a loop that carries no accumulator.
+_loop_accumulators = []
+
+# Lazily generated helper for printing a value that might hold a Bool
 # at runtime but isn't provably one from its Pyking source form; see
 # docs/target_python.md, "Booleans".
-_bool_format_helper_name_value = None
-_bool_format_helper_def = None
+_format_helper_name_value = None
+_format_helper_def = None
 
 
 def _collect_identifiers(node, acc=None):
@@ -550,6 +566,9 @@ def _captured_in_block(stmts, bound, captured):
                 _captured_in_block(body, bound | {name}, captured)
             case SWhile(_, _, body):
                 _captured_in_block(body, set(bound), captured)
+            case SLoop(_, target, _, _, body):
+                accumulator = set() if target is None else set(_target_names(target))
+                _captured_in_block(body, bound | accumulator, captured)
             case SIf(_, _, then_body, else_body):
                 _captured_in_block(then_body, set(bound), captured)
                 if else_body is not None:
@@ -621,6 +640,17 @@ def _free_in_stmt(s, bound, free):
         case SWhile(_, cond, body):
             _free_in_expr(cond, bound, free)
             _free_in_nested(body, bound, free)
+        case SLoop(_, target, init, _, body):
+            # The initializer is read outside the loop; the accumulator
+            # is bound in the body and nowhere else.
+            inner = set(bound)
+            if target is not None:
+                _free_in_expr(init, bound, free)
+                inner |= set(_target_names(target))
+            _free_in_nested(body, inner, free)
+        case SBreak(_, expr) | SContinue(_, expr):
+            if expr is not None:
+                _free_in_expr(expr, bound, free)
         case SIf(_, cond, then_body, else_body):
             _free_in_expr(cond, bound, free)
             _free_in_nested(then_body, bound, free)
@@ -816,25 +846,135 @@ def _build_match_helper(pattern, helper_name):
     return names
 
 
-def _bool_format_helper_name(info):
-    """The name of the print-formatting helper for a value that might be
-    a Bool at runtime and can't be proven either way from its Pyking
-    source form (docs/target_python.md, "Booleans"), building and
-    registering it the first time this is called. Info -> String"""
-    global _bool_format_helper_name_value, _bool_format_helper_def
-    if _bool_format_helper_name_value is None:
-        candidate = "__pyk_bool_str"
+def _format_helper_name(info):
+    """The name of the print-formatting helper for a value that might
+    hold a Bool at runtime and can't be proven either way from its
+    Pyking source form (docs/target_python.md, "Booleans"), building
+    and registering it the first time this is called. Info -> String"""
+    global _format_helper_name_value, _format_helper_def
+    if _format_helper_name_value is None:
+        candidate = "__pyk_str"
         n = 0
         while candidate in _used_identifiers:
             n += 1
-            candidate = f"__pyk_bool_str{n}"
-        _bool_format_helper_name_value = candidate
-        v = PyVar(info, "v")
-        is_bool = PyCall(info, PyVar(info, "isinstance"), [v, PyVar(info, "bool")])
-        as_text = PyIfExp(info, v, PyString(info, "true"), PyString(info, "false"))
-        body = [PyIf(info, is_bool, [PyReturn(info, as_text)]), PyReturn(info, v)]
-        _bool_format_helper_def = PyFunctionDef(info, candidate, ["v"], body)
-    return _bool_format_helper_name_value
+            candidate = f"__pyk_str{n}"
+        _format_helper_name_value = candidate
+        _format_helper_def = _build_format_helper(info, candidate)
+    return _format_helper_name_value
+
+
+def _escaped(info, char):
+    """One character of a quoted string, escaped as Pyking escapes it:
+    a chain of conditionals rather than a table, since the helper is
+    built as Python's own AST. Info -> PyExpr -> PyExpr"""
+    escapes = [("\\", "\\\\"), ("'", "\\'"), ("\n", "\\n"), ("\t", "\\t"), ("\r", "\\r")]
+    result = char
+    for literal, escape in reversed(escapes):
+        result = PyIfExp(
+            info,
+            PyEq(info, char, PyString(info, literal)),
+            PyString(info, escape),
+            result,
+        )
+    return result
+
+
+def _build_format_helper(info, name):
+    """Synthesizes the closure-free formatter Pyking's print needs: a
+    Bool spelled `true`/`false` wherever it sits, including inside a
+    list or a tuple, which is why this walks a value instead of merely
+    testing it. Everything else is left to Python's own spelling, which
+    already agrees (runtime_interface.py's rules).
+    Info -> String -> PyFunctionDef"""
+    def var(n):
+        return PyVar(info, n)
+
+    def text(s):
+        return PyString(info, s)
+
+    def call(fn, args):
+        return PyCall(info, var(fn), args)
+
+    def isa(value, type_name):
+        return call("isinstance", [value, var(type_name)])
+
+    def joined(*parts):
+        result = parts[0]
+        for part in parts[1:]:
+            result = PyAdd(info, result, part)
+        return result
+
+    v, top, out, element = var("v"), var("top"), var("out"), var("e")
+    inner = PyCall(info, var(name), [element, PyBool(info, False)])
+    # out = out + (', ' if out != '' else '') + <the element>
+    step = PyAssign(
+        info,
+        PyTargetName(info, "out"),
+        joined(
+            out,
+            PyIfExp(
+                info,
+                PyEq(info, out, text("")),
+                text(""),
+                text(", "),
+            ),
+            inner,
+        ),
+    )
+    body = [
+        # A Bool is the whole point of the helper.
+        PyIf(
+            info,
+            isa(v, "bool"),
+            [PyReturn(info, PyIfExp(info, v, text("true"), text("false")))],
+        ),
+        # A string prints bare on its own and quoted inside something --
+        # quoted the way Pyking quotes, which is not always the way
+        # Python's own repr does (`"it's"` against `'it\\'s'`).
+        PyIf(
+            info,
+            isa(v, "str"),
+            [
+                PyIf(info, top, [PyReturn(info, v)]),
+                PyAssign(info, PyTargetName(info, "out"), text("'")),
+                PyFor(info, "c", v, [
+                    PyAssign(
+                        info,
+                        PyTargetName(info, "out"),
+                        PyAdd(info, out, _escaped(info, PyVar(info, "c"))),
+                    )
+                ]),
+                PyReturn(info, PyAdd(info, out, text("'"))),
+            ],
+        ),
+        PyIf(
+            info,
+            isa(v, "list"),
+            [
+                PyAssign(info, PyTargetName(info, "out"), text("")),
+                PyFor(info, "e", v, [step]),
+                PyReturn(info, joined(text("["), out, text("]"))),
+            ],
+        ),
+        PyIf(
+            info,
+            isa(v, "tuple"),
+            [
+                PyAssign(info, PyTargetName(info, "out"), text("")),
+                PyFor(info, "e", v, [step]),
+                # The singleton keeps the comma that tells it from a
+                # parenthesized value, exactly as Pyking writes it.
+                PyIf(
+                    info,
+                    PyEq(info, call("len", [v]), PyInt(info, 1)),
+                    [PyReturn(info, joined(text("("), out, text(",)")))],
+                ),
+                PyReturn(info, joined(text("("), out, text(")"))),
+            ],
+        ),
+        PyReturn(info, call("str", [v])),
+    ]
+    return PyFunctionDef(info, name, ["v", "top"], body)
 
 
 def _translate_comp_for(clause, scope):
@@ -867,21 +1007,24 @@ def _translate_comp_for(clause, scope):
     ], scope
 
 
-# Pyking has no type checker (see PYKING.md), so whether a given
-# expression produces a Bool is, in general, not knowable at compile
-# time -- but for plenty of expressions it plainly is, straight from
-# their Pyking AST *shape* alone, with no type system needed: a
-# comparison or a boolean literal always does, an arithmetic expression
-# or a list/tuple/string/int literal never does. `_bool_shape` answers
-# that where it can and says "unknown" everywhere else, which
+# Pyking has no type checker in an ordinary compile (see PYKING.md), so
+# whether a given expression holds a Bool is, in general, not knowable
+# at compile time -- but for plenty of expressions it plainly is,
+# straight from their Pyking AST *shape* alone, with no type system
+# needed: a comparison or a boolean literal always does, an arithmetic
+# expression or a string/int literal never does. What a *container*
+# holds is a different question from what it is, so a list, tuple or
+# comprehension is "unknown" however plainly it is not itself a Bool --
+# `print([true])` has a Bool to spell either way. `_bool_shape` answers
+# where it can and says "unknown" everywhere else, which
 # `_wrap_print_argument` (the only caller) treats as the safe default: a
-# runtime check via `_bool_format_helper_name`.
+# runtime walk via `_format_helper_name`.
 _PROVABLY_BOOL_EXPRS = (EEq, ELessThan, ELessThanEq, EGreatThan, EGreatThanEq)
-_PROVABLY_NOT_BOOL_EXPRS = (EInt, EString, EAdd, ESub, EMul, EDiv, ENeg, EList, ETuple, EListComp)
+_PROVABLY_NOT_BOOL_EXPRS = (EInt, EString, EAdd, ESub, EMul, EDiv, ENeg)
 
 
 def _bool_shape(e):
-    """'bool', 'not-bool', or 'unknown' for whether e provably produces a
+    """'bool', 'not-bool', or 'unknown' for whether e provably holds a
     Bool, provably doesn't, or can't be told without a type checker
     (docs/target_python.md, "Booleans"). Expr -> String"""
     if isinstance(e, EBool) or isinstance(e, _PROVABLY_BOOL_EXPRS):
@@ -904,8 +1047,8 @@ def _wrap_print_argument(pyking_expr, translated, info):
         return PyIfExp(info, translated, PyString(info, "true"), PyString(info, "false"))
     if shape == "not-bool":
         return translated
-    helper = PyVar(info, _bool_format_helper_name(info))
-    return PyCall(info, helper, [translated])
+    helper = PyVar(info, _format_helper_name(info))
+    return PyCall(info, helper, [translated, PyBool(info, True)])
 
 
 def translate_expr(e, scope):
@@ -1134,9 +1277,14 @@ def _translate_tail_stmt(s, scope):
                     [_translate_tail_case(c, scope) for c in cases],
                 )
             ]
+        case SLoop(info):
+            # A function ending in a loop returns what the loop
+            # produced: the accumulator it stopped with.
+            py_stmts, value, _ = _translate_loop(s, scope)
+            return py_stmts + [PyReturn(info, value)]
         case _:
             translated, _ = translate_stmt(s, scope)
-            return [translated]
+            return _as_stmts(translated)
 
 
 def _falls_through(py_body):
@@ -1208,6 +1356,121 @@ def _translate_value_block(stmts, py_target, scope):
     return body
 
 
+def _translate_loop(s, scope):
+    """Translates a loop into Python's own `while True` over a mutable
+    accumulator variable (docs/target_python.md, "loop"): the
+    initializer becomes the variable's first value, every tail of the
+    body assigns the next one, and a `break`/`continue` with an operand
+    assigns it before it jumps. Returns the statements, the expression
+    holding the loop's value afterwards, and the scope -- which is the
+    caller's, since the accumulator belongs to the body.
+    SLoop -> Scope -> ([PyStmt], PyExpr, Scope)"""
+    info = s.info
+    setup = []
+    body_scope = _loop_scope(scope)
+    py_target = None
+    value = PyTuple(info, [])
+    if s.target is not None:
+        # The initializer is translated before the accumulator binds, so
+        # `loop x = x + 1:` reads the enclosing `x`, exactly as an `=`
+        # binding does.
+        py_init = translate_expr(s.init, scope)
+        py_target, body_scope = translate_target(s.target, body_scope, rebinding=True)
+        setup.append(PyAssign(info, py_target, py_init))
+        value = _target_as_expr(py_target)
+    _loop_accumulators.append(py_target)
+    try:
+        py_body = _translate_loop_block(s.body, py_target, body_scope)
+    finally:
+        _loop_accumulators.pop()
+    return setup + [PyWhile(info, PyBool(info, True), py_body)], value, scope
+
+
+def _target_as_expr(target):
+    """A target read back as an expression: what a loop's accumulator
+    holds once the loop has stopped. PyTarget -> PyExpr"""
+    match target:
+        case PyTargetName(info, name):
+            return PyVar(info, name)
+        case PyTargetTuple(info, elements):
+            return PyTuple(info, [_target_as_expr(e) for e in elements])
+
+
+def _translate_loop_block(stmts, py_target, scope):
+    """Translates a loop body: whatever a path ends in is the next
+    turn's accumulator, so every tail becomes an assignment to
+    py_target -- except a `break`/`continue`, which has already said
+    what happens next. py_target is None for a loop carrying nothing,
+    where the body's value is simply discarded.
+    [Stmt] -> PyTarget? -> Scope -> [PyStmt]"""
+    scope = _declare_functions(stmts, scope)
+    if not stmts:
+        return []
+    body, scope = _translate_stmts(stmts[:-1], scope)
+    return body + _translate_loop_tail(stmts[-1], py_target, scope)
+
+
+def _translate_loop_tail(s, py_target, scope):
+    """The last statement of a loop body, or of one branch of one.
+    Stmt -> PyTarget? -> Scope -> [PyStmt]"""
+    if py_target is None:
+        return _as_stmts(translate_stmt(s, scope)[0])
+    match s:
+        case SExprStmt(info, expr):
+            return [PyAssign(info, py_target, translate_expr(expr, scope))]
+        case SIf(info, cond, then_body, else_body):
+            then_scope = _block_scope(scope)
+            py_then = _translate_loop_block(then_body, py_target, then_scope)
+            if else_body is None:
+                # A path that runs no branch produces nothing, and
+                # nothing is unit -- what PYKING.md's tail-position
+                # table says of every statement that yields no value,
+                # and what src/interpreter.py does with one.
+                py_else = [PyAssign(info, py_target, PyTuple(info, []))]
+            else:
+                py_else = _translate_loop_block(
+                    else_body, py_target, _block_scope(scope)
+                )
+            return [PyIf(info, translate_expr(cond, scope), py_then, py_else)]
+        case SMatch(info, subject, cases):
+            return [PyMatch(
+                info,
+                translate_expr(subject, scope),
+                [_translate_loop_case(c, py_target, scope) for c in cases],
+            )]
+        case SBreak() | SContinue() | SReturn() | SReturnStmt():
+            # Each of these says by itself what happens next: two leave
+            # the loop, one leaves the whole function.
+            return _as_stmts(translate_stmt(s, scope)[0])
+        case _:
+            # Anything else supplies unit, so that is the accumulator
+            # the next turn gets.
+            return _as_stmts(translate_stmt(s, scope)[0]) + [
+                PyAssign(s.info, py_target, PyTuple(s.info, []))
+            ]
+
+
+def _translate_loop_case(c, py_target, scope):
+    """One case arm of a match at the tail of a loop body.
+    MatchCase -> PyTarget -> Scope -> PyMatchCase"""
+    py_pattern, arm_scope = translate_pattern(c.pattern, _block_scope(scope))
+    if c.expr is not None:
+        translated = translate_expr(c.expr, arm_scope)
+        return PyMatchCase(c.info, py_pattern, [
+            PyAssign(translated.info, py_target, translated)
+        ])
+    return PyMatchCase(
+        c.info, py_pattern, _translate_loop_block(c.body, py_target, arm_scope)
+    )
+
+
+def _as_stmts(translated):
+    """One translation's statements: a statement translator may answer
+    with several (a loop is a setup plus a `while`).
+    (PyStmt | [PyStmt]) -> [PyStmt]"""
+    return list(translated) if isinstance(translated, list) else [translated]
+
+
 def _translate_value_case(c, py_target, scope):
     """One case arm of a value-form match. MatchCase -> PyTarget -> Scope
     -> PyMatchCase"""
@@ -1222,7 +1485,9 @@ def _translate_value_case(c, py_target, scope):
 
 def translate_stmt(s, scope):
     """Translates one statement, returning it with the scope it leaves
-    behind. Stmt -> Scope -> (PyStmt, Scope)"""
+    behind. A loop answers with several statements, so the result may
+    be a list (see `_as_stmts`).
+    Stmt -> Scope -> (PyStmt | [PyStmt], Scope)"""
     match s:
         case SLet(info, target, expr):
             # The right-hand side is translated *before* the target binds,
@@ -1231,6 +1496,13 @@ def translate_stmt(s, scope):
             py_expr = translate_expr(expr, scope)
             py_target, scope = translate_target(target, scope, rebinding=True)
             return PyAssign(info, py_target, py_expr), scope
+
+        case SLetStmt(info, target, SLoop() as loop):
+            # `x = loop ...` -- the loop's value is the accumulator it
+            # stopped with, so the binding is one assignment after it.
+            py_target, scope = translate_target(target, scope, rebinding=True)
+            py_stmts, value, scope = _translate_loop(loop, scope)
+            return py_stmts + [PyAssign(info, py_target, value)], scope
 
         case SLetStmt(_, target, stmt):
             # The target binds in *this* scope (the branches are blocks of
@@ -1283,6 +1555,23 @@ def translate_stmt(s, scope):
             py_body, _ = _translate_stmts(body, _loop_scope(scope))
             return PyWhile(info, translate_expr(cond, scope), py_body), scope
 
+        case SLoop():
+            py_stmts, _, scope = _translate_loop(s, scope)
+            return py_stmts, scope
+
+        case SBreak(info, expr) | SContinue(info, expr):
+            jump = PyBreak(info) if isinstance(s, SBreak) else PyContinue(info)
+            if expr is None:
+                return jump, scope
+            py_expr = translate_expr(expr, scope)
+            py_target = _loop_accumulators[-1] if _loop_accumulators else None
+            if py_target is None:
+                # A loop carrying nothing has nowhere to put the operand
+                # (the type checker refuses this outright); it is still
+                # an expression, so it still runs.
+                return [PyExprStmt(info, py_expr), jump], scope
+            return [PyAssign(info, py_target, py_expr), jump], scope
+
         case SIf(info, cond, then_body, else_body):
             py_then, _ = _translate_stmts(then_body, _block_scope(scope))
             py_else = None
@@ -1315,8 +1604,9 @@ def translate_stmt(s, scope):
 
         case SReturnStmt(_, stmt):
             # `return if c: ...` -- the same push-down as a tail-position
-            # if/match, written explicitly.
-            return _translate_tail_stmt(stmt, scope)[0], scope
+            # if/match, written explicitly. A loop answers with several
+            # statements (the accumulator, the loop, the return).
+            return _translate_tail_stmt(stmt, scope), scope
 
         case SMatch(info, subject, cases):
             py_subject = translate_expr(subject, scope)
@@ -1445,25 +1735,35 @@ def _absorbed(stmts, defs, members, captures):
     return needed
 
 
-def _movable(s):
+def _movable(s, in_loop=False):
     """Whether a statement may be lifted into a factory: no return
-    (would leave the factory, not the enclosing function) and no :=
-    (would write the factory's own local). A nested def's own returns
-    don't count against it. Stmt -> Bool"""
+    (would leave the factory, not the enclosing function), no := (would
+    write the factory's own local), and no break/continue for a loop
+    the factory is not inside -- in_loop says a loop moving with it is.
+    A nested def's own returns don't count against it.
+    Stmt -> Bool -> Bool"""
     match s:
         case SReturn() | SReturnStmt() | SMutate():
             return False
+        case SBreak() | SContinue():
+            return in_loop
         case SLetStmt(_, _, stmt):
-            return _movable(stmt)
+            return _movable(stmt, in_loop)
         case SIf(_, _, then_body, else_body):
-            return all(map(_movable, then_body)) and (
-                else_body is None or all(map(_movable, else_body))
+            return all(_movable(st, in_loop) for st in then_body) and (
+                else_body is None
+                or all(_movable(st, in_loop) for st in else_body)
             )
+        case SLoop(_, _, _, _, body):
+            # A loop takes its own break/continue with it, wherever it
+            # is moved to.
+            return all(_movable(st, True) for st in body)
         case SWhile(_, _, body) | SFor(_, _, _, body):
-            return all(map(_movable, body))
+            return all(_movable(st, in_loop) for st in body)
         case SMatch(_, _, cases):
             return all(
-                _movable(st) for c in cases if c.body is not None for st in c.body
+                _movable(st, in_loop)
+                for c in cases if c.body is not None for st in c.body
             )
         case _:
             return True
@@ -1496,7 +1796,7 @@ def _translate_turn_group(members, absorbed, captures, stmts, scope):
     bound = []
     for i in order:
         py_stmt, inner_scope = translate_stmt(stmts[i], inner_scope)
-        inner.append(py_stmt)
+        inner.extend(_as_stmts(py_stmt))
         for name in _stmt_bound_names(stmts[i]):
             bound.append(_lookup(name, inner_scope))
 
@@ -1546,7 +1846,7 @@ def _translate_stmts(stmts, scope):
             translated.extend(py_stmts)
             continue
         py_stmt, scope = translate_stmt(statement, scope)
-        translated.append(py_stmt)
+        translated.extend(_as_stmts(py_stmt))
     return translated, scope
 
 
@@ -1555,12 +1855,13 @@ def translate_program(stmts):
     state is reset first, and every helper synthesized along the way is
     prepended. [Stmt] -> PyProgram"""
     global _comp_counter, _pending_comp_helpers, _used_identifiers, _turn_counter
-    global _bool_format_helper_name_value, _bool_format_helper_def
+    global _format_helper_name_value, _format_helper_def, _loop_accumulators
     _comp_counter = 0
+    _loop_accumulators = []
     _turn_counter = 0
     _pending_comp_helpers = []
-    _bool_format_helper_name_value = None
-    _bool_format_helper_def = None
+    _format_helper_name_value = None
+    _format_helper_def = None
     _used_identifiers = _collect_identifiers(stmts)
     translated, _ = _translate_stmts(
         stmts,
@@ -1568,7 +1869,7 @@ def translate_program(stmts):
     )
     helpers = _pending_comp_helpers
     _pending_comp_helpers = []
-    prelude = [_bool_format_helper_def] if _bool_format_helper_def is not None else []
+    prelude = [_format_helper_def] if _format_helper_def is not None else []
     return PyProgram(prelude, helpers + translated)
 
 
@@ -1751,6 +2052,10 @@ def pprint_py_stmt(s, level=0):
             lines = [f"{pad}while {pprint_py_expr(cond)}:"]
             lines += _render_block(body, level + 1)
             return "\n".join(lines)
+        case PyBreak(_):
+            return f"{pad}break"
+        case PyContinue(_):
+            return f"{pad}continue"
         case PyIf(_, cond, then_body, else_body):
             lines = [f"{pad}if {pprint_py_expr(cond)}:"]
             lines += _render_block(then_body, level + 1)
@@ -1788,9 +2093,10 @@ def pprint_py_stmt(s, level=0):
 _PRELUDE_BEGIN = "\n".join([
     "# --- prelude begins ---",
     "# Pyking prints a Bool as `true`/`false`, not Python's own capitalised",
-    "# `True`/`False`; this helper exists because at least one value printed",
-    "# below isn't provably a Bool from its Pyking source form alone (a",
-    "# variable or a function call), so it has to be checked at runtime.",
+    "# `True`/`False`, wherever it sits -- on its own, or inside a list or",
+    "# a tuple. This helper exists because at least one value printed below",
+    "# isn't provably free of Bools from its Pyking source form alone (a",
+    "# variable, a call, or a container), so it is walked at runtime.",
 ])
 _PRELUDE_END = "# --- prelude ends; the compiled program follows ---"
 

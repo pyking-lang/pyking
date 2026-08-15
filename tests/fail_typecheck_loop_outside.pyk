@@ -1,0 +1,12 @@
+# A `break` with no loop to break out of.
+#
+# Where a `break`/`continue` may stand is shape rather than scope, so
+# it is checked in `src/parser.py` beside the other rules the grammar
+# cannot state, and holds in every mode -- `--ast` and `--typecheck`
+# alike -- rather than only where a type checker runs.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+x = 1
+break

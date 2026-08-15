@@ -1,0 +1,33 @@
+# A loop carrying more than one value.
+#
+# The accumulator is one value, so several names are one tuple: the
+# header takes them apart on every turn, and everything that says what
+# the next turn carries -- the body's last expression, a `break`, a
+# `continue` -- has to give the whole tuple back. The loop's own value
+# is that tuple, which is why the binding outside destructures it.
+#
+# The `.ast.out` pins both halves: `(Int, Bool)` on the header and on
+# the binding.
+
+foo, bar = loop x, y = 0, true:
+    if x <= 10:
+        x + 1, y
+    else:
+        break x + 100, false
+
+print(foo, bar)
+
+
+# A running sum and a count, carried together and printed as the tuple
+# they are.
+def summed(limit: Int) -> (Int, Int):
+    loop acc = 0, 1:
+        (total, k) = acc
+        if k > limit:
+            break total, k
+        else:
+            total + k, k + 1
+
+
+print(summed(10))
+print(summed(0))

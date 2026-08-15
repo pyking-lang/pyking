@@ -44,10 +44,11 @@ rules, one printer with four `if standard ==` branches in it.
 
 `print`; `def` with parameters, `return`, recursion, and the
 single-expression `def f(x) = e` form; `if` / `else if` / `else`;
-`while`; `=`, `var`, `:=`; `if … then … else …` expressions; integers,
-strings and booleans; `+ - *`, unary minus, comparisons, and calls.
-Tail position, `return if c:`, and unit-returning (`void`) functions are
-supported too — see below.
+`while`; `loop` with `break` and `continue`, where the loop carries an
+accumulator; `=`, `var`, `:=`; `if … then … else …` expressions;
+integers, strings and booleans; `+ - *`, unary minus, comparisons, and
+calls. Tail position, `return if c:`, and unit-returning (`void`)
+functions are supported too — see below.
 
 Type annotations are *used* here rather than erased, when they name a
 type C can represent.
@@ -74,6 +75,25 @@ Producing the right one needs a floating-point type throughout, and
 printing it the way Python does needs a float-repr routine; neither
 exists yet, so `/` is refused rather than quietly computing something
 else.
+
+### A `loop` C cannot give a value
+
+```
+Unsupported by target 'c23': a `loop` with no accumulator -- C has no
+value to give it, so write `loop x = 0:` and break with what you want
+```
+
+Three shapes are refused, all for the same reason: C has no unit value
+to fall back on. A bare `loop:` carries nothing, so there is no variable
+to declare and nothing for the loop to be worth. An `if` with no `else`
+as the *last* statement of a loop body leaves a turn with nothing to
+hand on. And a loop body ending in something that produces no value —
+a binding, a `while` — says nothing about the next turn either. Each is
+a case Pyking answers with `()`; here it is refused instead, with the
+position of the statement that produced nothing.
+
+A tuple accumulator is refused too, for the ordinary reason: this
+backend has no tuples.
 
 ### Nested `def`
 
@@ -384,6 +404,39 @@ def announce(label: String, n):    void announce(const char *label, int n)
 A `void` call has no value to use, so calling one anywhere but as a
 statement of its own is refused with a source position rather than
 emitted as C that will not compile.
+
+### `loop`, `break` and `continue`
+
+A `loop` is `while (1)` over one mutable variable holding the
+accumulator. The initializer declares it — and its C type is the
+initializer's, by the ordinary inference rule — every tail of the body
+assigns the next turn's value, and `break`/`continue` are C's own, with
+the operand assigned first where one is written:
+
+```pyking                          /* generated C */
+res = loop x = 5:                  int x = 5;
+    if x <= 10:                    while (1) {
+        continue x + 1                 if (x <= 10) {
+    else:                                  x = x + 1;
+        break                              continue;
+                                       } else {
+                                           break;
+                                       }
+                                   }
+                                   int res = x;
+```
+
+`while (1)`, not `while (true)`: c89 has no `bool`, and this is the
+spelling both standards read the same way. The loop's own value is the
+accumulator it stopped with, so binding one is that declaration after
+the loop, and a loop in tail position is `return x`. Since a turn may
+only carry one C type, a `break`/`continue` whose operand has a
+different type is refused rather than silently converted.
+
+A `while (1)` no `break` leaves is a loop that never finishes, so
+`_falls_through` (see "A function that produces a value on some paths
+and none on others") counts a function ending in one as returning —
+there is no path off the end to worry about.
 
 ### Names that are keywords in C
 

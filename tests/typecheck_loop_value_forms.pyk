@@ -1,0 +1,51 @@
+# Every position a loop's value can be used in.
+#
+# A loop is worth the accumulator it stopped with, so it stands
+# wherever a value-form `if`/`match` stands: bound with `=`, returned
+# with `return`, or left as a function's last statement, where the
+# tail-position rule makes it the function's value.
+
+# 1. Bound with `=`.
+doubled = loop n = 1:
+    if n < 50:
+        n * 2
+    else:
+        break
+
+print(doubled)
+
+
+# 2. Returned explicitly, from before the end of a body.
+def below(limit: Int) -> Int:
+    return loop n = 1:
+        if n < limit:
+            n * 2
+        else:
+            break
+
+
+print(below(20))
+
+
+# 3. In tail position, with no `return` written at all.
+def shrunk(start: Int) -> Int:
+    loop n = start:
+        if n > 1:
+            n - 10
+        else:
+            break
+
+
+print(shrunk(64))
+
+
+# 4. As one statement among others: a loop run for what it prints,
+# whose value nothing wants.
+loop countdown = 3:
+    if countdown == 0:
+        break
+    else:
+        print(countdown)
+        countdown - 1
+
+print("lift off")

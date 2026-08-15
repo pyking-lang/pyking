@@ -26,9 +26,10 @@ from syntax import (
     pprint_type,
     EInt, EString, EBool, EVar,
     EAdd, ESub, EMul, ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq,
-    ECall, EIf,
+    ECall, EIf, ETuple,
     SLet, SLetStmt, SReturn, SReturnStmt, SExprStmt, SIf, SFunctionDef,
-    TargetName, TInt, TString, TBool, TList, TTuple,
+    SLoop, SBreak, SContinue,
+    TargetName, TargetTuple, TInt, TString, TBool, TList, TTuple,
 )
 
 TARGET = "ocaml"
@@ -64,6 +65,7 @@ def _unsupported(node, message):
 #     OUnit()
 #     OVar(name: String)                       a name, already mangled
 #     OApp(func: OExpr, args: [OExpr])         f x y
+#     OTuple(elements: [OExpr])                (a, b)
 #     OBin(op: String, left: OExpr, right: OExpr)
 #     OIf(cond: OExpr, then_: OExpr, else_: OExpr?)
 #     OLet(bindings: [OBinding], body: OExpr, recursive: Bool)
@@ -76,7 +78,11 @@ def _unsupported(node, message):
 #     OItemUnit(expr: OExpr)                   let () = expr
 #
 # datatype OBinding:
-#     OBinding(name: String, params: [String], value: OExpr)
+#     OBinding(name: Pattern, params: [Pattern], value: OExpr)
+#
+# datatype Pattern:                            what a binding binds
+#     String                                   a name
+#     (Pattern, ...)                           a tuple taken apart
 
 
 @dataclass(frozen=True)
@@ -116,6 +122,11 @@ class OApp(OExpr):
 
 
 @dataclass(frozen=True)
+class OTuple(OExpr):
+    elements: list
+
+
+@dataclass(frozen=True)
 class OBin(OExpr):
     op: str
     left: OExpr
@@ -131,6 +142,10 @@ class OIf(OExpr):
 
 @dataclass(frozen=True)
 class OBinding:
+    # `name` and each entry of `params` is a *pattern*: a String for a
+    # plain name, or a Python tuple of patterns for an OCaml tuple
+    # pattern (`let (a, b) = ...`, `let rec f (a, b) = ...`). See
+    # `_pattern_names` and friends.
     name: str
     params: list
     value: OExpr
@@ -167,11 +182,12 @@ class OItemUnit:
 
 @dataclass(frozen=True)
 class OProgram:
-    """A translated program. Fields: items, [OItem]; needs_list_printer,
-    Bool (whether the generated prelude's list-printing helper is
-    used)."""
+    """A translated program. Fields: items, [OItem]; needs_list_printer
+    / needs_quote, Bool (which of the generated prelude's printers the
+    program uses)."""
     items: list
     needs_list_printer: bool = False
+    needs_quote: bool = False
 
 
 # --- names ---
@@ -304,7 +320,7 @@ def translate_program(stmts):
     tmap = _checked_types(stmts)
     translator = _Translator(tmap, stmts)
     items = _polish_items(translator.items(stmts))
-    return OProgram(items, translator.needs_list_printer)
+    return OProgram(items, translator.needs_list_printer, translator.needs_quote)
 
 
 def _checked_types(stmts):
@@ -321,6 +337,29 @@ def _checked_types(stmts):
         ) from None
 
 
+@dataclass(frozen=True)
+class _Loop:
+    """One `loop` being translated. Fields: name, String (the local
+    function that is the loop); accumulator, OExpr (what a bare
+    `break`/`continue` uses); carries, Bool (whether the loop was
+    written with an accumulator at all)."""
+    name: str
+    accumulator: OExpr
+    carries: bool
+    returning: bool
+
+
+# What a `break`/`continue` OCaml cannot place is refused with. The
+# guard rewrite in `block` covers the common shapes; this is what is
+# left (docs/target_ocaml.md, "A break that is neither in tail position
+# nor a guard").
+_NO_EARLY_EXIT = (
+    "a `break`/`continue` with statements after it: OCaml has no early "
+    "exit, so only one in tail position -- or one guarding the rest of "
+    "the body -- can be compiled"
+)
+
+
 class _Translator:
     """Holds the checker's types and translation-wide state. Fields:
     tmap, {Int: Type}; needs_list_printer, Bool; printing, _Effects;
@@ -333,6 +372,11 @@ class _Translator:
         self.printing = _Effects(stmts)
         self.temporary_prefix = _unused_prefix(stmts)
         self.temporaries = 0
+        self.needs_quote = False
+        # The `loop`s being translated, innermost last: each holds the
+        # name of the local function that *is* the loop, and the
+        # accumulator a bare `break`/`continue` uses.
+        self.loops = []
 
     # -- top level --
 
@@ -401,13 +445,11 @@ class _Translator:
     def binding(self, statement):
         """A = binding, as one OCaml binding. SLet|SLetStmt -> OBinding"""
         match statement:
-            case SLet(_, TargetName(_, name, _), expr, _, _):
+            case SLet(_, target, expr, _, _):
                 value = self.expr(expr)
-            case SLetStmt(_, TargetName(_, name, _), stmt, _, _):
+            case SLetStmt(_, target, stmt, _, _):
                 value = self.value_stmt(stmt)
-            case _:
-                _unsupported(statement, "a binding that destructures a tuple")
-        return OBinding(_mangle(name), [], value)
+        return OBinding(_target_pattern(target), [], value)
 
     def function_binding(self, func):
         """One def, as an OBinding. SFunctionDef -> OBinding"""
@@ -436,14 +478,28 @@ class _Translator:
         first, rest = stmts[0], stmts[1:]
 
         # A guard (docs/target_ocaml.md, "A return that is neither in
-        # tail position nor a guard"): `if c: return x` becomes the else
-        # of the same if.
-        if rest and isinstance(first, SIf) and first.else_body is None:
-            if _definitely_returns(first.then_body):
+        # tail position nor a guard"): an `if` a branch of which always
+        # leaves -- by `return`, `break` or `continue` -- becomes an
+        # `if` whose other branch is the rest of the block. Nothing is
+        # duplicated, since a branch that leaves needs no continuation
+        # and a branch that does not is the only one carrying it.
+        if rest and isinstance(first, SIf):
+            then_exits = _definitely_exits(first.then_body)
+            else_exits = (
+                first.else_body is not None and _definitely_exits(first.else_body)
+            )
+            if then_exits or else_exits:
+                else_body = first.else_body or []
                 return OIf(
                     self.expr(first.cond),
-                    self.block(first.then_body, tail),
-                    self.block(rest, tail),
+                    self.block(
+                        first.then_body if then_exits
+                        else list(first.then_body) + rest,
+                        tail,
+                    ),
+                    self.block(
+                        else_body if else_exits else list(else_body) + rest, tail
+                    ),
                 )
 
         if not rest:
@@ -467,11 +523,19 @@ class _Translator:
                     "exit, so only a `return` in tail position -- or one "
                     "guarding the rest of the body -- can be compiled",
                 )
+            case SBreak() | SContinue():
+                _unsupported(first, _NO_EARLY_EXIT)
             case _:
                 return OSeq(self.discard(first), self.block(rest, tail))
 
     def last(self, statement, tail):
-        """The final statement of a block. Stmt -> Bool -> OExpr"""
+        """The final statement of a block. `tail` is True for a block
+        whose value is a function's, False for one run only for what it
+        does, and a `_Loop` for the body of a loop, whose value is the
+        accumulator the next turn carries.
+        Stmt -> (Bool | _Loop) -> OExpr"""
+        if isinstance(tail, _Loop):
+            return self.loop_last(statement, tail)
         match statement:
             case SExprStmt(_, expr, _) if tail:
                 return self.expr(expr)
@@ -485,6 +549,12 @@ class _Translator:
                     self.block(then_body, tail),
                     None if else_body is None else self.block(else_body, tail),
                 )
+            case SLoop() if tail:
+                # A loop is an expression here, so a function ending in
+                # one needs nothing said about it -- and a `return`
+                # inside it returns from the function, since the loop's
+                # value *is* the function's.
+                return self.loop(statement, returning=True)
             case SLet() | SLetStmt():
                 # A block ending in a binding supplies unit; the binding
                 # itself is unreachable from outside the block.
@@ -500,10 +570,114 @@ class _Translator:
             case _:
                 return self.discard(statement)
 
+    # -- loops --
+
+    def loop(self, s, returning=False):
+        """A loop, as a local recursive function applied at once
+        (docs/target_ocaml.md, "loop"): the accumulator is the
+        function's parameter, going round is a tail call, and breaking
+        is the value the call returns. OCaml optimises the tail call,
+        so this runs in constant space -- which is why this backend
+        needs no imperative loop at all. SLoop -> OExpr"""
+        name = self.fresh_name()
+        if s.target is None:
+            # Nothing is carried, so the parameter is unit and the
+            # accumulator every `break` yields is unit too.
+            parameter = self.fresh_name()
+            accumulator = OUnit()
+            init = OUnit()
+        else:
+            parameter = _target_pattern(s.target)
+            accumulator = _target_expr(s.target)
+            init = self.expr(s.init)
+        self.loops.append(
+            _Loop(name, accumulator, s.target is not None, returning)
+        )
+        try:
+            body = self.block(s.body, self.loops[-1])
+        finally:
+            self.loops.pop()
+        binding = OBinding(name, [parameter], body)
+        # `rec` only where the body actually goes round again: an
+        # unnecessary one is a warning, and the harness builds with
+        # warnings as errors.
+        recursive = name in _free_in_binding(binding)
+        return OLet([binding], OApp(OVar(name), [init]), recursive)
+
+    def again(self, loop, value):
+        """The tail call that starts loop's next turn.
+        _Loop -> OExpr -> OExpr"""
+        return OApp(OVar(loop.name), [value])
+
+    def loop_last(self, statement, loop):
+        """The last statement of a loop body: what it produces is the
+        accumulator the next turn carries, so it ends in either a call
+        going round or the value the loop stops with.
+        Stmt -> _Loop -> OExpr"""
+        match statement:
+            case SReturn(_, expr, _) | SReturnStmt(_, expr, _) if loop.returning:
+                # The loop is the function's value, so leaving the loop
+                # with this and leaving the function with it are one
+                # and the same.
+                return (
+                    self.value_stmt(expr) if isinstance(statement, SReturnStmt)
+                    else self.expr(expr)
+                )
+            case SReturn() | SReturnStmt():
+                _unsupported(
+                    statement,
+                    "a `return` inside a loop that is not the function's own "
+                    "value: OCaml has no early exit, and this loop's value is "
+                    "wanted where it stands, so returning from it cannot "
+                    "leave the function too",
+                )
+            case SLoop():
+                # A loop as the last statement of a loop body: its value
+                # is what the turn outside goes round with.
+                return self.again(loop, self.loop(statement))
+            case SBreak(_, expr, _):
+                return loop.accumulator if expr is None else self.expr(expr)
+            case SContinue(_, expr, _):
+                return self.again(
+                    loop, loop.accumulator if expr is None else self.expr(expr)
+                )
+            case SIf(_, cond, then_body, else_body, _):
+                if else_body is not None:
+                    return OIf(
+                        self.expr(cond),
+                        self.block(then_body, loop),
+                        self.block(else_body, loop),
+                    )
+                if loop.carries:
+                    _unsupported(
+                        statement,
+                        "an `if` with no `else` as the last statement of a "
+                        "loop body: one way through it would say nothing "
+                        "about what the next turn carries",
+                    )
+                # A loop carrying nothing: the branch runs for what it
+                # does, and the loop goes round either way.
+                return OSeq(
+                    OIf(self.expr(cond), self.effects(then_body)),
+                    self.again(loop, OUnit()),
+                )
+            case SExprStmt(_, expr, _) if loop.carries:
+                return self.again(loop, self.expr(expr))
+            case _ if not loop.carries:
+                return OSeq(self.discard(statement), self.again(loop, OUnit()))
+        _unsupported(
+            statement,
+            f"{type(statement).__name__} as the last statement of a loop body: "
+            f"every turn has to say what the next one carries",
+        )
+
     def value_stmt(self, stmt):
-        """An if in value form: x = if c: ... or return if c: ....
-        SIf -> OExpr"""
+        """A statement in value form: x = if c: ..., return if c: ...,
+        or a loop, whose value is the accumulator it stopped with.
+        SIf|SLoop -> OExpr"""
         match stmt:
+            case SLoop():
+                return self.loop(stmt)
             case SIf(_, cond, then_body, else_body, _):
                 if else_body is None:
                     _unsupported(stmt, "a value-form `if` with no `else`")
@@ -529,6 +703,13 @@ class _Translator:
                     self.effects(then_body),
                     None if else_body is None else self.effects(else_body),
                 )
+            case SLoop():
+                translated = self.loop(statement)
+                if statement.target is None:
+                    return translated
+                return OIgnore(translated)
+            case SBreak() | SContinue():
+                _unsupported(statement, _NO_EARLY_EXIT)
         _unsupported(statement, f"{type(statement).__name__} in this position")
 
     # -- expressions --
@@ -550,6 +731,12 @@ class _Translator:
                 return OVar(_mangle(name))
             case EIf(_, cond, then_expr, else_expr, _):
                 return OIf(self.expr(cond), self.expr(then_expr), self.expr(else_expr))
+            case ETuple(_, [], _):
+                # The empty tuple is unit, in Pyking as in OCaml.
+                return OUnit()
+            case ETuple(_, elements, _):
+                pieces, sequence = self.in_order(elements)
+                return sequence(OTuple(pieces))
             case ECall(_, EVar(_, name, _), args, _) if (
                 runtime_interface.lookup(name) is not None
             ):
@@ -641,11 +828,21 @@ class _Translator:
         """One printed argument, as an OCaml string expression.
         translated is arg's OCaml form when the caller already produced
         it. Expr -> OExpr? -> OExpr"""
-        type_ = self.type_of(arg)
         if translated is None:
             translated = self.expr(arg)
+        return self.string_of(self.type_of(arg), translated, arg, top=True)
+
+    def string_of(self, type_, translated, node, top):
+        """A value of this type as a string, per runtime_interface.py's
+        rules. top says the value is being printed on its own rather
+        than from inside a tuple, which is the one thing that changes:
+        a string prints bare there and quoted here.
+        Type -> OExpr -> Node -> Bool -> OExpr"""
         if _is_string(type_):
-            return translated
+            if top:
+                return translated
+            self.needs_quote = True
+            return OApp(OVar(_QUOTE), [translated])
         if _is_int(type_):
             return OApp(OVar("string_of_int"), [translated])
         if _is_bool(type_):
@@ -659,7 +856,28 @@ class _Translator:
         if _is_int_list(type_):
             self.needs_list_printer = True
             return OApp(OVar(_LIST_PRINTER), [translated])
-        _unsupported(arg, f"printing a value of type {_name_of(type_)}")
+        if isinstance(type_, TTuple):
+            return self.tuple_string(type_, translated, node)
+        _unsupported(node, f"printing a value of type {_name_of(type_)}")
+
+    def tuple_string(self, type_, translated, node):
+        """A tuple as a string, in Pyking's own notation. OCaml has no
+        printer of its own to reach for, so this takes the tuple apart
+        and formats each element by its type -- which is what makes a
+        nested one work as well. TTuple -> OExpr -> Node -> OExpr"""
+        names = [self.fresh_name() for _ in type_.elements]
+        pieces = [
+            self.string_of(element, OVar(name), node, top=False)
+            for element, name in zip(type_.elements, names)
+        ]
+        # A singleton keeps the comma that tells it from a parenthesized
+        # value, exactly as the source form does.
+        closing = ",)" if len(pieces) == 1 else ")"
+        text = pieces[0]
+        for piece in pieces[1:]:
+            text = OBin("^", text, OBin("^", OStr(", "), piece))
+        text = OBin("^", OStr("("), OBin("^", text, OStr(closing)))
+        return OLet([OBinding(tuple(names), [], translated)], text)
 
     def builtin_call(self, call, name, args):
         """Translates a call to str, len or range. ECall -> String ->
@@ -688,10 +906,28 @@ class _Translator:
 
 _BUILTINS = ("str", "len", "range")
 
-# The one prelude this backend has (docs/target_ocaml.md, "Builtins").
+# The prelude this backend has (docs/target_ocaml.md, "Builtins"): two
+# printers for what OCaml has no printing of its own for.
 _LIST_PRINTER = "pyk_string_of_int_list"
 _LIST_PRINTER_DEF = f"""let {_LIST_PRINTER} xs =
   "[" ^ String.concat ", " (List.map string_of_int xs) ^ "]\""""
+
+_QUOTE = "pyk_quote"
+_QUOTE_DEF = f"""let {_QUOTE} text =
+  let out = Buffer.create (String.length text + 2) in
+  Buffer.add_char out '\\'';
+  String.iter
+    (fun c ->
+      match c with
+      | '\\\\' -> Buffer.add_string out "\\\\\\\\"
+      | '\\'' -> Buffer.add_string out "\\\\'"
+      | '\\n' -> Buffer.add_string out "\\\\n"
+      | '\\t' -> Buffer.add_string out "\\\\t"
+      | '\\r' -> Buffer.add_string out "\\\\r"
+      | c -> Buffer.add_char out c)
+    text;
+  Buffer.add_char out '\\'';
+  Buffer.contents out"""
 
 
 # --- grouping `def`s ---
@@ -753,6 +989,8 @@ def _free(e):
             return _free(expr)
         case OApp(func, args):
             return _free(func).union(*[_free(a) for a in args]) if args else _free(func)
+        case OTuple(elements):
+            return frozenset().union(*[_free(el) for el in elements])
         case OBin(_, left, right):
             return _free(left) | _free(right)
         case OIf(cond, then_, else_):
@@ -772,7 +1010,59 @@ def _free(e):
 def _free_in_binding(binding):
     """A binding's free names: its value's, less its own parameters.
     OBinding -> {String}"""
-    return _free(binding.value) - set(binding.params)
+    bound = {name for param in binding.params for name in _pattern_names(param)}
+    return _free(binding.value) - bound
+
+
+# --- binding patterns ---
+#
+# A binding or a parameter is either a name or a tuple taken apart, and
+# the three things done to one -- reading its names, printing it, and
+# underscoring what nothing reads -- are the same either way.
+
+
+def _target_pattern(target):
+    """A Pyking assignment target as an OCaml binding pattern.
+    AssignTarget -> Pattern"""
+    match target:
+        case TargetName(_, name, _):
+            return _mangle(name)
+        case TargetTuple(_, elements, _):
+            return tuple(_target_pattern(e) for e in elements)
+
+
+def _target_expr(target):
+    """A target read back as an expression: what a loop's accumulator
+    holds on the turn it is bound. AssignTarget -> OExpr"""
+    match target:
+        case TargetName(_, name, _):
+            return OVar(_mangle(name))
+        case TargetTuple(_, elements, _):
+            return OTuple([_target_expr(e) for e in elements])
+
+
+def _pattern_names(pattern):
+    """Every name a binding pattern binds. Pattern -> [String]"""
+    if isinstance(pattern, tuple):
+        return [name for part in pattern for name in _pattern_names(part)]
+    return [pattern]
+
+
+def _pattern_text(pattern):
+    """A binding pattern as OCaml source text. Pattern -> String"""
+    if isinstance(pattern, tuple):
+        return f"({', '.join(_pattern_text(part) for part in pattern)})"
+    return pattern
+
+
+def _pattern_polished(pattern, used):
+    """pattern with every name nothing in used reads renamed _name.
+    Pattern -> {String} -> Pattern"""
+    if isinstance(pattern, tuple):
+        return tuple(_pattern_polished(part, used) for part in pattern)
+    if pattern in used or pattern.startswith("_"):
+        return pattern
+    return "_" + pattern
 
 
 # --- unused names ---
@@ -804,11 +1094,16 @@ def _rename_dead(binding, later):
     """binding, renamed _name if no item in later reads it before one
     rebinds it. OBinding -> [OItem] -> OBinding"""
     binding = _polish_binding(binding)
+    names = set(_pattern_names(binding.name))
     for item in later:
-        if binding.name in _free_in_item(item):
+        if names & _free_in_item(item):
             return binding
-        if binding.name in _item_names(item):
-            return OBinding("_" + binding.name, binding.params, binding.value)
+        if names & _item_names(item):
+            return OBinding(
+                _pattern_polished(binding.name, frozenset()),
+                binding.params,
+                binding.value,
+            )
     return binding
 
 
@@ -827,7 +1122,9 @@ def _item_names(item):
     """The names item binds. OItem -> {String}"""
     match item:
         case OItemLet(bindings, _):
-            return frozenset(b.name for b in bindings)
+            return frozenset(
+                name for b in bindings for name in _pattern_names(b.name)
+            )
         case OItemUnit():
             return frozenset()
     raise NotImplementedError(f"no bound names defined for item {item!r}")
@@ -838,7 +1135,7 @@ def _polish_binding(binding):
     OBinding -> OBinding"""
     value = _polish(binding.value)
     used = _free(value)
-    params = [p if p in used else "_" + p for p in binding.params]
+    params = [_pattern_polished(p, used) for p in binding.params]
     return OBinding(binding.name, params, value)
 
 
@@ -859,6 +1156,8 @@ def _polish(e):
                 _polish(then_),
                 None if else_ is None else _polish(else_),
             )
+        case OTuple(elements):
+            return OTuple([_polish(el) for el in elements])
         case OSeq(first, rest):
             return OSeq(_polish(first), _polish(rest))
         case OLet(bindings, body, recursive):
@@ -871,23 +1170,24 @@ def _polish(e):
             if recursive:
                 used = used.union(*[_free_in_binding(b) for b in bindings])
             bindings = [
-                b if b.name in used else OBinding("_" + b.name, b.params, b.value)
+                OBinding(_pattern_polished(b.name, used), b.params, b.value)
                 for b in bindings
             ]
             return OLet(bindings, body, recursive)
     raise NotImplementedError(f"no polishing defined for {e!r}")
 
 
-def _definitely_returns(stmts):
-    """Whether a block always leaves by a return. [Stmt] -> Bool"""
+def _definitely_exits(stmts):
+    """Whether a block always leaves what it is in -- a function by a
+    `return`, a loop by a `break` or a `continue`. [Stmt] -> Bool"""
     match stmts:
-        case [*_, SReturn() | SReturnStmt()]:
+        case [*_, SReturn() | SReturnStmt() | SBreak() | SContinue()]:
             return True
         case [*_, SIf(_, _, then_body, else_body)]:
             return (
                 else_body is not None
-                and _definitely_returns(then_body)
-                and _definitely_returns(else_body)
+                and _definitely_exits(then_body)
+                and _definitely_exits(else_body)
             )
         case _:
             return False
@@ -952,6 +1252,8 @@ def pprint_ocaml_program(program, source="a Pyking program"):
     ]
     if program.needs_list_printer:
         parts += ["", _LIST_PRINTER_DEF]
+    if program.needs_quote:
+        parts += ["", _QUOTE_DEF]
     for item in program.items:
         parts += ["", _pprint_item(item)]
     return "\n".join(parts) + "\n"
@@ -977,7 +1279,10 @@ def _pprint_binding(binding, keyword, level):
     """"keyword name params =" with its value, indented to level.
     OBinding -> String -> Int -> String"""
     pad = "  " * level
-    head = " ".join([keyword, binding.name] + binding.params) + " ="
+    head = " ".join(
+        [keyword, _pattern_text(binding.name)]
+        + [_pattern_text(p) for p in binding.params]
+    ) + " ="
     value = _pprint(binding.value, _SEQ, level + 1)
     if "\n" not in value and len(pad) + len(head) + 1 + len(value) <= 72:
         return f"{pad}{head} {value.lstrip()}"
@@ -1019,6 +1324,10 @@ def _pprint_bare(e, level):
             return ("()", _ATOM)
         case OVar(name):
             return (name, _ATOM)
+        case OTuple(elements):
+            # Always parenthesized, so it is an atom wherever it stands.
+            inside = ", ".join(_pprint(el, _SEQ + 1, level) for el in elements)
+            return (f"({inside})", _ATOM)
         case OIgnore(expr):
             return (f"ignore {_pprint(expr, _ATOM, level)}", _APP)
         case OApp(func, args):

@@ -1,0 +1,14 @@
+# A loop header whose annotation disagrees with its initializer.
+#
+# The accumulator may be annotated, exactly as an `=` binding may, and
+# an annotation is a claim about the program rather than a comment: it
+# is checked against what the initializer turned out to be.
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+counted = loop x: String = 1:
+    if x > 3:
+        break
+    else:
+        x + 1

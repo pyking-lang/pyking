@@ -1,0 +1,14 @@
+banner: String = loop text: String = '':
+    if text == '*****':
+        break
+    else:
+        text + '*'
+print(banner)
+def grow(seed:String, target:String) -> String:
+    loop text: String = seed:
+        if text == target:
+            break text
+        else:
+            text + 'ab'
+print(grow('', 'abab'))
+print(grow('x', 'x'))

@@ -32,10 +32,11 @@ import runtime_interface
 import typesystem
 from syntax import (
     Expr, Stmt,
-    EInt, EString, EBool, EVar, EAdd, ESub, EMul, ECall, EIf,
+    EInt, EString, EBool, EVar, EAdd, ESub, EMul, ECall, EIf, ETuple,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq,
     SLet, SLetStmt, SExprStmt, SIf, SReturn, SReturnStmt, SFunctionDef,
-    TargetName,
+    SLoop, SBreak, SContinue,
+    TargetName, TargetTuple,
 )
 
 
@@ -53,6 +54,7 @@ from syntax import (
 #     VBool(value: Bool)
 #     VUnit()
 #     VList(elements: [Value])
+#     VTuple(elements: [Value])
 #     VClosure(name: String, params: [String], body: [Stmt]?, expr: Expr?,
 #              env: Env)
 #     VBuiltin(name: String)
@@ -71,7 +73,7 @@ from syntax import (
 # datatype Kont:                             what to do with the value that
 #     KSeq(stmts: [Stmt], index: Int,        is about to arrive. Every one
 #          exit_env: Env, rest: Kont?)       of them carries the `rest` of
-#     KBind(name: String, env: Env,          the chain; the ones that resume
+#     KBind(target: AssignTarget, env: Env,  the chain; the ones that resume
 #           rest: Kont?)                     an expression carry the `env`
 #     KBinaryLeft(node: Expr, right: Expr,   that expression is written in,
 #                 env: Env, rest: Kont?)     since only `KSeq` adopts the
@@ -80,21 +82,30 @@ from syntax import (
 #     KCallee(call: ECall, env: Env, rest: Kont?)
 #     KArgument(call: ECall, callee: Value, done: [Value], todo: [Expr],
 #               env: Env, rest: Kont?)
+#     KElement(node: ETuple, done: [Value], todo: [Expr], env: Env,
+#              rest: Kont?)
 #     KBranch(stmt: SIf, env: Env, rest: Kont?)
 #     KChoose(expr: EIf, env: Env, rest: Kont?)
 #     KDiscard(env: Env, rest: Kont?)
+#     KStartLoop(loop: Loop)
+#     KIterate(loop: Loop)
+#     KExit(loop: Loop, leaving: Bool)       break (leaving) / continue
 #     KReturnTo(frame: Frame)
 #
 # datatype Frame:                            one Pyking call
 #     Frame(name: String, info: Info, kont: Kont?, env: Env, parent: Frame?,
-#           depth: Int)
+#           depth: Int, loops: Loop?)
+#
+# datatype Loop:                             one `loop` in progress
+#     Loop(node: SLoop, accumulator: Value, env: Env, kont: Kont?,
+#          parent: Loop?)
 #
 # datatype Runtime:                          what a run never changes
 #     Runtime(host: Host, simple: {Int}, max_depth: Int)
 #
 # datatype State:
 #     State(control: Control, env: Env, kont: Kont?, stack: Frame?,
-#           runtime: Runtime)
+#           runtime: Runtime, loops: Loop?)
 #
 #
 # Signatures
@@ -203,6 +214,11 @@ class VClosure(Value):
 
 
 @dataclass(frozen=True)
+class VTuple(Value):
+    elements: tuple
+
+
+@dataclass(frozen=True)
 class VBuiltin(Value):
     """One of analyses.BUILTINS, callable as a value here even though
     the type checker refuses it as one. Field: name: String."""
@@ -273,6 +289,15 @@ def display_value(value):
                     if index:
                         stack.append(", ")
                 out.append("[")
+            case VTuple(elements):
+                # A singleton keeps the comma that tells it from a
+                # parenthesized value, exactly as the source form does.
+                stack.append(",)" if len(elements) == 1 else ")")
+                for index in range(len(elements) - 1, -1, -1):
+                    stack.append(elements[index])
+                    if index:
+                        stack.append(", ")
+                out.append("(")
             case VClosure(name, _, _, _, _):
                 out.append(f"<function {name}>")
             case VBuiltin(name):
@@ -487,8 +512,9 @@ class KSeq(Kont):
 
 @dataclass(frozen=True)
 class KBind(Kont):
-    """Binds the incoming value to name, then supplies unit."""
-    name: str
+    """Binds the incoming value to a target -- one name, or a tuple
+    taken apart -- then supplies unit."""
+    target: "AssignTarget"
     env: Env
     rest: Kont
 
@@ -532,6 +558,17 @@ class KArgument(Kont):
 
 
 @dataclass(frozen=True)
+class KElement(Kont):
+    """One element of a tuple has arrived; takes the next, or builds
+    the tuple. Elements are evaluated left to right."""
+    node: ETuple
+    done: tuple
+    todo: tuple
+    env: Env
+    rest: Kont
+
+
+@dataclass(frozen=True)
 class KBranch(Kont):
     """The condition of an `if` has arrived; enter the branch it
     chooses."""
@@ -560,6 +597,30 @@ class KDiscard(Kont):
 
 
 @dataclass(frozen=True)
+class KStartLoop(Kont):
+    """A loop's initializer has arrived: it is the accumulator the
+    first turn runs with."""
+    loop: "Loop"
+
+
+@dataclass(frozen=True)
+class KIterate(Kont):
+    """A turn of the loop body has produced its value: that value is
+    the accumulator for the next turn. This continuation replaces
+    itself rather than stacking, which is what lets a loop run forever
+    in constant memory."""
+    loop: "Loop"
+
+
+@dataclass(frozen=True)
+class KExit(Kont):
+    """A `break`/`continue` operand has arrived: leaving means the
+    loop ends with it, otherwise the next turn starts with it."""
+    loop: "Loop"
+    leaving: bool
+
+
+@dataclass(frozen=True)
 class KReturnTo(Kont):
     """Leave the current call: the incoming value is the function's
     result, and the frame says where to put it."""
@@ -569,13 +630,31 @@ class KReturnTo(Kont):
 @dataclass(frozen=True)
 class Frame:
     """One Pyking call in progress. Pyking's call stack, held in the
-    machine's own data rather than the host's."""
+    machine's own data rather than the host's. `loops` is the caller's
+    loop stack: a call enters with none of its own, since a `break`
+    may not cross a `def`."""
     name: str
     info: Info
     kont: Kont
     env: Env
     parent: "Frame"
     depth: int
+    loops: "Loop" = None
+
+
+@dataclass(frozen=True)
+class Loop:
+    """One `loop` in progress: what a `break`/`continue` in its body
+    needs in order to leave it or go round again. `accumulator` is what
+    the current turn started with (a bare `break` yields exactly that),
+    `env` the environment the loop is written in -- where each turn
+    binds the accumulator afresh -- and `kont` where the loop's own
+    value goes when it ends."""
+    node: SLoop
+    accumulator: Value
+    env: Env
+    kont: Kont
+    parent: "Loop" = None
 
 
 # Maximum Pyking call depth before the machine raises a runtime error.
@@ -594,28 +673,30 @@ class Runtime:
 @dataclass(frozen=True)
 class State:
     """A machine state: what it is doing, the environment, the pending
-    continuation, the call stack, and the run's settings. A plain
-    value; keeping one is how a debugger pauses."""
+    continuation, the call stack, the run's settings, and the loops it
+    is inside. A plain value; keeping one is how a debugger pauses."""
     control: Control
     env: Env
     kont: Kont
     stack: Frame
     runtime: Runtime
+    loops: Loop = None
 
 
 _SAME = object()
 
 
-def _go(state, control, env=_SAME, kont=_SAME, stack=_SAME):
+def _go(state, control, env=_SAME, kont=_SAME, stack=_SAME, loops=_SAME):
     """state with these fields replaced. Written out instead of using
     dataclasses.replace, which is the hot path in step().
-    State -> Control -> Env? -> Kont? -> Frame? -> State"""
+    State -> Control -> Env? -> Kont? -> Frame? -> Loop? -> State"""
     return State(
         control,
         state.env if env is _SAME else env,
         state.kont if kont is _SAME else kont,
         state.stack if stack is _SAME else stack,
         state.runtime,
+        state.loops if loops is _SAME else loops,
     )
 
 
@@ -696,6 +777,8 @@ def _evaluate(expr, env):
                     ))
                 case value:
                     return value
+        case ETuple(_, elements, _):
+            return VTuple(tuple(_evaluate(element, env) for element in elements))
         case EAdd() | ESub() | EMul() | ELessThan() | ELessThanEq() \
                 | EGreatThan() | EGreatThanEq() | EEq():
             left = _evaluate(expr.left, env)
@@ -807,6 +890,8 @@ def describe(value):
             return "()"
         case VList():
             return "a list"
+        case VTuple(elements):
+            return f"a tuple of {len(elements)}"
         case VClosure() | VBuiltin():
             return "a function"
     return "a value"
@@ -895,6 +980,10 @@ def _step_eval(state, expr):
                 control=CEval(func),
                 kont=KCallee(expr, state.env, state.kont),
             )
+        case ETuple(_, elements, _):
+            return _start_elements(
+                state, expr, (), tuple(elements), state.env, state.kont
+            )
         case EIf(_, cond, _, _, _):
             return _go(
                 state,
@@ -912,19 +1001,20 @@ def _step_stmt(state, stmt):
     """Starts on a statement: delivers what it supplies (PYKING.md,
     "Tail position") to its continuation. State -> Stmt -> State"""
     match stmt:
-        case SLet(_, TargetName(_, name, _), expr, _, _):
+        case SLet(_, target, expr, _, _):
             return _go(
                 state,
                 control=CEval(expr),
-                kont=KBind(name, state.env, state.kont),
+                kont=KBind(target, state.env, state.kont),
             )
 
-        case SLetStmt(_, TargetName(_, name, _), inner, _, _):
-            # `x = if c: ...` binds whatever the branch that runs yields.
+        case SLetStmt(_, target, inner, _, _):
+            # `x = if c: ...` binds whatever the branch that runs
+            # yields; `x = loop ...` the accumulator it stopped with.
             return _go(
                 state,
                 control=CStmt(inner),
-                kont=KBind(name, state.env, state.kont),
+                kont=KBind(target, state.env, state.kont),
             )
 
         case SExprStmt(_, expr, _):
@@ -938,6 +1028,30 @@ def _step_stmt(state, stmt):
                 control=CEval(cond),
                 kont=KBranch(stmt, state.env, state.kont),
             )
+
+        case SLoop(_, target, init, _, _, _):
+            loop = Loop(stmt, UNIT, state.env, state.kont, state.loops)
+            if target is None:
+                # No accumulator to work out: the first turn can start
+                # at once, and every turn carries unit.
+                return _turn(state, loop)
+            return _go(state, control=CEval(init), kont=KStartLoop(loop))
+
+        case SBreak(info, expr, _) | SContinue(info, expr, _):
+            loop = state.loops
+            if loop is None:
+                keyword = "break" if isinstance(stmt, SBreak) else "continue"
+                return failed(
+                    state, RuntimeError_(info, f"'{keyword}' outside a loop")
+                )
+            leaving = isinstance(stmt, SBreak)
+            if expr is None:
+                # The accumulator this turn started with is what a bare
+                # `break` yields and what a bare `continue` goes round
+                # with -- the same value, put in two different places.
+                return (_leave(state, loop, loop.accumulator) if leaving
+                        else _turn(state, loop))
+            return _go(state, control=CEval(expr), kont=KExit(loop, leaving))
 
         case SReturn(info, expr, _):
             frame = state.stack
@@ -982,13 +1096,12 @@ def _step_apply(state, value):
                 )
             return _go(state, control=CApply(value), env=exit_env, kont=rest)
 
-        case KBind(name, env, rest):
-            return _go(
-                state,
-                control=CApply(UNIT),
-                env=extend(env, name, value),
-                kont=rest,
-            )
+        case KBind(target, env, rest):
+            try:
+                bound = bind_target(env, target, value)
+            except _Trap as trap:
+                return failed(state, trap.error)
+            return _go(state, control=CApply(UNIT), env=bound, kont=rest)
 
         case KBinaryLeft(node, right, env, rest):
             return _go(
@@ -1014,6 +1127,9 @@ def _step_apply(state, value):
 
         case KArgument(call, callee, done, todo, env, rest):
             return _start_arguments(state, call, callee, done + (value,), todo, env, rest)
+
+        case KElement(node, done, todo, env, rest):
+            return _start_elements(state, node, done + (value,), todo, env, rest)
 
         case KBranch(stmt, env, rest):
             match value:
@@ -1051,6 +1167,22 @@ def _step_apply(state, value):
         case KDiscard(env, rest):
             return _go(state, control=CApply(UNIT), env=env, kont=rest)
 
+        case KStartLoop(loop):
+            return _turn(state, replace(loop, accumulator=value))
+
+        case KIterate(loop):
+            # What the body produced is the next turn's accumulator --
+            # unless the loop carries none, in which case it is thrown
+            # away and every turn starts from unit again.
+            if loop.node.target is None:
+                return _turn(state, loop)
+            return _turn(state, replace(loop, accumulator=value))
+
+        case KExit(loop, leaving):
+            if leaving:
+                return _leave(state, loop, value)
+            return _turn(state, replace(loop, accumulator=value))
+
         case KReturnTo(frame):
             return _go(
                 state,
@@ -1058,6 +1190,7 @@ def _step_apply(state, value):
                 env=frame.env,
                 kont=frame.kont,
                 stack=frame.parent,
+                loops=frame.loops,
             )
 
 
@@ -1072,6 +1205,70 @@ def _start_arguments(state, call, callee, done, todo, env, rest):
             kont=KArgument(call, callee, done, todo[1:], env, rest),
         )
     return _call(state, call, callee, done, env, rest)
+
+
+def _start_elements(state, node, done, todo, env, rest):
+    """Evaluates the next element of a tuple, or builds it if todo is
+    empty. State -> ETuple -> (Value,) -> (Expr,) -> Env -> Kont -> State"""
+    if todo:
+        return _go(
+            state,
+            control=CEval(todo[0]),
+            env=env,
+            kont=KElement(node, done, todo[1:], env, rest),
+        )
+    return _go(state, control=CApply(VTuple(done)), env=env, kont=rest)
+
+
+def bind_target(env, target, value):
+    """env with every name in an assignment target bound to its part of
+    value. Raises _Trap if a destructuring target does not fit the value
+    it was given. Env -> AssignTarget -> Value -> Env"""
+    match target:
+        case TargetName(_, name, _):
+            return extend(env, name, value)
+        case TargetTuple(info, elements, _):
+            match value:
+                case VTuple(parts) if len(parts) == len(elements):
+                    for element, part in zip(elements, parts):
+                        env = bind_target(env, element, part)
+                    return env
+            raise _Trap(RuntimeError_(
+                info,
+                f"this binding takes {len(elements)} values apart, but it "
+                f"was given {describe(value)}",
+            ))
+
+
+def _turn(state, loop):
+    """Starts a turn of loop's body, with the accumulator bound afresh.
+    The body's value goes to KIterate, which comes back here -- so a
+    turn costs no continuation chain, however many turns there are.
+    State -> Loop -> State"""
+    env = loop.env
+    if loop.node.target is not None:
+        try:
+            env = bind_target(env, loop.node.target, loop.accumulator)
+        except _Trap as trap:
+            return failed(state, trap.error)
+    return enter_block(
+        _go(state, control=state.control, loops=loop),
+        loop.node.body,
+        env,
+        KIterate(loop),
+    )
+
+
+def _leave(state, loop, value):
+    """Ends loop with value: the loop's own value, delivered where the
+    loop statement stood. State -> Loop -> Value -> State"""
+    return _go(
+        state,
+        control=CApply(value),
+        env=loop.env,
+        kont=loop.kont,
+        loops=loop.parent,
+    )
 
 
 def _call(state, call, callee, args, env, rest):
@@ -1101,12 +1298,14 @@ def _call(state, call, callee, args, env, rest):
                     f"exceeded; this is what a recursion that never ends "
                     f"looks like",
                 ))
-            frame = Frame(name, call.info, rest, env, state.stack, depth)
+            frame = Frame(name, call.info, rest, env, state.stack, depth, state.loops)
             call_env = extend_all(captured, zip(params, args))
             # The frame is pushed here; `KReturnTo` is what pops it, and
-            # what puts the caller's own environment and continuation
-            # back when the call produces its value.
-            entered = _go(state, control=CApply(UNIT), stack=frame)
+            # what puts the caller's own environment, continuation and
+            # loops back when the call produces its value. The callee
+            # runs inside none of the caller's loops, which is the same
+            # thing src/parser.py says statically about a `break`.
+            entered = _go(state, control=CApply(UNIT), stack=frame, loops=None)
             if expr is not None:
                 return _go(
                     entered, control=CEval(expr), env=call_env, kont=KReturnTo(frame)

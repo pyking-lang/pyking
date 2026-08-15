@@ -38,6 +38,7 @@ from syntax import (
     EIf, EListComp, CompFor, CompIf,
     PInt, PString, PWildcard, PCapture, PTuple, PList,
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SFor, SWhile, SIf,
+    SLoop, SBreak, SContinue,
     SFunctionDef, SMatch,
     TargetName, TargetTuple,
 )
@@ -58,7 +59,7 @@ class AnalysisError(Exception):
 MUTABLE = "mutable variable"      # var name = ...
 BINDING = "binding"               # name = ...
 PARAMETER = "parameter"           # def f(name)
-LOOP_VAR = "loop variable"        # for name in ...
+LOOP_VAR = "loop variable"        # for name in ... / loop name = ...
 PATTERN_VAR = "pattern variable"  # case ...name...:
 FUNCTION = "function"             # def name(...)
 BUILTIN = "builtin"               # see `BUILTINS`
@@ -274,9 +275,15 @@ def analyze_stmts(stmts, env):
 
 
 def analyze_value_stmt(stmt, env):
-    """Analyzes a value-form if/match (the right-hand side of a binding);
-    does not bind the target itself. Stmt -> {String: Binding} -> ()"""
+    """Analyzes a value-form if/match/loop (the right-hand side of a
+    binding); does not bind the target itself.
+    Stmt -> {String: Binding} -> ()"""
     match stmt:
+        case SLoop():
+            # A loop in value position is analyzed exactly as one written
+            # on its own: it binds its accumulator in its own body and
+            # nothing in the block around it.
+            analyze_stmt(stmt, env)
         case SIf(_, cond, then_body, else_body):
             analyze_expr(cond, env)
             analyze_scope(then_body, env)
@@ -354,6 +361,24 @@ def analyze_stmt(s, env):
         case SWhile(_, cond, body):
             analyze_expr(cond, env)
             analyze_scope(body, env)
+            return env
+
+        case SLoop(_, target, init, _, body):
+            # The initializer is analyzed outside the loop, exactly as an
+            # `=` binding's right-hand side is: `loop x = x + 1:` reads
+            # the enclosing `x` and binds a new one for the body.
+            if target is None:
+                analyze_scope(body, env)
+            else:
+                analyze_expr(init, env)
+                analyze_scope(body, bind_target(env, target, LOOP_VAR))
+            return env
+
+        case SBreak(_, expr) | SContinue(_, expr):
+            # Where these may stand is the parser's rule (it is shape,
+            # not scope); here there is only the operand to check.
+            if expr is not None:
+                analyze_expr(expr, env)
             return env
 
         case SIf(_, cond, then_body, else_body):

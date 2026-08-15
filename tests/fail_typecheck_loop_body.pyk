@@ -1,0 +1,12 @@
+# A loop body that does not say what the next turn carries.
+#
+# The accumulator is an Int here, so every way through the body has to
+# produce one: the body's last statement is its value, and this one's
+# is a `print`, which produces unit. There is nothing for the next turn
+# to start from.
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+counted = loop x = 1:
+    print(x)

@@ -1,0 +1,15 @@
+# The next turn's value, given twice.
+#
+# A turn carries one accumulator, and `continue` starts the next turn
+# with it -- so a second `continue` for the same turn is not a second
+# answer, it is a statement that cannot be reached. The parser says so
+# rather than quietly compiling the first one and dropping the rest.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+counted = loop x = 1:
+    if x > 10:
+        break
+    continue x + 1
+    continue x + 2

@@ -1,0 +1,36 @@
+# `continue`, and what tells it apart from an ordinary tail value.
+#
+# A loop body's last expression is the next turn's accumulator, so it
+# says "go round with this" *after* everything else in the body has
+# run. `continue` says the same thing from anywhere in the body, and
+# skips whatever is written below it -- which is the whole difference
+# between the two.
+#
+# Here the first `if` sends every value up to 10 straight into the next
+# turn; only once `x` is past 10 do the statements below it run at all.
+
+res =
+loop x = 5:
+    if x <= 10:
+        continue x + 1
+    p = x + 10
+    if p < 30:
+        p + 2
+    else:
+        break
+
+print(res)
+
+
+# `continue` with no operand goes round with the accumulator unchanged,
+# which is a loop that would never end unless something else moves --
+# so here the branch that repeats is one nothing can reach twice.
+def first_odd_over(start: Int) -> Int:
+    loop n = start:
+        if n > 10:
+            break
+        else:
+            continue n + 1
+
+
+print(first_odd_over(1))

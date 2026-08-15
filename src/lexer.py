@@ -211,6 +211,21 @@ class TokWhile(Token):      # 'while'
 
 
 @dataclass(frozen=True)
+class TokLoop(Token):       # 'loop' (accumulator loop: `loop x = e:`)
+    info: Info
+
+
+@dataclass(frozen=True)
+class TokBreak(Token):      # 'break' (ends the enclosing `loop`)
+    info: Info
+
+
+@dataclass(frozen=True)
+class TokContinue(Token):   # 'continue' (next turn of the enclosing `loop`)
+    info: Info
+
+
+@dataclass(frozen=True)
 class TokThen(Token):       # 'then' (if expression: `if e then e else e`)
     info: Info
 
@@ -334,6 +349,12 @@ def pprint_token(tok):
             return "TokIf"
         case TokWhile():
             return "TokWhile"
+        case TokLoop():
+            return "TokLoop"
+        case TokBreak():
+            return "TokBreak"
+        case TokContinue():
+            return "TokContinue"
         case TokThen():
             return "TokThen"
         case TokElse():
@@ -378,8 +399,9 @@ def is_digit_letter(x):
 
 
 keywords = [
-    "for", "in", "if", "while", "then", "else", "var", "def", "return",
-    "match", "case", "Int", "String", "Bool", "true", "false",
+    "for", "in", "if", "while", "loop", "break", "continue", "then",
+    "else", "var", "def", "return", "match", "case", "Int", "String",
+    "Bool", "true", "false",
 ]
 
 
@@ -394,6 +416,12 @@ def keyword_token(name, info):
             return TokIf(info)
         case "while":
             return TokWhile(info)
+        case "loop":
+            return TokLoop(info)
+        case "break":
+            return TokBreak(info)
+        case "continue":
+            return TokContinue(info)
         case "then":
             return TokThen(info)
         case "else":

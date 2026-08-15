@@ -87,6 +87,14 @@ restriction of it, but these are genuinely new.
   so no backend can express it as one. Any bound value may also
   start on the line after its `=`, indented — a layout Python has no
   need for, since its right-hand sides are always expressions.
+- **`loop`, an accumulator loop with `break` and `continue`**: Python
+  has no loop that *carries a value*. `loop x = 5:` binds `x` for the
+  first turn, and what the body produces is the `x` the next turn gets,
+  so a loop needs no mutable variable to add something up. `break` ends
+  it -- the loop is then worth the accumulator it stopped with, which
+  makes a loop usable as a bound value -- and `continue` starts the next
+  turn early. Both take an optional value: `break e` stops with `e`,
+  `continue e` goes round with it. See "`loop` loops" below.
 - **`..`/`..name` list-pattern rest markers**: Python spells "match the
   rest of a list" as `*_`/`*name`; Pyking spells it `..`/`..name`, and it
   may appear anywhere in the pattern — start, middle, or end — not just
@@ -151,6 +159,9 @@ Statements:
   `if` branches and `case` arms — Pyking extension
 - `for`/`in` loops
 - `while` loops
+- `loop` loops, which carry an accumulator from turn to turn and are
+  worth it when they stop, with `break` and `continue` (each taking an
+  optional value) -- Pyking extension
 - `if`/`else` statements, chained with `else if` — spelled as two
   keywords; Pyking has no `elif`
 - `match`/`case` pattern matching, including `case pattern -> expr` —
@@ -190,6 +201,9 @@ statement   = function_def
             | return_stmt
             | for_stmt
             | while_stmt
+            | loop_stmt
+            | break_stmt
+            | continue_stmt
             | if_stmt
             | match_stmt
             | var_decl
@@ -213,6 +227,14 @@ return_stmt = "return" , bound_value ;
 for_stmt    = "for" , ident , "in" , expr , ":" , block ;
 
 while_stmt  = "while" , expr , ":" , block ;
+
+loop_stmt   = "loop" , [ target , [ ":" , type ] , "=" , tuple_or_expr ] ,
+              ":" , block ;
+
+(* The operand is taken only from the keyword's own line -- see the
+   notes below. *)
+break_stmt    = "break" , [ tuple_or_expr ] ;
+continue_stmt = "continue" , [ tuple_or_expr ] ;
 
 if_stmt     = "if" , expr , ":" , block ,
               { "else" , "if" , expr , ":" , block } ,
@@ -242,7 +264,7 @@ mutation    = ident , ":=" , bound_expr ;
 bound_value = tuple_or_expr | value_stmt | INDENT , bound_value , DEDENT ;
 bound_expr  = tuple_or_expr | INDENT , bound_expr , DEDENT ;
 
-value_stmt  = value_if | match_stmt ;
+value_stmt  = value_if | match_stmt | loop_stmt ;
 value_if    = "if" , expr , ":" , block ,
               { "else" , "if" , expr , ":" , block } ,
               "else" , ":" , block ;
@@ -323,6 +345,41 @@ Notes that don't fall out of the grammar alone:
   One line may still hold a whole statement whose header opens a block
   (`x = if c:`), and a statement may still span as many lines as its
   blocks need. What one line may not hold is *two* statements.
+- A `break`/`continue` takes its operand only when one begins **on the
+  same line**. There are no statement separators (see the previous
+  note), so a bare `break` followed by an expression on the next line
+  would otherwise read as `break <that expression>` -- the same trap the
+  `print h` rule exists for. The check is made against the positions the
+  tokens carry, exactly as that one is.
+- Two rules about `break`/`continue` cannot be stated in the grammar and
+  are checked in `src/parser.py` beside the others, so they hold in
+  every mode and are reported as a `Parsing error`. First, each may only
+  appear in the body of a `loop`, and may not reach out of a `for`, a
+  `while` or a `def` to find one:
+
+  ```
+  'prog.pyk' 3:8-3:13 Parsing error: 'break' may only appear in the
+    body of a 'loop', and this one is inside a 'for', which it may not
+    reach out of
+  ```
+
+  Second, nothing may be written after one in the same block, since
+  nothing there can run:
+
+  ```
+  'prog.pyk' 3:4-3:17 Parsing error: this statement cannot be reached:
+    'continue x + 1' has already left the loop, so nothing written
+    after it in the same block runs
+  ```
+
+  A `return` is deliberately not part of that second rule: statements
+  after one are legal Pyking, and a branch that returns is an ordinary
+  way to leave a body early.
+- A `loop_stmt` is a `value_stmt`, so a loop may be bound with `=` or
+  returned with `return`, exactly as a value-form `if`/`match` may. It
+  needs none of the rules those two obey -- every loop has an
+  accumulator (unit where none was written), so there is no way through
+  one that produces nothing.
 - `comp_op` does not repeat — `1 < 2 < 3` is not a valid `expr` (comparisons
   don't chain).
 - `while_stmt` has no `else` clause (unlike Python's `while`/`else`).
@@ -887,8 +944,9 @@ scoping" below.
 Pyking is **lexically scoped**: every use of a name refers to the
 innermost enclosing binding of that name, decided entirely by where the
 code is written. A scope is a function body or any indented block — the
-body of an `if`/`else` branch, a `for` or `while` loop, a `case` arm, a
-value-form branch — plus a list comprehension and the file's top level.
+body of an `if`/`else` branch, a `for`, `while` or `loop` body, a `case`
+arm, a value-form branch — plus a list comprehension and the file's top
+level.
 Names bound inside a scope are not visible outside it:
 
 ```pyking
@@ -904,7 +962,8 @@ if 1 < 2:
 **What binds a name.** An `=` binding, a `var` declaration, a `def` (its
 own name, visible throughout the block it is written in — see "Bindings
 are sequential — except `def`" below), a parameter, a `for` variable, a
-pattern variable in a `case` arm or comprehension. All of them behave
+`loop` accumulator, a pattern variable in a `case` arm or
+comprehension. All of them behave
 the same way with respect to *scope*; they differ only in when within
 that scope the name becomes visible.
 
@@ -1353,6 +1412,121 @@ while i < 3:
     i := i + 1
 ```
 
+### `loop` loops -- Pyking extension
+
+`loop` is a loop whose state is a *binding* rather than a mutable
+variable, and which is worth something when it stops. Python has no
+equivalent, so everything in this section is Pyking source rather than
+valid Python.
+
+`loop x = 5:` evaluates `5` once and binds `x` to it for the first turn.
+What the body produces -- its value, by the ordinary tail-position rules
+-- is the `x` the next turn gets. `break` ends the loop, and the loop is
+then worth the accumulator it stopped with:
+
+```pyking
+counted = loop x = 5:
+    if x <= 10:
+        x + 1
+    else:
+        break
+
+print(counted)          # 11
+```
+
+Both keywords take an optional value. `break e` stops the loop with `e`
+rather than with the accumulator; `continue e` starts the next turn with
+`e`; and a bare `continue` starts it with the accumulator unchanged. The
+operand must begin on the same line as the keyword (see the grammar
+notes above).
+
+`continue` is what tells the construct apart from a body that simply
+ends in an expression: the last expression says "go round with this"
+*after* everything else in the body has run, while `continue` says it
+from wherever it is written and skips the rest:
+
+```pyking
+res = loop x = 5:
+    if x <= 10:
+        continue x + 1
+    p = x + 10
+    if p < 30:
+        p + 2
+    else:
+        break
+
+print(res)              # 23
+```
+
+**A loop is worth its accumulator**, so it stands wherever a value-form
+`if`/`match` does -- bound with `=`, returned with `return`, or left as
+a function's last statement:
+
+```pyking
+def doubled_over(limit) -> Int:
+    loop n = 1:
+        if n > limit:
+            break
+        else:
+            n * 2
+
+
+print(doubled_over(50))   # 64
+```
+
+**Several values are one tuple.** The accumulator is a single value, so
+a loop carrying two things carries a pair: the header takes it apart on
+every turn, and everything that says what the next turn carries has to
+give the whole tuple back.
+
+```pyking
+foo, bar = loop x, y = 0, true:
+    if x <= 10:
+        x + 1, y
+    else:
+        break x + 100, false
+
+
+print(foo, bar)         # 111 false
+```
+
+**`loop:` carries nothing.** Written with no accumulator it is a loop
+over unit: the body runs for what it does, its value is discarded, and
+the only way out is a bare `break` -- there is nothing for an operand to
+become. Such a loop is worth `()`.
+
+```pyking
+loop:
+    print("forever")
+```
+
+That program is perfectly valid and never finishes, which is the point:
+nothing about a loop requires it to end.
+
+**Where `break` and `continue` belong.** Each belongs to the innermost
+`loop` it is written in, and may not reach out of a `for`, a `while` or
+a `def` to find one -- both checked at compile time (see the grammar
+notes). `for` and `while` have no exit of their own, so a `break`
+written inside one is an error rather than that loop's exit.
+
+**Scope.** The accumulator is bound in the loop's own body and nowhere
+else: it is gone after the loop, and a name it shadows means what it
+meant again. Every turn binds it afresh, as a `for` variable is bound
+afresh, so a `def` written inside a loop body keeps the turn it was
+written on (see "Names and scoping").
+
+```pyking
+x = "outer"
+
+shadowed = loop x = 1:
+    if x > 2:
+        break
+    else:
+        x + 1
+
+print(shadowed, x)      # 3 outer
+```
+
 ### `if`/`else` statements
 
 `if cond:` runs its indented body when `cond` holds. An optional
@@ -1699,6 +1873,7 @@ rather than only the outermost statement:
 | an expression | that expression |
 | an `if`/`else` | each branch's own tail, recursively |
 | a `match` | each `case` arm's own tail, recursively |
+| a `loop` | the accumulator it broke with |
 | an explicit `return` | what it returns |
 | anything else (`for`, `while`, `=`, `var`, `:=`) | unit, `()` |
 
@@ -1983,6 +2158,41 @@ there is no value it can be counted on for. A function that needed that
 value is refused where the value was needed — at the function, not at
 the `if`. A condition must be `Bool` — there is no truthiness.
 
+**Tuples.** `(e1, e2, ...)` has the tuple type of its elements, `()` is
+unit, and a binding may take one apart -- `a, b = pair` binds each name
+to its part, and is refused if the value is not a tuple of that many.
+
+**Loops.** A loop carries one type from turn to turn: the accumulator's,
+which is its initializer's, and which an annotation on the header is
+checked against exactly as a binding's is. Everything that says what the
+next turn carries is checked against it -- the body's own value, a
+`break e`, a `continue e` -- and the loop *supplies* it, which is what
+makes a loop bindable:
+
+```pyking
+counted = loop x = 1:      # counted: Int, because 1 is
+    if x > 3:
+        break              # a bare break gives the accumulator
+    else:
+        x + 1              # and so must the body
+```
+
+`break` and `continue` supply the accumulator's type wherever they
+stand, exactly as `return` supplies the function's -- which is what lets
+a branch that breaks sit beside one that ends in the next accumulator
+without either being a special case. A body that ends in something with
+no value is refused, since a turn would then have nothing to hand on:
+
+```
+'prog.pyk' 12:4-12:12 Type error: this loop carries Int, so its body
+  must end in a value of that type -- the accumulator for the next
+  turn -- but it ends in ()
+```
+
+A `loop:` with no accumulator carries unit, discards its body's value,
+and refuses an operand on its `break`/`continue`: there is nowhere to
+put one.
+
 **Functions.** A `def` that is *fully* annotated — every parameter and
 the return type — is checked where it is written. One that is not is
 checked where it is *called*, and by exactly the same rules; see
@@ -2245,10 +2455,9 @@ was worked out — the reasoning behind all of this is in
 ### What is not checked
 
 **Constructs outside the fragment.** `var` and `:=`, `for`, `while`,
-`match`, list and tuple literals, list comprehensions, `/`, unary minus,
-and a binding that destructures a tuple (`a, b = ...`) are all refused
-with `Construct is not supported`. A call to a builtin *is* checked —
-see below.
+`match`, list literals, list comprehensions, `/` and unary minus are all
+refused with `Construct is not supported`. A call to a builtin *is*
+checked — see below.
 
 **Names, while `--typecheck` is on.** The type checker replaces the name
 analysis rather than running after it, and does that checking itself:

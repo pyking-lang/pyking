@@ -57,10 +57,11 @@ rules, one printer with a single `if version` branch in it.
 
 `print`; `def` with parameters, `return`, recursion, and the
 single-expression `def f(x) = e` form; `if` / `else if` / `else`;
-`while`; `=`, `var`, `:=`; `if … then … else …` expressions; integers,
-strings and booleans; `+ - *`, unary minus, comparisons, and calls.
-Tail position, `return if c:`, and unit-returning (`void`) methods are
-supported too -- see below.
+`while`; `loop` with `break` and `continue`, where the loop carries an
+accumulator; `=`, `var`, `:=`; `if … then … else …` expressions;
+integers, strings and booleans; `+ - *`, unary minus, comparisons, and
+calls. Tail position, `return if c:`, and unit-returning (`void`)
+methods are supported too -- see below.
 
 Type annotations are *used* here rather than erased, when they name a
 type Java can represent -- exactly as in the C targets.
@@ -123,16 +124,20 @@ no `return` written. What is left is a genuine gap: a path that produces
 no value in a method some other path gives one to. This backend checks
 for it during translation -- conservatively: it recognises an unconditional `return`, or an `if`/`else`
 whose *both* arms definitely return, which is exactly the shape every
-function in this shared subset already needs to have. A `while` loop is
-never the proof on its own, `while true:` included: `_stmt_definitely_returns`
-(see `src/target_java.py`) doesn't attempt any loop analysis at all,
-deliberately -- real `javac` does special-case a constant-`true` condition
-this way (JLS 14.21), but recognising that here would mean recognising it
-for `while 1 == 1:` too, since that was already an "obviously true"
-condition before Pyking had a `true` literal to spell one with more
-directly, and neither is worth the analysis for how rarely an infinite
-loop with no `break` is the last statement of a function. The backend
-refuses anything it cannot prove returns by the simpler rule, rather than
+function in this shared subset already needs to have. It also recognises
+one loop: the `while (true)` a Pyking `loop` compiles to, when nothing
+`break`s out of it. That one is not an optional refinement -- a `loop`
+with no `break` never finishes, so a method ending in one has no path
+off the end, and javac agrees (JLS 14.21: such a statement cannot
+complete normally). Refusing it would refuse a perfectly ordinary
+program. A `while` loop is still never the proof on its own,
+`while true:` included: `_stmt_definitely_returns` (see
+`src/target_java.py`) attempts no analysis of a *condition*,
+deliberately -- real `javac` does special-case a constant-`true` one,
+but recognising that here would mean recognising it for `while 1 == 1:`
+too, and Pyking's `loop` is now the way to write a loop that provably
+does not end. The backend refuses anything it cannot prove returns by
+these rules, rather than
 handing `javac` a file it will reject with a less helpful message and no
 Pyking source position.
 
@@ -157,6 +162,19 @@ Python happily keeps dead code after an exhaustive `if`/`else` around; it
 simply never executes. `javac`'s reachability analysis treats it as a
 compile error, so this backend checks for the same shape (a statement
 following one that definitely returns) and refuses it first.
+
+### A `loop` Java cannot give a value
+
+```
+Unsupported by target 'java21': a `loop` with no accumulator -- Java has
+no value to give it, so write `loop x = 0:` and break with what you want
+```
+
+The same three shapes the C backend refuses, for the same reason: a bare
+`loop:`, an `if` with no `else` as the last statement of a loop body,
+and a body ending in something with no value. Each is a case Pyking
+answers with unit, which Java has nothing to hold. A tuple accumulator
+is refused too, this backend having no tuples.
 
 ### `:=` that changes a variable's type
 
@@ -387,6 +405,35 @@ def announce(label: String, n):    private static void announce(final String lab
 A `void` call has no value to use, so calling one anywhere but as a
 statement of its own is refused with a source position rather than
 handed to `javac` as `'void' type not allowed here`.
+
+### `loop`, `break` and `continue`
+
+A `loop` is `while (true)` over one non-`final` local holding the
+accumulator. The initializer declares it -- and its Java type is the
+initializer's, by the ordinary inference rule -- every tail of the body
+assigns the next turn's value, and `break`/`continue` are Java's own,
+with the operand assigned first where one is written:
+
+```pyking                          // generated Java
+res = loop x = 5:                  var x = 5;
+    if x <= 10:                    while (true) {
+        continue x + 1                 if (x <= 10) {
+    else:                                  x = x + 1;
+        break                              continue;
+                                       } else {
+                                           break;
+                                       }
+                                   }
+                                   final var res = x;
+```
+
+The accumulator is the one binding here that is deliberately *not*
+`final` (see "Immutable bindings stay immutable"): Pyking rebinds it
+every turn, and one Java local carries all of them. The loop's own value
+is what it stopped with, so binding one is that `final` declaration
+after the loop, and a loop in tail position is `return x` -- unless
+nothing breaks out of the loop, in which case the `return` is left out,
+javac refusing a statement that cannot be reached.
 
 ### Names that are keywords in Java
 

@@ -1,0 +1,71 @@
+# Corner cases of the `loop` construct, gathered where they are easy to
+# find again.
+
+# A loop that stops on its first turn: the accumulator never changes,
+# and the loop is worth what it was initialized with.
+straight = loop x = 7:
+    break
+
+print(straight)
+
+
+# A `break` with an operand on the first turn: the initializer is
+# evaluated, and then thrown away.
+replaced = loop x = 7:
+    break x * 100
+
+print(replaced)
+
+
+# A loop whose body never mentions the accumulator at all.
+var turns = 0
+counted = loop x = 0:
+    turns := turns + 1
+    if turns > 2:
+        break
+    else:
+        x
+
+print(counted, turns)
+
+
+# Two loops in a row, both naming their accumulator `x`: each binds its
+# own, in its own body, and neither is in scope after its loop.
+first = loop x = 1:
+    if x > 3:
+        break
+    else:
+        x + 1
+
+second = loop x = 10:
+    if x > 30:
+        break
+    else:
+        x + 10
+
+print(first, second)
+
+
+# An accumulator shadowing a name from outside: the outer binding is
+# untouched, and is what the name means again afterwards.
+x = "outer"
+shadowed = loop x = 1:
+    if x > 2:
+        break
+    else:
+        x + 1
+
+print(shadowed, x)
+
+
+# The initializer is an expression like any other, evaluated once
+# before the first turn -- and it reads the enclosing binding of a name
+# the accumulator then shadows.
+start = 4
+from_outside = loop start = start * 2:
+    if start > 20:
+        break
+    else:
+        start + 5
+
+print(from_outside, start)

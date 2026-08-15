@@ -233,6 +233,35 @@ nothing immutable could make one cell mean two different things (in
 scope, then defined) at two different points without either widening
 what a "binding" is or accepting this one controlled mutation instead.
 
+## Loops: a stack beside the frames, and a continuation that replaces itself
+
+A `break` has to find the loop it belongs to, exactly as a `return` has
+to find the call it leaves. `return` has `Frame`, so `loop` has `Loop`:
+a persistent stack in `State.loops`, each entry holding the accumulator
+this turn started with, the environment the loop is written in, and the
+continuation the loop's own value goes to. A bare `break` delivers the
+accumulator there; `break e` evaluates `e` first (`KExit`); `continue`
+starts the next turn instead.
+
+The turn itself is where the shape matters. `_turn` binds the
+accumulator afresh in the loop's own environment and enters the body
+with `KIterate` waiting for its value — and `KIterate` calls `_turn`
+again, *replacing* itself rather than pushing anything. So a loop of ten
+million turns holds exactly as much as a loop of one, which is the same
+property `KSeq`'s index gives a block, and the reason `loop:` with no
+`break` is a program that runs rather than one that swallows memory.
+
+Both jumps also *abandon* the continuation chain the body built up to
+that point, which is precisely what leaving a block early means; nothing
+has to unwind, because the chain is a value rather than a host stack.
+
+A call entering from inside a loop takes the loop stack with it in its
+`Frame` and starts with none of its own, so a `break` written in a
+function called from a loop body cannot reach that loop. `src/parser.py`
+already refuses such a program, so this is the same rule said twice —
+and the machine holding it means a `break` can never escape through a
+call by accident.
+
 ## The call-free fast path
 
 Most of an ordinary Pyking program computes without ever suspending —
@@ -270,15 +299,16 @@ call-free one ever takes the shortcut.
 ## Values: no host objects
 
 `Value`'s variants — `VInt`, `VString`, `VBool`, `VUnit`, `VList`,
-`VClosure`, `VBuiltin`, `VUndefined` — hold nothing from outside this
-small vocabulary: a `VList`'s elements are more `Value`s, a `VClosure`'s
+`VTuple`, `VClosure`, `VBuiltin`, `VUndefined` — hold nothing from
+outside this small vocabulary: a `VList`'s elements are more `Value`s, a
+`VClosure`'s
 captured environment is this module's own `Env`, never a Python
 closure, a Python list, or any other host-native object standing in for
 a Pyking one. That restriction is about where this code is headed, not
 just about today: CLAUDE.md's bootstrapping plan is to eventually
 rewrite this compiler *in* Pyking, and a representation with Python
 objects woven through it wouldn't survive that translation — a `Value`
-tree built only from these eight shapes will.
+tree built only from these nine shapes will.
 
 ## Hosts: where output actually goes
 

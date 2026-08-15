@@ -21,20 +21,20 @@ module system to express a directory hierarchy with.
 
 | module | lines | what it is |
 |---|---:|---|
-| [`lexer.py`](#lexerpy) | ~630 | Characters → tokens. Also defines `Info`, the source span every later node carries. |
-| [`syntax.py`](#syntaxpy) | ~1050 | The AST: one frozen dataclass per variant, documented as algebraic data types, plus the pretty printer that prints Pyking back out. |
-| [`parser.py`](#parserpy) | ~1100 | Recursive descent, tokens → AST, and the few rules the grammar cannot state. |
-| [`analyses.py`](#analysespy) | ~440 | Static analyses over the AST: names and scoping (`analyze_program`), and `symbolize`, which numbers every node. |
-| [`typesystem.py`](#typesystempy) | ~1280 | The type checker: one function per AST datatype, producing `tmap` (symbol → type). Also the type *inference*, which is the same machinery run at a call site rather than at a definition. Its fragment is the interpreter's and the OCaml backend's. |
+| [`lexer.py`](#lexerpy) | ~650 | Characters → tokens. Also defines `Info`, the source span every later node carries. |
+| [`syntax.py`](#syntaxpy) | ~1100 | The AST: one frozen dataclass per variant, documented as algebraic data types, plus the pretty printer that prints Pyking back out. |
+| [`parser.py`](#parserpy) | ~1280 | Recursive descent, tokens → AST, and the few rules the grammar cannot state. |
+| [`analyses.py`](#analysespy) | ~460 | Static analyses over the AST: names and scoping (`analyze_program`), and `symbolize`, which numbers every node. |
+| [`typesystem.py`](#typesystempy) | ~1390 | The type checker: one function per AST datatype, producing `tmap` (symbol → type). Also the type *inference*, which is the same machinery run at a call site rather than at a definition. Its fragment is the interpreter's and the OCaml backend's. |
 | [`runtime_interface.py`](#runtime_interfacepy) | ~50 | The boundary between a pure Pyking program and the world: the operations a host must provide, and how values are formatted. No host code at all. |
-| [`interpreter.py`](#interpreterpy) | ~1240 | The interpreter: values, environments, and a resumable small-step machine that runs the AST. The reference for runtime semantics. |
-| [`repl.py`](#replpy) | ~1030 | `pyk repl`: a session as a program written one entry at a time, and the multi-line editor it is typed into. |
-| [`target_python.py`](#target_pythonpy) | ~1800 | The Python backend, and the only one that compiles the whole language. |
-| [`target_js_core.py`](#target_js_corepy) | ~610 | The JavaScript backend's language half: a `Js*` AST, translation, printer. |
-| [`target_js_packaging.py`](#target_js_packagingpy) | ~280 | Its packaging half: `nodejs`, `html`, `esm`, and the JavaScript side of the runtime interface. |
-| [`target_c.py`](#target_cpy) | ~1050 | The C backend, for `c89` and `c23`. Infers the types C insists on. |
-| [`target_java.py`](#target_javapy) | ~1050 | The Java backend, for `java8`/`java17`/`java21`. Also proves every function returns. |
-| [`target_ocaml.py`](#target_ocamlpy) | ~1120 | The OCaml backend. Infers nothing: it reads the checker's `tmap`. |
+| [`interpreter.py`](#interpreterpy) | ~1440 | The interpreter: values, environments, and a resumable small-step machine that runs the AST. The reference for runtime semantics. |
+| [`repl.py`](#replpy) | ~1020 | `pyk repl`: a session as a program written one entry at a time, and the multi-line editor it is typed into. |
+| [`target_python.py`](#target_pythonpy) | ~2110 | The Python backend, and the only one that compiles the whole language. |
+| [`target_js_core.py`](#target_js_corepy) | ~840 | The JavaScript backend's language half: a `Js*` AST, translation, printer. |
+| [`target_js_packaging.py`](#target_js_packagingpy) | ~290 | Its packaging half: `nodejs`, `html`, `esm`, and the JavaScript side of the runtime interface. |
+| [`target_c.py`](#target_cpy) | ~1250 | The C backend, for `c89` and `c23`. Infers the types C insists on. |
+| [`target_java.py`](#target_javapy) | ~1250 | The Java backend, for `java8`/`java17`/`java21`. Also proves every function returns. |
+| [`target_ocaml.py`](#target_ocamlpy) | ~1430 | The OCaml backend. Infers nothing: it reads the checker's `tmap`. |
 | [`pyk.py`](#pykpy) | ~540 | The driver: argv, stage sequencing, error reporting, the four commands. |
 
 Two shapes recur everywhere and are worth reading once rather than
@@ -154,7 +154,10 @@ The groups:
 - **`AssignTarget`** — `TargetName`, `TargetTuple`.
 - **`Stmt`** — `SLet` (`x = e`), `SLetStmt` (`x = if c: …`), `SVar`,
   `SMutate` (`:=`), `SReturn`, `SReturnStmt`, `SExprStmt`, `SFor`,
-  `SWhile`, `SIf`, `SFunctionDef`, `SMatch`.
+  `SWhile`, `SLoop` (`loop x = e:`), `SBreak`, `SContinue`, `SIf`,
+  `SFunctionDef`, `SMatch`. `SLoop` carries its accumulator as a
+  `target`/`init` pair, both absent for the bare `loop:`; `SBreak` and
+  `SContinue` carry an optional operand.
 - **Single-constructor records** — `Param`, `ListRest`, `MatchCase`.
 
 Every node carries `info` (its span) and `sym` (its symbol, `0` until
@@ -208,6 +211,13 @@ Around them:
   else.
 - **`parse_pattern`, `parse_case`, `parse_cases`, `parse_match_stmt`** —
   `match`/`case`, including list patterns with a `..rest` marker.
+- **`parse_loop_stmt(info, tokens)`** — a `loop`, from just after the
+  keyword: the optional accumulator (a target, an optional annotation,
+  `=`, an expression) and the body. A loop is also a *bound* value, so
+  `parse_bound_value` reaches it too.
+- **`parse_exit_operand(info, tokens)`** — the optional operand of a
+  `break`/`continue`, taken only when one begins on the keyword's own
+  line.
 - **`parse_target`** and `_try_parse_assignment_target` — assignment
   targets, including tuple destructuring.
 - **`parse(tokens) -> [Stmt]`** — the whole program.
@@ -218,14 +228,20 @@ end — a new grammar rule combines infos the same way rather than reusing
 one token's span. **`_here(tokens)`** is the position to blame when the
 input has run out.
 
-Three checks live here rather than in a later stage, so that they fail
+Five checks live here rather than in a later stage, so that they fail
 with a source position at parse time: **`_check_no_duplicate_captures`**
 (a pattern may not bind one name twice), **`_check_value_stmt`** (every
 branch of a value-form `if`/`match` must yield a value — which
-`target_python.py` then relies on), and **`_check_own_line`** (a
+`target_python.py` then relies on), **`_check_own_line`** (a
 statement, and a `case` clause, begins a line of its own — the rule that
 stops `print h` from being read as two statements, which the grammar
-cannot state because it cannot see line boundaries).
+cannot state because it cannot see line boundaries),
+**`_check_loop_context`** (a `break`/`continue` belongs to a `loop`, and
+may not reach out of a `for`, a `while` or a `def` to find one), and
+**`_check_reachable`** (nothing may be written after one in the same
+block). The last two are shape rather than scope — neither needs to know
+what a name means — which is why they are here and not in
+`analyses.py`, and being here they hold in every mode.
 
 `ParseError(info, message)` carries the position.
 
@@ -242,7 +258,8 @@ anything else, for every mode. Errors are `AnalysisError(info, message)`.
 
 - **`Binding(kind, info)`** — what the name environment records: which
   kind of binding introduced a name (`MUTABLE`, `BINDING`, `PARAMETER`,
-  `LOOP_VAR`, `PATTERN_VAR`, `FUNCTION`, `BUILTIN`) and where. The kind
+  `LOOP_VAR` — a `for` variable or a `loop` accumulator —,
+  `PATTERN_VAR`, `FUNCTION`, `BUILTIN`) and where. The kind
   is what makes an error say *what* the name is; `info` is what lets it
   point at the other line.
 - **`BUILTINS`** — `("print", "range", "str", "len")`. Pyking's grammar
@@ -316,6 +333,11 @@ scheme specifically).
 - **`Inferring`** — stands in for a declared return type while one is
   being worked out; a `return` checked against it contributes its type to
   the store's frame instead of being compared with one.
+- **`Loop(accumulator, written)`** — the loop a `break`/`continue` in
+  the statement being checked belongs to, threaded beside the declared
+  return type and absent where there is none. `written` says whether the
+  loop wrote an accumulator at all: a bare `loop:` carries unit and its
+  `break`/`continue` take no value.
 - **`env`** — name → `Type`, a `Builtin`, or `None`. Used immutably: a
   binding hands what follows it an extended copy. `None` means "in scope
   with no type here" (a `def` that is not fully annotated); `Builtin` is
@@ -337,15 +359,20 @@ and returning exactly one kind of answer (the signatures are written out
 OCaml-style near the top of the file):
 
 - **`type_check(stmts) -> tmap`** — the entry point.
-- **`check_stmts(stmts, env, tmap, return_type, store) -> (Type,
+- **`check_stmts(stmts, env, tmap, return_type, loop, store) -> (Type,
   Store)`** — a block's type: its last statement's (`env` is not
   returned; a block is a scope). Calls `declare_functions` first.
-- **`check_stmt(stmt, env, tmap, return_type, store) -> (Type, Env,
+- **`check_stmt(stmt, env, tmap, return_type, loop, store) -> (Type, Env,
   Store)`** — the type of the value a statement *supplies*, the
   environment the statements after it are checked in, and the store.
   That single question — what value does this supply? — is why a branch
-  that `return`s and a branch that ends in an expression compare without
-  either being a special case.
+  that `return`s, a branch that `break`s and a branch that ends in an
+  expression compare without any of them being a special case: a
+  `return` supplies the function's type, a `break`/`continue` the
+  enclosing loop's accumulator.
+- **`check_target(target, type_, env, tmap, store) -> Env`** — a binding
+  target, one name or a tuple taken apart; a destructuring target
+  requires a tuple type of the same length.
 - **`check_expr(expr, env, tmap, store) -> (Type, Store)`** — records
   into `tmap`; `expr_type` holds the rules themselves.
 - **`check_function`, `function_type`, `check_param`** — a `def` that
@@ -453,7 +480,7 @@ three are design rather than accident:
 
 ### Data structures
 
-- **`Value`** — `VInt`, `VString`, `VBool`, `VUnit`, `VList`,
+- **`Value`** — `VInt`, `VString`, `VBool`, `VUnit`, `VList`, `VTuple`,
   `VClosure(name, params, body, expr, env)`, `VBuiltin(name)`, and
   `VUndefined(name)` (a hoisted `def` whose definition has not run yet).
   No host objects and no host dictionaries inside a value: the
@@ -470,8 +497,10 @@ three are design rather than accident:
   `CDone(value)`, `CFailed(error)`.
 - **`Kont`** — one class per "what to do with the value I am about to
   get": `KSeq`, `KBind`, `KBinaryLeft`, `KBinaryRight`, `KCallee`,
-  `KArgument`, `KBranch` (an `if` statement), `KChoose` (an `if`
-  expression), `KDiscard`, `KReturnTo`. Each holds `rest`, so
+  `KArgument`, `KElement` (one element of a tuple), `KBranch` (an `if`
+  statement), `KChoose` (an `if` expression), `KDiscard`, `KStartLoop`,
+  `KIterate`, `KExit` (a `break`/`continue` with an operand),
+  `KReturnTo`. Each holds `rest`, so
   the chain is a linked list — pushing and popping cost one allocation
   and no copying, and two states can share a tail, which is what makes a
   paused state cheap to keep. Most also hold the `env` their remaining
@@ -479,13 +508,18 @@ three are design rather than accident:
   popped; `KSeq` is the one deliberate exception, since adopting the
   environment it is handed is exactly how a binding becomes visible to
   the statements after it.
-- **`Frame(name, info, kont, env, parent, depth)`** — one Pyking call:
-  the caller's continuation and environment, and how deep this is. This
-  is Pyking's call stack, in the machine's own data.
+- **`Frame(name, info, kont, env, parent, depth, loops)`** — one Pyking
+  call: the caller's continuation, environment and loops, and how deep
+  this is. This is Pyking's call stack, in the machine's own data.
+- **`Loop(node, accumulator, env, kont, parent)`** — one `loop` in
+  progress: what a `break`/`continue` needs in order to leave it or go
+  round again. A stack of these is the loop counterpart of the frame
+  stack, and a call enters with none of its own — a `break` may not
+  cross a `def`.
 - **`Runtime(host, simple, max_depth)`** and **`State(control, env, kont,
-  stack, runtime)`** — the settings a run never changes, kept apart from
-  the progress it does. A `State` is a plain value; keeping one is how a
-  debugger pauses.
+  stack, runtime, loops)`** — the settings a run never changes, kept
+  apart from the progress it does. A `State` is a plain value; keeping
+  one is how a debugger pauses.
 - **`Host`** — one method per `runtime_interface` operation, with three
   implementations: `ConsoleHost` (a stream), `BufferHost` (collected
   lines), `CallbackHost` (a function per line — the shape a debugger or a
@@ -516,6 +550,14 @@ three are design rather than accident:
   entry is a later group. `eval_in` then runs one statement there;
   `eval_statement` is the two together, for a group of one — the shape a
   debugger's "evaluate in this frame" wants.
+- **`_turn(state, loop)` / `_leave(state, loop, value)`** — a turn of a
+  loop body, and the end of a loop. `_turn` binds the accumulator afresh
+  and enters the body with `KIterate` waiting for its value, which comes
+  back here — so a turn costs no continuation chain however many turns
+  there are, and a loop that never ends never grows. `_leave` delivers
+  the loop's value where the loop statement stood.
+- **`bind_target(env, target, value)`** — binds one name, or takes a
+  tuple apart; used by both `KBind` and each turn of a loop.
 - **`declare(stmts, env)` / `define(env, node)`** — the two halves of
   Pyking's `def` rule. `declare` puts one write-once cell per `def` in the
   block's frame, holding `VUndefined`; `define` fills it when the
@@ -701,8 +743,15 @@ factory).
   scope)`**, **`translate_expr(e, scope)`**, plus `translate_pattern`,
   `translate_target`, `translate_case`. Statement translators return the
   scope so a sequence accumulates bindings; a caller entering a block
-  discards it. Each `match` ends in `case _: raise NotImplementedError`,
+  discards it, and may answer with a *list* of Python statements where
+  one Pyking statement needs several (a `loop` is a variable and a
+  `while`). Each `match` ends in `case _: raise NotImplementedError`,
   so a future construct without a translation fails loudly.
+- **`_translate_loop` / `_translate_loop_block` / `_translate_loop_tail`**
+  — a `loop` as `while True` over one variable: the initializer gives it
+  its first value and every tail of the body assigns the next, which is
+  the same push-into-the-tails shape `_translate_value_block` uses for a
+  value-form `if`.
 - **`pprint_py_program` / `pprint_py_stmt` / `pprint_py_expr`** — `Py*`
   AST → Python source.
 - **`_declare_functions`** — binds every `def` in a block before
@@ -745,8 +794,13 @@ all three JS targets).
   scopes, so it renames only where JavaScript forces it (`const`
   redeclaration, and the temporal dead zone), not on every shadow.
 - **`translate_program` / `translate_stmts` / `translate_stmt` /
-  `translate_expr`**, plus `translate_tail_stmts` for tail position and
-  `declare_functions` for the same reason `target_python.py` has one.
+  `translate_expr`**, plus `translate_tail_stmts` for tail position,
+  `_translate_loop` and friends for a `loop` (a `while (true)` over a
+  `let`), and `declare_functions` for the same reason
+  `target_python.py` has one. A statement translator may answer with a
+  list, since a loop is several JavaScript statements.
+- **`translate_target`** — a binding target: a name, or the array
+  pattern that takes a tuple apart, tuples being arrays here.
 - **`pprint_js_program` / `pprint_js_stmt` / `pprint_js_expr`** — the
   printer takes the `runtime` spelling to substitute into runtime calls.
 - **`UnsupportedError(info, message)`** — anything outside the subset,
@@ -796,6 +850,11 @@ meaning, so `standard` reaches only the printer.
   and a function's return type is read off its translated body. Where
   inference cannot answer, it raises `UnsupportedError` rather than
   emitting C that will not compile.
+- **`_Translator.loop` / `loop_block` / `loop_tail`** — a `loop` as
+  `while (1)` over one mutable variable, whose C type is the
+  initializer's. Every tail of the body assigns the next turn's value,
+  and the shapes C has no unit for (a bare `loop:`, an `if` with no
+  `else` at the end of a body) are refused rather than approximated.
 - **`pprint_c_program(program, standard, source)`** and its statement and
   expression printers — the only place `standard` is consulted.
 - Prototypes are emitted ahead of the definitions, so a call may name a
@@ -820,10 +879,12 @@ that page focuses on the differences); [target_java.md](target_java.md)
   `JCall`, `JCond`, **`JEquals`** (`.equals()`, since Java's `==` on
   strings compares references), and the statement variants.
 - **`translate_program(stmts)`** — infers types the way `target_c.py`
-  does, and additionally proves two things `javac` insists on:
-  **`_definitely_returns`** (every path of a value-returning function
-  returns) and **`_check_reachable`** (nothing follows a statement that
-  always returns). Both are refused at compile time with a position.
+  does, including the `while (true)` a `loop` becomes, and additionally
+  proves two things `javac` insists on: **`_definitely_returns`** (every
+  path of a value-returning function returns — counting a loop nothing
+  breaks out of, which never finishes) and **`_check_reachable`**
+  (nothing follows a statement that always returns, or such a loop).
+  Both are refused at compile time with a position.
 - **`pprint_java_program(program, version, class_name, source)`**.
 - **`default_class_name(stem)`** — Java requires the file and its public
   class to match exactly, so `foo_bar.pyk` becomes `FooBar.java`. The
@@ -856,6 +917,11 @@ refused).
   reads, and — via **`_Effects`** and **`in_order`** — a `let` inserted
   wherever two operands of one expression can both print, since Pyking
   evaluates left to right and OCaml does not promise to.
+- **`_Translator.loop`** — a `loop` as a local recursive function
+  applied at once: the accumulator is its parameter, `continue` is a
+  tail call, `break` is the value it returns. `rec` is computed from the
+  translated body, never assumed, since a needless one is a warning and
+  the harness treats warnings as errors.
 - **`pprint_ocaml_program(program, source)`**.
 
 The test harness builds this target's output with `-w +a`, so a compiler

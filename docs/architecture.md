@@ -74,7 +74,7 @@ repl`) rather than a `--target`.
 | module | role |
 |---|---|
 | `src/lexer.py` | Characters → tokens. `Info` (file, row/column span) is attached to every token and rides along on every later node, so any stage can report an error against the source. |
-| `src/parser.py` | Recursive descent, tokens → the AST in `syntax.py`. Also enforces the few rules the grammar cannot state (duplicate pattern bindings, "every branch of a bound `if` yields a value"). |
+| `src/parser.py` | Recursive descent, tokens → the AST in `syntax.py`. Also enforces the few rules the grammar cannot state (duplicate pattern bindings, "every branch of a bound `if` yields a value", one statement per line, and where a `break`/`continue` may stand). |
 | `src/syntax.py` | The AST itself — one dataclass per variant — plus a pretty printer that prints Pyking back out. |
 | `src/analyses.py` | Static passes over the AST. `analyze_program` checks names and scoping — it only rejects, never rewrites; it binds every `def` in a block before walking it, which is what lets functions be recursive, mutually recursive or used before they are written; it runs for every mode except `--typecheck`, which replaces it. `symbolize` then gives every node a unique integer `sym`, rebuilding the tree (nodes are frozen); it runs for every mode, `--ast` included. |
 | `src/typesystem.py` | The type checker. Opt-in (`--typecheck`) while it covers only part of the language; it leaves the AST alone and reports what it inferred in `tmap`, a symbol → type table, which is what `--ast` then prints from. |
@@ -378,12 +378,16 @@ same arrangement `target_ocaml.py` uses.
 driven from a flat loop:
 
 ```
-State = (control, env, kont, stack, runtime)
+State = (control, env, kont, stack, runtime, loops)
 
 control   CEval(expr) | CStmt(stmt) | CApply(value) | CDone(v) | CFailed(e)
 kont      a linked chain of continuations: KSeq, KBind, KBinaryLeft,
-          KBinaryRight, KCallee, KArgument, KBranch, KDiscard, KReturnTo
-stack     Pyking's own call stack: Frame(name, info, kont, env, parent, depth)
+          KBinaryRight, KCallee, KArgument, KElement, KBranch, KChoose,
+          KDiscard, KStartLoop, KIterate, KExit, KReturnTo
+stack     Pyking's own call stack: Frame(name, info, kont, env, parent,
+          depth, loops)
+loops     the `loop`s in progress, which is to `break` what `stack` is to
+          `return`: Loop(node, accumulator, env, kont, parent)
 runtime   what a run never changes: the host, the call-free table, max_depth
 ```
 

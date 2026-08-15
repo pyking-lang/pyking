@@ -37,6 +37,8 @@ Exactly the fragment `src/typesystem.py` checks, no more and no less:
 - `=` bindings, including ones that shadow;
 - `if` / `else if` / `else`, in statement form and in value form
   (`x = if c:`), and `if … then … else …` expressions;
+- `loop` with `break` and `continue`, in every position a value stands;
+- tuples, including a binding that takes one apart;
 - `return`, in tail position or as a guard;
 - integers, strings and booleans; `+ - *`, comparisons, `==`, and calls.
 
@@ -58,8 +60,7 @@ $ pyk compile -t ocaml program.pyk
 ```
 
 That covers `var` and `:=`, `for`, `while`, `match`/`case`, lists,
-tuples, comprehensions, `/`, unary minus, and any `def` missing an
-annotation. Passing `--typecheck` is not required and changes nothing:
+comprehensions, `/`, unary minus, and any `def` missing an annotation. Passing `--typecheck` is not required and changes nothing:
 the check happens either way.
 
 Two further things the checker accepts and this backend still refuses,
@@ -83,9 +84,33 @@ def clamp(n:Int) -> Int:
 let clamp n = if n < 0 then 0 else n * 2
 ```
 
-A `return` anywhere else — inside a loop, or in the middle of a body
-with statements after it that are not the alternative — has no OCaml
-spelling, and is refused rather than approximated.
+A `return` anywhere else — in the middle of a body with statements after
+it that are not the alternative — has no OCaml spelling, and is refused
+rather than approximated. Inside a `loop` there is one more case: a loop
+is a local function here, so returning from it and returning from the
+*enclosing* function are two different things. They coincide exactly
+when the loop is the function's own value, which is where a `return` in
+a loop body compiles; anywhere else — a loop whose value is bound, and
+so wanted where it stands — it is refused:
+
+```
+'prog.pyk' 16:12-16:28 Unsupported by target 'ocaml': a `return` inside
+  a loop that is not the function's own value: OCaml has no early exit,
+  and this loop's value is wanted where it stands, so returning from it
+  cannot leave the function too
+```
+
+### A `break` or `continue` that is neither in tail position nor a guard
+
+The same rule, for the same reason. `break` in tail position is the
+value the loop function returns and `continue` there is its tail call,
+and either one guarding the rest of the body is an `if … then … else …`
+with that rest in the `else` — which covers the shapes a loop is
+normally written in, since a statement written *after* an unconditional
+`break`/`continue` is a parse error to begin with (see PYKING.md). What
+is left is a `break` inside an `if`/`else` neither arm of which leaves,
+with statements after it; that would need the rest of the body
+duplicated into every branch, and is refused instead.
 
 ### A `def` naming one written further down, with something in between
 
@@ -214,6 +239,68 @@ let rec gcd a b =
 
 A statement-form `if` with no `else` becomes `if … then …`, whose value
 is unit — which is exactly when Pyking allows one.
+
+### `loop`, `break` and `continue`
+
+A loop is a **local recursive function, applied at once**: the
+accumulator is its parameter, going round is a tail call, and breaking
+is the value the call returns. Nothing imperative is involved, and
+OCaml's own tail-call optimisation is what makes it a loop rather than a
+stack of calls — so a Pyking loop that runs a million turns runs in
+constant space here.
+
+```pyking
+res = loop x = 5:
+    if x <= 10:
+        continue x + 1
+    else:
+        break
+```
+
+```ocaml
+let res =
+  let rec _pyk1 x = if x <= 10 then _pyk1 (x + 1) else x in
+  _pyk1 5
+```
+
+The four ways a body can say what happens next map one to one: the
+body's last expression and `continue e` both become `_pyk1 e`, a bare
+`continue` becomes `_pyk1 x`, `break e` becomes `e`, and a bare `break`
+becomes `x`. A loop carrying several values takes a tuple pattern
+parameter, `let rec _pyk1 (x, y) = …`, and a `loop:` carrying nothing
+takes a unit one.
+
+Because a loop is an expression, it needs nothing said about it in any
+of the positions a value can stand: bound with `=`, returned, or as a
+function's last statement. `rec` is emitted only when the body really
+does call the loop function — a loop that always breaks does not — since
+`ocamlfind ocamlopt -w +a` treats a needless `rec` as an error.
+
+### Tuples
+
+A Pyking tuple is an OCaml tuple, and a binding that takes one apart is
+`let (a, b) = …`. Printing is the only part with any work in it: OCaml
+has no generic printer, so `print` formats a tuple by taking it apart
+and formatting each element by its type, which is how a nested one works
+too:
+
+```pyking
+pair = (1, true)
+print(pair)
+```
+
+```ocaml
+let pair = (1, true)
+
+let () =
+  print_endline
+    (let (_pyk1, _pyk2) = pair in
+     "(" ^ string_of_int _pyk1 ^ ", " ^ string_of_bool _pyk2 ^ ")")
+```
+
+A string inside a tuple is quoted, where one printed on its own is not,
+so a `pyk_quote` helper joins the prelude when a program needs it (see
+"Builtins").
 
 ### `print`
 

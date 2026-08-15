@@ -27,7 +27,8 @@ from syntax import (
     EInt, EString, EBool, EVar,
     EAdd, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EIf,
-    SLet, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SWhile, SIf, SFunctionDef,
+    SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SWhile, SIf,
+    SLoop, SBreak, SContinue, SFunctionDef,
     TargetName, TInt, TString, TBool,
 )
 
@@ -229,6 +230,22 @@ class CWhile(CStmt):
 
 
 @dataclass(frozen=True)
+class CLoop(CStmt):         # while (1) { body }
+    info: Info
+    body: list
+
+
+@dataclass(frozen=True)
+class CBreak(CStmt):        # break;
+    info: Info
+
+
+@dataclass(frozen=True)
+class CContinue(CStmt):     # continue;
+    info: Info
+
+
+@dataclass(frozen=True)
 class CReturn(CStmt):
     info: Info
     expr: CExpr
@@ -268,16 +285,27 @@ class Scope:
     (bound in the Pyking program but not reachable here -- this
     backend's functions have no closures); names, {String: (String,
     String)} (Pyking name -> (C name, ctype)); block, {String} (names
-    bound by the innermost block)."""
+    bound by the innermost block); taken, {String} (every C name already
+    spoken for here, which `names` cannot say: it holds only each
+    Pyking name's *current* C name, so a name rebound three times would
+    otherwise offer the second one's spelling back to the fourth)."""
     outside: frozenset
     names: dict
     block: frozenset
+    taken: frozenset = frozenset()
 
 
 def _block_scope(scope):
     """The scope for a nested block: sees outside and names; drops
     block. Scope -> Scope"""
-    return Scope(scope.outside, scope.names, frozenset())
+    return Scope(scope.outside, scope.names, frozenset(), scope.taken)
+
+
+def _reserve(names, scope):
+    """scope with these C names spoken for, but meaning nothing: what a
+    loop does with its accumulator, which is declared in this block and
+    in scope only in the loop's own body. [String] -> Scope -> Scope"""
+    return Scope(scope.outside, scope.names, scope.block, scope.taken | set(names))
 
 
 def _lookup(name, scope, info):
@@ -322,7 +350,11 @@ main printf strcmp strlen malloc size_t pyk_concat
 def _fresh_c_name(name, scope):
     """name2, name3, ... -- the first not already used. String -> Scope
     -> String"""
-    taken = set(scope.names) | {c_name for c_name, _ in scope.names.values()}
+    taken = (
+        set(scope.names)
+        | {c_name for c_name, _ in scope.names.values()}
+        | set(scope.taken)
+    )
     n = 2
     while f"{name}{n}" in taken or f"{name}{n}" in RESERVED:
         n += 1
@@ -337,12 +369,14 @@ def _bind(name, ctype, scope):
         name in RESERVED
         or name in scope.names
         or any(name == c for c, _ in scope.names.values())
+        or name in scope.taken
     ):
         c_name = _fresh_c_name(name, scope)
     return c_name, Scope(
         scope.outside,
         {**scope.names, name: (c_name, ctype)},
         scope.block | {name},
+        scope.taken | {c_name},
     )
 
 
@@ -372,6 +406,10 @@ class _Translator:
         self.uses_print = False
         self.uses_concat = False
         self.uses_strcmp = False
+        # The accumulator of each enclosing `loop`, innermost last, as
+        # (c_name, ctype): what a `break`/`continue` with an operand
+        # assigns before it jumps.
+        self.loops = []
 
     # -- expressions --
 
@@ -495,7 +533,7 @@ class _Translator:
         out = []
         for s in stmts:
             translated, scope = self.stmt(s, scope)
-            out.append(translated)
+            out.extend(_as_stmts(translated))
         return out, scope
 
     def tail_stmts(self, stmts, scope):
@@ -528,9 +566,106 @@ class _Translator:
                     else self.tail_stmts(else_body, _block_scope(scope))
                 )
                 return [CIf(info, condition, then_branch, else_branch)]
+            case SLoop(info):
+                # A function ending in a loop returns what the loop
+                # produced: the accumulator it stopped with.
+                c_stmts, accumulator, _ = self.loop(s, scope)
+                return c_stmts + [CReturn(info, accumulator)]
             case _:
                 translated, _ = self.stmt(s, scope)
-                return [translated]
+                return _as_stmts(translated)
+
+    def loop(self, s, scope):
+        """Translates a loop into `while (1)` over one mutable variable
+        (docs/target_c.md, "loop"): the initializer declares it, every
+        tail of the body assigns the next turn's value, and a
+        `break`/`continue` with an operand assigns it before it jumps.
+        Returns the statements, the expression holding the loop's value
+        afterwards, and the scope: the accumulator is in scope only in
+        the loop's own body, but its declaration stands in the block
+        around it, so that C name stays spoken for there.
+        SLoop -> Scope -> ([CStmt], CExpr?, Scope)"""
+        info = s.info
+        setup = []
+        accumulator = None
+        if s.target is None:
+            _unsupported(
+                s,
+                "a `loop` with no accumulator -- C has no value to give it, "
+                "so write `loop x = 0:` and break with what you want",
+            )
+        match s.target:
+            case TargetName(_, name):
+                pass
+            case _:
+                _unsupported(s, "tuple destructuring targets")
+        value = self.expr(s.init, scope)
+        c_name, body_scope = _bind(s.target.name, value.ctype, _block_scope(scope))
+        setup.append(CDecl(info, value.ctype, c_name, value))
+        accumulator = CVar(info, c_name, value.ctype)
+        self.loops.append((c_name, value.ctype))
+        try:
+            body = self.loop_block(s.body, body_scope)
+        finally:
+            self.loops.pop()
+        return setup + [CLoop(info, body)], accumulator, _reserve([c_name], scope)
+
+    def accumulate(self, expr, scope, node):
+        """The assignment that gives the innermost loop its next value.
+        Expr -> Scope -> Stmt -> CStmt"""
+        c_name, ctype = self.loops[-1]
+        value = self.expr(expr, scope)
+        if value.ctype != ctype:
+            _unsupported(
+                node,
+                f"this loop carries {ctype}, so it cannot go on with "
+                f"{value.ctype} in C",
+            )
+        return CAssign(node.info, c_name, value)
+
+    def loop_block(self, stmts, scope):
+        """Translates a loop body: whatever a path ends in is the next
+        turn's value, so every tail becomes an assignment to the
+        accumulator -- except a `break`/`continue`, which has already
+        said what happens next. [Stmt] -> Scope -> [CStmt]"""
+        if not stmts:
+            return []
+        body, scope = self.stmts(stmts[:-1], scope)
+        return body + self.loop_tail(stmts[-1], scope)
+
+    def loop_tail(self, s, scope):
+        """The last statement of a loop body, or of one branch of one.
+        Stmt -> Scope -> [CStmt]"""
+        match s:
+            case SExprStmt(_, expr):
+                return [self.accumulate(expr, scope, s)]
+            case SIf(info, cond, then_body, else_body):
+                condition = self.expr(cond, scope)
+                self._require(condition, BOOL, "an `if` condition")
+                if else_body is None:
+                    _unsupported(
+                        s,
+                        "an `if` with no `else` as the last statement of a "
+                        "loop body -- there would be a turn with no next "
+                        "value, and C has no unit to give it",
+                    )
+                return [CIf(
+                    info,
+                    condition,
+                    self.loop_block(then_body, _block_scope(scope)),
+                    self.loop_block(else_body, _block_scope(scope)),
+                )]
+            case SBreak() | SContinue() | SReturn() | SReturnStmt():
+                # Each of these says by itself what happens next: two
+                # leave the loop, one leaves the whole function.
+                translated, _ = self.stmt(s, scope)
+                return _as_stmts(translated)
+            case _:
+                _unsupported(
+                    s,
+                    "a loop body ending in something with no value -- every "
+                    "turn has to say what the next one carries",
+                )
 
     def block(self, stmts, scope):
         """Translates a nested block; its bindings do not escape.
@@ -549,6 +684,16 @@ class _Translator:
 
             case SLet(info, _, _):
                 _unsupported(s, "tuple destructuring targets")
+
+            case SLetStmt(info, TargetName(_, name), SLoop() as loop):
+                # `x = loop ...` -- the loop's value is the accumulator
+                # it stopped with, so the binding is one declaration
+                # after it.
+                c_stmts, accumulator, scope = self.loop(loop, scope)
+                c_name, scope = _bind(name, accumulator.ctype, scope)
+                return c_stmts + [
+                    CDecl(info, accumulator.ctype, c_name, accumulator)
+                ], scope
 
             case SVar(info, name, expr):
                 value = self.expr(expr, scope)
@@ -570,7 +715,9 @@ class _Translator:
                 return CReturn(info, self.expr(expr, scope)), scope
 
             case SReturnStmt(_, stmt):
-                return self.tail_stmt(stmt, scope)[0], scope
+                # A loop answers with several statements (the
+                # accumulator, the loop, the return).
+                return self.tail_stmt(stmt, scope), scope
 
             case SExprStmt(info, ECall(_, EVar(_, name), args)) if (
                 runtime_interface.lookup(name)
@@ -583,6 +730,18 @@ class _Translator:
 
             case SWhile(info, cond, body):
                 return CWhile(info, self.expr(cond, scope), self.block(body, scope)), scope
+
+            case SLoop():
+                c_stmts, _, scope = self.loop(s, scope)
+                return c_stmts, scope
+
+            case SBreak(info, expr) | SContinue(info, expr):
+                jump = CBreak(info) if isinstance(s, SBreak) else CContinue(info)
+                if expr is None:
+                    return jump, scope
+                if not self.loops:
+                    _unsupported(s, "a `break` outside a loop")
+                return [self.accumulate(expr, scope, s), jump], scope
 
             case SIf(info, cond, then_body, else_body):
                 c_else = None if else_body is None else self.block(else_body, scope)
@@ -726,6 +885,13 @@ def _walk_c(node):
             yield from _walk_c(element)
 
 
+def _as_stmts(translated):
+    """One translation's statements: a statement translator may answer
+    with several (a loop is a declaration plus a `while`).
+    (CStmt | [CStmt]) -> [CStmt]"""
+    return list(translated) if isinstance(translated, list) else [translated]
+
+
 def _falls_through(body):
     """Whether control can reach the end of body without returning --
     undefined behavior for a non-void C function (docs/target_c.md,
@@ -738,8 +904,28 @@ def _falls_through(body):
             return False
         case CIf(_, _, then_body, else_body) if else_body is not None:
             return _falls_through(then_body) or _falls_through(else_body)
+        case CLoop(_, loop_body):
+            # `while (1)` ends only by breaking out of it; with no
+            # `break` for this loop, nothing after it runs.
+            return _breaks_out(loop_body)
         case _:
             return True
+
+
+def _breaks_out(body):
+    """Whether body contains a `break` belonging to the loop it is the
+    body of -- one inside a nested loop belongs to that one instead.
+    [CStmt] -> Bool"""
+    for s in body:
+        match s:
+            case CBreak():
+                return True
+            case CIf(_, _, then_body, else_body):
+                if _breaks_out(then_body) or _breaks_out(else_body or []):
+                    return True
+            case _:
+                pass
+    return False
 
 
 def _return_types(body):
@@ -768,7 +954,7 @@ def translate_program(stmts):
             functions.append(func)
         else:
             translated, scope = translator.stmt(s, scope)
-            main_body.append(translated)
+            main_body.extend(_as_stmts(translated))
     return CProgram(
         functions,
         main_body,
@@ -915,6 +1101,18 @@ def pprint_c_stmt(s, standard, level=1):
                 _emit_block(body, standard, level + 1),
                 f"{pad}}}",
             ])
+        case CLoop(_, body):
+            # `while (1)`, not `while (true)`: c89 has no `bool`, and
+            # this is the spelling both standards read the same way.
+            return "\n".join([
+                f"{pad}while (1) {{",
+                _emit_block(body, standard, level + 1),
+                f"{pad}}}",
+            ])
+        case CBreak(_):
+            return f"{pad}break;"
+        case CContinue(_):
+            return f"{pad}continue;"
         case _:
             raise NotImplementedError(f"no printer for C statement {s!r}")
 

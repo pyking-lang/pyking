@@ -12,10 +12,12 @@ Data structures:
     Instance / Use / Frame / Store -- inference's working state (see
         docs/type_inference.md).
     Inferring -- marks a return type being worked out.
+    Loop -- the loop a break/continue in this statement belongs to.
 
 Functions:
     type_check(stmts) -- checks a whole program; returns tmap.
-    check_stmt(stmt, env, tmap, return_type, store) -- checks one statement.
+    check_stmt(stmt, env, tmap, return_type, loop, store) -- checks one
+        statement.
     check_expr(expr, env, tmap, store) -- checks one expression.
     same_type(a, b) / accepts(expected, actual) -- type comparison.
 
@@ -28,11 +30,12 @@ from analyses import AnalysisError, BUILTINS, block_functions
 from lexer import Info
 from syntax import (
     pprint_type,
-    EInt, EString, EBool, EVar, EAdd, ESub, EMul, ECall, EIf,
+    EInt, EString, EBool, EVar, EAdd, ESub, EMul, ECall, EIf, ETuple,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq,
     SLet, SLetStmt, SExprStmt, SIf, SReturn, SReturnStmt, SFunctionDef,
+    SLoop, SBreak, SContinue,
     Type, TInt, TString, TBool, TList, TTuple, TFunction, TOr, TUnknown,
-    TargetName,
+    TargetName, TargetTuple,
 )
 
 
@@ -60,11 +63,17 @@ from syntax import (
 # is threaded down through nested blocks and not just looked at once when
 # the body is done.
 #
+# The `Loop?` beside it is the same idea for the same reason: the loop a
+# `break`/`continue` written here belongs to, absent where there is
+# none. A `def` inside a loop body passes `None` for it, since a
+# `break` may not cross one (src/parser.py enforces that, so this is
+# only saying the same thing again where it would matter).
+#
 #     val type_check         : [Stmt] -> TMap
-#     val check_stmts        : [Stmt] -> Env -> TMap -> Type? -> Store
-#                              -> (Type, Store)
-#     val check_stmt         : Stmt -> Env -> TMap -> Type? -> Store
-#                              -> (Type, Env, Store)
+#     val check_stmts        : [Stmt] -> Env -> TMap -> Type? -> Loop?
+#                              -> Store -> (Type, Store)
+#     val check_stmt         : Stmt -> Env -> TMap -> Type? -> Loop?
+#                              -> Store -> (Type, Env, Store)
 #     val check_expr         : Expr -> Env -> TMap -> Store -> (Type, Store)
 #     val check_param        : Param -> TMap -> Store -> Type
 #     val check_function     : SFunctionDef -> Env -> TMap -> Store
@@ -72,6 +81,8 @@ from syntax import (
 #     val check_call         : ECall -> Env -> TMap -> Store -> (Type, Store)
 #     val check_binary       : Expr -> Env -> TMap -> Store -> (Type, Store)
 #     val check_annotation   : Type? -> Type -> ()
+#     val check_target       : AssignTarget -> Type -> Env -> TMap -> Store
+#                              -> Env
 #     val function_type      : SFunctionDef -> TFunction
 #     val same_type          : Type -> Type -> Bool
 #     val bind               : Env -> String -> Type -> Env
@@ -250,6 +261,17 @@ class Inferring:
 INFERRING = Inferring()
 
 
+@dataclass(frozen=True)
+class Loop:
+    """The loop a `break`/`continue` in the statement being checked
+    belongs to. Fields: accumulator: Type, the type the loop carries
+    from turn to turn and yields when it stops; written: Bool, whether
+    the loop wrote an accumulator down at all (a bare `loop:` carries
+    unit, and its `break`/`continue` take no value)."""
+    accumulator: Type
+    written: bool
+
+
 class _Recursive(Exception):
     """Internal signal: a trace reached a call to a function whose
     body is already being checked. Not an error -- caught by the
@@ -283,7 +305,7 @@ def type_check(stmts):
     """Type-checks a whole program. Raises TypeError_ for the first
     thing that does not check out. [Stmt] -> {Int: Type}"""
     tmap = {}
-    check_stmts(stmts, builtin_env(), tmap, None, empty_store())
+    check_stmts(stmts, builtin_env(), tmap, None, None, empty_store())
     return tmap
 
 
@@ -334,49 +356,49 @@ def declared_type(node):
     )
 
 
-def check_stmts(stmts, env, tmap, return_type, store):
+def check_stmts(stmts, env, tmap, return_type, loop, store):
     """The type a block yields: its last statement's, or unit if
     empty. env is not returned (a block is a scope); store is.
-    [Stmt] -> Env -> {Int: Type} -> Type? -> Store -> (Type, Store)"""
+    [Stmt] -> Env -> {Int: Type} -> Type? -> Loop? -> Store
+    -> (Type, Store)"""
     env, store = declare_functions(stmts, env, store)
     yielded = unit(stmts[0].info if stmts else Info("<empty>", 1, 0, 1, 0))
     for statement in stmts:
-        yielded, env, store = check_stmt(statement, env, tmap, return_type, store)
+        yielded, env, store = check_stmt(statement, env, tmap, return_type, loop, store)
     return yielded, store
 
 
 # --- Stmt ------------------------------------------------------------
 
 
-def check_stmt(statement, env, tmap, return_type, store):
+def check_stmt(statement, env, tmap, return_type, loop, store):
     """The type statement supplies (PYKING.md, "Tail position"), the
     environment for the statements after it, and the store.
     return_type is the enclosing function's declared return type,
-    INFERRING while one is worked out, or None at the top level.
-    Stmt -> Env -> {Int: Type} -> Type? -> Store -> (Type, Env, Store)"""
+    INFERRING while one is worked out, or None at the top level; loop
+    is the loop a break/continue here belongs to, or None.
+    Stmt -> Env -> {Int: Type} -> Type? -> Loop? -> Store
+    -> (Type, Env, Store)"""
     match statement:
-        case SLet(info, TargetName(_, name, _), expr, annotation, sym):
+        case SLet(info, target, expr, annotation, sym):
             # The binding's symbol records what its right-hand side
             # turned out to be; the binding *itself* is a statement, so
             # it has unit type.
             expr_type_, store = check_expr(expr, env, tmap, store)
             check_annotation(annotation, expr_type_)
             record(tmap, sym, expr_type_, store)
-            return unit(info), bind(env, name, expr_type_), store
+            return unit(info), check_target(target, expr_type_, env, tmap, store), store
 
-        case SLetStmt(info, TargetName(_, name, _), stmt, annotation, sym):
+        case SLetStmt(info, target, stmt, annotation, sym):
             # `x = if c: ...` binds what the branch that runs yields, so
             # the bound statement's own type is the binding's type -- and
             # the branches having agreed on one is what the `SIf` case
-            # below has already established.
-            bound_type, _, store = check_stmt(stmt, env, tmap, return_type, store)
+            # below has already established. `x = loop ...` binds the
+            # accumulator the loop stopped with, for the same reason.
+            bound_type, _, store = check_stmt(stmt, env, tmap, return_type, loop, store)
             check_annotation(annotation, bound_type)
             record(tmap, sym, bound_type, store)
-            return unit(info), bind(env, name, bound_type), store
-
-        case SLet() | SLetStmt():
-            # A destructuring target (`a, b = ...`) needs tuple types.
-            unsupported(statement)
+            return unit(info), check_target(target, bound_type, env, tmap, store), store
 
         case SExprStmt(_, expr, _):
             # An expression statement has its expression's type. That is
@@ -399,7 +421,7 @@ def check_stmt(statement, env, tmap, return_type, store):
             # place a trace is ever abandoned. Outside an inference it
             # never happens, since nothing raises `_Recursive` there.
             then_type, then_store, then_signal = try_branch(
-                then_body, env, tmap, return_type, store
+                then_body, env, tmap, return_type, loop, store
             )
             if else_body is None:
                 # With no `else` there is a way through this statement
@@ -415,7 +437,7 @@ def check_stmt(statement, env, tmap, return_type, store):
             # goes. An abandoned branch found out nothing (see
             # `try_branch`), so its store is the one it began with.
             else_type, else_store, else_signal = try_branch(
-                else_body, env, tmap, return_type, then_store
+                else_body, env, tmap, return_type, loop, then_store
             )
             if then_signal is not None and else_signal is not None:
                 # Both ways through recurse: this `if` says nothing about
@@ -455,8 +477,62 @@ def check_stmt(statement, env, tmap, return_type, store):
             # branch that runs yields.
             if return_type is None:
                 raise TypeError_(info, "'return' outside a function")
-            actual, _, store = check_stmt(stmt, env, tmap, return_type, store)
+            actual, _, store = check_stmt(stmt, env, tmap, return_type, loop, store)
             return actual, env, check_return(actual, return_type, info, store)
+
+        case SLoop(info, target, init, annotation, body, sym):
+            # The accumulator is what the initializer turned out to be,
+            # and the loop carries exactly that from turn to turn: the
+            # body has to produce one, `break`/`continue` have to give
+            # one, and the loop yields one. A bare `loop:` carries unit
+            # and its body's value is thrown away, so there is nothing
+            # for the body to get wrong.
+            if target is None:
+                accumulator = unit(info)
+                body_env = env
+            else:
+                accumulator, store = check_expr(init, env, tmap, store)
+                check_annotation(annotation, accumulator)
+                body_env = check_target(target, accumulator, env, tmap, store)
+            record(tmap, sym, accumulator, store)
+            supplied, store = check_stmts(
+                body, body_env, tmap, return_type, Loop(accumulator, target is not None),
+                store,
+            )
+            if target is not None and not accepts(accumulator, supplied):
+                raise TypeError_(
+                    body[-1].info if body else info,
+                    f"this loop carries {pprint_type(accumulator)}, so its "
+                    f"body must end in a value of that type -- the "
+                    f"accumulator for the next turn -- but it ends in "
+                    f"{pprint_type(supplied)}",
+                )
+            return accumulator, env, store
+
+        case SBreak(info, expr, _) | SContinue(info, expr, _):
+            # Both leave the block they are in, and both supply the
+            # accumulator, exactly as a `return` supplies the function's
+            # value: that is what lets a branch that breaks sit beside
+            # one that ends in the next accumulator.
+            keyword = "break" if isinstance(statement, SBreak) else "continue"
+            if loop is None:
+                raise TypeError_(info, f"'{keyword}' outside a loop")
+            if expr is None:
+                return loop.accumulator, env, store
+            if not loop.written:
+                raise TypeError_(
+                    expr.info,
+                    f"this loop carries no accumulator, so its '{keyword}' "
+                    f"takes no value",
+                )
+            actual, store = check_expr(expr, env, tmap, store)
+            if not accepts(loop.accumulator, actual):
+                raise TypeError_(
+                    expr.info,
+                    f"this loop carries {pprint_type(loop.accumulator)}, but "
+                    f"this '{keyword}' gives {pprint_type(actual)}",
+                )
+            return loop.accumulator, env, store
 
         case SFunctionDef(info, name, _, _, _, _, sym):
             if fully_annotated(statement):
@@ -506,16 +582,40 @@ def try_expr(expr, env, tmap, store):
         return None, store, signal
 
 
-def try_branch(body, env, tmap, return_type, store):
+def try_branch(body, env, tmap, return_type, loop, store):
     """One branch of an if statement, as (type, store, signal). On a
     signal, store is the one the branch started from (its own work was
     provisional).
-    [Stmt] -> Env -> {Int: Type} -> Type? -> Store -> (Type?, Store, _Recursive?)"""
+    [Stmt] -> Env -> {Int: Type} -> Type? -> Loop? -> Store
+    -> (Type?, Store, _Recursive?)"""
     try:
-        type_, store = check_stmts(body, env, tmap, return_type, store)
+        type_, store = check_stmts(body, env, tmap, return_type, loop, store)
         return type_, store, None
     except _Recursive as signal:
         return None, store, signal
+
+
+def check_target(target, type_, env, tmap, store):
+    """env with every name in an assignment target bound to its part of
+    type_, recording each part under the target's own symbol. A
+    destructuring target requires a tuple type of the same length.
+    AssignTarget -> Type -> Env -> {Int: Type} -> Store -> Env"""
+    match target:
+        case TargetName(_, name, sym):
+            record(tmap, sym, type_, store)
+            return bind(env, name, type_)
+        case TargetTuple(info, elements, sym):
+            match resolved(type_, store):
+                case TTuple(_, parts) if len(parts) == len(elements):
+                    record(tmap, sym, type_, store)
+                    for element, part in zip(elements, parts):
+                        env = check_target(element, part, env, tmap, store)
+                    return env
+            raise TypeError_(
+                info,
+                f"this binding takes {len(elements)} values apart, but its "
+                f"value has type {pprint_type(type_)}",
+            )
 
 
 def check_return(actual, return_type, info, store):
@@ -559,6 +659,13 @@ def expr_type(expr, env, tmap, store):
 
         case EBool(info, _, _):
             return TBool(info), store
+
+        case ETuple(info, elements, _):
+            # A tuple of the element types, in order -- and `()`, with no
+            # elements, is the unit type, which is the same thing said of
+            # nothing.
+            types, store = check_each(elements, env, tmap, store)
+            return TTuple(info, types), store
 
         case EVar(info, name, _):
             # Two different questions, asked in order. Is the name in
@@ -684,7 +791,9 @@ def check_function(node, env, tmap, store):
 
     # The body's last statement is in tail position; check_stmt already
     # answers what it supplies, by return or by value (PYKING.md).
-    supplied, store = check_stmts(node.body, body_env, tmap, node.return_type, store)
+    supplied, store = check_stmts(
+        node.body, body_env, tmap, node.return_type, None, store
+    )
     if accepts(node.return_type, supplied):
         return unit(node.info), store
     if is_unit(supplied):
@@ -894,7 +1003,9 @@ def supplied_type(node, env, tmap, return_type, store):
     Type? -> Store -> (Type, Store)"""
     if node.expr is not None:
         return check_expr(node.expr, env, tmap, store)
-    return check_stmts(node.body, env, tmap, return_type, store)
+    # A body is checked with no enclosing loop: a `break` may not cross
+    # a `def`, so one written here belongs to nothing.
+    return check_stmts(node.body, env, tmap, return_type, None, store)
 
 
 def merge(types):

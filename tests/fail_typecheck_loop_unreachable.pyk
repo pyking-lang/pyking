@@ -1,0 +1,13 @@
+# A statement written after a `continue`.
+#
+# `continue` starts the next turn at once, so nothing below it in the
+# same block can run. Rather than compile code that provably never
+# happens, the parser refuses it -- the same judgement javac makes
+# about unreachable statements, made once for every target.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+counted = loop x = 1:
+    continue x + 1
+    print("never")

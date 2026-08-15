@@ -7,7 +7,9 @@ Pyking borrows its syntax from Python — literals, arithmetic, functions,
 Python's dynamism gets in the way: plain `=` is an *immutable binding*
 rather than an assignment, mutable variables are declared with `var` and
 updated with `:=`, and every block is a real scope, checked at compile
-time.
+time. It adds a loop built for that: `loop x = 0:` carries an
+accumulator from turn to turn and is worth it when it stops, so counting
+something up needs no mutable variable at all.
 
 A program can be compiled for any of ten targets, or run directly by the
 interpreter. The `pyk` script at the repository root is the front end for

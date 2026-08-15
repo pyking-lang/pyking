@@ -64,10 +64,11 @@ exists as a separate target rather than as a wrapper.
 
 `print`; `def` with parameters, `return`, recursion, and the
 single-expression `def f(x) = e` form; `if` / `else if` / `else`;
-`while`; `=`, `var`, `:=`; `if … then … else …` expressions; integers,
-strings and booleans; `+ - * /`, unary minus, comparisons, and calls.
-Tail position and `return if c:` are supported (see below); nested `def`
-works too — JavaScript has closures.
+`while`; `loop` with `break` and `continue`; `=`, `var`, `:=`; tuples,
+including a binding that takes one apart; `if … then … else …`
+expressions; integers, strings and booleans; `+ - * /`, unary minus,
+comparisons, and calls. Tail position and `return if c:` are supported
+(see below); nested `def` works too — JavaScript has closures.
 
 ## What is not supported
 
@@ -75,7 +76,7 @@ Refused at compile time, with the source position:
 
 | construct | why |
 |---|---|
-| lists, tuples, tuple destructuring | no value representation yet in the JS AST |
+| lists | no value representation yet in the JS AST |
 | `for` loops | needs the iterable protocol the lists work would bring |
 | `match`/`case`, patterns | needs a pattern compiler; JavaScript has no `match` |
 | list comprehensions | builds on lists and patterns |
@@ -103,6 +104,58 @@ print(x, total)                    print(x, total);
 
 `=` really is `const` — a rebinding gets a fresh `const`, not a
 reassignment — and `var`/`:=` really are `let` and assignment.
+
+### Tuples
+
+A tuple is a JavaScript array — built, taken apart and printed as one:
+
+```pyking                          // generated JavaScript
+pair = (1, true)                   const pair = [1, true];
+a, b = pair                        const [a, b] = pair;
+print(pair)                        print(pair);        // (1, true)
+```
+
+Destructuring is JavaScript's own array pattern, which fits exactly.
+Printing is where the two languages part: `pykFormat` (see "`print` and
+the runtime boundary") writes an array in Pyking's notation — `()`,
+`(1,)`, `(1, 2)` — with strings inside it quoted, since that is what
+`runtime_interface.py` says a tuple looks like.
+
+Lists have no representation yet, so an array unambiguously means a
+tuple here. That is what makes this formatting rule safe today, and is
+the thing to revisit when lists arrive: the two will need telling apart.
+
+### `loop`, `break` and `continue`
+
+A `loop` is `while (true)` over a `let` holding the accumulator: the
+initializer gives it its first value, every tail of the body assigns the
+next one, and `break`/`continue` are JavaScript's own — with the
+operand, where one is written, assigned first.
+
+```pyking                          // generated JavaScript
+res = loop x = 5:                  let x = 5;
+    if x <= 10:                    while (true) {
+        continue x + 1               if (x <= 10) {
+    else:                              x = x + 1;
+        break                          continue;
+                                     } else {
+                                       break;
+                                     }
+                                   }
+                                   const res = x;
+```
+
+The loop's own value is the accumulator it stopped with, so binding one
+is that `const` after the loop, and a loop in tail position is
+`return x`. A tuple accumulator is an array, assigned as a whole
+(`[x, y] = [x + 1, y]`), so the next turn's values are computed before
+any of them is stored.
+
+The accumulator's `let` stands in the block *around* the loop, since
+that is where it has to be declared, but the name is in scope only in
+the loop's own body — so a second loop reusing the Pyking name gets a
+fresh JavaScript one rather than a duplicate declaration, and a name the
+accumulator shadowed means what it meant again afterwards.
 
 ### Control flow, functions, expressions
 
@@ -189,30 +242,46 @@ obvious which lines came from the `.pyk` file:
 // --- prelude begins ---
 // A Pyking program cannot do I/O by itself; its host must define `print`.
 
-function pykFormat(value) {
+function pykFormat(value, inner) {
   if (value === undefined) return '()';
+  if (typeof value === 'string') return inner ? pykQuote(value) : value;
+  if (Array.isArray(value)) {
+    const parts = value.map((element) => pykFormat(element, true));
+    return parts.length === 1 ? '(' + parts[0] + ',)' : '(' + parts.join(', ') + ')';
+  }
   return String(value);
 }
 
+function pykQuote(text) { /* ' quoted the way Pyking quotes */ }
+
 function print(...values) {
-  console.log(values.map(pykFormat).join(' '));
+  console.log(values.map((value) => pykFormat(value)).join(' '));
 }
 
 // --- prelude ends; the compiled program follows ---
 ```
 
-`pykFormat` exists because the runtime interface fixes how values print,
-and it is where a future value type that *does* need converting would
-land — but today `String(value)` alone already gets every current type
-right, including booleans: JavaScript already spells them `true`/`false`,
-exactly Pyking's own spelling (see PYKING.md), so there is nothing left
-to convert. (This used to be the one place JavaScript disagreed with
-Pyking's formatting, back when Pyking printed booleans the Python way,
-capitalised — see `docs/target_python.md`'s "Booleans" for the backend
-that now has the opposite problem, having to *override* its native
-`True`/`False` to match.) The `html` target substitutes a `print` that
-appends to a `<pre>` on the page; `esm` has no prelude at all, since it
-is handed a `runtime` instead of building one.
+`pykFormat` is where the runtime interface's formatting rules live.
+Three cases need it. JavaScript's `undefined` — what a unit-returning
+function actually gives back — is Pyking's `()`. An array is a tuple, and
+prints in Pyking's notation rather than JavaScript's `[1,2]`. And a
+string inside one is quoted, where a string printed on its own is not,
+which is why the second parameter exists at all.
+
+Everything else `String(value)` already gets right, booleans included:
+JavaScript spells them `true`/`false`, exactly Pyking's own spelling
+(see PYKING.md), so there is nothing to convert. (This used to be the one
+place JavaScript disagreed with Pyking's formatting, back when Pyking
+printed booleans the Python way, capitalised — see
+`docs/target_python.md`'s "Booleans" for the backend that has the
+opposite problem, having to *override* its native `True`/`False` to
+match.)
+
+Note the arrow function in `print`: `values.map(pykFormat)` would hand
+`map`'s *index* argument to `inner`, and every argument after the first
+would print as though it were nested. The `html` target substitutes a
+`print` that appends to a `<pre>` on the page; `esm` has no prelude at
+all, since it is handed a `runtime` instead of building one.
 
 ### Names that are keywords in JavaScript
 

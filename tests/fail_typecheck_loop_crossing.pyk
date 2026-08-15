@@ -1,0 +1,20 @@
+# A `break` inside a `for` inside a `loop`.
+#
+# A `break` belongs to the innermost `loop` it is written in, and may
+# not reach out of a `for`, a `while` or a function to find one: a
+# reader would otherwise have to know which of two loops it left, and
+# every backend would have to agree with them.
+#
+# `for` and `while` have no `break` of their own yet, which is why this
+# is an error rather than a `for` loop's own exit.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+total = loop x = 0:
+    for i in range(3):
+        break
+    if x > 2:
+        break
+    else:
+        x + 1

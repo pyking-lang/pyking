@@ -1,0 +1,2 @@
+'tests/fail_typecheck_loop_outside.pyk' 12:0-12:5 Parsing error:
+  'break' may only appear in the body of a 'loop'

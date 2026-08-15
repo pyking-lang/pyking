@@ -18,12 +18,29 @@ from target_js_core import pprint_js_program
 TARGETS = ("nodejs", "html", "esm")
 
 # The formatter every host needs, implementing runtime_interface's
-# print rules. JavaScript's undefined (a unit-returning function's
-# actual result) is the one value that needs converting; everything
-# else already prints the way Pyking wants.
-_FORMAT_JS = """function pykFormat(value) {
+# print rules. Three values need converting: JavaScript's undefined (a
+# unit-returning function's actual result), which Pyking spells `()`; a
+# tuple, which is an array here and prints in Pyking's own notation; and
+# a string inside one, which is quoted where a string on its own is not.
+# Everything else -- numbers, booleans -- already prints the way Pyking
+# wants.
+_FORMAT_JS = r"""function pykFormat(value, inner) {
   if (value === undefined) return '()';
+  if (typeof value === 'string') return inner ? pykQuote(value) : value;
+  if (Array.isArray(value)) {
+    const parts = value.map((element) => pykFormat(element, true));
+    return parts.length === 1 ? '(' + parts[0] + ',)' : '(' + parts.join(', ') + ')';
+  }
   return String(value);
+}
+
+function pykQuote(text) {
+  return "'" + text
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\n/g, '\\n')
+    .replace(/\t/g, '\\t')
+    .replace(/\r/g, '\\r') + "'";
 }"""
 
 _HEADER = "// Generated from {source} by the Pyking compiler. Do not edit."
@@ -33,7 +50,7 @@ def _print_via(sink):
     """A print implementing the runtime interface, emitting one line
     through sink. String -> String"""
     return f"""function print(...values) {{
-  {sink}(values.map(pykFormat).join(' '));
+  {sink}(values.map((value) => pykFormat(value)).join(' '));
 }}"""
 
 
@@ -167,7 +184,7 @@ def package_esm_node_driver(module_name, source):
         _FORMAT_JS,
         "",
         "run({",
-        "  print: (...values) => console.log(values.map(pykFormat).join(' ')),",
+        "  print: (...values) => console.log(values.map((value) => pykFormat(value)).join(' ')),",
         "});",
         "",
     ])
@@ -190,7 +207,7 @@ def package_esm_html(module_name, source):
         "",
         "run({",
         "  print: (...values) => {",
-        "    pykOutput.textContent += values.map(pykFormat).join(' ') + '\\n';",
+        "    pykOutput.textContent += values.map((value) => pykFormat(value)).join(' ') + '\\n';",
         "  },",
         "});",
     ])

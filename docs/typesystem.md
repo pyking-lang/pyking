@@ -37,7 +37,12 @@ nothing else calls into an `Expr`-shaped decision.
 ## Three things are threaded, and they behave differently on purpose
 
 Every checking function passes along up to three values, and the
-signature block calls out that they are not interchangeable:
+signature block calls out that they are not interchangeable. (Two
+smaller ones ride along with them: the enclosing function's declared
+return type, and the enclosing `Loop`. Both are plain context — read,
+never accumulated — and both are absent where there is none, which is
+how "`return` outside a function" and "`break` outside a loop" are the
+same sentence twice.)
 
 - **`Env`** (`{String: Type?}`) — the names in scope and what this
   checker knows about their types. Threaded exactly the way
@@ -88,6 +93,11 @@ cases:
   wording PYKING.md's "Tail position" table uses for it, not a
   coincidence but the whole point: `check_stmt` *is* the mechanism that
   table describes.
+- A `break`/`continue` supplies the enclosing loop's accumulator type,
+  for the same reason and with the same payoff: `if c: x + 1 else:
+  break` needs no special case, since both branches answer the same
+  question with the same type. A `loop` itself supplies its accumulator,
+  which is what makes `x = loop …` a binding like any other.
 - An `if` (as a *statement* used in a value position — the last
   statement of a function body, say) supplies whichever branch's type,
   once both branches are required to agree.

@@ -1,0 +1,2 @@
+'tests/fail_typecheck_loop_continue.pyk' 12:17-12:21 Type error: this
+  loop carries Int, but this 'continue' gives Bool

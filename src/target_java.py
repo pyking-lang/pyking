@@ -33,7 +33,8 @@ from syntax import (
     Expr, EInt, EString, EBool, EVar,
     EAdd, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EIf,
-    SLet, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SWhile, SIf, SFunctionDef,
+    SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SWhile, SIf,
+    SLoop, SBreak, SContinue, SFunctionDef,
     TargetName, TInt, TString, TBool,
 )
 
@@ -236,6 +237,22 @@ class JWhile(JStmt):
 
 
 @dataclass(frozen=True)
+class JLoop(JStmt):         # while (true) { body }
+    info: Info
+    body: list
+
+
+@dataclass(frozen=True)
+class JBreak(JStmt):        # break;
+    info: Info
+
+
+@dataclass(frozen=True)
+class JContinue(JStmt):     # continue;
+    info: Info
+
+
+@dataclass(frozen=True)
 class JReturn(JStmt):
     info: Info
     expr: JExpr
@@ -271,16 +288,29 @@ class Scope:
     (bound in the Pyking program but not reachable here -- this
     backend's methods have no closures); names, {String: (String,
     String)} (Pyking name -> (Java name, jtype)); block, {String} (names
-    bound by the innermost block)."""
+    bound by the innermost block); taken, {String} (every Java name
+    already spoken for here, which `names` cannot say: it holds only
+    each Pyking name's *current* Java name, so a name rebound three
+    times would otherwise offer the second one's spelling back to the
+    fourth, and javac refuses a local declared twice)."""
     outside: frozenset
     names: dict
     block: frozenset
+    taken: frozenset = frozenset()
 
 
 def _block_scope(scope):
     """The scope for a nested block: sees outside and names; drops
     block. Scope -> Scope"""
-    return Scope(scope.outside, scope.names, frozenset())
+    return Scope(scope.outside, scope.names, frozenset(), scope.taken)
+
+
+def _reserve(names, scope):
+    """scope with these Java names spoken for, but meaning nothing:
+    what a loop does with its accumulator, which is declared in this
+    block and in scope only in the loop's own body.
+    [String] -> Scope -> Scope"""
+    return Scope(scope.outside, scope.names, scope.block, scope.taken | set(names))
 
 
 @dataclass(frozen=True)
@@ -324,7 +354,11 @@ String System Object Integer Boolean Math args main
 def _fresh_java_name(name, scope):
     """name2, name3, ... -- the first not already used. String -> Scope
     -> String"""
-    taken = set(scope.names) | {java_name for java_name, _ in scope.names.values()}
+    taken = (
+        set(scope.names)
+        | {java_name for java_name, _ in scope.names.values()}
+        | set(scope.taken)
+    )
     n = 2
     while f"{name}{n}" in taken or f"{name}{n}" in RESERVED:
         n += 1
@@ -339,12 +373,14 @@ def _bind(name, jtype, scope):
         name in RESERVED
         or name in scope.names
         or any(name == n for n, _ in scope.names.values())
+        or name in scope.taken
     ):
         java_name = _fresh_java_name(name, scope)
     return java_name, Scope(
         scope.outside,
         {**scope.names, name: (java_name, jtype)},
         scope.block | {name},
+        scope.taken | {java_name},
     )
 
 
@@ -370,6 +406,10 @@ class _Translator:
         self.declared = {}
         self.defined = set()
         self.called_early = set()
+        # The accumulator of each enclosing `loop`, innermost last, as
+        # (java_name, jtype): what a `break`/`continue` with an operand
+        # assigns before it jumps.
+        self.loops = []
 
     # -- expressions --
 
@@ -493,7 +533,7 @@ class _Translator:
         out = []
         for s in stmts:
             translated, scope = self.stmt(s, scope)
-            out.append(translated)
+            out.extend(_as_stmts(translated))
         _check_reachable(out)
         return out, scope
 
@@ -527,9 +567,110 @@ class _Translator:
                     else self.tail_stmts(else_body, _block_scope(scope))
                 )
                 return [JIf(info, condition, then_branch, else_branch)]
+            case SLoop(info):
+                # A function ending in a loop returns what the loop
+                # produced: the accumulator it stopped with. A loop
+                # nothing breaks out of never gets there, and javac
+                # refuses a statement that cannot be reached.
+                java_stmts, accumulator, _ = self.loop(s, scope)
+                if not _breaks_out(java_stmts[-1].body):
+                    return java_stmts
+                return java_stmts + [JReturn(info, accumulator)]
             case _:
                 translated, _ = self.stmt(s, scope)
-                return [translated]
+                return _as_stmts(translated)
+
+    def loop(self, s, scope):
+        """Translates a loop into `while (true)` over one mutable local
+        (docs/target_java.md, "loop"): the initializer declares it,
+        every tail of the body assigns the next turn's value, and a
+        `break`/`continue` with an operand assigns it before it jumps.
+        Returns the statements, the expression holding the loop's value
+        afterwards, and the scope: the accumulator is in scope only in
+        the loop's own body, but its declaration stands in the block
+        around it, so that Java name stays spoken for there.
+        SLoop -> Scope -> ([JStmt], JExpr?, Scope)"""
+        info = s.info
+        if s.target is None:
+            _unsupported(
+                s,
+                "a `loop` with no accumulator -- Java has no value to give "
+                "it, so write `loop x = 0:` and break with what you want",
+            )
+        match s.target:
+            case TargetName(_, name):
+                pass
+            case _:
+                _unsupported(s, "tuple destructuring targets")
+        value = self.expr(s.init, scope)
+        java_name, body_scope = _bind(
+            s.target.name, value.ctype, _block_scope(scope)
+        )
+        setup = [JDecl(info, value.ctype, java_name, value, False)]
+        accumulator = JVar(info, java_name, value.ctype)
+        self.loops.append((java_name, value.ctype))
+        try:
+            body = self.loop_block(s.body, body_scope)
+        finally:
+            self.loops.pop()
+        return setup + [JLoop(info, body)], accumulator, _reserve([java_name], scope)
+
+    def accumulate(self, expr, scope, node):
+        """The assignment that gives the innermost loop its next value.
+        Expr -> Scope -> Stmt -> JStmt"""
+        java_name, jtype = self.loops[-1]
+        value = self.expr(expr, scope)
+        if value.ctype != jtype:
+            _unsupported(
+                node,
+                f"this loop carries {jtype}, so it cannot go on with "
+                f"{value.ctype} in Java",
+            )
+        return JAssign(node.info, java_name, value)
+
+    def loop_block(self, stmts, scope):
+        """Translates a loop body: whatever a path ends in is the next
+        turn's value, so every tail becomes an assignment to the
+        accumulator -- except a `break`/`continue`, which has already
+        said what happens next. [Stmt] -> Scope -> [JStmt]"""
+        if not stmts:
+            return []
+        body, scope = self.stmts(stmts[:-1], scope)
+        return body + self.loop_tail(stmts[-1], scope)
+
+    def loop_tail(self, s, scope):
+        """The last statement of a loop body, or of one branch of one.
+        Stmt -> Scope -> [JStmt]"""
+        match s:
+            case SExprStmt(_, expr):
+                return [self.accumulate(expr, scope, s)]
+            case SIf(info, cond, then_body, else_body):
+                condition = self.expr(cond, scope)
+                self._require(condition, BOOL, "an `if` condition")
+                if else_body is None:
+                    _unsupported(
+                        s,
+                        "an `if` with no `else` as the last statement of a "
+                        "loop body -- there would be a turn with no next "
+                        "value, and Java has no unit to give it",
+                    )
+                return [JIf(
+                    info,
+                    condition,
+                    self.loop_block(then_body, _block_scope(scope)),
+                    self.loop_block(else_body, _block_scope(scope)),
+                )]
+            case SBreak() | SContinue() | SReturn() | SReturnStmt():
+                # Each of these says by itself what happens next: two
+                # leave the loop, one leaves the whole function.
+                translated, _ = self.stmt(s, scope)
+                return _as_stmts(translated)
+            case _:
+                _unsupported(
+                    s,
+                    "a loop body ending in something with no value -- every "
+                    "turn has to say what the next one carries",
+                )
 
     def block(self, stmts, scope):
         """Translates a nested block; its bindings do not escape.
@@ -549,6 +690,16 @@ class _Translator:
             case SLet(info, _, _):
                 _unsupported(s, "tuple destructuring targets")
 
+            case SLetStmt(info, TargetName(_, name), SLoop() as loop):
+                # `x = loop ...` -- the loop's value is the accumulator
+                # it stopped with, so the binding is one declaration
+                # after it.
+                java_stmts, accumulator, scope = self.loop(loop, scope)
+                java_name, scope = _bind(name, accumulator.ctype, scope)
+                return java_stmts + [
+                    JDecl(info, accumulator.ctype, java_name, accumulator, True)
+                ], scope
+
             case SVar(info, name, expr):
                 value = self.expr(expr, scope)
                 java_name, scope = _bind(name, value.ctype, scope)
@@ -566,7 +717,9 @@ class _Translator:
                 return JAssign(info, java_name, value), scope
 
             case SReturnStmt(_, stmt):
-                return self.tail_stmt(stmt, scope)[0], scope
+                # A loop answers with several statements (the
+                # accumulator, the loop, the return).
+                return self.tail_stmt(stmt, scope), scope
 
             case SReturn(info, expr):
                 return JReturn(info, self.expr(expr, scope)), scope
@@ -598,6 +751,18 @@ class _Translator:
 
             case SWhile(info, cond, body):
                 return JWhile(info, self.expr(cond, scope), self.block(body, scope)), scope
+
+            case SLoop():
+                java_stmts, _, scope = self.loop(s, scope)
+                return java_stmts, scope
+
+            case SBreak(info, expr) | SContinue(info, expr):
+                jump = JBreak(info) if isinstance(s, SBreak) else JContinue(info)
+                if expr is None:
+                    return jump, scope
+                if not self.loops:
+                    _unsupported(s, "a `break` outside a loop")
+                return [self.accumulate(expr, scope, s), jump], scope
 
             case SIf(info, cond, then_body, else_body):
                 java_else = None if else_body is None else self.block(else_body, scope)
@@ -786,15 +951,42 @@ def _calls(body, java_name):
 # javac's own flow analysis accepts.
 
 def _stmt_definitely_returns(s):
-    """Whether s, as the last statement of a block, guarantees a return.
-    Stmt -> Bool"""
+    """Whether s, as the last statement of a block, guarantees a return
+    -- or, for a `while (true)` nothing breaks out of, never lets the
+    block finish at all, which javac treats the same way (JLS 14.21:
+    such a statement cannot complete normally). Stmt -> Bool"""
     match s:
         case JReturn():
             return True
         case JIf(_, _, then_body, else_body) if else_body is not None:
             return _definitely_returns(then_body) and _definitely_returns(else_body)
+        case JLoop(_, body):
+            return not _breaks_out(body)
         case _:
             return False
+
+
+def _breaks_out(body):
+    """Whether body contains a `break` belonging to the loop it is the
+    body of -- one inside a nested loop belongs to that one instead.
+    [JStmt] -> Bool"""
+    for s in body:
+        match s:
+            case JBreak():
+                return True
+            case JIf(_, _, then_body, else_body):
+                if _breaks_out(then_body) or _breaks_out(else_body or []):
+                    return True
+            case _:
+                pass
+    return False
+
+
+def _as_stmts(translated):
+    """One translation's statements: a statement translator may answer
+    with several (a loop is a declaration plus a `while`).
+    (JStmt | [JStmt]) -> [JStmt]"""
+    return list(translated) if isinstance(translated, list) else [translated]
 
 
 def _definitely_returns(stmts):
@@ -841,7 +1033,7 @@ def translate_program(stmts):
             functions.append(func)
         else:
             translated, scope = translator.stmt(s, scope)
-            main_body.append(translated)
+            main_body.extend(_as_stmts(translated))
     _check_reachable(main_body)
     return JProgram(functions, main_body)
 
@@ -985,6 +1177,16 @@ def pprint_java_stmt(s, version, level=1):
                         break
             lines.append(f"{pad}}}")
             return "\n".join(lines)
+        case JLoop(_, body):
+            return "\n".join([
+                f"{pad}while (true) {{",
+                _emit_block(body, version, level + 1),
+                f"{pad}}}",
+            ])
+        case JBreak(_):
+            return f"{pad}break;"
+        case JContinue(_):
+            return f"{pad}continue;"
         case JWhile(_, cond, body):
             return "\n".join([
                 f"{pad}while ({pprint_java_expr(cond, version)}) {{",

@@ -28,9 +28,10 @@ import runtime_interface
 from syntax import (
     EInt, EString, EBool, EVar,
     EAdd, ESub, EMul, EDiv, ENeg,
-    ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EIf,
-    SLet, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SWhile, SIf, SFunctionDef,
-    TargetName,
+    ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EIf, ETuple,
+    SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SWhile, SIf,
+    SLoop, SBreak, SContinue, SFunctionDef,
+    TargetName, TargetTuple,
 )
 
 
@@ -105,6 +106,12 @@ class JsCall(JsExpr):       # func(args...)
 
 
 @dataclass(frozen=True)
+class JsArray(JsExpr):      # [e1, e2, ...] -- a Pyking tuple
+    info: Info
+    elements: list
+
+
+@dataclass(frozen=True)
 class JsCond(JsExpr):       # cond ? then_expr : else_expr
     info: Info
     cond: JsExpr
@@ -122,28 +129,45 @@ class JsRuntimeCall(JsExpr):
     args: list
 
 
+class JsTarget:
+    """Base class for what a declaration or assignment binds: a name,
+    or an array pattern taking a tuple apart."""
+
+
+@dataclass(frozen=True)
+class JsTargetName(JsTarget):   # name
+    info: Info
+    name: str
+
+
+@dataclass(frozen=True)
+class JsTargetArray(JsTarget):  # [t1, t2, ...]
+    info: Info
+    elements: list
+
+
 class JsStmt:
     """Base class for the JavaScript statement AST."""
 
 
 @dataclass(frozen=True)
-class JsConst(JsStmt):      # const name = expr;   (Pyking `=`)
+class JsConst(JsStmt):      # const target = expr;   (Pyking `=`)
     info: Info
-    name: str
+    target: JsTarget
     expr: JsExpr
 
 
 @dataclass(frozen=True)
-class JsLet(JsStmt):        # let name = expr;     (Pyking `var`)
+class JsLet(JsStmt):        # let target = expr;     (Pyking `var`)
     info: Info
-    name: str
+    target: JsTarget
     expr: JsExpr
 
 
 @dataclass(frozen=True)
-class JsAssign(JsStmt):     # name = expr;         (Pyking `:=`)
+class JsAssign(JsStmt):     # target = expr;         (Pyking `:=`)
     info: Info
-    name: str
+    target: JsTarget
     expr: JsExpr
 
 
@@ -166,6 +190,16 @@ class JsWhile(JsStmt):      # while (cond) { ... }
     info: Info
     cond: JsExpr
     body: list
+
+
+@dataclass(frozen=True)
+class JsBreak(JsStmt):      # break;
+    info: Info
+
+
+@dataclass(frozen=True)
+class JsContinue(JsStmt):   # continue;
+    info: Info
 
 
 @dataclass(frozen=True)
@@ -192,15 +226,21 @@ class JsReturn(JsStmt):     # return expr;
 class Scope:
     """Pyking name -> the JavaScript name standing in for it, plus the
     names the current block binds (a rename is needed for those too, and
-    only the block itself can tell)."""
+    only the block itself can tell), plus every JavaScript name already
+    spoken for here. The last of those is what `names` cannot say: it
+    maps each Pyking name to its *current* JavaScript name, so a name
+    rebound three times would otherwise offer the second one's spelling
+    back to the fourth binding -- and JavaScript refuses a `const`
+    declared twice."""
     names: dict
     block: frozenset
+    taken: frozenset = frozenset()
 
 
 def _block_scope(scope):
     """A scope for a nested block: it sees the enclosing names, and what
     it binds is dropped when the caller carries on with its own scope."""
-    return Scope(scope.names, frozenset())
+    return Scope(scope.names, frozenset(), scope.taken)
 
 
 def _lookup(name, scope):
@@ -222,7 +262,7 @@ with yield arguments eval undefined NaN Infinity console String
 
 def _fresh_js_name(name, scope):
     """`name2`, `name3`, ... -- the first not already spoken for here."""
-    taken = set(scope.names) | set(scope.names.values())
+    taken = set(scope.names) | set(scope.names.values()) | set(scope.taken)
     n = 2
     while f"{name}{n}" in taken or f"{name}{n}" in RESERVED:
         n += 1
@@ -236,9 +276,28 @@ def _bind(name, scope):
         name in RESERVED
         or name in scope.names
         or name in scope.names.values()
+        or name in scope.taken
     ):
         js_name = _fresh_js_name(name, scope)
-    return js_name, Scope({**scope.names, name: js_name}, scope.block | {name})
+    return js_name, Scope(
+        {**scope.names, name: js_name},
+        scope.block | {name},
+        scope.taken | {js_name},
+    )
+
+
+def _reserve(names, scope):
+    """scope with these JavaScript names spoken for, but meaning
+    nothing: what a loop does with its accumulator, which is declared
+    in this block and in scope only in the loop's own body.
+    [String] -> Scope -> Scope"""
+    return Scope(scope.names, scope.block, scope.taken | set(names))
+
+
+# The accumulator of each enclosing `loop`, innermost last: what a
+# `break`/`continue` with an operand assigns before it jumps. `None` for
+# a loop that carries no accumulator.
+_loop_accumulators = []
 
 
 # Builtins this backend has no translation for yet (docs/target_js.md,
@@ -269,7 +328,6 @@ _BINARY_OPS = {
 # naming the node the parser built for it.
 _CONSTRUCT_NAMES = {
     "EList": "list literals",
-    "ETuple": "tuples",
     "EListComp": "list comprehensions",
     "SFor": "`for` loops",
     "SMatch": "`match` statements",
@@ -309,6 +367,10 @@ def translate_expr(e, scope):
                 translate_expr(then_expr, scope),
                 translate_expr(else_expr, scope),
             )
+        case ETuple(info, elements):
+            # A tuple is a JavaScript array: it is built, taken apart
+            # and printed as one (docs/target_js.md, "Tuples").
+            return JsArray(info, [translate_expr(el, scope) for el in elements])
         case ECall(info, EVar(_, name), args) if runtime_interface.lookup(name):
             # A call that leaves the program: see runtime_interface.py.
             return JsRuntimeCall(
@@ -376,32 +438,47 @@ def translate_tail_stmt(s, scope):
                 else translate_tail_stmts(else_body, _block_scope(scope))
             )
             return [JsIf(info, translate_expr(cond, scope), js_then, js_else)]
+        case SLoop(info):
+            # A function ending in a loop returns what the loop
+            # produced: the accumulator it stopped with.
+            js_stmts, value, _ = _translate_loop(s, scope)
+            return js_stmts + [JsReturn(info, value)]
         case _:
             translated, _ = translate_stmt(s, scope)
-            return [translated]
+            return _as_stmts(translated)
 
 
 def translate_stmt(s, scope):
     """Translates one statement, returning it with the scope it leaves
-    behind. Stmt -> Scope -> (JsStmt, Scope)"""
+    behind. A loop answers with several statements, so the result may be
+    a list (see `_as_stmts`).
+    Stmt -> Scope -> (JsStmt | [JsStmt], Scope)"""
     match s:
-        case SLet(info, TargetName(_, name), expr):
+        case SLet(info, target, expr):
             js_expr = translate_expr(expr, scope)
-            js_name, scope = _bind(name, scope)
-            return JsConst(info, js_name, js_expr), scope
+            js_target, scope = translate_target(target, scope)
+            return JsConst(info, js_target, js_expr), scope
 
-        case SLet(info, _, _):
-            _unsupported(s, "tuple destructuring targets")
+        case SLetStmt(info, target, SLoop() as loop):
+            # `x = loop ...` -- the loop's value is the accumulator it
+            # stopped with, so the binding is one assignment after it.
+            js_stmts, value, scope = _translate_loop(loop, scope)
+            js_target, scope = translate_target(target, scope)
+            return js_stmts + [JsConst(info, js_target, value)], scope
 
         case SVar(info, name, expr):
             js_expr = translate_expr(expr, scope)
             js_name, scope = _bind(name, scope)
-            return JsLet(info, js_name, js_expr), scope
+            return JsLet(info, JsTargetName(info, js_name), js_expr), scope
 
         case SMutate(info, name, expr):
             # An update, not a binding: it reuses whatever name the
             # variable was given when it was declared.
-            return JsAssign(info, _lookup(name, scope), translate_expr(expr, scope)), scope
+            return JsAssign(
+                info,
+                JsTargetName(info, _lookup(name, scope)),
+                translate_expr(expr, scope),
+            ), scope
 
         case SReturn(info, expr):
             return JsReturn(info, translate_expr(expr, scope)), scope
@@ -409,8 +486,8 @@ def translate_stmt(s, scope):
         case SReturnStmt(_, stmt):
             # `return if c:` -- the same push-down as a tail-position
             # `if`, written explicitly so it also works before the end of
-            # the body.
-            return translate_tail_stmt(stmt, scope)[0], scope
+            # the body. A loop answers with several statements.
+            return translate_tail_stmt(stmt, scope), scope
 
         case SExprStmt(info, expr):
             return JsExprStmt(info, translate_expr(expr, scope)), scope
@@ -418,6 +495,23 @@ def translate_stmt(s, scope):
         case SWhile(info, cond, body):
             js_body, _ = translate_stmts(body, _block_scope(scope))
             return JsWhile(info, translate_expr(cond, scope), js_body), scope
+
+        case SLoop():
+            js_stmts, _, scope = _translate_loop(s, scope)
+            return js_stmts, scope
+
+        case SBreak(info, expr) | SContinue(info, expr):
+            jump = JsBreak(info) if isinstance(s, SBreak) else JsContinue(info)
+            if expr is None:
+                return jump, scope
+            js_expr = translate_expr(expr, scope)
+            js_target = _loop_accumulators[-1] if _loop_accumulators else None
+            if js_target is None:
+                # A loop carrying nothing has nowhere to put the operand
+                # (the type checker refuses this outright); it is still
+                # an expression, so it still runs.
+                return [JsExprStmt(info, js_expr), jump], scope
+            return [JsAssign(info, js_target, js_expr), jump], scope
 
         case SIf(info, cond, then_body, else_body):
             js_then, _ = translate_stmts(then_body, _block_scope(scope))
@@ -446,6 +540,126 @@ def translate_stmt(s, scope):
             _unsupported(s, type(s).__name__)
 
 
+def translate_target(target, scope):
+    """Binds every name in an assignment target, giving the JavaScript
+    target that stands for it -- a name, or the array pattern that takes
+    a tuple apart. AssignTarget -> Scope -> (JsTarget, Scope)"""
+    match target:
+        case TargetName(info, name):
+            js_name, scope = _bind(name, scope)
+            return JsTargetName(info, js_name), scope
+        case TargetTuple(info, elements):
+            js_elements = []
+            for element in elements:
+                js_element, scope = translate_target(element, scope)
+                js_elements.append(js_element)
+            return JsTargetArray(info, js_elements), scope
+
+
+def _target_names(target):
+    """Every JavaScript name a target declares. JsTarget -> [String]"""
+    match target:
+        case JsTargetName(_, name):
+            return [name]
+        case JsTargetArray(_, elements):
+            return [name for e in elements for name in _target_names(e)]
+
+
+def _target_as_expr(target):
+    """A target read back as an expression: what a loop's accumulator
+    holds once the loop has stopped. JsTarget -> JsExpr"""
+    match target:
+        case JsTargetName(info, name):
+            return JsVar(info, name)
+        case JsTargetArray(info, elements):
+            return JsArray(info, [_target_as_expr(e) for e in elements])
+
+
+def _translate_loop(s, scope):
+    """Translates a loop into `while (true)` over a `let` accumulator
+    (docs/target_js.md, "loop"): the initializer is the accumulator's
+    first value, every tail of the body assigns the next one, and a
+    `break`/`continue` with an operand assigns it before it jumps.
+    Returns the statements, the expression holding the loop's value
+    afterwards, and the scope: the accumulator is in scope only in the
+    loop's own body, but its `let` is declared in the block around it,
+    so that name stays spoken for there -- a second loop reusing the
+    Pyking name gets a fresh one rather than a duplicate declaration.
+    SLoop -> Scope -> ([JsStmt], JsExpr, Scope)"""
+    info = s.info
+    setup = []
+    js_target = None
+    # A loop carrying nothing yields unit, which is the empty tuple.
+    value = JsArray(info, [])
+    body_scope = _block_scope(scope)
+    if s.target is not None:
+        # The initializer is translated before the accumulator binds, so
+        # `loop x = x + 1:` reads the enclosing `x`.
+        js_init = translate_expr(s.init, scope)
+        js_target, body_scope = translate_target(s.target, body_scope)
+        scope = _reserve(_target_names(js_target), scope)
+        # `let`, not `const`: one JavaScript variable carries what
+        # Pyking binds afresh on every turn.
+        setup.append(JsLet(info, js_target, js_init))
+        value = _target_as_expr(js_target)
+    _loop_accumulators.append(js_target)
+    try:
+        js_body = _translate_loop_block(s.body, js_target, body_scope)
+    finally:
+        _loop_accumulators.pop()
+    return setup + [JsWhile(info, JsBool(info, True), js_body)], value, scope
+
+
+def _translate_loop_block(stmts, js_target, scope):
+    """Translates a loop body: whatever a path ends in is the next
+    turn's accumulator, so every tail becomes an assignment to
+    js_target -- except a `break`/`continue`, which has already said
+    what happens next. js_target is None for a loop carrying nothing,
+    where the body's value is discarded.
+    [Stmt] -> JsTarget? -> Scope -> [JsStmt]"""
+    if not stmts:
+        return []
+    scope = declare_functions(stmts, scope)
+    body, scope = translate_stmts(stmts[:-1], scope)
+    return body + _translate_loop_tail(stmts[-1], js_target, scope)
+
+
+def _translate_loop_tail(s, js_target, scope):
+    """The last statement of a loop body, or of one branch of one.
+    Stmt -> JsTarget? -> Scope -> [JsStmt]"""
+    if js_target is None:
+        return _as_stmts(translate_stmt(s, scope)[0])
+    match s:
+        case SExprStmt(info, expr):
+            return [JsAssign(info, js_target, translate_expr(expr, scope))]
+        case SIf(info, cond, then_body, else_body):
+            js_then = _translate_loop_block(then_body, js_target, _block_scope(scope))
+            if else_body is None:
+                # A path that runs no branch produces nothing, and
+                # nothing is unit (PYKING.md, "Tail position").
+                js_else = [JsAssign(info, js_target, JsArray(info, []))]
+            else:
+                js_else = _translate_loop_block(
+                    else_body, js_target, _block_scope(scope)
+                )
+            return [JsIf(info, translate_expr(cond, scope), js_then, js_else)]
+        case SBreak() | SContinue() | SReturn() | SReturnStmt():
+            # Each of these says by itself what happens next: two leave
+            # the loop, one leaves the whole function.
+            return _as_stmts(translate_stmt(s, scope)[0])
+        case _:
+            return _as_stmts(translate_stmt(s, scope)[0]) + [
+                JsAssign(s.info, js_target, JsArray(s.info, []))
+            ]
+
+
+def _as_stmts(translated):
+    """One translation's statements: a statement translator may answer
+    with several (a loop is a setup plus a `while`).
+    (JsStmt | [JsStmt]) -> [JsStmt]"""
+    return list(translated) if isinstance(translated, list) else [translated]
+
+
 def declare_functions(stmts, scope):
     """Binds every def in this block before any of it is translated
     (docs/target_js.md, "Functions used before they are written").
@@ -462,13 +676,15 @@ def translate_stmts(stmts, scope):
     translated = []
     for s in stmts:
         js_stmt, scope = translate_stmt(s, scope)
-        translated.append(js_stmt)
+        translated.extend(_as_stmts(js_stmt))
     return translated, scope
 
 
 def translate_program(stmts):
     """A whole Pyking program as JavaScript statements, ready for a
     packager to wrap. [Stmt] -> [JsStmt]"""
+    global _loop_accumulators
+    _loop_accumulators = []
     translated, _ = translate_stmts(stmts, Scope({}, frozenset()))
     return translated
 
@@ -533,6 +749,8 @@ def pprint_js_expr(e, runtime, min_prec=0):
                 f"{pprint_js_expr(else_expr, runtime, _CONDITIONAL_PRECEDENCE)}"
             )
             return _wrap(_CONDITIONAL_PRECEDENCE, min_prec, text)
+        case JsArray(_, elements):
+            return f"[{', '.join(pprint_js_expr(el, runtime) for el in elements)}]"
         case JsCall(_, func, args):
             args_text = ", ".join(pprint_js_expr(a, runtime) for a in args)
             return f"{pprint_js_expr(func, runtime, _CALL_PRECEDENCE)}({args_text})"
@@ -541,6 +759,16 @@ def pprint_js_expr(e, runtime, min_prec=0):
             return f"{runtime[operation]}({args_text})"
         case _:
             raise NotImplementedError(f"no printer for JavaScript expression {e!r}")
+
+
+def pprint_js_target(target):
+    """target as JavaScript source text: a name, or the array pattern
+    that takes a tuple apart. JsTarget -> String"""
+    match target:
+        case JsTargetName(_, name):
+            return name
+        case JsTargetArray(_, elements):
+            return f"[{', '.join(pprint_js_target(e) for e in elements)}]"
 
 
 def _join_stmts(stmts, runtime, level):
@@ -563,12 +791,12 @@ def pprint_js_stmt(s, runtime, level=0):
     String} -> Int -> String"""
     pad = "  " * level
     match s:
-        case JsConst(_, name, expr):
-            return f"{pad}const {name} = {pprint_js_expr(expr, runtime)};"
-        case JsLet(_, name, expr):
-            return f"{pad}let {name} = {pprint_js_expr(expr, runtime)};"
-        case JsAssign(_, name, expr):
-            return f"{pad}{name} = {pprint_js_expr(expr, runtime)};"
+        case JsConst(_, target, expr):
+            return f"{pad}const {pprint_js_target(target)} = {pprint_js_expr(expr, runtime)};"
+        case JsLet(_, target, expr):
+            return f"{pad}let {pprint_js_target(target)} = {pprint_js_expr(expr, runtime)};"
+        case JsAssign(_, target, expr):
+            return f"{pad}{pprint_js_target(target)} = {pprint_js_expr(expr, runtime)};"
         case JsExprStmt(_, expr):
             return f"{pad}{pprint_js_expr(expr, runtime)};"
         case JsReturn(_, expr):
@@ -597,6 +825,10 @@ def pprint_js_stmt(s, runtime, level=0):
             lines.append(_join_stmts(body, runtime, level + 1))
             lines.append(f"{pad}}}")
             return "\n".join(lines)
+        case JsBreak(_):
+            return f"{pad}break;"
+        case JsContinue(_):
+            return f"{pad}continue;"
         case JsFunc(_, name, params, body):
             lines = [f"{pad}function {name}({', '.join(params)}) {{"]
             lines.append(_join_stmts(body, runtime, level + 1))

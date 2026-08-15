@@ -1,0 +1,16 @@
+res: Int = loop x: Int = 5:
+    if x <= 10:
+        continue x + 1
+    p: Int = x + 10
+    if p < 30:
+        p + 2
+    else:
+        break
+print(res)
+def first_odd_over(start:Int) -> Int:
+    loop n: Int = start:
+        if n > 10:
+            break
+        else:
+            continue n + 1
+print(first_odd_over(1))

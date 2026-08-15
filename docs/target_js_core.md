@@ -18,13 +18,14 @@ already live in the enclosing Python function and what any function
 defined in that scope reads from around itself (see
 [target_python_internals.md](target_python_internals.md)).
 
-This module's `Scope` is two fields:
+This module's `Scope` is three fields:
 
 ```python
 @dataclass(frozen=True)
 class Scope:
-    names: dict        # Pyking name -> JavaScript name
+    names: dict         # Pyking name -> JavaScript name
     block: frozenset    # names bound by the innermost Pyking block
+    taken: frozenset    # every JavaScript name already spoken for here
 ```
 
 That's the whole mechanism, and it's enough because the premise is
@@ -33,8 +34,8 @@ Pyking's are.** A `const` or `let` declared inside an `if` body is
 already invisible outside it, with no help from this backend — so the
 renaming problem `target_python.py` spends most of its complexity
 solving simply doesn't arise here for the *shadowing* case. `_block_scope`
-is one line (`Scope(scope.names, frozenset())` — keep the enclosing
-names, drop which ones this block itself bound) instead of the
+is one line (`Scope(scope.names, frozenset(), scope.taken)` — keep the
+enclosing names, drop which ones this block itself bound) instead of the
 six-argument reconstruction Python's `_block_scope` needs, precisely
 because there's no `shadowed`/`captured` bookkeeping to carry forward.
 
@@ -46,7 +47,16 @@ the temporal dead zone. `_bind` checks exactly those conditions (a name
 already in `RESERVED`, already a key in `scope.names`, or already one of
 its *values* — the same "don't collide with a name some earlier rename
 already produced" check `target_python.py`'s `_bind` makes, for the
-identical reason). See [target_js.md](target_js.md), "Scope and
+identical reason).
+
+`taken` is what `names` cannot say. That dict holds each Pyking name's
+*current* JavaScript name, so after `x`, `x2`, `x3` it no longer
+remembers that `x2` was ever used, and would offer it back to a fourth
+binding — a duplicate declaration, which JavaScript refuses. `taken`
+accumulates instead of replacing. It is also how a `loop` reserves its
+accumulator: the `let` stands in the block around the loop, but the name
+is in scope only in the loop's body, so `_reserve` adds the JavaScript
+name without binding the Pyking one. See [target_js.md](target_js.md), "Scope and
 renaming," for what a rename actually looks like in the output.
 
 ## `JsRuntimeCall`: one core, three ways to print it

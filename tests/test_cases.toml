@@ -2,8 +2,9 @@
 #
 # Every program must work with `python`, the reference backend. The
 # JavaScript, C and Java backends support a subset of Pyking so far (see
-# docs/architecture.md), so a program using lists, tuples, `for`, `match`
-# or comprehensions is python-only until they grow. Targets that share a
+# docs/architecture.md), so a program using lists, `for`, `match` or
+# comprehensions is python-only until they grow; tuples work on the
+# JavaScript and OCaml targets but not the C or Java ones. Targets that share a
 # backend always agree: `nodejs`, `esm` and `html` differ only in
 # packaging, `c89`/`c23` only in how the same C is printed, and
 # `java8`/`java17`/`java21` only in how the same Java is printed -- so a
@@ -14,8 +15,8 @@
 # with src/interpreter.py and compares its output against the same `.out`
 # every compiling target is compared against. The interpreter runs
 # exactly the fragment the type checker accepts, so a program with `var`,
-# `for`, `while`, `match`, lists, tuples or an unannotated `def` does not
-# list it.
+# `for`, `while`, `match`, lists or an unannotated `def` does not list
+# it.
 #
 # tests/test_script.py reads this file, runs each program on each of its
 # targets, and compares the output against the sibling `.out` file.
@@ -137,6 +138,42 @@ file = "fail_typecheck_int_string3.pyk"
 targets = ["typecheck"]
 
 [[cases]]
+file = "fail_typecheck_loop_annotation.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_loop_body.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_loop_break.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_loop_continue.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_loop_continue_twice.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_loop_crossing.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_loop_outside.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_loop_unit_value.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_loop_unreachable.pyk"
+targets = ["typecheck"]
+
+[[cases]]
 file = "fail_typecheck_mutual_recursion.pyk"
 targets = ["typecheck"]
 
@@ -231,6 +268,22 @@ targets = ["python"]
 [[cases]]
 file = "list_pattern_recursive_short.pyk"
 targets = ["python"]
+
+[[cases]]
+file = "loop_corner_cases.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
+
+[[cases]]
+file = "loop_def_capture.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "loop_early_return.pyk"
+targets = ["python", "interpret"]
+
+[[cases]]
+file = "loop_unit.pyk"
+targets = ["python", "nodejs", "esm", "html"]
 
 [[cases]]
 file = "match_int_simple.pyk"
@@ -451,6 +504,34 @@ targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "
 [[cases]]
 file = "typecheck_lexical_capture.pyk"
 targets = ["python", "nodejs", "esm", "html", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_loop_basic.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_loop_continue.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_loop_nested.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_loop_return.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_loop_string.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_loop_tuple.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_loop_value_forms.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "typecheck"]
 
 [[cases]]
 file = "typecheck_numeric_recursion.pyk"

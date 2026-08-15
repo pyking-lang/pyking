@@ -52,13 +52,16 @@ out capitalised, `True`/`False`, but Pyking prints `true`/`false` (see
 backend's native behavior actively disagrees with Pyking's, rather than
 simply lacking a distinction Pyking makes.
 
-There is no type checker (see PYKING.md), so in general this backend
-cannot know whether a given `print` argument is a `Bool` — but it doesn't
-need one to know for *most* arguments: a comparison or a boolean literal
-always is one, and an arithmetic expression, a literal int/string, or a
-list/tuple never is, straight from the Pyking AST's own shape (`_bool_shape`
-in `target_python.py`). Each argument is handled according to what that
-tells it:
+There is no type checker in an ordinary compile (see PYKING.md), so in
+general this backend cannot know whether a given `print` argument holds
+a `Bool` — but it doesn't need one to know for *most* arguments: a
+comparison or a boolean literal always is one, and an arithmetic
+expression or a literal int/string never is, straight from the Pyking
+AST's own shape (`_bool_shape` in `target_python.py`). What a
+*container* holds is a different question from what it is, so a list, a
+tuple or a comprehension counts as unknown however plainly it is not
+itself a `Bool`: `print([true])` has a boolean to spell either way.
+Each argument is handled according to what that tells it:
 
 ```pyking                                     # generated Python
 print(1 < 2, true, 5, "hi")                   print('true' if 1 < 2 else 'false', 'true' if True else 'false', 5, 'hi')
@@ -68,19 +71,13 @@ A provable `Bool` becomes an inline `'true' if <expr> else 'false'` —
 `<expr>` is evaluated exactly once either way, since it's the
 conditional's own condition, not repeated in each branch — and a provable
 non-`Bool` is passed through completely unwrapped, exactly as if this
-backend didn't exist. Only the residue — a variable or a function call,
-whose value could be anything, including a `Bool`, from where this
-backend is standing — falls back to a small generated helper, checking at
-*runtime* what couldn't be decided at compile time:
+backend didn't exist. Everything else — a variable, a call, a list, a
+tuple — goes through a small generated helper that walks the value at
+*runtime* and formats it by `runtime_interface.py`'s rules:
 
 ```pyking                              # generated Python (only ever emitted if needed)
-found = true
-print(found)                           def __pyk_bool_str(v):
-                                            if isinstance(v, bool):
-                                                return 'true' if v else 'false'
-                                            return v
-                                        found = True
-                                        print(__pyk_bool_str(found))
+flags = [true, false]
+print(flags)                           print(__pyk_str(flags, True))    # [true, false]
 ```
 
 `isinstance`, not `v is True`/`v is False`: Python's `bool` is a subclass
@@ -100,26 +97,39 @@ anything the Pyking source wrote):
 ```python
 # --- prelude begins ---
 # Pyking prints a Bool as `true`/`false`, not Python's own capitalised
-# `True`/`False`; this helper exists because at least one value printed
-# below isn't provably a Bool from its Pyking source form alone (a
-# variable or a function call), so it has to be checked at runtime.
+# `True`/`False`, wherever it sits -- on its own, or inside a list or
+# a tuple. This helper exists because at least one value printed below
+# isn't provably free of Bools from its Pyking source form alone (a
+# variable, a call, or a container), so it is walked at runtime.
 
-def __pyk_bool_str(v):
+def __pyk_str(v, top):
     if isinstance(v, bool):
         return 'true' if v else 'false'
-    return v
+    if isinstance(v, str):
+        if top:
+            return v
+        out = '\''
+        for c in v:
+            out = out + ('\\\\' if c == '\\' else ...)
+        return out + '\''
+    if isinstance(v, list):
+        ...
+    if isinstance(v, tuple):
+        ...
+    return str(v)
 
 # --- prelude ends; the compiled program follows ---
 ```
 
-Only a `print` call's own top-level arguments are handled this way at
-all; a boolean nested inside a printed list or tuple keeps Python's own
-capitalised `repr` (`print([true, false])` writes `[True, False]`), the
-same way a nested *string* keeps Python's quoting even though a top-level
-string argument prints bare. Neither is currently reachable from a test
-in `tests/`, since nothing prints a list of booleans, but it follows the
-same "only the top-level argument is special" rule the existing
-formatting contract already uses for strings.
+The walk is what makes a boolean print as `true` wherever it sits —
+`print([true, false])` writes `[true, false]`, and `print((1, true))`
+writes `(1, true)` — which is the rule `runtime_interface.py` states and
+the interpreter implements. The `top` parameter carries the one thing
+that changes with depth: a string prints bare on its own and quoted
+inside a container, and the quoting is Pyking's own (single quotes,
+backslash escapes) rather than Python's `repr`, which would switch to
+double quotes for a string containing an apostrophe and so disagree with
+the other backends on `print(("it's", 1))`.
 
 ### Names that are keywords in Python
 
@@ -209,12 +219,46 @@ x = "two"                          x2 = 'two'
 print(x, show())                   print(x2, show())      → two 1
 ```
 
+### `loop`, `break` and `continue`
+
+A `loop` is Python's `while True` over one variable holding the
+accumulator: the initializer gives it its first value, every tail of the
+body assigns the next one, and `break`/`continue` are Python's own —
+with the operand, where one is written, assigned first.
+
+```pyking                          # generated Python
+res = loop x = 5:                  x = 5
+    if x <= 10:                    while True:
+        continue x + 1                 if x <= 10:
+    if x < 30:                             x = x + 1
+        x + 2                              continue
+    else:                              if x < 30:
+        break                              x = x + 2
+                                       else:
+                                           break
+                                   res = x
+```
+
+The loop's own value is the accumulator it stopped with, so binding one
+is that assignment after the loop, and a loop in tail position is
+`return x`. A tuple accumulator is a Python tuple, assigned as a whole
+(`x, y = x + 1, y`), so the next turn's values are computed before any
+of them is stored.
+
+The one place this differs from what the source says is a body path with
+no value at all — an `if` with no `else` as the body's last statement.
+PYKING.md's tail-position table says such a statement supplies unit, so
+the generated `else` assigns `()`, which is what the interpreter does
+with it too.
+
 ### A `def` inside a loop
 
 A loop binds afresh on every turn, so a function written in one keeps
 that turn's values. Python would leave every copy sharing the last, so
 the run of `def`s is built by a small factory taking the loop-carried
-names — the values passed are that turn's:
+names — the values passed are that turn's. This applies to all three
+loops: `for`, `while` and `loop`, whose accumulator is loop-carried like
+anything else the body binds:
 
 ```pyking                          # generated Python
 for i in range(3):                 for i in range(3):
