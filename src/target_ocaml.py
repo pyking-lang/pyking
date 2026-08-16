@@ -2,7 +2,10 @@
 subset is exactly what typesystem.py accepts: rather than inferring
 types again, this module runs the checker and reads translated
 expressions' types back out of its tmap, so a program that does not
-type-check is refused before translation begins. See docs/target_ocaml.md
+type-check is refused before translation begins. It is also the one
+target compiled from the program as *written*: OCaml eliminates tail
+calls itself, so src/pyk.py skips src/optimization.py here rather than
+have a rewrite this module would only undo. See docs/target_ocaml.md
 for what the checker's subset still refuses, how the checker is reused,
 and how each construct compiles.
 
@@ -34,16 +37,6 @@ from syntax import (
 
 TARGET = "ocaml"
 EXTENSION = ".ml"
-
-# OCaml eliminates tail calls itself, so this target is compiled from
-# the program *as written* rather than from the one src/optimization.py
-# rewrites (see docs/optimization.md, "The target that needs none of
-# this"). Turning a recursion into a loop here would only be undone: a
-# `loop` becomes a local recursive function on this backend, so the pass
-# and this module would take turns translating the same program into
-# each other's shape, and the reader would be left with a tag-dispatched
-# worker where two mutually recursive functions had been.
-NATIVE_TAIL_CALLS = True
 
 
 class UnsupportedError(Exception):

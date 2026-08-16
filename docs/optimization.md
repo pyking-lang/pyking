@@ -237,13 +237,12 @@ Five million levels deep, self-recursive and mutually recursive alike,
 in constant space — which is the same guarantee the pass gives
 everywhere else, obtained by not getting in the way.
 
-Which targets these are is the *backends'* knowledge, not the driver's:
-`target_ocaml.NATIVE_TAIL_CALLS` says so, and `src/pyk.py` assembles the
-set the way it assembles `TARGETS` and `EXTENSIONS`. A backend for a
-host with proper tail calls would set the same flag and need nothing
-else. `tests/test_script.py` pins it from the other side: generated
-OCaml containing a `tail_group` worker is a failure, since that is the
-pass's fingerprint.
+Which targets these are is one list in `src/pyk.py`,
+`NATIVE_TAIL_CALLS = ("ocaml",)`, read by `compiling_natively`. A
+backend for another host with proper tail calls adds its name to it and
+needs nothing else. `tests/test_script.py` pins the arrangement from the
+other side: generated OCaml containing a `tail_group` worker is a
+failure, since that is the pass's fingerprint.
 
 Three consequences worth stating plainly:
 

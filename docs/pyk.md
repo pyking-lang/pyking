@@ -104,10 +104,12 @@ mistyped command prints.
 
 `compiling_natively(options)` is the other half of that wiring: a target
 whose host eliminates tail calls itself gets the program as written,
-since the pass would only be undone there (`NATIVE_TAIL_CALLS`,
-assembled from the backends the way `TARGETS` is). It asks for
-`--ast` being off as well as the target, because `--ast` ignores
-`--target` and so must not depend on one.
+since the pass would only be undone there. Which targets those are is
+`NATIVE_TAIL_CALLS`, a plain list of names here rather than something
+asked of each backend -- unlike `TARGETS` and `EXTENSIONS`, which each
+backend really does own, this is the driver's own decision about which
+stage to run. It asks for `--ast` being off as well as the target,
+because `--ast` ignores `--target` and so must not depend on one.
 
 ## Two lengths of help
 

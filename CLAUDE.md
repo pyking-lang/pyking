@@ -310,11 +310,11 @@ The bootstrap is split into one module per compiler stage:
    output is ordinary Pyking, every backend and the interpreter get tail
    recursion without knowing this pass exists -- so *do not* add
    per-backend tail-call handling. The one exception runs the other way:
-   a host that eliminates tail calls itself sets `NATIVE_TAIL_CALLS` in
-   its own module (today only `target_ocaml.py`), and `pyk.py` then
-   compiles that target from the program *as written* -- because a
-   `loop` becomes a local recursive function on that backend, so the
-   pass and the backend would otherwise undo each other and leave a
+   a host that eliminates tail calls itself is named in `pyk.py`'s
+   `NATIVE_TAIL_CALLS` list (today just `ocaml`), and that target is
+   then compiled from the program *as written* -- because a `loop`
+   becomes a local recursive function on that backend, so the pass and
+   the backend would otherwise undo each other and leave a
    tag-dispatched worker where `let rec ... and ...` belonged. The one thing it cannot always make
    work is a merged group whose functions disagree about their parameter
    *types*, which only the checker can see; `docs/optimization.md` is

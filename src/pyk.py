@@ -55,13 +55,11 @@ TARGETS = (
 
 # The targets whose host language eliminates tail calls itself, and which
 # are therefore compiled from the program as written rather than from the
-# one src/optimization.py rewrote. Assembled from the backends for the
-# same reason `TARGETS` is: which hosts do this is the backends' own
-# business, not the driver's.
-NATIVE_TAIL_CALLS = frozenset(
-    {target_ocaml.TARGET} if getattr(target_ocaml, "NATIVE_TAIL_CALLS", False)
-    else {}
-)
+# one src/optimization.py rewrote -- there the rewrite would only be
+# undone (see docs/optimization.md, "The target that needs none of
+# this"). One name, written here: a list is easier to read than a
+# question asked of every backend, and adding to it is one line.
+NATIVE_TAIL_CALLS = ("ocaml",)
 
 # What the primary output file is called when `--output` doesn't say. Each
 # backend owns its own extension; `esm` names three files from this stem.

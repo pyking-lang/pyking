@@ -259,8 +259,8 @@ would only have this backend undo it: a `loop` compiles to a local
 recursive function here, so the two would take turns rewriting one
 program into the other's shape.
 
-`target_ocaml.NATIVE_TAIL_CALLS` is what says so; a backend for another
-host with proper tail calls would set the same flag.
+`NATIVE_TAIL_CALLS` in `src/pyk.py` is the list that says so; a backend
+for another host with proper tail calls adds its name to it.
 
 ### `loop`, `break` and `continue`
 
