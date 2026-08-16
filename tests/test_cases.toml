@@ -58,14 +58,6 @@ file = "evaluation_order.pyk"
 targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
 
 [[cases]]
-file = "fail_tco_group_mixed.pyk"
-targets = ["typecheck", "typecheck_notail"]
-
-[[cases]]
-file = "fail_tco_group_parameters.pyk"
-targets = ["typecheck", "typecheck_notail"]
-
-[[cases]]
 file = "fail_typecheck_binding_annotation.pyk"
 targets = ["typecheck"]
 
@@ -550,6 +542,14 @@ file = "typecheck_tco_basic.pyk"
 targets = ["python", "python_notail", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "typecheck", "typecheck_notail"]
 
 [[cases]]
+file = "typecheck_tco_declined.pyk"
+targets = ["python", "python_notail", "nodejs", "esm", "html", "ocaml", "interpret", "typecheck", "typecheck_notail"]
+
+[[cases]]
+file = "typecheck_tco_declined_group.pyk"
+targets = ["python", "python_notail", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "typecheck", "typecheck_notail"]
+
+[[cases]]
 file = "typecheck_tco_deep.pyk"
 targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "typecheck"]
 
@@ -566,7 +566,11 @@ file = "typecheck_tco_types.pyk"
 targets = ["python", "python_notail", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "typecheck", "typecheck_notail"]
 
 [[cases]]
-file = "typecheck_tco_unmerged.pyk"
+file = "typecheck_tco_widths.pyk"
+targets = ["python", "python_notail", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "typecheck", "typecheck_notail"]
+
+[[cases]]
+file = "typecheck_tco_widths_three.pyk"
 targets = ["python", "python_notail", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "typecheck", "typecheck_notail"]
 
 [[cases]]

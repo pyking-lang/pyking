@@ -1,0 +1,28 @@
+def climb(x:Int) -> Int:
+    if x >= 20000:
+        1000 + x
+    else:
+        climb(x + 1)
+print(climb(0))
+def is_even(n:Int) -> Bool:
+    if n == 0:
+        true
+    else:
+        is_odd(n - 1)
+def is_odd(n:Int) -> Bool:
+    if n == 0:
+        false
+    else:
+        is_even(n - 1)
+print(is_even(20000), is_odd(20001))
+def count_down(n:Int) -> Int:
+    if n == 0:
+        0
+    else:
+        count_by(n, 1)
+def count_by(n:Int, step:Int) -> Int:
+    if n == 0:
+        1
+    else:
+        count_down(n - step)
+print(count_down(20000), count_by(20000, 1))

@@ -3,11 +3,12 @@
 `src/optimization.py` is a pass from the Pyking AST to the Pyking AST.
 It finds calls in tail position and rewrites them into `loop`s, so that
 a tail-recursive function runs in one frame instead of thousands. It
-runs for every mode unless `--no-tail-call-opt` says otherwise, and
-before anything reads the program — so `--ast` prints what it built, the
-checker checks it, and every backend compiles it. Every backend but one:
-OCaml eliminates tail calls itself, and gets the program as written (see
-"The target that needs none of this").
+runs for every mode unless `--no-tail-call-opt` says otherwise, on
+**programs the type checker accepts** — the types are what make the
+rewrite decidable, and the gate is one rule rather than a list of
+exceptions. Everything else is compiled as written, and so is the
+`ocaml` target, whose host eliminates tail calls itself (see "The target
+that needs none of this").
 
 This page is the design. What the guarantee *means* is in PYKING.md
 ("Tail calls"); what the pass produces is pinned by the
@@ -60,6 +61,60 @@ The walk stops in three places, each for a reason:
 - **at anything still waiting for the answer**. `n * factorial(n - 1)`
   is not a tail call, and a function whose only recursion looks like
   that is left exactly as written.
+
+## Why it runs after the checker
+
+Two of the pass's decisions are questions about types, and nothing else
+in the compiler can answer them.
+
+**A slot has to be entered with something.** A group merged into one
+loop is as wide as its widest member, so a narrower one enters with a
+value for the slots it does not have. Inside the loop that costs
+nothing — a call carries the slots it does not fill *forward*, keeping
+whatever they held — but the entry wrapper has nothing to carry:
+
+```pyking
+def ping(n) = tail_group1(0, n, ???)     # `pong`'s `step` slot
+```
+
+The value is never *read*: the state it belongs to has no such
+parameter. All that is asked of it is that the slot can hold it, which
+is exactly what a type is. So the pass writes a zero of the slot's
+type — `0`, `''`, `false`, `()`, `[]`, a tuple of those — and where the
+type has none (a function, or an alternative), declines the group.
+
+**A group has to agree about its slots.** Merging `ping(n: Int)` with
+`pong(mark: String)` would give the shared slot two types, and only the
+checker knows that. Reading it from the `tmap` is the difference between
+declining such a group and emitting one the checker then refuses, with
+an error about an accumulator nobody wrote.
+
+### Why one check is enough
+
+The checker runs once, before the pass, and never again — the rewritten
+program is not re-checked, because it cannot fail. The argument, per
+piece:
+
+- **Self-recursion.** The accumulator's type is the parameter tuple's. A
+  tail call `f(a1..an)` type-checked in the original, so `(a1..an)` has
+  exactly that type, which is what the body must produce. Every other
+  tail becomes `break e`, and `e` was the function's value on that path,
+  so the loop is worth the function's return type. A tail `if` with no
+  `else` gains `else: break ()`, and in a program that checks, such an
+  `if` already means the function returns unit.
+- **Merging.** Each slot's type is the one its members share (the gate);
+  a branch's `param = slot` rebinding is that type; a tail call to
+  member *j* puts member *j*'s argument types into those slots; a padded
+  slot gets its own current value or a zero of its type; and every
+  `break` gives the group's shared return type.
+- **The worker is emitted fully annotated**, from the `tmap`, even for a
+  group nobody annotated. That is what makes the argument *local*: the
+  worker would be checked where it is written, by the ordinary annotated
+  path, rather than inferred at its call sites and reasoned about.
+
+The one direction the pass can move a program is *toward* checking:
+turning a recursion into a loop removes recursion that inference cannot
+see past. It cannot move one the other way.
 
 ## One function that calls itself
 
@@ -123,8 +178,8 @@ that name. The slots keep the group's own parameter names, so no body is
 rewritten; a member whose parameter is called something else at that
 position gets one binding for it and nothing more, and a name that would
 mean something else inside another member's body falls back to a fresh
-one. The worker takes the group's annotations where they agree and none
-where they do not.
+one. The worker is annotated from the `tmap`, whether or not the group
+was.
 
 Three things follow from doing it this way:
 
@@ -136,71 +191,81 @@ Three things follow from doing it this way:
   takes the simpler rewrite above; the state exists to say *which* body,
   and there is only one.
 
-A group whose functions take different numbers of arguments is left
-alone: there is no one accumulator for them to share. Their own
-self-calls, if any, are still rewritten.
+### Members of different widths
 
-## The groups this cannot make work
+A group need not agree about how many arguments it takes. The
+accumulator is as wide as the **widest** member, and a narrower one
+simply leaves the last slots alone:
 
-Merging is decided on what the pass can see — how many arguments each
-function takes — and one thing it cannot see is what type each argument
-holds. The slots are shared, so the members have to agree about them,
-and where they do not the checker refuses what the pass built:
+```pyking                        # what the pass builds
+def ping(n):                    def tail_group1(state, n, step):
+    if n == 0:                      loop state, n, step = state, n, step:
+        0                               if state == 0:
+    else:                                   if n == 0:
+        pong(n - 1, 2)                          break 0
+                                            else:
+def pong(n, step):                              1, n - 1, 2
+    if n == 0:                          else if n == 0:
+        1                                   break 1
+    else:                               else:
+        ping(n - step)                      0, n - step, step
 
-```pyking
-def ping(n: Int) -> String:
-    if n == 0:
-        "done"
-    else:
-        pong("x")           # ping's slot holds an Int here,
-
-
-def pong(mark: String) -> String:
-    if mark == "":
-        "empty"
-    else:
-        ping(1)             # and a String here
+                                def ping(n) = tail_group1(0, n, 0)
+                                def pong(n, step) = tail_group1(1, n, step)
 ```
 
-Each function on its own is perfectly well typed — `ping` takes an Int,
-`pong` takes a String, both give a String, and every call passes what it
-should. It is the *merged* loop that cannot be: its one slot would have
-to carry an Int one way round and a String the other.
+Two places had to say something about the slot `ping` has no parameter
+for, and they say different things for the same reason — what is *in
+scope* there:
 
-```
-'prog.pyk' 20:4-23:17 Type error: the branches of this 'if' have
-  different types: (Int, Int) and (Int, String)
-```
+- **Inside the loop**, `step` is a slot the turn is already carrying, so
+  the call to `ping` carries it forward: `0, n - step, step`. Nothing is
+  invented, and the value stays whatever the last `pong` put there.
+- **At the wrapper**, nothing has run and there is nothing to carry, so
+  the pass writes a zero of the slot's type — the `0` in
+  `tail_group1(0, n, 0)`. It is never read: state 0 is `ping`, and
+  `ping` has no third parameter.
 
-The error is reported against the program's own source, since the pass
-moves statements rather than inventing them — but it is describing the
-accumulator, which the program never mentions. That is the honest cost
-of the rewrite, and `--no-tail-call-opt` is the answer:
+Slots are matched **by position**: slot *i* is parameter *i* of every
+member that has one, and takes its name from the first member that does.
+Two functions that agree in arity but not in order — `f(count, name)`
+beside `g(name, count)` — are therefore a group whose slots disagree,
+and are declined rather than quietly rearranged.
 
-```sh
-pyk --no-tail-call-opt prog.pyk        # runs, at the price of the stack
-```
+## The groups this declines
 
-`tests/fail_tco_group_parameters.pyk` and
-`tests/fail_tco_group_mixed.pyk` pin both halves of this: each fails the
-`typecheck` target with the message above, and passes `typecheck_notail`
-with the program printed as written. The second shows that one
-disagreeing member spoils the group it is in — `first` and `second`
-agree perfectly, and `third` is what makes the loop impossible.
+Merging asks four things of the checker's types, and a group that fails
+any of them is left as the recursion it was written as. All four are
+`_shared` in `src/optimization.py`:
 
-Two shapes that might look like the same problem are not:
+1. **The members agree per position.** Every function that has slot *i*
+   must put the same type in it. `ping(n: Int)` beside
+   `pong(mark: String)` does not.
+2. **A padded slot has a zero to write.** `Int`, `String`, `Bool`, `()`,
+   a tuple of those and a list all have one; a function type does not,
+   and neither does an alternative — there is no one value that is both
+   an `Int` and a `String`.
+3. **They agree about what they answer with.** In a program that checks
+   this is already true — if `ping` tail-calls `pong`, `pong`'s answer
+   *is* `ping`'s — so it is a condition that costs nothing and states
+   the assumption out loud.
+4. **Each member has one definite type.** A function nothing calls has
+   none, and one checked at several argument shapes has several; neither
+   gives a shared loop a single answer.
 
-- **Different arities** are visible to the pass, so such a group is
-  never merged in the first place (`tests/typecheck_tco_unmerged.pyk`).
-- **Different return types** cannot arise in a program that type-checks
-  at all: if `ping` tail-calls `pong`, `pong`'s answer *is* `ping`'s, so
-  a group that checks without the pass already agrees about that.
+Declining is invisible: the program compiles and runs exactly as
+written, one frame per call, and `--ast` shows it unchanged. That is the
+whole difference from how this used to work, when a group was merged on
+arity alone and the checker refused the result with a message about an
+accumulator nobody had written.
 
-C and Java have one restriction of their own: they have no tuple, so a
-merged loop's accumulator becomes one local per slot, and a loop that
-would have to answer with *all* of them at once — a bare `break` in a
-multi-slot loop — is refused there. The pass never writes one: every
-exit it builds carries the value the function was returning.
+`tests/typecheck_tco_declined.pyk` holds two of these — a group whose
+slot would need two types, and one whose padded slot is a function —
+and `tests/typecheck_tco_declined_group.pyk` shows that one disagreeing
+member is enough: `first` and `second` agree perfectly, and `third` is
+what keeps all three as recursion. Their `.ast.out` and
+`.notail.ast.out` are the same program twice over, which is exactly what
+being declined means.
 
 ## The target that needs none of this
 
@@ -261,24 +326,42 @@ Three consequences worth stating plainly:
 
 ## Where it runs
 
-`src/pyk.py` calls `optimize` after `symbolize` and before the type
-checker, unless this run is compiling for a target that does the job
-itself (above):
+`src/pyk.py` owns the order, and every stage is called there:
 
 ```
-parse -> analyze names -> symbolize -> optimize -> symbolize -> typecheck -> --ast / backend
+lex -> parse -> names -> symbolize -> typecheck -> optimize -> symbolize -> --ast / backend
+                          (skipped under --typecheck, where the checker checks names too)
 ```
 
-`symbolize` runs again because the pass builds nodes, and it keeps the
-symbols already handed out (see `docs/analyses.md`), so a moved
-statement carries its own identity through. The checker therefore checks
-the program that will actually run, `--ast` prints it, and `tmap` is
-keyed to it — which is what the OCaml backend needs, since it reads
-types back rather than inferring them.
+Three things about that line are load-bearing:
 
-`src/repl.py` applies the same pass to each entry, so a function written
-at the prompt runs the way it would in a file. An entry is its own group
-of `def`s, which is exactly the unit the pass wants.
+- **The checker runs for every mode**, not only under `--typecheck`.
+  Its answer decides whether the pass may run; whether a *failure* is
+  reported is a separate question, and one only `--typecheck`, `pyk run`
+  and the `ocaml` target answer yes to. A program outside the checker's
+  fragment compiles exactly as it always did, unoptimized and unbothered.
+- **`optimize` hands back an extended `tmap`.** The checker will not run
+  again, so the pass records what it built — the loop's accumulator, the
+  worker's parameters and its type — keyed by symbols it allocates past
+  the highest already in use. Without that, `--typecheck --ast` would
+  print the rewritten program with those annotations missing.
+- **`symbolize` runs again** for everything else the pass built, keeping
+  the symbols already handed out (see `docs/analyses.md`), so a moved
+  statement carries its own identity through.
+
+`src/repl.py` does the same per entry, in the same order: an entry is
+checked, then optimized, so a function written at the prompt runs the
+way it would in a file. It checks the entry a second time afterwards —
+not to verify the rewrite, which needs none, but because a merged group
+is a different number of statements and the prompt prints a type per
+statement it runs.
+
+One thing follows from types-first that is worth knowing at a prompt: an
+*unannotated* function is only given a type when something calls it, so
+a `def` entered on its own has none yet and is left as written. Writing
+the annotations, or calling it in the same entry, is what lets the pass
+see it. In a file this never comes up — the call is somewhere in the
+program.
 
 ## What the tests hold
 
@@ -297,13 +380,18 @@ much room a program needs, never what it prints. `tests/test_script.py`
 compares the two files directly as well as running both.
 
 `tests/typecheck_tco_deep.pyk` is the one that would not run at all
-without this: twenty thousand levels, both self-recursive and mutually
-recursive. It lists no `python_notail`, because running it with the pass
-off is precisely the crash the pass exists to prevent.
+without this: twenty thousand levels, self-recursive, mutually
+recursive, and through a group of two different widths. It lists no
+`python_notail`, because running it with the pass off is precisely the
+crash the pass exists to prevent.
 
 Several tests elsewhere in the suite are tail-recursive by nature and so
-exercise this pass without being about it —
-`tests/list_pattern_recursive.pyk`, `tests/recursion_mutual.pyk`,
-`tests/typecheck_infer_mutual.pyk`. Their `.out` files were captured
-before the pass existed and are unchanged, which is the strongest thing
-said about it here.
+exercise this pass without being about it — `tests/recursion_mutual.pyk`,
+`tests/typecheck_infer_mutual.pyk`, `tests/typecheck_recursion.pyk`.
+Their `.out` files were captured before the pass existed and are
+unchanged, which is the strongest thing said about it here.
+
+Programs outside the checker's fragment are the other side of the same
+coin: `tests/list_pattern_recursive.pyk` is tail-recursive and uses
+`match`, so it is compiled as written and recurses, exactly as it did
+before any of this existed. Its `.out` is unchanged too.

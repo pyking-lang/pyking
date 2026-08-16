@@ -1,8 +1,10 @@
 """The interpreter: a resumable small-step machine that runs a Pyking
 program directly from the AST, instead of translating it to a host
-language. Runs the fragment src/typesystem.py accepts (type-checks
-first). Values are 32-bit signed integers, wrapping on overflow. This
-is the reference implementation of Pyking's runtime semantics. See
+language. It runs the fragment src/typesystem.py accepts, and src/pyk.py
+type-checks before handing a program here -- that is the whole of the
+gate, so there is no second list of supported constructs to keep in
+step. Values are 32-bit signed integers, wrapping on overflow. This is
+the reference implementation of Pyking's runtime semantics. See
 docs/architecture.md ("The interpreter") and docs/source.md
 ("interpreter.py").
 
@@ -12,7 +14,6 @@ Control, Kont, Frame, Runtime, State), and:
     Host / ConsoleHost / BufferHost / CallbackHost -- where print goes.
 
 Functions:
-    check(stmts) -- type-checks a program; the interpreter's gate.
     run_program(stmts, host) -- runs a whole program to completion.
     initial_state(stmts, host) -- a machine about to run stmts.
     step(state) -- one small step.
@@ -110,7 +111,6 @@ from syntax import (
 #
 # Signatures
 #
-#     val check          : [Stmt] -> TMap
 #     val initial_state  : [Stmt] -> Host -> State
 #     val step           : State -> State
 #     val run            : State -> Int? -> State
@@ -1340,13 +1340,6 @@ def failed(state, error):
 # ---------------------------------------------------------------------
 # Driving the machine
 # ---------------------------------------------------------------------
-
-
-def check(stmts):
-    """Type-checks stmts; the interpreter's gate (it runs exactly the
-    fragment typesystem.py accepts). Raises TypeError_ or
-    AnalysisError. [Stmt] -> {Int: Type}"""
-    return typesystem.type_check(stmts)
 
 
 def initial_state(stmts, host, env=None, max_depth=MAX_CALL_DEPTH):

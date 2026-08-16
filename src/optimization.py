@@ -3,26 +3,37 @@ that calls itself in tail position becomes a `loop` carrying its own
 parameters, and a group of functions that tail-call each other becomes
 one worker carrying a state tag. Runs for every mode unless
 --no-tail-call-opt is given, so every backend and the interpreter get it
-at once. See docs/optimization.md for what counts as a tail call, what
-is deliberately left alone, and the groups this cannot make work.
+at once.
+
+It runs *after* the type checker and only on a program the checker
+accepted, which is what makes the rewrite safe to leave unchecked: the
+types decide which groups can be merged, and give the value a padded
+slot is entered with. See docs/optimization.md for what counts as a
+tail call, what is deliberately left alone, and why one check is
+enough.
 
 Data structures:
-    Context -- what a rewrite needs: which names are recursive here, and
-        how each one says "go round again".
+    Callee -- a call this loop stands for: its state tag and its arity.
+    Context -- what a rewrite needs: the calls it stands for, the slots
+        the loop carries, and the names the program already uses.
+    Pass -- the two things filled in as the pass runs: the type table
+        it extends, and the symbols it hands out.
 
 Functions:
-    optimize(stmts) -- the whole program, tail calls rewritten.
+    optimize(stmts, tmap) -- the whole program, tail calls rewritten,
+        with the type table extended for what was built.
     tail_calls(func, names) -- the names func tail-calls.
 """
 
 from dataclasses import dataclass, fields, is_dataclass, replace
 
+from typesystem import same_type
 from syntax import (
-    pprint_type,
-    EInt, EVar, EEq, ECall, EIf, ETuple,
+    EInt, EString, EBool, EVar, EEq, ECall, EIf, EList, ETuple,
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt,
     SFor, SWhile, SLoop, SBreak, SContinue, SIf, SFunctionDef, SMatch,
-    MatchCase, Param, TInt, TargetName, TargetTuple,
+    Param, TInt, TString, TBool, TList, TTuple, TFunction, TOr, TUnknown,
+    TNever, TargetName, TargetTuple,
 )
 
 
@@ -35,21 +46,81 @@ STATE_NAME = "state"
 
 
 @dataclass(frozen=True)
-class Context:
-    """What rewriting one body needs. Fields: names, {String: Int?}
-    (the calls this loop stands for, each mapped to the state tag it
-    becomes, or None where the loop carries no tag); arity, Int (how
-    many values the loop carries, 0 for a loop carrying nothing);
-    reserved, {String} (every name the program already uses)."""
-    names: dict
+class Callee:
+    """A call the loop being built stands for. Fields: tag, Int? (the
+    state a call to it becomes, absent when the loop carries no state);
+    arity, Int (how many arguments such a call gives -- which need not
+    be how many the loop carries, since a group is as wide as its
+    widest member)."""
+    tag: int
     arity: int
+
+
+@dataclass(frozen=True)
+class Context:
+    """What rewriting one body needs. Fields: names, {String: Callee}
+    (the calls this loop stands for); slots, [String] (the values the
+    loop carries, *not* counting the state tag, so a call that fills
+    fewer of them can carry the rest forward); reserved, {String}
+    (every name the program already uses)."""
+    names: dict
+    slots: list
     reserved: frozenset
 
 
-def optimize(stmts):
-    """A whole program with its tail calls rewritten. Never rejects: a
-    program it cannot improve comes back as it was. [Stmt] -> [Stmt]"""
-    return _block(stmts, _identifiers(stmts))
+class Pass:
+    """The two things this pass fills in rather than rebuilds, for the
+    same reason `typesystem.record` fills in one table: they are its
+    result, not its context. `types` is the checker's table, extended
+    for the annotatable nodes the pass builds -- without it, a
+    `--typecheck --ast` run would print those with no type at all, the
+    checker having never seen them. `symbols` hands out the identities
+    those entries are keyed by, continuing past the highest the program
+    already uses, which is exactly what `analyses.symbolize` will do
+    with the rest afterwards. `reserved` is ordinary context: every name
+    the program writes."""
+
+    def __init__(self, reserved, types, first_symbol):
+        self.reserved = frozenset(reserved)
+        self.types = types
+        self.next_symbol = first_symbol
+
+    def symbol(self):
+        """A symbol nothing else has. () -> Int"""
+        self.next_symbol += 1
+        return self.next_symbol - 1
+
+    def record(self, node, type_):
+        """Gives node a symbol of its own and remembers its type, so
+        that a printed AST shows what the pass built with the types it
+        built them from. a -> Type -> a"""
+        node = replace(node, sym=self.symbol())
+        self.types[node.sym] = type_
+        return node
+
+
+def optimize(stmts, tmap):
+    """A whole program with its tail calls rewritten, and the checker's
+    table extended for the nodes that rewriting built. Never rejects: a
+    program it cannot improve comes back as it was.
+    [Stmt] -> {Int: Type} -> ([Stmt], {Int: Type})"""
+    types = dict(tmap)
+    work = Pass(_identifiers(stmts), types, _highest_symbol(stmts) + 1)
+    return _block(stmts, work), types
+
+
+def _highest_symbol(node, highest=0):
+    """The largest symbol anything in node carries, so the pass can hand
+    out ones nothing else has. a -> Int -> Int"""
+    if is_dataclass(node):
+        sym = getattr(node, "sym", 0)
+        highest = max(highest, sym if isinstance(sym, int) else 0)
+        for f in fields(node):
+            highest = _highest_symbol(getattr(node, f.name), highest)
+    elif isinstance(node, (list, tuple)):
+        for element in node:
+            highest = _highest_symbol(element, highest)
+    return highest
 
 
 # --- finding tail calls ----------------------------------------------
@@ -270,13 +341,13 @@ def _going_on(info, expr, context, jumping):
                 _going_on(if_info, else_expr, context, jumping),
             )]
         case ECall(call_info, EVar(_, name, _), args, _) if (
-            name in context.names and len(args) == context.arity - (
-                0 if context.names[name] is None else 1
-            )
+            name in context.names and len(args) == context.names[name].arity
         ):
-            if context.arity == 0:
+            state = _state_of(call_info, context.names[name], args, context)
+            if state is None:
+                # A loop carrying nothing: there is no next value to
+                # give it, only another turn.
                 return [SContinue(info, None)]
-            state = _state_of(call_info, context.names[name], args)
             return [SContinue(info, state)] if jumping else [SExprStmt(info, state)]
     return [SBreak(info, expr)]
 
@@ -289,11 +360,20 @@ def _chooses_call(expr, context):
     return bool(found)
 
 
-def _state_of(info, tag, args):
+def _state_of(info, callee, args, context):
     """The accumulator a call to a rewritten function becomes: its
-    arguments, with the state tag in front where there is a group.
-    Info -> Int? -> [Expr] -> Expr"""
-    values = list(args) if tag is None else [EInt(info, tag)] + list(args)
+    arguments, the state tag in front where there is a group, and the
+    slots it does not fill carried forward from the turn it is on --
+    which is what lets one loop serve functions of different widths.
+    None where the loop carries nothing at all.
+    Info -> Callee -> [Expr] -> Context -> Expr?"""
+    values = list(args) + [
+        EVar(info, slot) for slot in context.slots[len(args):]
+    ]
+    if callee.tag is not None:
+        values = [EInt(info, callee.tag)] + values
+    if not values:
+        return None
     if len(values) == 1:
         return values[0]
     return ETuple(info, values)
@@ -302,25 +382,34 @@ def _state_of(info, tag, args):
 # --- one function that calls itself ----------------------------------
 
 
-def _rewrite_self(func, reserved):
+def _rewrite_self(func, work):
     """func with its own tail calls turned into a loop carrying its
-    parameters. SFunctionDef -> {String} -> SFunctionDef"""
-    context = Context({func.name: None}, len(func.params), frozenset(reserved))
+    parameters. SFunctionDef -> Pass -> SFunctionDef"""
+    slots = [p.name for p in func.params]
+    context = Context(
+        {func.name: Callee(None, len(func.params))}, slots, work.reserved
+    )
     body = func.body if func.body is not None else [
         SReturn(func.expr.info, func.expr)
     ]
+    carried = [work.types.get(p.sym) for p in func.params]
     return replace(
         func,
-        body=[_loop_over(func.info, [p.name for p in func.params],
-                         _rewrite_block(body, context, jumping=False))],
+        body=[_loop_over(
+            func.info, slots,
+            _rewrite_block(body, context, jumping=False),
+            carried, work,
+        )],
         expr=None,
     )
 
 
-def _loop_over(info, names, body):
+def _loop_over(info, names, body, carried, work):
     """The loop a rewritten body runs in: it carries the names it was
-    given, starting from what they already hold.
-    Info -> [String] -> [Stmt] -> SLoop"""
+    given, starting from what they already hold. `carried` is what the
+    checker says each of them is, so that the loop node carries its own
+    type into the table.
+    Info -> [String] -> [Stmt] -> [Type?] -> Pass -> SLoop"""
     if not names:
         return SLoop(info, None, None, None, body)
     target = (
@@ -331,55 +420,150 @@ def _loop_over(info, names, body):
         EVar(info, names[0]) if len(names) == 1
         else ETuple(info, [EVar(info, name) for name in names])
     )
-    return SLoop(info, target, init, None, body)
+    loop = SLoop(info, target, init, None, body)
+    if any(type_ is None for type_ in carried):
+        return loop
+    accumulator = carried[0] if len(carried) == 1 else TTuple(info, list(carried))
+    return work.record(loop, accumulator)
 
 
 # --- a group that calls each other -----------------------------------
 
 
-def _merge(group, reserved, index):
+def _merge(group, work, index):
     """The worker and wrappers a mutually recursive group becomes, or
-    None if it is one this cannot make: its functions must agree on how
-    many parameters they take. [SFunctionDef] -> {String} -> Int ->
-    [Stmt]?"""
-    arity = len(group[0].params)
-    if any(len(func.params) != arity for func in group):
+    None if the checker's types say it is one this cannot make (see
+    `_shared`). [SFunctionDef] -> Pass -> Int -> [Stmt]?"""
+    shape = _shared(group, work.types)
+    if shape is None:
         return None
+    slot_types, result = shape
+    width = len(slot_types)
 
-    worker = _fresh(reserved, f"{GROUP_NAME}{index}")
-    state = _fresh(reserved | {worker}, STATE_NAME)
-    slots = _slot_names(group, reserved | {worker, state})
+    worker = _fresh(work.reserved, f"{GROUP_NAME}{index}")
+    state = _fresh(work.reserved | {worker}, STATE_NAME)
+    slots = _slot_names(group, width, work.reserved | {worker, state})
     tags = {func.name: tag for tag, func in enumerate(group)}
     context = Context(
-        tags, arity + 1, frozenset(reserved | {worker, state} | set(slots))
+        {
+            func.name: Callee(tags[func.name], len(func.params))
+            for func in group
+        },
+        slots,
+        frozenset(work.reserved | {worker, state} | set(slots)),
     )
 
-    branches = [_branch(func, slots, context) for func in group]
-    dispatch = _dispatch(group[0].info, state, tags, group, branches)
-    body = [_loop_over(group[0].info, [state] + slots, [dispatch])]
-    return [
-        SFunctionDef(
-            group[0].info,
-            worker,
-            [Param(group[0].info, state, TInt(group[0].info))]
-            + _worker_params(group, slots),
-            body,
-            _shared_return_type(group),
-        )
-    ] + [_wrapper(func, worker, tags[func.name]) for func in group]
+    info = group[0].info
+    branches = [
+        _branch(func, slots, slot_types, context, work) for func in group
+    ]
+    dispatch = _dispatch(info, state, tags, group, branches)
+    carried = [TInt(info)] + list(slot_types)
+    body = [_loop_over(info, [state] + slots, [dispatch], carried, work)]
+
+    params = [work.record(Param(info, state, TInt(info)), TInt(info))] + [
+        work.record(Param(info, slot, type_), type_)
+        for slot, type_ in zip(slots, slot_types)
+    ]
+    definition = work.record(
+        SFunctionDef(info, worker, params, body, result),
+        TFunction(info, [TInt(info)] + list(slot_types), result),
+    )
+    # Every slot has a type, so every wrapper has something to enter the
+    # ones it does not fill with. The value is never read -- the state
+    # it belongs to has no such parameter -- so being of the right type
+    # is the whole of what is asked of it.
+    zeros = [_zero(type_, info) for type_ in slot_types]
+    return [definition] + [
+        _wrapper(func, worker, tags[func.name], zeros) for func in group
+    ]
 
 
-def _branch(func, slots, context):
+def _shared(group, types):
+    """What the group's functions agree on, as (slot types, result
+    type), or None if the checker's types say they do not agree enough
+    to share one loop. Four things are asked, and each of them is a
+    thing only the checker knows (docs/optimization.md, "The gate").
+    [SFunctionDef] -> {Int: Type} -> ([Type], Type)?"""
+    signatures = [_signature(func, types) for func in group]
+    if any(signature is None for signature in signatures):
+        return None                      # 4. one definite type each
+    width = max(len(params) for params, _ in signatures)
+
+    slot_types = []
+    for position in range(width):
+        here = [
+            params[position] for params, _ in signatures if position < len(params)
+        ]
+        if not all(same_type(type_, here[0]) for type_ in here):
+            return None                  # 1. the members agree per position
+        if len(here) != len(signatures) and _zero(here[0], group[0].info) is None:
+            return None                  # 2. a padded slot needs a zero
+        slot_types.append(here[0])
+
+    results = [result for _, result in signatures]
+    if not all(same_type(result, results[0]) for result in results):
+        return None                      # 3. and on what they answer with
+    return slot_types, results[0]
+
+
+def _signature(func, types):
+    """The parameter and result types the checker worked out for func,
+    or None where it did not work out exactly one -- a function nothing
+    called, or one checked at several shapes, has no single answer to
+    give a shared loop. SFunctionDef -> {Int: Type} -> ([Type], Type)?"""
+    match types.get(func.sym):
+        case TFunction(_, params, result, _, _, _) if len(params) == len(func.params):
+            if any(_undecided(type_) for type_ in list(params) + [result]):
+                return None
+            return list(params), result
+    return None
+
+
+def _undecided(type_):
+    """Whether the checker left this type open, so that nothing can be
+    written down for it. Type -> Bool"""
+    return isinstance(type_, (TUnknown, TNever))
+
+
+def _zero(type_, info):
+    """A value of this type to enter a slot with, or None for a type
+    that has no obvious one. Never read -- see `_merge` -- so the only
+    thing asked of it is that it type-checks. Type -> Info -> Expr?"""
+    match type_:
+        case TInt():
+            return EInt(info, 0)
+        case TString():
+            return EString(info, "")
+        case TBool():
+            return EBool(info, False)
+        case TList():
+            return EList(info, [])
+        case TTuple(_, elements):
+            insides = [_zero(element, info) for element in elements]
+            if any(inside is None for inside in insides):
+                return None
+            return ETuple(info, insides)
+    # A function has no zero, and neither has an alternative: there is
+    # no one value that is both an Int and a String.
+    return None
+
+
+def _branch(func, slots, slot_types, context, work):
     """One function's body inside the worker: its parameters read off
-    the slots they were passed in, and its tail calls rewritten.
-    SFunctionDef -> [String] -> Context -> [Stmt]"""
+    the slots they were passed in, and its tail calls rewritten. A
+    function narrower than the group reads only the slots it has.
+    SFunctionDef -> [String] -> [Type] -> Context -> Pass -> [Stmt]"""
     body = func.body if func.body is not None else [
         SReturn(func.expr.info, func.expr)
     ]
     rebindings = [
-        SLet(param.info, TargetName(param.info, param.name),
-             EVar(param.info, slot))
-        for param, slot in zip(func.params, slots)
+        work.record(
+            SLet(param.info, TargetName(param.info, param.name),
+                 EVar(param.info, slot)),
+            type_,
+        )
+        for param, slot, type_ in zip(func.params, slots, slot_types)
         if param.name != slot
     ]
     return rebindings + _rewrite_block(body, context, jumping=False)
@@ -400,10 +584,11 @@ def _dispatch(info, state, tags, group, branches):
     return chain[0]
 
 
-def _wrapper(func, worker, tag):
+def _wrapper(func, worker, tag, zeros):
     """The one-line function left where a merged one was: it hands the
-    worker its state and its arguments. SFunctionDef -> String -> Int ->
-    SFunctionDef"""
+    worker its state, its arguments, and a value of the right type for
+    each slot it does not have.
+    SFunctionDef -> String -> Int -> [Expr] -> SFunctionDef"""
     info = func.info
     return replace(
         func,
@@ -411,20 +596,29 @@ def _wrapper(func, worker, tag):
         expr=ECall(
             info,
             EVar(info, worker),
-            [EInt(info, tag)] + [EVar(p.info, p.name) for p in func.params],
+            [EInt(info, tag)]
+            + [EVar(p.info, p.name) for p in func.params]
+            + list(zeros[len(func.params):]),
         ),
     )
 
 
-def _slot_names(group, reserved):
-    """One name per parameter position: the first function's, unless
-    another function's body would have it mean something else, in which
-    case a fresh one. [SFunctionDef] -> {String} -> [String]"""
+def _slot_names(group, width, reserved):
+    """One name per slot -- as many as the widest function takes. Each
+    is the name of the first function that *has* that position, unless
+    some function's body would have it mean something else, in which
+    case a fresh one. A function narrower than the group is asked too:
+    it does not use the slot, but a name that captured something it
+    reads would change it all the same.
+    [SFunctionDef] -> Int -> {String} -> [String]"""
     slots = []
-    for position, param in enumerate(group[0].params):
-        name = param.name
-        if any(_would_capture(func, position, name) for func in group[1:]):
-            name = _fresh(reserved | set(slots), f"{param.name}_slot")
+    for position in range(width):
+        owner = next(
+            func for func in group if position < len(func.params)
+        ).params[position]
+        name = owner.name
+        if any(_would_capture(func, position, name) for func in group):
+            name = _fresh(reserved | set(slots), f"{owner.name}_slot")
         slots.append(name)
     return slots
 
@@ -434,44 +628,18 @@ def _would_capture(func, position, name):
     inside func: it does unless func's own parameter there is already
     called that, or func never mentions the name at all.
     SFunctionDef -> Int -> String -> Bool"""
-    if func.params[position].name == name:
+    if position < len(func.params) and func.params[position].name == name:
         return False
     return _mentions(func.body if func.body is not None else func.expr, name)
-
-
-def _worker_params(group, slots):
-    """The worker's parameters: the slots, annotated where every
-    function in the group annotates that position the same way.
-    [SFunctionDef] -> [String] -> [Param]"""
-    params = []
-    for position, slot in enumerate(slots):
-        annotations = [func.params[position].type for func in group]
-        shared = annotations[0] if _all_same(annotations) else None
-        params.append(Param(group[0].params[position].info, slot, shared))
-    return params
-
-
-def _shared_return_type(group):
-    """The worker's return type: the group's, where they agree.
-    [SFunctionDef] -> Type?"""
-    types = [func.return_type for func in group]
-    return types[0] if _all_same(types) else None
-
-
-def _all_same(types):
-    """Whether every annotation here says the same thing -- compared as
-    written, since nothing has checked them yet. [Type?] -> Bool"""
-    written = [None if t is None else pprint_type(t) for t in types]
-    return all(one == written[0] for one in written)
 
 
 # --- walking the program ---------------------------------------------
 
 
-def _block(stmts, reserved):
+def _block(stmts, work):
     """One block with its own functions rewritten and every nested block
-    walked. [Stmt] -> {String} -> [Stmt]"""
-    stmts = [_walk(s, reserved) for s in stmts]
+    walked. [Stmt] -> Pass -> [Stmt]"""
+    stmts = [_walk(s, work) for s in stmts]
     functions = _functions(stmts)
     if not functions:
         return stmts
@@ -483,19 +651,18 @@ def _block(stmts, reserved):
         if len(group) == 1:
             func = functions[group[0]]
             if group[0] in tail_calls(func, {group[0]}) and _rewritable(func):
-                rewritten[group[0]] = _rewrite_self(func, reserved)
+                rewritten[group[0]] = _rewrite_self(func, work)
             continue
         members = [functions[name] for name in group]
         if not all(_rewritable(func) for func in members):
             continue
-        merged = _merge(members, reserved, index)
+        merged = _merge(members, work, index)
         if merged is None:
-            # A group this cannot merge -- its functions take different
-            # numbers of parameters -- may still have self-calls worth
-            # rewriting.
+            # A group the checker's types say cannot share one loop may
+            # still have self-calls worth rewriting.
             for func in members:
                 if func.name in tail_calls(func, {func.name}):
-                    rewritten[func.name] = _rewrite_self(func, reserved)
+                    rewritten[func.name] = _rewrite_self(func, work)
             continue
         replacements[group[0]] = merged
         for name in group[1:]:
@@ -515,32 +682,32 @@ def _block(stmts, reserved):
     return out
 
 
-def _walk(statement, reserved):
-    """statement with every block inside it optimized. Stmt -> {String}
-    -> Stmt"""
+def _walk(statement, work):
+    """statement with every block inside it optimized.
+    Stmt -> Pass -> Stmt"""
     match statement:
         case SFunctionDef(_, _, _, body, _, _, _) if body is not None:
-            return replace(statement, body=_block(body, reserved))
+            return replace(statement, body=_block(body, work))
         case SFor(_, _, _, body, _) | SWhile(_, _, body, _):
-            return replace(statement, body=_block(body, reserved))
+            return replace(statement, body=_block(body, work))
         case SLoop(_, _, _, _, body, _):
-            return replace(statement, body=_block(body, reserved))
+            return replace(statement, body=_block(body, work))
         case SIf(_, _, then_body, else_body, _):
             return replace(
                 statement,
-                then_body=_block(then_body, reserved),
-                else_body=None if else_body is None else _block(else_body, reserved),
+                then_body=_block(then_body, work),
+                else_body=None if else_body is None else _block(else_body, work),
             )
         case SMatch(_, _, cases, _):
             return replace(
                 statement,
                 cases=[
-                    c if c.body is None else replace(c, body=_block(c.body, reserved))
+                    c if c.body is None else replace(c, body=_block(c.body, work))
                     for c in cases
                 ],
             )
         case SLetStmt(_, _, inner, _, _) | SReturnStmt(_, inner, _):
-            return replace(statement, stmt=_walk(inner, reserved))
+            return replace(statement, stmt=_walk(inner, work))
     return statement
 
 

@@ -1,0 +1,31 @@
+# One member is enough to keep a group from being merged.
+#
+# `first` and `second` agree about everything: both take an Int and give
+# a String. `third` is in the same cycle and takes a String, so the one
+# slot the three would share cannot hold what all of them put in it --
+# and the group is left as the recursion it was written as, all three of
+# it. The pass merges a group or none of it; there is no half of a
+# shared loop.
+
+def first(n: Int) -> String:
+    if n == 0:
+        "done"
+    else:
+        second(n - 1)
+
+
+def second(n: Int) -> String:
+    if n == 0:
+        "also done"
+    else:
+        third("mark")
+
+
+def third(mark: String) -> String:
+    if mark == "":
+        "empty"
+    else:
+        first(0)
+
+
+print(first(3), second(0), third(""))

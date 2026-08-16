@@ -15,7 +15,7 @@ Functions:
     command_python(program, filename) -- `pyk <file>`.
     command_run(program) -- `pyk run`.
     command_repl() -- `pyk repl`.
-    command_compile(program, options) -- `pyk compile`.
+    command_compile(program, tmap, options) -- `pyk compile`.
     wrap(text) -- reflows text to the driver's line width.
 """
 
@@ -315,9 +315,10 @@ def fail_unsupported(target, error):
 
 
 def front_end(options):
-    """Lexes, parses, checks names (or types, for pyk run or
-    --typecheck), and symbolizes options.filename. Exits via fail() on
-    the first error. Options -> ([Stmt], {Int: Type}?)"""
+    """Every stage before a backend, in the order they run: lexing,
+    parsing, name analysis, symbolizing, type checking, and the
+    tail-call pass. Exits via fail() on the first error a mode asked
+    about. Options -> ([Stmt], {Int: Type}?)"""
     with open(options.filename, "r") as f:
         data = f.read()
 
@@ -335,8 +336,18 @@ def front_end(options):
     except ParseError as e:
         fail(e)
 
-    checking = options.typecheck or options.command == "run"
-    if not checking:
+    # Whether a *failure* to type-check stops the compile. The checker
+    # runs either way (below); this says who asked about the answer.
+    # `pyk run` and the OCaml target have to know -- the first because
+    # the interpreter runs exactly the checker's fragment, the second
+    # because that backend reads the types back rather than inferring
+    # them -- and `--typecheck` is asking on purpose.
+    required = (
+        options.typecheck
+        or options.command == "run"
+        or (options.command == "compile" and options.target == target_ocaml.TARGET)
+    )
+    if not required:
         try:
             analyze_program(program)
         except AnalysisError as e:
@@ -348,20 +359,27 @@ def front_end(options):
     # call-free table.
     program = symbolize(program)
 
-    # Tail calls become loops before anything reads the program, so what
-    # `--ast` prints, what the checker checks and what every backend
-    # compiles are the same program (see docs/optimization.md). The pass
-    # builds nodes, so symbols are handed out again -- `symbolize` keeps
-    # the ones already given and continues past the highest.
-    if options.tail_calls and not compiling_natively(options):
-        program = symbolize(optimization.optimize(program))
-
+    # The checker runs for every mode, because the tail-call pass needs
+    # what it knows (see docs/optimization.md): a program it accepts is
+    # optimized, one it refuses is compiled as written. Only `required`
+    # decides whether a refusal is reported rather than simply meaning
+    # "no optimization here".
     tmap = None
-    if checking:
-        try:
-            tmap = interpreter.check(program)
-        except (AnalysisError, typesystem.TypeError_) as e:
+    try:
+        tmap = typesystem.type_check(program)
+    except (AnalysisError, typesystem.TypeError_) as e:
+        if required:
             fail(e)
+
+    # Tail calls become loops before anything reads the program, so what
+    # `--ast` prints and what every backend compiles are the same
+    # program. The pass builds nodes, so symbols are handed out again --
+    # `symbolize` keeps the ones already given and continues past the
+    # highest -- and it extends `tmap` for what it built, since the
+    # checker will not run again to say what those nodes are.
+    if tmap is not None and options.tail_calls and not compiling_natively(options):
+        program, tmap = optimization.optimize(program, tmap)
+        program = symbolize(program)
 
     return program, tmap
 
@@ -413,10 +431,11 @@ def command_python(program, filename):
         os.remove(path)
 
 
-def command_compile(program, options):
+def command_compile(program, tmap, options):
     """Runs `pyk compile <file>`: translates the program for
-    options.target and writes, or prints (--stdout), the result.
-    [Stmt] -> Options -> Int"""
+    options.target and writes, or prints (--stdout), the result. tmap is
+    the checker's table, which only the OCaml backend reads.
+    [Stmt] -> {Int: Type}? -> Options -> Int"""
     target, filename = options.target, options.filename
     stem = os.path.splitext(os.path.basename(filename))[0]
     output_path = options.output
@@ -515,13 +534,13 @@ def command_compile(program, options):
         else:
             write(output_path, java_source)
     elif target == target_ocaml.TARGET:
-        # The OCaml backend compiles exactly what the type checker
-        # accepts, and says so through the same `UnsupportedError` as the
-        # others -- a program that does not type-check is refused here
-        # with the checker's own message, whether or not `--typecheck`
-        # was passed.
+        # The one backend that infers nothing: it reads the types back
+        # out of the table `front_end` filled, which is why this target
+        # type-checks whether or not `--typecheck` was passed (see
+        # `required` there), and why a program that does not check has
+        # already been refused before this point.
         try:
-            ocaml_program = target_ocaml.translate_program(program)
+            ocaml_program = target_ocaml.translate_program(program, tmap)
         except target_ocaml.UnsupportedError as e:
             fail_unsupported(target, e)
         ocaml_source = target_ocaml.pprint_ocaml_program(
@@ -575,7 +594,7 @@ def main(argv):
         case "run":
             return command_run(program)
         case "compile":
-            return command_compile(program, options)
+            return command_compile(program, tmap, options)
         case _:
             return command_python(program, options.filename)
 

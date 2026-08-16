@@ -1,0 +1,27 @@
+def one(a:Int) -> Int:
+    if a > 20:
+        a
+    else:
+        two(a + 1, a + a)
+def two(a:Int, b:Int) -> Int:
+    if b > 30:
+        three(a, b, 100)
+    else:
+        one(a + b + 1)
+def three(a:Int, b:Int, c:Int) -> Int:
+    if c == 0:
+        a + b
+    else:
+        one(a + b + c)
+print(one(1))
+print(two(1, 1))
+print(three(1, 2, 0))
+def start(a:String, b:Int) -> String:
+    if b == 0:
+        finish(a)
+    else:
+        start(a + '*', b - 1)
+def finish(a:String) -> String:
+    a + '!'
+print(start('', 3))
+print(finish('x'))

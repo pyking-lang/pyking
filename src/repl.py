@@ -648,17 +648,26 @@ def submit(session, stmts, report, source=""):
     Returns (session, refused) -- refused is the check-time error, if
     any, left for the caller to handle rather than reported here.
     Session -> [Stmt] -> (Exception -> ()) -> String -> (Session, Exception?)"""
-    # An entry's tail calls become loops here as they would in a file,
-    # so a function written at the prompt runs the way `pyk run` runs it
-    # (see docs/optimization.md). The pass is over the entry alone --
-    # which is exactly right, since an entry is its own group of `def`s.
-    stmts = optimization.optimize(list(stmts))
     seen = symbolize(list(session.seen) + list(stmts))
     entry = seen[len(session.seen):]
     try:
-        checked = check_entry(entry, session.types, session.store)
+        checked, tmap = check_entry(entry, session.types, session.store)
     except (AnalysisError, typesystem.TypeError_) as e:
         return session, e
+
+    # An entry's tail calls become loops here as they would in a file,
+    # so a function written at the prompt runs the way `pyk run` runs it
+    # (see docs/optimization.md). The pass needs the types, so it goes
+    # after the check; the entry is then checked again, not to verify it
+    # -- the rewrite preserves typing -- but because a merged group is a
+    # different number of statements, and the prompt shows a type per
+    # statement it runs. The pass is over the entry alone, which is
+    # exactly right: an entry is its own group of `def`s.
+    optimized, _ = optimization.optimize(entry, tmap)
+    if optimized is not entry:
+        seen = symbolize(list(session.seen) + list(optimized))
+        entry = seen[len(session.seen):]
+        checked, _ = check_entry(entry, session.types, session.store)
 
     # `seen` grows whether or not every statement runs: a symbol handed
     # out once must not be handed out again.
@@ -720,8 +729,10 @@ def statement_source(source, stmt):
 def check_entry(entry, types, store):
     """Checks entry as one group (defs declared together via
     declare_functions, then check_stmt per statement), keeping each
-    statement's environment and store rather than only the last.
-    [Stmt] -> {String: Type} -> Store -> [(Stmt, Type, {String: Type}, Store)]"""
+    statement's environment and store rather than only the last. The
+    tmap it filled comes back too: the tail-call pass reads it.
+    [Stmt] -> {String: Type} -> Store
+    -> ([(Stmt, Type, {String: Type}, Store)], {Int: Type})"""
     types, store = typesystem.declare_functions(entry, types, store)
     tmap = {}
     checked = []
@@ -730,7 +741,7 @@ def check_entry(entry, types, store):
             stmt, types, tmap, None, None, store
         )
         checked.append((stmt, supplied, types, store))
-    return checked
+    return checked, tmap
 
 
 def show(value, type_):

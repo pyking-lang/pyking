@@ -24,7 +24,7 @@ def tail_group2(state:Int, n:Int) -> String:
             (0, n)
 def stage_one(n:Int) -> String = tail_group2(0, n)
 def stage_two(n:Int) -> String = tail_group2(1, n)
-def stage_three(n) = tail_group2(2, n)
+def stage_three(n:Int) -> String = tail_group2(2, n)
 print(is_even(4), is_odd(4), is_even(7), is_odd(7))
 print(stage_one(3))
 print(stage_two(2))

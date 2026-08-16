@@ -298,13 +298,20 @@ The bootstrap is split into one module per compiler stage:
    tree, which is what makes it safe to run twice, should a pass ever
    synthesize nodes into an already-symbolized tree.
 5. **`src/optimization.py`** — tail calls into loops, one pass from the
-   Pyking AST to the Pyking AST, run between `symbolize` and the type
-   checker for every mode unless `--no-tail-call-opt` says otherwise. A
+   Pyking AST to the Pyking AST, run *after* the type checker and only
+   over a program it accepted, unless `--no-tail-call-opt` says
+   otherwise. The types are what make it decidable, which is why it runs
+   there: they say whether a group can share one loop, and what a slot a
+   narrower member does not fill is entered with. The checker runs once
+   and its result is not checked again -- sound because the rewrite
+   preserves typing by construction, so read `docs/optimization.md`
+   ("Why one check is enough") before changing what it builds. A
    function that calls itself in tail position becomes a `loop` carrying
    its own parameters *under their own names*; a group that tail-calls
    each other becomes one `tail_groupN` worker carrying a `state` tag,
-   with each original left as a one-line wrapper. It rewrites and never
-   rejects. Tail position is PYKING.md's own, and the walk stops at a
+   as wide as the group's widest member, with each original left as a
+   one-line wrapper. It rewrites and never rejects: a group whose types
+   do not fit one loop is left as the recursion it was. Tail position is PYKING.md's own, and the walk stops at a
    nested `def` (whose tails are its own) and at a `for`/`while`/`loop`
    (where a `break` would belong to that loop instead). Because the
    output is ordinary Pyking, every backend and the interpreter get tail
@@ -920,11 +927,8 @@ shows what the pass built -- and `<name>.notail.out` is what it prints
 when run with the pass off, which must equal `<name>.out` exactly: the
 pass may change how much room a program needs and never what it means.
 The targets that read them are `typecheck_notail` and `python_notail`.
-A third naming convention goes with them: **`fail_tco_*.pyk`** is a
-program the pass itself makes unacceptable -- it fails `typecheck` and
-passes `typecheck_notail` -- which is how the one case merging cannot
-make work is pinned rather than only described (see
-`docs/optimization.md`).
+A program the pass *declines* to rewrite has the same text in both
+`.ast.out` files, which is what being declined looks like from here.
 
 **Two kinds of expected output.** `<name>.out` is what the program
 *prints*, and every backend is compared against that one file.

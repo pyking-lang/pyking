@@ -25,8 +25,8 @@ module system to express a directory hierarchy with.
 | [`syntax.py`](#syntaxpy) | ~1100 | The AST: one frozen dataclass per variant, documented as algebraic data types, plus the pretty printer that prints Pyking back out. |
 | [`parser.py`](#parserpy) | ~1280 | Recursive descent, tokens → AST, and the few rules the grammar cannot state. |
 | [`analyses.py`](#analysespy) | ~460 | Static analyses over the AST: names and scoping (`analyze_program`), and `symbolize`, which numbers every node. |
-| [`optimization.py`](#optimizationpy) | ~710 | Tail calls into loops: one AST-to-AST pass, so every backend and the interpreter get tail recursion at once. |
 | [`typesystem.py`](#typesystempy) | ~1390 | The type checker: one function per AST datatype, producing `tmap` (symbol → type). Also the type *inference*, which is the same machinery run at a call site rather than at a definition. Its fragment is the interpreter's and the OCaml backend's. |
+| [`optimization.py`](#optimizationpy) | ~770 | Tail calls into loops: one AST-to-AST pass over a program the checker accepted, so every backend and the interpreter get tail recursion at once. |
 | [`runtime_interface.py`](#runtime_interfacepy) | ~50 | The boundary between a pure Pyking program and the world: the operations a host must provide, and how values are formatted. No host code at all. |
 | [`interpreter.py`](#interpreterpy) | ~1440 | The interpreter: values, environments, and a resumable small-step machine that runs the AST. The reference for runtime semantics. |
 | [`repl.py`](#replpy) | ~1020 | `pyk repl`: a session as a program written one entry at a time, and the multi-line editor it is typed into. |
@@ -299,39 +299,6 @@ anything else, for every mode. Errors are `AnalysisError(info, message)`.
 
 ---
 
-## `optimization.py`
-
-**Tail calls into loops.** One pass from the AST to the AST, run for
-every mode unless `--no-tail-call-opt` says otherwise, and before
-anything reads the program — so what `--ast` prints, what the checker
-checks and what each backend compiles are the same program.
-
-**Design, in depth:** [optimization.md](optimization.md).
-
-### Data structures
-
-- **`Context`** — what rewriting one body needs: the calls this loop
-  stands for (each mapped to the state tag it becomes, or `None` where
-  there is no tag), how many values the loop carries, and the names the
-  program already uses.
-
-### Main functions
-
-- **`optimize(stmts) -> [Stmt]`** — the entry point. It never rejects a
-  program: one it cannot improve comes back as it was.
-- **`tail_calls(func, names)`** — the names `func` calls in tail
-  position. Tail position is PYKING.md's own, and the walk stops at a
-  nested `def` (whose tails are its own) and at a `for`/`while`/`loop`
-  (where a `break` would belong to that loop instead).
-- **`_rewrite_tail` / `_rewrite_inner` / `_going_on`** — the rewrite: a
-  recursive call becomes the next accumulator (or a `continue` where it
-  has to jump), anything else becomes a `break`.
-- **`_rewrite_self`** — a function that calls itself, as a loop carrying
-  its own parameters under their own names.
-- **`_merge`** — a mutually recursive group, as one `tail_groupN` worker
-  carrying a `state`, with each original left as a wrapper. A group
-  whose functions differ in arity is left alone.
-
 ---
 
 ## `typesystem.py`
@@ -445,6 +412,55 @@ OCaml-style near the top of the file):
 - **`declare_functions(stmts, env, store)`** — every `def` of a block
   bound before any of it is checked, through `analyses.block_functions`.
   That one step is recursion, mutual recursion and forward references.
+
+---
+
+## `optimization.py`
+
+**Tail calls into loops.** One pass from the AST to the AST, run after
+the type checker and only over a program it accepted — the types are
+what decide which groups can share a loop, and what a slot a narrower
+member does not fill is entered with. What `--ast` prints and what each
+backend compiles are then the same program.
+
+**Design, in depth:** [optimization.md](optimization.md).
+
+### Data structures
+
+- **`Callee`** — a call the loop being built stands for: its state tag,
+  and how many arguments it gives (which need not be how many the loop
+  carries).
+- **`Context`** — what rewriting one body needs: the calls it stands
+  for, the slots the loop carries, and the names the program uses.
+- **`Pass`** — the two things filled in rather than rebuilt, for the
+  reason `typesystem.record` fills one table: the checker's `tmap`,
+  extended for the annotatable nodes the pass builds, and the symbols
+  those entries are keyed by.
+
+### Main functions
+
+- **`optimize(stmts, tmap) -> ([Stmt], {Int: Type})`** — the entry
+  point. It never rejects a program: one it cannot improve comes back as
+  it was. The table comes back extended, since the checker will not run
+  again to say what the new nodes are.
+- **`tail_calls(func, names)`** — the names `func` calls in tail
+  position. Tail position is PYKING.md's own, and the walk stops at a
+  nested `def` (whose tails are its own) and at a `for`/`while`/`loop`
+  (where a `break` would belong to that loop instead).
+- **`_rewrite_tail` / `_rewrite_inner` / `_going_on`** — the rewrite: a
+  recursive call becomes the next accumulator (or a `continue` where it
+  has to jump), anything else becomes a `break`.
+- **`_rewrite_self`** — a function that calls itself, as a loop carrying
+  its own parameters under their own names.
+- **`_merge`** — a mutually recursive group, as one `tail_groupN` worker
+  carrying a `state`, with each original left as a wrapper. The
+  accumulator is as wide as the widest member; a narrower one carries
+  the slots it does not fill forward inside the loop, and enters with a
+  zero of their type at its wrapper.
+- **`_shared`** — the gate, and the only part that reads types: the
+  members must agree per position and on what they answer with, every
+  padded slot must have a zero to write, and each member must have one
+  definite type. A group failing any of these is left as recursion.
 
 ---
 
@@ -565,7 +581,6 @@ three are design rather than accident:
 
 ### Main functions
 
-- **`check(stmts) -> tmap`** — the gate: `typesystem.type_check`.
 - **`initial_state(stmts, host, env=None, max_depth=…)`** — a machine
   about to run. `env` lets a caller continue an earlier session, which is
   what the REPL passes.
@@ -944,7 +959,10 @@ translation, evaluation-order fixing, mutual-recursion grouping);
 refused).
 
 - **`TARGET`** = `"ocaml"`, **`EXTENSION`** = `".ml"`, and the `O*` AST.
-- **`translate_program(stmts)`** — most of the translation is direct
+- **`translate_program(stmts, tmap)`** — the table comes from
+  `src/pyk.py`, which type-checks for this target whether or not
+  `--typecheck` was passed; this module fills none of its own. Most of
+  the translation is direct
   (`let … in` is a block scope, a rebinding is a new binding, `let rec …
   and …` is Pyking's rule that every `def` in a block is visible
   throughout it, and `true`/`false`/`()` are spelled identically). The

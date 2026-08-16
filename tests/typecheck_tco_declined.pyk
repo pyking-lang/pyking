@@ -1,0 +1,51 @@
+# Two groups the pass declines to merge, and the programs it leaves
+# behind.
+#
+# Merging gives a group one accumulator between them, and the checker's
+# types are what say whether that can be built. Where they say it cannot,
+# the pass leaves the recursion exactly as written -- which is why the
+# `.ast.out` and `.notail.ast.out` beside this file are the same program
+# twice. See docs/optimization.md, "The groups this declines".
+
+# The slot `ping` and `pong` would share holds an Int one way round and
+# a String the other. Each function is perfectly well typed on its own;
+# it is the shared slot that cannot be.
+def ping(n: Int) -> String:
+    if n == 0:
+        "done"
+    else:
+        pong("x")
+
+
+def pong(mark: String) -> String:
+    if mark == "":
+        "empty"
+    else:
+        ping(0)
+
+
+print(ping(2), pong(""))
+
+
+# Here the slot `apply_to` would have to be entered with is a function,
+# and there is no value of that type to write down: a zero exists for an
+# Int, a String, a Bool, a list and a tuple of those, and for nothing
+# else.
+def apply_to(n: Int) -> Int:
+    if n == 0:
+        0
+    else:
+        with_step(n - 1, decrement)
+
+
+def with_step(n: Int, step: (Int) -> Int) -> Int:
+    if n == 0:
+        1
+    else:
+        apply_to(step(n))
+
+
+def decrement(n: Int) -> Int = n - 1
+
+
+print(apply_to(3), with_step(2, decrement))

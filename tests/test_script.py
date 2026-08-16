@@ -101,20 +101,13 @@ FAIL_TYPECHECK_PREFIX = "fail_typecheck_"
 TYPECHECK_NOTAIL_TARGET = "typecheck_notail"
 PYTHON_NOTAIL_TARGET = "python_notail"
 NOTAIL_FLAG = "--no-tail-call-opt"
-# A `fail_tco_*` program is one the pass itself makes unacceptable: it
-# fails the `typecheck` target and passes `typecheck_notail`, which is
-# exactly the shape of the caveat it documents (docs/optimization.md,
-# "The groups this cannot make work").
-FAIL_TCO_PREFIX = "fail_tco_"
 # What the `typecheck` target compares against, beside the `.out` every
 # backend shares.
 AST_SUFFIX = ".ast.out"
 
 
 def is_typecheck_file(name):
-    return name.startswith(
-        (TYPECHECK_PREFIX, FAIL_TYPECHECK_PREFIX, FAIL_TCO_PREFIX)
-    )
+    return name.startswith((TYPECHECK_PREFIX, FAIL_TYPECHECK_PREFIX))
 
 
 def expected_path(source, target):
@@ -427,9 +420,7 @@ def run_typecheck(source, workdir):
     return _typecheck(
         source,
         [],
-        expect_failure=os.path.basename(source).startswith(
-            (FAIL_TYPECHECK_PREFIX, FAIL_TCO_PREFIX)
-        ),
+        expect_failure=os.path.basename(source).startswith(FAIL_TYPECHECK_PREFIX),
     )
 
 
@@ -463,9 +454,11 @@ def run_typecheck_notail(source, _workdir):
     """Type-checks and prints the AST with the tail-call pass off, so
     the `.notail.ast.out` holds the program as it was written.
 
-    A `fail_tco_*` program is the one case where the two typecheck
-    targets disagree on purpose: the pass is what makes it unacceptable,
-    so it fails with the pass on and checks cleanly with it off."""
+    The two typecheck targets never disagree about whether a program
+    checks: the pass runs only on programs that already do, and cannot
+    turn one into a program that does not (docs/optimization.md, "Why
+    one check is enough"). What they disagree about is the *shape* they
+    print."""
     return _typecheck(source, [NOTAIL_FLAG], expect_failure=False)
 
 
@@ -506,29 +499,19 @@ def load_cases():
         targets = case["targets"]
         checks = name.startswith(TYPECHECK_PREFIX)
         fails = name.startswith(FAIL_TYPECHECK_PREFIX)
-        breaks_optimized = name.startswith(FAIL_TCO_PREFIX)
         uses_typecheck = TYPECHECK_TARGET in targets
 
-        if (checks or fails or breaks_optimized) and not uses_typecheck:
+        if (checks or fails) and not uses_typecheck:
             print(
                 f"WARNING: {name} is named {TYPECHECK_PREFIX}* or "
                 f"{FAIL_TYPECHECK_PREFIX}* but does not list the "
                 f"{TYPECHECK_TARGET} target"
             )
-        if uses_typecheck and not (checks or fails or breaks_optimized):
+        if uses_typecheck and not (checks or fails):
             print(
                 f"WARNING: {name} uses the {TYPECHECK_TARGET} target "
                 f"but is named neither {TYPECHECK_PREFIX}* nor "
-                f"{FAIL_TYPECHECK_PREFIX}* nor {FAIL_TCO_PREFIX}*"
-            )
-        # A `fail_tco_*` program says two things at once, and both have
-        # to be pinned: that the pass makes it unacceptable, and that
-        # without the pass it is a perfectly good program.
-        if breaks_optimized and TYPECHECK_NOTAIL_TARGET not in targets:
-            print(
-                f"WARNING: {name} is named {FAIL_TCO_PREFIX}* but does not "
-                f"list {TYPECHECK_NOTAIL_TARGET}, which is what shows the "
-                f"program is only refused because of the pass"
+                f"{FAIL_TYPECHECK_PREFIX}*"
             )
         # The pass must not change what a program means, and the pair of
         # outputs is where that is checked -- so a program that runs one

@@ -1,0 +1,48 @@
+# A mutually recursive group whose functions take different numbers of
+# arguments.
+#
+# One accumulator has to serve both, so it is as wide as the widest
+# member: `state`, `n`, and `step`. `ping` has no `step`, and that costs
+# nothing in the two places it could -- inside the loop, a call from
+# `pong` to `ping` carries the slot it does not fill *forward*, so it
+# keeps whatever it held; and at the wrapper, where nothing has run yet,
+# `ping` enters with a value of the slot's type. That value is never
+# read, since the state it belongs to has no such parameter; it only has
+# to be a value the slot can hold, which is why the pass needs the
+# checker to have run first (see docs/optimization.md).
+
+def ping(n: Int) -> Int:
+    if n == 0:
+        0
+    else:
+        pong(n - 1, 2)
+
+
+def pong(n: Int, step: Int) -> Int:
+    if n == 0:
+        1
+    else:
+        ping(n - step)
+
+
+print(ping(6), ping(0))
+print(pong(6, 3), pong(0, 1))
+
+
+# The narrow member written second, so the slots take their names from
+# whichever function has that position first.
+def wide(a: Int, b: Int) -> Int:
+    if a == 0:
+        b
+    else:
+        narrow(a - 1)
+
+
+def narrow(a: Int) -> Int:
+    if a > 3:
+        wide(a - 2, a)
+    else:
+        a
+
+
+print(wide(9, 0), narrow(9), narrow(1))

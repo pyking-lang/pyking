@@ -127,6 +127,11 @@ everywhere, including the interpreter, and no backend implements
 anything for it: what each of them compiles is a program with a `loop`
 in it, which they already knew how to do.
 
+The pass runs over programs the **type checker accepts** — the types are
+what decide whether a group can share one loop. A program outside that
+fragment (`var`, `for`, `while`, `match`, lists) is compiled as written
+and recurses as it always did.
+
 `--no-tail-call-opt` turns the pass off. Two things then differ, and
 only these two: how deep a tail recursion can go before the host gives
 out, and what `--ast` prints.
@@ -156,6 +161,7 @@ testing — could be built end to end before the language surface grew:
 | `if` / `else if` / `else`, `while` | ✅ | ✅ | ✅ | ✅ | ✅ (`if` only) |
 | `loop`, `break`, `continue` | ✅ | ✅ | ✅ (an accumulator is required) | ✅ (same) | ✅ (a local `let rec`, applied at once) |
 | tail calls run in constant space | ✅ | ✅ | ✅ | ✅ | ✅ (natively; the pass is skipped) |
+| … for a program the type checker accepts | required | required | required | required | n/a |
 | `=`, `var`, `:=` | ✅ | ✅ | ✅ | ✅ | ✅ (`=` only) |
 | `if … then … else …` expressions | ✅ | ✅ | ✅ (branches must agree in type) | ✅ (branches must agree in type) | ✅ (same) |
 | integers, strings, booleans | ✅ | ✅ | ✅ | ✅ | ✅ |

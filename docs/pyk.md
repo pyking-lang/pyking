@@ -64,22 +64,32 @@ documentation.
 
 ## `front_end`: the stages every command shares, with one branch
 
-`front_end(options)` runs lexing, parsing, name analysis (or type
-checking, depending on the mode — see below), symbolizing, the
-tail-call pass, and returns `(program, tmap)`. Every command needs this much; nothing past it is
+`front_end(options)` runs every stage before a backend, in the order
+they run: lexing, parsing, name analysis, symbolizing, type checking and
+the tail-call pass, returning `(program, tmap)`. That the order lives
+here and nowhere else is deliberate — no stage reaches for another one
+on its own, which is why `interpreter.check` no longer exists and why
+`target_ocaml.translate_program` takes the table rather than filling
+it. Every command needs this much; nothing past it is
 shared. The one real branch inside it is:
 
 ```python
-checking = options.typecheck or options.command == "run"
+required = (
+    options.typecheck
+    or options.command == "run"
+    or (options.command == "compile" and options.target == target_ocaml.TARGET)
+)
 ```
 
-`pyk run` always type-checks, because the interpreter's fragment *is*
-the checker's fragment — `interpreter.check` **is**
-`typesystem.type_check`, not a lookalike (see `interpreter.py`'s own
-page) — so there's no way to run a program without first knowing the
-checker accepts it. `--typecheck` opts a `pyk compile` into the same
-gate voluntarily. When `checking` is true, `analyze_program` is skipped
-entirely and `interpreter.check` (i.e. the type checker) runs instead —
+The checker itself runs for *every* mode: the tail-call pass needs what
+it knows (see [optimization.md](optimization.md)), so a program it
+accepts is optimized and one it refuses is compiled as written. What
+`required` decides is narrower — whether a refusal is an *error*. `pyk
+run` says yes because the interpreter's fragment is the checker's
+fragment, the `ocaml` target because that backend reads the types back
+rather than inferring them, and `--typecheck` because it was asked for.
+When `required` is true, `analyze_program` is skipped
+entirely and the type checker's own name checking stands in its place —
 not *in addition to* the name analysis, because the checker's own `Env`
 **is** a scope and re-derives every rule `analyze_program` would have
 checked, in the identical wording (`typesystem.py` raises

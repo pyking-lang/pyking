@@ -1961,9 +1961,9 @@ print(only_then(1), only_then(-1))
 A call in tail position is one nothing is waiting for: its answer is the
 answer. So a function that calls *itself* in tail position is a loop
 written as a recursion, and Pyking runs it as one -- the compiler
-rewrites it into a `loop` carrying the parameters before anything else
-sees the program. A tail-recursive function therefore runs in constant
-space on every target and in the interpreter, however deep it goes:
+rewrites it into a `loop` carrying the parameters. A tail-recursive
+function therefore runs in constant space on every target and in the
+interpreter, however deep it goes:
 
 ```pyking
 def climb(x):
@@ -1977,11 +1977,16 @@ print(climb(0))            # 21000, in one frame
 ```
 
 Functions that tail-call *each other* get the same treatment: the group
-becomes one loop they share. Nothing about this changes what a program
-means -- only how much room it needs to run -- and
-`pyk --no-tail-call-opt` turns it off, which is worth doing only to read
-a program back as it was written. What counts as a tail call, what is
-deliberately left alone, and the one kind of group this cannot make work
+becomes one loop they share, as wide as its widest member. Nothing about
+this changes what a program means -- only how much room it needs to
+run -- and `pyk --no-tail-call-opt` turns it off, which is worth doing
+only to read a program back as it was written.
+
+The rewrite applies to programs the **type checker accepts**: what a
+group can share, and what a slot one member has no argument for is
+entered with, are questions about types. A program outside that fragment
+(see "Type checking") is compiled as written and recurses as any other
+language would. What counts as a tail call, what is left alone and why,
 are in [docs/optimization.md](docs/optimization.md).
 
 A call that is *not* in tail position is an ordinary recursion and stays

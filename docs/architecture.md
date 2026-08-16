@@ -33,12 +33,13 @@ AST variant, and `match`/`case` over them rather than method dispatch.
                     │   symbolize     │   one unique integer per node
                     └────────┬────────┘
                     ┌────────▼────────┐
-                    │src/optimization │   tail calls → loops, then
-                    │      .py        │   symbolize again for what it built
-                    └────────┬────────┘   (off with --no-tail-call-opt)
+                    │src/typesystem.py│   every mode; leaves the AST alone
+                    └────────┬────────┘   and fills a symbol→type tmap. Only
+                             │            some modes *report* a failure
                     ┌────────▼────────┐
-                    │src/typesystem.py│   --typecheck only; leaves the AST
-                    └────────┬────────┘   alone, fills a symbol→type tmap
+                    │src/optimization │   tail calls → loops, for a program
+                    │      .py        │   the checker accepted; then
+                    └────────┬────────┘   symbolize again for what it built
                              │
                    src/syntax.py AST — the one
                    thing every backend shares
@@ -81,8 +82,8 @@ repl`) rather than a `--target`.
 | `src/parser.py` | Recursive descent, tokens → the AST in `syntax.py`. Also enforces the few rules the grammar cannot state (duplicate pattern bindings, "every branch of a bound `if` yields a value", one statement per line, and where a `break`/`continue` may stand). |
 | `src/syntax.py` | The AST itself — one dataclass per variant — plus a pretty printer that prints Pyking back out. |
 | `src/analyses.py` | Static passes over the AST. `analyze_program` checks names and scoping — it only rejects, never rewrites; it binds every `def` in a block before walking it, which is what lets functions be recursive, mutually recursive or used before they are written; it runs for every mode except `--typecheck`, which replaces it. `symbolize` then gives every node a unique integer `sym`, rebuilding the tree (nodes are frozen); it runs for every mode, `--ast` included. |
-| `src/optimization.py` | Tail calls into loops: a function that calls itself in tail position becomes a `loop` carrying its parameters, and a group that tail-calls each other becomes one loop they share. AST in, AST out, before anything reads the program, so every backend and the interpreter get it at once. `--no-tail-call-opt` turns it off. |
-| `src/typesystem.py` | The type checker. Opt-in (`--typecheck`) while it covers only part of the language; it leaves the AST alone and reports what it inferred in `tmap`, a symbol → type table, which is what `--ast` then prints from. |
+| `src/typesystem.py` | The type checker. It runs for every mode, since the tail-call pass needs what it knows, but only `--typecheck`, `pyk run` and the `ocaml` target *report* a failure — for everything else, not checking simply means not optimized. It covers only part of the language; it leaves the AST alone and reports what it inferred in `tmap`, a symbol → type table, which is what `--ast` then prints from. |
+| `src/optimization.py` | Tail calls into loops: a function that calls itself in tail position becomes a `loop` carrying its parameters, and a group that tail-calls each other becomes one loop they share. AST in, AST out, after the checker and only for a program it accepted — the types decide which groups can share a loop, and what a slot a narrower member does not fill is entered with. `--no-tail-call-opt` turns it off. |
 | `src/target_python.py` | Python backend: its own `Py*` AST, translation, printer. |
 | `src/target_js_core.py` | JavaScript AST, translation, printer — with no knowledge of packaging. |
 | `src/target_js_packaging.py` | Wraps that output into the files each JS target delivers, and supplies the JavaScript side of the runtime interface. |
@@ -375,9 +376,10 @@ are its two front ends; `src/repl.py` adds a prompt and nothing else to
 the semantics.
 
 It runs the fragment the type checker accepts, and the gate is the
-checker itself — `interpreter.check` is `typesystem.type_check` — so
-there is no second list of supported constructs to keep in step, the
-same arrangement `target_ocaml.py` uses.
+checker itself: `src/pyk.py` runs `typesystem.type_check` before handing
+a program here, so there is no second list of supported constructs to
+keep in step — the same arrangement `target_ocaml.py` uses, and for the
+same reason.
 
 **It is a machine, not a walker.** Execution is `step(State) -> State`,
 driven from a flat loop:

@@ -1,8 +1,8 @@
 """The OCaml code-generation backend. Unlike the other backends, its
 subset is exactly what typesystem.py accepts: rather than inferring
-types again, this module runs the checker and reads translated
-expressions' types back out of its tmap, so a program that does not
-type-check is refused before translation begins. It is also the one
+types, this module reads translated expressions' types out of the
+checker's tmap, which src/pyk.py fills and hands it -- so a program
+that does not type-check is refused before translation begins. It is also the one
 target compiled from the program as *written*: OCaml eliminates tail
 calls itself, so src/pyk.py skips src/optimization.py here rather than
 have a rewrite this module would only undo. See docs/target_ocaml.md
@@ -13,8 +13,8 @@ Data structures: see the `datatype` comment block below (OExpr, OItem,
 OBinding).
 
 Functions:
-    translate_program(stmts) -- type-checks and translates a whole
-        program to [OItem].
+    translate_program(stmts, tmap) -- translates a whole program to
+        [OItem], reading types from the checker's table.
     translate_expr(node, env, tmap) -- translates one Pyking expression
         block to one OExpr.
     pprint_program(items) -- [OItem] to OCaml source text.
@@ -23,8 +23,6 @@ Functions:
 from dataclasses import dataclass
 
 import runtime_interface
-import typesystem
-from analyses import AnalysisError
 from syntax import (
     pprint_type,
     EInt, EString, EBool, EVar,
@@ -317,27 +315,14 @@ def _unused_prefix(stmts):
 # --- translation ---
 
 
-def translate_program(stmts):
-    """Type-checks stmts, then translates it to an OProgram; raises
-    UnsupportedError if it does not type-check. [Stmt] -> OProgram"""
-    tmap = _checked_types(stmts)
+def translate_program(stmts, tmap):
+    """Translates stmts to an OProgram, reading the types the checker
+    worked out rather than inferring any. src/pyk.py runs the checker
+    and hands the table here, so a program that does not check has been
+    refused before this is called. [Stmt] -> {Int: Type} -> OProgram"""
     translator = _Translator(tmap, stmts)
     items = _polish_items(translator.items(stmts))
     return OProgram(items, translator.needs_list_printer, translator.needs_quote)
-
-
-def _checked_types(stmts):
-    """The checker's tmap for stmts; raises UnsupportedError, framing
-    the checker's own message, if it does not type-check. [Stmt] ->
-    {Int: Type}"""
-    try:
-        return typesystem.type_check(stmts)
-    except (typesystem.TypeError_, AnalysisError) as e:
-        raise UnsupportedError(
-            e.info,
-            f"this target compiles only programs that type-check, and this "
-            f"one does not: {e.message}",
-        ) from None
 
 
 @dataclass(frozen=True)

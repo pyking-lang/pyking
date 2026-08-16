@@ -1,0 +1,32 @@
+def tail_group1(state:Int, a:Int, b:Int, c:Int) -> Int:
+    loop (state, a, b, c): (Int, Int, Int, Int) = (state, a, b, c):
+        if state == 0:
+            if a > 20:
+                break a
+            else:
+                (1, a + 1, a + a, c)
+        else if state == 1:
+            if b > 30:
+                (2, a, b, 100)
+            else:
+                (0, a + b + 1, b, c)
+        else if c == 0:
+            break a + b
+        else:
+            (0, a + b + c, b, c)
+def one(a:Int) -> Int = tail_group1(0, a, 0, 0)
+def two(a:Int, b:Int) -> Int = tail_group1(1, a, b, 0)
+def three(a:Int, b:Int, c:Int) -> Int = tail_group1(2, a, b, c)
+print(one(1))
+print(two(1, 1))
+print(three(1, 2, 0))
+def start(a:String, b:Int) -> String:
+    loop (a, b): (String, Int) = (a, b):
+        if b == 0:
+            break finish(a)
+        else:
+            (a + '*', b - 1)
+def finish(a:String) -> String:
+    a + '!'
+print(start('', 3))
+print(finish('x'))

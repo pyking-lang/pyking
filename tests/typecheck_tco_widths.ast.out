@@ -1,0 +1,29 @@
+def tail_group1(state:Int, n:Int, step:Int) -> Int:
+    loop (state, n, step): (Int, Int, Int) = (state, n, step):
+        if state == 0:
+            if n == 0:
+                break 0
+            else:
+                (1, n - 1, 2)
+        else if n == 0:
+            break 1
+        else:
+            (0, n - step, step)
+def ping(n:Int) -> Int = tail_group1(0, n, 0)
+def pong(n:Int, step:Int) -> Int = tail_group1(1, n, step)
+print(ping(6), ping(0))
+print(pong(6, 3), pong(0, 1))
+def tail_group2(state:Int, a:Int, b:Int) -> Int:
+    loop (state, a, b): (Int, Int, Int) = (state, a, b):
+        if state == 0:
+            if a == 0:
+                break b
+            else:
+                (1, a - 1, b)
+        else if a > 3:
+            (0, a - 2, a)
+        else:
+            break a
+def wide(a:Int, b:Int) -> Int = tail_group2(0, a, b)
+def narrow(a:Int) -> Int = tail_group2(1, a, 0)
+print(wide(9, 0), narrow(9), narrow(1))

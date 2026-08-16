@@ -13,4 +13,4 @@ def third(mark:String) -> String:
         'empty'
     else:
         first(0)
-print(first(3))
+print(first(3), second(0), third(''))

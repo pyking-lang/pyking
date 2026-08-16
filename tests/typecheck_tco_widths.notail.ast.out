@@ -10,3 +10,14 @@ def pong(n:Int, step:Int) -> Int:
         ping(n - step)
 print(ping(6), ping(0))
 print(pong(6, 3), pong(0, 1))
+def wide(a:Int, b:Int) -> Int:
+    if a == 0:
+        b
+    else:
+        narrow(a - 1)
+def narrow(a:Int) -> Int:
+    if a > 3:
+        wide(a - 2, a)
+    else:
+        a
+print(wide(9, 0), narrow(9), narrow(1))
