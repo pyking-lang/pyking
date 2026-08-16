@@ -8,16 +8,19 @@ def spell(n:Int) -> String:
         ''
     else:
         'x' + spell(n - 1)
-def is_even(n:Int) -> Bool:
-    if n == 0:
-        true
-    else:
-        is_odd(n - 1)
-def is_odd(n:Int) -> Bool:
-    if n == 0:
-        false
-    else:
-        is_even(n - 1)
+def tail_group3(state:Int, n:Int) -> Bool:
+    loop (state, n): (Int, Int) = (state, n):
+        if state == 0:
+            if n == 0:
+                break true
+            else:
+                (1, n - 1)
+        else if n == 0:
+            break false
+        else:
+            (0, n - 1)
+def is_even(n:Int) -> Bool = tail_group3(0, n)
+def is_odd(n:Int) -> Bool = tail_group3(1, n)
 def describe(n:Int) -> String:
     label(n) + '!'
 def label(n:Int) -> String:
@@ -26,16 +29,19 @@ def label(n:Int) -> String:
     else:
         'positive'
 def parity(limit:Int) -> String:
-    def even(m:Int) -> Bool:
-        if m == 0:
-            true
-        else:
-            odd(m - 1)
-    def odd(m:Int) -> Bool:
-        if m == 0:
-            false
-        else:
-            even(m - 1)
+    def tail_group1(state:Int, m:Int) -> Bool:
+        loop (state, m): (Int, Int) = (state, m):
+            if state == 0:
+                if m == 0:
+                    break true
+                else:
+                    (1, m - 1)
+            else if m == 0:
+                break false
+            else:
+                (0, m - 1)
+    def even(m:Int) -> Bool = tail_group1(0, m)
+    def odd(m:Int) -> Bool = tail_group1(1, m)
     if even(limit):
         'even'
     else:

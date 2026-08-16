@@ -1,0 +1,64 @@
+def factorial(n:Int) -> Int:
+    if n <= 1:
+        1
+    else:
+        n * factorial(n - 1)
+def fibonacci(n:Int) -> Int:
+    if n < 2:
+        n
+    else:
+        fibonacci(n - 1) + fibonacci(n - 2)
+def fib_from(a:Int, b:Int, steps:Int) -> Int:
+    if steps == 0:
+        a
+    else:
+        fib_from(b, a + b, steps - 1)
+def fib_fast(n:Int) -> Int:
+    fib_from(0, 1, n)
+def gcd(a:Int, b:Int) -> Int:
+    if a == b:
+        a
+    else if a > b:
+        gcd(a - b, b)
+    else:
+        gcd(a, b - a)
+def power(base:Int, exponent:Int) -> Int:
+    if exponent <= 0:
+        1
+    else:
+        base * power(base, exponent - 1)
+def is_even(n:Int) -> Bool:
+    if n == 0:
+        true
+    else:
+        is_odd(n - 1)
+def is_odd(n:Int) -> Bool:
+    if n == 0:
+        false
+    else:
+        is_even(n - 1)
+def triangular(n:Int) -> Int:
+    if n <= 0:
+        return 0
+    return n + triangular(n - 1)
+def collatz_length(n:Int) -> Int:
+    def step(current:Int, count:Int) -> Int:
+        if current <= 1:
+            count
+        else if is_even(current):
+            step(halve(current), count + 1)
+        else:
+            step(3 * current + 1, count + 1)
+    def halve(m:Int) -> Int:
+        if m < 2:
+            0
+        else:
+            1 + halve(m - 2)
+    step(n, 0)
+print(factorial(5), factorial(10))
+print(fibonacci(10), fib_fast(10), fib_fast(30))
+print(gcd(48, 18), gcd(17, 5), gcd(9, 9))
+print(power(2, 10), power(3, 4))
+print(is_even(10), is_odd(10), is_even(7))
+print(triangular(10), triangular(0))
+print(collatz_length(6), collatz_length(7), collatz_length(9))

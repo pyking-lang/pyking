@@ -145,11 +145,14 @@ res = loop x = 5:                  let x = 5;
                                    const res = x;
 ```
 
-The loop's own value is the accumulator it stopped with, so binding one
-is that `const` after the loop, and a loop in tail position is
-`return x`. A tuple accumulator is an array, assigned as a whole
+The loop's own value is what it `break`s with, so binding one is that
+`const` after the loop, and a loop in tail position is `return x`. A
+tuple accumulator is an array, assigned as a whole
 (`[x, y] = [x + 1, y]`), so the next turn's values are computed before
-any of them is stored.
+any of them is stored -- and where such a loop breaks with something
+that is *not* that array (`break acc` in a loop carrying two values,
+which is what the tail-call pass builds), the answer gets a `let` of its
+own rather than being squeezed into the accumulator.
 
 The accumulator's `let` stands in the block *around* the loop, since
 that is where it has to be declared, but the name is in scope only in

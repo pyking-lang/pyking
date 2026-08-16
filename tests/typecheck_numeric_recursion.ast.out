@@ -9,46 +9,52 @@ def fibonacci(n:Int) -> Int:
     else:
         fibonacci(n - 1) + fibonacci(n - 2)
 def fib_from(a:Int, b:Int, steps:Int) -> Int:
-    if steps == 0:
-        a
-    else:
-        fib_from(b, a + b, steps - 1)
+    loop (a, b, steps): (Int, Int, Int) = (a, b, steps):
+        if steps == 0:
+            break a
+        else:
+            (b, a + b, steps - 1)
 def fib_fast(n:Int) -> Int:
     fib_from(0, 1, n)
 def gcd(a:Int, b:Int) -> Int:
-    if a == b:
-        a
-    else if a > b:
-        gcd(a - b, b)
-    else:
-        gcd(a, b - a)
+    loop (a, b): (Int, Int) = (a, b):
+        if a == b:
+            break a
+        else if a > b:
+            (a - b, b)
+        else:
+            (a, b - a)
 def power(base:Int, exponent:Int) -> Int:
     if exponent <= 0:
         1
     else:
         base * power(base, exponent - 1)
-def is_even(n:Int) -> Bool:
-    if n == 0:
-        true
-    else:
-        is_odd(n - 1)
-def is_odd(n:Int) -> Bool:
-    if n == 0:
-        false
-    else:
-        is_even(n - 1)
+def tail_group7(state:Int, n:Int) -> Bool:
+    loop (state, n): (Int, Int) = (state, n):
+        if state == 0:
+            if n == 0:
+                break true
+            else:
+                (1, n - 1)
+        else if n == 0:
+            break false
+        else:
+            (0, n - 1)
+def is_even(n:Int) -> Bool = tail_group7(0, n)
+def is_odd(n:Int) -> Bool = tail_group7(1, n)
 def triangular(n:Int) -> Int:
     if n <= 0:
         return 0
     return n + triangular(n - 1)
 def collatz_length(n:Int) -> Int:
     def step(current:Int, count:Int) -> Int:
-        if current <= 1:
-            count
-        else if is_even(current):
-            step(halve(current), count + 1)
-        else:
-            step(3 * current + 1, count + 1)
+        loop (current, count): (Int, Int) = (current, count):
+            if current <= 1:
+                break count
+            else if is_even(current):
+                (halve(current), count + 1)
+            else:
+                (3 * current + 1, count + 1)
     def halve(m:Int) -> Int:
         if m < 2:
             0

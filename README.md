@@ -8,8 +8,10 @@ Python's dynamism gets in the way: plain `=` is an *immutable binding*
 rather than an assignment, mutable variables are declared with `var` and
 updated with `:=`, and every block is a real scope, checked at compile
 time. It adds a loop built for that: `loop x = 0:` carries an
-accumulator from turn to turn and is worth it when it stops, so counting
-something up needs no mutable variable at all.
+accumulator from turn to turn and is worth whatever it breaks with, so
+counting something up needs no mutable variable at all — and a function
+that calls itself in tail position is compiled into exactly such a loop,
+so it runs in constant space on every target.
 
 A program can be compiled for any of ten targets, or run directly by the
 interpreter. The `pyk` script at the repository root is the front end for
@@ -141,6 +143,10 @@ clean` but the cache itself only goes on `make distclean`.
 - **[docs/source.md](docs/source.md)** — every file in `src/`: what it
   is, its data structures, and its main functions, each linking to a
   dedicated page working through that module's own design in depth.
+- **[docs/optimization.md](docs/optimization.md)** — tail calls, and the
+  loops they become: what counts as one, what a mutually recursive group
+  is merged into, what the pass deliberately leaves alone, and the one
+  kind of group it cannot make work.
 - **[docs/type_inference.md](docs/type_inference.md)** — how a function
   nobody annotated still gets a type: checked at the call rather than at
   the definition, why it is done that way, and what it deliberately

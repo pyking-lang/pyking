@@ -117,6 +117,27 @@ Two things it does that no compiling target does:
   (whose own recursion limit is 1 000 by default). The interpreter stops
   at 10 000 with the error above rather than exhausting memory.
 
+## Tail calls, on every target
+
+A function that calls itself in tail position is rewritten into a `loop`
+before any backend sees it, and a group that tail-calls each other into
+one loop they share (`src/optimization.py`,
+[optimization.md](optimization.md)). So the guarantee is the same
+everywhere, including the interpreter, and no backend implements
+anything for it: what each of them compiles is a program with a `loop`
+in it, which they already knew how to do.
+
+`--no-tail-call-opt` turns the pass off. Two things then differ, and
+only these two: how deep a tail recursion can go before the host gives
+out, and what `--ast` prints.
+
+The `ocaml` target is the exception, and gets the guarantee without the
+pass: OCaml eliminates tail calls itself, so that target is compiled
+from the program as written and a tail-recursive function compiles to a
+tail-recursive function. Running the pass first would only have the
+backend undo it, since a `loop` becomes a local recursive function
+there.
+
 ## The shared subset
 
 The Python target compiles all of Pyking. The others implement a common
@@ -134,6 +155,7 @@ testing — could be built end to end before the language surface grew:
 | unit-returning functions (`void`) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `if` / `else if` / `else`, `while` | ✅ | ✅ | ✅ | ✅ | ✅ (`if` only) |
 | `loop`, `break`, `continue` | ✅ | ✅ | ✅ (an accumulator is required) | ✅ (same) | ✅ (a local `let rec`, applied at once) |
+| tail calls run in constant space | ✅ | ✅ | ✅ | ✅ | ✅ (natively; the pass is skipped) |
 | `=`, `var`, `:=` | ✅ | ✅ | ✅ | ✅ | ✅ (`=` only) |
 | `if … then … else …` expressions | ✅ | ✅ | ✅ (branches must agree in type) | ✅ (branches must agree in type) | ✅ (same) |
 | integers, strings, booleans | ✅ | ✅ | ✅ | ✅ | ✅ |

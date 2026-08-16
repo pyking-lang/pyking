@@ -367,10 +367,12 @@ _pending_comp_helpers = []
 # collide with one.
 _used_identifiers = set()
 
-# The accumulator variable of each enclosing `loop`, innermost last: what
-# a `break`/`continue` with an operand assigns before it jumps. `None`
-# for a loop that carries no accumulator.
+# The enclosing `loop`s, innermost last (see `_Loop`): what a
+# `break`/`continue` with an operand assigns before it jumps.
 _loop_accumulators = []
+
+# How many loop-result variables have been named in this program.
+_result_counter = 0
 
 # Lazily generated helper for printing a value that might hold a Bool
 # at runtime but isn't provably one from its Pyking source form; see
@@ -1361,7 +1363,7 @@ def _translate_loop(s, scope):
     accumulator variable (docs/target_python.md, "loop"): the
     initializer becomes the variable's first value, every tail of the
     body assigns the next one, and a `break`/`continue` with an operand
-    assigns it before it jumps. Returns the statements, the expression
+    assigns before it jumps. Returns the statements, the expression
     holding the loop's value afterwards, and the scope -- which is the
     caller's, since the accumulator belongs to the body.
     SLoop -> Scope -> ([PyStmt], PyExpr, Scope)"""
@@ -1378,12 +1380,63 @@ def _translate_loop(s, scope):
         py_target, body_scope = translate_target(s.target, body_scope, rebinding=True)
         setup.append(PyAssign(info, py_target, py_init))
         value = _target_as_expr(py_target)
-    _loop_accumulators.append(py_target)
+    # A loop is worth what it breaks with, which need not be shaped like
+    # what it carries: `break acc` in a loop carrying two values has
+    # nowhere in the accumulator to go, so it gets a variable of its own.
+    result = None
+    if isinstance(py_target, PyTargetTuple) and _breaks_with_value(s.body):
+        result = PyTargetName(info, _fresh_result_name())
+        value = PyVar(info, result.name)
+    _loop_accumulators.append(_Loop(py_target, result))
     try:
         py_body = _translate_loop_block(s.body, py_target, body_scope)
     finally:
         _loop_accumulators.pop()
     return setup + [PyWhile(info, PyBool(info, True), py_body)], value, scope
+
+
+@dataclass(frozen=True)
+class _Loop:
+    """One `loop` being translated. Fields: accumulator, PyTarget? (the
+    variable the loop carries, absent for a `loop:` carrying nothing);
+    result, PyTarget? (the variable the loop's value is left in, present
+    only when a `break` gives something the accumulator has no room
+    for)."""
+    accumulator: PyTarget
+    result: PyTarget
+
+
+def _fresh_result_name():
+    """A name for a loop-result variable that no identifier in the
+    source uses. () -> String"""
+    global _result_counter
+    while True:
+        _result_counter += 1
+        candidate = f"__pyk_value{_result_counter}"
+        if candidate not in _used_identifiers:
+            return candidate
+
+
+def _breaks_with_value(body):
+    """Whether any `break` belonging to this body's own loop carries an
+    operand -- a nested loop's breaks belong to that loop.
+    [Stmt] -> Bool"""
+    for s in body:
+        match s:
+            case SBreak(_, expr) if expr is not None:
+                return True
+            case SIf(_, _, then_body, else_body):
+                if _breaks_with_value(then_body) or _breaks_with_value(
+                    else_body or []
+                ):
+                    return True
+            case SMatch(_, _, cases):
+                for c in cases:
+                    if c.body is not None and _breaks_with_value(c.body):
+                        return True
+            case _:
+                pass
+    return False
 
 
 def _target_as_expr(target):
@@ -1559,18 +1612,34 @@ def translate_stmt(s, scope):
             py_stmts, _, scope = _translate_loop(s, scope)
             return py_stmts, scope
 
-        case SBreak(info, expr) | SContinue(info, expr):
-            jump = PyBreak(info) if isinstance(s, SBreak) else PyContinue(info)
+        case SBreak(info, expr):
+            loop = _loop_accumulators[-1] if _loop_accumulators else None
+            if loop is not None and loop.result is not None:
+                # The loop's value lives in a variable of its own; a
+                # bare `break` leaves the accumulator there.
+                answer = (
+                    _target_as_expr(loop.accumulator) if expr is None
+                    else translate_expr(expr, scope)
+                )
+                return [PyAssign(info, loop.result, answer), PyBreak(info)], scope
             if expr is None:
-                return jump, scope
+                return PyBreak(info), scope
             py_expr = translate_expr(expr, scope)
-            py_target = _loop_accumulators[-1] if _loop_accumulators else None
-            if py_target is None:
+            if loop is None or loop.accumulator is None:
                 # A loop carrying nothing has nowhere to put the operand
                 # (the type checker refuses this outright); it is still
                 # an expression, so it still runs.
-                return [PyExprStmt(info, py_expr), jump], scope
-            return [PyAssign(info, py_target, py_expr), jump], scope
+                return [PyExprStmt(info, py_expr), PyBreak(info)], scope
+            return [PyAssign(info, loop.accumulator, py_expr), PyBreak(info)], scope
+
+        case SContinue(info, expr):
+            if expr is None:
+                return PyContinue(info), scope
+            py_expr = translate_expr(expr, scope)
+            loop = _loop_accumulators[-1] if _loop_accumulators else None
+            if loop is None or loop.accumulator is None:
+                return [PyExprStmt(info, py_expr), PyContinue(info)], scope
+            return [PyAssign(info, loop.accumulator, py_expr), PyContinue(info)], scope
 
         case SIf(info, cond, then_body, else_body):
             py_then, _ = _translate_stmts(then_body, _block_scope(scope))
@@ -1856,8 +1925,10 @@ def translate_program(stmts):
     prepended. [Stmt] -> PyProgram"""
     global _comp_counter, _pending_comp_helpers, _used_identifiers, _turn_counter
     global _format_helper_name_value, _format_helper_def, _loop_accumulators
+    global _result_counter
     _comp_counter = 0
     _loop_accumulators = []
+    _result_counter = 0
     _turn_counter = 0
     _pending_comp_helpers = []
     _format_helper_name_value = None

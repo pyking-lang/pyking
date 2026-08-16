@@ -27,6 +27,7 @@ import textwrap
 from dataclasses import dataclass
 
 from analyses import analyze_program, symbolize, AnalysisError
+import optimization
 from lexer import lexing, pprint_info, pprint_token, LexError
 from parser import parse, ParseError
 from syntax import pprint_program
@@ -50,6 +51,16 @@ TARGETS = (
     + target_c.STANDARDS
     + target_java.VERSIONS
     + (target_ocaml.TARGET,)
+)
+
+# The targets whose host language eliminates tail calls itself, and which
+# are therefore compiled from the program as written rather than from the
+# one src/optimization.py rewrote. Assembled from the backends for the
+# same reason `TARGETS` is: which hosts do this is the backends' own
+# business, not the driver's.
+NATIVE_TAIL_CALLS = frozenset(
+    {target_ocaml.TARGET} if getattr(target_ocaml, "NATIVE_TAIL_CALLS", False)
+    else {}
 )
 
 # What the primary output file is called when `--output` doesn't say. Each
@@ -109,11 +120,24 @@ Options:
   -o, --output <file>   write the output to <file>
   --stdout              print the generated code instead of writing it
   --ast                 print the parsed program and stop
-  --symbols             with --ast, also print each node's symbol
   --typecheck           type-check before doing anything else
+  --help                this, in full: the rest of the flags, what each
+                        command does, and what each target writes"""
+
+# The flags someone reaches for once they know the shape of the tool:
+# two that show a stage's own output, and one that turns off a
+# transformation nobody has to know about to use the compiler.
+_MORE_OPTIONS = """More options:
+  --symbols             with --ast, also print each node's symbol
   --tokens              print the token stream first
-  --help                this, in full: what each command does, and what
-                        each target writes"""
+  --no-tail-call-opt    leave tail calls as calls. A function that calls
+                        itself in tail position is otherwise rewritten
+                        into a `loop` carrying its parameters, and a
+                        group of functions that tail-call each other
+                        into one loop they share -- so such a function
+                        runs in constant space on every target. Turning
+                        it off is for reading the program as written,
+                        and for the recursion depth it restores."""
 
 # The short form names the targets in a sentence rather than a table:
 # someone who wants to know what `-t` takes is answered by the list, and
@@ -124,6 +148,8 @@ Targets:
 {wrap('  ' + ', '.join(TARGETS) + '.', indent='  ')}"""
 
 USAGE_FULL = f"""{_SYNOPSIS}
+
+{_MORE_OPTIONS}
 
 Targets:
 {_target_table()}
@@ -155,7 +181,7 @@ class Options:
     """argv parsed into one value. Flags are shared by every command.
     Fields: command: String, filename: String?, target: String,
     output: String?, stdout: Bool, ast: Bool, symbols: Bool,
-    typecheck: Bool, tokens: Bool."""
+    typecheck: Bool, tokens: Bool, tail_calls: Bool."""
     command: str
     filename: str = None
     target: str = "python"
@@ -165,6 +191,20 @@ class Options:
     symbols: bool = False
     typecheck: bool = False
     tokens: bool = False
+    tail_calls: bool = True
+
+
+def compiling_natively(options):
+    """Whether this run hands the program to a backend whose own host
+    eliminates tail calls, in which case the pass would only be undone
+    (see docs/optimization.md). `--ast` is not compiling: it ignores
+    --target, so it must not depend on one either.
+    Options -> Bool"""
+    return (
+        options.command == "compile"
+        and not options.ast
+        and options.target in NATIVE_TAIL_CALLS
+    )
 
 
 def usage_error(message):
@@ -199,6 +239,8 @@ def parse_args(argv):
                 flags["symbols"] = True
             case "--typecheck":
                 flags["typecheck"] = True
+            case "--no-tail-call-opt":
+                flags["tail_calls"] = False
             case "--stdout":
                 flags["stdout"] = True
             case "--target" | "-t":
@@ -305,9 +347,16 @@ def front_end(options):
     # Every node gets a unique symbol once the names check out. This runs
     # for every mode, like the analysis before it: `--symbols` prints
     # them, `tmap` is keyed by them, and so is the interpreter's
-    # call-free table. Nothing needs symbolizing again afterwards,
-    # because no later pass synthesizes nodes into the tree.
+    # call-free table.
     program = symbolize(program)
+
+    # Tail calls become loops before anything reads the program, so what
+    # `--ast` prints, what the checker checks and what every backend
+    # compiles are the same program (see docs/optimization.md). The pass
+    # builds nodes, so symbols are handed out again -- `symbolize` keeps
+    # the ones already given and continues past the highest.
+    if options.tail_calls and not compiling_natively(options):
+        program = symbolize(optimization.optimize(program))
 
     tmap = None
     if checking:

@@ -72,7 +72,11 @@ these is updated in the same change — none of them is optional, and the
 last ones are the ones that get forgotten:
 
 1. **`src/`** — the stage(s) implementing it (lexer → parser → syntax →
-   `analyses.py` → `typesystem.py` → each backend). A new or changed AST
+   `analyses.py` → `optimization.py` → `typesystem.py` → each backend).
+   `optimization.py` usually needs nothing: it rewrites tail calls and
+   passes everything else through. A construct that can *hold* a tail
+   position -- a new branching statement, say -- does need a case there,
+   or a tail call written inside it is silently left as a call. A new or changed AST
    node also means updating its `datatype` comment in `syntax.py` — see
    that module's entry below; nothing catches it drifting. `symbolize` needs
    nothing: its walk is generic over dataclass fields, so a new node in
@@ -293,7 +297,30 @@ The bootstrap is split into one module per compiler stage:
    symbol keeps it and new numbers continue past the highest in the
    tree, which is what makes it safe to run twice, should a pass ever
    synthesize nodes into an already-symbolized tree.
-5. **`src/typesystem.py`** — the type checker, run only under
+5. **`src/optimization.py`** — tail calls into loops, one pass from the
+   Pyking AST to the Pyking AST, run between `symbolize` and the type
+   checker for every mode unless `--no-tail-call-opt` says otherwise. A
+   function that calls itself in tail position becomes a `loop` carrying
+   its own parameters *under their own names*; a group that tail-calls
+   each other becomes one `tail_groupN` worker carrying a `state` tag,
+   with each original left as a one-line wrapper. It rewrites and never
+   rejects. Tail position is PYKING.md's own, and the walk stops at a
+   nested `def` (whose tails are its own) and at a `for`/`while`/`loop`
+   (where a `break` would belong to that loop instead). Because the
+   output is ordinary Pyking, every backend and the interpreter get tail
+   recursion without knowing this pass exists -- so *do not* add
+   per-backend tail-call handling. The one exception runs the other way:
+   a host that eliminates tail calls itself sets `NATIVE_TAIL_CALLS` in
+   its own module (today only `target_ocaml.py`), and `pyk.py` then
+   compiles that target from the program *as written* -- because a
+   `loop` becomes a local recursive function on that backend, so the
+   pass and the backend would otherwise undo each other and leave a
+   tag-dispatched worker where `let rec ... and ...` belonged. The one thing it cannot always make
+   work is a merged group whose functions disagree about their parameter
+   *types*, which only the checker can see; `docs/optimization.md` is
+   the long form, including that case and the `fail_tco_*` tests that
+   pin it.
+6. **`src/typesystem.py`** — the type checker, run only under
    `--typecheck`, by `pyk run`/`pyk repl`, and by the OCaml backend,
    after `symbolize` and before `--ast` prints anything; it runs
    *instead of* `analyze_program`, not after it (see `pyk.py` below).
@@ -473,7 +500,7 @@ The bootstrap is split into one module per compiler stage:
    became *visible* once the state was a value: two branches of an `if`
    were being checked against the store they started from, so what the
    first worked out was lost (`tests/typecheck_infer_branch_uses.pyk`).
-6. **`src/runtime_interface.py`** — the boundary between pure Pyking code
+7. **`src/runtime_interface.py`** — the boundary between pure Pyking code
    and the outside world, in the spirit of WebAssembly's split between a
    core language that cannot observe anything and a separate host spec.
    Backend-agnostic by construction: it holds no Python and no JavaScript,
@@ -481,7 +508,7 @@ The bootstrap is split into one module per compiler stage:
    *including* the value-formatting rules, since every backend has to
    agree on those for one program to print the same characters
    everywhere. Add an operation here first; the backends then bind it.
-7. **`src/target_js_core.py`** — the JavaScript backend's language half:
+8. **`src/target_js_core.py`** — the JavaScript backend's language half:
    a `Js*` AST, translation from `syntax.py`, and a printer. Knows nothing
    about packaging. Calls that cross the runtime interface become
    `JsRuntimeCall`, whose spelling is supplied by the packager, so the
@@ -491,14 +518,14 @@ The bootstrap is split into one module per compiler stage:
    it (`const` redeclaration, and the temporal dead zone), not on every
    shadow the way `target_python.py` must. Constructs outside the
    supported subset raise `UnsupportedError`, which carries an `Info`.
-8. **`src/target_js_packaging.py`** — the JavaScript backend's packaging
+9. **`src/target_js_packaging.py`** — the JavaScript backend's packaging
    half: wraps core output into `nodejs` (one self-contained script),
    `html` (one self-contained page printing into a visible box), and `esm`
    (a module exporting `run(runtime)`, plus a node driver and an HTML
    wrapper derived from the `--output` path). It owns the JavaScript side
    of the runtime interface — each host's `print` and the shared
    `pykFormat` — which is exactly what differs between the three.
-9. **`src/target_c.py`** — the C backend, serving both the `c89` and
+10. **`src/target_c.py`** — the C backend, serving both the `c89` and
    `c23` targets: a `C*` AST, translation, and a printer taking a
    `standard` parameter. One backend rather than two because the
    standards disagree about *printing*, not meaning — comments, whether
@@ -511,7 +538,7 @@ The bootstrap is split into one module per compiler stage:
    its translated body. When inference cannot answer, raise
    `UnsupportedError` with the `Info` rather than emitting C that will
    not compile.
-10. **`src/target_java.py`** — the Java backend, serving `java8`,
+11. **`src/target_java.py`** — the Java backend, serving `java8`,
    `java17` and `java21`: a `J*` AST, translation, and a printer taking a
    `version` parameter, the same shape `target_c.py` uses for `standard`
    — one backend because the three versions disagree only in whether a
@@ -528,7 +555,7 @@ The bootstrap is split into one module per compiler stage:
    style rather than the source's, since Java requires the two to match
    (`default_class_name`; see `pyk.py` below for where the exception
    is applied).
-11. **`src/target_ocaml.py`** — the OCaml backend, serving the `ocaml`
+12. **`src/target_ocaml.py`** — the OCaml backend, serving the `ocaml`
    target: an `O*` AST, translation, and a printer. The only backend
    that infers nothing — it *runs* `typesystem.type_check` and reads the
    types back out of `tmap` (which is why `check_expr` records an entry
@@ -546,7 +573,7 @@ The bootstrap is split into one module per compiler stage:
    not promise to (`_Effects`, `in_order`). The test harness builds its
    output with `-w +a`, so a compiler warning about generated code is a
    failing test.
-12. **`src/target_python.py`** — the Python code-generation backend: its
+13. **`src/target_python.py`** — the Python code-generation backend: its
    own `Py*` AST (`PyInt`, `PyAssign`, `PyFor`, ... — structurally the same
    shape as `src/syntax.py`'s `E*`/`S*`, except Pyking's `SLet`/`SVar`/
    `SMutate` all collapse into one `PyAssign`, since Python has no
@@ -600,7 +627,7 @@ The bootstrap is split into one module per compiler stage:
    additionally refuses a factory in any program with no `def` inside a
    loop, which is what keeps ordinary output ordinary. C and Java instead *refuse* a function that
    reads a binding from around it — they have no closures.
-13. **`src/interpreter.py`** — the interpreter: a *resumable machine*
+14. **`src/interpreter.py`** — the interpreter: a *resumable machine*
    that runs the AST directly instead of translating it, and the
    reference for what a program means at run time (where a backend
    disagrees with it, the backend is wrong). It runs exactly the fragment
@@ -663,7 +690,7 @@ The bootstrap is split into one module per compiler stage:
    is the one optimisation — an expression with no call in it can neither
    suspend nor print, so `_evaluate` computes it in one go, off a set
    worked out once before the program runs.
-14. **`src/repl.py`** — `pyk repl`, and the editor it is typed into. A
+15. **`src/repl.py`** — `pyk repl`, and the editor it is typed into. A
    session is *a program written one entry at a time*, and the rule that
    settles everything is that **an entry is checked the way it is run**:
    each entry is a group whose `def`s are declared together
@@ -717,7 +744,7 @@ The bootstrap is split into one module per compiler stage:
    and the terminal in the class: that split is what makes the editing
    testable without a tty.
 
-15. **`src/pyk.py`** — the entry point (formerly `pykboot.py`): parses a
+16. **`src/pyk.py`** — the entry point (formerly `pykboot.py`): parses a
    command and the flags `--tokens`/`--ast`/`--symbols`/`--typecheck`/
    `--stdout`/`--output|-o <file>`/`--target|-t <target>` from argv into
    an `Options` value, runs `lexer.lexing`, `parser.parse`,
@@ -782,9 +809,16 @@ pyk run [options] <filename>      run it with the interpreter
 pyk repl                          start the REPL
 pyk compile [options] <filename>  compile it (alias: pyk c)
 
-options: [--tokens] [--symbols] [--typecheck] [--target|-t <target>]
+options: [--tokens] [--symbols] [--typecheck] [--no-tail-call-opt]
+         [--target|-t <target>]
          [--ast | --stdout | --output|-o <file>]
 ```
+
+`pyk --help` prints the long help: the short one that a bare `pyk`
+prints stops at the flags that change what is *produced*, and
+`--symbols`, `--tokens` and `--no-tail-call-opt` are documented only in
+the long form, since none of them is needed to use the compiler. Keep
+that split when adding a flag.
 
 (`pyk` is the wrapper script at the repository root, and it is now two
 lines: it runs `src/pyk.py` with `src/` on Python's path and passes every
@@ -878,6 +912,19 @@ reason the interpreter is cheap to trust, since it is a second definition
 of the language's semantics held to the files the nine backends are held
 to. It warns about any `.pyk` missing from the manifest and prints a
 per-target summary.
+
+**Four kinds of expected output**, two of them about the tail-call
+pass. `<name>.notail.ast.out` is what `--typecheck --ast
+--no-tail-call-opt` prints -- the program as *written*, where `.ast.out`
+shows what the pass built -- and `<name>.notail.out` is what it prints
+when run with the pass off, which must equal `<name>.out` exactly: the
+pass may change how much room a program needs and never what it means.
+The targets that read them are `typecheck_notail` and `python_notail`.
+A third naming convention goes with them: **`fail_tco_*.pyk`** is a
+program the pass itself makes unacceptable -- it fails `typecheck` and
+passes `typecheck_notail` -- which is how the one case merging cannot
+make work is pinned rather than only described (see
+`docs/optimization.md`).
 
 **Two kinds of expected output.** `<name>.out` is what the program
 *prints*, and every backend is compared against that one file.

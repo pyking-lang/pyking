@@ -294,9 +294,8 @@ def _reserve(names, scope):
     return Scope(scope.names, scope.block, scope.taken | set(names))
 
 
-# The accumulator of each enclosing `loop`, innermost last: what a
-# `break`/`continue` with an operand assigns before it jumps. `None` for
-# a loop that carries no accumulator.
+# The enclosing `loop`s, innermost last (see `_Loop`): what a
+# `break`/`continue` with an operand assigns before it jumps.
 _loop_accumulators = []
 
 
@@ -500,18 +499,34 @@ def translate_stmt(s, scope):
             js_stmts, _, scope = _translate_loop(s, scope)
             return js_stmts, scope
 
-        case SBreak(info, expr) | SContinue(info, expr):
-            jump = JsBreak(info) if isinstance(s, SBreak) else JsContinue(info)
+        case SBreak(info, expr):
+            loop = _loop_accumulators[-1] if _loop_accumulators else None
+            if loop is not None and loop.result is not None:
+                # The loop's value lives in a variable of its own; a
+                # bare `break` leaves the accumulator there.
+                answer = (
+                    _target_as_expr(loop.accumulator) if expr is None
+                    else translate_expr(expr, scope)
+                )
+                return [JsAssign(info, loop.result, answer), JsBreak(info)], scope
             if expr is None:
-                return jump, scope
+                return JsBreak(info), scope
             js_expr = translate_expr(expr, scope)
-            js_target = _loop_accumulators[-1] if _loop_accumulators else None
-            if js_target is None:
+            if loop is None or loop.accumulator is None:
                 # A loop carrying nothing has nowhere to put the operand
                 # (the type checker refuses this outright); it is still
                 # an expression, so it still runs.
-                return [JsExprStmt(info, js_expr), jump], scope
-            return [JsAssign(info, js_target, js_expr), jump], scope
+                return [JsExprStmt(info, js_expr), JsBreak(info)], scope
+            return [JsAssign(info, loop.accumulator, js_expr), JsBreak(info)], scope
+
+        case SContinue(info, expr):
+            if expr is None:
+                return JsContinue(info), scope
+            js_expr = translate_expr(expr, scope)
+            loop = _loop_accumulators[-1] if _loop_accumulators else None
+            if loop is None or loop.accumulator is None:
+                return [JsExprStmt(info, js_expr), JsContinue(info)], scope
+            return [JsAssign(info, loop.accumulator, js_expr), JsContinue(info)], scope
 
         case SIf(info, cond, then_body, else_body):
             js_then, _ = translate_stmts(then_body, _block_scope(scope))
@@ -554,6 +569,43 @@ def translate_target(target, scope):
                 js_element, scope = translate_target(element, scope)
                 js_elements.append(js_element)
             return JsTargetArray(info, js_elements), scope
+
+
+@dataclass(frozen=True)
+class _Loop:
+    """One `loop` being translated. Fields: accumulator, JsTarget? (what
+    the loop carries, absent for a `loop:` carrying nothing); result,
+    JsTarget? (where the loop's value is left, present only when a
+    `break` gives something the accumulator has no room for)."""
+    accumulator: JsTarget
+    result: JsTarget
+
+
+def _fresh_result_name(scope):
+    """A name for a loop-result variable that nothing here uses.
+    Scope -> String"""
+    n = 1
+    while f"pykValue{n}" in scope.taken or f"pykValue{n}" in scope.names.values():
+        n += 1
+    return f"pykValue{n}"
+
+
+def _breaks_with_value(body):
+    """Whether any `break` belonging to this body's own loop carries an
+    operand -- a nested loop's breaks belong to that loop.
+    [Stmt] -> Bool"""
+    for s in body:
+        match s:
+            case SBreak(_, expr) if expr is not None:
+                return True
+            case SIf(_, _, then_body, else_body):
+                if _breaks_with_value(then_body) or _breaks_with_value(
+                    else_body or []
+                ):
+                    return True
+            case _:
+                pass
+    return False
 
 
 def _target_names(target):
@@ -602,7 +654,16 @@ def _translate_loop(s, scope):
         # Pyking binds afresh on every turn.
         setup.append(JsLet(info, js_target, js_init))
         value = _target_as_expr(js_target)
-    _loop_accumulators.append(js_target)
+    # A loop is worth what it breaks with, which need not be shaped like
+    # what it carries: `break acc` in a loop carrying two values has
+    # nowhere in the accumulator to go, so it gets a variable of its own.
+    result = None
+    if isinstance(js_target, JsTargetArray) and _breaks_with_value(s.body):
+        result = JsTargetName(info, _fresh_result_name(scope))
+        scope = _reserve([result.name], scope)
+        setup.append(JsLet(info, result, JsArray(info, [])))
+        value = JsVar(info, result.name)
+    _loop_accumulators.append(_Loop(js_target, result))
     try:
         js_body = _translate_loop_block(s.body, js_target, body_scope)
     finally:

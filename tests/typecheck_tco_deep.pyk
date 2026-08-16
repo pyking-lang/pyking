@@ -1,0 +1,39 @@
+# The recursion this whole pass exists for.
+#
+# Twenty thousand levels deep, which no target here can do as a
+# recursion: Python raises RecursionError, the interpreter stops at its
+# own maximum call depth, and the C and Java binaries would run out of
+# stack. As a loop it is one frame.
+#
+# This program lists only the targets that run it *optimized*. There is
+# no `.notail.out` beside it, because running it with the pass off is
+# precisely the failure the pass prevents -- and a test that has to
+# crash to be right is a worse test than this comment.
+
+def climb(x: Int) -> Int:
+    if x >= 20000:
+        1000 + x
+    else:
+        climb(x + 1)
+
+
+print(climb(0))
+
+
+# The same depth through a mutually recursive pair, which is the merged
+# group carrying its state twenty thousand times.
+def is_even(n: Int) -> Bool:
+    if n == 0:
+        true
+    else:
+        is_odd(n - 1)
+
+
+def is_odd(n: Int) -> Bool:
+    if n == 0:
+        false
+    else:
+        is_even(n - 1)
+
+
+print(is_even(20000), is_odd(20001))

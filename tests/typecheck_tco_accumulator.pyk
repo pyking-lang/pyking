@@ -1,0 +1,31 @@
+# Tail recursion that carries an accumulator, which is the commonest
+# shape there is -- and the one that decides how a loop is typed.
+#
+# The loop carries both parameters, as one accumulator of two values,
+# and is worth just the running total: what a loop *carries* and what it
+# is *worth* are different questions (PYKING.md, "loop loops"). Without
+# that, every accumulator-passing function would have to return a tuple
+# it never wanted.
+
+def factorial(n: Int, acc: Int) -> Int:
+    if n == 0:
+        acc
+    else:
+        factorial(n - 1, n * acc)
+
+
+print(factorial(10, 1))
+print(factorial(0, 1))
+
+
+# Three values carried at once, and a result of a different type again:
+# the loop carries (Int, Int, String) and is worth a String.
+def marked(n: Int, step: Int, marks: String) -> String:
+    if n <= 0:
+        marks
+    else:
+        marked(n - step, step, marks + "*")
+
+
+print(marked(9, 2, ""))
+print(marked(0, 1, "|"))

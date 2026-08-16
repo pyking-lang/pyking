@@ -1,0 +1,68 @@
+# What the pass takes and what it leaves, side by side.
+#
+# A tail call is one whose answer nothing is waiting for. Everything
+# else stays a call -- the point is to change how a program runs, not
+# what it is, and a call in the middle of an expression is doing work
+# the loop cannot do.
+
+# Left alone: the answer is multiplied, so something is still waiting.
+def factorial(n: Int) -> Int:
+    if n < 2:
+        1
+    else:
+        n * factorial(n - 1)
+
+
+print(factorial(6))
+
+
+# Rewritten: both branches of the `if` are tails, and the recursive one
+# is a call with nothing after it.
+def gcd(a: Int, b: Int) -> Int:
+    if b == 0:
+        a
+    else if a > b:
+        gcd(a - b, b)
+    else:
+        gcd(a, b - a)
+
+
+print(gcd(12, 18))
+print(gcd(7, 1))
+
+
+# The single-expression form is a body of one `return`, so its call is
+# in tail position like any other.
+def countdown(n: Int) -> Int = if n == 0 then 0 else countdown(n - 1)
+
+
+print(countdown(500))
+
+
+# A nested function that calls *itself* is rewritten in its own right;
+# the enclosing one is a different question, and its call to the nested
+# one is not a call to itself.
+def outer(n: Int) -> Int:
+    def inner(k: Int) -> Int:
+        if k > 20:
+            k
+        else:
+            inner(k + k + 1)
+    inner(n) + 1
+
+
+print(outer(1))
+
+
+# A call that gives the wrong number of arguments is left alone: it is
+# not the function going round again, it is a mistake for the checker to
+# find. Here `only_two` calls itself properly, and the shape is pinned
+# by what the loop carries.
+def only_two(a: Int, b: Int) -> Int:
+    if a == 0:
+        b
+    else:
+        only_two(a - 1, b + a)
+
+
+print(only_two(4, 0))

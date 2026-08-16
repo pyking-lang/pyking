@@ -1,0 +1,37 @@
+# A function that calls itself in tail position, and what becomes of it.
+#
+# The recursion below is a *tail* call: nothing is left to do with its
+# answer, so the call is really a jump back to the top with new
+# arguments. src/optimization.py says exactly that, rewriting the
+# function into a `loop` carrying its own parameter -- so it runs in one
+# frame however deep it goes, on every target and in the interpreter.
+#
+# The `.ast.out` beside this file is what the program becomes; the
+# `.notail.ast.out` is the program as written. Its `.out` and
+# `.notail.out` are the same file twice over, which is the point: the
+# pass changes how a program runs, never what it means.
+
+def climb(x: Int) -> Int:
+    if x >= 300:
+        1000 + x
+    else:
+        climb(x + 1)
+
+
+print(climb(0))
+
+
+# The `return` form of the same thing: a `return` is a tail position
+# wherever it is written, so this is rewritten too -- and the `return`
+# in the middle of the body becomes a `continue`, since the loop has to
+# be told to go round rather than fall off its own end.
+def first_over(limit: Int) -> Int:
+    if limit == 0:
+        return 0
+    if limit > 100:
+        return limit
+    return first_over(limit * 2 + 1)
+
+
+print(first_over(3))
+print(first_over(0))

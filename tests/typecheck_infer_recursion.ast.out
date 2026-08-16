@@ -13,9 +13,10 @@ def repeat(word:String, times:Int) -> String:
     else:
         word + repeat(word, times - 1)
 def countdown(n:Int) -> String:
-    if n < 1:
-        return 'liftoff'
-    return countdown(n - 1)
+    loop n: Int = n:
+        if n < 1:
+            break 'liftoff'
+        n - 1
 print(fact(5), sum_to(4))
 print(repeat('ab', 3))
 print(countdown(3))

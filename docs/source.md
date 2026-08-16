@@ -25,6 +25,7 @@ module system to express a directory hierarchy with.
 | [`syntax.py`](#syntaxpy) | ~1100 | The AST: one frozen dataclass per variant, documented as algebraic data types, plus the pretty printer that prints Pyking back out. |
 | [`parser.py`](#parserpy) | ~1280 | Recursive descent, tokens → AST, and the few rules the grammar cannot state. |
 | [`analyses.py`](#analysespy) | ~460 | Static analyses over the AST: names and scoping (`analyze_program`), and `symbolize`, which numbers every node. |
+| [`optimization.py`](#optimizationpy) | ~710 | Tail calls into loops: one AST-to-AST pass, so every backend and the interpreter get tail recursion at once. |
 | [`typesystem.py`](#typesystempy) | ~1390 | The type checker: one function per AST datatype, producing `tmap` (symbol → type). Also the type *inference*, which is the same machinery run at a call site rather than at a definition. Its fragment is the interpreter's and the OCaml backend's. |
 | [`runtime_interface.py`](#runtime_interfacepy) | ~50 | The boundary between a pure Pyking program and the world: the operations a host must provide, and how values are formatted. No host code at all. |
 | [`interpreter.py`](#interpreterpy) | ~1440 | The interpreter: values, environments, and a resumable small-step machine that runs the AST. The reference for runtime semantics. |
@@ -295,6 +296,41 @@ anything else, for every mode. Errors are `AnalysisError(info, message)`.
   to `syntax.py` gets a symbol without touching this file. Existing
   symbols are kept and new ones continue past the highest, which makes it
   safe to run twice.
+
+---
+
+## `optimization.py`
+
+**Tail calls into loops.** One pass from the AST to the AST, run for
+every mode unless `--no-tail-call-opt` says otherwise, and before
+anything reads the program — so what `--ast` prints, what the checker
+checks and what each backend compiles are the same program.
+
+**Design, in depth:** [optimization.md](optimization.md).
+
+### Data structures
+
+- **`Context`** — what rewriting one body needs: the calls this loop
+  stands for (each mapped to the state tag it becomes, or `None` where
+  there is no tag), how many values the loop carries, and the names the
+  program already uses.
+
+### Main functions
+
+- **`optimize(stmts) -> [Stmt]`** — the entry point. It never rejects a
+  program: one it cannot improve comes back as it was.
+- **`tail_calls(func, names)`** — the names `func` calls in tail
+  position. Tail position is PYKING.md's own, and the walk stops at a
+  nested `def` (whose tails are its own) and at a `for`/`while`/`loop`
+  (where a `break` would belong to that loop instead).
+- **`_rewrite_tail` / `_rewrite_inner` / `_going_on`** — the rewrite: a
+  recursive call becomes the next accumulator (or a `continue` where it
+  has to jump), anything else becomes a `break`.
+- **`_rewrite_self`** — a function that calls itself, as a loop carrying
+  its own parameters under their own names.
+- **`_merge`** — a mutually recursive group, as one `tail_groupN` worker
+  carrying a `state`, with each original left as a wrapper. A group
+  whose functions differ in arity is left alone.
 
 ---
 

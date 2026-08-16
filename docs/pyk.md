@@ -25,7 +25,8 @@ each know their own business.
 
 `Options` is a single frozen dataclass carrying the command, the
 filename, and every flag — `target`, `output`, `stdout`, `ast`,
-`symbols`, `typecheck`, `tokens` — regardless of which command was
+`symbols`, `typecheck`, `tokens`, `tail_calls` — regardless of which
+command was
 actually invoked. That's a deliberate choice over, say, four different
 per-command option types: it's what makes `--ast` and `--typecheck`
 mean the *same thing* wherever they're written, since there's exactly
@@ -64,8 +65,8 @@ documentation.
 ## `front_end`: the stages every command shares, with one branch
 
 `front_end(options)` runs lexing, parsing, name analysis (or type
-checking, depending on the mode — see below), symbolizing, and returns
-`(program, tmap)`. Every command needs this much; nothing past it is
+checking, depending on the mode — see below), symbolizing, the
+tail-call pass, and returns `(program, tmap)`. Every command needs this much; nothing past it is
 shared. The one real branch inside it is:
 
 ```python
@@ -88,6 +89,37 @@ caught it from the message alone). Symbolizing runs unconditionally,
 after whichever naming pass ran, because both `--symbols` output and
 `tmap` need every node keyed by a stable symbol regardless of which
 path got there.
+
+The tail-call pass (`src/optimization.py`) sits between symbolizing and
+type checking, and that position is the whole of its wiring: it rewrites
+before *anything* reads the program, so `--ast` prints what it built,
+the checker checks that, and `tmap` is keyed to it — which the OCaml
+backend depends on, since it reads types back rather than inferring
+them. `symbolize` runs a second time afterwards, for the nodes the pass
+built; it keeps the symbols already handed out, so a statement the pass
+moved carries its own identity through. `--no-tail-call-opt` is the one
+flag that turns a stage *off* rather than asking for output, which is
+why it is documented under `--help` rather than in the usage every
+mistyped command prints.
+
+`compiling_natively(options)` is the other half of that wiring: a target
+whose host eliminates tail calls itself gets the program as written,
+since the pass would only be undone there (`NATIVE_TAIL_CALLS`,
+assembled from the backends the way `TARGETS` is). It asks for
+`--ast` being off as well as the target, because `--ast` ignores
+`--target` and so must not depend on one.
+
+## Two lengths of help
+
+`_SYNOPSIS` is what someone who typed `pyk` by itself needs: the shape
+of the command, and the flags that change what it *produces*.
+`USAGE_FULL`, printed for `--help`, adds `_MORE_OPTIONS` — `--symbols`,
+`--tokens`, `--no-tail-call-opt` — plus the target table and the
+paragraphs about what each command does. The split is by *who is
+asking*: the short form answers "how do I run this", and the three flags
+in the long form are ones nobody needs to know about to use the
+compiler at all. `usage_error` prints the short form, since a mistyped
+command is not a request for a manual.
 
 ## One table, one function, five kinds of error
 

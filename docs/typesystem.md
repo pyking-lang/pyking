@@ -96,8 +96,23 @@ cases:
 - A `break`/`continue` supplies the enclosing loop's accumulator type,
   for the same reason and with the same payoff: `if c: x + 1 else:
   break` needs no special case, since both branches answer the same
-  question with the same type. A `loop` itself supplies its accumulator,
-  which is what makes `x = loop …` a binding like any other.
+  question with the same type. That answer is a *fiction* in the
+  `break`'s case — the statement never falls through, so nothing can
+  observe it — and it is a useful one, since the alternative is a bottom
+  type in every branch comparison.
+- A `loop` supplies what it **breaks with**, not what it carries. The
+  two are different questions (PYKING.md, "loop loops"), and the
+  difference is what lets a loop carrying `(Int, Int)` be worth an
+  `Int` — the shape every accumulator-passing function has after
+  `src/optimization.py` has been through it. The `break` types are
+  collected in the store's frame, exactly as an inference's `return`s
+  are, in a frame of the loop's own so a nested loop's ways out are not
+  mistaken for this one's; `merge` then makes one type of them.
+- A loop with **no `break` at all** never finishes, so it supplies
+  `TNever` — the one type `accepts` takes anywhere, since there is no
+  value to be wrong about. That is what lets a function whose body is
+  such a loop honour whatever return type it declares. `TNever` is never
+  inferred for an expression, and never written in source.
 - An `if` (as a *statement* used in a value position — the last
   statement of a function body, say) supplies whichever branch's type,
   once both branches are required to agree.

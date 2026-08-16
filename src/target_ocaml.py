@@ -35,6 +35,16 @@ from syntax import (
 TARGET = "ocaml"
 EXTENSION = ".ml"
 
+# OCaml eliminates tail calls itself, so this target is compiled from
+# the program *as written* rather than from the one src/optimization.py
+# rewrites (see docs/optimization.md, "The target that needs none of
+# this"). Turning a recursion into a loop here would only be undone: a
+# `loop` becomes a local recursive function on this backend, so the pass
+# and this module would take turns translating the same program into
+# each other's shape, and the reader would be left with a tag-dispatched
+# worker where two mutually recursive functions had been.
+NATIVE_TAIL_CALLS = True
+
 
 class UnsupportedError(Exception):
     """Raised for a Pyking construct this backend cannot compile; carries

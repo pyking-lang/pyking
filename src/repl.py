@@ -25,6 +25,7 @@ import sys
 from dataclasses import dataclass, field, replace
 
 from analyses import BUILTINS, bound_names, symbolize, AnalysisError
+import optimization
 from lexer import lexing, pprint_info, pprint_token, LexError
 from parser import parse, ParseError
 from syntax import pprint_program, pprint_type, SExprStmt, SFunctionDef
@@ -647,6 +648,11 @@ def submit(session, stmts, report, source=""):
     Returns (session, refused) -- refused is the check-time error, if
     any, left for the caller to handle rather than reported here.
     Session -> [Stmt] -> (Exception -> ()) -> String -> (Session, Exception?)"""
+    # An entry's tail calls become loops here as they would in a file,
+    # so a function written at the prompt runs the way `pyk run` runs it
+    # (see docs/optimization.md). The pass is over the entry alone --
+    # which is exactly right, since an entry is its own group of `def`s.
+    stmts = optimization.optimize(list(stmts))
     seen = symbolize(list(session.seen) + list(stmts))
     entry = seen[len(session.seen):]
     try:

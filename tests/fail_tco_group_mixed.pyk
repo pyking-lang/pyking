@@ -1,0 +1,40 @@
+# One member of a group is enough to make the merged loop impossible.
+#
+# `first` and `second` agree: both take an Int and give a String. But
+# `third` is in the same cycle and takes a String, so the one slot the
+# three would share cannot hold what all of them put in it. The pass
+# merges on arity alone -- all three take one argument -- and the
+# checker is left with a loop that carries an Int one way round and a
+# String the other.
+#
+# The lesson is not that this program is wrong: with the pass off it
+# checks and runs, which its `.notail.ast.out` shows. It is that a
+# merged group needs its members to agree about more than how many
+# arguments they take, and only the checker can see that far. See
+# docs/optimization.md, "The groups this cannot make work".
+#
+# This program is expected to FAIL type checking with the pass on. Its
+# `.ast.out` holds the error message.
+
+def first(n: Int) -> String:
+    if n == 0:
+        "done"
+    else:
+        second(n - 1)
+
+
+def second(n: Int) -> String:
+    if n == 0:
+        "also done"
+    else:
+        third("mark")
+
+
+def third(mark: String) -> String:
+    if mark == "":
+        "empty"
+    else:
+        first(0)
+
+
+print(first(3))

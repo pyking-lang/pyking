@@ -5,10 +5,17 @@
 # against. The checker says which function it could not work out and
 # what would fix it, rather than looping or guessing.
 #
+# The `+ 1` is what keeps this about the checker: it puts the call in an
+# operand rather than in tail position, so src/optimization.py leaves it
+# alone. Written `forever(n + 1)` on its own, the recursion would become
+# a loop before the checker ever saw it (see docs/optimization.md), and
+# a function that never returns is not the same question as one whose
+# return type cannot be worked out.
+#
 # This program is expected to FAIL type checking. Its `.ast.out` holds
 # the error message, not a program's output.
 
 def forever(n):
-    forever(n + 1)
+    forever(n + 1) + 1
 
 print(forever(1))

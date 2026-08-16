@@ -429,11 +429,24 @@ res = loop x = 5:                  var x = 5;
 
 The accumulator is the one binding here that is deliberately *not*
 `final` (see "Immutable bindings stay immutable"): Pyking rebinds it
-every turn, and one Java local carries all of them. The loop's own value
-is what it stopped with, so binding one is that `final` declaration
-after the loop, and a loop in tail position is `return x` -- unless
-nothing breaks out of the loop, in which case the `return` is left out,
-javac refusing a statement that cannot be reached.
+every turn, and one Java local carries all of them. A loop carrying
+several values gets one local per slot, with the next turn's values
+computed into `final` locals first so that a slot reading another sees
+the turn it is still on.
+
+A loop is worth what it `break`s with, which need not be shaped like
+what it carries -- the shape every accumulator-passing function has
+after the tail-call pass (docs/optimization.md) -- so a `break` with an
+operand gets a local of its own, typed from what the breaks give and
+initialised because javac refuses to read a local that might be
+unassigned. A loop whose breaks disagree about that type is refused, as
+is a *bare* `break` in a multi-slot loop: its answer would be all the
+slots at once, and Java has no tuple to hold them.
+
+Binding a loop is that `final` declaration after it, and a loop in tail
+position is `return x` -- unless nothing breaks out of the loop, in
+which case the `return` is left out, javac refusing a statement that
+cannot be reached.
 
 ### Names that are keywords in Java
 

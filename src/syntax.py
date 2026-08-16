@@ -79,6 +79,7 @@ from lexer import Info
 #     TTuple(info: Info, elements: [Type], sym: Int)
 #     TOr(info: Info, alternatives: [Type], sym: Int)
 #     TUnknown(info: Info, sym: Int)
+#     TNever(info: Info, sym: Int)
 #     TFunction(info: Info, params: [Type], result: Type, sym: Int,
 #               tmsym: Int, definition: SFunctionDef?)
 #
@@ -333,6 +334,18 @@ class TUnknown(Type):       # ?
 
 
 @dataclass(frozen=True)
+class TNever(Type):         # !
+    info: Info               # The type of something that never happens:
+    sym: int = 0             # what a loop nothing breaks out of supplies,
+                             # since it has no way to finish. Every type
+                             # accepts it (there is no value to be wrong
+                             # about), which is what lets a function whose
+                             # body is such a loop honour any return type.
+                             # Never written in source and never inferred
+                             # for an expression.
+
+
+@dataclass(frozen=True)
 class TFunction(Type):      # (T1, T2, ...) -> T
     info: Info               # The parameter list is always parenthesized, so a
     params: list             # function of one *tuple* is ((Int, Bool)) -> Int
@@ -458,6 +471,10 @@ def _pprint_type(t):
             # nothing calls. It is deliberately not spellable in source:
             # there is nothing a program could mean by it.
             return "?"
+        case TNever(_):
+            # A binding whose value never arrives, which only unreachable
+            # code can have. Not spellable in source either.
+            return "!"
         case TFunction(_, params, result):
             # The parentheses are the parameter *list*'s, not a tuple's, so
             # one parameter that happens to be a tuple keeps its own pair:

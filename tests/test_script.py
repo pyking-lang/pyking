@@ -15,6 +15,17 @@ straight:
                    or -- for a `fail_typecheck_*` program -- the error it
                    was written to provoke. Only the `typecheck` target
                    reads this.
+  <name>.notail.out
+  <name>.notail.ast.out
+                   the same two, for a program compiled with
+                   --no-tail-call-opt. Tail calls become loops before
+                   anything else sees the program (see
+                   docs/optimization.md), so these are what it is
+                   without that pass: the `.notail.out` must match the
+                   `.out` -- meaning is what the pass must not change --
+                   while the `.notail.ast.out` shows the program as it
+                   was written. Read by the `python_notail` and
+                   `typecheck_notail` targets.
 
 A `typecheck_*` program therefore has *both*: its types are pinned by the
 `.ast.out`, and it still runs on the backends like any other program, so
@@ -82,24 +93,49 @@ INTERPRET_TARGET = "interpret"
 # nothing more, since a program written to be refused is not one to run.
 TYPECHECK_PREFIX = "typecheck_"
 FAIL_TYPECHECK_PREFIX = "fail_typecheck_"
+# The two targets that turn the tail-call pass off. `python_notail` runs
+# the program without it and compares the same output the optimized one
+# produced -- if those two ever differ, the pass changed what a program
+# means. `typecheck_notail` prints the AST without it, which is where a
+# program's own shape is pinned once the pass has rewritten it.
+TYPECHECK_NOTAIL_TARGET = "typecheck_notail"
+PYTHON_NOTAIL_TARGET = "python_notail"
+NOTAIL_FLAG = "--no-tail-call-opt"
+# A `fail_tco_*` program is one the pass itself makes unacceptable: it
+# fails the `typecheck` target and passes `typecheck_notail`, which is
+# exactly the shape of the caveat it documents (docs/optimization.md,
+# "The groups this cannot make work").
+FAIL_TCO_PREFIX = "fail_tco_"
 # What the `typecheck` target compares against, beside the `.out` every
 # backend shares.
 AST_SUFFIX = ".ast.out"
 
 
 def is_typecheck_file(name):
-    return name.startswith((TYPECHECK_PREFIX, FAIL_TYPECHECK_PREFIX))
+    return name.startswith(
+        (TYPECHECK_PREFIX, FAIL_TYPECHECK_PREFIX, FAIL_TCO_PREFIX)
+    )
 
 
 def expected_path(source, target):
     """The file holding what this target should produce: the printed AST
-    for `typecheck`, the program's own output for every backend."""
+    for the two typecheck targets, the program's own output for every
+    backend, each with `.notail` in front of it where the target turns
+    the tail-call pass off."""
     stem = os.path.splitext(source)[0]
-    return stem + (AST_SUFFIX if target == TYPECHECK_TARGET else ".out")
+    if target == TYPECHECK_TARGET:
+        return stem + AST_SUFFIX
+    if target == TYPECHECK_NOTAIL_TARGET:
+        return stem + ".notail" + AST_SUFFIX
+    if target == PYTHON_NOTAIL_TARGET:
+        return stem + ".notail.out"
+    return stem + ".out"
+
 
 TARGETS = (
     "python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17",
     "java21", "ocaml", INTERPRET_TARGET, TYPECHECK_TARGET,
+    PYTHON_NOTAIL_TARGET, TYPECHECK_NOTAIL_TARGET,
 )
 
 # The compiler used for the C targets; `cc` is the standard name.
@@ -150,9 +186,11 @@ def executed(result):
     return result.stdout, None
 
 
-def compile_to(source, target, output):
+def compile_to(source, target, output, flags=()):
     return run(
-        [sys.executable, PYK, "compile", "--target", target, "--output", output, source]
+        [sys.executable, PYK, "compile", "--target", target, "--output", output]
+        + list(flags)
+        + [source]
     )
 
 
@@ -163,6 +201,13 @@ def compile_to(source, target, output):
 # also the one worth pinning: a program that never writes a `def` inside
 # a loop must never produce one.
 FACTORY_MARKER = "__pyk_turn"
+
+# src/optimization.py names the worker it builds for a mutually recursive
+# group `tail_group1`, `tail_group2`, ... The OCaml target is compiled
+# from the program as written, since OCaml eliminates tail calls itself
+# (see docs/optimization.md), so one of these appearing in generated
+# OCaml means the pass ran where it should not have.
+GROUP_MARKER = "tail_group"
 
 
 def has_def_inside_loop(source):
@@ -194,8 +239,12 @@ def has_def_inside_loop(source):
 
 
 def run_python(source, workdir):
+    return _run_python(source, workdir, [])
+
+
+def _run_python(source, workdir, flags):
     generated = os.path.join(workdir, "program.py")
-    compiled = compile_to(source, "python", generated)
+    compiled = compile_to(source, "python", generated, flags)
     if compiled.returncode != 0:
         return None, compiled.stderr
     with open(generated) as f:
@@ -304,6 +353,14 @@ def run_ocaml(source, workdir):
     compiled = compile_to(source, "ocaml", generated)
     if compiled.returncode != 0:
         return None, compiled.stderr
+    with open(generated) as f:
+        code = f.read()
+    if GROUP_MARKER in code:
+        return None, (
+            f"generated a merged tail-call group ({GROUP_MARKER}*) -- OCaml "
+            "eliminates tail calls itself, so this target compiles the "
+            "program as written and the pass must not have run"
+        )
     binary = os.path.join(workdir, "program")
     built = run(
         OCAML_COMPILER + ["-w", "+a-70", "-I", workdir, "-o", binary, generated]
@@ -367,8 +424,21 @@ def run_typecheck(source, workdir):
     For a `fail_typecheck_*` program it is the other way round -- the
     checker is *expected* to reject it, so the error message becomes the
     output to compare and type-checking cleanly is the failure."""
-    expect_failure = os.path.basename(source).startswith(FAIL_TYPECHECK_PREFIX)
-    result = run([sys.executable, PYK, "compile", "--typecheck", "--ast", source])
+    return _typecheck(
+        source,
+        [],
+        expect_failure=os.path.basename(source).startswith(
+            (FAIL_TYPECHECK_PREFIX, FAIL_TCO_PREFIX)
+        ),
+    )
+
+
+def _typecheck(source, flags, expect_failure):
+    """Runs `pyk compile --typecheck --ast` with these extra flags, and
+    answers with whichever stream this program is expected to produce."""
+    result = run(
+        [sys.executable, PYK, "compile", "--typecheck", "--ast"] + flags + [source]
+    )
     if expect_failure:
         if result.returncode == 0:
             return None, (
@@ -381,8 +451,28 @@ def run_typecheck(source, workdir):
     return result.stdout, None
 
 
+def run_python_notail(source, workdir):
+    """Runs the program with the tail-call pass off. Its output is
+    compared against `.notail.out`, which must hold exactly what the
+    `.out` does: the pass may make a program run in less space, never
+    make it mean something else."""
+    return _run_python(source, workdir, [NOTAIL_FLAG])
+
+
+def run_typecheck_notail(source, _workdir):
+    """Type-checks and prints the AST with the tail-call pass off, so
+    the `.notail.ast.out` holds the program as it was written.
+
+    A `fail_tco_*` program is the one case where the two typecheck
+    targets disagree on purpose: the pass is what makes it unacceptable,
+    so it fails with the pass on and checks cleanly with it off."""
+    return _typecheck(source, [NOTAIL_FLAG], expect_failure=False)
+
+
 RUNNERS = {
     TYPECHECK_TARGET: run_typecheck,
+    TYPECHECK_NOTAIL_TARGET: run_typecheck_notail,
+    PYTHON_NOTAIL_TARGET: run_python_notail,
     INTERPRET_TARGET: run_interpret,
     "python": run_python,
     "nodejs": run_nodejs,
@@ -416,19 +506,38 @@ def load_cases():
         targets = case["targets"]
         checks = name.startswith(TYPECHECK_PREFIX)
         fails = name.startswith(FAIL_TYPECHECK_PREFIX)
+        breaks_optimized = name.startswith(FAIL_TCO_PREFIX)
         uses_typecheck = TYPECHECK_TARGET in targets
 
-        if (checks or fails) and not uses_typecheck:
+        if (checks or fails or breaks_optimized) and not uses_typecheck:
             print(
                 f"WARNING: {name} is named {TYPECHECK_PREFIX}* or "
                 f"{FAIL_TYPECHECK_PREFIX}* but does not list the "
                 f"{TYPECHECK_TARGET} target"
             )
-        if uses_typecheck and not (checks or fails):
+        if uses_typecheck and not (checks or fails or breaks_optimized):
             print(
                 f"WARNING: {name} uses the {TYPECHECK_TARGET} target "
                 f"but is named neither {TYPECHECK_PREFIX}* nor "
-                f"{FAIL_TYPECHECK_PREFIX}*"
+                f"{FAIL_TYPECHECK_PREFIX}* nor {FAIL_TCO_PREFIX}*"
+            )
+        # A `fail_tco_*` program says two things at once, and both have
+        # to be pinned: that the pass makes it unacceptable, and that
+        # without the pass it is a perfectly good program.
+        if breaks_optimized and TYPECHECK_NOTAIL_TARGET not in targets:
+            print(
+                f"WARNING: {name} is named {FAIL_TCO_PREFIX}* but does not "
+                f"list {TYPECHECK_NOTAIL_TARGET}, which is what shows the "
+                f"program is only refused because of the pass"
+            )
+        # The pass must not change what a program means, and the pair of
+        # outputs is where that is checked -- so a program that runs one
+        # way should run the other.
+        if PYTHON_NOTAIL_TARGET in targets and "python" not in targets:
+            print(
+                f"WARNING: {name} lists {PYTHON_NOTAIL_TARGET} but not "
+                f'"python"; the two outputs are only worth comparing '
+                f"together"
             )
         # A program whose types are pinned must also be a program that
         # runs: `python` compiles the whole language, so a
@@ -455,6 +564,21 @@ def load_cases():
                 f"WARNING: {name} is named {FAIL_TYPECHECK_PREFIX}* so it "
                 f'must list exactly targets = ["{TYPECHECK_TARGET}"]'
             )
+        # The pass may make a program run in less space; it may never
+        # make it print something else. Where both files exist, that is
+        # a rule the suite can simply read.
+        optimized = expected_path(os.path.join("tests", name), "python")
+        plain = expected_path(os.path.join("tests", name), PYTHON_NOTAIL_TARGET)
+        if os.path.exists(optimized) and os.path.exists(plain):
+            with open(optimized) as f:
+                first = f.read()
+            with open(plain) as f:
+                second = f.read()
+            if first != second:
+                print(
+                    f"WARNING: {name}'s .out and .notail.out differ; the "
+                    f"tail-call pass must not change what a program prints"
+                )
         for target in targets:
             path = expected_path(os.path.join("tests", name), target)
             if not os.path.exists(path):

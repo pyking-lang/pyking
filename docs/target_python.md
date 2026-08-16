@@ -239,11 +239,14 @@ res = loop x = 5:                  x = 5
                                    res = x
 ```
 
-The loop's own value is the accumulator it stopped with, so binding one
-is that assignment after the loop, and a loop in tail position is
-`return x`. A tuple accumulator is a Python tuple, assigned as a whole
+The loop's own value is what it `break`s with, so binding one is that
+assignment after the loop, and a loop in tail position is `return x`. A
+tuple accumulator is a Python tuple, assigned as a whole
 (`x, y = x + 1, y`), so the next turn's values are computed before any
-of them is stored.
+of them is stored -- and where such a loop breaks with something that is
+*not* that tuple (`break acc` in a loop carrying two values, which is
+what the tail-call pass builds), the answer gets a variable of its own
+rather than being squeezed into the accumulator.
 
 The one place this differs from what the source says is a body path with
 no value at all — an `if` with no `else` as the body's last statement.

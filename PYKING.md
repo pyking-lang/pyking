@@ -91,10 +91,12 @@ restriction of it, but these are genuinely new.
   has no loop that *carries a value*. `loop x = 5:` binds `x` for the
   first turn, and what the body produces is the `x` the next turn gets,
   so a loop needs no mutable variable to add something up. `break` ends
-  it -- the loop is then worth the accumulator it stopped with, which
-  makes a loop usable as a bound value -- and `continue` starts the next
-  turn early. Both take an optional value: `break e` stops with `e`,
-  `continue e` goes round with it. See "`loop` loops" below.
+  it -- the loop is then worth what it broke with, which makes a loop
+  usable as a bound value -- and `continue` starts the next turn early.
+  Both take an optional value: `break e` stops with `e`, `continue e`
+  goes round with it. What a loop *carries* and what it is *worth* are
+  separate questions, which is what lets a loop carrying two values
+  answer with one. See "`loop` loops" below.
 - **`..`/`..name` list-pattern rest markers**: Python spells "match the
   rest of a list" as `*_`/`*name`; Pyking spells it `..`/`..name`, and it
   may appear anywhere in the pattern — start, middle, or end — not just
@@ -1440,6 +1442,26 @@ rather than with the accumulator; `continue e` starts the next turn with
 operand must begin on the same line as the keyword (see the grammar
 notes above).
 
+**What a loop carries and what it is worth are two questions.** The
+accumulator is the state: the initializer's type, what the body must end
+in, and what a `continue` has to give. The loop's *value* is whatever it
+`break`s with, which may be something else entirely -- and where several
+`break`s give different types, the loop is worth the alternative of them
+(see "Type checking"). That is what lets a loop carrying two values
+answer with one:
+
+```pyking
+def factorial(n, acc) -> Int:
+    loop n, acc = n, acc:      # carries (Int, Int)
+        if n == 0:
+            break acc          # and is worth Int
+        else:
+            n - 1, n * acc
+
+
+print(factorial(10, 1))        # 3628800
+```
+
 `continue` is what tells the construct apart from a body that simply
 ends in an expression: the last expression says "go round with this"
 *after* everything else in the body has run, while `continue` says it
@@ -1458,8 +1480,8 @@ res = loop x = 5:
 print(res)              # 23
 ```
 
-**A loop is worth its accumulator**, so it stands wherever a value-form
-`if`/`match` does -- bound with `=`, returned with `return`, or left as
+**A loop is worth what it breaks with**, so it stands wherever a
+value-form `if`/`match` does -- bound with `=`, returned with `return`, or left as
 a function's last statement:
 
 ```pyking
@@ -1934,6 +1956,38 @@ def only_then(n):
 print(only_then(1), only_then(-1))
 ```
 
+### Tail calls
+
+A call in tail position is one nothing is waiting for: its answer is the
+answer. So a function that calls *itself* in tail position is a loop
+written as a recursion, and Pyking runs it as one -- the compiler
+rewrites it into a `loop` carrying the parameters before anything else
+sees the program. A tail-recursive function therefore runs in constant
+space on every target and in the interpreter, however deep it goes:
+
+```pyking
+def climb(x):
+    if x >= 20000:
+        1000 + x
+    else:
+        climb(x + 1)       # a tail call: nothing waits for it
+
+
+print(climb(0))            # 21000, in one frame
+```
+
+Functions that tail-call *each other* get the same treatment: the group
+becomes one loop they share. Nothing about this changes what a program
+means -- only how much room it needs to run -- and
+`pyk --no-tail-call-opt` turns it off, which is worth doing only to read
+a program back as it was written. What counts as a tail call, what is
+deliberately left alone, and the one kind of group this cannot make work
+are in [docs/optimization.md](docs/optimization.md).
+
+A call that is *not* in tail position is an ordinary recursion and stays
+one: in `n * factorial(n - 1)` the multiplication is still waiting, so
+there is nothing to turn into a loop.
+
 ### `return` with an `if`/`match`
 
 `return` also accepts a value-form `if`/`match` directly, so each
@@ -2162,19 +2216,19 @@ the `if`. A condition must be `Bool` — there is no truthiness.
 unit, and a binding may take one apart -- `a, b = pair` binds each name
 to its part, and is refused if the value is not a tuple of that many.
 
-**Loops.** A loop carries one type from turn to turn: the accumulator's,
-which is its initializer's, and which an annotation on the header is
-checked against exactly as a binding's is. Everything that says what the
-next turn carries is checked against it -- the body's own value, a
-`break e`, a `continue e` -- and the loop *supplies* it, which is what
-makes a loop bindable:
+**Loops.** A loop is checked as two questions. What it *carries* is the
+accumulator's type: its initializer's, which an annotation on the header
+is checked against exactly as a binding's is, and which the body's own
+value and every `continue e` must give. What it is *worth* is what its
+`break`s give -- the alternative of them, where they differ, and the
+accumulator for a bare `break`:
 
 ```pyking
-counted = loop x = 1:      # counted: Int, because 1 is
+counted = loop x = 1:      # carries Int
     if x > 3:
-        break              # a bare break gives the accumulator
+        break "far enough" # and is worth String
     else:
-        x + 1              # and so must the body
+        x + 1              # the body still gives an Int
 ```
 
 `break` and `continue` supply the accumulator's type wherever they
@@ -2189,9 +2243,13 @@ no value is refused, since a turn would then have nothing to hand on:
   turn -- but it ends in ()
 ```
 
-A `loop:` with no accumulator carries unit, discards its body's value,
-and refuses an operand on its `break`/`continue`: there is nowhere to
-put one.
+A loop with **no `break` at all** never finishes, so it is worth nothing
+that anything can be wrong about: a function whose body is such a loop
+honours whatever return type it declares, since it never reaches one.
+
+A `loop:` with no accumulator carries unit and discards its body's
+value. Its `continue` takes no operand -- there is no state to give one
+to -- while its `break` may still carry the loop's answer.
 
 **Functions.** A `def` that is *fully* annotated — every parameter and
 the return type — is checked where it is written. One that is not is

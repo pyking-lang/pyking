@@ -26,10 +26,10 @@ import runtime_interface
 from syntax import (
     EInt, EString, EBool, EVar,
     EAdd, ESub, EMul, EDiv, ENeg,
-    ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EIf,
+    ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EIf, ETuple,
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SWhile, SIf,
     SLoop, SBreak, SContinue, SFunctionDef,
-    TargetName, TInt, TString, TBool,
+    TargetName, TargetTuple, TInt, TString, TBool,
 )
 
 STANDARDS = ("c89", "c23")
@@ -406,10 +406,15 @@ class _Translator:
         self.uses_print = False
         self.uses_concat = False
         self.uses_strcmp = False
-        # The accumulator of each enclosing `loop`, innermost last, as
-        # (c_name, ctype): what a `break`/`continue` with an operand
-        # assigns before it jumps.
+        # The enclosing `loop`s, innermost last (see _Loop), and how
+        # many temporaries have been named so far.
         self.loops = []
+        self.temporaries = 0
+
+    def temporary(self):
+        """A number no temporary has used yet. () -> Int"""
+        self.temporaries += 1
+        return self.temporaries
 
     # -- expressions --
 
@@ -568,60 +573,132 @@ class _Translator:
                 return [CIf(info, condition, then_branch, else_branch)]
             case SLoop(info):
                 # A function ending in a loop returns what the loop
-                # produced: the accumulator it stopped with.
-                c_stmts, accumulator, _ = self.loop(s, scope)
-                return c_stmts + [CReturn(info, accumulator)]
+                # produced: what it broke with.
+                c_stmts, value, _ = self.loop(s, scope)
+                if value is None:
+                    _breakable(s)
+                return c_stmts + [CReturn(info, value)]
             case _:
                 translated, _ = self.stmt(s, scope)
                 return _as_stmts(translated)
 
     def loop(self, s, scope):
         """Translates a loop into `while (1)` over one mutable variable
-        (docs/target_c.md, "loop"): the initializer declares it, every
-        tail of the body assigns the next turn's value, and a
-        `break`/`continue` with an operand assigns it before it jumps.
-        Returns the statements, the expression holding the loop's value
-        afterwards, and the scope: the accumulator is in scope only in
-        the loop's own body, but its declaration stands in the block
-        around it, so that C name stays spoken for there.
+        per accumulator slot (docs/target_c.md, "loop"): the initializer
+        declares them, every tail of the body assigns the next turn's
+        values, and a `break`/`continue` with an operand assigns before
+        it jumps. Returns the statements, the expression holding the
+        loop's value afterwards, and the scope: the accumulators are in
+        scope only in the loop's own body, but their declarations stand
+        in the block around it, so those C names stay spoken for there.
         SLoop -> Scope -> ([CStmt], CExpr?, Scope)"""
         info = s.info
-        setup = []
-        accumulator = None
         if s.target is None:
             _unsupported(
                 s,
                 "a `loop` with no accumulator -- C has no value to give it, "
                 "so write `loop x = 0:` and break with what you want",
             )
-        match s.target:
-            case TargetName(_, name):
-                pass
-            case _:
-                _unsupported(s, "tuple destructuring targets")
-        value = self.expr(s.init, scope)
-        c_name, body_scope = _bind(s.target.name, value.ctype, _block_scope(scope))
-        setup.append(CDecl(info, value.ctype, c_name, value))
-        accumulator = CVar(info, c_name, value.ctype)
-        self.loops.append((c_name, value.ctype))
+        names = _slot_names(s.target)
+        if names is None:
+            _unsupported(s, "a loop accumulator that is not one name per slot")
+        values = [self.expr(e, scope) for e in _slot_values(s.init, len(names), s)]
+
+        # One variable per slot, declared where the loop is written.
+        body_scope = _block_scope(scope)
+        slots = []
+        for name, value in zip(names, values):
+            c_name, body_scope = _bind(name, value.ctype, body_scope)
+            slots.append((c_name, value.ctype))
+        setup = [
+            CDecl(info, value.ctype, c_name, value)
+            for (c_name, _), value in zip(slots, values)
+        ]
+
+        # A loop is worth what it breaks with, which is not always what
+        # it carries -- so a `break` with an operand needs a variable of
+        # its own to leave the answer in.
+        result = None
+        first_value = _first_break_value(s.body)
+        if len(slots) > 1 and _breaks_bare(s.body):
+            # The answer would be the tuple of slots, which C has no
+            # room for.
+            _breakable(s)
+        if first_value is not None:
+            result_type = self.expr(first_value, body_scope).ctype
+            result_name, scope_after = _bind(
+                _result_name(s.target), result_type, _block_scope(scope)
+            )
+            result = (result_name, result_type)
+            setup.append(CDecl(info, result_type, result_name, _zero(info, result_type)))
+
+        self.loops.append(_Loop(slots, result))
         try:
             body = self.loop_block(s.body, body_scope)
         finally:
             self.loops.pop()
-        return setup + [CLoop(info, body)], accumulator, _reserve([c_name], scope)
+        taken = [c_name for c_name, _ in slots] + ([result[0]] if result else [])
+        value = (
+            CVar(info, result[0], result[1]) if result
+            else CVar(info, slots[0][0], slots[0][1])
+        )
+        if result is None and len(slots) > 1:
+            # Nothing breaks out with a value, so nothing reads the
+            # loop's own value either; `tail_stmt` and the binding case
+            # both check that before using it.
+            value = None
+        return setup + [CLoop(info, body)], value, _reserve(taken, scope)
 
     def accumulate(self, expr, scope, node):
-        """The assignment that gives the innermost loop its next value.
-        Expr -> Scope -> Stmt -> CStmt"""
-        c_name, ctype = self.loops[-1]
-        value = self.expr(expr, scope)
+        """The statements that give the innermost loop its next values.
+        With more than one slot they go through temporaries, so a slot
+        that reads another sees the turn it is still on.
+        Expr -> Scope -> Stmt -> [CStmt]"""
+        loop = self.loops[-1]
+        values = [
+            self.expr(e, scope) for e in _slot_values(expr, len(loop.slots), node)
+        ]
+        for (c_name, ctype), value in zip(loop.slots, values):
+            if value.ctype != ctype:
+                _unsupported(
+                    node,
+                    f"this loop carries {ctype} in `{c_name}`, so it cannot "
+                    f"go on with {value.ctype} in C",
+                )
+        if len(loop.slots) == 1:
+            return [CAssign(node.info, loop.slots[0][0], values[0])]
+        turn = self.temporary()
+        temporaries = [
+            (f"{c_name}_next{turn}", ctype) for c_name, ctype in loop.slots
+        ]
+        return [
+            CDecl(node.info, ctype, name, value)
+            for (name, ctype), value in zip(temporaries, values)
+        ] + [
+            CAssign(node.info, c_name, CVar(node.info, name, ctype))
+            for (c_name, _), (name, ctype) in zip(loop.slots, temporaries)
+        ]
+
+    def leave(self, expr, scope, node):
+        """The statements that give the innermost loop its value and
+        leave it. Expr? -> Scope -> Stmt -> [CStmt]"""
+        loop = self.loops[-1]
+        if loop.result is None:
+            # Nothing breaks with a value here, so the accumulator is
+            # the answer and there is nothing to assign.
+            return [CBreak(node.info)]
+        name, ctype = loop.result
+        value = (
+            CVar(node.info, loop.slots[0][0], loop.slots[0][1]) if expr is None
+            else self.expr(expr, scope)
+        )
         if value.ctype != ctype:
             _unsupported(
                 node,
-                f"this loop carries {ctype}, so it cannot go on with "
-                f"{value.ctype} in C",
+                f"this loop leaves {ctype} one way and {value.ctype} "
+                f"another; C needs one type for the answer",
             )
-        return CAssign(node.info, c_name, value)
+        return [CAssign(node.info, name, value), CBreak(node.info)]
 
     def loop_block(self, stmts, scope):
         """Translates a loop body: whatever a path ends in is the next
@@ -638,7 +715,7 @@ class _Translator:
         Stmt -> Scope -> [CStmt]"""
         match s:
             case SExprStmt(_, expr):
-                return [self.accumulate(expr, scope, s)]
+                return self.accumulate(expr, scope, s)
             case SIf(info, cond, then_body, else_body):
                 condition = self.expr(cond, scope)
                 self._require(condition, BOOL, "an `if` condition")
@@ -689,11 +766,11 @@ class _Translator:
                 # `x = loop ...` -- the loop's value is the accumulator
                 # it stopped with, so the binding is one declaration
                 # after it.
-                c_stmts, accumulator, scope = self.loop(loop, scope)
-                c_name, scope = _bind(name, accumulator.ctype, scope)
-                return c_stmts + [
-                    CDecl(info, accumulator.ctype, c_name, accumulator)
-                ], scope
+                c_stmts, value, scope = self.loop(loop, scope)
+                if value is None:
+                    _breakable(loop)
+                c_name, scope = _bind(name, value.ctype, scope)
+                return c_stmts + [CDecl(info, value.ctype, c_name, value)], scope
 
             case SVar(info, name, expr):
                 value = self.expr(expr, scope)
@@ -735,13 +812,17 @@ class _Translator:
                 c_stmts, _, scope = self.loop(s, scope)
                 return c_stmts, scope
 
-            case SBreak(info, expr) | SContinue(info, expr):
-                jump = CBreak(info) if isinstance(s, SBreak) else CContinue(info)
-                if expr is None:
-                    return jump, scope
+            case SBreak(_, expr):
                 if not self.loops:
                     _unsupported(s, "a `break` outside a loop")
-                return [self.accumulate(expr, scope, s), jump], scope
+                return self.leave(expr, scope, s), scope
+
+            case SContinue(info, expr):
+                if expr is None:
+                    return CContinue(info), scope
+                if not self.loops:
+                    _unsupported(s, "a `continue` outside a loop")
+                return self.accumulate(expr, scope, s) + [CContinue(info)], scope
 
             case SIf(info, cond, then_body, else_body):
                 c_else = None if else_body is None else self.block(else_body, scope)
@@ -883,6 +964,115 @@ def _walk_c(node):
     elif isinstance(node, (list, tuple)):
         for element in node:
             yield from _walk_c(element)
+
+
+@dataclass(frozen=True)
+class _Loop:
+    """One `loop` being translated. Fields: slots, [(String, String)]
+    (one C variable and its type per accumulator slot); result,
+    (String, String)? (the variable a `break` with an operand leaves the
+    loop's value in, absent when no `break` carries one)."""
+    slots: list
+    result: tuple
+
+
+def _slot_names(target):
+    """One name per accumulator slot, or None if the target is nested
+    deeper than C can take apart. AssignTarget -> [String]?"""
+    match target:
+        case TargetName(_, name):
+            return [name]
+        case TargetTuple(_, elements):
+            names = []
+            for element in elements:
+                match element:
+                    case TargetName(_, name):
+                        names.append(name)
+                    case _:
+                        return None
+            return names
+    return None
+
+
+def _slot_values(expr, slots, node):
+    """The expressions filling each slot: expr itself for one slot, its
+    elements for several. Refuses anything else, since C has no tuple to
+    take apart at run time. Expr -> Int -> Stmt -> [Expr]"""
+    if slots == 1:
+        return [expr]
+    match expr:
+        case ETuple(_, elements) if len(elements) == slots:
+            return elements
+    _unsupported(
+        node,
+        f"this loop carries {slots} values, so every turn has to give "
+        f"{slots} of them one by one -- C has no tuple to take apart here",
+    )
+
+
+def _breaks_bare(body):
+    """Whether any `break` belonging to this body's own loop carries no
+    operand -- in a loop of several slots, one whose answer would be the
+    tuple of them. [Stmt] -> Bool"""
+    for s in body:
+        match s:
+            case SBreak(_, None):
+                return True
+            case SIf(_, _, then_body, else_body):
+                if _breaks_bare(then_body) or _breaks_bare(else_body or []):
+                    return True
+            case _:
+                pass
+    return False
+
+
+def _first_break_value(body):
+    """The operand of the first `break` belonging to this body's own
+    loop, or None. A nested loop's breaks belong to that loop.
+    [Stmt] -> Expr?"""
+    for s in body:
+        match s:
+            case SBreak(_, expr) if expr is not None:
+                return expr
+            case SIf(_, _, then_body, else_body):
+                found = _first_break_value(then_body) or _first_break_value(
+                    else_body or []
+                )
+                if found is not None:
+                    return found
+            case _:
+                pass
+    return None
+
+
+def _breakable(node):
+    """Refuses a loop whose value C has no room for: one carrying
+    several slots that a bare `break` would answer with all of them.
+    Stmt -> ()"""
+    _unsupported(
+        node,
+        "a loop that carries several values and is worth all of them -- C "
+        "has no tuple to hold that; `break` with the one value the loop "
+        "is for",
+    )
+
+
+def _result_name(target):
+    """The name to build the result variable's from: the first slot's,
+    so the generated name reads as what it holds.
+    AssignTarget -> String"""
+    names = _slot_names(target)
+    return f"{names[0]}_result" if names else "result"
+
+
+def _zero(info, ctype):
+    """A value of ctype to declare the result variable with, since C
+    reads an uninitialised one. String -> CExpr"""
+    if ctype == STRING:
+        return CStr(info, "")
+    if ctype == BOOL:
+        return CBool(info, False)
+    return CInt(info, 0)
 
 
 def _as_stmts(translated):

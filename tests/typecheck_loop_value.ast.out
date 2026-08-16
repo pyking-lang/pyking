@@ -1,0 +1,23 @@
+verdict: String = loop tries: Int = 1:
+    if tries > 3:
+        break 'gave up'
+    else:
+        tries + 1
+print(verdict)
+def factorial(n:Int, acc:Int) -> Int:
+    loop (n, acc): (Int, Int) = (n, acc):
+        if n == 0:
+            break acc
+        else:
+            (n - 1, n * acc)
+print(factorial(10, 1))
+print(factorial(0, 1))
+def counted(limit:Int) -> Int | String:
+    loop n: Int = 0:
+        if n == limit:
+            break
+        else if n > 10:
+            break 'too far'
+        else:
+            n + 1
+print(counted(3), counted(50))

@@ -58,6 +58,14 @@ file = "evaluation_order.pyk"
 targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
 
 [[cases]]
+file = "fail_tco_group_mixed.pyk"
+targets = ["typecheck", "typecheck_notail"]
+
+[[cases]]
+file = "fail_tco_group_parameters.pyk"
+targets = ["typecheck", "typecheck_notail"]
+
+[[cases]]
 file = "fail_typecheck_binding_annotation.pyk"
 targets = ["typecheck"]
 
@@ -142,11 +150,11 @@ file = "fail_typecheck_loop_annotation.pyk"
 targets = ["typecheck"]
 
 [[cases]]
-file = "fail_typecheck_loop_body.pyk"
+file = "fail_typecheck_loop_unit_continue.pyk"
 targets = ["typecheck"]
 
 [[cases]]
-file = "fail_typecheck_loop_break.pyk"
+file = "fail_typecheck_loop_body.pyk"
 targets = ["typecheck"]
 
 [[cases]]
@@ -163,10 +171,6 @@ targets = ["typecheck"]
 
 [[cases]]
 file = "fail_typecheck_loop_outside.pyk"
-targets = ["typecheck"]
-
-[[cases]]
-file = "fail_typecheck_loop_unit_value.pyk"
 targets = ["typecheck"]
 
 [[cases]]
@@ -463,11 +467,11 @@ targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "
 
 [[cases]]
 file = "typecheck_infer_mutual.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "typecheck"]
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "typecheck", "typecheck_notail"]
 
 [[cases]]
 file = "typecheck_infer_nested_recursion.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "typecheck"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "typecheck", "typecheck_notail"]
 
 [[cases]]
 file = "typecheck_infer_or.pyk"
@@ -483,7 +487,7 @@ targets = ["python", "ocaml", "interpret", "typecheck"]
 
 [[cases]]
 file = "typecheck_infer_recursion.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "typecheck"]
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "typecheck", "typecheck_notail"]
 
 [[cases]]
 file = "typecheck_infer_reuse.pyk"
@@ -534,12 +538,44 @@ file = "typecheck_loop_value_forms.pyk"
 targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "typecheck"]
 
 [[cases]]
+file = "typecheck_loop_value.pyk"
+targets = ["python", "nodejs", "esm", "html", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_tco_accumulator.pyk"
+targets = ["python", "python_notail", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "typecheck", "typecheck_notail"]
+
+[[cases]]
+file = "typecheck_tco_basic.pyk"
+targets = ["python", "python_notail", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "typecheck", "typecheck_notail"]
+
+[[cases]]
+file = "typecheck_tco_deep.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_tco_mutual.pyk"
+targets = ["python", "python_notail", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "typecheck", "typecheck_notail"]
+
+[[cases]]
+file = "typecheck_tco_shapes.pyk"
+targets = ["python", "python_notail", "nodejs", "esm", "html", "ocaml", "interpret", "typecheck", "typecheck_notail"]
+
+[[cases]]
+file = "typecheck_tco_types.pyk"
+targets = ["python", "python_notail", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "typecheck", "typecheck_notail"]
+
+[[cases]]
+file = "typecheck_tco_unmerged.pyk"
+targets = ["python", "python_notail", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "typecheck", "typecheck_notail"]
+
+[[cases]]
 file = "typecheck_numeric_recursion.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "typecheck"]
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "typecheck", "typecheck_notail"]
 
 [[cases]]
 file = "typecheck_recursion.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "typecheck"]
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "typecheck", "typecheck_notail"]
 
 [[cases]]
 file = "typecheck_string_recursion.pyk"

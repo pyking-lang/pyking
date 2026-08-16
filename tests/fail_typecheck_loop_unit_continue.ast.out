@@ -1,0 +1,2 @@
+'tests/fail_typecheck_loop_unit_continue.pyk' 13:13-13:14 Type error:
+  this loop carries no accumulator, so its 'continue' takes no value

@@ -240,6 +240,28 @@ let rec gcd a b =
 A statement-form `if` with no `else` becomes `if … then …`, whose value
 is unit — which is exactly when Pyking allows one.
 
+### Tail calls, and the pass that does not run here
+
+OCaml eliminates tail calls itself, so this target is compiled from the
+program as written: `src/optimization.py`, which turns tail recursion
+into `loop`s for every other target, is skipped for `ocaml` (see
+docs/optimization.md, "The target that needs none of this"). A
+tail-recursive Pyking function therefore compiles to a tail-recursive
+OCaml one --
+
+```ocaml
+let rec f1 x = if x >= 20000 then 1000 + x else f1 (x + 1)
+```
+
+-- and a mutually recursive group to `let rec … and …`, which is what
+`ocamlopt` was going to turn into a jump anyway. Running the pass first
+would only have this backend undo it: a `loop` compiles to a local
+recursive function here, so the two would take turns rewriting one
+program into the other's shape.
+
+`target_ocaml.NATIVE_TAIL_CALLS` is what says so; a backend for another
+host with proper tail calls would set the same flag.
+
 ### `loop`, `break` and `continue`
 
 A loop is a **local recursive function, applied at once**: the

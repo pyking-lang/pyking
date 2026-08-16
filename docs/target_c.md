@@ -427,11 +427,32 @@ res = loop x = 5:                  int x = 5;
 ```
 
 `while (1)`, not `while (true)`: c89 has no `bool`, and this is the
-spelling both standards read the same way. The loop's own value is the
-accumulator it stopped with, so binding one is that declaration after
-the loop, and a loop in tail position is `return x`. Since a turn may
-only carry one C type, a `break`/`continue` whose operand has a
-different type is refused rather than silently converted.
+spelling both standards read the same way.
+
+A loop carrying **several values** gets one variable per slot, and the
+next turn's values go through temporaries so that a slot reading another
+sees the turn it is still on:
+
+```pyking                          /* generated C */
+loop n, acc = n, acc:              int n = ...; int acc = ...;
+    if n == 0:                     while (1) {
+        break acc                      if (n == 0) { n_result = acc; break; }
+    else:                              { int n_next1 = n - 1;
+        n - 1, n * acc                   int acc_next1 = n * acc;
+                                         n = n_next1; acc = acc_next1; }
+                                   }
+```
+
+That is also where the `n_result` above comes from. A loop is worth what
+it `break`s with, which need not be shaped like what it carries — the
+shape every accumulator-passing function has after the tail-call pass
+(docs/optimization.md) — so a `break` with an operand gets a variable of
+its own, typed from what the breaks give. A loop whose breaks disagree
+about that type is refused, as is a *bare* `break` in a multi-slot loop:
+its answer would be all the slots at once, and C has no tuple to hold
+them. Since a turn may only carry one C type per slot, a `continue`
+whose operand has a different type is refused rather than silently
+converted.
 
 A `while (1)` no `break` leaves is a loop that never finishes, so
 `_falls_through` (see "A function that produces a value on some paths

@@ -1,0 +1,14 @@
+def factorial(n:Int, acc:Int) -> Int:
+    if n == 0:
+        acc
+    else:
+        factorial(n - 1, n * acc)
+print(factorial(10, 1))
+print(factorial(0, 1))
+def marked(n:Int, step:Int, marks:String) -> String:
+    if n <= 0:
+        marks
+    else:
+        marked(n - step, step, marks + '*')
+print(marked(9, 2, ''))
+print(marked(0, 1, '|'))

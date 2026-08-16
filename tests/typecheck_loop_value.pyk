@@ -1,0 +1,48 @@
+# What a loop is worth, and what it carries.
+#
+# The two are different questions. The accumulator is what a loop hands
+# from turn to turn: the initializer's type, what the body must end in,
+# and what a `continue` has to give. What the loop is *worth* is what it
+# `break`s with -- which may be something else entirely.
+#
+# Here the loop carries an Int and is worth a String.
+
+verdict = loop tries = 1:
+    if tries > 3:
+        break "gave up"
+    else:
+        tries + 1
+
+print(verdict)
+
+
+# The shape this is really for: a loop carrying two values and worth
+# just one of them. Without it, every accumulator-passing function --
+# the commonest tail-recursive kind there is -- would have to return a
+# tuple it did not want.
+def factorial(n: Int, acc: Int) -> Int:
+    loop n, acc = n, acc:
+        if n == 0:
+            break acc
+        else:
+            n - 1, n * acc
+
+
+print(factorial(10, 1))
+print(factorial(0, 1))
+
+
+# A bare `break` still gives the accumulator, so a loop may be worth
+# either, and several `break`s may give different types -- the loop is
+# then worth the alternative of them.
+def counted(limit: Int) -> Int | String:
+    loop n = 0:
+        if n == limit:
+            break
+        else if n > 10:
+            break "too far"
+        else:
+            n + 1
+
+
+print(counted(3), counted(50))

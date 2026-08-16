@@ -1,0 +1,16 @@
+def first(n:Int) -> String:
+    if n == 0:
+        'done'
+    else:
+        second(n - 1)
+def second(n:Int) -> String:
+    if n == 0:
+        'also done'
+    else:
+        third('mark')
+def third(mark:String) -> String:
+    if mark == '':
+        'empty'
+    else:
+        first(0)
+print(first(3))

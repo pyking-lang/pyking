@@ -33,6 +33,10 @@ AST variant, and `match`/`case` over them rather than method dispatch.
                     │   symbolize     │   one unique integer per node
                     └────────┬────────┘
                     ┌────────▼────────┐
+                    │src/optimization │   tail calls → loops, then
+                    │      .py        │   symbolize again for what it built
+                    └────────┬────────┘   (off with --no-tail-call-opt)
+                    ┌────────▼────────┐
                     │src/typesystem.py│   --typecheck only; leaves the AST
                     └────────┬────────┘   alone, fills a symbol→type tmap
                              │
@@ -77,6 +81,7 @@ repl`) rather than a `--target`.
 | `src/parser.py` | Recursive descent, tokens → the AST in `syntax.py`. Also enforces the few rules the grammar cannot state (duplicate pattern bindings, "every branch of a bound `if` yields a value", one statement per line, and where a `break`/`continue` may stand). |
 | `src/syntax.py` | The AST itself — one dataclass per variant — plus a pretty printer that prints Pyking back out. |
 | `src/analyses.py` | Static passes over the AST. `analyze_program` checks names and scoping — it only rejects, never rewrites; it binds every `def` in a block before walking it, which is what lets functions be recursive, mutually recursive or used before they are written; it runs for every mode except `--typecheck`, which replaces it. `symbolize` then gives every node a unique integer `sym`, rebuilding the tree (nodes are frozen); it runs for every mode, `--ast` included. |
+| `src/optimization.py` | Tail calls into loops: a function that calls itself in tail position becomes a `loop` carrying its parameters, and a group that tail-calls each other becomes one loop they share. AST in, AST out, before anything reads the program, so every backend and the interpreter get it at once. `--no-tail-call-opt` turns it off. |
 | `src/typesystem.py` | The type checker. Opt-in (`--typecheck`) while it covers only part of the language; it leaves the AST alone and reports what it inferred in `tmap`, a symbol → type table, which is what `--ast` then prints from. |
 | `src/target_python.py` | Python backend: its own `Py*` AST, translation, printer. |
 | `src/target_js_core.py` | JavaScript AST, translation, printer — with no knowledge of packaging. |
@@ -591,6 +596,9 @@ own page:
   what an `Int` is on each of them.
 - **[source.md](source.md)** — every module in `src/`, its data
   structures and its main functions.
+- **[optimization.md](optimization.md)** — the tail-call pass every
+  target benefits from, and why it is one AST rewrite rather than nine
+  backend features.
 - **[target_python.md](target_python.md)** — `python`.
 - **[target_js.md](target_js.md)** — `nodejs`, `html`, `esm`.
 - **[target_c.md](target_c.md)** — `c89`, `c23`.

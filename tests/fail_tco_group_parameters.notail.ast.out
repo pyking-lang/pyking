@@ -1,0 +1,11 @@
+def ping(n:Int) -> String:
+    if n == 0:
+        'done'
+    else:
+        pong('x')
+def pong(mark:String) -> String:
+    if mark == '':
+        'empty'
+    else:
+        ping(0)
+print(ping(2))

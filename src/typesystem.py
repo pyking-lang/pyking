@@ -34,7 +34,7 @@ from syntax import (
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq,
     SLet, SLetStmt, SExprStmt, SIf, SReturn, SReturnStmt, SFunctionDef,
     SLoop, SBreak, SContinue,
-    Type, TInt, TString, TBool, TList, TTuple, TFunction, TOr, TUnknown,
+    Type, TInt, TString, TBool, TList, TTuple, TFunction, TOr, TUnknown, TNever,
     TargetName, TargetTuple,
 )
 
@@ -163,10 +163,12 @@ class Use:
 
 @dataclass(frozen=True)
 class Frame:
-    """What the current inference has gathered. Fields: uses: (Use,),
-    returns: (Type,)."""
+    """What the current inference has gathered, and what the innermost
+    loop has been broken with. Fields: uses: (Use,), returns: (Type,),
+    breaks: (Type,)."""
     uses: tuple = ()
     returns: tuple = ()
+    breaks: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -234,6 +236,13 @@ def returning(store, type_):
     """store whose frame has seen a return of type_.
     Store -> Type -> Store"""
     return with_frame(store, replace(store.frame, returns=store.frame.returns + (type_,)))
+
+
+def breaking(store, type_):
+    """store whose frame has seen a `break` giving type_ -- what the
+    loop being checked is worth, one way out at a time.
+    Store -> Type -> Store"""
+    return with_frame(store, replace(store.frame, breaks=store.frame.breaks + (type_,)))
 
 
 def noting(store, uses):
@@ -448,6 +457,12 @@ def check_stmt(statement, env, tmap, return_type, loop, store):
                 return else_type, env, else_store
             if else_signal is not None:
                 return then_type, env, then_store
+            if isinstance(then_type, TNever):
+                # A branch that cannot finish -- a loop with no `break`
+                # in it -- leaves the type of the `if` to the other one.
+                return else_type, env, else_store
+            if isinstance(else_type, TNever):
+                return then_type, env, else_store
             if not same_type(then_type, else_type):
                 raise TypeError_(
                     info,
@@ -495,9 +510,13 @@ def check_stmt(statement, env, tmap, return_type, loop, store):
                 check_annotation(annotation, accumulator)
                 body_env = check_target(target, accumulator, env, tmap, store)
             record(tmap, sym, accumulator, store)
+            # The loop's own breaks are collected in a frame of its own,
+            # so a nested loop's ways out are not mistaken for this
+            # one's; the enclosing frame is put back afterwards.
+            outer = store.frame
             supplied, store = check_stmts(
                 body, body_env, tmap, return_type, Loop(accumulator, target is not None),
-                store,
+                with_frame(store, replace(outer, breaks=())),
             )
             if target is not None and not accepts(accumulator, supplied):
                 raise TypeError_(
@@ -507,30 +526,49 @@ def check_stmt(statement, env, tmap, return_type, loop, store):
                     f"accumulator for the next turn -- but it ends in "
                     f"{pprint_type(supplied)}",
                 )
-            return accumulator, env, store
+            # A loop is worth what it breaks with. With no `break` at
+            # all it cannot finish, so it is worth nothing anything can
+            # be wrong about -- which is what lets a function whose body
+            # is such a loop honour any return type.
+            ways_out = store.frame.breaks
+            store = with_frame(store, outer)
+            return (merge(list(ways_out)) if ways_out else TNever(info)), env, store
 
-        case SBreak(info, expr, _) | SContinue(info, expr, _):
-            # Both leave the block they are in, and both supply the
-            # accumulator, exactly as a `return` supplies the function's
-            # value: that is what lets a branch that breaks sit beside
-            # one that ends in the next accumulator.
-            keyword = "break" if isinstance(statement, SBreak) else "continue"
+        case SBreak(info, expr, _):
+            # A `break` says what the loop is *worth*, which is a
+            # different question from what it carries: the operand is
+            # collected rather than checked against the accumulator.
+            # What the statement supplies is the accumulator all the
+            # same -- it never falls through, so nothing can observe
+            # that answer, and giving it the one its neighbours give is
+            # what lets a branch that breaks sit beside one that ends in
+            # the next accumulator.
             if loop is None:
-                raise TypeError_(info, f"'{keyword}' outside a loop")
+                raise TypeError_(info, "'break' outside a loop")
+            if expr is None:
+                return loop.accumulator, env, breaking(store, loop.accumulator)
+            actual, store = check_expr(expr, env, tmap, store)
+            return loop.accumulator, env, breaking(store, actual)
+
+        case SContinue(info, expr, _):
+            # `continue` is the other half: it says what the next turn
+            # carries, so its operand *is* the accumulator.
+            if loop is None:
+                raise TypeError_(info, "'continue' outside a loop")
             if expr is None:
                 return loop.accumulator, env, store
             if not loop.written:
                 raise TypeError_(
                     expr.info,
-                    f"this loop carries no accumulator, so its '{keyword}' "
-                    f"takes no value",
+                    "this loop carries no accumulator, so its 'continue' "
+                    "takes no value",
                 )
             actual, store = check_expr(expr, env, tmap, store)
             if not accepts(loop.accumulator, actual):
                 raise TypeError_(
                     expr.info,
                     f"this loop carries {pprint_type(loop.accumulator)}, but "
-                    f"this '{keyword}' gives {pprint_type(actual)}",
+                    f"this 'continue' gives {pprint_type(actual)}",
                 )
             return loop.accumulator, env, store
 
@@ -1011,9 +1049,15 @@ def supplied_type(node, env, tmap, return_type, store):
 def merge(types):
     """One type covering all of types: that type when they agree, a TOr
     of the distinct ones (flattened, function types kept as whole
-    alternatives) when they do not. See docs/type_inference.md, "The
-    mistake that made this page necessary". At least one type is
-    required. [Type] -> Type"""
+    alternatives) when they do not. A TNever is dropped -- a way through
+    that never arrives says nothing about what does -- unless that is
+    all there is. See docs/type_inference.md, "The mistake that made
+    this page necessary". At least one type is required.
+    [Type] -> Type"""
+    arriving = [type_ for type_ in types if not isinstance(type_, TNever)]
+    if not arriving:
+        return types[0]
+    types = arriving
     match distinct_types([one for type_ in types for one in alternatives_of(type_)]):
         case [only]:
             return only
@@ -1078,9 +1122,13 @@ def resolved(type_, store, seen=()):
 
 def accepts(expected, actual):
     """Whether a value of type actual may be used where expected is
-    wanted -- same_type, plus TOr on either side. No other subtyping
-    exists in Pyking. Type -> Type -> Bool"""
+    wanted -- same_type, plus TOr on either side and TNever below
+    everything. No other subtyping exists in Pyking.
+    Type -> Type -> Bool"""
     match (expected, actual):
+        case (_, TNever()):
+            # No value ever arrives, so there is none to be wrong.
+            return True
         case (_, TOr(_, alternatives)):
             return all(accepts(expected, alternative) for alternative in alternatives)
         case (TOr(_, alternatives), _):
@@ -1342,10 +1390,11 @@ def same_type(a, b):
     match (a, b):
         case (TInt(), TInt()) | (TString(), TString()) | (TBool(), TBool()):
             return True
-        case (TUnknown(), TUnknown()):
+        case (TUnknown(), TUnknown()) | (TNever(), TNever()):
             # Two types nothing has decided are the same lack of a
             # decision -- which is what makes an incomplete function type
-            # equal to itself, and so findable in `recall`'s cache.
+            # equal to itself, and so findable in `recall`'s cache. Two
+            # `TNever`s are the same non-arrival for the same reason.
             return True
         case (TList(_, x), TList(_, y)):
             return same_type(x, y)

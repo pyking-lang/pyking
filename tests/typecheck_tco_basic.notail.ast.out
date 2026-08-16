@@ -1,0 +1,14 @@
+def climb(x:Int) -> Int:
+    if x >= 300:
+        1000 + x
+    else:
+        climb(x + 1)
+print(climb(0))
+def first_over(limit:Int) -> Int:
+    if limit == 0:
+        return 0
+    if limit > 100:
+        return limit
+    return first_over(limit * 2 + 1)
+print(first_over(3))
+print(first_over(0))

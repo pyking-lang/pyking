@@ -1,0 +1,45 @@
+# A tail-recursive function whose answer is not the type of its
+# arguments -- which is the case the loop's typing rule exists for.
+#
+# The loop carries what the parameters carry, and is worth what it
+# `break`s with. Here it carries an Int and is worth a String, so a
+# rewritten function is no more constrained than the recursion it
+# replaced.
+
+def spell(n: Int) -> String:
+    if n <= 0:
+        "zero"
+    else if n == 1:
+        "one"
+    else:
+        spell(n - 2)
+
+
+print(spell(9))
+print(spell(8))
+
+
+# Two parameters, and an answer of a third type again: the loop carries
+# (Int, String) and is worth a Bool.
+def all_marked(n: Int, marks: String) -> Bool:
+    if n == 0:
+        marks == ""
+    else:
+        all_marked(n - 1, marks + "*")
+
+
+print(all_marked(0, ""))
+print(all_marked(3, ""))
+
+
+# The recursion may sit in a `return` rather than at the end of the
+# body, which is a tail position wherever it is written -- and the
+# answer is a third type again.
+def counts_down(n: Int, seen: String) -> Bool:
+    if n == 0:
+        return seen == ""
+    return counts_down(n - 1, seen + "*")
+
+
+print(counts_down(0, ""))
+print(counts_down(4, ""))
