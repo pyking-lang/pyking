@@ -1,14 +1,15 @@
 # The Pyking compiler.
 #
 #   make            this help
-#   make test       the compiler's own test suite
+#   make test       the compiler's own test suite, run in parallel
+#   make stest      the same suite, one test at a time
 #   make clean      remove what has been generated
 #
 # Run `make help` for the full list. There is no build rule: the compiler
 # is a set of Python scripts run in place (see ./pyk), so nothing here
 # produces the compiler itself.
 
-.PHONY: all help test test-py2pyk playground clean clean-pycache distclean
+.PHONY: all help test stest test-py2pyk playground clean clean-pycache distclean
 
 # A bare `make` prints the help rather than building anything. There is
 # nothing to build, so someone typing `make` is almost always asking what
@@ -21,7 +22,9 @@ all: help
 help:
 	@echo "make              this help"
 	@echo "make test         the compiler's own suite: every tests/*.pyk on every"
-	@echo "                  target tests/test_cases.toml lists it for"
+	@echo "                  target tests/test_cases.toml lists it for, run in"
+	@echo "                  parallel (JOBS=n to say how parallel)"
+	@echo "make stest        the same suite, one test at a time"
 	@echo "make test-py2pyk  the tools/py2pyk suite: each .py translated to Pyking,"
 	@echo "                  compiled back, run and diffed"
 	@echo "make playground   build and serve the web playground, then print a link"
@@ -33,8 +36,19 @@ help:
 	@echo "tools/playground has options of its own (PORT=, CDN=, ...):"
 	@echo "run 'make -C tools/playground help' for those."
 
+# The suite's runs are independent of each other -- each compiles into a
+# temporary directory of its own -- so it runs them in parallel, one per
+# usable CPU unless JOBS= or $PYK_TEST_JOBS says otherwise. What it
+# prints does not depend on that: results are reported in the order the
+# manifest lists them however they were scheduled, so this and `stest`
+# produce the same transcript.
 test:
-	python3 tests/test_script.py
+	python3 tests/test_script.py $(if $(JOBS),--jobs $(JOBS))
+
+# The same suite with no pool at all, for when a parallel run's timing is
+# itself in question.
+stest:
+	python3 tests/test_script.py --jobs 1
 
 # Delegates entirely to tools/py2pyk's own Makefile; see that file for
 # what "test" means there (translating tools/py2pyk/tests/*.py to Pyking

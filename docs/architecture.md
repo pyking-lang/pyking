@@ -650,6 +650,18 @@ every target listed for a program, which is the property being tested.
 It warns about any `.pyk` missing from the manifest, and finishes with a
 per-target summary.
 
+Nothing a run produces leaves the temporary directory it was given —
+every backend is invoked with `--output` pointing into it, `javac`
+writes its classes there with `-d`, `ocamlopt` builds there with `-I`,
+and the two targets that compile nothing write nothing at all — so the
+pairs are independent and `make test` runs them in a thread pool
+(`--jobs`, defaulting to one per usable CPU; `make stest` is `--jobs
+1`). Threads rather than processes because every runner spends its time
+waiting on a subprocess. Results are buffered and reported in the order
+the manifest lists them, so what the suite prints does not depend on how
+the work was scheduled and a parallel transcript diffs cleanly against a
+serial one.
+
 Two of the names in a `targets` list compile nothing. `typecheck` checks
 a program and compares the printed AST against its `.ast.out`;
 `interpret` runs it with `src/interpreter.py` and compares its stdout

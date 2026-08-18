@@ -100,7 +100,8 @@ anything:
 | command | what it does |
 |---|---|
 | `make`, `make help` | the list below |
-| `make test` | the compiler's own suite: every program in `tests/` on every target it supports, comparing each against one shared `.out` file |
+| `make test` | the compiler's own suite: every program in `tests/` on every target it supports, comparing each against one shared `.out` file — run in parallel, one job per usable CPU (`JOBS=n` to say how many) |
+| `make stest` | the same suite, one test at a time |
 | `make test-py2pyk` | the [py2pyk](tools/py2pyk/) suite: each `.py` translated to Pyking, compiled back to Python, and both run and diffed |
 | `make playground` | build and serve the [web playground](tools/playground/), then print a link to open |
 | `make clean` | remove what has been generated: `__pycache__/` directories and the playground's `build/` |

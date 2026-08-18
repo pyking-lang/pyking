@@ -943,6 +943,17 @@ of the language's semantics held to the files the nine backends are held
 to. It warns about any `.pyk` missing from the manifest and prints a
 per-target summary.
 
+Those (program, target) pairs are independent — each compiles into a
+temporary directory of its own, and nothing is written back into the
+repository — so `make test` runs them in a thread pool, one job per
+usable CPU (`os.sched_getaffinity`, so it sees what a VM actually has;
+`make test JOBS=n` or `$PYK_TEST_JOBS` says otherwise). `make stest` is
+the same suite with `--jobs 1`. **The two print the same transcript**:
+results are held back and reported in the order the manifest lists them
+whatever order they finished in, so a parallel run stays diffable
+against a serial one. Keep it that way — a new runner belongs in
+`RUNNERS` like the others, writing only into the `workdir` it is handed.
+
 **Four kinds of expected output**, two of them about the tail-call
 pass. `<name>.notail.ast.out` is what `--typecheck --ast
 --no-tail-call-opt` prints -- the program as *written*, where `.ast.out`

@@ -62,8 +62,16 @@ How each target is executed:
           second definition of the language's semantics, and the cheapest
           way to keep it honest is to hold it to the same `.out` files
           the nine compiling targets are held to.
+
+Every (target, program) pair is independent -- each compiles into a
+temporary directory of its own and nothing is written back into the
+repository -- so they are run by a pool of `--jobs` threads, one per
+usable CPU by default (`make test`); `--jobs 1` runs them one at a time
+(`make stest`). A finished result waits for the ones listed before it,
+so the transcript is the same either way.
 """
 
+import argparse
 import glob
 import os
 import re
@@ -71,6 +79,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+from concurrent.futures import ThreadPoolExecutor
 
 PYK = os.path.join("src", "pyk.py")
 CASES_FILE = os.path.join("tests", "test_cases.toml")
@@ -104,6 +113,9 @@ NOTAIL_FLAG = "--no-tail-call-opt"
 # What the `typecheck` target compares against, beside the `.out` every
 # backend shares.
 AST_SUFFIX = ".ast.out"
+# How many runs to keep in flight, when neither `--jobs` nor this says.
+# See `default_jobs`.
+JOBS_VARIABLE = "PYK_TEST_JOBS"
 
 
 def is_typecheck_file(name):
@@ -569,38 +581,117 @@ def load_cases():
     return cases
 
 
+def plan(cases):
+    """Every (target, program) pair the manifest declares, in the order
+    their results are reported. [Case] -> [(String, String)]"""
+    return [
+        (target, os.path.join("tests", case["file"]))
+        for target in TARGETS
+        for case in cases
+        if target in case["targets"]
+    ]
+
+
+def run_case(target, source):
+    """Runs one program on one target and words the result, rather than
+    printing it: a run this far from the reporting loop is one that can
+    happen on any thread. (String, String) -> (String, Bool)"""
+    with open(expected_path(source, target)) as f:
+        expected = f.read()
+    with tempfile.TemporaryDirectory() as workdir:
+        actual, error = RUNNERS[target](source, workdir)
+
+    label = f"target {target}: {source}"
+    if error is not None:
+        return f"{label} FAILED\n--- compile/run error ---\n{error}", True
+    if actual == expected:
+        return f"{label} OK.\n", False
+    return (
+        f"{label} FAILED\n"
+        f"--- expected output ---\n{expected}"
+        f"--- actual output ---\n{actual}",
+        True,
+    )
+
+
+def outcomes(tasks, jobs):
+    """The result of every task, always in the order the tasks were
+    listed. With `jobs` above one they are run by a pool and a finished
+    result waits for the ones before it, so what the suite prints does
+    not depend on how the work happened to be scheduled.
+    [(String, String)] -> Int -> iterator of (String, String, Bool)"""
+    if jobs == 1:
+        for target, source in tasks:
+            report, failed = run_case(target, source)
+            yield target, report, failed
+        return
+    pool = ThreadPoolExecutor(max_workers=jobs)
+    try:
+        futures = [pool.submit(run_case, *task) for task in tasks]
+        for (target, _), future in zip(tasks, futures):
+            report, failed = future.result()
+            yield target, report, failed
+    finally:
+        # Not `with`: that waits for every queued task, so an interrupted
+        # run would sit through the whole suite before reporting it.
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
+def default_jobs():
+    """How many runs to keep in flight when nothing asks for a number.
+
+    The affinity mask rather than `os.cpu_count()`: inside a VM or a
+    container that is the count of CPUs this process may actually use,
+    which is what the pool should be sized to. () -> Int"""
+    requested = os.environ.get(JOBS_VARIABLE)
+    if requested:
+        return positive(requested, JOBS_VARIABLE)
+    try:
+        return len(os.sched_getaffinity(0))
+    except AttributeError:
+        return os.cpu_count() or 1
+
+
+def positive(value, what):
+    """The value as a job count, or a usage error. String -> String -> Int"""
+    if not value.isdigit() or int(value) < 1:
+        raise SystemExit(f"{what}: expected a positive number, not {value!r}")
+    return int(value)
+
+
+def parse_jobs(argv):
+    """How many runs this invocation wants in flight. [String] -> Int"""
+    parser = argparse.ArgumentParser(
+        description="Runs every test program on every target it declares."
+    )
+    parser.add_argument(
+        "-j",
+        "--jobs",
+        metavar="N",
+        type=lambda value: positive(value, "--jobs"),
+        help=(
+            "how many test runs to keep in flight (default: the number of "
+            f"usable CPUs, or ${JOBS_VARIABLE}); 1 runs them one at a time"
+        ),
+    )
+    jobs = parser.parse_args(argv).jobs
+    return jobs if jobs is not None else default_jobs()
+
+
 def main():
+    jobs = parse_jobs(sys.argv[1:])
     cases = load_cases()
+    tasks = plan(cases)
     passed = {target: 0 for target in TARGETS}
     failed = {target: 0 for target in TARGETS}
 
-    for target in TARGETS:
-        for case in cases:
-            if target not in case["targets"]:
-                continue
-            source = os.path.join("tests", case["file"])
-            with open(expected_path(source, target)) as f:
-                expected = f.read()
-
-            with tempfile.TemporaryDirectory() as workdir:
-                actual, error = RUNNERS[target](source, workdir)
-
-            label = f"target {target}: {source}"
-            if error is not None:
-                print(f"{label} FAILED")
-                print("--- compile/run error ---")
-                print(error, end="")
-                failed[target] += 1
-            elif actual == expected:
-                print(f"{label} OK.")
-                passed[target] += 1
-            else:
-                print(f"{label} FAILED")
-                print("--- expected output ---")
-                print(expected, end="")
-                print("--- actual output ---")
-                print(actual, end="")
-                failed[target] += 1
+    print(f"{len(tasks)} runs on {jobs} worker{'' if jobs == 1 else 's'}.")
+    for target, report, did_fail in outcomes(tasks, jobs):
+        print(report, end="")
+        if did_fail:
+            failed[target] += 1
+        else:
+            passed[target] += 1
 
     print()
     print("Summary")
