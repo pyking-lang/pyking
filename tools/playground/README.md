@@ -128,18 +128,22 @@ static host will do; nothing runs server-side.
   - **Enable typechecker** and **Print AST output** — the compiler's own
     `--typecheck` and `--ast`, both **off** by default. Each changes what
     compiling means, so nobody gets them without asking:
-    - *Enable typechecker* runs `src/typesystem.py` and, exactly as `pyk`
-      does, uses it *instead of* the name analysis. It covers only a
-      fragment of the language so far and refuses the rest with `Construct
-      is not supported`, so it will reject most examples — that floor is
-      the point, not a bug. It applies to **Run** as well: a program the
-      checker rejects is rejected whichever button you press.
+    - *Enable typechecker* reports what `src/typesystem.py` refuses, and,
+      exactly as `pyk` does, uses it *instead of* the name analysis. The
+      checker itself runs either way — the tail-call pass needs what it
+      knows — so what the box turns on is the refusal, not the question:
+      it covers only a fragment of the language so far and refuses the
+      rest with `Construct is not supported`, so it will reject most
+      examples, and that floor is the point rather than a bug. It applies
+      to **Run** as well: a program the checker rejects is rejected
+      whichever button you press.
     - *Print AST output* stops after the front end and shows the
       pretty-printed Pyking AST, whatever target is selected — the same
-      view as the `ast` target, and with the type checker on it carries the
-      types that were inferred. There is then no generated code, so the
-      generated pane's ▶ Run is disabled: it runs *what is shown*, and an
-      AST is a view of the program rather than code any host could run.
+      view as the `ast` target, carrying whatever types the checker could
+      work out, which is what `pyk compile --ast` prints too. There is
+      then no generated code, so the generated pane's ▶ Run is disabled:
+      it runs *what is shown*, and an AST is a view of the program rather
+      than code any host could run.
   - **Reset pane sizes**.
 
   Close it with `Esc`, the ✕, or a click on the backdrop. Every setting, and

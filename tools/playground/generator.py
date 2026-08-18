@@ -207,6 +207,7 @@ import traceback
 
 from analyses import analyze_program, symbolize, AnalysisError
 from lexer import lexing, pprint_info, LexError
+import optimization
 from parser import parse, ParseError
 from syntax import pprint_program
 import target_c
@@ -248,9 +249,12 @@ def compile_source(text, target="python", name="playground.pyk",
     program, and never touches the filesystem.
 
     Both flags are `pyk`'s own, and mean what they mean there: `typecheck`
-    runs `src/typesystem.py` (and, exactly as in `src/pyk.py`,
-    *replaces* the name analysis with it), and `ast` stops after the front
-    end and yields the pretty-printed Pyking AST whatever `target` says.
+    *replaces* the name analysis with `src/typesystem.py` and reports what
+    it refuses, and `ast` stops after the front end and yields the
+    pretty-printed Pyking AST whatever `target` says. The checker itself
+    runs either way, exactly as in `src/pyk.py` -- the tail-call pass
+    needs what it knows -- so the flag decides who hears about a refusal,
+    not whether the question is asked.
 
     What the CLI prints to stdout becomes a file here, since the page shows
     generated files rather than a terminal. Such a file is listed in
@@ -264,26 +268,46 @@ def compile_source(text, target="python", name="playground.pyk",
     except ParseError as e:
         return _fail(e, "Parsing error")
 
-    # `--typecheck` stands in for the name analysis rather than following
-    # it: the checker carries a name environment of its own (see
+    # Who is *asking* about the types. `--typecheck` asks on purpose, and
+    # the OCaml backend has to know, since it reads the checker's answers
+    # back rather than inferring anything (src/pyk.py draws the same line).
+    required = typecheck or target == target_ocaml.TARGET
+
+    # For those two the checker stands in for the name analysis rather
+    # than following it: it carries a name environment of its own (see
     # src/typesystem.py), and src/pyk.py makes the same choice.
-    if not typecheck:
+    if not required:
         try:
             analyze_program(program)
         except AnalysisError as e:
             return _fail(e, "Name error")
 
     program = symbolize(program)
+
+    # The checker runs whatever was asked for, because the tail-call pass
+    # needs what it knows: a program it accepts is optimized, one it
+    # refuses is compiled as written. `required` decides only whether a
+    # refusal is reported rather than quietly meaning "no pass here".
     tmap = None
-    if typecheck:
-        try:
-            tmap = typesystem.type_check(program)
-        except AnalysisError as e:
-            # The checker does its own name checking when it replaces the
-            # analysis, and reports it as the same kind of error.
+    try:
+        tmap = typesystem.type_check(program)
+    except AnalysisError as e:
+        # The checker does its own name checking when it replaces the
+        # analysis, and reports it as the same kind of error.
+        if required:
             return _fail(e, "Name error")
-        except typesystem.TypeError_ as e:
+    except typesystem.TypeError_ as e:
+        if required:
             return _fail(e, "Type error")
+
+    # Tail calls become loops before any backend reads the program, so
+    # the page shows what `pyk compile` would produce. OCaml is the
+    # exception it is in src/pyk.py: that host eliminates them itself, so
+    # the pass would only be undone (docs/optimization.md).
+    natively = not ast and target == target_ocaml.TARGET
+    if tmap is not None and not natively:
+        program, tmap = optimization.optimize(program, tmap)
+        program = symbolize(program)
 
     stem = name.rsplit(".", 1)[0]
 
@@ -319,10 +343,10 @@ def compile_source(text, target="python", name="playground.pyk",
                 cls + ".java": target_java.pprint_java_program(j, target, cls, name)})
 
         if target == target_ocaml.TARGET:
-            # This backend type-checks the program itself, whatever the
-            # page's own checkbox says, since it compiles what the checker
-            # accepts and reads its types back.
-            o = target_ocaml.translate_program(program)
+            # This backend is type-checked whatever the page's own
+            # checkbox says (`required` above), since it compiles what the
+            # checker accepts and reads its types back out of `tmap`.
+            o = target_ocaml.translate_program(program, tmap)
             return done({
                 stem + target_ocaml.EXTENSION:
                     target_ocaml.pprint_ocaml_program(o, name)})
