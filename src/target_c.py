@@ -3,8 +3,10 @@ one translation; standard is a printer parameter for where the two
 differ (comments, declaration placement, booleans). C is statically
 typed and Pyking is not, so this backend infers a type (Int, String, or
 Bool) for every binding, parameter and function; where inference is not
-enough it refuses with a source position. See docs/target_c.md for the
-inference rules and how each construct compiles.
+enough it refuses with a source position. C also leaves the order of an
+operator's operands and a call's arguments unspecified, so operands that
+can print are pinned down with temporaries. See docs/target_c.md for the
+inference rules, evaluation order, and how each construct compiles.
 
 Data structures:
     UnsupportedError -- a construct this backend cannot compile, with
@@ -21,6 +23,7 @@ Functions:
 
 from dataclasses import dataclass
 
+from analyses import Effects, walk
 from lexer import Info
 import runtime_interface
 from syntax import (
@@ -183,6 +186,18 @@ class CStrEq(CExpr):        # strcmp(left, right) == 0
     ctype: str = BOOL
 
 
+@dataclass(frozen=True)
+class CSeq(CExpr):          # (name = value, ..., result)
+    """steps computed in the order they are written, then result, which
+    is what the whole expression is worth. steps is [(String, CExpr)]:
+    one temporary and the value to put in it. See docs/target_c.md,
+    "Evaluation order"."""
+    info: Info
+    steps: list
+    result: CExpr
+    ctype: str = INT
+
+
 class CStmt:
     """Base class for the C statement AST."""
 
@@ -193,6 +208,13 @@ class CDecl(CStmt):         # <type> name = init;
     ctype: str
     name: str
     init: CExpr
+
+
+@dataclass(frozen=True)
+class CVarDecl(CStmt):      # <type> name;
+    info: Info
+    ctype: str
+    name: str
 
 
 @dataclass(frozen=True)
@@ -388,6 +410,21 @@ _BINARY_OPS = {
 }
 
 
+def _unused_prefix(stmts):
+    """A prefix no name in the program starts with, for the temporaries
+    that pin evaluation order down (docs/target_c.md, "Evaluation
+    order"). [Stmt] -> String"""
+    names = {
+        getattr(node, "name")
+        for node in walk(stmts)
+        if isinstance(getattr(node, "name", None), str)
+    }
+    prefix = "tmp"
+    while any(name.startswith(prefix) for name in names):
+        prefix += "_"
+    return prefix
+
+
 class _Translator:
     """Accumulates what the whole-program walk needs across functions:
     signatures, which have been defined, and which runtime helpers are
@@ -396,9 +433,13 @@ class _Translator:
     {String: String} (Pyking name -> C name, from the declaration pass);
     defined, {String} (functions whose body has been translated);
     called_early, {String} (functions called before that);
-    uses_print/uses_concat/uses_strcmp, Bool."""
+    uses_print/uses_concat/uses_strcmp, Bool; printing, Effects (which
+    expressions can print); temporary_prefix, String (see
+    _unused_prefix); temps, [(String, String, Info)] (the
+    evaluation-order temporaries the function being translated needs, as
+    ctype, C name and where they came from)."""
 
-    def __init__(self):
+    def __init__(self, stmts):
         self.signatures = {}
         self.declared = {}
         self.defined = set()
@@ -410,6 +451,9 @@ class _Translator:
         # many temporaries have been named so far.
         self.loops = []
         self.temporaries = 0
+        self.printing = Effects(stmts)
+        self.temporary_prefix = _unused_prefix(stmts)
+        self.temps = []
 
     def temporary(self):
         """A number no temporary has used yet. () -> Int"""
@@ -417,6 +461,50 @@ class _Translator:
         return self.temporaries
 
     # -- expressions --
+
+    def fresh_temp(self, ctype, info):
+        """A fresh evaluation-order temporary, declared at the top of
+        the function being translated. String -> Info -> String"""
+        name = f"{self.temporary_prefix}{self.temporary()}"
+        self.temps.append((ctype, name, info))
+        return name
+
+    def in_order(self, exprs, scope):
+        """The expressions translated, plus the assignments that pin
+        their evaluation order down where two or more of them can print
+        (docs/target_c.md, "Evaluation order"). [Expr] -> Scope ->
+        ([CExpr], [(String, CExpr)])"""
+        translated = [self.expr(e, scope) for e in exprs]
+        effectful = [
+            i for i, e in enumerate(exprs) if self.printing.may_print(e)
+        ]
+        if len(effectful) < 2:
+            return translated, []
+
+        # The last one may stay where it is: nothing after it can be
+        # pulled ahead of something that no longer has anything to say.
+        steps = []
+        for index in effectful[:-1]:
+            value = translated[index]
+            name = self.fresh_temp(value.ctype, value.info)
+            steps.append((name, value))
+            translated[index] = CVar(value.info, name, value.ctype)
+        return translated, steps
+
+    def sequenced(self, steps, result):
+        """result, with in_order's assignments computed first -- the
+        comma operator, which is where C does fix the order.
+        [(String, CExpr)] -> CExpr -> CExpr"""
+        if not steps:
+            return result
+        return CSeq(result.info, steps, result, result.ctype)
+
+    def declarations(self, from_index=0):
+        """The temporaries allocated since from_index, as declarations,
+        and forgotten. Int -> [CStmt]"""
+        allocated = self.temps[from_index:]
+        del self.temps[from_index:]
+        return [CVarDecl(info, ctype, name) for ctype, name, info in allocated]
 
     def is_function_value(self, name, scope):
         """Whether name here means a def itself rather than a value.
@@ -461,21 +549,25 @@ class _Translator:
                     "this backend does not have yet",
                 )
             case EAdd(info, l, r):
-                left, right = self.expr(l, scope), self.expr(r, scope)
+                (left, right), steps = self.in_order([l, r], scope)
                 if left.ctype == STRING and right.ctype == STRING:
                     self.uses_concat = True
-                    return CConcat(info, left, right)
+                    return self.sequenced(steps, CConcat(info, left, right))
                 self._require(left, INT, "`+`")
                 self._require(right, INT, "`+`")
-                return CBinary(info, "+", left, right, INT)
+                return self.sequenced(
+                    steps, CBinary(info, "+", left, right, INT)
+                )
             case EEq(info, l, r):
-                left, right = self.expr(l, scope), self.expr(r, scope)
+                (left, right), steps = self.in_order([l, r], scope)
                 if left.ctype == STRING and right.ctype == STRING:
                     self.uses_strcmp = True
-                    return CStrEq(info, left, right)
+                    return self.sequenced(steps, CStrEq(info, left, right))
                 if left.ctype != right.ctype:
                     _unsupported(e, "`==` between values of different types")
-                return CBinary(info, "==", left, right, BOOL)
+                return self.sequenced(
+                    steps, CBinary(info, "==", left, right, BOOL)
+                )
             case EIf(info, cond, then_expr, else_expr):
                 c = self.expr(cond, scope)
                 t = self.expr(then_expr, scope)
@@ -506,18 +598,19 @@ class _Translator:
                         "cannot be used as one; call it as a statement of "
                         "its own",
                     )
-                return CCall(
-                    info, c_name, [self.expr(a, scope) for a in args], ret
-                )
+                ordered, steps = self.in_order(list(args), scope)
+                return self.sequenced(steps, CCall(info, c_name, ordered, ret))
             case ECall(info, _, _):
                 _unsupported(e, "calling anything but a named function")
             case _ if type(e) in _BINARY_OPS:
-                left, right = self.expr(e.left, scope), self.expr(e.right, scope)
+                (left, right), steps = self.in_order([e.left, e.right], scope)
                 op = _BINARY_OPS[type(e)]
                 self._require(left, INT, f"`{op}`")
                 self._require(right, INT, f"`{op}`")
                 ctype = INT if op in ("+", "-", "*") else BOOL
-                return CBinary(e.info, op, left, right, ctype)
+                return self.sequenced(
+                    steps, CBinary(e.info, op, left, right, ctype)
+                )
             case _:
                 _unsupported(e, type(e).__name__)
 
@@ -558,7 +651,7 @@ class _Translator:
                 runtime_interface.lookup(name) is not None
             ):
                 translated, _ = self.stmt(s, scope)
-                return [translated]
+                return _as_stmts(translated)
             case SExprStmt(info, expr):
                 return [CReturn(info, self.expr(expr, scope))]
             case SIf(info, cond, then_body, else_body):
@@ -625,7 +718,11 @@ class _Translator:
             # room for.
             _breakable(s)
         if first_value is not None:
+            # Translated for its type alone, so anything it allocated is
+            # forgotten again; the `break` itself translates it for real.
+            probe = len(self.temps)
             result_type = self.expr(first_value, body_scope).ctype
+            del self.temps[probe:]
             result_name, scope_after = _bind(
                 _result_name(s.target), result_type, _block_scope(scope)
             )
@@ -752,7 +849,9 @@ class _Translator:
 
     def stmt(self, s, scope):
         """Translates one statement, returning it with the scope it
-        leaves behind. Stmt -> Scope -> (CStmt, Scope)"""
+        leaves behind; several C statements where one Pyking statement
+        needs them (see _as_stmts).
+        Stmt -> Scope -> ((CStmt | [CStmt]), Scope)"""
         match s:
             case SLet(info, TargetName(_, name), expr):
                 value = self.expr(expr, scope)
@@ -799,8 +898,15 @@ class _Translator:
             case SExprStmt(info, ECall(_, EVar(_, name), args)) if (
                 runtime_interface.lookup(name)
             ):
+                # `printf` is a call like any other, so its arguments are
+                # ordered the same way -- but this is a statement, and a
+                # statement can put them in front of itself rather than
+                # in a comma expression.
                 self.uses_print = True
-                return CPrint(info, [self.expr(a, scope) for a in args]), scope
+                ordered, steps = self.in_order(list(args), scope)
+                return [
+                    CAssign(info, temp, value) for temp, value in steps
+                ] + [CPrint(info, ordered)], scope
 
             case SExprStmt(info, expr):
                 return CExprStmt(info, self.expr(expr, scope, allow_unit=True)), scope
@@ -879,11 +985,16 @@ class _Translator:
             c_param, body_scope = _bind(param.name, ctype, body_scope)
             params.append((ctype, c_param))
 
+        # This function's evaluation-order temporaries are declared at
+        # the top of it, so that one written in a `while` condition
+        # stands outside the loop it is tested in.
+        outer_temps = len(self.temps)
         if func.expr is not None:
             value = self.expr(func.expr, body_scope)
             body = [CReturn(value.info, value)]
         else:
             body = self.tail_stmts(func.body, body_scope)
+        temporaries = self.declarations(outer_temps)
 
         returned = _return_types(body)
         recursive = _calls(body, c_name)
@@ -917,7 +1028,9 @@ class _Translator:
                 "every path a value (an `if` needs its `else`)",
             )
 
-        return CFunc(func.info, c_name, params, body, actual), scope
+        return CFunc(
+            func.info, c_name, params, temporaries + body, actual
+        ), scope
 
 
 def _param_type(func, param):
@@ -1133,7 +1246,7 @@ def _calls(body, c_name):
 
 def translate_program(stmts):
     """A whole Pyking program as a CProgram. [Stmt] -> CProgram"""
-    translator = _Translator()
+    translator = _Translator(stmts)
     scope = Scope(frozenset(), {}, frozenset())
     scope = translator.declare_functions(stmts, scope)
     functions = []
@@ -1147,7 +1260,7 @@ def translate_program(stmts):
             main_body.extend(_as_stmts(translated))
     return CProgram(
         functions,
-        main_body,
+        translator.declarations() + main_body,
         translator.uses_print,
         translator.uses_concat,
         translator.uses_strcmp,
@@ -1164,6 +1277,7 @@ _PRECEDENCE = {
 }
 _UNARY_PRECEDENCE = 14
 _CONDITIONAL_PRECEDENCE = 3
+_ASSIGN_PRECEDENCE = 2
 _CALL_PRECEDENCE = 16
 
 _ESCAPES = {"\\": "\\\\", '"': '\\"', "\n": "\\n", "\t": "\\t", "\r": "\\r"}
@@ -1229,6 +1343,18 @@ def pprint_c_expr(e, standard, min_prec=0):
                 f"{pprint_c_expr(right, standard)}) == 0"
             )
             return _wrap(_PRECEDENCE["=="], min_prec, text)
+        case CSeq(_, steps, result, _):
+            # Always parenthesized: the comma operator binds looser than
+            # everything, and a bare comma in an argument list would
+            # separate arguments instead of sequencing them.
+            assignments = ", ".join(
+                f"{name} = {pprint_c_expr(value, standard, _ASSIGN_PRECEDENCE)}"
+                for name, value in steps
+            )
+            return (
+                f"({assignments}, "
+                f"{pprint_c_expr(result, standard, _ASSIGN_PRECEDENCE)})"
+            )
         case _:
             raise NotImplementedError(f"no printer for C expression {e!r}")
 
@@ -1253,6 +1379,9 @@ def pprint_c_stmt(s, standard, level=1):
                 f"{pad}{_declaration(ctype, name, standard)} = "
                 f"{pprint_c_expr(init, standard)};"
             )
+        case CVarDecl(_, ctype, name):
+            # Only reached for c23; c89 splits declarations out (_emit_block).
+            return f"{pad}{_declaration(ctype, name, standard)};"
         case CAssign(_, name, expr):
             return f"{pad}{name} = {pprint_c_expr(expr, standard)};"
         case CExprStmt(_, expr):
@@ -1325,10 +1454,12 @@ def _emit_block(stmts, standard, level):
     declarations = [
         f"{pad}{_declaration(s.ctype, s.name, standard)};"
         for s in stmts
-        if isinstance(s, CDecl)
+        if isinstance(s, (CDecl, CVarDecl))
     ]
     body = []
     for s in stmts:
+        if isinstance(s, CVarDecl):
+            continue
         if isinstance(s, CDecl):
             body.append(f"{pad}{s.name} = {pprint_c_expr(s.init, standard)};")
         else:

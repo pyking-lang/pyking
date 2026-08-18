@@ -259,8 +259,8 @@ The bootstrap is split into one module per compiler stage:
    same row check `call_tail` uses and for the same reason.
 4. **`src/analyses.py`** — static analyses over the parsed AST, run
    between the parser and any backend (for every mode, `--ast` included);
-   errors raise `AnalysisError(info, message)`. Currently one analysis,
-   names: Pyking is lexically scoped, so `analyze_program` is a single
+   errors raise `AnalysisError(info, message)`. The one the driver runs
+   is names: Pyking is lexically scoped, so `analyze_program` is a single
    recursive walk carrying a *name environment* (`dict` name → kind of
    binding) that is rebuilt rather than mutated — entering a nested scope
    is "keep using the environment you were handed", leaving one is "go
@@ -297,6 +297,20 @@ The bootstrap is split into one module per compiler stage:
    symbol keeps it and new numbers continue past the highest in the
    tree, which is what makes it safe to run twice, should a pass ever
    synthesize nodes into an already-symbolized tree.
+
+   And **`Effects`**, which the driver does not run at all: a
+   fixed-point walk of the call graph saying which functions — and so
+   which expressions (`may_print`) — can produce output. It is here
+   rather than in a backend because it is an analysis of the Pyking AST,
+   and because two backends need it: `target_ocaml.py` and
+   `target_c.py`, whose host languages both leave the order of an
+   operator's operands and a call's arguments unspecified, so each has
+   to pin down the ones that can print (see PYKING.md, "Evaluation
+   order", and each backend's page). It is deliberately conservative —
+   overestimating who prints costs a temporary, underestimating prints
+   in the wrong order — and a call to something that is not a `def` is
+   assumed to print if anything in the program does. `walk` and
+   `all_functions` are here for it.
 5. **`src/optimization.py`** — tail calls into loops, one pass from the
    Pyking AST to the Pyking AST, run *after* the type checker and only
    over a program it accepted, unless `--no-tail-call-opt` says
@@ -544,7 +558,16 @@ The bootstrap is split into one module per compiler stage:
    it) or a guess from the body, and a function's return type is read off
    its translated body. When inference cannot answer, raise
    `UnsupportedError` with the `Info` rather than emitting C that will
-   not compile.
+   not compile. The other thing C forces is *order*: it leaves an
+   operator's operands and a call's arguments unspecified, and real
+   compilers differ by architecture (x86-64 evaluates arguments right to
+   left, AArch64 left to right), so `in_order`/`sequenced` pull every
+   operand `analyses.Effects` says can print into a temporary and put
+   the assignments in front of the result with the comma operator — the
+   one construct that fixes an order *inside* a C expression, which is
+   what a `while` condition and an `if` expression's branches need.
+   `target_ocaml.py` does the same with `let` for the same reason; keep
+   both reading `Effects` rather than deciding for themselves.
 11. **`src/target_java.py`** — the Java backend, serving `java8`,
    `java17` and `java21`: a `J*` AST, translation, and a printer taking a
    `version` parameter, the same shape `target_c.py` uses for `standard`

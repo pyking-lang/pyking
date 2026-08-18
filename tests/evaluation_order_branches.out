@@ -1,0 +1,14 @@
+step cond
+step limit
+step cond
+step limit
+step cond
+step limit
+looped 2
+step yes
+step also
+taken 15
+step left
+step right
+step after
+both 107

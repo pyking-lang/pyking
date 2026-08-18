@@ -58,6 +58,10 @@ file = "evaluation_order.pyk"
 targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
 
 [[cases]]
+file = "evaluation_order_branches.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
+
+[[cases]]
 file = "fail_typecheck_binding_annotation.pyk"
 targets = ["typecheck"]
 

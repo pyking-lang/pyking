@@ -24,7 +24,7 @@ module system to express a directory hierarchy with.
 | [`lexer.py`](#lexerpy) | ~650 | Characters → tokens. Also defines `Info`, the source span every later node carries. |
 | [`syntax.py`](#syntaxpy) | ~1100 | The AST: one frozen dataclass per variant, documented as algebraic data types, plus the pretty printer that prints Pyking back out. |
 | [`parser.py`](#parserpy) | ~1280 | Recursive descent, tokens → AST, and the few rules the grammar cannot state. |
-| [`analyses.py`](#analysespy) | ~460 | Static analyses over the AST: names and scoping (`analyze_program`), and `symbolize`, which numbers every node. |
+| [`analyses.py`](#analysespy) | ~550 | Static analyses over the AST: names and scoping (`analyze_program`), `symbolize`, which numbers every node, and `Effects`, which says what can print. |
 | [`typesystem.py`](#typesystempy) | ~1390 | The type checker: one function per AST datatype, producing `tmap` (symbol → type). Also the type *inference*, which is the same machinery run at a call site rather than at a definition. Its fragment is the interpreter's and the OCaml backend's. |
 | [`optimization.py`](#optimizationpy) | ~770 | Tail calls into loops: one AST-to-AST pass over a program the checker accepted, so every backend and the interpreter get tail recursion at once. |
 | [`runtime_interface.py`](#runtime_interfacepy) | ~50 | The boundary between a pure Pyking program and the world: the operations a host must provide, and how values are formatted. No host code at all. |
@@ -33,9 +33,9 @@ module system to express a directory hierarchy with.
 | [`target_python.py`](#target_pythonpy) | ~2110 | The Python backend, and the only one that compiles the whole language. |
 | [`target_js_core.py`](#target_js_corepy) | ~840 | The JavaScript backend's language half: a `Js*` AST, translation, printer. |
 | [`target_js_packaging.py`](#target_js_packagingpy) | ~290 | Its packaging half: `nodejs`, `html`, `esm`, and the JavaScript side of the runtime interface. |
-| [`target_c.py`](#target_cpy) | ~1250 | The C backend, for `c89` and `c23`. Infers the types C insists on. |
+| [`target_c.py`](#target_cpy) | ~1570 | The C backend, for `c89` and `c23`. Infers the types C insists on, and pins down the evaluation order C leaves open. |
 | [`target_java.py`](#target_javapy) | ~1250 | The Java backend, for `java8`/`java17`/`java21`. Also proves every function returns. |
-| [`target_ocaml.py`](#target_ocamlpy) | ~1430 | The OCaml backend. Infers nothing: it reads the checker's `tmap`. |
+| [`target_ocaml.py`](#target_ocamlpy) | ~1340 | The OCaml backend. Infers nothing: it reads the checker's `tmap`. |
 | [`pyk.py`](#pykpy) | ~540 | The driver: argv, stage sequencing, error reporting, the four commands. |
 
 Two shapes recur everywhere and are worth reading once rather than
@@ -252,6 +252,9 @@ what a name means — which is why they are here and not in
 
 **Static analyses over the parsed AST**, run between the parser and
 anything else, for every mode. Errors are `AnalysisError(info, message)`.
+`Effects` is the exception to "for every mode": it is not run by the
+driver at all, but asked for by the two backends whose host language
+leaves evaluation order unspecified.
 
 **Design, in depth:** [analyses.md](analyses.md).
 
@@ -267,6 +270,16 @@ anything else, for every mode. Errors are `AnalysisError(info, message)`.
   has no notion of a builtin, so these are seeded into the top-level
   environment; that is what lets every *other* unbound name be an error.
   Imported by `typesystem.py` and `interpreter.py` rather than repeated.
+- **`Effects(stmts)`** — which of the program's functions can end up
+  printing, by a fixed-point walk of the call graph; `may_print(expr)`
+  answers for one expression. A call whose target is not a known `def`
+  is assumed to print if anything in the program does, since
+  overestimating costs a temporary and underestimating prints in the
+  wrong order. `target_ocaml.py` and `target_c.py` use it to decide
+  which operands need their order pinned down (see
+  [target_ocaml.md](target_ocaml.md) and [target_c.md](target_c.md),
+  "Evaluation order"); it lives here rather than in either because it is
+  an analysis of the Pyking AST, with nothing target-specific in it.
 
 ### Main functions
 
@@ -296,6 +309,10 @@ anything else, for every mode. Errors are `AnalysisError(info, message)`.
   to `syntax.py` gets a symbol without touching this file. Existing
   symbols are kept and new ones continue past the highest, which makes it
   safe to run twice.
+- **`walk(node)`** and **`all_functions(stmts)`** — a generic walk over
+  dataclass fields, and every `def` in a program by name. Both exist for
+  `Effects`; the backends use `walk` for their own whole-program
+  questions too.
 
 ---
 
@@ -906,6 +923,15 @@ meaning, so `standard` reaches only the printer.
   initializer's. Every tail of the body assigns the next turn's value,
   and the shapes C has no unit for (a bare `loop:`, an `if` with no
   `else` at the end of a body) are refused rather than approximated.
+- **`_Translator.in_order` / `sequenced`** — C leaves the order of an
+  operator's operands and a call's arguments unspecified, so operands
+  that `analyses.Effects` says can print are pulled into temporaries and
+  put in front of the result with the comma operator, the one construct
+  that fixes an order inside a C expression. The temporaries are
+  declared at the top of the function (`declarations`), since an operand
+  in a `while` condition runs every turn and one in an `if` expression's
+  branch only when chosen. A `print` is a statement here, so it puts its
+  assignments before itself instead.
 - **`pprint_c_program(program, standard, source)`** and its statement and
   expression printers — the only place `standard` is consulted.
 - Prototypes are emitted ahead of the definitions, so a call may name a
@@ -968,9 +994,9 @@ refused).
   throughout it, and `true`/`false`/`()` are spelled identically). The
   interesting work is what it emits *around* that: no type annotations at
   all, `rec` only where something recurses, `_name` for a binding nothing
-  reads, and — via **`_Effects`** and **`in_order`** — a `let` inserted
-  wherever two operands of one expression can both print, since Pyking
-  evaluates left to right and OCaml does not promise to.
+  reads, and — via **`analyses.Effects`** and **`in_order`** — a `let`
+  inserted wherever two operands of one expression can both print, since
+  Pyking evaluates left to right and OCaml does not promise to.
 - **`_Translator.loop`** — a `loop` as a local recursive function
   applied at once: the accumulator is its parameter, `continue` is a
   tail call, `break` is the value it returns. `rec` is computed from the

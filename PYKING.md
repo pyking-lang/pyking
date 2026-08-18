@@ -173,6 +173,9 @@ Statements:
 
 Structure:
 
+- Left-to-right evaluation: an operator's operands and a call's
+  arguments run in the order they are written, and all of a call's
+  arguments before the call (see "Evaluation order")
 - Indentation-based blocks
 - Lexical scoping, with every block a scope, free shadowing of immutable
   names, and no shadowing of a mutable one — checked statically by
@@ -791,6 +794,39 @@ def add(a, b):
 
 print(add(2, 3), add(add(1, 1), 5))
 ```
+
+### Evaluation order
+
+The pieces of an expression are evaluated **left to right**: an
+operator's left operand before its right, a call's arguments in the
+order they are written, and all of a call's arguments before the call
+itself. The whole of the left operand runs before any of the right one
+begins, so nesting does not change the rule.
+
+This only matters when more than one piece has an effect — today, when
+more than one of them *prints*.
+
+```python
+def step(label: String, value: Int) -> Int:
+    print("step", label)
+    value
+
+
+sum = step("a", 1) + step("b", 2)
+print("sum", sum)
+```
+
+```
+step a
+step b
+sum 3
+```
+
+A condition is an expression like any other, so a `while` orders its
+condition's pieces the same way on every turn. The branches of an
+`if`/`then`/`else` expression are the exception that follows from what
+`if` means rather than a special case: only the chosen branch runs at
+all, and its own pieces then run left to right.
 
 ### List literals
 

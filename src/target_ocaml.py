@@ -22,6 +22,7 @@ Functions:
 
 from dataclasses import dataclass
 
+from analyses import Effects, walk
 import runtime_interface
 from syntax import (
     pprint_type,
@@ -215,98 +216,16 @@ def _mangle(name):
     return name
 
 
-# --- what can print ---
-#
-# Says which expressions can produce output, since that is the only
-# thing OCaml's unspecified evaluation order can make observably
-# different from Pyking's left-to-right (docs/target_ocaml.md,
-# "Evaluation order"). Deliberately conservative.
-
-
-class _Effects:
-    """Which calls in a program can end up printing, by a fixed-point
-    walk of the call graph. A call whose target is not a known def is
-    treated as printing if any function in the program does."""
-
-    def __init__(self, stmts):
-        """Computes self.printing (function names that print) and
-        self.unknown_prints (whether an unknown callee must be assumed
-        to) by iterating to a fixed point. [Stmt] -> _Effects"""
-        self.functions = _all_functions(stmts)
-        self.printing = set()
-        self.unknown_prints = False
-        changed = True
-        while changed:
-            changed = False
-            for name, func in self.functions.items():
-                if name not in self.printing and self._body_prints(func):
-                    self.printing.add(name)
-                    changed = True
-            if self.printing and not self.unknown_prints:
-                self.unknown_prints = True
-                changed = True
-
-    def _body_prints(self, func):
-        """Whether func's body contains a call that may print, given
-        self.printing so far. SFunctionDef -> Bool"""
-        for node in _walk(func):
-            if isinstance(node, ECall) and self._call_prints(node):
-                return True
-        return False
-
-    def _call_prints(self, call):
-        """Whether call may print, given self.printing so far. ECall ->
-        Bool"""
-        match call.func:
-            case EVar(_, name, _):
-                if runtime_interface.lookup(name) is not None:
-                    return True
-                if name in _BUILTINS:
-                    return False
-                if name in self.functions:
-                    return name in self.printing
-        return self.unknown_prints
-
-    def may_print(self, expr):
-        """Whether evaluating expr can produce output. Expr -> Bool"""
-        return any(
-            isinstance(node, ECall) and self._call_prints(node)
-            for node in _walk(expr)
-        )
-
-
-def _all_functions(stmts):
-    """Every def in the program, at any depth, by name. [Stmt] ->
-    {String: SFunctionDef}"""
-    functions = {}
-    for node in _walk(stmts):
-        if isinstance(node, SFunctionDef):
-            functions[node.name] = node
-    return functions
-
-
-def _walk(node):
-    """Every node in a tree, the tree itself included; generic over
-    dataclass fields. Expr|Stmt|[Stmt] -> (Expr|Stmt,)"""
-    if isinstance(node, list):
-        for item in node:
-            yield from _walk(item)
-    elif hasattr(node, "__dataclass_fields__"):
-        yield node
-        for field_name in node.__dataclass_fields__:
-            yield from _walk(getattr(node, field_name))
-
-
 def _unused_prefix(stmts):
     """A prefix no name in the program starts with, for the temporaries
     that fix evaluation order (docs/target_ocaml.md, "Evaluation
     order"). [Stmt] -> String"""
     names = {
         getattr(node, "name")
-        for node in _walk(stmts)
+        for node in walk(stmts)
         if isinstance(getattr(node, "name", None), str)
     }
-    prefix = "_pyk"
+    prefix = "tmp"
     while any(name.startswith(prefix) for name in names):
         prefix += "_"
     return prefix
@@ -350,14 +269,14 @@ _NO_EARLY_EXIT = (
 
 class _Translator:
     """Holds the checker's types and translation-wide state. Fields:
-    tmap, {Int: Type}; needs_list_printer, Bool; printing, _Effects;
+    tmap, {Int: Type}; needs_list_printer, Bool; printing, Effects;
     temporary_prefix, String (see _unused_prefix); temporaries, Int
     (how many have been allocated)."""
 
     def __init__(self, tmap, stmts):
         self.tmap = tmap
         self.needs_list_printer = False
-        self.printing = _Effects(stmts)
+        self.printing = Effects(stmts)
         self.temporary_prefix = _unused_prefix(stmts)
         self.temporaries = 0
         self.needs_quote = False

@@ -532,6 +532,55 @@ static const char *pyk_concat(const char *a, const char *b)
 The helper is written in the subset both standards accept, so one copy
 serves `c89` and `c23` alike.
 
+### Evaluation order
+
+Pyking evaluates an operator's operands, and a call's arguments, left to
+right. C leaves both unspecified, and compilers really do differ: on
+x86-64, `gcc` and `clang` evaluate a call's arguments right to left,
+while on AArch64 they evaluate them left to right. That is invisible
+unless two of them *print*, so the backend works out which expressions
+can print — `analyses.Effects`, the same walk of the call graph the
+OCaml backend uses — and pins those down.
+
+C's one construct that fixes an order inside an expression is the comma
+operator, so `in_order` pulls every printing operand but the last into a
+temporary and puts the assignments in front of the result:
+
+```
+called = add(step("f", 10), step("g", 20))
+```
+
+```c
+called = (_pyk1 = step("f", 10), add(_pyk1, step("g", 20)));
+```
+
+The temporaries are declared at the top of the function they appear in
+(`_pyk1`, `_pyk2`, ..., with a prefix `_unused_prefix` guarantees the
+program does not use), never beside the statement that needs them: an
+operand written in a `while` condition is evaluated again every turn,
+and one written in a branch of an `if` expression only when that branch
+is chosen, so the assignment has to stay inside the expression it
+belongs to. Ordering a *statement's* pieces in front of it would be
+wrong in both places, which is why the comma operator does the work
+rather than a hoisted statement. The one exception is `print`, which is
+a statement here and so can put its assignments before itself:
+
+```
+print(step("l", 1), step("m", 2))
+```
+
+```c
+_pyk7 = step("l", 1);
+printf("%d %d\n", _pyk7, step("m", 2));
+```
+
+A program whose functions only compute — nearly every program — has
+nothing to order, and its operands stay exactly where the source put
+them; no temporary is declared and the output is byte for byte what it
+was. `tests/evaluation_order.pyk` pins the straight-line cases down and
+`tests/evaluation_order_branches.pyk` the two conditional ones; one
+`.out` serves every target.
+
 ## Where the output is not optimal
 
 - **Concatenation leaks.** `pyk_concat` allocates and never frees, so a
@@ -543,6 +592,13 @@ serves `c89` and `c23` alike.
   C's, and no bignum — Python's integers are arbitrary precision, so a
   Pyking program that overflows will disagree with the Python target.
 - **Parameter inference is a guess** for unannotated parameters (above).
+- **Ordering temporaries read as C, not as the source.** A comma
+  expression is legal and correct C, but `(_pyk1 = step("f", 10),
+  add(_pyk1, step("g", 20)))` is not what a person would write. A
+  smarter backend would hoist the assignment to the statement in front
+  of it wherever the expression is evaluated exactly once there, and
+  keep the comma only for the `while` conditions and `if` expression
+  branches that need it.
 - **`-Wextra` finds unused variables and parameters.** Those are faithful
   translations — the Pyking programs really do bind names they never use
   — but a smarter backend would drop dead bindings rather than emit them.

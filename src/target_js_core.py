@@ -585,9 +585,9 @@ def _fresh_result_name(scope):
     """A name for a loop-result variable that nothing here uses.
     Scope -> String"""
     n = 1
-    while f"pykValue{n}" in scope.taken or f"pykValue{n}" in scope.names.values():
+    while f"tmp{n}" in scope.taken or f"tmp{n}" in scope.names.values():
         n += 1
-    return f"pykValue{n}"
+    return f"tmp{n}"
 
 
 def _breaks_with_value(body):

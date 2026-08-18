@@ -1412,7 +1412,7 @@ def _fresh_result_name():
     global _result_counter
     while True:
         _result_counter += 1
-        candidate = f"__pyk_value{_result_counter}"
+        candidate = f"tmp{_result_counter}"
         if candidate not in _used_identifiers:
             return candidate
 

@@ -1,12 +1,16 @@
 """Static analyses over the Pyking AST (src/syntax.py): name and scope
-checking, and symbolizing (giving every node a unique integer id). Runs
-after parsing and before any backend, for every mode except
---typecheck, which does its own name checking. See PYKING.md, "Names
-and scoping", and docs/architecture.md, docs/source.md ("analyses.py").
+checking, symbolizing (giving every node a unique integer id), and
+which expressions can produce output. The first two run after parsing
+and before any backend, for every mode except --typecheck, which does
+its own name checking; the third is asked for by the backends whose
+host language leaves evaluation order unspecified. See PYKING.md,
+"Names and scoping", and docs/architecture.md, docs/source.md
+("analyses.py").
 
 Data structures:
     AnalysisError -- a name/scoping failure, with the source position.
     Binding -- what the environment records for one name in scope.
+    Effects -- which calls in a program can end up printing.
 
 Functions:
     analyze_program(stmts) -- checks a whole program's names.
@@ -25,12 +29,15 @@ Functions:
     check_no_function_clash(name, info, functions) -- checks no other
         binding in the block shares a def's name.
     symbolize(stmts) -- gives every node a unique integer sym.
+    walk(node) -- every node in a tree, the tree itself included.
+    all_functions(stmts) -- every def in a program, at any depth, by name.
 """
 
 import itertools
 from dataclasses import dataclass, fields, is_dataclass, replace
 
 from lexer import Info
+import runtime_interface
 from syntax import (
     EInt, EString, EBool, EVar,
     EAdd, ESub, EMul, EDiv, ENeg,
@@ -443,18 +450,103 @@ def symbolize(stmts):
     [Stmt] -> [Stmt]"""
     counter = itertools.count(_highest_sym(stmts) + 1)
 
-    def walk(node):
+    def renumber(node):
         if is_dataclass(node) and hasattr(node, "sym"):
             updated = {
-                f.name: walk(getattr(node, f.name))
+                f.name: renumber(getattr(node, f.name))
                 for f in fields(node)
                 if f.name != "sym"
             }
             return replace(node, **updated, sym=node.sym or next(counter))
         if isinstance(node, list):
-            return [walk(element) for element in node]
+            return [renumber(element) for element in node]
         if isinstance(node, tuple):
-            return tuple(walk(element) for element in node)
+            return tuple(renumber(element) for element in node)
         return node
 
-    return [walk(s) for s in stmts]
+    return [renumber(s) for s in stmts]
+
+
+# --- effects ---
+#
+# Says which expressions can produce output, since that is the only
+# thing a host language's unspecified evaluation order can make
+# observably different from Pyking's left-to-right. Deliberately
+# conservative: overestimating who prints costs a temporary, and
+# underestimating prints in the wrong order. Used by the backends whose
+# host does not fix the order (docs/target_ocaml.md and
+# docs/target_c.md, "Evaluation order").
+
+
+def walk(node):
+    """Every node in a tree, the tree itself included; generic over
+    dataclass fields. Expr|Stmt|[Stmt] -> (Expr|Stmt,)"""
+    if isinstance(node, (list, tuple)):
+        for item in node:
+            yield from walk(item)
+    elif is_dataclass(node):
+        yield node
+        for f in fields(node):
+            yield from walk(getattr(node, f.name))
+
+
+def all_functions(stmts):
+    """Every def in a program, at any depth, by name. [Stmt] ->
+    {String: SFunctionDef}"""
+    functions = {}
+    for node in walk(stmts):
+        if isinstance(node, SFunctionDef):
+            functions[node.name] = node
+    return functions
+
+
+class Effects:
+    """Which calls in a program can end up printing, by a fixed-point
+    walk of the call graph. A call whose target is not a known def is
+    treated as printing if any function in the program does."""
+
+    def __init__(self, stmts):
+        """Computes self.printing (function names that print) and
+        self.unknown_prints (whether an unknown callee must be assumed
+        to) by iterating to a fixed point. [Stmt] -> Effects"""
+        self.functions = all_functions(stmts)
+        self.printing = set()
+        self.unknown_prints = False
+        changed = True
+        while changed:
+            changed = False
+            for name, func in self.functions.items():
+                if name not in self.printing and self._body_prints(func):
+                    self.printing.add(name)
+                    changed = True
+            if self.printing and not self.unknown_prints:
+                self.unknown_prints = True
+                changed = True
+
+    def _body_prints(self, func):
+        """Whether func's body contains a call that may print, given
+        self.printing so far. SFunctionDef -> Bool"""
+        for node in walk(func):
+            if isinstance(node, ECall) and self._call_prints(node):
+                return True
+        return False
+
+    def _call_prints(self, call):
+        """Whether call may print, given self.printing so far. ECall ->
+        Bool"""
+        match call.func:
+            case EVar(_, name, _):
+                if runtime_interface.lookup(name) is not None:
+                    return True
+                if name in BUILTINS:
+                    return False
+                if name in self.functions:
+                    return name in self.printing
+        return self.unknown_prints
+
+    def may_print(self, expr):
+        """Whether evaluating expr can produce output. Expr -> Bool"""
+        return any(
+            isinstance(node, ECall) and self._call_prints(node)
+            for node in walk(expr)
+        )

@@ -1,7 +1,8 @@
 # `analyses.py`: design
 
-How `src/analyses.py` checks names and scoping, and gives every AST
-node a unique symbol. For what the rules *are* (as language, not
+How `src/analyses.py` checks names and scoping, gives every AST node a
+unique symbol, and works out which expressions can print. For what the
+rules *are* (as language, not
 implementation), see PYKING.md, "Names and scoping"; for where this
 module sits in the pipeline, see [architecture.md](architecture.md);
 for a one-page summary, see [source.md](source.md#analysespy).
@@ -148,7 +149,7 @@ the comprehension's own closing bracket.
 `symbolize(stmts)` is unlike everything above it in this file: it
 **rewrites** the tree rather than only reading it. Every node is a
 frozen dataclass, so "rewrite" means "build a new tree with
-`dataclasses.replace`," bottom-up — `walk(node)` recurses into every
+`dataclasses.replace`," bottom-up — `renumber(node)` recurses into every
 field first (so children get their symbols assigned before their
 parent's own `replace` call happens), then replaces `node`'s `sym`
 field if it was `0`.
@@ -184,3 +185,45 @@ without renumbering anything that already had one. That guarantee is
 stated up front because it costs nothing to provide and is exactly the
 property a pass that synthesizes new nodes into an already-symbolized
 tree would need.
+
+## `Effects`: what can print, for backends whose host does not fix the order
+
+`Effects` is the one thing here the driver never runs. It answers a
+question only a backend asks: *can evaluating this expression produce
+output?*
+
+Pyking evaluates left to right (PYKING.md, "Evaluation order"). Two of
+the host languages do not promise anything: C leaves the order of an
+operator's operands and a call's arguments unspecified, and OCaml does
+the same. That is invisible for an expression that only computes, and
+plainly visible the moment two of its pieces print — which is how the
+difference reached the test suite in the first place, as
+`tests/evaluation_order.pyk` passing on one machine and failing on
+another (AArch64 and x86-64 disagree about a call's arguments, and both
+are conforming).
+
+So `target_c.py` and `target_ocaml.py` both need to know which operands
+to pin down, and the answer is the same for both. It lives here because
+it is an analysis of the Pyking AST — no C, no OCaml, nothing about
+temporaries — and because one definition cannot drift from the other.
+
+The computation is a fixed point over the program's call graph. A
+function prints if its body calls `print` directly or calls a function
+already known to print; the `while changed` loop repeats until a pass
+adds nothing. Two decisions make it usable:
+
+- **Conservative on the unknown.** A call whose target is not one of the
+  program's own `def`s — a parameter of function type, say — cannot be
+  resolved, so it counts as printing if *anything* in the program does
+  (`unknown_prints`, which turns on once `printing` is non-empty and
+  stays on). Overestimating costs a temporary nobody needed;
+  underestimating prints in the wrong order. The error is deliberately
+  pushed to the side that is only ugly.
+- **Whole-program, once.** `Effects(stmts)` is built before translation
+  starts and asked `may_print(expr)` many times, rather than recomputed
+  per expression.
+
+The backends differ only in what they do with the answer: OCaml inserts
+a `let`, C assigns to a temporary and uses the comma operator. See
+[target_ocaml_internals.md](target_ocaml_internals.md) and
+[target_c.md](target_c.md), "Evaluation order".

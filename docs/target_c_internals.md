@@ -1,7 +1,8 @@
 # `target_c.py`: internals
 
 How `src/target_c.py` infers the types C forces onto a program Pyking
-never required them for, and how it makes one translation serve both
+never required them for, how it pins down the evaluation order C leaves
+open, and how it makes one translation serve both
 `c89` and `c23`. For what each construct compiles to and what's
 refused, see [target_c.md](target_c.md); for a one-page summary, see
 [source.md](source.md#target_cpy).
@@ -175,3 +176,51 @@ either was needed at all, which is what lets `_headers` include
 `<string.h>` (and, for `pyk_concat`'s `malloc`, `<stdlib.h>`) only in a
 program that actually uses them — a program printing one integer pulls
 in nothing beyond `<stdio.h>`.
+
+## Evaluation order: the comma operator, not a hoisted statement
+
+Pyking evaluates left to right; C does not say. The rule and the
+generated shapes are in [target_c.md](target_c.md), "Evaluation order",
+and the analysis that decides which operands need pinning down is
+`analyses.Effects` (see [analyses.md](analyses.md)). What belongs here is
+why the ordering is done *inside* the expression.
+
+The obvious approach is to hoist: compute the operand into a variable in
+a statement in front of the one that needs it, which is exactly what the
+generated C would look like if a person had written it. It is wrong in
+two places this backend supports:
+
+- a `while` condition is evaluated again before every turn, so an
+  assignment in front of the loop would run once and the loop would test
+  a stale value;
+- the branches of an `if` expression run only when chosen, so an
+  assignment lifted out of one would run whichever branch was taken.
+
+Both are ordinary programs here, and neither is detectable from inside
+`expr`, which does not know what statement it is being translated for.
+So `in_order`/`sequenced` use the comma operator instead: `(t = a, f(t,
+b))` is a single expression, self-contained wherever it lands, and the
+comma is a sequence point. It composes the way `target_ocaml.py`'s `let`
+does, which is why the two backends' translation code reads the same
+despite the very different output.
+
+Two consequences worth knowing:
+
+- **The temporaries are declared at the top of the function**, not
+  beside their use, because a temporary written into a `while` condition
+  has to outlive the condition it is assigned in. `_Translator.temps`
+  collects them while a body is translated and `declarations` turns them
+  into `CVarDecl`s; `function` prepends them, and `translate_program`
+  does the same for `main`. Under `c89`, `_emit_block` already hoists
+  declarations to the top of a block, so a `CVarDecl` joins that group
+  and prints nothing of its own.
+- **`print` is the exception**, because it is a statement here (a
+  `CPrint`, not a `CExpr`): there is no expression to wrap, and none is
+  needed, so its ordering assignments are emitted as plain statements in
+  front of the `printf`. That also means `stmt` can answer with a list
+  where it used to answer with one statement — every caller goes through
+  `_as_stmts`.
+
+A program whose functions only compute allocates no temporary and gets
+byte-for-byte the output it got before any of this existed, which is the
+property to preserve when changing it.

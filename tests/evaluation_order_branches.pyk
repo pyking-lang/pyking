@@ -1,0 +1,30 @@
+# Evaluation order where the piece being ordered does not run exactly
+# once at the statement it is written in.
+#
+# tests/evaluation_order.pyk covers the straight-line cases. These two
+# are the ones a backend cannot fix by computing an operand into a
+# variable in front of the statement: a `while` condition is tested
+# again every turn, and the branches of an `if` expression run only when
+# they are chosen. Whatever pins the order down has to stay inside the
+# expression it belongs to.
+
+def step(label:String, value:Int) -> Int:
+    print("step", label)
+    value
+
+
+# Tested before every turn, so both operands print on every turn.
+var i = 0
+while step("cond", i) < step("limit", 2):
+    i := i + 1
+
+print("looped", i)
+
+# Only the chosen branch runs, so only its two operands print -- and in
+# the order they are written.
+taken = if i > 1 then step("yes", 10) + step("also", 5) else step("no", 1) + step("nor", 2)
+print("taken", taken)
+
+# The same in a condition that is itself an operand.
+both = (if step("left", 1) < step("right", 2) then 100 else 200) + step("after", 7)
+print("both", both)

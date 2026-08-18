@@ -74,7 +74,7 @@ statements still following) before falling through to the general
 described in `target_ocaml.md`, "A `return` that is neither in tail
 position nor a guard."
 
-## Fixing evaluation order: `_Effects` and `in_order`
+## Fixing evaluation order: `Effects` and `in_order`
 
 Pyking evaluates an operator's operands, and a call's arguments, left
 to right. OCaml's own evaluation order is unspecified (and, in
@@ -83,9 +83,14 @@ computes, and very visible the moment two operands can each **print**.
 Getting this right needs two things: knowing *which* expressions can
 print, and a way to force an order once it matters.
 
-**`_Effects`** answers the first question with a small fixed-point
-computation over the whole program's call graph, run once before
-translation starts. A function "prints" if its body calls `print`
+**`analyses.Effects`** answers the first question with a small
+fixed-point computation over the whole program's call graph, run once
+before translation starts. It lives in `analyses.py` rather than here
+because it is an analysis of the Pyking AST with nothing OCaml-specific
+in it, and because `target_c.py` needs the same answer for the same
+reason (see [target_c.md](target_c.md), "Evaluation order").
+
+A function "prints" if its body calls `print`
 directly, or calls another function already known to print — computed
 by repeatedly scanning every function's body and adding to
 `self.printing` until a pass finds nothing new to add (the `while
