@@ -21,19 +21,21 @@
 ;; with its `if' (which covers `else if' ladders too: such a line starts
 ;; with `else' like any other, and ends in `:', so its body indents from
 ;; it the same way), `case' aligns with the previous sibling `case_clause'
-;; or, failing that, one level deeper than its `match' -- since a
-;; `case pattern -> expr' clause (see PYKING.md) has no indented body,
-;; so consecutive `case's aren't reliably one level below the previous
-;; line the way an `if'/`else' body always is. Any other line just
+;; or, failing that, one level deeper than its `match' -- since a clause
+;; carrying its block on its own line (`case 0: "zero"', see PYKING.md)
+;; has no indented body, so consecutive `case's aren't reliably one level
+;; below the previous line the way an `if'/`else' body always is. Any other line just
 ;; matches the previous line's indentation -- the same fallback
 ;; `python-mode' uses. Since that guess is always wrong on the line
 ;; after a block ends, pressing TAB again cycles through the shallower
 ;; enclosing columns (`pyking--indent-levels'), also as in `python-mode'.
 ;;
 ;; One case is not a guess at all: the line directly after something that
-;; opens a block -- a `:' header, or a binding whose value is missing
-;; from the line (`x =' / `def f(a) =', with the value on the next line;
-;; see PYKING.md). A block is never empty and Pyking indents in exact
+;; opens a block and leaves it empty -- a line *ending* in `:', or a
+;; binding whose value is missing from the line (`x =', with the value on
+;; the next line; see PYKING.md). A header that carries its block on its
+;; own line (`def f(x): x * x') opens nothing for the next line, and is
+;; not one of these. A block is never empty and Pyking indents in exact
 ;; 4-space steps, so exactly one column can parse there. That column is
 ;; forced: TAB puts the line at it and repeated TAB will not cycle it
 ;; away. `indent-region' (`pyking-indent-region') likewise fixes such a
@@ -253,24 +255,28 @@ but may describe more of the line -- see
     (looking-at regexp)))
 
 (defconst pyking--if-block-opener-regexp
-  "\\(?:[^=\n]*=[ \t]*\\)?\\_<if\\_>.*:[ \t]*\\(?:#.*\\)?$"
+  "\\(?:[^=\n]*=[ \t]*\\)?\\_<if\\_>[^\n]*:"
   "Regexp matching a line that opens an `if_stmt' block, from its first word.
-Covers the bare `if cond:' header and the value form `target = if cond:'
-alike (see \"`if'/`match' statements as bound values\" in PYKING.md), the
-latter being why the `if' can't simply be required to be the line's first
-word. The trailing `:' is required so an `if_expr' line -- `x = if c then
-a else b', which opens no block and so is not what an `else' below it
-dedents out of -- is never mistaken for a header. The binding prefix
-excludes newlines (`[^=\\n]', not `[^=]') because `looking-at' would
-otherwise happily run past the end of the line to find an `=' several
-lines down.")
+Covers the bare `if cond:' header, the value form `target = if cond:'
+\(see \"`if'/`match' statements as bound values\" in PYKING.md) -- which
+is why the `if' can't simply be required to be the line's first word --
+and a header carrying its block on its own line (`if c: print(1)', see
+\"A block on its header's own line\"), which an `else' below it still
+dedents out of. A `:' somewhere after the `if' is required so an
+`if_expr' line -- `x = if c then a else b', which opens no block -- is
+never mistaken for a header. Both character classes exclude newlines
+because `looking-at' would otherwise happily run past the end of the
+line to find an `=' or a `:' several lines down.")
 
 (defconst pyking--match-block-opener-regexp
   "\\(?:[^=\n]*=[ \t]*\\)?\\_<match\\_>"
   "Regexp matching a line that opens a `match_stmt', from its first word.
 Like `pyking--if-block-opener-regexp', this covers both the bare `match
-e:' header and the value form `target = match e:'. There is no match
-*expression* to tell it apart from, so no trailing `:' is required here.")
+e:' header and the value form `target = match e:'. A `match' never sits
+in a header's own-line block -- only an expression may be written there
+(see \"A block on its header's own line\" in PYKING.md) -- so its header
+is always the line's own. There is no match *expression* to tell it
+apart from, so no trailing `:' is required here.")
 
 (defun pyking--backward-dedent-target (self-regexp opener-regexp opener-offset)
   "Scan backward from point for the line a dedent keyword should align with.
@@ -418,10 +424,12 @@ the colon handling in its own hook -- see
       (goto-char (- (point-max) savep)))))
 
 (defun pyking--previous-code-line-opens-block-p ()
-  "Return non-nil if the previous non-blank, non-comment line opens a block.
-That is a `:' header, or a binding whose value is missing from the line
--- a trailing `=' or `:=', as in `x =' or `def f(a) =' with the value on
-the next line (see PYKING.md)."
+  "Return non-nil if the previous non-blank, non-comment line opens a block
+the next line must fill: a line *ending* in `:', or a binding whose
+value is missing from it -- a trailing `=' or `:=', as in `x =' with the
+value on the next line (see PYKING.md). A header carrying its block on
+its own line (`def f(a): a + 1') ends in neither, and leaves nothing for
+the next line to fill."
   (save-excursion
     (beginning-of-line)
     (unless (bobp)

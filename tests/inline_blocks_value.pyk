@@ -1,0 +1,36 @@
+# A value-form `if` whose branches are written on their headers' lines.
+#
+# The branch that runs supplies the bound value, and one expression
+# written after the ':' supplies it exactly as an indented block does
+# (see PYKING.md, "A block on its header's own line" and "`if`/`match`
+# statements as bound values"). The two are mixed below, since a binding
+# is free to write one branch each way.
+
+def size() -> Int: 3
+
+
+largest = if size() > 2: 'large'
+else: 'small'
+print(largest)
+
+mixed = if size() > 5: 'no'
+else:
+    'yes'
+print(mixed)
+
+# An `else if` rung is a header like any other, so its branch may be
+# written on its own line too.
+band = if size() > 9: 'huge'
+else if size() > 2: 'medium'
+else: 'small'
+print(band)
+
+# Nested, so the inner binding's branches are inline inside an outer
+# branch that is not.
+outer = if size() > 0:
+    inner = if size() > 2: 'deep'
+    else: 'shallow'
+    inner + '!'
+else:
+    'none'
+print(outer)

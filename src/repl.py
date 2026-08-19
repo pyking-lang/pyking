@@ -28,7 +28,9 @@ from analyses import BUILTINS, bound_names, symbolize, AnalysisError
 import optimization
 from lexer import lexing, pprint_info, pprint_token, LexError
 from parser import parse, ParseError
-from syntax import pprint_program, pprint_type, SExprStmt, SFunctionDef
+from syntax import (
+    pprint_program, pprint_type, SExprStmt, SFunctionDef, SIf,
+)
 import interpreter
 import typesystem
 
@@ -92,6 +94,34 @@ def complete(source):
         return not any(e.message.startswith(reason) for reason in INCOMPLETE)
 
 
+def continuable(source):
+    """Whether a line the parser accepts could still be continued by the
+    line below it: an `if` with no `else` yet. Its block may sit on the
+    header's own line, so it parses whole on one line while still being
+    open, and the `else` that would follow has to start a line of its
+    own (see PYKING.md, "A block on its header's own line"). The
+    question is the parser's, like `complete`: it is asked of the tree,
+    not of a trailing ':'. String -> Bool"""
+    try:
+        stmts = parse(lexing("<repl>", list(source + "\n")))
+    except (LexError, ParseError):
+        return False
+    return bool(stmts) and _open_block(stmts[-1])
+
+
+def _open_block(stmt):
+    """Whether one statement could take another line. Stmt -> Bool"""
+    match stmt:
+        case SIf(_, _, _, None):
+            return True
+        case SIf(_, _, _, else_body):
+            # An `else if` rung: the chain ends in the innermost `if`,
+            # so that is the one an `else` would still attach to.
+            return bool(else_body) and _open_block(else_body[-1])
+        case _:
+            return False
+
+
 def next_indent(source):
     """The indentation the line after source belongs at: one level in
     if the last line opened a block (ends in ':'), level with it
@@ -117,10 +147,11 @@ def read_entry(read_line):
     line = read_line(PROMPT)
     if line is None:
         return None
-    if complete(line):
-        # A block that parses is not necessarily finished (`def f():`
-        # with one statement parses fine, but `else:` may follow), so
-        # only a single complete line is submitted without a blank line.
+    if complete(line) and not continuable(line):
+        # A block that parses is not necessarily finished (`if c: 1`
+        # parses fine, but `else: 2` may follow on the next line), so a
+        # single line is submitted without a blank line only when
+        # nothing could continue it.
         return line
     lines = [line]
     while True:
@@ -414,10 +445,11 @@ class Editor:
         return "cancel" if key in ("escape", "interrupt", "eof") else "edit"
 
     def _submits(self, buf):
-        """Whether Enter ends the entry: a single complete line does; a
-        multi-line block ends only on a blank line. self -> Buffer -> Bool"""
+        """Whether Enter ends the entry: a single complete line that
+        nothing could continue does; anything else ends on a blank line.
+        self -> Buffer -> Bool"""
         if len(buf.lines) == 1:
-            return self.is_complete(buf.text)
+            return self.is_complete(buf.text) and not continuable(buf.text)
         return not buf.line.strip()
 
     def _submitted(self, buf):
@@ -714,7 +746,7 @@ def defined_sources(stmt, source):
 def defined_names(stmt):
     """The names a top-level statement binds. Stmt -> [String]"""
     match stmt:
-        case SFunctionDef(_, name, _, _, _, _, _):
+        case SFunctionDef(_, name, _, _, _, _):
             return [name]
     return [name for name, _ in bound_names(stmt)]
 

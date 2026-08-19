@@ -31,8 +31,8 @@ Exactly the fragment `src/typesystem.py` checks, no more and no less:
 
 - `print`, and the builtins `str`, `len` and one-argument `range`;
 - `def` with fully annotated parameters and return type — recursion,
-  mutual recursion, nested functions, and the single-expression
-  `def f(x) = e` form;
+  mutual recursion, nested functions, and a body written on the header's
+  own line (`def f(x): e`);
 - functions as values: passed as arguments, returned, and called;
 - `=` bindings, including ones that shadow;
 - `if` / `else if` / `else`, in statement form and in value form

@@ -1,0 +1,79 @@
+# A block written on its header's own line.
+#
+# Every header that ends in ':' takes one *expression* written after it
+# instead of an indented block, and means exactly what the indented form
+# means (see PYKING.md, "A block on its header's own line"). This file
+# writes the same shapes both ways and prints the same answers from
+# each, so the two forms cannot drift apart.
+
+def square(x:Int) -> Int: x * x
+def twice(x:Int) -> Int: x + x
+
+
+# The same one, written out. Nothing distinguishes them afterwards --
+# the parser builds one block of one statement either way.
+def square_block(x:Int) -> Int:
+    x * x
+
+
+print(square(5), twice(5), square_block(5))
+
+# Definitions may follow one another with nothing in between: an inline
+# block ends where its line does, so the next `def` starts a statement
+# of its own.
+def one() -> Int: 1
+def two() -> Int: one() + one()
+def three() -> Int: two() + one()
+print(one(), two(), three())
+
+# An `if` statement whose branches are each one expression. The `else`
+# starts its own line: the block on the header's line ended that one.
+if three() > 2: print('big')
+else: print('small')
+
+# A header on its own line still opens an indented block, and one of its
+# statements may be an inline header in turn.
+if one() < two():
+    if two() < three(): print('rising')
+    print('done')
+
+# What the line holds is an expression, so an `if` written inline is the
+# `if`/`then`/`else` *expression*, never a second statement hiding
+# behind the ':'.
+def describe(n:Int) -> String: if n < 0 then 'negative' else 'positive'
+
+
+def describe_long(n:Int) -> String:
+    if n < 0:
+        'negative'
+    else:
+        'positive'
+
+
+negative = 0 - 1
+print(describe(negative), describe_long(negative))
+print(describe(1), describe_long(1))
+
+# Nested one level down, where the enclosing block is indented and the
+# inline block is not the first thing on its line.
+def classify(n:Int) -> String:
+    if n == 0: 'zero'
+    else: describe(n)
+
+
+print(classify(0), classify(4))
+
+# A `return` is a statement, not an expression, so a body that returns
+# is written under its header -- and a body that just ends in a value
+# needs no `return` at all (PYKING.md, "Tail position").
+def first_positive(a:Int, b:Int) -> Int:
+    if a > 0:
+        return a
+    b
+
+
+def negate(n:Int) -> Int: 0 - n
+
+
+less = 0 - 3
+print(first_positive(3, 9), first_positive(less, 9), negate(4))

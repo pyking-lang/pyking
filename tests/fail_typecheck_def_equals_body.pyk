@@ -1,0 +1,14 @@
+# `def name(...) = expr` is not a function body.
+#
+# A one-line function is written like every other block on its header's
+# own line -- `def name(...): expr` -- and `=` no longer opens a body.
+# The two forms would have meant the same thing, and one way to write a
+# thing is the point of the change, so the old spelling is refused where
+# the ':' should be.
+#
+# This program is expected to be REFUSED. Its `.ast.out` holds the error
+# message, not a program's output.
+
+def square(n:Int) -> Int = n * n
+
+print(square(4))

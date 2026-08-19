@@ -6,7 +6,7 @@ n = "outer"
 value = 10
 
 # A parameter shadows the module-level `n` throughout the body.
-def describe(n) =
+def describe(n):
     "param " + str(n)
 
 
@@ -26,9 +26,9 @@ print(twice(4), value)
 # `n` and `value` here are the pattern's, not the module's.
 def classify(point):
     match point:
-        case (n, 0) -> "on x at " + str(n)
-        case (0, n) -> "on y at " + str(n)
-        case (n, value) -> str(n) + "/" + str(value)
+        case (n, 0): "on x at " + str(n)
+        case (0, n): "on y at " + str(n)
+        case (n, value): str(n) + "/" + str(value)
 
 
 print(classify((3, 0)))
@@ -46,7 +46,7 @@ print(squares, value)
 # A nested function's parameter shadows the enclosing function's, and the
 # enclosing one is still what the outer body sees.
 def outer(x):
-    def inner(x) =
+    def inner(x):
         x * 10
 
     return inner(x + 1) + x
@@ -81,7 +81,7 @@ print(step(3), local_step(2))
 def chain(label):
     first = label + "/1"
 
-    def middle(label) =
+    def middle(label):
         label + "/2"
 
     second = middle(first)

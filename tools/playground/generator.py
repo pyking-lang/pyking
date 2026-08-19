@@ -410,8 +410,10 @@ PYKING_MODE_JS = r'''// Ace syntax mode for Pyking.
 // they cannot drift from the language the way a hand-maintained copy would.
 //
 // Indentation follows PYKING.md: exact 4-space steps, one level deeper after
-// a line that opens a block -- a `:` header, or a binding whose value is
-// missing from the line (`x =` / `def f(a) =`, the value form).
+// a line that opens a block and leaves it empty -- a line *ending* in `:`,
+// or a binding whose value is missing from the line (`x =`, the value
+// form). A header carrying its block on its own line (`def f(a): a + 1`)
+// opens nothing for the next line, and so is not one of these.
 
 ace.define("ace/mode/pyking_highlight_rules", [], function (require, exports) {
   "use strict";
@@ -465,8 +467,10 @@ ace.define("ace/mode/pyking", [], function (require, exports) {
   var PykingHighlightRules =
     require("./pyking_highlight_rules").PykingHighlightRules;
 
-  // A line opens a block when it ends in ':' (a header) or in '=' with no
-  // value after it (the value form, whose body sits on the following lines).
+  // A line opens a block for the *next* line when it ends in ':' (a header
+  // with nothing after it) or in '=' with no value after it (the value
+  // form, whose body sits on the following lines). A header whose block is
+  // written on its own line ends in neither.
   var OPENS_BLOCK = /(:|=)\s*(#.*)?$/;
   // Lines that close one level as you type them.
   var OUTDENT = /^\s*(else|case)\b/;

@@ -10,13 +10,13 @@
 # It calls no builtin, not even `print`: only a name bound to a function
 # type can be called, and `print` is not one of those.
 
-# The block form and the single-expression form are both checked against
-# the annotation, and both against the same rule -- what the body
+# A body written under the header and one written on the header's own
+# line are the same body, checked against the same rule -- what it
 # produces must be the declared return type.
 def double(n:Int) -> Int:
     return n * 2
 
-def shout(word:String) -> String = word + '!'
+def shout(word:String) -> String: word + '!'
 
 def choose(a:Int, keep:Bool) -> Int:
     if keep:

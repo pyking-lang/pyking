@@ -1,0 +1,15 @@
+# Nothing may be indented under a block written on its header's line.
+#
+# The header's line held the whole block, so an indented line after it
+# opens a block belonging to nothing: the `if` is finished, and the
+# statement below is neither its body nor a statement of the enclosing
+# block, which is at a shallower level. Reading it as either would be a
+# guess, so it is refused where it is written.
+#
+# This program is expected to be REFUSED. Its `.ast.out` holds the error
+# message, not a program's output.
+
+x = 3
+
+if x > 2: print('big')
+    print('indented under nothing')

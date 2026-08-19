@@ -361,8 +361,6 @@ class _Translator:
     def function_binding(self, func):
         """One def, as an OBinding. SFunctionDef -> OBinding"""
         params = [_mangle(p.name) for p in func.params]
-        if func.expr is not None:
-            return OBinding(_mangle(func.name), params, self.expr(func.expr))
         return OBinding(_mangle(func.name), params, self.body(func.body))
 
     def body(self, stmts):

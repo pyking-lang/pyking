@@ -46,13 +46,13 @@ just reads `value.ctype` off the already-translated right-hand side.
 guess.** `_param_type` tries `_annotated_type` first (see above); when
 that's `None` — the parameter wasn't annotated, or was annotated with
 something C has no type for, like a tuple — it falls back to
-`_used_as_string`, which walks the function's body (or its single
-expression, for a `def f(x) = ...`) looking for exactly one piece of
+`_used_as_string`, which walks the function's body looking for exactly
+one piece of
 evidence: is this parameter ever added to, or compared with, a string
 literal? If so, it's guessed as `String`; otherwise it defaults to
 `Int`. This is a real, acknowledged weakness rather than a hidden one —
 `target_c.md` calls it out as "not optimal" directly: a parameter that
-only ever flows through unchanged (`def id(x) = x`, called with a
+only ever flows through unchanged (`def id(x): x`, called with a
 string) gives no evidence either way, and the guess lands on `Int`,
 producing C that won't compile. The fix, when it happens, is to
 annotate the parameter; a real inference pass (unifying types across

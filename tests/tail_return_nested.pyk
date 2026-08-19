@@ -19,7 +19,7 @@ def pick(x, y, z):
 # match in tail position, block arms and `->` arms mixed.
 def name_of(n):
     match n:
-        case 0 -> "zero"
+        case 0: "zero"
         case 1:
             "one"
         case _:
@@ -31,7 +31,7 @@ def name_of(n):
 def deep(n, m):
     if n > 0:
         match m:
-            case 0 -> "pos/zero"
+            case 0: "pos/zero"
             case 1:
                 if n > 10:
                     "big/one"

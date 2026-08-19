@@ -10,7 +10,7 @@
 var fns = []
 
 for i in range(4):
-    def show() = i * 10
+    def show(): i * 10
     fns := fns + [show]
 
 for f in fns:
@@ -22,9 +22,9 @@ for f in fns:
 var pairs = []
 
 for n in range(3):
-    def down(k) = if k < 1 then n else up(k - 1)
-    def up(k) = down(k)
-    def alone(k) = if k < 1 then n * 100 else alone(k - 1)
+    def down(k): if k < 1 then n else up(k - 1)
+    def up(k): down(k)
+    def alone(k): if k < 1 then n * 100 else alone(k - 1)
     pairs := pairs + [down]
     pairs := pairs + [alone]
 
@@ -38,7 +38,7 @@ var doubled = []
 
 for m in range(3):
     twice = m + m
-    def report() = twice
+    def report(): twice
     doubled := doubled + [report]
 
 for h in doubled:

@@ -43,17 +43,20 @@ restriction of it, but these are genuinely new.
   before it can be updated, and only then with `:=`: `var n = 0` then
   `n := n + 1` (a plain `n = n + 1` would just re-bind `n`, not update it
   in place).
-- **Single-expression `case` arms**: `case pattern -> expr` is a `case`
-  clause whose whole body is one expression, with no `:` or indented
-  block — e.g. `case 0 -> "zero"` instead of `case 0:` followed by
-  `return "zero"` on its own indented line.
-- **Single-expression function bodies**: `def name(params) = expr` is a
-  `def` whose whole body is one expression, with no `:` or indented
-  block — e.g. `def add(a, b) = a + b` instead of `def add(a, b):`
-  followed by `return a + b` on its own indented line. Just like the
-  `case`/`->` extension above, it means a body of one `return expr`. The expression may also stand
-  on the line after the `=`, indented, when it no longer fits beside the
-  header.
+- **A block on its header's own line**: any header ending in `:` may
+  carry its block on that same line instead of indenting it, as long as
+  what it carries is one **expression** — `def add(a, b): a + b`,
+  `if n < 0: print("negative")`, `case 0: "zero"`,
+  `for x in xs: print(x)`. Python allows something similar but wider:
+  any *simple* statement, and `;` to write several. Pyking's line holds
+  a value and nothing else, so nothing is ever hidden behind a ':' — no
+  `return`, no binding, no `:=` — and the line ends there, which is why
+  an `else` starts the next one. The two layouts are the same program:
+  `def add(a, b): a + b` is `def add(a, b):` followed by `a + b` on its
+  own indented line, down to the AST, so nothing after the parser can
+  tell which was written. That is what makes a definition short enough
+  to read at a glance stay on one line, and lets several such
+  definitions follow one another with nothing in between.
 - **Lowercase `true`/`false` boolean literals**: Python spells its two
   boolean values `True`/`False`; Pyking spells them lowercase, `true` and
   `false`, matching most other languages' convention rather than
@@ -149,10 +152,7 @@ Statements:
   annotations (`Int`, `String`, `Bool`, list types `[T]`, tuple types
   `(T1, T2, ...)` including the unit type `()`, function types
   `(T1, T2, ...) -> T`, and nesting of any of these) — annotations are
-  pretty-printed in Pyking's own syntax but erased when compiling; also
-  `def name(params) = expr`,
-  a single-expression body, which may stand on the next line indented —
-  Pyking extension
+  pretty-printed in Pyking's own syntax but erased when compiling
 - `return` statements, whose operand may be an ordinary expression or
   an `if`/`match` *statement* in value form (`return if cond:` /
   `return match e:`) — Pyking extension
@@ -166,10 +166,13 @@ Statements:
   optional value) -- Pyking extension
 - `if`/`else` statements, chained with `else if` — spelled as two
   keywords; Pyking has no `elif`
-- `match`/`case` pattern matching, including `case pattern -> expr` —
-  Pyking extension, tuple patterns (`case (a, b):`), and list patterns
-  (`case [a, ..rest]:`) that destructure a tuple or list value
+- `match`/`case` pattern matching, including tuple patterns
+  (`case (a, b):`) and list patterns (`case [a, ..rest]:`) that
+  destructure a tuple or list value
 - Expression statements
+- A block written on its header's own line (`def f(x): x * x`,
+  `if c: print(1)`, `case 0: "zero"`) — one expression, meaning exactly
+  what the indented form means
 
 Structure:
 
@@ -200,7 +203,11 @@ below). Comments are stripped by the lexer and don't appear here.
 ```ebnf
 program     = { statement } ;
 
-block       = INDENT , { statement } , DEDENT ;
+(* A block is indented under its header, or is the single expression
+   written on the header's own line -- which the EBNF cannot say, since
+   it cannot see where a line ends; see the notes below. *)
+block       = INDENT , { statement } , DEDENT
+            | expr_stmt ;
 
 statement   = function_def
             | return_stmt
@@ -217,8 +224,7 @@ statement   = function_def
             | expr_stmt ;
 
 function_def = "def" , ident , "(" , [ params ] , ")" , [ "->" , type ] ,
-               ( ":" , block
-               | "=" , bound_expr ) ;
+               ":" , block ;
 params       = param , { "," , param } ;
 param        = ident , [ ":" , type ] ;
 
@@ -245,9 +251,11 @@ if_stmt     = "if" , expr , ":" , block ,
               { "else" , "if" , expr , ":" , block } ,
               [ "else" , ":" , block ] ;
 
+(* Always indented: a `match` opens a list of clauses rather than a
+   block of statements, and a `case` clause is not an expression, so
+   there is nothing its header's line could carry. *)
 match_stmt  = "match" , expr , ":" , INDENT , case_clause , { case_clause } , DEDENT ;
-case_clause = "case" , pattern , ":" , block
-            | "case" , pattern , "->" , expr ;
+case_clause = "case" , pattern , ":" , block ;
 pattern     = pattern_atom , { "," , pattern_atom } ;
 pattern_atom = int | "-" , int | string | bool | "_" | ident
              | "(" , ")"
@@ -470,18 +478,16 @@ Notes that don't fall out of the grammar alone:
   (`expected a single value in the indented block after '='`). It exists
   mainly for a `value_stmt` whose header would otherwise share the `=`
   line, but nothing restricts it to those — `x =` followed by an
-  indented `1 + 2` is the same rule, as is `var`/`:=` and a
-  single-expression `function_def` body (all three take a `bound_expr`:
-  the next-line layout, but no `value_stmt`). Both pretty-printers
+  indented `1 + 2` is the same rule, as is `var`/`:=` (both take a
+  `bound_expr`: the next-line layout, but no `value_stmt`). Both
+  pretty-printers
   normalize it away, printing the value back on the `=` line; the two
   spellings are the same AST.
 - A `value_stmt` is rejected in each `bound_expr` position with an error
-  naming it (`a 'def ... =' body takes an expression; a value-form
-  'if'/'match' can only be bound with '='`). For `def` the reason is not
-  just symmetry with `var`/`:=`: a value form binds its target in every
-  branch tail, whereas a function body would have to `return` from each
-  one instead — a different desugaring, not a restriction of the same
-  one. Write `def f(x):` with a block body and a `match` inside it.
+  naming it (`a 'var' declaration takes an expression; a value-form
+  'if'/'match' can only be bound with '='`). A value form binds its
+  target in every branch tail, which is what `var` declares and `:=`
+  updates — neither of which the branches can decide between.
 - Statements before a branch's last one are ordinary statements, run for
   their effect: a branch may bind local names, print, or update an
   enclosing `var` before yielding its value. This is a consequence of
@@ -626,23 +632,37 @@ Notes that don't fall out of the grammar alone:
   `INDENT`/`DEDENT` purely from each physical line's leading whitespace
   (see "Indentation-based blocks" below), so a multi-element literal
   must currently stay on one source line.
-- The `"case" , pattern , "->" , expr` form of `case_clause` is a genuine
-  Pyking extension — it isn't valid Python `match` syntax at all (Python
-  always requires `:` and an indented block). It *means* a `case pattern:`
-  block whose only statement is `return expr` — so, like
-  a bare `return_stmt`, it's only meaningful inside a `function_def`; the
-  parser doesn't check this, matching how `return_stmt` itself is already
-  accepted anywhere without that check.
-- The two `case_clause` forms can be freely mixed within one `match_stmt`.
-- The `"=" , tuple_or_expr` form of `function_def` is a genuine Pyking
-  extension in the same spirit as `case pattern -> expr` above — it isn't
-  valid Python syntax at all (Python's `def` always requires `:` and an
-  indented block). It *means* a `def name(...):` block whose only
-  statement is `return expr`. Unlike `case pattern -> expr` (which
-  parses its expression with plain `expr`, not `tuple_or_expr`), the `def`
-  form uses `tuple_or_expr` — the same grammar `return_stmt` itself uses
-  in the implementation — so a bare tuple works with no extra parens,
-  e.g. `def swap(a, b) = b, a`.
+- `block`'s bare-`expr_stmt` alternative is taken **only** when that
+  expression begins on the row the header's `:` ends on. The EBNF cannot
+  state this, for the same reason it cannot state "a statement starts a
+  line of its own": the lexer emits no token for a line break, so both
+  are checked in `src/parser.py` against the positions the tokens
+  already carry. A block that begins on the *next* line without being
+  indented is therefore not an inline block but the error it always was
+  (`expected an indented block`).
+- It is an `expr_stmt`, not a `statement`: only a value may be written
+  there. A `return`, a binding, a `:=`, or a nested header is refused
+  where it stands (`a block written on its header's own line must be
+  one expression, and 'return a' is not; write it in an indented block
+  instead`), so no line ever hides control flow or a new name behind
+  its `:`. An `if` written there is the `if_expr`, which is an
+  expression; the statement form is not.
+- An inline block **ends its line**. Nothing may be indented under it
+  (`a block written on its header's own line is the whole block, so
+  nothing may be indented under it`), and nothing may continue the
+  construct on the same line — an `else` has to start the next one
+  (`'else' must start on a new line: the block written on the header's
+  own line ends that line`). A second *statement* after it on the line
+  is caught by the one-statement-per-line rule instead, since it is a
+  sibling of the header rather than part of its block.
+- The two layouts are the same program. `def add(a, b): a + b` parses to
+  exactly what `def add(a, b):` followed by an indented `a + b` parses
+  to, so nothing after the parser can tell them apart — including the
+  pretty-printer, which prints every block indented.
+- The rule is the *block's*, so it holds wherever a block does:
+  `function_def`, `if_stmt` and its `else`, `for_stmt`, `while_stmt`,
+  `loop_stmt` and `case_clause`. A `match_stmt`'s clause list is not a
+  block and has no inline form.
 
 ## Feature details
 
@@ -1016,7 +1036,7 @@ ever being an update:
 n = "outer"
 
 
-def describe(n) =
+def describe(n):
     "param " + str(n)
 
 
@@ -1030,10 +1050,10 @@ uses — in either order, and whatever the binding form:
 
 ```pyking
 # Each of these is a compile-time error:
-#   f = 1              def f(n) = n * 2       (a binding and a function)
-#   def f(n) = n * 2   f = 1                  (the same, written the other way)
-#   var f = 1          def f(n) = n * 2       (a variable and a function)
-#   def f(n) = n       def f(n) = n * 2       (two functions)
+#   f = 1              def f(n): n * 2       (a binding and a function)
+#   def f(n): n * 2    f = 1                 (the same, written the other way)
+#   var f = 1          def f(n): n * 2       (a variable and a function)
+#   def f(n): n        def f(n): n * 2       (two functions)
 ```
 
 This is what makes the next rule safe. A function's name is visible
@@ -1044,9 +1064,9 @@ either — is `use()` below returning the number or the function?
 ```pyking
 f = 1
 
-def use() = f          # rejected: which `f`?
+def use(): f          # rejected: which `f`?
 
-def f(n) = n * 2
+def f(n): n * 2
 ```
 
 Nothing forbids the *name*; it forbids sharing a **block**. A nested
@@ -1058,7 +1078,7 @@ f = 1
 
 
 def use():
-    def f() = 5        # a different block: this shadows the binding
+    def f(): 5        # a different block: this shadows the binding
     return f()
 
 
@@ -1200,7 +1220,7 @@ updates. That is what a `var` is for.
 var counter = 0
 
 
-def read() = counter
+def read(): counter
 
 
 counter := 42
@@ -1217,7 +1237,7 @@ written:
 var fns = []
 
 for i in range(3):
-    def show() = i
+    def show(): i
     fns := fns + [show]
 
 for f in fns:
@@ -1280,53 +1300,42 @@ def average(a, b):
 print(average(4, 8))
 ```
 
-`def name(params) = expr` is a single-expression alternative — Pyking
-extension, with no Python equivalent, so (unlike every other example in
-this document) the following is Pyking source, not valid Python. It means
-a `def name(params):` whose only statement is `return expr`, letting short
-functions be written on one line. It plays
-the same role for `def` that `case pattern -> expr` plays for `match`/
-`case` (see below): both are one-expression shorthands for an implicit
-`return`. Since it's parsed with `tuple_or_expr`, a bare comma-separated
-tuple works with no extra parentheses.
+A body that is one expression may be written on the header's own line,
+after the `:` (see "A block on its header's own line" below). It is the
+same body: one statement, in tail position, so it supplies the
+function's value exactly as an indented one does. A body that does
+anything else — returns, binds a name, branches as a statement — goes
+under the header, where it is plain.
 
 ```pyking
-def average(a, b) = (a + b) / 2
-def swap(a, b) = b, a
+def average(a, b): (a + b) / 2
+def swap(a, b): b, a
 
 print(average(4, 8))
 print(swap(1, 2))
 ```
 
-A return type annotation can still be given before the `=`, exactly as
-with the `:`/block form:
+Annotations are unaffected — the `:` that opens the block is the one
+that was always there:
 
 ```pyking
-def average(a:Int, b:Int) -> Int = (a + b) / 2
+def average(a:Int, b:Int) -> Int: (a + b) / 2
 ```
 
-The body may also start on the line *after* the `=`, indented — the same
-layout any bound value may take (see "`if`/`match` statements as bound
-values" below), and what keeps the form usable once the expression stops
-fitting beside the header:
+When the body stops fitting beside the header, indent it under the
+header instead. Nothing else changes:
 
 ```pyking
-def scaled(a, b) =
+def scaled(a, b):
     (a + b) * 2
 
 
-def sign(n: Int) -> String =
+def sign(n: Int) -> String:
     if n < 0 then "negative" else "positive"
 
 
 print(scaled(1, 2), sign(-3))
 ```
-
-Note the body is still an *expression*: `if ... then ... else ...` as
-above, not the block-form `if`/`match` that an `=` binding accepts. A
-function body would have to `return` from each branch rather than bind,
-which is a different desugaring — write `def name(params):` with a block
-body for that.
 
 ### Type annotations
 
@@ -1657,7 +1666,7 @@ parenthesize when mixing with operators, and an `else` branch that is
 itself an if expression chains flat, reading like an `elif` ladder.
 
 ```pyking
-def sign(x) = if x < 0 then "negative" else if x == 0 then "zero" else "positive"
+def sign(x): if x < 0 then "negative" else if x == 0 then "zero" else "positive"
 
 
 def clamp(x, lo, hi):
@@ -1711,8 +1720,8 @@ or string literal pattern does:
 ```pyking
 def describe(flag):
     match flag:
-        case true -> "yes"
-        case false -> "no"
+        case true: "yes"
+        case false: "no"
 
 
 print(describe(1 < 2), describe(3 < 2))
@@ -1779,25 +1788,20 @@ the earlier, more general `[first, ..rest]` case for any list of two or
 more elements — see `tests/list_pattern_match.pyk` for each of the seven
 forms demonstrated in its own function, so every one is actually reached.
 
-A `case` clause can alternatively use `->` followed by a single
-expression instead of `:` and an indented block — this is a Pyking-only
-extension with no Python equivalent, so (unlike every other example in
-this document) the following is Pyking source, not valid Python:
-`case pattern -> expr` means a `case pattern:` block whose body is
-`return expr`, so it's only meaningful directly inside a
-function (see the grammar notes above) — unless the whole `match` is
-bound with `=`, where the arm supplies the bound value instead of
-returning (see "`if`/`match` statements as bound values" below). The two
-forms can be mixed freely within one `match`. `def name(params) = expr` (see "Function
-definitions" above) is the same idea applied to a whole function body
-instead of a single `case` arm.
+A `case` clause opens a block like any other header, so an arm whose
+body is one expression can be written on the clause's own line (see "A
+block on its header's own line" below). The arm then supplies its value
+the way any branch tail does: it is the function's value directly inside
+a function, and the bound value when the whole `match` is bound with `=`
+(see "`if`/`match` statements as bound values" below). Arms written each
+way mix freely within one `match`.
 
 ```pyking
 def describe(n):
     match n:
-        case 0 -> "zero"
-        case 1 -> "one"
-        case _ -> "many"
+        case 0: "zero"
+        case 1: "one"
+        case _: "many"
 
 
 for i in [0, 1, 5]:
@@ -1851,11 +1855,11 @@ gives the value directly, and a block arm gives its last expression:
 ```pyking
 def describe(point):
     text = match point:
-        case (0, 0) -> "origin"
+        case (0, 0): "origin"
         case (0, y):
             side = if y > 0 then "up" else "down"
             "on the y axis, " + side
-        case (x, y) -> "at " + str(x) + "," + str(y)
+        case (x, y): "at " + str(x) + "," + str(y)
     return text
 
 
@@ -1872,8 +1876,8 @@ n = 7
 
 k = if n > 5:
     match n:
-        case 7 -> "seven"
-        case _ -> "big"
+        case 7: "seven"
+        case _: "big"
 else if n > 0:
     "small"
 else:
@@ -1897,8 +1901,8 @@ y = 2
 
 z =
     match y:
-        case 2 -> "hi"
-        case xx -> str(xx)
+        case 2: "hi"
+        case xx: str(xx)
 
 print(z)
 ```
@@ -1949,7 +1953,7 @@ def pick(x, y, z):
 
 def name_of(n):
     match n:
-        case 0 -> "zero"
+        case 0: "zero"
         case _:
             "many"
 
@@ -2046,8 +2050,8 @@ def sign(x):
 
 def classify(n):
     return match n:
-        case 0 -> "zero"
-        case _ -> "many"
+        case 0: "zero"
+        case _: "many"
 
 
 print(sign(-2), classify(0))
@@ -2075,6 +2079,127 @@ def bucket(x):
 
 print(bucket(0), bucket(5))
 ```
+
+### A block on its header's own line
+
+Any header ending in `:` may carry its block on that same line instead
+of indenting it, provided what it carries is **one expression**. Python
+allows something similar but wider — any *simple* statement, and `;` to
+write several; Pyking's line holds a value and nothing else.
+
+```pyking
+def square(x): x * x
+def twice(x): x + x
+
+if square(3) > 5: print("big")
+else: print("small")
+
+for i in range(3): print(i)
+```
+
+**It is the same program either way.** `def square(x): x * x` parses to
+exactly what
+
+```pyking
+def square(x):
+    x * x
+```
+
+parses to — one block, one statement — so nothing after the parser can
+tell which was written, and the pretty-printer prints both indented. The
+form is a layout, not a second kind of definition: what the body means,
+where its names come from, whether its last expression is in tail
+position (it is) are all unchanged.
+
+It works for every header, because the rule belongs to the *block*:
+`def`, `if` and its `else`, `for`, `while`, `loop`, and a `case` clause.
+
+```pyking
+def name_of(n):
+    match n:
+        case 0: "zero"
+        case 1: "one"
+        case _: "many"
+
+
+print(name_of(0), name_of(7))
+```
+
+A `match`'s clause list is the one thing that looks like a block and is
+not one: `match e:` opens a list of `case` clauses rather than a list of
+statements, and a clause is not an expression, so there is nothing its
+line could carry. The clauses are always indented under it.
+
+#### What may be written there
+
+An **expression**, and only an expression. A `return`, an `=` binding, a
+`:=` mutation, or a nested header is not one, and is refused where it
+stands:
+
+```
+'prog.pyk' 4:14-4:22 Parsing error: a block written on its header's
+  own line must be one expression, and 'return a' is not; write it in
+  an indented block instead
+```
+
+That is the whole point of the restriction. A line ending in `:` is a
+promise that a value follows; letting a statement follow instead would
+mean control flow and new names could hide behind a `:` at the end of a
+line, and every such line would have to be read to the end to find out
+what it did. So the value-producing forms stay on one line and
+everything else goes under its header:
+
+```pyking
+def first_positive(a, b):
+    if a > 0:
+        return a
+    b
+```
+
+Note that a function ending in a value needs no `return` at all (see
+"Tail position"), so the shorthand is rarely what a one-line body wanted
+in the first place. And `if` written inline is the `if`/`then`/`else`
+*expression*, which is an expression like any other:
+
+```pyking
+def describe(n): if n < 0 then "negative" else "positive"
+```
+
+#### The line ends there
+
+An inline block is the end of its line, and two rules follow. Each is
+reported where it is written:
+
+- **Nothing may be indented under it.** The header's line already held
+  the block, so an indented line after it belongs to nothing — `if c:
+  print(1)` with a second `print` indented below is refused rather than
+  read as a two-statement body.
+- **Nothing may continue the construct on that line.** An `else`
+  belonging to the `if` starts the *next* line (see below).
+
+So an `if` and its `else` each carry their own line:
+
+```pyking
+x = 2
+
+if x > 1: print(7)
+else: print(8)
+```
+
+Written `if x > 1: print(7) else: print(8)`, one line would hold an
+`if`, its whole then-block, and the start of another block; that is the
+run-on the one-statement-per-line rule exists to prevent, and it is
+refused (`'else' must start on a new line: the block written on the
+header's own line ends that line`). The same holds for an `else if`
+rung.
+
+A second *statement* sharing the line is caught by that
+one-statement-per-line rule itself (see "Indentation-based blocks"
+above): `if c: print(1) print(2)` puts the second `print` beside the
+`if`, not inside it.
+
+A block that begins on the *next* line without being indented is neither
+form, and is the error it always was — `expected an indented block`.
 
 ## Type checking
 
@@ -2196,7 +2321,7 @@ an annotation and a comment. Both forms of binding are checked, the
 ordinary one and the value form:
 
 ```pyking
-def foo(x:Int, y:Int) -> Int = x + y
+def foo(x:Int, y:Int) -> Int: x + y
 
 
 ok:(Int, Int) -> Int = foo      # fine
@@ -2240,7 +2365,7 @@ operand, the right-hand side of a binding, or the whole body of a
 function:
 
 ```pyking
-def fact(n) = if n <= 1 then 1 else fact(n - 1) * n
+def fact(n): if n <= 1 then 1 else fact(n - 1) * n
 
 
 picked = if 3 < 4 then 10 else 20
@@ -2442,7 +2567,7 @@ def sign(n:Int) -> String:
         return 'large'
 
 
-def shout(word:String) -> String = word + '!'
+def shout(word:String) -> String: word + '!'
 
 
 kind = sign(4)

@@ -50,13 +50,13 @@ def early(x):
 # `return match`, with a statement arm whose own tail is a nested if.
 def classify(n):
     return match n:
-        case 0 -> "zero"
+        case 0: "zero"
         case 1:
             if 1 < 2:
                 "one"
             else:
                 "unreachable"
-        case _ -> "many"
+        case _: "many"
 
 
 # An `if` with no `else` in tail position: the taken branch returns, the

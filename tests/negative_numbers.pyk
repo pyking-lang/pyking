@@ -21,7 +21,7 @@ print(-x * 2, -(x * 2))
 print(10 - 3, 10 - -3, 10 - - 3, - -5)
 
 # Negation of a call result, and a call on a negative argument.
-def double(n) =
+def double(n):
     n * 2
 
 
@@ -41,10 +41,10 @@ print([v for v in values if v < -1])
 # Negative integer *literals* are patterns too.
 def name_of(n):
     match n:
-        case -1 -> "minus one"
-        case 0 -> "zero"
-        case -12 -> "minus twelve"
-        case _ -> "other"
+        case -1: "minus one"
+        case 0: "zero"
+        case -12: "minus twelve"
+        case _: "other"
 
 
 print(name_of(-1), name_of(0), name_of(low), name_of(7))

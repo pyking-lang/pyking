@@ -1,0 +1,2 @@
+'tests/fail_typecheck_case_arrow.pyk' 15:11-15:13 Parsing error:
+  expected ':' after case pattern

@@ -164,7 +164,7 @@ Both forms of `if` matter, and only one of them was there at first. A
 recursive function written as a one-liner,
 
 ```pyking
-def fact(n) = if n <= 1 then 1 else fact(n - 1) * n
+def fact(n): if n <= 1 then 1 else fact(n - 1) * n
 ```
 
 has its recursion in a branch of an *expression*, and a version that
@@ -374,7 +374,7 @@ missed: **the summary claimed something the checker refuses.** That type
 says an Int and a String may be mixed in one call, and
 
 ```pyking
-def combine(x, y) = x + y
+def combine(x, y): x + y
 
 print(combine(1, 3))
 print(combine('hi', 'now'))
@@ -425,10 +425,10 @@ a program and the wrong one for a cache, and the difference is invisible
 until two *deferred* functions are passed to the same function:
 
 ```pyking
-def id(x) = x
-def extract(packed) = packed(id)
-def pack_int(k) = k(41)
-def pack_string(k) = k('hello')
+def id(x): x
+def extract(packed): packed(id)
+def pack_int(k): k(41)
+def pack_string(k): k('hello')
 
 print(extract(pack_int))       # 41     : Int
 print(extract(pack_string))    # 'hello' : Int   ← reported wrongly
@@ -474,7 +474,7 @@ That is wrong in the other direction, and the case that shows it is
 plain:
 
 ```pyking
-def identity(x) = x
+def identity(x): x
 
 def use(f):
     a = f(42)          # an instance that already existed

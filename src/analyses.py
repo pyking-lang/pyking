@@ -305,10 +305,7 @@ def analyze_case(case_clause, env):
     """Analyzes one case clause; the pattern's variables are bound in
     the arm's own scope. MatchCase -> {String: Binding} -> ()"""
     case_env = bind_pattern(env, case_clause.pattern)
-    if case_clause.expr is not None:
-        analyze_expr(case_clause.expr, case_env)
-    else:
-        analyze_scope(case_clause.body, case_env)
+    analyze_scope(case_clause.body, case_env)
 
 
 def analyze_stmt(s, env):
@@ -401,7 +398,7 @@ def analyze_stmt(s, env):
                 analyze_case(case_clause, env)
             return env
 
-        case SFunctionDef(info, name, params, body, _return_type, expr):
+        case SFunctionDef(info, name, params, body, _return_type):
             # The function's own name is bound before its body is walked,
             # so a function may call itself; the parameters then bind in
             # the body's scope, shadowing anything but a mutable variable.
@@ -409,10 +406,7 @@ def analyze_stmt(s, env):
             body_env = env
             for param in params:
                 body_env = bind(body_env, param.name, PARAMETER, param.info)
-            if expr is not None:
-                analyze_expr(expr, body_env)
-            else:
-                analyze_scope(body, body_env)
+            analyze_scope(body, body_env)
             return env
 
         case _:

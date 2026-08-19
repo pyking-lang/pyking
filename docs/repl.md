@@ -23,8 +23,8 @@ immediately. Inside one Pyking block, `def` has a special rule — every
 `def` in the block is hoisted, visible throughout it, and (per
 `analyses.py`'s `check_no_function_clash`) a name may be defined as a
 function **at most once per block**. Redefining a name at the REPL
-prompt — typing `def double(n) = n * 2`, running it, then typing a
-better `def double(n) = n * 2 + 1` to replace it — is one of the most
+prompt — typing `def double(n): n * 2`, running it, then typing a
+better `def double(n): n * 2 + 1` to replace it — is one of the most
 ordinary things a REPL session does. Treated as "one accumulated
 block," that's exactly the error `analyses.py` exists to catch: two
 `def`s sharing a name in one block.
@@ -165,6 +165,19 @@ editor — the editor asks the one thing that actually knows,
 parser messages that mean "ran out of input" rather than "this is
 wrong," which is what lets a half-typed `def f():` keep reading instead
 of erroring on the spot.
+
+Parsing whole is not the same as being finished, and since a block may
+be written on its header's own line (see PYKING.md) that difference now
+shows up on a *single* line: `if c: print(1)` parses, but `else:
+print(2)` may still follow — on the next line, which is the only place
+it may go. `continuable` is the second half of the question, and it is
+asked of the parser too rather than of a trailing `:` — it parses the
+line and looks at what the last statement *is*: an `if` with no `else`
+yet, following an `else if` chain down to the innermost rung. Only a
+line that both parses and cannot be continued submits on its own;
+everything else waits for the blank line, exactly as a multi-line entry
+always has. `def f(x): x * x` therefore runs on Enter — nothing can be
+indented under it, and nothing continues a `def`.
 
 ## Recognizing Shift+Return, and why it needs three code paths
 

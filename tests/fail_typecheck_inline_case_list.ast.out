@@ -1,0 +1,2 @@
+'tests/fail_typecheck_inline_case_list.pyk' 13:17-13:21 Parsing error:
+  expected an indented block of 'case' clauses

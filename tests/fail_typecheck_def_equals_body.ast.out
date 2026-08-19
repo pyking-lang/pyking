@@ -1,0 +1,2 @@
+'tests/fail_typecheck_def_equals_body.pyk' 12:25-12:26 Parsing error:
+  expected ':' after def header

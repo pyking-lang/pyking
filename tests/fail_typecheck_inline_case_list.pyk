@@ -1,0 +1,15 @@
+# A `match` keeps its clauses in an indented block.
+#
+# What a header's own line may hold is one expression, and a `case`
+# clause is not one: `match e:` opens a list of clauses rather than a
+# block of statements, so there is nothing its line could carry. The
+# clauses go under it, as they always have.
+#
+# This program is expected to be REFUSED. Its `.ast.out` holds the error
+# message, not a program's output.
+
+n = 1
+
+label = match n: case _: 'any'
+
+print(label)

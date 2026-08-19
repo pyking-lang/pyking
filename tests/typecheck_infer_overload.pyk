@@ -16,7 +16,7 @@
 # Pyking's type grammar: without them the type would read as one
 # function returning `Int | ((String, String) -> String)`.
 
-def combine(x, y) = x + y
+def combine(x, y): x + y
 
 def wrap(value):
     if value == value:

@@ -1,0 +1,18 @@
+# A block on its header's own line holds one *expression*.
+#
+# The line after a ':' may carry the block, but only when what it
+# carries is a value: an expression, which is what a header's line is
+# short enough to hold in the first place. A `return`, a binding or a
+# `:=` is control flow or a new name, and reading a line to find one of
+# those hidden behind a ':' is the cost the form was never meant to
+# have. Each is written under its header instead, where it is plain.
+#
+# This program is expected to be REFUSED. Its `.ast.out` holds the error
+# message, not a program's output.
+
+def first_positive(a:Int, b:Int) -> Int:
+    if a > 0: return a
+    b
+
+
+print(first_positive(3, 9))

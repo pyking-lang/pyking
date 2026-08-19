@@ -1,7 +1,7 @@
 def classify(n:Int) -> String:
     match n:
-        case 0 -> "zero"
-        case _ -> "nonzero"
+        case 0: "zero"
+        case _: "nonzero"
 
 
 def make_pairs(xs:[Int], ys:[Int]) -> [(Int, Int)]:

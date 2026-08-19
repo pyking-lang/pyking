@@ -1,30 +1,30 @@
 def length(xs):
     match xs:
-        case [] -> 0
-        case [_, ..rest] -> 1 + length(rest)
+        case []: 0
+        case [_, ..rest]: 1 + length(rest)
 
 
 def total(xs):
     match xs:
-        case [] -> 0
-        case [x, ..rest] -> x + total(rest)
+        case []: 0
+        case [x, ..rest]: x + total(rest)
 
 
 def reverse(xs):
     match xs:
-        case [] -> []
-        case [x, ..rest] -> reverse(rest) + [x]
+        case []: []
+        case [x, ..rest]: reverse(rest) + [x]
 
 
 def contains(xs, target):
     match xs:
-        case [] -> false
-        case [x, ..rest] -> if x == target then true else contains(rest, target)
+        case []: false
+        case [x, ..rest]: if x == target then true else contains(rest, target)
 
 def double_all(xs):
     match xs:
-        case [] -> []
-        case [x, ..rest] -> [x * 2] + double_all(rest)
+        case []: []
+        case [x, ..rest]: [x * 2] + double_all(rest)
 
 
 values = [1, 2, 3, 4, 5]

@@ -1,8 +1,8 @@
-def add(a, b) = a + b
+def add(a, b): a + b
 
-def scale(x, factor:Int) -> Int = x * factor
+def scale(x, factor:Int) -> Int: x * factor
 
-def square(x) = x * x
+def square(x): x * x
 
 print(add(2, 3))
 print(scale(3, 4))

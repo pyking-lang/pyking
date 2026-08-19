@@ -1,0 +1,15 @@
+# An `else` starts its own line.
+#
+# A block written on its header's own line *ends* that line -- so the
+# `else` belonging to the `if` cannot share it. Written this way the
+# line holds an `if`, its whole then-block, and the beginning of another
+# block, which is exactly the run-on the one-statement-per-line rule
+# exists to prevent (see PYKING.md, "A block on its header's own line").
+# On two lines it reads as what it is.
+#
+# This program is expected to be REFUSED. Its `.ast.out` holds the error
+# message, not a program's output.
+
+x = 2
+
+if x > 1: print(7) else: print(8)

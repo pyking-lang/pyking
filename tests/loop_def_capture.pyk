@@ -11,7 +11,7 @@
 var makers = []
 
 loop i = 0:
-    def show() = i
+    def show(): i
 
     makers := makers + [show]
     if i > 1:
@@ -28,9 +28,9 @@ for f in makers:
 var pairs = []
 
 loop n = 10:
-    def left() = right() + n
+    def left(): right() + n
 
-    def right() = n * 2
+    def right(): n * 2
 
     pairs := pairs + [left]
     if n >= 30:

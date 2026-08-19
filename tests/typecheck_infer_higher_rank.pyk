@@ -12,11 +12,11 @@
 
 # The simple shape: one function applied to two different unannotated
 # functions whose results differ.
-def double(n) = n * 2
+def double(n): n * 2
 
-def show(n) = str(n) + '!'
+def show(n): str(n) + '!'
 
-def apply_to_two(f) = f(2)
+def apply_to_two(f): f(2)
 
 print(apply_to_two(double), apply_to_two(show))
 
@@ -25,13 +25,13 @@ print(apply_to_two(double), apply_to_two(show))
 # through one and at String through the other, so it has both types --
 # and each of the packers has only the one it was used at, which is what
 # reporting per call rather than per definition means.
-def id(x) = x
+def id(x): x
 
-def extract(packed) = packed(id)
+def extract(packed): packed(id)
 
-def pack_int(k) = k(41)
+def pack_int(k): k(41)
 
-def pack_string(k) = k('hello')
+def pack_string(k): k('hello')
 
 print(extract(pack_int), extract(pack_string))
 

@@ -989,11 +989,7 @@ class _Translator:
         # the top of it, so that one written in a `while` condition
         # stands outside the loop it is tested in.
         outer_temps = len(self.temps)
-        if func.expr is not None:
-            value = self.expr(func.expr, body_scope)
-            body = [CReturn(value.info, value)]
-        else:
-            body = self.tail_stmts(func.body, body_scope)
+        body = self.tail_stmts(func.body, body_scope)
         temporaries = self.declarations(outer_temps)
 
         returned = _return_types(body)
@@ -1040,8 +1036,7 @@ def _param_type(func, param):
     annotated = _annotated_type(param.type)
     if annotated is not None:
         return annotated
-    body = [func.expr] if func.expr is not None else func.body
-    return STRING if _used_as_string(param.name, body) else INT
+    return STRING if _used_as_string(param.name, func.body) else INT
 
 
 def _used_as_string(name, node):

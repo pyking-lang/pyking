@@ -202,9 +202,13 @@ Around them:
   leading token, including the `if`/`match` forms that can be *bound*
   (`x = if c:`) or *returned* (`return match e:`), via
   `parse_bound_value`.
-- **`parse_block(tokens)`** — a `TokIndent`-delimited block; a missing
-  one is `expected an indented block`, which is also what tells the REPL
-  an entry is unfinished.
+- **`parse_block(tokens, header_info)`** — one block: `TokIndent`-
+  delimited, or the single *expression* written on the header's own
+  line, which is why it is handed the `:` that opened it (PYKING.md, "A
+  block on its header's own line"). Neither shape present is `expected
+  an indented block`, which is also what tells the REPL an entry is
+  unfinished. `parse_cases` has only the indented shape: a `match`
+  opens a list of clauses, not a block of statements.
 - **`parse_type` / `parse_type_atom` / `parse_param` / `parse_params`** —
   annotations. A parenthesized list followed by `->` is a `TFunction`;
   without the arrow it is a `TTuple`. `|` binds looser than either, so
@@ -550,7 +554,7 @@ three are design rather than accident:
 ### Data structures
 
 - **`Value`** — `VInt`, `VString`, `VBool`, `VUnit`, `VList`, `VTuple`,
-  `VClosure(name, params, body, expr, env)`, `VBuiltin(name)`, and
+  `VClosure(name, params, body, env)`, `VBuiltin(name)`, and
   `VUndefined(name)` (a hoisted `def` whose definition has not run yet).
   No host objects and no host dictionaries inside a value: the
   representation has to survive being rewritten in Pyking and compiled to
@@ -727,11 +731,14 @@ function written now is invisible to one written before it.
   `PipeReader` otherwise: a pipe has no cursor to move and no history to
   walk. Both answer the same two calls, `read(initial="")` and
   `ask(message)`, which is what lets the loop be written once.
-- **`complete(source)` / `next_indent(source)`** — the two things the
-  editor needs to know about the language: whether Enter submits, and
-  how far in the next line starts. Both are answers, not guesses:
-  completeness is the parser's, and indentation follows the one rule
-  that a line ending in `:` opens a block.
+- **`complete(source)` / `continuable(source)` / `next_indent(source)`**
+  — the three things the editor needs to know about the language:
+  whether the input ran out, whether the next line could still extend
+  what is there (an `if` with no `else`, whose block may have been on
+  the header's line), and how far in that next line starts. Enter submits a single line only when it is complete
+  and not continuable. All three are answers rather than guesses: the
+  first two are the parser's, and indentation follows the one rule that
+  a line *ending* in `:` opens a block.
 - **`meta_help`, `meta_ls`, `meta_type`, `meta_edit`, `meta_ast`,
   `meta_tokens`, `meta_load`, `meta_reset`** — the commands. `:ls`
   lists what the session bound as `name = value : Type`, reading the

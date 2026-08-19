@@ -36,8 +36,8 @@ def match_middle(xs):
 
 def ignore_rest(xs):
     match xs:
-        case [u, v, ..] -> "u=" + str(u) + " v=" + str(v)
-        case other -> "too short"
+        case [u, v, ..]: "u=" + str(u) + " v=" + str(v)
+        case other: "too short"
 
 
 def wildcard_head(xs):

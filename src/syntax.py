@@ -118,8 +118,8 @@ from lexer import Info
 #     SContinue(info: Info, expr: Expr?, sym: Int)
 #     SIf(info: Info, cond: Expr, then_body: [Stmt], else_body: [Stmt]?,
 #         sym: Int)
-#     SFunctionDef(info: Info, name: String, params: [Param], body: [Stmt]?,
-#                  return_type: Type?, expr: Expr?, sym: Int)
+#     SFunctionDef(info: Info, name: String, params: [Param],
+#                  body: [Stmt], return_type: Type?, sym: Int)
 #     SMatch(info: Info, subject: Expr, cases: [MatchCase], sym: Int)
 #
 # datatype Param:
@@ -129,8 +129,7 @@ from lexer import Info
 #     ListRest(info: Info, name: String?, sym: Int)
 #
 # datatype MatchCase:
-#     MatchCase(info: Info, pattern: Pattern, body: [Stmt]?, expr: Expr?,
-#               sym: Int)
+#     MatchCase(info: Info, pattern: Pattern, body: [Stmt], sym: Int)
 
 
 # --- expression AST ---
@@ -733,14 +732,11 @@ def _pprint_comp_clause(c):
 
 @dataclass(frozen=True)
 class MatchCase:
-    # case pattern: body               (block form)
-    # case pattern -> expr             (single-expression form; Pyking extension,
-    #                                    not valid Python match syntax)
-    # Exactly one of `body`/`expr` is set.
+    # case pattern: body -- the body being the block written under the
+    # clause, or the one statement written on its own line.
     info: Info
     pattern: Pattern
-    body: list = None
-    expr: Expr = None
+    body: list = None    # list[Stmt]
     sym: int = 0
 
 
@@ -915,17 +911,11 @@ class SIf(Stmt):            # if cond: then_body [else: else_body]
 
 @dataclass(frozen=True)
 class SFunctionDef(Stmt):   # def name(params...) [-> return_type]: body
-                             # def name(params...) [-> return_type] = expr
-                             #   (single-expression form; Pyking extension,
-                             #    not valid Python -- see MatchCase for the
-                             #    analogous `case pattern -> expr`)
-                             # Exactly one of `body`/`expr` is set.
     info: Info
     name: str
     params: list         # list[Param]
-    body: list = None
+    body: list = None    # list[Stmt]
     return_type: Type = None
-    expr: Expr = None
     sym: int = 0
 
 
@@ -1012,23 +1002,16 @@ def _pprint_stmt(s, level=0):
                         lines += [pprint_stmt(st, level + 1) for st in else_body]
                         break
             return "\n".join(lines)
-        case SFunctionDef(_, name, params, body, return_type, expr):
+        case SFunctionDef(_, name, params, body, return_type):
             header = _function_header(s, pad, name, params, return_type)
-            if expr is not None:
-                return f"{header} = {pprint_expr(expr)}"
             lines = [header + ":"]
             lines += [pprint_stmt(st, level + 1) for st in body]
             return "\n".join(lines)
         case SMatch(_, subject, cases):
             lines = [f"{pad}match {pprint_expr(subject)}:"]
             for c in cases:
-                if c.expr is not None:
-                    lines.append(
-                        f"{pad}    case {pprint_pattern(c.pattern)} -> {pprint_expr(c.expr)}"
-                    )
-                else:
-                    lines.append(f"{pad}    case {pprint_pattern(c.pattern)}:")
-                    lines += [pprint_stmt(st, level + 2) for st in c.body]
+                lines.append(f"{pad}    case {pprint_pattern(c.pattern)}:")
+                lines += [pprint_stmt(st, level + 2) for st in c.body]
             return "\n".join(lines)
 
 

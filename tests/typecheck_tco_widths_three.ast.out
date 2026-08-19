@@ -14,9 +14,12 @@ def tail_group1(state:Int, a:Int, b:Int, c:Int) -> Int:
             break a + b
         else:
             (0, a + b + c, b, c)
-def one(a:Int) -> Int = tail_group1(0, a, 0, 0)
-def two(a:Int, b:Int) -> Int = tail_group1(1, a, b, 0)
-def three(a:Int, b:Int, c:Int) -> Int = tail_group1(2, a, b, c)
+def one(a:Int) -> Int:
+    tail_group1(0, a, 0, 0)
+def two(a:Int, b:Int) -> Int:
+    tail_group1(1, a, b, 0)
+def three(a:Int, b:Int, c:Int) -> Int:
+    tail_group1(2, a, b, c)
 print(one(1))
 print(two(1, 1))
 print(three(1, 2, 0))

@@ -111,7 +111,7 @@ translation strategy clearly:
 | `tuple_destructuring.py` | `=`-destructuring, incl. nested and singleton |
 | `variables_rebinding.py` | plain rebinding, parameter shadowing an outer name |
 | `functions_basic.py` | `def ... :` block-body functions |
-| `functions_expr_body.py` | auto-collapsed `def name(...) = expr` bodies |
+| `functions_expr_body.py` | bodies collapsed onto the header's line (`def name(...): expr`) |
 | `type_annotations.py` | `int`/`str`/`bool`/`list[int]` annotations |
 | `if_then_else_expr.py` | Python's `a if c else b` -> `if c then a else b` |
 | `else_if_ladder.py` | `elif` chain -> `else if` |

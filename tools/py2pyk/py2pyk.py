@@ -1146,11 +1146,11 @@ class FunctionTranslator:
         if _is_single_return_body(node.body):
             value = node.body[0].value
             if value is None:
-                unsupported(node.body[0], "a bare 'return' has no value to use "
-                                           "as a single-expression function body")
+                unsupported(node.body[0], "a bare 'return' has no value to "
+                                           "write on the header's own line")
             et = self.expr_of(body_scope)
             expr_text = et.translate(value, 0)
-            return [f"{pad}def {node.name}({', '.join(params)}){header_tail} = {expr_text}"]
+            return [f"{pad}def {node.name}({', '.join(params)}){header_tail}: {expr_text}"]
         nested_info = classify_function(node.body)
         nested = FunctionTranslator(nested_info)
         body_lines = nested.block(node.body, body_scope, level + 1)

@@ -9,8 +9,10 @@ def tail_group1(state:Int, n:Int) -> Bool:
             break false
         else:
             (0, n - 1)
-def is_even(n:Int) -> Bool = tail_group1(0, n)
-def is_odd(n:Int) -> Bool = tail_group1(1, n)
+def is_even(n:Int) -> Bool:
+    tail_group1(0, n)
+def is_odd(n:Int) -> Bool:
+    tail_group1(1, n)
 def tail_group2(state:Int, n:Int) -> String:
     loop (state, n): (Int, Int) = (state, n):
         if state == 0:
@@ -22,9 +24,12 @@ def tail_group2(state:Int, n:Int) -> String:
             (2, n)
         else:
             (0, n)
-def stage_one(n:Int) -> String = tail_group2(0, n)
-def stage_two(n:Int) -> String = tail_group2(1, n)
-def stage_three(n:Int) -> String = tail_group2(2, n)
+def stage_one(n:Int) -> String:
+    tail_group2(0, n)
+def stage_two(n:Int) -> String:
+    tail_group2(1, n)
+def stage_three(n:Int) -> String:
+    tail_group2(2, n)
 print(is_even(4), is_odd(4), is_even(7), is_odd(7))
 print(stage_one(3))
 print(stage_two(2))

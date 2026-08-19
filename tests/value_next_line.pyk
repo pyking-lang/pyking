@@ -6,8 +6,8 @@ y = 2
 
 z =
     match y:
-        case 2 -> "hi"
-        case xx -> str(xx)
+        case 2: "hi"
+        case xx: str(xx)
 
 print(z)
 
@@ -48,14 +48,13 @@ lo, hi =
 
 print(lo, hi)
 
-# A single-expression function body (`def name(...) = expr`) takes the
-# next line the same way -- which is what makes the form usable once the
-# body outgrows the header's line.
-def add(a, b) =
+# A function body takes the next line the same way -- which is what a
+# body outgrowing its header's line turns into.
+def add(a, b):
     a + b
 
 
-def scaled(a, b) =
+def scaled(a, b):
     (a + b) * 2
 
 
@@ -63,14 +62,14 @@ print(add(1, 2), scaled(1, 2))
 
 # With a type annotation and a return type, and with an `if` *expression*
 # as the body -- the expression form, not the statement one.
-def sign(n: Int) -> String =
+def sign(n: Int) -> String:
     if n < 0 then "negative" else "positive"
 
 
 print(sign(-3), sign(3))
 
 # A bare tuple works here too, since the body is a full `tuple_or_expr`.
-def swap(a, b) =
+def swap(a, b):
     b, a
 
 
@@ -81,7 +80,7 @@ print(swap(1, 2))
 def describe(n):
     text =
         match n:
-            case 0 -> "zero"
+            case 0: "zero"
             case 1:
                 label =
                     "o" + "ne"

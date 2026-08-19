@@ -47,7 +47,7 @@ Tail position is PYKING.md's own, and the pass walks exactly it:
 - the operand of **every `return`**, wherever it is written — a `return`
   leaves the function, so nothing is waiting for its value either;
 - the branches of an **`if` expression** in one of those positions, so
-  `def f(x) = if c then 0 else f(x - 1)` counts;
+  `def f(x): if c then 0 else f(x - 1)` counts;
 - a **`def ... = expr`** body, which is one `return` spelled shorter.
 
 The walk stops in three places, each for a reason:
@@ -74,7 +74,7 @@ nothing — a call carries the slots it does not fill *forward*, keeping
 whatever they held — but the entry wrapper has nothing to carry:
 
 ```pyking
-def ping(n) = tail_group1(0, n, ???)     # `pong`'s `step` slot
+def ping(n): tail_group1(0, n, ???)     # `pong`'s `step` slot
 ```
 
 The value is never *read*: the state it belongs to has no such
@@ -168,8 +168,8 @@ def is_odd(n):                                  1, n - 1
     else:                               else:
         is_even(n - 1)                      0, n - 1
 
-                                def is_even(n) = tail_group1(0, n)
-                                def is_odd(n) = tail_group1(1, n)
+                                def is_even(n): tail_group1(0, n)
+                                def is_odd(n): tail_group1(1, n)
 ```
 
 The worker is `tail_group1`, `tail_group2`, … and the state is `state`,
@@ -210,8 +210,8 @@ def pong(n, step):                              1, n - 1, 2
     else:                               else:
         ping(n - step)                      0, n - step, step
 
-                                def ping(n) = tail_group1(0, n, 0)
-                                def pong(n, step) = tail_group1(1, n, step)
+                                def ping(n): tail_group1(0, n, 0)
+                                def pong(n, step): tail_group1(1, n, step)
 ```
 
 Two places had to say something about the slot `ping` has no parameter

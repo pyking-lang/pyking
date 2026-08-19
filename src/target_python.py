@@ -552,15 +552,9 @@ def _captured_in_block(stmts, bound, captured):
             bound.add(s.name)
     for s in stmts:
         match s:
-            case SFunctionDef(_, name, params, body, _, expr):
+            case SFunctionDef(_, name, params, body, _):
                 inner = {name} | {p.name for p in params}
-                captured.update(
-                    _free_names(body if body is not None else [], inner)
-                )
-                if expr is not None:
-                    free = set()
-                    _free_in_expr(expr, inner, free)
-                    captured.update(free)
+                captured.update(_free_names(body, inner))
                 # A function nested inside this one is part of the same
                 # question one level down, and is reached when that body
                 # is translated.
@@ -658,21 +652,14 @@ def _free_in_stmt(s, bound, free):
             _free_in_nested(then_body, bound, free)
             if else_body is not None:
                 _free_in_nested(else_body, bound, free)
-        case SFunctionDef(_, name, params, body, _, expr):
+        case SFunctionDef(_, name, params, body, _):
             bound.add(name)
-            body_bound = bound | {p.name for p in params}
-            if expr is not None:
-                _free_in_expr(expr, body_bound, free)
-            else:
-                _free_in_nested(body, body_bound, free)
+            _free_in_nested(body, bound | {p.name for p in params}, free)
         case SMatch(_, subject, cases):
             _free_in_expr(subject, bound, free)
             for c in cases:
                 arm_bound = bound | set(pattern_captured_names(c.pattern))
-                if c.expr is not None:
-                    _free_in_expr(c.expr, arm_bound, free)
-                else:
-                    _free_in_nested(c.body, arm_bound, free)
+                _free_in_nested(c.body, arm_bound, free)
         case _:
             raise NotImplementedError(f"no free-name walk for statement {s!r}")
 
@@ -1214,14 +1201,10 @@ def translate_target(t, scope, rebinding=False):
 
 
 def translate_case(c, scope):
-    """One case arm outside a binding: `-> expr` desugars to a body of
-    just `return expr`. MatchCase -> Scope -> PyMatchCase"""
+    """One case arm outside a binding. MatchCase -> Scope ->
+    PyMatchCase"""
     py_pattern, arm_scope = translate_pattern(c.pattern, _block_scope(scope))
-    if c.expr is not None:
-        translated_expr = translate_expr(c.expr, arm_scope)
-        body = [PyReturn(translated_expr.info, translated_expr)]
-    else:
-        body, _ = _translate_stmts(c.body, arm_scope)
+    body, _ = _translate_stmts(c.body, arm_scope)
     return PyMatchCase(c.info, py_pattern, body)
 
 
@@ -1313,8 +1296,6 @@ def _falls_through(py_body):
 def _translate_tail_case(c, scope):
     """One case arm of a match in tail position. MatchCase -> Scope ->
     PyMatchCase"""
-    if c.expr is not None:
-        return translate_case(c, scope)
     py_pattern, arm_scope = translate_pattern(c.pattern, _block_scope(scope))
     return PyMatchCase(c.info, py_pattern, _translate_tail_block(c.body, arm_scope))
 
@@ -1507,11 +1488,6 @@ def _translate_loop_case(c, py_target, scope):
     """One case arm of a match at the tail of a loop body.
     MatchCase -> PyTarget -> Scope -> PyMatchCase"""
     py_pattern, arm_scope = translate_pattern(c.pattern, _block_scope(scope))
-    if c.expr is not None:
-        translated = translate_expr(c.expr, arm_scope)
-        return PyMatchCase(c.info, py_pattern, [
-            PyAssign(translated.info, py_target, translated)
-        ])
     return PyMatchCase(
         c.info, py_pattern, _translate_loop_block(c.body, py_target, arm_scope)
     )
@@ -1528,11 +1504,7 @@ def _translate_value_case(c, py_target, scope):
     """One case arm of a value-form match. MatchCase -> PyTarget -> Scope
     -> PyMatchCase"""
     py_pattern, arm_scope = translate_pattern(c.pattern, _block_scope(scope))
-    if c.expr is not None:
-        translated_expr = translate_expr(c.expr, arm_scope)
-        body = [PyAssign(translated_expr.info, py_target, translated_expr)]
-    else:
-        body = _translate_value_block(c.body, py_target, arm_scope)
+    body = _translate_value_block(c.body, py_target, arm_scope)
     return PyMatchCase(c.info, py_pattern, body)
 
 
@@ -1648,10 +1620,9 @@ def translate_stmt(s, scope):
                 py_else, _ = _translate_stmts(else_body, _block_scope(scope))
             return PyIf(info, translate_expr(cond, scope), py_then, py_else), scope
 
-        case SFunctionDef(info, name, params, body, _return_type, expr):
-            # `= expr` desugars to a body of just `return expr`.
+        case SFunctionDef(info, name, params, body, _return_type):
             py_name, scope = _bind(name, scope)
-            body_stmts = body if body is not None else []
+            body_stmts = body
             body_bound = {name} | {p.name for p in params}
             body_scope = _function_scope(
                 scope,
@@ -1662,13 +1633,9 @@ def translate_stmt(s, scope):
             for param in params:
                 py_param, body_scope = _bind(param.name, body_scope)
                 param_names.append(py_param)
-            if expr is not None:
-                translated_expr = translate_expr(expr, body_scope)
-                py_body = [PyReturn(translated_expr.info, translated_expr)]
-            else:
-                py_body = _translate_tail_block(body, body_scope)
-                if _falls_through(py_body):
-                    py_body.append(PyReturn(info, PyTuple(info, [])))
+            py_body = _translate_tail_block(body, body_scope)
+            if _falls_through(py_body):
+                py_body.append(PyReturn(info, PyTuple(info, [])))
             return PyFunctionDef(info, py_name, param_names, py_body), scope
 
         case SReturnStmt(_, stmt):
@@ -1721,11 +1688,7 @@ def _def_body_names(s):
     """The names a def's body reads freely (own name and parameters
     excluded). SFunctionDef -> {String}"""
     bound = {s.name} | {p.name for p in s.params}
-    if s.expr is not None:
-        free = set()
-        _free_in_expr(s.expr, bound, free)
-        return frozenset(free)
-    return _free_names(s.body or [], bound)
+    return _free_names(s.body, bound)
 
 
 def _turn_groups(stmts, scope):
@@ -1846,7 +1809,7 @@ def _stmt_bound_names(s):
             return _target_names(target)
         case SVar(_, name, _):
             return [name]
-        case SFunctionDef(_, name, _, _, _, _):
+        case SFunctionDef(_, name, _, _, _):
             return [name]
         case _:
             return []

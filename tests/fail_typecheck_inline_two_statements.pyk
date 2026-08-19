@@ -1,0 +1,16 @@
+# A block on its header's own line holds exactly one statement.
+#
+# The header's line may carry the whole block, but a line still carries
+# one statement (see PYKING.md, "a statement starts a line of its own").
+# So the second `print` below is not a second statement of the `if`'s
+# block -- it is a sibling of the `if` itself, sharing its line, which
+# is the rule that catches it. Without that, `if c: print(1) print(2)`
+# would read as a block of two and the line's meaning would depend on
+# where the reader stopped.
+#
+# This program is expected to be REFUSED. Its `.ast.out` holds the error
+# message, not a program's output.
+
+x = 3
+
+if x > 2: print('big') print('and also this')

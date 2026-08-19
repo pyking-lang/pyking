@@ -11,7 +11,8 @@ Functions:
     parse(tokens) -- parses a full token stream into a list of statements.
     parse_statement(tokens) -- parses one statement.
     parse_expr(tokens) -- parses one expression.
-    parse_block(tokens) -- parses one indented block.
+    parse_block(tokens, header_info) -- parses one block: indented, or
+        the single statement on its header's own line.
     parse_loop_stmt(info, tokens) -- parses a loop after its 'loop'.
     parse_exit_operand(info, tokens) -- the optional operand of a
         'break'/'continue', taken only from the keyword's own line.
@@ -295,26 +296,32 @@ def parse_if_expr_tail(if_info, cond, tokens):
             raise ParseError(_here(tokens), "expected 'then' in if expression")
 
 
-def parse_if_stmt_tail(if_info, cond, tokens):
+def parse_if_stmt_tail(if_info, cond, colon_info, tokens):
     """Parses the block and optional else/else-if tail of an if
     statement (see PYKING.md, "else if instead of elif"), given the
-    already-parsed `if` and condition; tokens starts just after ':'.
-    Info -> Expr -> [Token] -> (SIf, [Token])"""
-    then_body, rest = parse_block(tokens)
+    already-parsed `if`, condition and the ':' that follows it; tokens
+    starts just after that ':'.
+    Info -> Expr -> Info -> [Token] -> (SIf, [Token])"""
+    then_body, rest = parse_block(tokens, colon_info)
+    match rest:
+        case [TokElse(_), *_]:
+            _check_ends_line(then_body, rest, "else")
     match rest:
         case [TokElse(_), TokIf(elif_info), *rest]:
             elif_cond, rest = parse_expr(rest)
             match rest:
-                case [TokColon(_), *rest]:
-                    nested, rest = parse_if_stmt_tail(elif_info, elif_cond, rest)
+                case [TokColon(elif_colon), *rest]:
+                    nested, rest = parse_if_stmt_tail(
+                        elif_info, elif_cond, elif_colon, rest
+                    )
                     if_info = combine_info(if_info, nested.info)
                     return SIf(if_info, cond, then_body, [nested]), rest
                 case _:
                     raise ParseError(
                         _here(rest), "expected ':' after 'else if' condition"
                     )
-        case [TokElse(_), TokColon(_), *rest]:
-            else_body, rest = parse_block(rest)
+        case [TokElse(_), TokColon(else_colon), *rest]:
+            else_body, rest = parse_block(rest, else_colon)
             if_info = combine_info(if_info, _block_end_info(if_info, else_body))
             return SIf(if_info, cond, then_body, else_body), rest
         case [TokElse(else_info), *_]:
@@ -620,9 +627,70 @@ def _shorten(text):
     return first[: _QUOTE_LIMIT - 3] + "..."
 
 
-def parse_block(tokens):
-    """Parses one indented block, TokIndent to matching TokDedent.
-    [Token] -> ([Stmt], [Token])"""
+def _on_header_line(header_info, tokens):
+    """Whether what follows a ':' begins on the header's own line, which
+    is what makes it the one-statement inline block rather than an
+    indented one (PYKING.md, "A block on its header's own line").
+    The lexer emits no token for a line ending, so this is read off the
+    rows the tokens carry -- the same way `call_tail` and
+    `parse_exit_operand` decide what belongs to a line.
+    Info -> [Token] -> Bool"""
+    match tokens:
+        case [first, *_]:
+            return first.info.row1 == header_info.row2
+        case _:
+            return False
+
+
+def _check_ends_line(body, tokens, keyword):
+    """Raises ParseError if the next token continues the construct on
+    the line its block just ended on -- an `else` written after the
+    block on an `if` header's own line. A block written there ends its
+    line, so what continues the construct starts the next one.
+    [Stmt] -> [Token] -> String -> ()"""
+    match tokens:
+        case [first, *_] if body and first.info.row1 == body[-1].info.row2:
+            raise ParseError(
+                first.info,
+                f"'{keyword}' must start on a new line: the block written "
+                "on the header's own line ends that line",
+            )
+
+
+def _check_nothing_indented(tokens):
+    """Raises ParseError if an indented block follows an inline one: the
+    header's line held the whole block, so what is indented under it
+    belongs to nothing. [Token] -> ()"""
+    match tokens:
+        case [TokIndent(info), *_]:
+            raise ParseError(
+                info,
+                "a block written on its header's own line is the whole "
+                "block, so nothing may be indented under it",
+            )
+
+
+def _check_inline_value(stmt):
+    """Raises ParseError unless stmt is an expression statement. A block
+    written on its header's own line holds one *expression* and nothing
+    else, so a line never hides a binding or a jump behind its ':' (see
+    PYKING.md, "A block on its header's own line"). Stmt -> ()"""
+    match stmt:
+        case SExprStmt():
+            return
+        case _:
+            raise ParseError(
+                stmt.info,
+                "a block written on its header's own line must be one "
+                f"expression, and '{_shorten(pprint_stmt(stmt))}' is not; "
+                "write it in an indented block instead",
+            )
+
+
+def parse_block(tokens, header_info):
+    """Parses one block: TokIndent to matching TokDedent, or the one
+    expression written on the header's own line. `header_info` is the
+    ':' that opened it. Info -> [Token] -> ([Stmt], [Token])"""
     match tokens:
         case [TokIndent(_), *rest]:
             stmts = []
@@ -638,6 +706,16 @@ def parse_block(tokens):
                             )
                             _check_reachable(stmts[-1], stmt)
                         stmts.append(stmt)
+        case _ if _on_header_line(header_info, tokens):
+            # Exactly one expression statement, and the line ends with
+            # it: `_check_own_line` catches a second statement written
+            # after it, `_check_inline_value` anything that is not an
+            # expression, and `_check_ends_line` a header's own
+            # continuation (an `else`) trying to share the line.
+            stmt, rest = parse_statement(tokens)
+            _check_inline_value(stmt)
+            _check_nothing_indented(rest)
+            return [stmt], rest
         case _:
             raise ParseError(_here(tokens), "expected an indented block")
 
@@ -805,33 +883,31 @@ def _check_no_duplicate_captures(pattern):
 
 
 def parse_case(tokens):
-    """Parses one case clause: `case pattern:` block, or
-    `case pattern -> expr`. [Token] -> (MatchCase, [Token])"""
+    """Parses one case clause: `case pattern:` and its block, which may
+    be the expression on the clause's own line.
+    [Token] -> (MatchCase, [Token])"""
     match tokens:
         case [TokCase(info), *rest]:
             pattern, rest = parse_pattern(rest)
             _check_no_duplicate_captures(pattern)
             match rest:
-                case [TokColon(_), *rest]:
-                    body, rest = parse_block(rest)
+                case [TokColon(colon_info), *rest]:
+                    body, rest = parse_block(rest, colon_info)
                     case_info = combine_info(info, _block_end_info(info, body))
                     return MatchCase(case_info, pattern, body=body), rest
-                case [TokArrow(_), *rest]:
-                    # Pyking extension: `case pattern -> expr` is a
-                    # single-expression case, not valid Python match syntax.
-                    expr, rest = parse_expr(rest)
-                    case_info = combine_info(info, expr.info)
-                    return MatchCase(case_info, pattern, expr=expr), rest
                 case _:
                     raise ParseError(
-                        _here(rest), "expected ':' or '->' after case pattern"
+                        _here(rest), "expected ':' after case pattern"
                     )
         case _:
             raise ParseError(_here(tokens), "expected a 'case' clause")
 
 
 def parse_cases(tokens):
-    """Parses an indented block of one or more case clauses.
+    """Parses the case clauses of a match: an indented block of one or
+    more. The list a `match` opens is not a block of statements, so the
+    header's own line has nothing to hold -- what may be written there
+    is one expression, and a `case` clause is not one.
     [Token] -> ([MatchCase], [Token])"""
     match tokens:
         case [TokIndent(_), *rest]:
@@ -884,10 +960,7 @@ def _check_value_stmt(stmt):
             _check_value_block(else_body, info)
         case SMatch(_, _, cases):
             for case_clause in cases:
-                # `case pattern -> expr` is an expression by construction;
-                # only the block form can end in the wrong thing.
-                if case_clause.expr is None:
-                    _check_value_block(case_clause.body, case_clause.info)
+                _check_value_block(case_clause.body, case_clause.info)
 
 
 def _check_value_block(stmts, info):
@@ -1004,11 +1077,12 @@ def parse_loop_stmt(loop_info, tokens):
     annotation = None
     init = None
     rest = tokens
+    colon_info = None
     match rest:
-        case [TokColon(_), *after_colon]:
+        case [TokColon(info), *after_colon]:
             # `loop:` -- no accumulator, so nothing to bind and nothing
             # for the body to produce.
-            rest = after_colon
+            colon_info, rest = info, after_colon
         case _:
             parsed = _try_parse_assignment_target(rest)
             if parsed is None:
@@ -1019,11 +1093,11 @@ def parse_loop_stmt(loop_info, tokens):
             target, annotation, rest = parsed
             init, rest = parse_tuple_or_expr(rest)
             match rest:
-                case [TokColon(_), *after_colon]:
-                    rest = after_colon
+                case [TokColon(info), *after_colon]:
+                    colon_info, rest = info, after_colon
                 case _:
                     raise ParseError(_here(rest), "expected ':' after loop header")
-    body, rest = parse_block(rest)
+    body, rest = parse_block(rest, colon_info)
     return SLoop(
         combine_info(loop_info, _block_end_info(loop_info, body)),
         target,
@@ -1088,8 +1162,8 @@ def parse_bound_value(tokens):
         case [TokIf(info), *rest]:
             cond, rest = parse_expr(rest)
             match rest:
-                case [TokColon(_), *rest]:
-                    stmt, rest = parse_if_stmt_tail(info, cond, rest)
+                case [TokColon(colon_info), *rest]:
+                    stmt, rest = parse_if_stmt_tail(info, cond, colon_info, rest)
                     _check_value_stmt(stmt)
                     return stmt, rest
                 case [TokThen(_), *_]:
@@ -1130,25 +1204,12 @@ def parse_statement(tokens):
                 case _:
                     pass
             match rest:
-                case [TokColon(_), *rest]:
-                    body, rest = parse_block(rest)
+                case [TokColon(colon_info), *rest]:
+                    body, rest = parse_block(rest, colon_info)
                     def_info = combine_info(info, _block_end_info(info, body))
                     return SFunctionDef(def_info, name, params, body, return_type), rest
-                case [TokEq(_), *rest]:
-                    # Pyking extension: `def name(...) = expr` is a
-                    # single-expression function body, not valid Python
-                    # syntax -- mirrors `case pattern -> expr`. Parsed
-                    # with `parse_bound_value` so the body may sit on the
-                    # next line, indented, exactly as a bound value may;
-                    # a value-form if/match is not a body, though (that
-                    # would have to `return` from each branch tail, not
-                    # bind), so it is rejected here.
-                    expr, rest = parse_bound_value(rest)
-                    expr = _expect_expr_value(expr, "a 'def ... =' body")
-                    def_info = combine_info(info, expr.info)
-                    return SFunctionDef(def_info, name, params, None, return_type, expr), rest
                 case _:
-                    raise ParseError(_here(rest), "expected ':' or '=' after def header")
+                    raise ParseError(_here(rest), "expected ':' after def header")
 
         case [TokReturn(info), *rest]:
             # `return` takes a `bound_value`, not just an expression: the
@@ -1169,8 +1230,8 @@ def parse_statement(tokens):
         case [TokFor(info), TokIdent(_, name), TokIn(_), *rest]:
             iterable, rest = parse_expr(rest)
             match rest:
-                case [TokColon(_), *rest]:
-                    body, rest = parse_block(rest)
+                case [TokColon(colon_info), *rest]:
+                    body, rest = parse_block(rest, colon_info)
                     for_info = combine_info(info, _block_end_info(info, body))
                     return SFor(for_info, name, iterable, body), rest
                 case _:
@@ -1179,8 +1240,8 @@ def parse_statement(tokens):
         case [TokWhile(info), *rest]:
             cond, rest = parse_expr(rest)
             match rest:
-                case [TokColon(_), *rest]:
-                    body, rest = parse_block(rest)
+                case [TokColon(colon_info), *rest]:
+                    body, rest = parse_block(rest, colon_info)
                     while_info = combine_info(info, _block_end_info(info, body))
                     return SWhile(while_info, cond, body), rest
                 case _:
@@ -1215,8 +1276,8 @@ def parse_statement(tokens):
         case [TokIf(info), *rest]:
             cond, rest = parse_expr(rest)
             match rest:
-                case [TokColon(_), *rest]:
-                    return parse_if_stmt_tail(info, cond, rest)
+                case [TokColon(colon_info), *rest]:
+                    return parse_if_stmt_tail(info, cond, colon_info, rest)
                 case [TokThen(_), *_]:
                     expr, rest = parse_if_expr_tail(info, cond, rest)
                     expr, rest = parse_tuple_tail(expr, rest)

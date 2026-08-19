@@ -1,8 +1,8 @@
 def describe(n):
     match n:
-        case 0 -> "zero"
-        case 1 -> "one"
-        case _ -> "many"
+        case 0: "zero"
+        case 1: "one"
+        case _: "many"
 
 for i in [0, 1, 5]:
     print(describe(i))

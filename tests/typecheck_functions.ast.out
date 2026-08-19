@@ -1,6 +1,7 @@
 def double(n:Int) -> Int:
     return n * 2
-def shout(word:String) -> String = word + '!'
+def shout(word:String) -> String:
+    word + '!'
 def choose(a:Int, keep:Bool) -> Int:
     if keep:
         return a

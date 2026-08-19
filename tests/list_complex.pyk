@@ -28,10 +28,10 @@ print(honors_tally)
 
 def classify_path(moves):
     match moves:
-        case []               -> "done"
-        case ["up", ..rest]   -> "up, " + classify_path(rest)
-        case ["down", ..rest] -> "down, " + classify_path(rest)
-        case [_, ..rest]      -> "side, " + classify_path(rest)
+        case []:                 "done"
+        case ["up", ..rest]:     "up, " + classify_path(rest)
+        case ["down", ..rest]: "down, " + classify_path(rest)
+        case [_, ..rest]:        "side, " + classify_path(rest)
 
 
 print(classify_path(["up", "up", "down"]))

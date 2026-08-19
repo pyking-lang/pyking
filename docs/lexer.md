@@ -116,8 +116,8 @@ characters it consumed, then advance `c` (or `r` and reset `c`, for
 the arms are ordered and grouped:
 
 - **Two-character operators are matched before their one-character
-  prefix.** `["-", ">", *xs]` (the `->` used to write a single-expression
-  `case pattern -> expr`) comes before `["-", *xs]`; `["<", "=", *xs]`
+  prefix.** `["-", ">", *xs]` (the `->` of a return annotation and of
+  a function type) comes before `["-", *xs]`; `["<", "=", *xs]`
   before `["<", *xs]`; and so on for `>=`, `==`, `:=`. Python's `match`
   tries arms in order, so this is the whole of "maximal munch" here —
   get the longer alternative in front of the shorter one it would

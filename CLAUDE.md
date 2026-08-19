@@ -247,7 +247,21 @@ The bootstrap is split into one module per compiler stage:
    that stops `print h` being read as a bare `print` followed by a bare
    `h`. That one is checked from the `Info` positions the tokens carry,
    since the lexer emits no token for the end of a line; adding one is
-   the alternative, and a bigger change than the rule is worth. Two more
+   the alternative, and a bigger change than the rule is worth. The same
+   positions decide the *other* line rule, in `parse_block`: a block may
+   be the one **expression** written on its header's own line
+   (`_on_header_line`, the first token after the `:` starting on the row
+   that `:` ends on), which is why every caller passes the `:` token
+   rather than discarding it. Three checks say what that line may hold:
+   `_check_inline_value` (an `SExprStmt` and nothing else -- a `return`,
+   a binding or a nested header is refused, so nothing hides behind a
+   `:`), `_check_ends_line` (an `else` may not share the line its block
+   ended) and `_check_nothing_indented` (nor may an indented block
+   follow). A second statement on the line is already `_check_own_line`'s.
+   `parse_cases` has no inline form at all: a `match` opens a list of
+   clauses, and a `case` is not an expression. An inline block is
+   otherwise nothing special -- it builds the same one-statement block
+   the indented form does, so no later stage knows which was written. Two more
    belong to the `loop` construct and are here for the same reason --
    both are shape, neither needs to know what a name means, and being
    here they hold under `--typecheck` too, which replaces the name
@@ -750,7 +764,14 @@ The bootstrap is split into one module per compiler stage:
    drops it). `submit` therefore returns a refusal rather than reporting
    it, and `accept` is for callers with nothing better to do with one.
    Whether an entry is finished is the *parser's* answer, not a guess
-   from a trailing `:` (`INCOMPLETE`), and `start(format_error, ...)`
+   from a trailing `:` — in two parts, both asked of the parse rather
+   than of the text: `complete` (`INCOMPLETE`, "did the input run
+   out?") and `continuable` ("could the next line extend this?", true of
+   an `if` with no `else`, since a block written on its header's own
+   line parses whole while still being open and its `else` must start
+   the next line). A single line submits on Enter only when it is
+   complete and not continuable.
+   `start(format_error, ...)`
    takes the driver's own error formatting so a mistake at the prompt is
    reported in the words a file would get. Meta-commands are a dict of
    `(session, argument, report) -> session`; add one there rather than in
@@ -1090,7 +1111,7 @@ Data structures:
 Functions:
     parse(tokens) -- parses a full token stream into a list of statements.
     parse_expr(tokens) -- parses one expression.
-    parse_block(tokens) -- parses one indented block.
+    parse_block(tokens, header_info) -- parses one block.
 """
 ```
 

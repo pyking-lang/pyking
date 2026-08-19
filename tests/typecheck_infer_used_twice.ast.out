@@ -1,4 +1,5 @@
-def identity(x) = x
+def identity(x):
+    x
 def use(f:((Int) -> Int) | ((Bool) -> Bool)) -> ():
     a: Int = f(42)
     b: Bool = f(true)

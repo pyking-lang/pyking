@@ -137,9 +137,6 @@ def tail_calls(func, names):
     """The names in `names` that func calls in tail position.
     SFunctionDef -> {String} -> {String}"""
     found = set()
-    if func.expr is not None:
-        _record_call(func.expr, names, found)
-        return found
     _tail_calls_in(func.body or [], names, found, tail=True)
     return found
 
@@ -169,10 +166,7 @@ def _tail_calls_in_stmt(statement, names, found, tail):
                 _tail_calls_in(else_body, names, found, tail)
         case SMatch(_, _, cases, _):
             for case_clause in cases:
-                if case_clause.expr is not None:
-                    _record_call(case_clause.expr, names, found)
-                else:
-                    _tail_calls_in(case_clause.body, names, found, tail)
+                _tail_calls_in(case_clause.body, names, found, tail)
         case SFor() | SWhile() | SLoop() | SFunctionDef():
             # A `break` written in one of these would belong to it, and
             # a `def`'s tail is its own.
@@ -263,16 +257,8 @@ def _rewrite_tail(statement, context, jumping):
 
 
 def _rewrite_case(case_clause, context, jumping):
-    """One arm of a `match` in tail position. A `case p -> e` arm means
-    a `return e`, so it becomes a block whose tail is rewritten like any
-    other. MatchCase -> Context -> Bool -> MatchCase"""
-    if case_clause.expr is not None:
-        info = case_clause.expr.info
-        return replace(
-            case_clause,
-            expr=None,
-            body=_going_on(info, case_clause.expr, context, jumping),
-        )
+    """One arm of a `match` in tail position: its block, rewritten like
+    any other. MatchCase -> Context -> Bool -> MatchCase"""
     return replace(
         case_clause, body=_rewrite_block(case_clause.body, context, jumping)
     )
@@ -304,8 +290,7 @@ def _rewrite_inner(statement, context):
                 info,
                 subject,
                 [
-                    c if c.expr is not None
-                    else replace(c, body=_rewrite_inners(c.body, context))
+                    replace(c, body=_rewrite_inners(c.body, context))
                     for c in cases
                 ],
                 sym,
@@ -389,9 +374,7 @@ def _rewrite_self(func, work):
     context = Context(
         {func.name: Callee(None, len(func.params))}, slots, work.reserved
     )
-    body = func.body if func.body is not None else [
-        SReturn(func.expr.info, func.expr)
-    ]
+    body = func.body
     carried = [work.types.get(p.sym) for p in func.params]
     return replace(
         func,
@@ -400,7 +383,6 @@ def _rewrite_self(func, work):
             _rewrite_block(body, context, jumping=False),
             carried, work,
         )],
-        expr=None,
     )
 
 
@@ -554,9 +536,7 @@ def _branch(func, slots, slot_types, context, work):
     the slots they were passed in, and its tail calls rewritten. A
     function narrower than the group reads only the slots it has.
     SFunctionDef -> [String] -> [Type] -> Context -> Pass -> [Stmt]"""
-    body = func.body if func.body is not None else [
-        SReturn(func.expr.info, func.expr)
-    ]
+    body = func.body
     rebindings = [
         work.record(
             SLet(param.info, TargetName(param.info, param.name),
@@ -590,17 +570,17 @@ def _wrapper(func, worker, tag, zeros):
     each slot it does not have.
     SFunctionDef -> String -> Int -> [Expr] -> SFunctionDef"""
     info = func.info
-    return replace(
-        func,
-        body=None,
-        expr=ECall(
-            info,
-            EVar(info, worker),
-            [EInt(info, tag)]
-            + [EVar(p.info, p.name) for p in func.params]
-            + list(zeros[len(func.params):]),
-        ),
+    call = ECall(
+        info,
+        EVar(info, worker),
+        [EInt(info, tag)]
+        + [EVar(p.info, p.name) for p in func.params]
+        + list(zeros[len(func.params):]),
     )
+    # A body of one expression: what the block supplies is that call's
+    # value, which is what this function now returns (PYKING.md, "Tail
+    # position").
+    return replace(func, body=[SExprStmt(info, call)])
 
 
 def _slot_names(group, width, reserved):
@@ -630,7 +610,7 @@ def _would_capture(func, position, name):
     SFunctionDef -> Int -> String -> Bool"""
     if position < len(func.params) and func.params[position].name == name:
         return False
-    return _mentions(func.body if func.body is not None else func.expr, name)
+    return _mentions(func.body, name)
 
 
 # --- walking the program ---------------------------------------------
@@ -673,9 +653,9 @@ def _block(stmts, work):
     out = []
     for statement in stmts:
         match statement:
-            case SFunctionDef(_, name, _, _, _, _, _) if name in replacements:
+            case SFunctionDef(_, name, _, _, _, _) if name in replacements:
                 out.extend(replacements[name])
-            case SFunctionDef(_, name, _, _, _, _, _) if name in rewritten:
+            case SFunctionDef(_, name, _, _, _, _) if name in rewritten:
                 out.append(rewritten[name])
             case _:
                 out.append(statement)
@@ -686,7 +666,7 @@ def _walk(statement, work):
     """statement with every block inside it optimized.
     Stmt -> Pass -> Stmt"""
     match statement:
-        case SFunctionDef(_, _, _, body, _, _, _) if body is not None:
+        case SFunctionDef(_, _, _, body, _, _) if body is not None:
             return replace(statement, body=_block(body, work))
         case SFor(_, _, _, body, _) | SWhile(_, _, body, _):
             return replace(statement, body=_block(body, work))
@@ -719,7 +699,7 @@ def _functions(stmts):
     twice = set()
     for statement in stmts:
         match statement:
-            case SFunctionDef(_, name, _, _, _, _, _):
+            case SFunctionDef(_, name, _, _, _, _):
                 if name in found:
                     twice.add(name)
                 found[name] = statement
@@ -772,8 +752,7 @@ def _rewritable(func):
     names = [p.name for p in func.params]
     if len(set(names)) != len(names):
         return False
-    body = func.body if func.body is not None else func.expr
-    return not _binds(body, {func.name})
+    return not _binds(func.body, {func.name})
 
 
 def _binds(node, names):
@@ -795,7 +774,7 @@ def _binds(node, names):
             case SLoop(_, target, _, _, _, _) if target is not None:
                 if names & set(_target_names(target)):
                     found[0] = True
-            case SFunctionDef(_, name, params, _, _, _, _):
+            case SFunctionDef(_, name, params, _, _, _):
                 if name in names or names & {p.name for p in params}:
                     found[0] = True
         if is_dataclass(item):

@@ -176,7 +176,7 @@ representation for free, with no extra bookkeeping anywhere: a block
 runs in a chain of its own (built by `enter_block`, discarded when the
 block's `KSeq` finishes and restores `exit_env`), `=` always builds a
 *new* frame rather than updating one in place (so a rebinding shadows
-rather than mutates — `x = 1; def f() = x; x = 2` really does leave
+rather than mutates — `x = 1`, `def f(): x`, `x = 2` really does leave
 `f`'s closure holding the *first* `x`, because that closure captured
 the `Env` chain as it stood at the moment `f` was defined, and nothing
 after that moment can reach backward and change what that chain's nodes

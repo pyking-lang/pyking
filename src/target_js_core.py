@@ -535,7 +535,7 @@ def translate_stmt(s, scope):
                 js_else, _ = translate_stmts(else_body, _block_scope(scope))
             return JsIf(info, translate_expr(cond, scope), js_then, js_else), scope
 
-        case SFunctionDef(info, name, params, body, _return_type, expr):
+        case SFunctionDef(info, name, params, body, _return_type):
             # The name was bound by declare_functions; read it back
             # rather than binding again, which would rename it twice.
             js_name = _lookup(name, scope)
@@ -544,11 +544,7 @@ def translate_stmt(s, scope):
             for param in params:
                 js_param, body_scope = _bind(param.name, body_scope)
                 param_names.append(js_param)
-            if expr is not None:
-                js_expr = translate_expr(expr, body_scope)
-                js_body = [JsReturn(js_expr.info, js_expr)]
-            else:
-                js_body = translate_tail_stmts(body, body_scope)
+            js_body = translate_tail_stmts(body, body_scope)
             return JsFunc(info, js_name, param_names, js_body), scope
 
         case _:

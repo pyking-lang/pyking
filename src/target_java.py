@@ -900,11 +900,7 @@ class _Translator:
             java_param, body_scope = _bind(param.name, jtype, body_scope)
             params.append((jtype, java_param))
 
-        if func.expr is not None:
-            value = self.expr(func.expr, body_scope)
-            body = [JReturn(value.info, value)]
-        else:
-            body = self.tail_stmts(func.body, body_scope)
+        body = self.tail_stmts(func.body, body_scope)
 
         returned = _return_types(body)
         recursive = _calls(body, java_name)
@@ -970,8 +966,7 @@ def _param_type(func, param):
     annotated = _annotated_type(param.type)
     if annotated is not None:
         return annotated
-    body = [func.expr] if func.expr is not None else func.body
-    return STRING if _used_as_string(param.name, body) else INT
+    return STRING if _used_as_string(param.name, func.body) else INT
 
 
 def _used_as_string(name, node):

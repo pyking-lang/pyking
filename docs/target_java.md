@@ -55,8 +55,9 @@ rules, one printer with a single `if version` branch in it.
 
 ## What is supported
 
-`print`; `def` with parameters, `return`, recursion, and the
-single-expression `def f(x) = e` form; `if` / `else if` / `else`;
+`print`; `def` with parameters, `return` and recursion, its body
+written under the header or on the header's own line (`def f(x): e`);
+`if` / `else if` / `else`;
 `while`; `loop` with `break` and `continue`, where the loop carries an
 accumulator; `=`, `var`, `:=`; `if … then … else …` expressions;
 integers, strings and booleans; `+ - *`, unary minus, comparisons, and
@@ -311,7 +312,7 @@ because that is what `javac` requires of a file called `prog.java`.
 ### The same program, all three versions
 
 ```pyking
-def sign(n) = if n < 0 then "neg" else "pos"
+def sign(n): if n < 0 then "neg" else "pos"
 
 
 def classify(n):

@@ -1,0 +1,4 @@
+'tests/fail_typecheck_inline_two_statements.pyk' 16:23-16:45 Parsing
+  error: each statement must start on a new line. In this case, 'if x
+  > 2:' and 'print('and also this')' are seen as two different
+  statements

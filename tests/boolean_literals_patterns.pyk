@@ -6,8 +6,8 @@
 # the same as an integer or string literal pattern.
 def describe(value):
     match value:
-        case true -> "yes"
-        case false -> "no"
+        case true: "yes"
+        case false: "no"
 
 
 print(describe(1 < 2), describe(3 < 2))

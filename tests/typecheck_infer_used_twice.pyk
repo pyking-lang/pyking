@@ -8,7 +8,7 @@
 # nobody knew before" would have missed it and claimed `use` only ever
 # takes a `(Bool) -> Bool`.
 
-def identity(x) = x
+def identity(x): x
 
 def use(f):
     a = f(42)

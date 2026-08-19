@@ -31,9 +31,9 @@ print(gcd(12, 18))
 print(gcd(7, 1))
 
 
-# The single-expression form is a body of one `return`, so its call is
-# in tail position like any other.
-def countdown(n: Int) -> Int = if n == 0 then 0 else countdown(n - 1)
+# A body written on the header's own line is a body like any other, so
+# the call ending it is in tail position like any other.
+def countdown(n: Int) -> Int: if n == 0 then 0 else countdown(n - 1)
 
 
 print(countdown(500))

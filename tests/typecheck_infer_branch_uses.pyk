@@ -15,7 +15,7 @@
 # branch is checked against what the first found out -- knowledge is true
 # whichever way the program goes.
 
-def identity(x) = x
+def identity(x): x
 
 # The statement form: `f` is used at Int in one branch and at String in
 # the other.
@@ -26,7 +26,7 @@ def use(f, first):
         print(f('x'))
 
 # The expression form, which needs the same rule for the same reason.
-def label(f, first) = if first then str(f(2)) else f('y')
+def label(f, first): if first then str(f(2)) else f('y')
 
 use(identity, true)
 print(label(identity, true), label(identity, false))

@@ -1,11 +1,12 @@
 # A `match` statement bound with `=`: like the `if` value form, the case
-# that matches supplies the bound value -- from its `-> expr` arm, or from
-# the last expression of its block.
+# that matches supplies the bound value -- the last expression of its
+# block, whether that block is written under the clause or on its own
+# line.
 
 foo = 8
 x = match foo:
-    case 8 -> "eight"
-    case n -> str(n)
+    case 8: "eight"
+    case n: str(n)
 
 print(x)
 
@@ -22,11 +23,11 @@ print(w)
 # Mixed arms, over a tuple subject, inside a function.
 def describe(point):
     text = match point:
-        case (0, 0) -> "origin"
+        case (0, 0): "origin"
         case (0, y):
             side = if y > 0 then "up" else "down"
             "on the y axis, " + side
-        case (x, 0) -> "on the x axis"
+        case (x, 0): "on the x axis"
         case (x, y):
             "at " + str(x) + "," + str(y)
     return text
@@ -41,8 +42,8 @@ print(describe((3, 4)))
 # List patterns, with a value-form `if` as a case body's final statement.
 def summarize(items):
     text = match items:
-        case [] -> "empty"
-        case [only] -> "just " + str(only)
+        case []: "empty"
+        case [only]: "just " + str(only)
         case [first, ..rest]:
             if first > 10:
                 "starts big, " + str(len(rest)) + " more"
@@ -61,8 +62,8 @@ print(summarize([30, 4, 5, 0]))
 n = 7
 k = if n > 5:
     match n:
-        case 7 -> "seven"
-        case _ -> "big"
+        case 7: "seven"
+        case _: "big"
 else:
     "small"
 

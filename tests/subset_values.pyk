@@ -31,7 +31,7 @@ print("quote: \" and \\ backslash")
 
 # An if expression choosing between values of the same type, and one
 # nested in the else branch -- the ladder form.
-def label(n) =
+def label(n):
     if n < 0 then "negative" else if n == 0 then "zero" else "positive"
 
 
@@ -40,11 +40,11 @@ print(label(-4), label(0), label(9))
 
 # Single-expression function bodies, with and without type annotations,
 # and with the body on the following line.
-def twice(n) = n * 2
+def twice(n): n * 2
 
-def shout(text: String) -> String = text + "!"
+def shout(text: String) -> String: text + "!"
 
-def half_of_sum(a, b) =
+def half_of_sum(a, b):
     (a + b) * 5
 
 

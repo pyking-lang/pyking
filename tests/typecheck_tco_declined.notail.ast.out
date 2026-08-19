@@ -19,5 +19,6 @@ def with_step(n:Int, step:(Int) -> Int) -> Int:
         1
     else:
         apply_to(step(n))
-def decrement(n:Int) -> Int = n - 1
+def decrement(n:Int) -> Int:
+    n - 1
 print(apply_to(3), with_step(2, decrement))

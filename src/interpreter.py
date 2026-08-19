@@ -56,8 +56,7 @@ from syntax import (
 #     VUnit()
 #     VList(elements: [Value])
 #     VTuple(elements: [Value])
-#     VClosure(name: String, params: [String], body: [Stmt]?, expr: Expr?,
-#              env: Env)
+#     VClosure(name: String, params: [String], body: [Stmt], env: Env)
 #     VBuiltin(name: String)
 #     VUndefined(name: String)               a hoisted `def` not yet reached
 #
@@ -203,13 +202,11 @@ class VList(Value):
 
 @dataclass(frozen=True)
 class VClosure(Value):
-    """A function and the environment it was written in. Exactly one of
-    body/expr is set, matching SFunctionDef. Fields: name: String,
-    params: [String], body: [Stmt]?, expr: Expr?, env: Env."""
+    """A function and the environment it was written in. Fields:
+    name: String, params: [String], body: [Stmt], env: Env."""
     name: str
     params: tuple
     body: tuple
-    expr: Expr
     env: "Env"
 
 
@@ -298,7 +295,7 @@ def display_value(value):
                     if index:
                         stack.append(", ")
                 out.append("(")
-            case VClosure(name, _, _, _, _):
+            case VClosure(name, _, _, _):
                 out.append(f"<function {name}>")
             case VBuiltin(name):
                 out.append(f"<builtin {name}>")
@@ -441,8 +438,7 @@ def closure(node, env):
     return VClosure(
         name=node.name,
         params=tuple(param.name for param in node.params),
-        body=tuple(node.body) if node.body is not None else None,
-        expr=node.expr,
+        body=tuple(node.body),
         env=env,
     )
 
@@ -1282,7 +1278,7 @@ def _call(state, call, callee, args, env, rest):
                 return failed(state, trap.error)
             return _go(state, control=CApply(value), env=env, kont=rest)
 
-        case VClosure(name, params, body, expr, captured):
+        case VClosure(name, params, body, captured):
             if len(args) != len(params):
                 return failed(state, RuntimeError_(
                     call.info,
@@ -1306,10 +1302,6 @@ def _call(state, call, callee, args, env, rest):
             # runs inside none of the caller's loops, which is the same
             # thing src/parser.py says statically about a `break`.
             entered = _go(state, control=CApply(UNIT), stack=frame, loops=None)
-            if expr is not None:
-                return _go(
-                    entered, control=CEval(expr), env=call_env, kont=KReturnTo(frame)
-                )
             return enter_block(entered, body, call_env, KReturnTo(frame))
 
         case _:

@@ -40,8 +40,10 @@ def tail_group7(state:Int, n:Int) -> Bool:
             break false
         else:
             (0, n - 1)
-def is_even(n:Int) -> Bool = tail_group7(0, n)
-def is_odd(n:Int) -> Bool = tail_group7(1, n)
+def is_even(n:Int) -> Bool:
+    tail_group7(0, n)
+def is_odd(n:Int) -> Bool:
+    tail_group7(1, n)
 def triangular(n:Int) -> Int:
     if n <= 0:
         return 0

@@ -12,8 +12,8 @@ def classify(p):
 
 def describe_triple(t):
     match t:
-        case 0, 0, 0 -> "all zero"
-        case a, b, c -> "sum: " + str(a + b + c)
+        case 0, 0, 0: "all zero"
+        case a, b, c: "sum: " + str(a + b + c)
 
 
 def first_of(pair):

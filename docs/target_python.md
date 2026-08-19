@@ -214,7 +214,7 @@ untouched:
 
 ```pyking                          # generated Python
 x = 1                              x = 1
-def show() = x                     def show(): return x
+def show(): x                      def show(): return x
 x = "two"                          x2 = 'two'
 print(x, show())                   print(x2, show())      → two 1
 ```
@@ -265,7 +265,7 @@ anything else the body binds:
 
 ```pyking                          # generated Python
 for i in range(3):                 for i in range(3):
-    def show() = i                     def __pyk_turn1(i):
+    def show(): i                      def __pyk_turn1(i):
     fns := fns + [show]                    def show():
                                                return i
                                            return show
@@ -311,12 +311,13 @@ mirror of the source.
 
 ### Statement forms that Python spells differently
 
-`else if` is Pyking's spelling of `elif`, and a single-expression body —
-`def f(x) = e` or `case p -> e` — is shorthand for a body of one
-`return`. Both are undone on the way out:
+`else if` is Pyking's spelling of `elif`, and a body written on its
+header's own line — `def f(x): e`, `case p: e` — is an ordinary block of
+one statement. Both are undone on the way out: the first into `elif`,
+the second into a body whose tail expression becomes a `return`:
 
 ```pyking
-def sign(n) = if n < 0 then "neg" else "pos"
+def sign(n): if n < 0 then "neg" else "pos"
 
 
 def classify(n):
@@ -408,15 +409,15 @@ in a helper function would have broken all three.
 
 ### `match`/`case`
 
-`match` maps onto Python's own, and a `-> expr` arm becomes a block whose
-single statement is `return expr` — which is why an arrow arm is only
-meaningful inside a function:
+`match` maps onto Python's own, and an arm's tail expression becomes a
+`return` like any other tail position — which is why an arm that is one
+expression is only meaningful inside a function:
 
 ```pyking                          # generated Python
 def describe(n):                   def describe(n):
     match n:                           match n:
-        case 0 -> "zero"                   case 0:
-        case _ -> "many"                       return 'zero'
+        case 0: "zero"                     case 0:
+        case _: "many"                         return 'zero'
                                            case _:
                                                return 'many'
 ```

@@ -572,7 +572,7 @@ def check_stmt(statement, env, tmap, return_type, loop, store):
                 )
             return loop.accumulator, env, store
 
-        case SFunctionDef(info, name, _, _, _, _, sym):
+        case SFunctionDef(info, name, _, _, _, sym):
             if fully_annotated(statement):
                 # Checked against its annotations here; visible under its
                 # own name only to the statements that follow.
@@ -817,16 +817,6 @@ def check_function(node, env, tmap, store):
     for param in node.params:
         body_env = bind(body_env, param.name, param.type)
 
-    if node.expr is not None:
-        actual, store = check_expr(node.expr, body_env, tmap, store)
-        if not accepts(node.return_type, actual):
-            raise TypeError_(
-                node.expr.info,
-                f"'{node.name}' returns {pprint_type(node.return_type)}, but "
-                f"its body has type {pprint_type(actual)}",
-            )
-        return unit(node.info), store
-
     # The body's last statement is in tail position; check_stmt already
     # answers what it supplies, by return or by value (PYKING.md).
     supplied, store = check_stmts(
@@ -1036,11 +1026,8 @@ def trace(node, env, tmap, store):
 
 
 def supplied_type(node, env, tmap, return_type, store):
-    """What a function body supplies: its = expr form's expression, or
-    its last statement's value. SFunctionDef -> Env -> {Int: Type} ->
-    Type? -> Store -> (Type, Store)"""
-    if node.expr is not None:
-        return check_expr(node.expr, env, tmap, store)
+    """What a function body supplies: its last statement's value.
+    SFunctionDef -> Env -> {Int: Type} -> Type? -> Store -> (Type, Store)"""
     # A body is checked with no enclosing loop: a `break` may not cross
     # a `def`, so one written here belongs to nothing.
     return check_stmts(node.body, env, tmap, return_type, None, store)

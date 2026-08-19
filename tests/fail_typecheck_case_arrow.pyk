@@ -1,0 +1,18 @@
+# `case pattern -> expr` is not a case clause.
+#
+# A clause opens a block like every other header, so its value is
+# written after the ':' -- `case 0: 'zero'` -- and `->` no longer has a
+# meaning here. It is still the arrow of a type (`(Int) -> Int`) and of
+# a return annotation, so what is refused is this position, not the
+# token.
+#
+# This program is expected to be REFUSED. Its `.ast.out` holds the error
+# message, not a program's output.
+
+n = 1
+
+label = match n:
+    case 0 -> 'zero'
+    case _ -> 'other'
+
+print(label)

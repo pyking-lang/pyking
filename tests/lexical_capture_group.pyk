@@ -9,9 +9,9 @@
 var fns = []
 
 for i in range(3):
-    def outer_call() = inner()
+    def outer_call(): inner()
     marker = "unrelated"
-    def inner() = i
+    def inner(): i
     fns := fns + [outer_call]
 
 for f in fns:
@@ -24,9 +24,9 @@ for f in fns:
 var pairs = []
 
 for n in range(3):
-    def even(k) = if k < 1 then n else odd(k - 1)
+    def even(k): if k < 1 then n else odd(k - 1)
     step = 1
-    def odd(k) = even(k - step + 1)
+    def odd(k): even(k - step + 1)
     pairs := pairs + [even]
 
 for g in pairs:
@@ -39,11 +39,11 @@ for g in pairs:
 var chains = []
 
 for m in range(3):
-    def first() = second()
+    def first(): second()
     left = "a"
-    def second() = third()
+    def second(): third()
     right = "b"
-    def third() = m * 100
+    def third(): m * 100
     chains := chains + [first]
 
 for h in chains:
@@ -56,8 +56,8 @@ for h in chains:
 var plain = []
 
 for p in range(2):
-    def constant() = 7
-    def doubled_constant() = constant() * 2
+    def constant(): 7
+    def doubled_constant(): constant() * 2
     plain := plain + [doubled_constant]
 
 for q in plain:
@@ -71,7 +71,7 @@ var readers = []
 
 for r in range(2):
     var acc = 0
-    def read_acc() = acc
+    def read_acc(): acc
     acc := acc + 10
     readers := readers + [read_acc]
 
@@ -87,9 +87,9 @@ outside = "outer"
 var readers2 = []
 
 for t in range(2):
-    def before() = outside + "/before"
+    def before(): outside + "/before"
     outside = "inner"
-    def after() = outside + "/after"
+    def after(): outside + "/after"
     readers2 := readers2 + [before]
     readers2 := readers2 + [after]
 
@@ -107,10 +107,10 @@ def noisy(tag:String) -> Int:
 var noisy_fns = []
 
 for v in range(1):
-    def uses() = held()
+    def uses(): held()
     stays = noisy("first")
     held_value = noisy("second") + v
-    def held() = held_value
+    def held(): held_value
     noisy_fns := noisy_fns + [uses]
 
 for w in noisy_fns:
@@ -123,11 +123,11 @@ for w in noisy_fns:
 def guarded(n:Int) -> Int:
     var kept = []
     for y in range(1):
-        def outer_use() = inner_use()
+        def outer_use(): inner_use()
         if n > 100:
             return 0
         held = y + 5
-        def inner_use() = held
+        def inner_use(): held
         kept := kept + [outer_use]
     for z in kept:
         print(z())

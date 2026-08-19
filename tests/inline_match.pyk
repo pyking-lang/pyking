@@ -1,0 +1,75 @@
+# `case pattern: value` -- a case clause's block on its own line.
+#
+# This is the form that replaced `case pattern -> value`: a clause opens
+# a block like any other header, so the one expression written after its
+# ':' is the whole arm (see PYKING.md, "A block on its header's own
+# line"). Nothing distinguishes it afterwards from an arm written under
+# the clause.
+
+def name_of(n):
+    match n:
+        case 0: 'zero'
+        case 1: 'one'
+        case _: 'many'
+
+
+def name_of_block(n):
+    match n:
+        case 0:
+            'zero'
+        case 1:
+            'one'
+        case _:
+            'many'
+
+
+print(name_of(0), name_of(1), name_of(7))
+print(name_of_block(0), name_of_block(1), name_of_block(7))
+
+# One arm inline, the next written out: a clause is read on its own, so
+# a `match` may mix them. The block form is what an arm needs as soon as
+# it does more than produce a value.
+def describe(n):
+    match n:
+        case 0: 'nothing'
+        case 1:
+            doubled = n + n
+            'one, doubled is ' + str(doubled)
+        case _: 'several'
+
+
+print(describe(0))
+print(describe(1))
+print(describe(5))
+
+# The clause list itself is never inline: `match n:` opens a list of
+# clauses rather than a block of statements, and a `case` is not an
+# expression, so the clauses are always indented under it.
+def grade(n):
+    match n:
+        case 0: 'none'
+        case 1: 'single'
+        case _: 'plenty'
+
+
+print(grade(0), grade(1), grade(9))
+
+# An arm's expression may be an `if`/`then`/`else`, which is one
+# expression like any other.
+def sign_of(n):
+    match n:
+        case 0: 'zero'
+        case other: if other < 0 then 'negative' else 'positive'
+
+
+print(sign_of(0), sign_of(4))
+
+# Patterns that bind, and list patterns, are unaffected: what changed is
+# how an arm's block is written, not what a pattern may be.
+def total(xs):
+    match xs:
+        case []: 0
+        case [x, ..rest]: x + total(rest)
+
+
+print(total([1, 2, 3, 4]))

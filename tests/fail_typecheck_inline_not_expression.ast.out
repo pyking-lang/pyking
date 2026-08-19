@@ -1,0 +1,4 @@
+'tests/fail_typecheck_inline_not_expression.pyk' 14:14-14:22 Parsing
+  error: a block written on its header's own line must be one
+  expression, and 'return a' is not; write it in an indented block
+  instead

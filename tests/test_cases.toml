@@ -644,3 +644,43 @@ targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "
 [[cases]]
 file = "while_simple.pyk"
 targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
+
+[[cases]]
+file = "inline_blocks.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
+
+[[cases]]
+file = "inline_blocks_value.pyk"
+targets = ["python", "ocaml", "interpret"]
+
+[[cases]]
+file = "inline_match.pyk"
+targets = ["python"]
+
+[[cases]]
+file = "fail_typecheck_inline_two_statements.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_inline_then_indented.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_def_equals_body.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_case_arrow.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_inline_not_expression.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_inline_else_same_line.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_inline_case_list.pyk"
+targets = ["typecheck"]

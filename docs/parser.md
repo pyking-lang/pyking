@@ -217,7 +217,7 @@ check over the `SIf`/`SMatch` `parse_bound_value` just built, rather
 than as a grammar rule that could reject the input by construction.
 `_expect_expr_value` is the complementary check for positions that
 *don't* accept the statement form (a `var` declaration, a `:=`
-mutation, a `def name(...) =` body) — `parse_bound_value` is reused
+mutation) — `parse_bound_value` is reused
 there too, since the indentation rule ("a bound value may start on the
 next line, indented") is identical, and only afterward is the result
 narrowed back down to "must have been a plain expression."
@@ -256,6 +256,22 @@ sense, "not parsing":
   after one are ordinary Pyking, and a branch that returns early is a
   normal way to write a body.
 - **`_check_own_line`** — see below.
+- **`_on_header_line` / `_check_inline_value` / `_check_ends_line` /
+  `_check_nothing_indented`** — the other half of the same
+  reconstruction, in `parse_block`: a block may be the single
+  *expression* written on its header's own line. "Own line" is again
+  read off the rows the tokens carry — the first token after the `:`
+  starts on the row that `:` ends on (`_on_header_line`). Deciding it
+  there rather than by "is there a `TokIndent`?" is what keeps a block
+  written on the *next* line without indentation the error it always
+  was. The other three are what "one expression, and the line ends
+  there" means: `_check_inline_value` refuses anything but an
+  `SExprStmt` (a `return`, a binding, a nested header), so nothing
+  hides behind a `:`; `_check_ends_line` refuses an `else` that shares
+  the line its block ended; `_check_nothing_indented` refuses an
+  indented block under one, which would belong to nothing. A second
+  statement on the line is left to `_check_own_line`, which already
+  covers it. See PYKING.md, "A block on its header's own line".
 
 ## `_check_own_line`: reconstructing a fact the lexer didn't record
 

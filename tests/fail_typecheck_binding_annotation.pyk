@@ -14,6 +14,6 @@
 # This program is expected to FAIL type checking. Its `.out` holds the
 # error message, not a program's output.
 
-def foo(x:Int, y:Int) -> Int = x + y
+def foo(x:Int, y:Int) -> Int: x + y
 
 f : (Int, String) -> Int = foo

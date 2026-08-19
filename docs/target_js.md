@@ -62,8 +62,9 @@ exists as a separate target rather than as a wrapper.
 
 ## What is supported
 
-`print`; `def` with parameters, `return`, recursion, and the
-single-expression `def f(x) = e` form; `if` / `else if` / `else`;
+`print`; `def` with parameters, `return` and recursion, its body
+written under the header or on the header's own line (`def f(x): e`);
+`if` / `else if` / `else`;
 `while`; `loop` with `break` and `continue`; `=`, `var`, `:=`; tuples,
 including a binding that takes one apart; `if … then … else …`
 expressions; integers, strings and booleans; `+ - * /`, unary minus,
@@ -163,7 +164,7 @@ accumulator shadowed means what it meant again afterwards.
 ### Control flow, functions, expressions
 
 ```pyking
-def sign(n) = if n < 0 then "neg" else "pos"
+def sign(n): if n < 0 then "neg" else "pos"
 
 
 def classify(n):
