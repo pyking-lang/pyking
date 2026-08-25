@@ -139,9 +139,12 @@ The groups:
   `EMul`, `EDiv`, `ENeg`, `ELessThan`, `ELessThanEq`, `EGreatThan`,
   `EGreatThanEq`, `EEq`, `ECall`, `EList`, `ETuple`, `EIf`, `EListComp`.
 - **`Type`** — `TInt`, `TString`, `TBool`, `TList`, `TTuple`, `TOr`,
-  `TUnknown`, `TFunction`. `TTuple` with no elements is the unit type
-  `()`; `TOr` is an alternative type, written `Int | String`; `TUnknown`
-  is a type nothing has decided yet, which only the checker produces.
+  `TUnknown`, `TNever`, `TBuiltin`, `TFunction`. `TTuple` with no
+  elements is the unit type `()`; `TOr` is an alternative type, written
+  `Int | String`; `TUnknown` is a type nothing has decided yet, `TNever`
+  the type of something that never happens, and `TBuiltin` the type of a
+  host operation — none of the three is written in source, and all three
+  are produced only by the checker.
   `TFunction` is both written in source and built by the checker, and
   carries two fields that belong to the checker alone — `definition`, the
   `def` whose body is still to be checked, and `tmsym`, that
@@ -357,16 +360,15 @@ scheme specifically).
 - **`Inferring`** — stands in for a declared return type while one is
   being worked out; a `return` checked against it contributes its type to
   the store's frame instead of being compared with one.
-- **`Loop(accumulator, written)`** — the loop a `break`/`continue` in
-  the statement being checked belongs to, threaded beside the declared
-  return type and absent where there is none. `written` says whether the
-  loop wrote an accumulator at all: a bare `loop:` carries unit and its
-  `break`/`continue` take no value.
-- **`env`** — name → `Type`, a `Builtin`, or `None`. Used immutably: a
-  binding hands what follows it an extended copy. `None` means "in scope
-  with no type here" (a `def` that is not fully annotated); `Builtin` is
-  a name that denotes a host operation, callable but never a value,
-  because none of the four fits a `TFunction`.
+- **`acc_type`** — what the loop a `break`/`continue` in the statement
+  being checked belongs to carries, threaded beside the declared return
+  type and `None` where there is no such loop. A bare `loop:` carries
+  unit, so `None` and `()` are different answers.
+- **`env`** — name → `Type`, and nothing else: a name it does not hold
+  is a name not in scope. Used immutably: a binding hands what follows
+  it an extended copy. The four host operations are in it at their
+  `TBuiltin` type, callable but never a value, because none of them
+  fits a `TFunction`.
 - **`OPERATORS`** — node class → (spelling, list of signatures). A *list*
   because several operators are overloaded: `+` is `Int + Int` and
   `String + String`, and both operands must match the same signature.

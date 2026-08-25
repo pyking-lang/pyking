@@ -29,7 +29,7 @@ import optimization
 from lexer import lexing, pprint_info, pprint_token, LexError
 from parser import parse, ParseError
 from syntax import (
-    pprint_program, pprint_type, SExprStmt, SFunctionDef, SIf,
+    pprint_program, pprint_type, SExprStmt, SFunctionDef, SIf, TBuiltin,
 )
 import interpreter
 import typesystem
@@ -805,7 +805,7 @@ def binding_types(session):
     return {
         name: typesystem.resolved(type_, session.store)
         for name, type_ in session.types.items()
-        if not isinstance(type_, typesystem.Builtin)
+        if not isinstance(type_, TBuiltin)
     }
 
 

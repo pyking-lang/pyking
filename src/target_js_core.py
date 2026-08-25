@@ -503,19 +503,17 @@ def translate_stmt(s, scope):
             loop = _loop_accumulators[-1] if _loop_accumulators else None
             if loop is not None and loop.result is not None:
                 # The loop's value lives in a variable of its own; a
-                # bare `break` leaves the accumulator there.
-                answer = (
-                    _target_as_expr(loop.accumulator) if expr is None
-                    else translate_expr(expr, scope)
-                )
+                # bare `break` leaves the accumulator there, which for a
+                # `loop:` carrying nothing is unit.
+                answer = _break_answer(info, loop, expr, scope)
                 return [JsAssign(info, loop.result, answer), JsBreak(info)], scope
             if expr is None:
                 return JsBreak(info), scope
             js_expr = translate_expr(expr, scope)
             if loop is None or loop.accumulator is None:
-                # A loop carrying nothing has nowhere to put the operand
-                # (the type checker refuses this outright); it is still
-                # an expression, so it still runs.
+                # Outside a loop, which the parser refuses; there is no
+                # accumulator and no result variable to assign to, and
+                # the operand is still an expression, so it still runs.
                 return [JsExprStmt(info, js_expr), JsBreak(info)], scope
             return [JsAssign(info, loop.accumulator, js_expr), JsBreak(info)], scope
 
@@ -613,6 +611,17 @@ def _target_names(target):
             return [name for e in elements for name in _target_names(e)]
 
 
+def _break_answer(info, loop, expr, scope):
+    """What a `break` leaves in its loop's result variable: its operand,
+    or the accumulator it is going round with -- unit where the loop
+    carries nothing. Info -> _Loop -> Expr? -> Scope -> JsExpr"""
+    if expr is not None:
+        return translate_expr(expr, scope)
+    if loop.accumulator is None:
+        return JsArray(info, [])
+    return _target_as_expr(loop.accumulator)
+
+
 def _target_as_expr(target):
     """A target read back as an expression: what a loop's accumulator
     holds once the loop has stopped. JsTarget -> JsExpr"""
@@ -653,8 +662,12 @@ def _translate_loop(s, scope):
     # A loop is worth what it breaks with, which need not be shaped like
     # what it carries: `break acc` in a loop carrying two values has
     # nowhere in the accumulator to go, so it gets a variable of its own.
+    # A `loop:` carrying nothing has no accumulator variable at all, so
+    # a `break` with an operand there needs the same.
     result = None
-    if isinstance(js_target, JsTargetArray) and _breaks_with_value(s.body):
+    if (js_target is None or isinstance(js_target, JsTargetArray)) and (
+        _breaks_with_value(s.body)
+    ):
         result = JsTargetName(info, _fresh_result_name(scope))
         scope = _reserve([result.name], scope)
         setup.append(JsLet(info, result, JsArray(info, [])))

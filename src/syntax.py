@@ -80,6 +80,7 @@ from lexer import Info
 #     TOr(info: Info, alternatives: [Type], sym: Int)
 #     TUnknown(info: Info, sym: Int)
 #     TNever(info: Info, sym: Int)
+#     TBuiltin(info: Info, name: String, sym: Int)
 #     TFunction(info: Info, params: [Type], result: Type, sym: Int,
 #               tmsym: Int, definition: SFunctionDef?)
 #
@@ -345,6 +346,19 @@ class TNever(Type):         # !
 
 
 @dataclass(frozen=True)
+class TBuiltin(Type):       # builtin print
+    info: Info               # The type of a name denoting a host operation:
+    name: str                # print, range, str and len. They are callable and
+    sym: int = 0             # nothing else, and none of them fits a TFunction
+                             # (a variadic print is not a (T) -> ()), so the
+                             # call is checked by its own rule rather than
+                             # against a parameter list. Never written in
+                             # source, never inferred for an expression, and
+                             # never recorded in the type checker's tmap -- so
+                             # it does not reach printed output either.
+
+
+@dataclass(frozen=True)
 class TFunction(Type):      # (T1, T2, ...) -> T
     info: Info               # The parameter list is always parenthesized, so a
     params: list             # function of one *tuple* is ((Int, Bool)) -> Int
@@ -474,6 +488,11 @@ def _pprint_type(t):
             # A binding whose value never arrives, which only unreachable
             # code can have. Not spellable in source either.
             return "!"
+        case TBuiltin(_, name):
+            # A host operation, which is not a value and so is never the
+            # type of anything printed. Here for the sake of covering the
+            # datatype; not spellable in source.
+            return f"builtin {name}"
         case TFunction(_, params, result):
             # The parentheses are the parameter *list*'s, not a tuple's, so
             # one parameter that happens to be a tuple keeps its own pair:

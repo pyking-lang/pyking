@@ -2414,8 +2414,14 @@ that anything can be wrong about: a function whose body is such a loop
 honours whatever return type it declares, since it never reaches one.
 
 A `loop:` with no accumulator carries unit and discards its body's
-value. Its `continue` takes no operand -- there is no state to give one
-to -- while its `break` may still carry the loop's answer.
+value. `()` is therefore the only operand its `continue` may have, and
+one that gives anything else is refused -- while its `break` may still
+carry the loop's answer, which is a different question from its state:
+
+```
+'prog.pyk' 3:13-3:14 Type error: this loop carries no accumulator, so
+  its 'continue' takes no value
+```
 
 **Functions.** A `def` that is *fully* annotated — every parameter and
 the return type — is checked where it is written. One that is not is
@@ -2517,8 +2523,8 @@ applies to nested functions, per block.
 
 **Builtins.** `print`, `range`, `str` and `len` are checked at the call,
 each by its own rule, because none of them is a function *value*: a
-builtin is a host operation (see "Names and scoping"), it has no type of
-its own, and it may be called and nothing else.
+builtin is a host operation (see "Names and scoping"), it has no type
+that can be written down, and it may be called and nothing else.
 
 | call | accepts | gives |
 |---|---|---|

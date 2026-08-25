@@ -8,16 +8,14 @@ inference design.
 
 Data structures:
     TypeError_ -- a type-check failure, with the source position.
-    Builtin -- a name denoting a host operation, not a value.
     Instance / Use / Frame / Store -- inference's working state (see
         docs/type_inference.md).
     Inferring -- marks a return type being worked out.
-    Loop -- the loop a break/continue in this statement belongs to.
 
 Functions:
     type_check(stmts) -- checks a whole program; returns tmap.
-    check_stmt(stmt, env, tmap, return_type, loop, store) -- checks one
-        statement.
+    check_stmt(stmt, env, tmap, return_type, acc_type, store) -- checks
+        one statement.
     check_expr(expr, env, tmap, store) -- checks one expression.
     same_type(a, b) / accepts(expected, actual) -- type comparison.
 
@@ -35,6 +33,7 @@ from syntax import (
     SLet, SLetStmt, SExprStmt, SIf, SReturn, SReturnStmt, SFunctionDef,
     SLoop, SBreak, SContinue,
     Type, TInt, TString, TBool, TList, TTuple, TFunction, TOr, TUnknown, TNever,
+    TBuiltin,
     TargetName, TargetTuple,
 )
 
@@ -47,8 +46,8 @@ from syntax import (
 # absent, and `(A, B)` a pair. Three values are threaded through the
 # pass, and every one of them is *handed over* rather than written to:
 #
-#     Env   = {String: Type?}     the names in scope, and their types
-#                                 where this checker knows one
+#     Env   = {String: Type}      the names in scope, and their types;
+#                                 a name not in it is not in scope
 #     Store                       everything inference has worked out --
 #                                 see the class below
 #     TMap  = {Int: Type}         symbol -> inferred type; the result,
@@ -63,16 +62,18 @@ from syntax import (
 # is threaded down through nested blocks and not just looked at once when
 # the body is done.
 #
-# The `Loop?` beside it is the same idea for the same reason: the loop a
-# `break`/`continue` written here belongs to, absent where there is
-# none. A `def` inside a loop body passes `None` for it, since a
-# `break` may not cross one (src/parser.py enforces that, so this is
-# only saying the same thing again where it would matter).
+# The `Type?` beside it (`acc_type`) is the same idea for the same
+# reason: what the loop a `break`/`continue` written here belongs to
+# carries, absent where there is no such loop. A bare `loop:` carries
+# unit, so the two are not the same answer. A `def` inside a loop body
+# passes `None` for it, since a `break` may not cross one
+# (src/parser.py enforces that, so this is only saying the same thing
+# again where it would matter).
 #
 #     val type_check         : [Stmt] -> TMap
-#     val check_stmts        : [Stmt] -> Env -> TMap -> Type? -> Loop?
+#     val check_stmts        : [Stmt] -> Env -> TMap -> Type? -> Type?
 #                              -> Store -> (Type, Store)
-#     val check_stmt         : Stmt -> Env -> TMap -> Type? -> Loop?
+#     val check_stmt         : Stmt -> Env -> TMap -> Type? -> Type?
 #                              -> Store -> (Type, Env, Store)
 #     val check_expr         : Expr -> Env -> TMap -> Store -> (Type, Store)
 #     val check_param        : Param -> TMap -> Store -> Type
@@ -130,15 +131,14 @@ class TypeError_(Exception):
         self.message = message
 
 
-# `env` maps a name to a Type, a Builtin (one of the four operations,
-# checked at the call by check_builtin_call), or None (in scope, no
-# type yet -- an unannotated def).
+# `env` maps a name to a Type, and to nothing else: a name it does not
+# hold is a name that is not in scope. The four host operations are in
+# it under TBuiltin, which is a type like any other here -- see
+# check_builtin_call, which is what a call to one is checked by.
 
-
-@dataclass(frozen=True)
-class Builtin:
-    """A name denoting a host operation, not a value. Field: name: String."""
-    name: str
+# The source position a TBuiltin carries, since a builtin is written in
+# no file.
+BUILTIN_INFO = Info("<builtin>", 1, 0, 1, 0)
 
 
 @dataclass(frozen=True)
@@ -270,17 +270,6 @@ class Inferring:
 INFERRING = Inferring()
 
 
-@dataclass(frozen=True)
-class Loop:
-    """The loop a `break`/`continue` in the statement being checked
-    belongs to. Fields: accumulator: Type, the type the loop carries
-    from turn to turn and yields when it stops; written: Bool, whether
-    the loop wrote an accumulator down at all (a bare `loop:` carries
-    unit, and its `break`/`continue` take no value)."""
-    accumulator: Type
-    written: bool
-
-
 class _Recursive(Exception):
     """Internal signal: a trace reached a call to a function whose
     body is already being checked. Not an error -- caught by the
@@ -320,10 +309,10 @@ def type_check(stmts):
 
 def builtin_env():
     """The environment a program starts in: every name in
-    analyses.BUILTINS, as a Builtin. Its own function so src/repl.py
-    can reuse it when checking a session one entry at a time.
-    () -> Env"""
-    return {name: Builtin(name) for name in BUILTINS}
+    analyses.BUILTINS, at its TBuiltin type. Its own function so
+    src/repl.py can reuse it when checking a session one entry at a
+    time. () -> Env"""
+    return {name: TBuiltin(BUILTIN_INFO, name) for name in BUILTINS}
 
 
 # --- [Stmt] ----------------------------------------------------------
@@ -365,28 +354,31 @@ def declared_type(node):
     )
 
 
-def check_stmts(stmts, env, tmap, return_type, loop, store):
+def check_stmts(stmts, env, tmap, return_type, acc_type, store):
     """The type a block yields: its last statement's, or unit if
     empty. env is not returned (a block is a scope); store is.
-    [Stmt] -> Env -> {Int: Type} -> Type? -> Loop? -> Store
+    [Stmt] -> Env -> {Int: Type} -> Type? -> Type? -> Store
     -> (Type, Store)"""
     env, store = declare_functions(stmts, env, store)
     yielded = unit(stmts[0].info if stmts else Info("<empty>", 1, 0, 1, 0))
     for statement in stmts:
-        yielded, env, store = check_stmt(statement, env, tmap, return_type, loop, store)
+        yielded, env, store = check_stmt(
+            statement, env, tmap, return_type, acc_type, store
+        )
     return yielded, store
 
 
 # --- Stmt ------------------------------------------------------------
 
 
-def check_stmt(statement, env, tmap, return_type, loop, store):
+def check_stmt(statement, env, tmap, return_type, acc_type, store):
     """The type statement supplies (PYKING.md, "Tail position"), the
     environment for the statements after it, and the store.
     return_type is the enclosing function's declared return type,
-    INFERRING while one is worked out, or None at the top level; loop
-    is the loop a break/continue here belongs to, or None.
-    Stmt -> Env -> {Int: Type} -> Type? -> Loop? -> Store
+    INFERRING while one is worked out, or None at the top level;
+    acc_type is what the loop a break/continue here belongs to
+    carries, or None where there is no such loop.
+    Stmt -> Env -> {Int: Type} -> Type? -> Type? -> Store
     -> (Type, Env, Store)"""
     match statement:
         case SLet(info, target, expr, annotation, sym):
@@ -404,7 +396,9 @@ def check_stmt(statement, env, tmap, return_type, loop, store):
             # the branches having agreed on one is what the `SIf` case
             # below has already established. `x = loop ...` binds the
             # accumulator the loop stopped with, for the same reason.
-            bound_type, _, store = check_stmt(stmt, env, tmap, return_type, loop, store)
+            bound_type, _, store = check_stmt(
+                stmt, env, tmap, return_type, acc_type, store
+            )
             check_annotation(annotation, bound_type)
             record(tmap, sym, bound_type, store)
             return unit(info), check_target(target, bound_type, env, tmap, store), store
@@ -430,7 +424,7 @@ def check_stmt(statement, env, tmap, return_type, loop, store):
             # place a trace is ever abandoned. Outside an inference it
             # never happens, since nothing raises `_Recursive` there.
             then_type, then_store, then_signal = try_branch(
-                then_body, env, tmap, return_type, loop, store
+                then_body, env, tmap, return_type, acc_type, store
             )
             if else_body is None:
                 # With no `else` there is a way through this statement
@@ -446,7 +440,7 @@ def check_stmt(statement, env, tmap, return_type, loop, store):
             # goes. An abandoned branch found out nothing (see
             # `try_branch`), so its store is the one it began with.
             else_type, else_store, else_signal = try_branch(
-                else_body, env, tmap, return_type, loop, then_store
+                else_body, env, tmap, return_type, acc_type, then_store
             )
             if then_signal is not None and else_signal is not None:
                 # Both ways through recurse: this `if` says nothing about
@@ -492,7 +486,9 @@ def check_stmt(statement, env, tmap, return_type, loop, store):
             # branch that runs yields.
             if return_type is None:
                 raise TypeError_(info, "'return' outside a function")
-            actual, _, store = check_stmt(stmt, env, tmap, return_type, loop, store)
+            actual, _, store = check_stmt(
+                stmt, env, tmap, return_type, acc_type, store
+            )
             return actual, env, check_return(actual, return_type, info, store)
 
         case SLoop(info, target, init, annotation, body, sym):
@@ -515,7 +511,7 @@ def check_stmt(statement, env, tmap, return_type, loop, store):
             # one's; the enclosing frame is put back afterwards.
             outer = store.frame
             supplied, store = check_stmts(
-                body, body_env, tmap, return_type, Loop(accumulator, target is not None),
+                body, body_env, tmap, return_type, accumulator,
                 with_frame(store, replace(outer, breaks=())),
             )
             if target is not None and not accepts(accumulator, supplied):
@@ -543,34 +539,26 @@ def check_stmt(statement, env, tmap, return_type, loop, store):
             # that answer, and giving it the one its neighbours give is
             # what lets a branch that breaks sit beside one that ends in
             # the next accumulator.
-            if loop is None:
+            if acc_type is None:
                 raise TypeError_(info, "'break' outside a loop")
             if expr is None:
-                return loop.accumulator, env, breaking(store, loop.accumulator)
+                return acc_type, env, breaking(store, acc_type)
             actual, store = check_expr(expr, env, tmap, store)
-            return loop.accumulator, env, breaking(store, actual)
+            return acc_type, env, breaking(store, actual)
 
         case SContinue(info, expr, _):
             # `continue` is the other half: it says what the next turn
-            # carries, so its operand *is* the accumulator.
-            if loop is None:
+            # carries, so its operand *is* the accumulator. A bare one
+            # goes round with the accumulator unchanged, which is that
+            # type whatever it is and so needs no check.
+            if acc_type is None:
                 raise TypeError_(info, "'continue' outside a loop")
             if expr is None:
-                return loop.accumulator, env, store
-            if not loop.written:
-                raise TypeError_(
-                    expr.info,
-                    "this loop carries no accumulator, so its 'continue' "
-                    "takes no value",
-                )
+                return acc_type, env, store
             actual, store = check_expr(expr, env, tmap, store)
-            if not accepts(loop.accumulator, actual):
-                raise TypeError_(
-                    expr.info,
-                    f"this loop carries {pprint_type(loop.accumulator)}, but "
-                    f"this 'continue' gives {pprint_type(actual)}",
-                )
-            return loop.accumulator, env, store
+            if not accepts(acc_type, actual):
+                raise TypeError_(expr.info, continue_error(acc_type, actual))
+            return acc_type, env, store
 
         case SFunctionDef(info, name, _, _, _, sym):
             if fully_annotated(statement):
@@ -609,6 +597,17 @@ def check_not_conflated(then_type, else_type, info):
             )
 
 
+def continue_error(acc_type, actual):
+    """The message for a `continue` whose operand is not the
+    accumulator. A loop carrying unit is one written with no
+    accumulator, so the message says that rather than naming `()`.
+    Type -> Type -> String"""
+    if is_unit(acc_type):
+        return "this loop carries no accumulator, so its 'continue' takes no value"
+    return (f"this loop carries {pprint_type(acc_type)}, but this 'continue' "
+            f"gives {pprint_type(actual)}")
+
+
 def try_expr(expr, env, tmap, store):
     """One branch of an if expression, as (type, store, signal): signal
     is the _Recursive that stopped it, or None.
@@ -620,14 +619,14 @@ def try_expr(expr, env, tmap, store):
         return None, store, signal
 
 
-def try_branch(body, env, tmap, return_type, loop, store):
+def try_branch(body, env, tmap, return_type, acc_type, store):
     """One branch of an if statement, as (type, store, signal). On a
     signal, store is the one the branch started from (its own work was
     provisional).
-    [Stmt] -> Env -> {Int: Type} -> Type? -> Loop? -> Store
+    [Stmt] -> Env -> {Int: Type} -> Type? -> Type? -> Store
     -> (Type?, Store, _Recursive?)"""
     try:
-        type_, store = check_stmts(body, env, tmap, return_type, loop, store)
+        type_, store = check_stmts(body, env, tmap, return_type, acc_type, store)
         return type_, store, None
     except _Recursive as signal:
         return None, store, signal
@@ -713,18 +712,12 @@ def expr_type(expr, env, tmap, store):
             if name not in env:
                 raise AnalysisError(info, f"unbound name '{name}'")
             match env[name]:
-                case Builtin(builtin):
+                case TBuiltin(_, builtin):
                     raise TypeError_(
                         info,
                         f"'{builtin}' is a builtin operation: it can be called, "
                         f"but not used as a value",
                     )
-                case None:
-                    # In scope, but with no type here. Nothing produces
-                    # one today -- a `def` that annotated nothing gets an
-                    # incomplete type rather than none at all -- and it
-                    # is kept as the floor for whatever comes next.
-                    unsupported(expr)
                 case type_:
                     return type_, store
 
@@ -1132,8 +1125,10 @@ def check_call(call, env, tmap, store):
     is deferred and checked (see infer_call). ECall -> Env -> {Int:
     Type} -> Store -> (Type, Store)"""
     match call.func:
-        case EVar(_, name, _) if isinstance(env.get(name), Builtin):
-            return check_builtin_call(name, call, env, tmap, store)
+        case EVar(_, name, _) if name in env:
+            match env[name]:
+                case TBuiltin(_, builtin):
+                    return check_builtin_call(builtin, call, env, tmap, store)
     func_type, store = check_expr(call.func, env, tmap, store)
     if not isinstance(func_type, TFunction):
         raise TypeError_(
@@ -1377,6 +1372,10 @@ def same_type(a, b):
     match (a, b):
         case (TInt(), TInt()) | (TString(), TString()) | (TBool(), TBool()):
             return True
+        case (TBuiltin(_, x), TBuiltin(_, y)):
+            # Each host operation is its own type, and no two of them are
+            # the same one.
+            return x == y
         case (TUnknown(), TUnknown()) | (TNever(), TNever()):
             # Two types nothing has decided are the same lack of a
             # decision -- which is what makes an incomplete function type
@@ -1418,7 +1417,6 @@ def is_unit(t):
 
 
 def bind(env, name, type_):
-    """env with name bound to type_ (or to no known type, if None). A
-    fresh dict, so shadowing works by construction. Env -> String ->
-    Type? -> Env"""
+    """env with name bound to type_. A fresh dict, so shadowing works by
+    construction. Env -> String -> Type -> Env"""
     return {**env, name: type_}

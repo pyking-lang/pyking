@@ -537,6 +537,12 @@ targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "
 file = "typecheck_loop_value.pyk"
 targets = ["python", "nodejs", "esm", "html", "interpret", "typecheck"]
 
+# No C or Java: both refuse a `loop` with no accumulator outright, since
+# neither has a value to give it (docs/target_c.md, docs/target_java.md).
+[[cases]]
+file = "typecheck_loop_unit_value.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "typecheck"]
+
 [[cases]]
 file = "typecheck_tco_accumulator.pyk"
 targets = ["python", "python_notail", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "typecheck", "typecheck_notail"]

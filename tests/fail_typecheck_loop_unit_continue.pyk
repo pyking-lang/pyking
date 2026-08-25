@@ -1,10 +1,10 @@
 # A `continue` with a value in a loop that carries nothing.
 #
-# `continue` says what the next turn carries, so in a `loop:` -- which
-# carries nothing at all -- there is nowhere for its operand to go. This
-# is the half of the old rule that survives a loop being worth what it
-# breaks with: a `break` may give anything, since that is the loop's
-# answer rather than its state, but a `continue` is the state.
+# `continue` says what the next turn carries, and a `loop:` with no
+# accumulator written down carries unit -- so `()` is the only operand
+# its `continue` may have. A `break` is the other half and may give
+# anything, since that is the loop's answer rather than its state; a
+# `continue` is the state.
 #
 # This program is expected to FAIL type checking. Its `.ast.out` holds
 # the error message, not a program's output.

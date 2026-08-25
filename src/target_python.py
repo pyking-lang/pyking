@@ -1364,8 +1364,12 @@ def _translate_loop(s, scope):
     # A loop is worth what it breaks with, which need not be shaped like
     # what it carries: `break acc` in a loop carrying two values has
     # nowhere in the accumulator to go, so it gets a variable of its own.
+    # A `loop:` carrying nothing has no accumulator variable at all, so
+    # a `break` with an operand there needs the same.
     result = None
-    if isinstance(py_target, PyTargetTuple) and _breaks_with_value(s.body):
+    if (py_target is None or isinstance(py_target, PyTargetTuple)) and (
+        _breaks_with_value(s.body)
+    ):
         result = PyTargetName(info, _fresh_result_name())
         value = PyVar(info, result.name)
     _loop_accumulators.append(_Loop(py_target, result))
@@ -1418,6 +1422,17 @@ def _breaks_with_value(body):
             case _:
                 pass
     return False
+
+
+def _break_answer(info, loop, expr, scope):
+    """What a `break` leaves in its loop's result variable: its operand,
+    or the accumulator it is going round with -- unit where the loop
+    carries nothing. Info -> _Loop -> Expr? -> Scope -> PyExpr"""
+    if expr is not None:
+        return translate_expr(expr, scope)
+    if loop.accumulator is None:
+        return PyTuple(info, [])
+    return _target_as_expr(loop.accumulator)
 
 
 def _target_as_expr(target):
@@ -1588,19 +1603,17 @@ def translate_stmt(s, scope):
             loop = _loop_accumulators[-1] if _loop_accumulators else None
             if loop is not None and loop.result is not None:
                 # The loop's value lives in a variable of its own; a
-                # bare `break` leaves the accumulator there.
-                answer = (
-                    _target_as_expr(loop.accumulator) if expr is None
-                    else translate_expr(expr, scope)
-                )
+                # bare `break` leaves the accumulator there, which for a
+                # `loop:` carrying nothing is unit.
+                answer = _break_answer(info, loop, expr, scope)
                 return [PyAssign(info, loop.result, answer), PyBreak(info)], scope
             if expr is None:
                 return PyBreak(info), scope
             py_expr = translate_expr(expr, scope)
             if loop is None or loop.accumulator is None:
-                # A loop carrying nothing has nowhere to put the operand
-                # (the type checker refuses this outright); it is still
-                # an expression, so it still runs.
+                # Outside a loop, which the parser refuses; there is no
+                # accumulator and no result variable to assign to, and
+                # the operand is still an expression, so it still runs.
                 return [PyExprStmt(info, py_expr), PyBreak(info)], scope
             return [PyAssign(info, loop.accumulator, py_expr), PyBreak(info)], scope
 

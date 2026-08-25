@@ -15,7 +15,7 @@ written in a functional style in Python, with the aim of making it
 easy to translate it into pure Pyking functions when bootstrapping the
 compiler.
 
-### Function type_check
+### Functions type_check and check_stmts
 
 Function `type_check(stmts:[Stmt]) -> TMap` is the main type checking
 function that takes a list of statements as input.
@@ -33,15 +33,17 @@ def check_ stmts(stmts, env, tmap, return_type, loop, store)
 Key data structures, and paramerers used in the
 during type checking
 
+
+* `env : {String: Type?}`, mapping a name in the environment to a option
+type. *WHY OPTION?*
+
 * `return_type : Type?`, this is the optional type that is expected to be 
 returned. This is provided if type checking is within a function (the type
 is fiven by the signature. If the outer most loop, None is assigned to the
 return type
 
-* `loop : Loop?`. It contains information if the checker is inside a `loop` construct. If not is not inside a loop, it has value None. If within a loop, `loop.accumulator : Type` contains the type of the accumulator. This is found directly by type checking the initializatio of the accumulator. *WHAT IS loop.written???* 
+* `loop : Loop?`. It contains information if the checker is inside a `loop` construct. If not is not inside a loop, it has value None. If within a loop, `loop.accumulator : Type` contains the type of the accumulator. This is found directly by type checking the initializatio of the accumulator. But, loops do not have to contain a declared accumulator. If it contains a accumulator, written is true, else it is false. The main reason is to give reasonable error message if `continue` is given with a value, but there is not accumulator declared. 
 
-* `env : {String: Type?}`, mapping a name in the environment to a option
-type. *WHY OPTION?*
 
 
 

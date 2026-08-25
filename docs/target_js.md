@@ -153,7 +153,11 @@ tuple accumulator is an array, assigned as a whole
 any of them is stored -- and where such a loop breaks with something
 that is *not* that array (`break acc` in a loop carrying two values,
 which is what the tail-call pass builds), the answer gets a `let` of its
-own rather than being squeezed into the accumulator.
+own rather than being squeezed into the accumulator. A `loop:` carrying
+nothing needs the same `let` for the same reason, since it has no
+accumulator to squeeze anything into: `n = loop: break 7` binds `7`,
+not `[]`. A bare `break` in such a loop leaves unit there, which is the
+accumulator it was going round with.
 
 The accumulator's `let` stands in the block *around* the loop, since
 that is where it has to be declared, but the name is in scope only in

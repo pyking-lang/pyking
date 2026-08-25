@@ -268,20 +268,19 @@ the start. A name that is not found raises `analyses.py`'s own
 `AnalysisError`, with its wording, so the driver prints the same `Name
 error` whichever pass caught it.
 
-`Env` maps to `Type?` rather than `Type` for exactly this reason: a name
-can be in scope with no type the checker knows — a `def` that is not
-fully annotated. Using one is `Construct is not supported`; the name is
-bound, it is the type that is missing.
+`Env` maps a name to a `Type` and to nothing else, so being in the map
+*is* being in scope and there is no second question to ask about a name
+the checker found.
 
-The builtins are the third case. `print`, `range`, `str` and `len` are
-bound to a `Builtin` rather than a type, because none of them fits a
-`TFunction` — `print` takes any number of arguments of any type — and
-because they are not values: `runtime_interface.py` calls them
-operations, and the C and Java backends already refuse `print` as one.
-`check_builtin_call` gives each its own rule at the call site, and using
-one anywhere else is an error. `range` is typed `[Int]`, which is why
-`target_python.py` materialises a range used as a value while leaving a
-`for` header lazy.
+The builtins are in it like anything else, at a type of their own.
+`print`, `range`, `str` and `len` are bound to a `TBuiltin`, because
+none of them fits a `TFunction` — `print` takes any number of arguments
+of any type — and because they are not values: `runtime_interface.py`
+calls them operations, and the C and Java backends already refuse
+`print` as one. `check_builtin_call` gives each its own rule at the call
+site, and using one anywhere else is an error. `range` is typed `[Int]`,
+which is why `target_python.py` materialises a range used as a value
+while leaving a `for` header lazy.
 
 Every `def` in a block is declared before any of that block is checked
 (`declare_functions`), which is the whole of recursion, mutual recursion

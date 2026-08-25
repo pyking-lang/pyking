@@ -198,7 +198,12 @@ The bootstrap is split into one module per compiler stage:
    `TFunction` carries `tmsym` and `body` for a function whose type was
    not written down (see `typesystem.py` below), and `TUnknown` is a type
    nothing has decided yet. Neither is ever produced by the parser, and
-   neither takes part in comparing two function types.
+   neither takes part in comparing two function types. Three variants
+   are unwritable in source and are the checker's alone — `TUnknown`,
+   `TNever` and `TBuiltin` (the type of a host operation, which is what
+   keeps `typesystem.py`'s `Env` a map from a name to a *type*). Of the
+   three only `TBuiltin` never reaches printed output, since nothing
+   records one in `tmap`.
 
    **The AST is documented as algebraic data types** in one block of
    `datatype` comments at the top of the file, listing every group's
@@ -393,15 +398,16 @@ The bootstrap is split into one module per compiler stage:
    shadowing, a `def`'s name in its own body, and `analyses.BUILTINS`
    (imported, not re-listed) in scope from the start. An unbound name
    raises `analyses.AnalysisError`, in its words, so the message does not
-   depend on which pass ran. The value type is `Type?`: `None` means "in
-   scope, no type here" — a `def` that is not fully annotated — and using
-   one is `Construct is not supported`, not "unbound". A builtin is a
-   third case: `env` maps `print`/`range`/`str`/`len` to a `Builtin`,
-   checked at the call by `check_builtin_call` and refused as a value,
-   because none of them fits a `TFunction` (a variadic `print` is not a
-   `(T) -> ()`) and `runtime_interface.py` calls them operations rather
-   than functions. A new builtin needs a case there as well as an entry
-   in `analyses.BUILTINS`. The one rule still only
+   depend on which pass ran. **The value type is `Type`, with no option
+   and no second inhabitant**: a name is in the map with a type, or it is
+   not in scope, and there is no third state to ask about. A builtin is
+   in it like anything else, at a type of its own: `env` maps
+   `print`/`range`/`str`/`len` to a `TBuiltin`, checked at the call by
+   `check_builtin_call` and refused as a value, because none of them
+   fits a `TFunction` (a variadic `print` is not a `(T) -> ()`) and
+   `runtime_interface.py` calls them operations rather than functions. A
+   new builtin needs a case there as well as an entry in
+   `analyses.BUILTINS`. The one rule still only
    in `analyses.py` is that a `var` may not be shadowed; this checker
    refuses `var` outright, so there is nothing here for it to protect
    yet. That is the last gap before the analysis can be deleted. `TMap` is

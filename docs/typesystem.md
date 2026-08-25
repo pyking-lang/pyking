@@ -39,18 +39,20 @@ nothing else calls into an `Expr`-shaped decision.
 Every checking function passes along up to three values, and the
 signature block calls out that they are not interchangeable. (Two
 smaller ones ride along with them: the enclosing function's declared
-return type, and the enclosing `Loop`. Both are plain context — read,
-never accumulated — and both are absent where there is none, which is
-how "`return` outside a function" and "`break` outside a loop" are the
-same sentence twice.)
+return type, and what the enclosing loop carries (`acc_type`). Both are
+plain context — read, never accumulated — and both are absent where
+there is none, which is how "`return` outside a function" and "`break`
+outside a loop" are the same sentence twice.)
 
-- **`Env`** (`{String: Type?}`) — the names in scope and what this
-  checker knows about their types. Threaded exactly the way
-  `analyses.py`'s environment is: `bind` returns a *new* dict, nothing
-  is ever mutated, and "leaving a scope" is simply "stop using the
-  extended copy." A value of `None` in this dict — not the same as the
-  name being absent — means "in scope, no type known here yet": a `def`
-  that didn't annotate everything, deferred rather than refused.
+- **`Env`** (`{String: Type}`) — the names in scope and their types.
+  Threaded exactly the way `analyses.py`'s environment is: `bind`
+  returns a *new* dict, nothing is ever mutated, and "leaving a scope"
+  is simply "stop using the extended copy." There is no third state: a
+  name is in the dict with a type, or it is not in scope. That is worth
+  stating because it was not always so — `None` used to mean "in scope,
+  no type known here yet", for a `def` that didn't annotate everything,
+  and inference removed the need for it by giving such a `def` an
+  incomplete `TFunction` instead.
 - **`Store`** — everything the deferred half of the checker (see
   `type_inference.md`) has worked out so far: where each unannotated
   `def` was written, what it's been checked at, which ones are
@@ -190,13 +192,11 @@ its value has — which is what `--typecheck --ast` is for: printing the
 type that was worked out is the only way to see it, since nothing was
 written down to check it against.
 
-## Builtins: bound to something that isn't a type
+## Builtins: a type of their own
 
-`env` maps a name to a `Type`, to `None` (in scope, unannotated `def`,
-not yet known), or to a third thing: a `Builtin`. `print`, `range`,
-`str` and `len` are bound to `Builtin(name)` from the very first
-environment `type_check` builds (`builtin_env`), rather than to a
-`TFunction`, because none of the four genuinely fits one — `print`
+`print`, `range`, `str` and `len` are bound to `TBuiltin(name)` from the
+very first environment `type_check` builds (`builtin_env`), rather than
+to a `TFunction`, because none of the four genuinely fits one — `print`
 takes any number of arguments of any type, which no fixed parameter
 list can express, and none of them is a value in the sense
 `runtime_interface.py` means: they're host *operations*, callable and
@@ -204,6 +204,13 @@ nothing else. `check_builtin_call` gives each its own rule, applied
 only at the point of a call; using one any other way (`x = print`,
 passing `str` as an argument) is refused, exactly as the C and Java
 backends refuse `print` as a value for the analogous reason.
+
+`TBuiltin` is a variant of `syntax.py`'s `Type` rather than a class of
+this module's own, so `Env` stays a map from a name to a type and every
+lookup dispatches on a type variant. It is like `TUnknown` and `TNever`
+in being unwritable in source; it goes further in never being recorded
+in `tmap` either, so it cannot reach printed output. Two `TBuiltin`s
+are the same type when they name the same operation.
 
 ## `env` *is* the scope, while `--typecheck` is on
 

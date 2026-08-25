@@ -246,7 +246,11 @@ tuple accumulator is a Python tuple, assigned as a whole
 of them is stored -- and where such a loop breaks with something that is
 *not* that tuple (`break acc` in a loop carrying two values, which is
 what the tail-call pass builds), the answer gets a variable of its own
-rather than being squeezed into the accumulator.
+rather than being squeezed into the accumulator. A `loop:` carrying
+nothing needs the same variable for the same reason, since it has no
+accumulator to squeeze anything into: `n = loop: break 7` binds `7`,
+not `()`. A bare `break` in such a loop leaves unit there, which is the
+accumulator it was going round with.
 
 The one place this differs from what the source says is a body path with
 no value at all — an `if` with no `else` as the body's last statement.

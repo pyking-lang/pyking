@@ -1,0 +1,39 @@
+# What a `loop:` carrying nothing is worth.
+#
+# A bare `loop:` writes no accumulator down, so unit is what it carries
+# from turn to turn. Two things follow, and this file pins both.
+#
+# `continue ()` gives that accumulator, and is the only operand such a
+# `continue` may have -- `continue 4` is a type error, which
+# `fail_typecheck_loop_unit_continue.pyk` covers.
+#
+# A `break`, meanwhile, says what the loop is *worth*, which is a
+# different question from what it carries. It may hand back anything at
+# all, and every target has to agree about that: the value has nowhere
+# in the accumulator to go, since there is no accumulator.
+
+answer = loop:
+    if true:
+        break 7
+    continue ()
+
+print(answer)
+
+
+# A bare `break` leaves the accumulator, which here is unit.
+nothing = loop:
+    break
+
+print(nothing)
+
+
+# The value need not be an Int, and a loop with two `break`s is worth
+# the alternative of what they give.
+def pick(flag:Bool) -> String:
+    loop:
+        if flag:
+            break "yes"
+        else:
+            break "no"
+
+print(pick(true), pick(false))
