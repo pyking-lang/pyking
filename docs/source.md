@@ -360,6 +360,10 @@ scheme specifically).
 - **`Inferring`** — stands in for a declared return type while one is
   being worked out; a `return` checked against it contributes its type to
   the store's frame instead of being compared with one.
+- **`Exit(info, type)`** — one way out of the loop being checked: where
+  the `break` is written and what it gives. The store's frame collects
+  them; `loop_value` requires them to agree, and the `info` is what lets
+  the refusal point at the `break` that disagreed.
 - **`acc_type`** — what the loop a `break`/`continue` in the statement
   being checked belongs to carries, threaded beside the declared return
   type and `None` where there is no such loop. A bare `loop:` carries
@@ -385,10 +389,10 @@ and returning exactly one kind of answer (the signatures are written out
 OCaml-style near the top of the file):
 
 - **`type_check(stmts) -> tmap`** — the entry point.
-- **`check_stmts(stmts, env, tmap, return_type, loop, store) -> (Type,
+- **`check_stmts(stmts, env, tmap, return_type, acc_type, store) -> (Type,
   Store)`** — a block's type: its last statement's (`env` is not
   returned; a block is a scope). Calls `declare_functions` first.
-- **`check_stmt(stmt, env, tmap, return_type, loop, store) -> (Type, Env,
+- **`check_stmt(stmt, env, tmap, return_type, acc_type, store) -> (Type, Env,
   Store)`** — the type of the value a statement *supplies*, the
   environment the statements after it are checked in, and the store.
   That single question — what value does this supply? — is why a branch
@@ -396,6 +400,10 @@ OCaml-style near the top of the file):
   expression compare without any of them being a special case: a
   `return` supplies the function's type, a `break`/`continue` the
   enclosing loop's accumulator.
+- **`loop_value(ways_out, info) -> Type`** — what a loop is worth: the
+  type its `break`s give, refused where two of them disagree, and
+  `TNever` where there are none (a loop nothing breaks out of never
+  finishes, so nothing can be wrong about its value).
 - **`check_target(target, type_, env, tmap, store) -> Env`** — a binding
   target, one name or a tuple taken apart; a destructuring target
   requires a tuple type of the same length.

@@ -27,8 +27,8 @@ a type map, `TMap = {Int: Type}`, i.e., a mapping from symbols
 Function `type_check` creates a mutable variable `tmap` and calls
 function `check_stmts`, with the following named signature:
 
-def check_ stmts(stmts, env, tmap, return_type, loop, store)
-([Stmt], Env, {Int: Type}, Type?, Loop?, Store) -> (Type, Store)"
+`def check_ stmts(stmts, env, tmap, return_type, loop, store)`
+`([Stmt], Env, {Int: Type}, Type?, Type?, Store) -> (Type, Store)"`
 
 Key data structures, and paramerers used in the
 during type checking

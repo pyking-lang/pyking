@@ -449,9 +449,12 @@ it `break`s with, which need not be shaped like what it carries — the
 shape every accumulator-passing function has after the tail-call pass
 (docs/optimization.md) — so a `break` with an operand gets a variable of
 its own, typed from what the breaks give. A loop whose breaks disagree
-about that type is refused, as is a *bare* `break` in a multi-slot loop:
-its answer would be all the slots at once, and C has no tuple to hold
-them. Since a turn may only carry one C type per slot, a `continue`
+about that type is refused here too, though `--typecheck` now refuses it
+first and in the language's own words (PYKING.md, "Type checking"); this
+backend keeps its own check because it compiles whether the checker ran
+or not. A *bare* `break` in a multi-slot loop is refused for a reason of
+C's alone: its answer would be all the slots at once, and C has no tuple
+to hold them. Since a turn may only carry one C type per slot, a `continue`
 whose operand has a different type is refused rather than silently
 converted.
 

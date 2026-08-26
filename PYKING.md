@@ -1490,10 +1490,11 @@ notes above).
 **What a loop carries and what it is worth are two questions.** The
 accumulator is the state: the initializer's type, what the body must end
 in, and what a `continue` has to give. The loop's *value* is whatever it
-`break`s with, which may be something else entirely -- and where several
-`break`s give different types, the loop is worth the alternative of them
-(see "Type checking"). That is what lets a loop carrying two values
-answer with one:
+`break`s with, which may be something else entirely. Several `break`s
+must agree on that one type, exactly as the two branches of an `if`
+must -- one value leaves the loop, however many ways out it has (see
+"Type checking"). Carrying one type and being worth another is what lets
+a loop carrying two values answer with one:
 
 ```pyking
 def factorial(n, acc) -> Int:
@@ -2386,8 +2387,8 @@ to its part, and is refused if the value is not a tuple of that many.
 accumulator's type: its initializer's, which an annotation on the header
 is checked against exactly as a binding's is, and which the body's own
 value and every `continue e` must give. What it is *worth* is what its
-`break`s give -- the alternative of them, where they differ, and the
-accumulator for a bare `break`:
+`break`s give -- all of them the same type, with a bare `break` giving
+the accumulator and taking part in that agreement like any other:
 
 ```pyking
 counted = loop x = 1:      # carries Int
@@ -2396,6 +2397,17 @@ counted = loop x = 1:      # carries Int
     else:
         x + 1              # the body still gives an Int
 ```
+
+Two `break`s that disagree are refused, and the message points at the
+second one -- where the disagreement is found:
+
+```
+'prog.pyk' 22:8-22:17 Type error: this loop is worth Int, from an
+  earlier 'break', but this 'break' gives String
+```
+
+That rule is about the `break`s agreeing with each other, not with the
+accumulator, so a loop carrying nothing is held to it just the same.
 
 `break` and `continue` supply the accumulator's type wherever they
 stand, exactly as `return` supplies the function's -- which is what lets

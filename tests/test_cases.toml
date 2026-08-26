@@ -154,6 +154,14 @@ file = "fail_typecheck_loop_body.pyk"
 targets = ["typecheck"]
 
 [[cases]]
+file = "fail_typecheck_loop_break_accumulator.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_loop_break_types.pyk"
+targets = ["typecheck"]
+
+[[cases]]
 file = "fail_typecheck_loop_continue.pyk"
 targets = ["typecheck"]
 

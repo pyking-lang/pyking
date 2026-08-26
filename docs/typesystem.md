@@ -106,10 +106,20 @@ cases:
   two are different questions (PYKING.md, "loop loops"), and the
   difference is what lets a loop carrying `(Int, Int)` be worth an
   `Int` — the shape every accumulator-passing function has after
-  `src/optimization.py` has been through it. The `break` types are
-  collected in the store's frame, exactly as an inference's `return`s
-  are, in a frame of the loop's own so a nested loop's ways out are not
-  mistaken for this one's; `merge` then makes one type of them.
+  `src/optimization.py` has been through it. The ways out are collected
+  in the store's frame as `Exit(info, type)`, exactly as an inference's
+  `return`s are, in a frame of the loop's own so a nested loop's ways
+  out are not mistaken for this one's. `loop_value` then requires them
+  to agree: one value leaves a loop however many `break`s it has, so
+  there is one type for it, and the `info` each `Exit` carries is what
+  lets the refusal point at the `break` that disagreed rather than at
+  the loop. The rule is about the `break`s agreeing with *each other* —
+  a bare `break` joins in by giving the accumulator — so a loop carrying
+  nothing is held to it just the same. `merge` is deliberately not used
+  here: a loop worth `Int | String` would be a value no `if` branch
+  could sit beside, and the C and Java backends already refused one
+  (docs/target_c.md, docs/target_java.md), so the front end now agrees
+  with them instead of building a type two backends throw out.
 - A loop with **no `break` at all** never finishes, so it supplies
   `TNever` — the one type `accepts` takes anywhere, since there is no
   value to be wrong about. That is what lets a function whose body is

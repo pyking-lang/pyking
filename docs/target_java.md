@@ -440,9 +440,12 @@ what it carries -- the shape every accumulator-passing function has
 after the tail-call pass (docs/optimization.md) -- so a `break` with an
 operand gets a local of its own, typed from what the breaks give and
 initialised because javac refuses to read a local that might be
-unassigned. A loop whose breaks disagree about that type is refused, as
-is a *bare* `break` in a multi-slot loop: its answer would be all the
-slots at once, and Java has no tuple to hold them.
+unassigned. A loop whose breaks disagree about that type is refused here
+too, though `--typecheck` now refuses it first and in the language's own
+words (PYKING.md, "Type checking"); this backend keeps its own check
+because it compiles whether the checker ran or not. A *bare* `break` in
+a multi-slot loop is refused for a reason of Java's alone: its answer
+would be all the slots at once, and Java has no tuple to hold them.
 
 Binding a loop is that `final` declaration after it, and a loop in tail
 position is `return x` -- unless nothing breaks out of the loop, in

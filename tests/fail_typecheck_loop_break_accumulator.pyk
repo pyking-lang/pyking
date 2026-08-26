@@ -1,0 +1,22 @@
+# A bare `break` and a `break` with an operand that disagree.
+#
+# A bare `break` gives the accumulator, so it takes part in the "every
+# `break` agrees" rule like any other way out: here the bare one gives
+# the Int this loop carries and the other gives a String, so the loop
+# has two answers and is refused. The error points at the second one,
+# which is where the disagreement is discovered.
+#
+# The loop in `fail_typecheck_loop_break_types.pyk` carries nothing and
+# is refused by the same rule, which is what says the rule is about the
+# `break`s agreeing with each other rather than with the accumulator.
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+k = loop x = 5:
+    if x > 2:
+        break
+    else:
+        break "6"
+
+print(k)

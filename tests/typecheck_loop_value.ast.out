@@ -12,12 +12,12 @@ def factorial(n:Int, acc:Int) -> Int:
             (n - 1, n * acc)
 print(factorial(10, 1))
 print(factorial(0, 1))
-def counted(limit:Int) -> Int | String:
+def counted(limit:Int) -> Int:
     loop n: Int = 0:
         if n == limit:
             break
         else if n > 10:
-            break 'too far'
+            break 100
         else:
             n + 1
 print(counted(3), counted(50))

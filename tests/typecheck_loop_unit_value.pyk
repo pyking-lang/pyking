@@ -27,8 +27,8 @@ nothing = loop:
 print(nothing)
 
 
-# The value need not be an Int, and a loop with two `break`s is worth
-# the alternative of what they give.
+# The value need not be an Int, and where a loop has two `break`s they
+# have to agree on one type -- these both give String.
 def pick(flag:Bool) -> String:
     loop:
         if flag:

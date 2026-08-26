@@ -33,14 +33,16 @@ print(factorial(0, 1))
 
 
 # A bare `break` still gives the accumulator, so a loop may be worth
-# either, and several `break`s may give different types -- the loop is
-# then worth the alternative of them.
-def counted(limit: Int) -> Int | String:
+# what it carries. Where a loop has several `break`s they must agree on
+# one type, exactly as the two branches of an `if` must -- one value
+# leaves the loop, so there is one type for it. Here the bare `break`
+# gives the Int accumulator and the other gives an Int too.
+def counted(limit: Int) -> Int:
     loop n = 0:
         if n == limit:
             break
         else if n > 10:
-            break "too far"
+            break 100
         else:
             n + 1
 

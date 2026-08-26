@@ -437,6 +437,19 @@ The bootstrap is split into one module per compiler stage:
    `==`: `T*` nodes are dataclasses, so `==` compares `info` and `sym`
    too.
 
+   A loop is worth what its `break`s give, and they must agree on one
+   type -- the same rule the two branches of an `if` obey, since one
+   value leaves a loop however many ways out it has. `loop_value` is
+   where that is decided, over the `Exit(info, type)` values the store's
+   frame collects, and the `info` is what lets the refusal point at the
+   `break` that disagreed. The rule is about the `break`s agreeing with
+   each other rather than with the accumulator, so a `loop:` carrying
+   nothing is held to it too; a bare `break` joins in by giving the
+   accumulator. `merge` is deliberately not used there -- the C and Java
+   backends already refused a loop whose breaks disagree, and building a
+   `TOr` the checker would then have to honour was the front end
+   describing a program those two would not compile.
+
    Most statements and every program have type unit; an *expression
    statement* has its expression's type and a *block* its last
    statement's, which is what makes the two branches of an `if`

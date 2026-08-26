@@ -11,6 +11,7 @@ Data structures:
     Instance / Use / Frame / Store -- inference's working state (see
         docs/type_inference.md).
     Inferring -- marks a return type being worked out.
+    Exit -- one way out of the loop being checked: a break and its type.
 
 Functions:
     type_check(stmts) -- checks a whole program; returns tmap.
@@ -162,10 +163,18 @@ class Use:
 
 
 @dataclass(frozen=True)
+class Exit:
+    """One way out of the loop being checked. Fields: info: Info (where
+    the `break` is written), type: Type (what it gives)."""
+    info: Info
+    type: Type
+
+
+@dataclass(frozen=True)
 class Frame:
     """What the current inference has gathered, and what the innermost
     loop has been broken with. Fields: uses: (Use,), returns: (Type,),
-    breaks: (Type,)."""
+    breaks: (Exit,)."""
     uses: tuple = ()
     returns: tuple = ()
     breaks: tuple = ()
@@ -238,11 +247,13 @@ def returning(store, type_):
     return with_frame(store, replace(store.frame, returns=store.frame.returns + (type_,)))
 
 
-def breaking(store, type_):
-    """store whose frame has seen a `break` giving type_ -- what the
-    loop being checked is worth, one way out at a time.
-    Store -> Type -> Store"""
-    return with_frame(store, replace(store.frame, breaks=store.frame.breaks + (type_,)))
+def breaking(store, info, type_):
+    """store whose frame has seen a `break` at info giving type_ -- what
+    the loop being checked is worth, one way out at a time.
+    Store -> Info -> Type -> Store"""
+    return with_frame(
+        store, replace(store.frame, breaks=store.frame.breaks + (Exit(info, type_),))
+    )
 
 
 def noting(store, uses):
@@ -522,13 +533,16 @@ def check_stmt(statement, env, tmap, return_type, acc_type, store):
                     f"accumulator for the next turn -- but it ends in "
                     f"{pprint_type(supplied)}",
                 )
-            # A loop is worth what it breaks with. With no `break` at
-            # all it cannot finish, so it is worth nothing anything can
-            # be wrong about -- which is what lets a function whose body
-            # is such a loop honour any return type.
+            # A loop is worth what it breaks with, and its `break`s
+            # have to agree on one type -- the same rule the two
+            # branches of an `if` obey, and for the same reason: one
+            # value leaves here, so there is one type for it. With no
+            # `break` at all it cannot finish, so it is worth nothing
+            # anything can be wrong about -- which is what lets a
+            # function whose body is such a loop honour any return type.
             ways_out = store.frame.breaks
             store = with_frame(store, outer)
-            return (merge(list(ways_out)) if ways_out else TNever(info)), env, store
+            return loop_value(ways_out, info), env, store
 
         case SBreak(info, expr, _):
             # A `break` says what the loop is *worth*, which is a
@@ -542,9 +556,9 @@ def check_stmt(statement, env, tmap, return_type, acc_type, store):
             if acc_type is None:
                 raise TypeError_(info, "'break' outside a loop")
             if expr is None:
-                return acc_type, env, breaking(store, acc_type)
+                return acc_type, env, breaking(store, info, acc_type)
             actual, store = check_expr(expr, env, tmap, store)
-            return acc_type, env, breaking(store, actual)
+            return acc_type, env, breaking(store, info, actual)
 
         case SContinue(info, expr, _):
             # `continue` is the other half: it says what the next turn
@@ -606,6 +620,26 @@ def continue_error(acc_type, actual):
         return "this loop carries no accumulator, so its 'continue' takes no value"
     return (f"this loop carries {pprint_type(acc_type)}, but this 'continue' "
             f"gives {pprint_type(actual)}")
+
+
+def loop_value(ways_out, info):
+    """What a loop is worth: what its `break`s give, which must all be
+    the same type. A loop with no `break` never finishes, so it is worth
+    TNever. (Exit,) -> Info -> Type"""
+    match list(ways_out):
+        case []:
+            return TNever(info)
+        case [first, *rest]:
+            for other in rest:
+                if not same_type(first.type, other.type):
+                    raise TypeError_(
+                        other.info,
+                        f"this loop is worth {pprint_type(first.type)}, from "
+                        f"an earlier 'break', but this 'break' gives "
+                        f"{pprint_type(other.type)}",
+                    )
+                check_not_conflated(first.type, other.type, other.info)
+            return first.type
 
 
 def try_expr(expr, env, tmap, store):
