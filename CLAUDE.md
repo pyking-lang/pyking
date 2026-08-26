@@ -1107,6 +1107,30 @@ differ are listed in `docs/targets.md`), and the **maximum call depth is
 10 000** (`interpreter.MAX_CALL_DEPTH`), raising a Pyking error rather
 than exhausting memory.
 
+## User-authored documentation
+
+Existing comments and docstrings are considered protected user-authored text.
+
+Allowed:
+
+* Fix obvious typos.
+* Fix grammatical errors that are clearly errors.
+* Fix factual/terminological inconsistencies when the intended wording is unambiguous.
+* Update a reference when the referenced code/API was changed and the correction is mechanical.
+* If claude is creating a new function, add documentation as described below
+
+Not allowed:
+
+* Rephrase sentences for better style.
+* Make documentation "clearer", "more concise", or "more professional".
+* Change the author's terminology or voice.
+* Add explanations that were not present.
+* Remove information because it seems redundant.
+* Rewrite a docstring merely because the implementation changed.
+
+
+If a change requires interpretation or rewriting rather than a mechanical correction, leave the documentation unchanged and ask me.
+
 ## Documentation style
 
 Applies to every `.py` file under `src/` and `tools/`, and to the `.md`
@@ -1135,6 +1159,9 @@ Functions:
 ```
 
 **Function docstrings**: two parts, nothing else.
+
+The following holds for new functions. I may have modified it in a 
+different style, so do not change existing text, as described above.
 
 1. One or two sentences: what the function does.
 2. A type signature, written as it would be in a statically typed
