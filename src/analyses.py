@@ -231,7 +231,7 @@ def target_names(target):
 
 
 def block_functions(stmts):
-    """The def statements at the top of a block, name -> node. Raises
+    """Returns the function definitions (defs) within a block. Raises
     AnalysisError if two defs in the block share a name, or if any other
     binding in the block shares a def's name.
     [Stmt] -> {String: SFunctionDef}"""

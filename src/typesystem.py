@@ -1,24 +1,35 @@
-"""The type checker: one function per AST datatype, giving every
-expression a type and recording annotated constructs in a symbol
-table (tmap). Run only under --typecheck, after symbolize. A def that
-is fully annotated is checked where it is written; one that is not is
-checked (inferred) the first time something calls it. See PYKING.md
-("Type checking") and docs/type_inference.md for the rules and the
-inference design.
+"""
 
-Data structures:
-    TypeError_ -- a type-check failure, with the source position.
-    Instance / Use / Frame / Store -- inference's working state (see
-        docs/type_inference.md).
-    Inferring -- marks a return type being worked out.
-    Exit -- one way out of the loop being checked: a break and its type.
+The type checker is is written in a functional style, and type checks
+a program. It uses a call-based type inference approach (not
+constraint-based as in Hindley-Milner).
 
-Functions:
+Function `type_check(stmts:[Stmt]) -> TMap` is the main type checking
+function that takes a list of statements as input.
+If type checking fails, it raises an exception error, otherwise it returns
+a type map, `TMap = {Int: Type}`, i.e., a mapping from symbols
+(represented as integers) to types.
+
+
+Key functions:
     type_check(stmts) -- checks a whole program; returns tmap.
     check_stmt(stmt, env, tmap, return_type, acc_type, store) -- checks
         one statement.
     check_expr(expr, env, tmap, store) -- checks one expression.
     same_type(a, b) / accepts(expected, actual) -- type comparison.
+
+
+
+Data structures:
+
+* `env : {String: Type}`, mapping a name in the environment to a
+   option type.
+
+    TypeError_ -- a type-check failure, with the source position.
+    Instance / Use / Frame / Store -- inference's working state (see
+        docs/type_inference.md).
+    Inferring -- marks a return type being worked out.
+    Exit -- one way out of the loop being checked: a break and its type.
 
 See the Signatures block below for every function's type.
 """
@@ -329,32 +340,19 @@ def builtin_env():
 # --- [Stmt] ----------------------------------------------------------
 
 
-def declare_functions(stmts, env, store):
-    """env with every def in this block bound (recursion, mutual
-    recursion, forward references); store recording where each
-    unannotated one was written. Not recursive: a def inside a branch
-    is declared when that branch's block is checked.
-    [Stmt] -> Env -> Store -> (Env, Store)"""
-    functions = list(block_functions(stmts).values())
-    for function in functions:
-        env = bind(env, function.name, declared_type(function))
-    for function in functions:
-        if not fully_annotated(function):
-            store = with_environment(store, function.sym, env)
-    return env, store
-
-
 def fully_annotated(node):
-    """Whether a def wrote down every parameter type and the return
-    type. SFunctionDef -> Bool"""
+    """ Returns true if a function definition has the complete type
+    annoted, including parameters and return type.
+    SFunctionDef -> Bool"""
     return node.return_type is not None and all(p.type is not None for p in node.params)
 
 
 def declared_type(node):
-    """The type a def has from the def alone: its written type, or an
-    incomplete TFunction with TUnknown for what it did not say.
+    """Returns the type a def function, either its annotated types or
+    TUnknown for the missing parts.
     SFunctionDef -> TFunction"""
     if fully_annotated(node):
+        # Return the type, since it is fully annotated
         return function_type(node)
     return TFunction(
         node.info,
@@ -364,10 +362,38 @@ def declared_type(node):
         definition=node,
     )
 
+def declare_functions(stmts, env, store):
+    """
+    Goes from all declared functions within a list of statements.
+     Not recursive: a def inside a branch
+    is declared when that branch's block is checked.
+    [Stmt] -> Env -> Store -> (Env, Store)"""
+    # Returns a list of functinon definitions, SFunctionDef,
+    # as a list of statments.
+    functions = list(block_functions(stmts).values())
+    for function in functions:
+        env = bind(env, function.name, declared_type(function))
+    for function in functions:
+        if not fully_annotated(function):
+            store = with_environment(store, function.sym, env)
+    return env, store
+
+
+
+
 
 def check_stmts(stmts, env, tmap, return_type, acc_type, store):
-    """The type a block yields: its last statement's, or unit if
-    empty. env is not returned (a block is a scope); store is.
+    """
+    Function check_stmts checks a list of statements, either at the top
+    level, or when checking a block.
+       env: Mapping from strings to types
+       tmap: mutable map from int symbols to types
+       return_type: the type of the return function, None if not inside
+         a function. Used when checking return statements.
+       acc_type: the type of the accumulator in a loop statement. If
+         not inside a loop, then None. Used when checking 'continue'
+         statements.
+
     [Stmt] -> Env -> {Int: Type} -> Type? -> Type? -> Store
     -> (Type, Store)"""
     env, store = declare_functions(stmts, env, store)
