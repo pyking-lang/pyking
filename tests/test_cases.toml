@@ -38,6 +38,10 @@ file = "boolean_literals_patterns.pyk"
 targets = ["python"]
 
 [[cases]]
+file = "concatenation.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
+
+[[cases]]
 file = "else_if.pyk"
 targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21"]
 
@@ -130,6 +134,10 @@ file = "fail_typecheck_infer_recursion.pyk"
 targets = ["typecheck"]
 
 [[cases]]
+file = "fail_typecheck_int_concat.pyk"
+targets = ["typecheck"]
+
+[[cases]]
 file = "fail_typecheck_int_string1.pyk"
 targets = ["typecheck"]
 
@@ -195,6 +203,10 @@ targets = ["typecheck"]
 
 [[cases]]
 file = "fail_typecheck_statement_line.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_string_plus.pyk"
 targets = ["typecheck"]
 
 [[cases]]

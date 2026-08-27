@@ -20,7 +20,7 @@ print()
 # `str` turns a scalar into a String; `len` measures a String or a list;
 # `range` builds a list of Int.
 digits = str(42)
-label = "n = " + str(7)
+label = "n = " ++ str(7)
 size = len("hello")
 numbers = range(4)
 counted = len(range(4))
@@ -36,7 +36,7 @@ print(str(size), len("xyz"), range(2))
 
 # And the values a program computes for itself print just as well.
 def describe(n:Int) -> String:
-    "value " + str(n)
+    "value " ++ str(n)
 
 print(describe(total), describe(counted))
 

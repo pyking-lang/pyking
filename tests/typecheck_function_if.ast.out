@@ -34,6 +34,6 @@ size: Int = area(3, 4)
 chosen: Int = pick(true)
 said: String = pick_directly(false)
 described: String = describe(size)
-both: String = kind + said
+both: String = kind ++ said
 print(kind, bounded, size, chosen)
 print(said, described, both)

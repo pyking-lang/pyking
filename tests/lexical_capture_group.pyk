@@ -12,7 +12,7 @@ for i in range(3):
     def outer_call(): inner()
     marker = "unrelated"
     def inner(): i
-    fns := fns + [outer_call]
+    fns := fns ++ [outer_call]
 
 for f in fns:
     print(f())
@@ -27,7 +27,7 @@ for n in range(3):
     def even(k): if k < 1 then n else odd(k - 1)
     step = 1
     def odd(k): even(k - step + 1)
-    pairs := pairs + [even]
+    pairs := pairs ++ [even]
 
 for g in pairs:
     print(g(2))
@@ -44,7 +44,7 @@ for m in range(3):
     def second(): third()
     right = "b"
     def third(): m * 100
-    chains := chains + [first]
+    chains := chains ++ [first]
 
 for h in chains:
     print(h())
@@ -58,7 +58,7 @@ var plain = []
 for p in range(2):
     def constant(): 7
     def doubled_constant(): constant() * 2
-    plain := plain + [doubled_constant]
+    plain := plain ++ [doubled_constant]
 
 for q in plain:
     print(q())
@@ -73,7 +73,7 @@ for r in range(2):
     var acc = 0
     def read_acc(): acc
     acc := acc + 10
-    readers := readers + [read_acc]
+    readers := readers ++ [read_acc]
 
 for s in readers:
     print(s())
@@ -87,11 +87,11 @@ outside = "outer"
 var readers2 = []
 
 for t in range(2):
-    def before(): outside + "/before"
+    def before(): outside ++ "/before"
     outside = "inner"
-    def after(): outside + "/after"
-    readers2 := readers2 + [before]
-    readers2 := readers2 + [after]
+    def after(): outside ++ "/after"
+    readers2 := readers2 ++ [before]
+    readers2 := readers2 ++ [after]
 
 for u in readers2:
     print(u())
@@ -111,7 +111,7 @@ for v in range(1):
     stays = noisy("first")
     held_value = noisy("second") + v
     def held(): held_value
-    noisy_fns := noisy_fns + [uses]
+    noisy_fns := noisy_fns ++ [uses]
 
 for w in noisy_fns:
     print(w())
@@ -128,7 +128,7 @@ def guarded(n:Int) -> Int:
             return 0
         held = y + 5
         def inner_use(): held
-        kept := kept + [outer_use]
+        kept := kept ++ [outer_use]
     for z in kept:
         print(z())
     n

@@ -29,7 +29,7 @@ def repeat(word, times):
     if times < 1:
         ''
     else:
-        word + repeat(word, times - 1)
+        word ++ repeat(word, times - 1)
 
 # A recursion whose return type *is* written needs no second pass -- the
 # call has a type the moment it is reached.

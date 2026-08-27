@@ -14,7 +14,7 @@ def echo(x):
     x
 
 def announce(value):
-    'got ' + str(value)
+    'got ' ++ str(value)
 
 number = echo(1)
 word = echo('two')

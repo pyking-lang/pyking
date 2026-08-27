@@ -4,7 +4,7 @@ doubled = [x * 2 for x in values]
 print(doubled)
 
 names = ["alice", "bob", "carol"]
-greetings = ["hello, " + name for name in names]
+greetings = ["hello, " ++ name for name in names]
 print(greetings)
 
 squares = [n * n for n in range(5)]

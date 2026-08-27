@@ -1,7 +1,7 @@
 def double(n:Int) -> Int:
     n * 2
 def show(n:Int) -> String:
-    str(n) + '!'
+    str(n) ++ '!'
 def apply_to_two(f):
     f(2)
 print(apply_to_two(double), apply_to_two(show))

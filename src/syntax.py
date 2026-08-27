@@ -60,6 +60,7 @@ from lexer import Info
 #     EMul(info: Info, left: Expr, right: Expr, sym: Int)
 #     EDiv(info: Info, left: Expr, right: Expr, sym: Int)
 #     ENeg(info: Info, operand: Expr, sym: Int)
+#     EConcat(info: Info, left: Expr, right: Expr, sym: Int)
 #     ELessThan(info: Info, left: Expr, right: Expr, sym: Int)
 #     ELessThanEq(info: Info, left: Expr, right: Expr, sym: Int)
 #     EGreatThan(info: Info, left: Expr, right: Expr, sym: Int)
@@ -203,6 +204,14 @@ class EDiv(Expr):           # left / right
 class ENeg(Expr):           # -operand (unary minus)
     info: Info
     operand: Expr
+    sym: int = 0
+
+
+@dataclass(frozen=True)
+class EConcat(Expr):        # left ++ right (string and list concatenation)
+    info: Info
+    left: Expr
+    right: Expr
     sym: int = 0
 
 
@@ -568,6 +577,11 @@ def _pprint_expr(e, min_prec=0):
             # negation is parenthesized too: `-(-5)` rather than `--5`,
             # which parses the same but reads like a typo.
             return _wrap(4, min_prec, f"-{pprint_expr(operand, 5)}")
+        case EConcat(_, l, r):
+            # Concatenation sits at the additive level and associates to
+            # the left, like `+`; the two never mix, since one takes Ints
+            # and the other does not.
+            return _wrap(2, min_prec, f"{pprint_expr(l, 2)} ++ {pprint_expr(r, 3)}")
         case ELessThan(_, l, r):
             return _wrap(1, min_prec, f"{pprint_expr(l, 2)} < {pprint_expr(r, 2)}")
         case ELessThanEq(_, l, r):

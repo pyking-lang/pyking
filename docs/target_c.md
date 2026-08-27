@@ -123,7 +123,7 @@ gets a new C variable, which may well have a different type.
 - `if … then … else …` whose branches differ in type — C's `?:` needs one
   type on both arms.
 - `==` between different types — likewise.
-- `+` mixing an integer and a string.
+- `+` or `++` mixing an integer and a string.
 
 ### A function that produces a value on some paths and none on others
 

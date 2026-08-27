@@ -308,11 +308,10 @@ nothing to run.
 
 It currently covers immutable bindings, expression statements, `if`
 statements (in both the ordinary and the value form), and fully
-annotated function definitions, over `Int`, `String` and `Bool`: `+`
-(overloaded: `Int + Int -> Int` and `String + String -> String`), `-`
-and `*` on `Int`, `<`/`<=`/`>`/`>=` on `Int` giving `Bool`, `==` on two
-values of one type giving `Bool`, calls of a function-typed name, and
-calls of the four builtins.
+annotated function definitions, over `Int`, `String` and `Bool`: `+`,
+`-` and `*` on `Int`, `++` on `String`, `<`/`<=`/`>`/`>=` on `Int`
+giving `Bool`, `==` on two values of one type giving `Bool`, calls of a
+function-typed name, and calls of the four builtins.
 
 A binding takes its right-hand side's type, and an annotation it wrote
 is checked against that rather than replaced by it — `f: (Int, String)
@@ -363,7 +362,7 @@ says where it stops:
 ```
 $ pyk compile --typecheck prog.pyk
 'prog.pyk' 1:4-1:16 Type error: `+` cannot be applied to Int and String;
-  it accepts Int + Int or String + String
+  it accepts Int + Int
 ```
 
 ## The interpreter

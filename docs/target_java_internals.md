@@ -93,8 +93,8 @@ C has no `+` for strings and no `==` that compares string *contents*
 (only pointers), which is why `target_c.py` needs a generated
 `pyk_concat` helper and an `strcmp` call for every string operation
 (see that page). Java needs neither: string concatenation is Java's own
-`+`, so `EAdd` between two `String`-typed operands translates straight
-to a `JBinary("+", ...)`, no helper involved. String *equality* still
+`+`, so an `EConcat` translates straight to a `JBinary("+", ...)`, no
+helper involved. String *equality* still
 needs care — Java's `==` on `String` compares object references, not
 contents, which would silently produce wrong answers for two distinct
 `String` objects holding equal text — so `EEq` between two strings

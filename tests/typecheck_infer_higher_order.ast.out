@@ -3,7 +3,7 @@ def apply_twice(f, x):
 def add_one(n:Int) -> Int:
     n + 1
 def repeat(word:String) -> String:
-    word + word
+    word ++ word
 print(apply_twice(add_one, 5))
 print(apply_twice(repeat, 'ab'))
 def apply_once(f:(Int) -> Int, x:Int) -> Int:

@@ -7,7 +7,7 @@ value = 10
 
 # A parameter shadows the module-level `n` throughout the body.
 def describe(n):
-    "param " + str(n)
+    "param " ++ str(n)
 
 
 print(describe(1), n)
@@ -26,9 +26,9 @@ print(twice(4), value)
 # `n` and `value` here are the pattern's, not the module's.
 def classify(point):
     match point:
-        case (n, 0): "on x at " + str(n)
-        case (0, n): "on y at " + str(n)
-        case (n, value): str(n) + "/" + str(value)
+        case (n, 0): "on x at " ++ str(n)
+        case (0, n): "on y at " ++ str(n)
+        case (n, value): str(n) ++ "/" ++ str(value)
 
 
 print(classify((3, 0)))
@@ -65,12 +65,12 @@ def step(k):
     if k <= 0:
         return "done"
     else:
-        return "." + step(k - 1)
+        return "." ++ step(k - 1)
 
 
 def local_step(k):
     step = "not a function"
-    return step + ", " + str(k)
+    return step ++ ", " ++ str(k)
 
 
 print(step(3), local_step(2))
@@ -79,13 +79,13 @@ print(step(3), local_step(2))
 # Shadowing chains: each scope rebinds the same name from the one outside
 # it, and every level reads exactly its own.
 def chain(label):
-    first = label + "/1"
+    first = label ++ "/1"
 
     def middle(label):
-        label + "/2"
+        label ++ "/2"
 
     second = middle(first)
-    return second + "/3"
+    return second ++ "/3"
 
 
 print(chain("start"))

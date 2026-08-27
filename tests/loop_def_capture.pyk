@@ -13,7 +13,7 @@ var makers = []
 loop i = 0:
     def show(): i
 
-    makers := makers + [show]
+    makers := makers ++ [show]
     if i > 1:
         break
     else:
@@ -32,7 +32,7 @@ loop n = 10:
 
     def right(): n * 2
 
-    pairs := pairs + [left]
+    pairs := pairs ++ [left]
     if n >= 30:
         break
     else:

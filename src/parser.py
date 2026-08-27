@@ -26,7 +26,7 @@ from dataclasses import replace
 from lexer import (
     Info,
     TokInt, TokString, TokIdent,
-    TokAdd, TokSub, TokMul, TokDiv,
+    TokAdd, TokConcat, TokSub, TokMul, TokDiv,
     TokLessThanEq, TokLessThan, TokGreatThanEq, TokGreatThan, TokEqEq,
     TokColon, TokIndent, TokDedent, TokEq, TokLParen, TokRParen, TokComma,
     TokLBracket, TokRBracket, TokDotDot,
@@ -37,7 +37,7 @@ from lexer import (
 )
 from syntax import (
     EInt, EString, EBool, EVar,
-    EAdd, ESub, EMul, EDiv, ENeg,
+    EAdd, EConcat, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList, ETuple,
     EIf, EListComp, CompFor, CompIf,
     PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, ListRest, MatchCase,
@@ -250,13 +250,18 @@ def parse_multiplicative(tokens):
 
 
 def parse_additive(tokens):
-    """Parses `+`/`-`, left-associative. [Token] -> (Expr, [Token])"""
+    """Parses `+`/`++`/`-`, left-associative. [Token] -> (Expr, [Token])"""
     left, rest = parse_multiplicative(tokens)
     while True:
         match rest:
             case [TokAdd(_), *rest2]:
                 right, rest2 = parse_multiplicative(rest2)
                 left, rest = EAdd(combine_info(left.info, right.info), left, right), rest2
+            case [TokConcat(_), *rest2]:
+                right, rest2 = parse_multiplicative(rest2)
+                left, rest = (
+                    EConcat(combine_info(left.info, right.info), left, right), rest2
+                )
             case [TokSub(_), *rest2]:
                 right, rest2 = parse_multiplicative(rest2)
                 left, rest = ESub(combine_info(left.info, right.info), left, right), rest2

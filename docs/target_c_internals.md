@@ -164,13 +164,13 @@ which order the source happened to define things in — a detail
 directly: the output doesn't depend on an ordering the language itself
 says doesn't matter.
 
-## Strings: a real helper, because C has no `+`
+## Strings: a real helper, because C has no `++`
 
 Unlike `target_java.py`, where string concatenation is just Java's own
 `+` and equality is `.equals()` (see that page), C has neither. This
 backend generates one small `pyk_concat` helper (written in the subset
-both standards accept, so one copy serves both) and translates a
-string-`+` into a call to it; equality between two strings becomes
+both standards accept, so one copy serves both) and translates an
+`EConcat` into a call to it; equality between two strings becomes
 `strcmp(...) == 0`. `CProgram.uses_concat`/`uses_strcmp` track whether
 either was needed at all, which is what lets `_headers` include
 `<string.h>` (and, for `pyk_concat`'s `malloc`, `<stdlib.h>`) only in a

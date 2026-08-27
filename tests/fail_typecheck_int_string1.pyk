@@ -9,4 +9,4 @@
 # error message, not a program's output.
 
 count = 13
-count + "hello"
+count ++ "hello"

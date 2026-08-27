@@ -11,7 +11,7 @@ def first_elements(ps) -> [Int]:
     var result = []
     for p in ps:
         (first, _) = p
-        result := result + [first]
+        result := result ++ [first]
     return result
 
 

@@ -30,7 +30,7 @@ print(band)
 outer = if size() > 0:
     inner = if size() > 2: 'deep'
     else: 'shallow'
-    inner + '!'
+    inner ++ '!'
 else:
     'none'
 print(outer)

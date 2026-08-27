@@ -16,7 +16,7 @@ def described(n: Int) -> String:
         if k == 13:
             return "unlucky"
         k * 3
-    "reached " + str(reached)
+    "reached " ++ str(reached)
 
 
 print(described(1))
@@ -33,7 +33,7 @@ def twice_over(start: Int) -> String:
         if n > 40:
             break
         n + n
-    str(stopped) + " from " + str(start)
+    str(stopped) ++ " from " ++ str(start)
 
 
 print(twice_over(3))

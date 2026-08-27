@@ -83,7 +83,7 @@ def describe(n):
             case 0: "zero"
             case 1:
                 label =
-                    "o" + "ne"
+                    "o" ++ "ne"
                 label
             case _:
                 inner =

@@ -56,7 +56,7 @@ def alternate(n:Int) -> String:
                 up(m - 1)
         up(n)
     else:
-        up + down
+        up ++ down
 
 
 print(depth(0), depth(4))

@@ -25,7 +25,7 @@ def all_marked(n: Int, marks: String) -> Bool:
     if n == 0:
         marks == ""
     else:
-        all_marked(n - 1, marks + "*")
+        all_marked(n - 1, marks ++ "*")
 
 
 print(all_marked(0, ""))
@@ -38,7 +38,7 @@ print(all_marked(3, ""))
 def counts_down(n: Int, seen: String) -> Bool:
     if n == 0:
         return seen == ""
-    return counts_down(n - 1, seen + "*")
+    return counts_down(n - 1, seen ++ "*")
 
 
 print(counts_down(0, ""))

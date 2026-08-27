@@ -1,23 +1,23 @@
 i: Int = 42
 s: String = 'hello'
 sum: Int = 12 + 20
-greeting: String = 'hi' + 'there'
+greeting: String = 'hi' ++ 'there'
 difference: Int = 100 - 58
 product: Int = 6 * 7
 doubled: Int = sum * 2
 shifted: Int = doubled - i
-label: String = greeting + '!'
-louder: String = label + '!' + '!'
+label: String = greeting ++ '!'
+louder: String = label ++ '!' ++ '!'
 mixed: Int = 1 + 2 * 3 - 4
 grouped: Int = (1 + 2) * (3 - 4)
 deep: Int = ((1 + 2) * 3 - 4) * 5
 chain: Int = 1 + 2 + 3 + 4 + 5
-words: String = 'a' + 'b' + 'c' + 'd'
+words: String = 'a' ++ 'b' ++ 'c' ++ 'd'
 value: Int = 1
 value: String = 'now a string'
-after: String = value + ' still a string'
+after: String = value ++ ' still a string'
 i + 1
-greeting + '?'
+greeting ++ '?'
 2 * 3 - 4
 annotated: Int = 7 + 1
 print(i, s, sum, greeting)

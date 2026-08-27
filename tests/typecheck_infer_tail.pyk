@@ -13,12 +13,12 @@ def area(width, height):
 # A body whose last statement is a `print`: it supplies nothing, so the
 # function returns unit -- `()`.
 def announce(message):
-    print('note: ' + message)
+    print('note: ' ++ message)
 
 # Statements first, value last. Only the last one is in tail position.
 def spaced(word):
-    padded = ' ' + word
-    padded + ' '
+    padded = ' ' ++ word
+    padded ++ ' '
 
 # Every branch supplies a value, and they must agree -- the same rule as
 # anywhere else, and it is what gives this function one return type.
@@ -38,6 +38,6 @@ def clamp(n, hi):
     n
 
 announce('starting')
-print(area(3, 4), spaced('x') + '|')
+print(area(3, 4), spaced('x') ++ '|')
 print(describe(0), describe(7))
 print(clamp(9, 5), clamp(2, 5))

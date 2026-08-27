@@ -1,9 +1,10 @@
 # `-` applied to two Strings.
 #
-# Unlike `+`, subtraction has a single signature (Int - Int), so both
-# operands here agree with each other and are still wrong -- which is
-# the case that would slip through a checker that only compared the two
-# operand types to one another instead of to what the operator accepts.
+# Subtraction has a single signature (Int - Int), so both operands here
+# agree with each other and are still wrong -- which is the case that
+# would slip through a checker that only compared the two operand types
+# to one another instead of to what the operator accepts. Unlike `+`,
+# `-` has no look-alike to suggest, so no operator is proposed.
 #
 # The error is also reported against the binding's right-hand side, not
 # the whole binding, so the position points at the operator that failed.

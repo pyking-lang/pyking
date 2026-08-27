@@ -76,6 +76,11 @@ class TokAdd(Token):        # '+' user defined
 
 
 @dataclass(frozen=True)
+class TokConcat(Token):     # '++' (string and list concatenation)
+    info: Info
+
+
+@dataclass(frozen=True)
 class TokSub(Token):        # '-' user defined
     info: Info
 
@@ -295,6 +300,8 @@ def pprint_token(tok):
             return f"TokString('{s}')"
         case TokAdd():
             return "TokAdd"
+        case TokConcat():
+            return "TokConcat"
         case TokSub():
             return "TokSub"
         case TokArrow():
@@ -559,6 +566,9 @@ def lexing(file, chars):
                 rest = ys
 
             # Operators that are user defined in real pyking
+            case ["+", "+", *xs]:
+                tokens.append(TokConcat(fi(r, c, 2)))
+                c, rest = c + 2, xs
             case ["+", *xs]:
                 tokens.append(TokAdd(fi(r, c, 1)))
                 c, rest = c + 1, xs

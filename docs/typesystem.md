@@ -264,6 +264,29 @@ something calls it, the call site's own scope is not the right one to
 check the body in (see `type_inference.md`, "Where the definition's
 environment comes from").
 
+## `+` and `++`: naming the operator that would have worked
+
+Splitting concatenation out of `+` moved a whole class of mistake from
+"wrong types" to "wrong operator", and a message that only said what
+`+` accepts would leave the reader to work the rest out. So a failing
+operator names its look-alike when — and only when — that look-alike
+would have taken these operands:
+
+```
+'prog.pyk' 3:6-3:18 Type error: `+` cannot be applied to String and
+  String; it accepts Int + Int. Did you mean `++`, the concatenation
+  operator?
+```
+
+`ALTERNATIVES` pairs the two in both directions, so `1 ++ 2` is told
+about `+` by the same rule. The condition is checked against the
+partner's row in `OPERATORS` rather than hard-coded, which keeps the
+suggestion honest: it is offered only where the swap really is the fix.
+`1 + 'a'` gets no suggestion, because no operator here takes an Int and
+a String, and `'x' - 'y'` gets none either, because `-` has no
+look-alike. A suggestion that might not work is worse than none, for
+the same reason `docs/type_inference.md` gives about reported types.
+
 ## Comparing types: never `==`
 
 Every `T*` node from `syntax.py` is a frozen dataclass, which means

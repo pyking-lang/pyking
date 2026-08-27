@@ -33,7 +33,7 @@ import runtime_interface
 import typesystem
 from syntax import (
     Expr, Stmt,
-    EInt, EString, EBool, EVar, EAdd, ESub, EMul, ECall, EIf, ETuple,
+    EInt, EString, EBool, EVar, EAdd, EConcat, ESub, EMul, ECall, EIf, ETuple,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq,
     SLet, SLetStmt, SExprStmt, SIf, SReturn, SReturnStmt, SFunctionDef,
     SLoop, SBreak, SContinue,
@@ -775,7 +775,7 @@ def _evaluate(expr, env):
                     return value
         case ETuple(_, elements, _):
             return VTuple(tuple(_evaluate(element, env) for element in elements))
-        case EAdd() | ESub() | EMul() | ELessThan() | ELessThanEq() \
+        case EAdd() | EConcat() | ESub() | EMul() | ELessThan() | ELessThanEq() \
                 | EGreatThan() | EGreatThanEq() | EEq():
             left = _evaluate(expr.left, env)
             right = _evaluate(expr.right, env)
@@ -829,12 +829,12 @@ def _compare(op):
     return rule
 
 
-def _add(left, right):
+def _concat(left, right):
     match (left, right):
-        case (VInt(a), VInt(b)):
-            return VInt(wrap32(a + b))
         case (VString(a), VString(b)):
             return VString(a + b)
+        case (VList(a), VList(b)):
+            return VList(a + b)
     return None
 
 
@@ -846,7 +846,8 @@ def _equals(left, right):
 
 
 OPERATORS = {
-    EAdd: ("+", _add),
+    EAdd: ("+", _arith(lambda a, b: a + b)),
+    EConcat: ("++", _concat),
     ESub: ("-", _arith(lambda a, b: a - b)),
     EMul: ("*", _arith(lambda a, b: a * b)),
     ELessThan: ("<", _compare(lambda a, b: a < b)),
@@ -963,7 +964,7 @@ def _step_eval(state, expr):
         except _Trap as trap:
             return failed(state, trap.error)
     match expr:
-        case EAdd() | ESub() | EMul() | ELessThan() | ELessThanEq() \
+        case EAdd() | EConcat() | ESub() | EMul() | ELessThan() | ELessThanEq() \
                 | EGreatThan() | EGreatThanEq() | EEq():
             return _go(
                 state,

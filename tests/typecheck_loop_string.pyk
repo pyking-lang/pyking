@@ -12,7 +12,7 @@ banner = loop text = "":
     if text == "*****":
         break
     else:
-        text + "*"
+        text ++ "*"
 
 print(banner)
 
@@ -22,7 +22,7 @@ def grow(seed: String, target: String) -> String:
         if text == target:
             break text
         else:
-            text + "ab"
+            text ++ "ab"
 
 
 print(grow("", "abab"))

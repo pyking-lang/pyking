@@ -374,11 +374,11 @@ missed: **the summary claimed something the checker refuses.** That type
 says an Int and a String may be mixed in one call, and
 
 ```pyking
-def combine(x, y): x + y
+def combine(x, y): if x == y then x else y
 
 print(combine(1, 3))
 print(combine('hi', 'now'))
-print(combine(12, 'hi'))      # Type error: `+` cannot be applied to
+print(combine(12, 'hi'))      # Type error: `==` cannot be applied to
                               #             Int and String
 ```
 

@@ -29,9 +29,9 @@ print(honors_tally)
 def classify_path(moves):
     match moves:
         case []:                 "done"
-        case ["up", ..rest]:     "up, " + classify_path(rest)
-        case ["down", ..rest]: "down, " + classify_path(rest)
-        case [_, ..rest]:        "side, " + classify_path(rest)
+        case ["up", ..rest]:     "up, " ++ classify_path(rest)
+        case ["down", ..rest]: "down, " ++ classify_path(rest)
+        case [_, ..rest]:        "side, " ++ classify_path(rest)
 
 
 print(classify_path(["up", "up", "down"]))
@@ -48,7 +48,7 @@ def flatten_scores(entries):
         case []:
             return []
         case [(name, scores), ..rest]:
-            return scores + flatten_scores(rest)
+            return scores ++ flatten_scores(rest)
 
 
 print(flatten_scores(students))

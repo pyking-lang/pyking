@@ -1,0 +1,16 @@
+# `+` between two Strings: the mistake `++` exists to make visible.
+#
+# Both operands agree with each other and are still wrong, since `+`
+# adds and only adds. The message says so and then names the operator
+# that *would* have taken them, because writing `+` for concatenation is
+# what anyone arriving from Python will do first.
+#
+# The suggestion is offered only when the swap really is the fix: see
+# fail_typecheck_int_string1.pyk, where the operands do not agree with
+# each other either and no operator is proposed.
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+greeting = "hui"
+joined = greeting + "wow"

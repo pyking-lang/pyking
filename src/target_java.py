@@ -31,7 +31,7 @@ import runtime_interface
 from syntax import (
     pprint_expr,
     Expr, EInt, EString, EBool, EVar,
-    EAdd, ESub, EMul, EDiv, ENeg,
+    EAdd, EConcat, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EIf, ETuple,
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SWhile, SIf,
     SLoop, SBreak, SContinue, SFunctionDef,
@@ -462,11 +462,16 @@ class _Translator:
                 )
             case EAdd(info, l, r):
                 left, right = self.expr(l, scope), self.expr(r, scope)
-                if left.ctype == STRING and right.ctype == STRING:
-                    return JBinary(info, "+", left, right, STRING)
                 self._require(left, INT, "`+`")
                 self._require(right, INT, "`+`")
                 return JBinary(info, "+", left, right, INT)
+            case EConcat(info, l, r):
+                # Java spells concatenation `+` too, so the two Pyking
+                # operators differ here only in the type they demand.
+                left, right = self.expr(l, scope), self.expr(r, scope)
+                self._require(left, STRING, "`++`")
+                self._require(right, STRING, "`++`")
+                return JBinary(info, "+", left, right, STRING)
             case EEq(info, l, r):
                 left, right = self.expr(l, scope), self.expr(r, scope)
                 if left.ctype == STRING and right.ctype == STRING:
@@ -976,7 +981,7 @@ def _used_as_string(name, node):
     from dataclasses import fields, is_dataclass
 
     match node:
-        case EAdd(_, EVar(_, n), EString()) | EAdd(_, EString(), EVar(_, n)):
+        case EConcat(_, EVar(_, n), EString()) | EConcat(_, EString(), EVar(_, n)):
             if n == name:
                 return True
         case EEq(_, EVar(_, n), EString()) | EEq(_, EString(), EVar(_, n)):

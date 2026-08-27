@@ -77,8 +77,8 @@ imported by every other one.
   error message in the compiler begins with.
 - **The token ADT** — `Token` as a marker base class and one frozen
   dataclass per kind: `TokInt(info, value)`, `TokString(info, value)`,
-  `TokIdent(info, name)`, the operators (`TokAdd`, `TokSub`, `TokMul`,
-  `TokDiv`, `TokEqEq`, `TokLessThan`, …), the punctuation (`TokColon`,
+  `TokIdent(info, name)`, the operators (`TokAdd`, `TokConcat`,
+  `TokSub`, `TokMul`, `TokDiv`, `TokEqEq`, `TokLessThan`, …), the punctuation (`TokColon`,
   `TokComma`, `TokLParen`, `TokArrow`, `TokDotDot`, …), the keywords
   (`TokDef`, `TokReturn`, `TokFor`, `TokIf`, `TokMatch`, `TokVar`, …),
   and the two that carry the block structure, **`TokIndent`** and
@@ -136,8 +136,9 @@ the classes is part of changing the AST.
 The groups:
 
 - **`Expr`** — `EInt`, `EString`, `EBool`, `EVar`, `EAdd`, `ESub`,
-  `EMul`, `EDiv`, `ENeg`, `ELessThan`, `ELessThanEq`, `EGreatThan`,
-  `EGreatThanEq`, `EEq`, `ECall`, `EList`, `ETuple`, `EIf`, `EListComp`.
+  `EMul`, `EDiv`, `ENeg`, `EConcat`, `ELessThan`, `ELessThanEq`,
+  `EGreatThan`, `EGreatThanEq`, `EEq`, `ECall`, `EList`, `ETuple`,
+  `EIf`, `EListComp`.
 - **`Type`** — `TInt`, `TString`, `TBool`, `TList`, `TTuple`, `TOr`,
   `TUnknown`, `TNever`, `TBuiltin`, `TFunction`. `TTuple` with no
   elements is the unit type `()`; `TOr` is an alternative type, written
@@ -374,8 +375,17 @@ scheme specifically).
   `TBuiltin` type, callable but never a value, because none of them
   fits a `TFunction`.
 - **`OPERATORS`** — node class → (spelling, list of signatures). A *list*
-  because several operators are overloaded: `+` is `Int + Int` and
-  `String + String`, and both operands must match the same signature.
+  because `==` is overloaded: it relates two `Int`s, two `String`s or
+  two `Bool`s, and both operands must match the same signature. `+` and
+  `++` each have one signature apiece — `Int + Int` and
+  `String ++ String` — which is the point of their being two operators.
+- **`ALTERNATIVES` / `alternative(expr, left, right)`** — the two
+  operators that are easy to write for one another, paired both ways.
+  A failing `+` whose operands `++` *would* have taken has the swap
+  suggested to it, and vice versa; the suggestion is read off the
+  partner's own row in `OPERATORS`, so it cannot claim an acceptance
+  the checker does not have. `1 + 'a'`, which nothing accepts, is
+  offered nothing.
 - **`TypeError_(info, message)`** — a type error, or the floor:
   `Construct is not supported`, raised for everything outside the
   fragment. That floor is deliberate — a checker that quietly accepted

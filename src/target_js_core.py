@@ -27,7 +27,7 @@ from lexer import Info
 import runtime_interface
 from syntax import (
     EInt, EString, EBool, EVar,
-    EAdd, ESub, EMul, EDiv, ENeg,
+    EAdd, EConcat, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EIf, ETuple,
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SWhile, SIf,
     SLoop, SBreak, SContinue, SFunctionDef,
@@ -308,6 +308,10 @@ UNSUPPORTED_BUILTINS = ("str", "range", "len")
 
 _BINARY_OPS = {
     EAdd: "+",
+    # JavaScript's `+` concatenates strings. It does not concatenate
+    # arrays, but this backend refuses list literals before one could
+    # reach here (see docs/target_js.md).
+    EConcat: "+",
     ESub: "-",
     EMul: "*",
     EDiv: "/",

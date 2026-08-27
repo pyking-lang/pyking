@@ -40,7 +40,7 @@ from lexer import Info
 import runtime_interface
 from syntax import (
     EInt, EString, EBool, EVar,
-    EAdd, ESub, EMul, EDiv, ENeg,
+    EAdd, EConcat, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList, ETuple,
     EIf, EListComp, CompFor, CompIf,
     PInt, PString, PWildcard, PCapture, PTuple, PList,
@@ -165,7 +165,8 @@ def analyze_expr(e, env):
             pass
         case EVar(info, name):
             check_bound(name, env, info)
-        case (EAdd(_, l, r) | ESub(_, l, r) | EMul(_, l, r) | EDiv(_, l, r)
+        case (EAdd(_, l, r) | EConcat(_, l, r) | ESub(_, l, r) | EMul(_, l, r)
+              | EDiv(_, l, r)
               | ELessThan(_, l, r) | ELessThanEq(_, l, r) | EGreatThan(_, l, r)
               | EGreatThanEq(_, l, r) | EEq(_, l, r)):
             analyze_expr(l, env)

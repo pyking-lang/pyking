@@ -16,7 +16,7 @@
 def double(n:Int) -> Int:
     return n * 2
 
-def shout(word:String) -> String: word + '!'
+def shout(word:String) -> String: word ++ '!'
 
 def choose(a:Int, keep:Bool) -> Int:
     if keep:
@@ -50,7 +50,7 @@ dropped = choose(7, false)
 # The result of a call is an ordinary value of that type, so it composes
 # with everything the checker already knew about.
 sum = double(3) + 4
-message = shout('a') + shout('b')
+message = shout('a') ++ shout('b')
 compared = double(1) == 2
 
 # The parameters are in scope in the body and nowhere else, so this

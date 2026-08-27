@@ -5,8 +5,8 @@
 # its type is `((Int, Int) -> Int) | ((String, String) -> String)`. A
 # call that takes one parameter from one alternative and one from the
 # other is not covered by either, and the checker says so where the
-# mismatch actually is -- inside the body, on the `+` that cannot add a
-# String to an Int.
+# mismatch actually is -- inside the body, on the `==` that cannot
+# compare a String with an Int.
 #
 # This is the point of keeping each call's parameters and result
 # together: a type that had merged them into
@@ -16,7 +16,7 @@
 # This program is expected to FAIL type checking. Its `.ast.out` holds
 # the error message, not a program's output.
 
-def combine(x, y): x + y
+def combine(x, y): if x == y then x else y
 
 print(combine(1, 3))
 print(combine('hi', 'now'))

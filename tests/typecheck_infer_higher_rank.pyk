@@ -14,7 +14,7 @@
 # functions whose results differ.
 def double(n): n * 2
 
-def show(n): str(n) + '!'
+def show(n): str(n) ++ '!'
 
 def apply_to_two(f): f(2)
 

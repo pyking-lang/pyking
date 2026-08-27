@@ -1,7 +1,7 @@
 def scale(n:Int, factor:Int) -> Int:
     n * factor
 def label(n:Int) -> String:
-    'n = ' + str(n)
+    'n = ' ++ str(n)
 def total(a:Int, b:Int) -> Int:
     a + b
 scaled: Int = scale(6, 7)

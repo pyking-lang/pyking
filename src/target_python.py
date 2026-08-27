@@ -28,7 +28,7 @@ import runtime_interface
 from lexer import Info
 from syntax import (
     EInt, EString, EBool, EVar,
-    EAdd, ESub, EMul, EDiv, ENeg,
+    EAdd, EConcat, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList, ETuple,
     EIf, EListComp, CompFor, CompIf,
     PInt, PString, PBool, PWildcard, PCapture, PTuple, PList,
@@ -1009,7 +1009,7 @@ def _translate_comp_for(clause, scope):
 # `_wrap_print_argument` (the only caller) treats as the safe default: a
 # runtime walk via `_format_helper_name`.
 _PROVABLY_BOOL_EXPRS = (EEq, ELessThan, ELessThanEq, EGreatThan, EGreatThanEq)
-_PROVABLY_NOT_BOOL_EXPRS = (EInt, EString, EAdd, ESub, EMul, EDiv, ENeg)
+_PROVABLY_NOT_BOOL_EXPRS = (EInt, EString, EAdd, EConcat, ESub, EMul, EDiv, ENeg)
 
 
 def _bool_shape(e):
@@ -1052,6 +1052,10 @@ def translate_expr(e, scope):
         case EVar(info, name):
             return PyVar(info, _lookup(name, scope))
         case EAdd(info, l, r):
+            return PyAdd(info, translate_expr(l, scope), translate_expr(r, scope))
+        case EConcat(info, l, r):
+            # Python's `+` concatenates strings and lists as well as
+            # adding, so both Pyking operators land on the same node.
             return PyAdd(info, translate_expr(l, scope), translate_expr(r, scope))
         case ESub(info, l, r):
             return PySub(info, translate_expr(l, scope), translate_expr(r, scope))

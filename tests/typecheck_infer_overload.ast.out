@@ -1,5 +1,5 @@
 def combine(x, y):
-    x + y
+    if x == y then x else y
 def wrap(value):
     if value == value:
         value

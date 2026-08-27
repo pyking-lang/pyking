@@ -7,7 +7,7 @@ def spell(n:Int) -> String:
     if n < 1:
         ''
     else:
-        'x' + spell(n - 1)
+        'x' ++ spell(n - 1)
 def is_even(n:Int) -> Bool:
     if n == 0:
         true
@@ -19,7 +19,7 @@ def is_odd(n:Int) -> Bool:
     else:
         is_even(n - 1)
 def describe(n:Int) -> String:
-    label(n) + '!'
+    label(n) ++ '!'
 def label(n:Int) -> String:
     if n < 0:
         'negative'

@@ -126,6 +126,8 @@ Expressions:
 - Variables (identifier references)
 - Arithmetic operators (`+`, `-`, `*`, `/`), unary minus (`-x`, and
   negative literals like `-5`), and parenthesized expressions
+- Concatenation (`++`) for strings and lists — Pyking extension; a
+  separate operator from `+`, which only ever adds
 - Comparison operators (`<`, `<=`, `>`, `>=`, `==`)
 - Function calls
 - List literals (`[e1, e2, ...]`)
@@ -299,7 +301,7 @@ if_expr     = "if" , expr , "then" , expr , "else" , expr ;
 comparison  = additive , [ comp_op , additive ] ;
 comp_op     = "<" | "<=" | ">" | ">=" | "==" ;
 
-additive    = multiplicative , { ( "+" | "-" ) , multiplicative } ;
+additive    = multiplicative , { ( "+" | "++" | "-" ) , multiplicative } ;
 multiplicative = unary , { ( "*" | "/" ) , unary } ;
 unary       = "-" , unary | atom ;
 
@@ -792,6 +794,29 @@ A `case` pattern may use a negative integer literal too — `case -1:` —
 matching Python. That is a literal only: patterns are matched, not
 evaluated, so `case -x:` is not a negation of anything.
 
+### Concatenation (`++`) — Pyking extension
+
+`++` joins two strings, or two lists, into one. It is left-associative
+and sits at the same precedence as `+` and `-`, so a chain of them needs
+no parentheses and `*`/`/` still bind tighter.
+
+```python
+print("con" ++ "cat")
+print("a" ++ "b" ++ "c" ++ "d")
+print([1, 2] ++ [3, 4])
+```
+
+Concatenation has an operator of its own because `+` does not do it.
+Where Python writes `+` for both, Pyking keeps them apart: `+` adds two
+`Int`s and nothing else, `++` joins and never adds. Nothing is both, so
+the two never meet in one expression, and neither one has to be read as
+the other.
+
+```python
+print(2 + 3)        # 5
+print("2" ++ "3")   # 23
+```
+
 ### Comparison operators
 
 `<`, `<=`, `>`, `>=`, and `==` compare two arithmetic expressions and
@@ -1037,7 +1062,7 @@ n = "outer"
 
 
 def describe(n):
-    "param " + str(n)
+    "param " ++ str(n)
 
 
 print(describe(1), n)
@@ -1238,7 +1263,7 @@ var fns = []
 
 for i in range(3):
     def show(): i
-    fns := fns + [show]
+    fns := fns ++ [show]
 
 for f in fns:
     print(f())          # 0, then 1, then 2
@@ -1708,7 +1733,7 @@ def describe(n):
         case 1:
             return "one"
         case value:
-            return "many: " + str(value)
+            return "many: " ++ str(value)
 
 
 for i in [0, 1, 5]:
@@ -1762,19 +1787,19 @@ def describe(xs):
         case []:
             return "empty"
         case [x]:
-            return "exactly one: " + str(x)
+            return "exactly one: " ++ str(x)
         case [a, b, c]:
             return "exactly three"
         case [first, ..rest]:
-            return "prefix + rest, first=" + str(first)
+            return "prefix + rest, first=" ++ str(first)
         case [..init, last]:
-            return "rest + suffix, last=" + str(last)
+            return "rest + suffix, last=" ++ str(last)
         case [p, q, ..mid, r]:
             return "matched middle"
         case [u, v, ..]:
             return "two elements, rest ignored"
         case [_, ..w]:
-            return "first ignored, rest=" + str(w)
+            return "first ignored, rest=" ++ str(w)
 
 
 print(describe([]))
@@ -1859,8 +1884,8 @@ def describe(point):
         case (0, 0): "origin"
         case (0, y):
             side = if y > 0 then "up" else "down"
-            "on the y axis, " + side
-        case (x, y): "at " + str(x) + "," + str(y)
+            "on the y axis, " ++ side
+        case (x, y): "at " ++ str(x) ++ "," ++ str(y)
     return text
 
 
@@ -2302,13 +2327,15 @@ under Pyking's ordinary lexical scoping.
 | operator | accepts | gives |
 |---|---|---|
 | `+` | `Int + Int` | `Int` |
-| `+` | `String + String` | `String` |
+| `++` | `String ++ String` | `String` |
 | `-`, `*` | `Int`, `Int` | `Int` |
 | `<`, `<=`, `>`, `>=` | `Int`, `Int` | `Bool` |
 | `==` | two `Int`s, two `String`s or two `Bool`s | `Bool` |
 
-So `1 + 'a'` is an error, and so is `1 == 'a'` — a comparison of two
-different types is refused rather than answered `false`.
+So `1 + 'a'` is an error, and so is `'a' + 'b'` — `+` adds and only
+adds, and joining two strings is `++`'s job. And so is `1 == 'a'` — a
+comparison of two different types is refused rather than answered
+`false`.
 
 **Bindings and expression statements.** An `=` binding takes the type of
 its right-hand side, and that is what its name means to the statements
@@ -2370,7 +2397,7 @@ def fact(n): if n <= 1 then 1 else fact(n - 1) * n
 
 
 picked = if 3 < 4 then 10 else 20
-print(fact(7), picked, 'grade ' + (if picked > 5 then 'a' else 'b'))
+print(fact(7), picked, 'grade ' ++ (if picked > 5 then 'a' else 'b'))
 ```
 
 An `if` with no `else` supplies unit, whatever its one branch ends in:
@@ -2512,7 +2539,7 @@ def spell(n:Int) -> String:
     if n < 1:
         ''
     else:
-        'x' + spell(n - 1)          # checked against (Int) -> String
+        'x' ++ spell(n - 1)          # checked against (Int) -> String
 
 
 def is_even(n:Int) -> Bool:
@@ -2547,7 +2574,7 @@ that can be written down, and it may be called and nothing else.
 
 ```pyking
 count = len("hello")          # Int
-label = "n = " + str(count)   # String
+label = "n = " ++ str(count)   # String
 numbers = range(4)            # [Int]
 
 print(label, numbers, count)  # anything, any number of them
@@ -2585,7 +2612,7 @@ def sign(n:Int) -> String:
         return 'large'
 
 
-def shout(word:String) -> String: word + '!'
+def shout(word:String) -> String: word ++ '!'
 
 
 kind = sign(4)

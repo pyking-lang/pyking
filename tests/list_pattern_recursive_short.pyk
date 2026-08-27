@@ -13,7 +13,7 @@ def total(xs):
 def reverse(xs):
     match xs:
         case []: []
-        case [x, ..rest]: reverse(rest) + [x]
+        case [x, ..rest]: reverse(rest) ++ [x]
 
 
 def contains(xs, target):
@@ -24,7 +24,7 @@ def contains(xs, target):
 def double_all(xs):
     match xs:
         case []: []
-        case [x, ..rest]: [x * 2] + double_all(rest)
+        case [x, ..rest]: [x * 2] ++ double_all(rest)
 
 
 values = [1, 2, 3, 4, 5]

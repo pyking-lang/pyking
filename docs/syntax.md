@@ -119,7 +119,8 @@ prints its own operator at precedence 2 and asks its right operand for
 precedence 3 (`pprint_expr(r, 3)`) — one *more* than its own — which is
 what makes `1 + (2 + 3)` keep its parens while `(1 + 2) + 3` sheds them:
 addition is left-associative, so only the right side of one `+` ever
-needs protecting from being re-associated. `ENeg`'s comment spells out
+needs protecting from being re-associated. `EConcat` prints at the same
+two numbers, since `++` shares `+`'s level and associativity. `ENeg`'s comment spells out
 the same idea for unary minus, including a case worth reading closely:
 `-(-5)` is deliberately printed with parens around the inner negation
 even though `--5` would parse identically, because a token that reads

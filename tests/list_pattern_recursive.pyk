@@ -19,7 +19,7 @@ def reverse(xs):
         case []:
             return []
         case [x, ..rest]:
-            return reverse(rest) + [x]
+            return reverse(rest) ++ [x]
 
 
 def contains(xs, target):
@@ -38,7 +38,7 @@ def double_all(xs):
         case []:
             return []
         case [x, ..rest]:
-            return [x * 2] + double_all(rest)
+            return [x * 2] ++ double_all(rest)
 
 
 values = [1, 2, 3, 4, 5]

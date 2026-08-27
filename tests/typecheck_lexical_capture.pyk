@@ -20,7 +20,7 @@ x = "two"
 
 # So this is fine: the later `x` is a String, and `show` still returns
 # Int.
-label = x + "!"
+label = x ++ "!"
 count = show() + 1
 
 # A forward reference: `f` names `g`, written below, and `g` reads the

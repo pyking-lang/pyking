@@ -76,7 +76,7 @@ i = "outer i"
 acc = "outer acc"
 
 for i in range(2):
-    acc = str(i) + "!"
+    acc = str(i) ++ "!"
     print(i, acc)
 
 print(i, acc)

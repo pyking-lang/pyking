@@ -36,13 +36,13 @@ var i = 0
 var out = ""
 while i < 5:
     if i == 0:
-        out := out + "z"
+        out := out ++ "z"
     else if i == 1:
-        out := out + "o"
+        out := out ++ "o"
     else if i == 2:
-        out := out + (if i < 3 then "t" else "?")
+        out := out ++ (if i < 3 then "t" else "?")
     else:
-        out := out + "-"
+        out := out ++ "-"
     i := i + 1
 
 print(out)

@@ -40,7 +40,7 @@ from analyses import AnalysisError, BUILTINS, block_functions
 from lexer import Info
 from syntax import (
     pprint_type,
-    EInt, EString, EBool, EVar, EAdd, ESub, EMul, ECall, EIf, ETuple,
+    EInt, EString, EBool, EVar, EAdd, EConcat, ESub, EMul, ECall, EIf, ETuple,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq,
     SLet, SLetStmt, SExprStmt, SIf, SReturn, SReturnStmt, SFunctionDef,
     SLoop, SBreak, SContinue,
@@ -93,6 +93,7 @@ from syntax import (
 #                              -> (Type, Store)
 #     val check_call         : ECall -> Env -> TMap -> Store -> (Type, Store)
 #     val check_binary       : Expr -> Env -> TMap -> Store -> (Type, Store)
+#     val alternative        : Expr -> Type -> Type -> String
 #     val check_annotation   : Type? -> Type -> ()
 #     val check_target       : AssignTarget -> Type -> Env -> TMap -> Store
 #                              -> Env
@@ -839,7 +840,7 @@ def expr_type(expr, env, tmap, store):
             check_not_conflated(then_type, else_type, info)
             return then_type, else_store
 
-        case EAdd() | ESub() | EMul() | ELessThan() | ELessThanEq() \
+        case EAdd() | EConcat() | ESub() | EMul() | ELessThan() | ELessThanEq() \
                 | EGreatThan() | EGreatThanEq() | EEq():
             # Check built-in binary operations
             return check_binary(expr, env, tmap, store)
@@ -1403,7 +1404,8 @@ def builtin_argument_error(name, argument, actual, accepted):
 # node class -> (spelling, [(operand type, result type), ...]).
 # PYKING.md, "Operators", is the table this implements.
 OPERATORS = {
-    EAdd: ("+", [(TInt, TInt), (TString, TString)]),
+    EAdd: ("+", [(TInt, TInt)]),
+    EConcat: ("++", [(TString, TString)]),
     ESub: ("-", [(TInt, TInt)]),
     EMul: ("*", [(TInt, TInt)]),
     ELessThan: ("<", [(TInt, TBool)]),
@@ -1412,6 +1414,29 @@ OPERATORS = {
     EGreatThanEq: (">=", [(TInt, TBool)]),
     EEq: ("==", [(TInt, TBool), (TString, TBool), (TBool, TBool)]),
 }
+
+
+# The two operators that are easy to write for one another: `+` adds
+# and `++` joins, and neither accepts what the other does. Each names
+# the other when a mismatch is exactly the swap -- and only then, so
+# `1 + 'a'`, which no operator would take, is not offered a suggestion.
+ALTERNATIVES = {
+    EAdd: (EConcat, "`++`, the concatenation operator"),
+    EConcat: (EAdd, "`+`"),
+}
+
+
+def alternative(expr, left_type, right_type):
+    """The "did you mean" clause for an operator written where its
+    look-alike belongs, or "" when there is nothing to suggest.
+    Expr -> Type -> Type -> String"""
+    match ALTERNATIVES.get(type(expr)):
+        case (partner, description):
+            _, signatures = OPERATORS[partner]
+            for operand, _ in signatures:
+                if isinstance(left_type, operand) and isinstance(right_type, operand):
+                    return f". Did you mean {description}?"
+    return ""
 
 
 def check_binary(expr, env, tmap, store):
@@ -1432,7 +1457,8 @@ def check_binary(expr, env, tmap, store):
     raise TypeError_(
         expr.info,
         f"`{spelling}` cannot be applied to {pprint_type(left_type)} and "
-        f"{pprint_type(right_type)}; it accepts {accepted}",
+        f"{pprint_type(right_type)}; it accepts {accepted}"
+        + alternative(expr, left_type, right_type),
     )
 
 

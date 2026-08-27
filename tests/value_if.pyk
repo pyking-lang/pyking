@@ -69,7 +69,7 @@ depth = if y > 0:
         "deep"
     else:
         "shallow"
-    inner + "!"
+    inner ++ "!"
 else:
     "none"
 

@@ -45,8 +45,8 @@ var log = ""
 for row in [[1, 2], [3, 4]]:
     var line = ""
     for cell in row:
-        line := line + str(cell)
-    log := log + line + ";"
+        line := line ++ str(cell)
+    log := log ++ line ++ ";"
 
 print(log)
 
@@ -68,6 +68,6 @@ var report = ""
 for pair in [(1, "one"), (2, "two")]:
     match pair:
         case (k, name):
-            report := report + str(k) + "=" + name + " "
+            report := report ++ str(k) ++ "=" ++ name ++ " "
 
 print(report)

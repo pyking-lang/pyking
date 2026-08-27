@@ -27,7 +27,7 @@ import runtime_interface
 from syntax import (
     pprint_type,
     EInt, EString, EBool, EVar,
-    EAdd, ESub, EMul, ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq,
+    EAdd, EConcat, ESub, EMul, ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq,
     ECall, EIf, ETuple,
     SLet, SLetStmt, SReturn, SReturnStmt, SExprStmt, SIf, SFunctionDef,
     SLoop, SBreak, SContinue,
@@ -652,11 +652,11 @@ class _Translator:
                 pieces, sequence = self.in_order([func] + list(args))
                 return sequence(OApp(pieces[0], pieces[1:]))
             case EAdd(_, left, right, _):
-                # One Pyking operator, two OCaml ones: `+` adds and `^`
-                # concatenates, and which is meant is a question about
-                # types -- which the checker has already answered.
-                return self.binary("^" if _is_string(self.type_of(e)) else "+",
-                                   left, right)
+                return self.binary("+", left, right)
+            case EConcat(_, left, right, _):
+                # OCaml spells concatenation `^`, and Pyking's `++` says
+                # which is meant without anything having to ask the type.
+                return self.binary("^", left, right)
             case ESub(_, left, right, _):
                 return self.binary("-", left, right)
             case EMul(_, left, right, _):

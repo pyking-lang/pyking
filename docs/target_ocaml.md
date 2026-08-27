@@ -171,9 +171,9 @@ two `def`s next to each other is the fix.
 **every expression**, not just the ones an annotation could be written
 on. This backend is the reason that is true. Two decisions need it:
 
-- **`+` is two operators in OCaml.** `+` adds and `^` joins strings, and
-  which one a Pyking `+` means is a question about its operands' types —
-  already answered, so it is read rather than re-derived.
+- **`print` is the only thing that needs a type.** Pyking's `+` and
+  `++` map straight onto OCaml's `+` and `^`, so nothing has to ask an
+  operand's type to choose between them.
 - **`print` formats by type.** An `Int` argument becomes
   `string_of_int e`, a `Bool` becomes `string_of_bool e`, a `String` is
   written as it is, unit becomes `"()"`, and a list of `Int` goes

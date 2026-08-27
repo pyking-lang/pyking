@@ -193,10 +193,10 @@ new Java local, which may well have a different type.
 - `if … then … else …` whose branches differ in type -- Java's `?:` is
   typed once for both arms in the way this backend uses it.
 - `==` between different types -- likewise.
-- `+` mixing an integer and a string -- Java would happily stringify the
-  integer, but that is not what Pyking's `+` means (it has no implicit
-  conversion), so this backend refuses it rather than translate `+` into
-  two different Pyking operators depending on its operands.
+- `+` or `++` mixing an integer and a string -- Java would happily
+  stringify the integer for `+`, but that is not what either Pyking
+  operator means (neither has any implicit conversion), so this backend
+  refuses the mix rather than let Java's own `+` paper over it.
 
 ### A recursive or forward-called function returning non-`Int` without an annotation
 
@@ -487,8 +487,8 @@ the whole call, and the generated signature says so.
 
 Every argument's type is known statically, so a `print` call becomes one
 `System.out.println` whose argument is the values joined with Java's own
-`+` -- which already means concatenation once either side is a `String` --
-and single spaces:
+`+` -- which means concatenation once either side is a `String`, and is
+what this backend emits for Pyking's `++` as well -- and single spaces:
 
 ```pyking                          // generated Java
 print(1, "two", 3 < 4)             System.out.println(1 + " " + "two" + " " + (3 < 4));

@@ -51,13 +51,15 @@ def parse_additive(tokens):
             case [TokAdd(_), *rest2]:
                 right, rest2 = parse_multiplicative(rest2)
                 left, rest = EAdd(combine_info(left.info, right.info), left, right), rest2
+            case [TokConcat(_), *rest2]:
+                ...
             case [TokSub(_), *rest2]:
                 ...
             case _:
                 return left, rest
 ```
 
-The `while True` loop, not recursion, is what makes `+`/`-`
+The `while True` loop, not recursion, is what makes `+`/`++`/`-`
 **left-associative**: `1 + 2 + 3` parses as `parse_multiplicative` reads
 `1`, then the loop sees `+`, reads `2` with another call to
 `parse_multiplicative`, builds `EAdd(1, 2)`, loops again, sees `+`,

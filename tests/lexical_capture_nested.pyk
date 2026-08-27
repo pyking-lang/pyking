@@ -47,7 +47,7 @@ def generations(start:Int) -> String:
     def second() -> String:
         return level
 
-    return first() + " " + second() + " " + level
+    return first() ++ " " ++ second() ++ " " ++ level
 
 
 print(generations(0))
@@ -71,7 +71,7 @@ def alternate(n:Int) -> String:
         else:
             return flip(m - 1)
 
-    return flip(n) + flop(n) + up + down
+    return flip(n) ++ flop(n) ++ up ++ down
 
 
 print(alternate(0), alternate(1), alternate(4))

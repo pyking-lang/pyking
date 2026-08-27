@@ -16,7 +16,7 @@ print(render(1), render('two'))
 # `str` accepts an Int and it accepts a String, so it accepts an
 # `Int | String`: a builtin's question is asked of every alternative.
 def announce(value:Int | String | Bool):
-    'value: ' + str(value)
+    'value: ' ++ str(value)
 
 print(announce(true), announce(7))
 
