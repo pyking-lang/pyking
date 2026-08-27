@@ -1,0 +1,36 @@
+# The value form of `match`: its value is bound, returned, or is a
+# function's own.
+#
+# This form must match every value, since a `match` that fits no arm
+# does nothing and there would be no value to bind. `flip` below needs
+# no `case _`: a Bool has two values and both are named, which `covers`
+# knows the way it knows `[]` and `[x, ..rest]` take every list.
+#
+# The backends that refuse value-form bindings altogether refuse this
+# too, `if` and `match` alike (see docs/targets.md).
+
+def flip(b:Bool) -> String:
+    answer = match b:
+        case true: "yes"
+        case false: "no"
+    return answer
+
+
+def sign(n:Int) -> String:
+    return match n:
+        case 0: "zero"
+        case other: if other > 0 then "positive" else "negative"
+
+
+def described(n:Int) -> String:
+    # The value form as a function's own last statement, so the `match`
+    # is what the function supplies.
+    match n:
+        case 1: "single"
+        case 2: "double"
+        case _: "several"
+
+
+print(flip(true), flip(false))
+print(sign(0), sign(5), sign(0 - 5))
+print(described(1), described(2), described(9))

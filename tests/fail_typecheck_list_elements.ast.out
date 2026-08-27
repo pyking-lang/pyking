@@ -1,0 +1,2 @@
+'tests/fail_typecheck_list_elements.pyk' 13:8-13:21 Type error: the
+  elements of this list have different types: Int and String

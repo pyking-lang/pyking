@@ -1,0 +1,63 @@
+# A larger program: an expression evaluator written as a recursion over
+# a tagged representation, using `match` throughout.
+#
+# Pyking has no variant types yet, so an expression is a tuple whose
+# first element is a tag and whose rest is its parts, and the numbers
+# stand in for what a constructor would name. This is what a `match`
+# over a real algebraic type would look like, and it exercises literal
+# patterns, captures, nesting, and a recursion over lists all at once.
+#
+#   (0, n, 0)  a literal n
+#   (1, l, r)  l + r, where l and r are indexes into `nodes`
+#   (2, l, r)  l * r
+#   (3, l, r)  l - r
+
+def at(nodes:[(Int, Int, Int)], index:Int) -> (Int, Int, Int) :
+    found = match nodes:
+        case []: (0, 0, 0)
+        case [first, ..rest]:
+            picked = if index < 1 then first else at(rest, index - 1)
+            picked
+    return found
+
+
+def evaluate(nodes:[(Int, Int, Int)], index:Int) -> Int:
+    node = at(nodes, index)
+    answer = match node:
+        case (0, value, _):
+            value
+        case (1, left, right):
+            evaluate(nodes, left) + evaluate(nodes, right)
+        case (2, left, right):
+            evaluate(nodes, left) * evaluate(nodes, right)
+        case (3, left, right):
+            evaluate(nodes, left) - evaluate(nodes, right)
+        case _:
+            0
+    return answer
+
+
+def show(nodes:[(Int, Int, Int)], index:Int) -> String:
+    node = at(nodes, index)
+    text = match node:
+        case (0, value, _):
+            str(value)
+        case (1, left, right):
+            "(" ++ show(nodes, left) ++ " + " ++ show(nodes, right) ++ ")"
+        case (2, left, right):
+            "(" ++ show(nodes, left) ++ " * " ++ show(nodes, right) ++ ")"
+        case (3, left, right):
+            "(" ++ show(nodes, left) ++ " - " ++ show(nodes, right) ++ ")"
+        case _:
+            "?"
+    return text
+
+
+# (2 + 3) * (10 - 4)
+program = [(2, 1, 2), (1, 3, 4), (3, 5, 6), (0, 2, 0), (0, 3, 0), (0, 10, 0), (0, 4, 0)]
+
+print(show(program, 0))
+print(evaluate(program, 0))
+
+# Every sub-expression, evaluated through a comprehension.
+print([evaluate(program, i) for i in [0, 1, 2, 3]])

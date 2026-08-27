@@ -1,0 +1,18 @@
+# A value-form `match` whose list patterns leave a gap.
+#
+# `case []` takes length 0 and `case [a, b, ..rest]` takes 2 or more,
+# but nothing takes a list of exactly one -- so `answer` need not exist,
+# and the type reported for it would name a value that is not there.
+#
+# `covers` asks for exact lengths 0 up to k-1 beneath a rest marker that
+# takes k or more; here k is 2 and length 1 is missing. Adding
+# `case [a]` would settle it, and so would any `case _`.
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+def size(xs:[Int]) -> String:
+    answer = match xs:
+        case []: "none"
+        case [a, b, ..rest]: "many"
+    return answer

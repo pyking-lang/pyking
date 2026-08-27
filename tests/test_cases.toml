@@ -198,6 +198,14 @@ file = "fail_typecheck_match_arms.pyk"
 targets = ["typecheck"]
 
 [[cases]]
+file = "fail_typecheck_match_gap.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_match_ints.pyk"
+targets = ["typecheck"]
+
+[[cases]]
 file = "fail_typecheck_match_partial.pyk"
 targets = ["typecheck"]
 
@@ -673,6 +681,14 @@ targets = ["python", "ocaml", "interpret", "typecheck"]
 
 [[cases]]
 file = "typecheck_lists.pyk"
+targets = ["python", "ocaml", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_map_fold.pyk"
+targets = ["python", "ocaml", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_match_exhaustive.pyk"
 targets = ["python", "ocaml", "interpret", "typecheck"]
 
 [[cases]]

@@ -1,0 +1,41 @@
+# Patterns and type variables together.
+#
+# A pattern is checked against the type of what it matches, and that
+# type may be one the caller chose. `head` below knows nothing about `a`
+# beyond its being some type -- which is exactly what makes it work for
+# every list at once.
+
+def head : ([a], a) -> a
+def head(xs, fallback):
+    answer = match xs:
+        case []: fallback
+        case [first, ..]: first
+    return answer
+
+
+def swap_pair : ((a, b)) -> (b, a)
+def swap_pair(p):
+    r = match p:
+        case (left, right): (right, left)
+    return r
+
+
+def pairs_of : ([a], [b]) -> [(a, b)]
+def pairs_of(xs, ys):
+    return [(x, y) for x in xs for y in ys]
+
+
+def flatten : ([[a]]) -> [a]
+def flatten(xss):
+    match xss:
+        case []:
+            return []
+        case [first, ..rest]:
+            return first ++ flatten(rest)
+
+
+print(head([1, 2], 0), head(["a"], "z"), head([], true))
+print(swap_pair((1, "one")))
+print(pairs_of([1, 2], ["a"]))
+print(flatten([[1, 2], [], [3]]))
+print(flatten([["a"], ["b", "c"]]))

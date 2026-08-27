@@ -1,0 +1,40 @@
+def at(nodes:[(Int, Int, Int)], index:Int) -> (Int, Int, Int):
+    found: (Int, Int, Int) = match nodes:
+        case []:
+            (0, 0, 0)
+        case [first, ..rest]:
+            picked: (Int, Int, Int) = if index < 1 then first else at(rest, index - 1)
+            picked
+    return found
+def evaluate(nodes:[(Int, Int, Int)], index:Int) -> Int:
+    node: (Int, Int, Int) = at(nodes, index)
+    answer: Int = match node:
+        case (0, value, _):
+            value
+        case (1, left, right):
+            evaluate(nodes, left) + evaluate(nodes, right)
+        case (2, left, right):
+            evaluate(nodes, left) * evaluate(nodes, right)
+        case (3, left, right):
+            evaluate(nodes, left) - evaluate(nodes, right)
+        case _:
+            0
+    return answer
+def show(nodes:[(Int, Int, Int)], index:Int) -> String:
+    node: (Int, Int, Int) = at(nodes, index)
+    text: String = match node:
+        case (0, value, _):
+            str(value)
+        case (1, left, right):
+            '(' ++ show(nodes, left) ++ ' + ' ++ show(nodes, right) ++ ')'
+        case (2, left, right):
+            '(' ++ show(nodes, left) ++ ' * ' ++ show(nodes, right) ++ ')'
+        case (3, left, right):
+            '(' ++ show(nodes, left) ++ ' - ' ++ show(nodes, right) ++ ')'
+        case _:
+            '?'
+    return text
+program: [(Int, Int, Int)] = [(2, 1, 2), (1, 3, 4), (3, 5, 6), (0, 2, 0), (0, 3, 0), (0, 10, 0), (0, 4, 0)]
+print(show(program, 0))
+print(evaluate(program, 0))
+print([evaluate(program, i) for i in [0, 1, 2, 3]])

@@ -1,0 +1,2 @@
+'tests/fail_typecheck_pattern_type.pyk' 13:13-13:19 Type error: this
+  pattern is String, but it is matched against Int

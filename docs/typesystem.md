@@ -343,6 +343,11 @@ the Pattern datatype, taking the type the pattern matches and answering
 the environment its captures bind. Nothing in a pattern is evaluated, so
 there is no store to thread and no way for one to suspend.
 
+`accepts` is covariant in a list's element *and* in a tuple's parts,
+which is what carries `[!]` inside a structure: `([], 0)` has to fit
+`([Int], Int)`. Both are sound because both are immutable in Pyking --
+nothing can be written into either.
+
 **`agree(a, b)` replaced `same_type` wherever two branches meet.** It
 answers the type they both fit, keeping the more general, and it is used
 by `if`, the `if` expression, a `match`'s arms, a list literal's

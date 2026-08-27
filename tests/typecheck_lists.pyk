@@ -1,0 +1,33 @@
+# Lists: literals, element types, and the empty one.
+#
+# Every element of a list is one of the same list, so they agree on one
+# type -- the rule the branches of an `if` obey, for the same reason. An
+# empty list has no element to say what it holds and is worth `[!]`, so
+# it fits wherever any list is wanted.
+
+def count(xs:[Int]) -> Int:
+    return len(xs)
+
+
+def label(words:[String]) -> String:
+    match words:
+        case []:
+            return "none"
+        case [only]:
+            return only
+        case [first, ..rest]:
+            return first ++ "..."
+
+
+print([1, 2, 3])
+print(["a", "b"])
+print([true, false])
+print([[1, 2], [3]])
+print([(1, "a"), (2, "b")])
+
+# The empty list fits both, though it has no element type of its own.
+print(count([]), count([1, 2]))
+print(label([]), label(["x"]), label(["x", "y"]))
+
+nested: [[Int]] = [[1], [2, 3]]
+print(nested)

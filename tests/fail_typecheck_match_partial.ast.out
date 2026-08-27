@@ -1,0 +1,4 @@
+'tests/fail_typecheck_match_partial.pyk' 15:11-17:21 Type error: this
+  'match' is bound to a name, so it must match every value: add a
+  'case _' or a case that binds a name, since a 'match' that matches
+  nothing yields nothing

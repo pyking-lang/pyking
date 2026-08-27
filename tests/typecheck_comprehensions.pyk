@@ -1,0 +1,28 @@
+# List comprehensions: several clauses, and patterns that filter.
+#
+# `comp_for`'s pattern is the full pattern grammar, not just a name, and
+# an element the pattern does not match is silently left out -- the same
+# way a non-exhaustive `match` simply does nothing (PYKING.md).
+
+numbers = [1, 2, 3, 4, 5]
+pairs = [(1, "a"), (2, "b"), (3, "c")]
+
+print([n * 2 for n in numbers])
+print([n for n in numbers if n > 3])
+
+# A tuple pattern takes each element apart, and both names are in scope
+# for the element expression and for the clauses after it.
+print([s for (n, s) in pairs])
+print([s for (n, s) in pairs if n > 1])
+
+# Two `for`s nest, outer first, and the inner one sees the outer's
+# bindings.
+print([n * m for n in [1, 2] for m in [10, 20]])
+print([(n, s) for n in [1, 2] for (m, s) in pairs if n == m])
+
+# A literal pattern keeps only the elements equal to it; the rest are
+# filtered out rather than being an error.
+print([s for (1, s) in pairs])
+
+# Comprehensions nest as expressions like anything else.
+print([[n + m for m in [0, 100]] for n in [1, 2]])

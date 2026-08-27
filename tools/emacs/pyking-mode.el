@@ -176,6 +176,20 @@ builtin.")
    ;; mutation = ident , ":=" , expr -- Pyking's one deliberate departure
    ;; from plain Python assignment (see PYKING.md), worth calling out.
    '(":=" . font-lock-keyword-face)
+   ;; `++' -- concatenation, and Pyking's deliberate departure from
+   ;; Python's `+' meaning both addition and joining (see PYKING.md,
+   ;; "Concatenation"). Called out for the same reason `:=' is. Escaped:
+   ;; a bare "++" would be a regexp repeat and match a single `+' too.
+   '("\\+\\+" . font-lock-keyword-face)
+   ;; `all a b.' -- the quantifier that binds type variables. Not in
+   ;; `pyking-mode-keywords' because it is not in src/lexer.py's
+   ;; `keywords' either: it is recognized only in type position (see
+   ;; `parse_type_atom' in src/parser.py), so `all' stays usable as an
+   ;; ordinary name everywhere else. Matched by its shape instead -- the
+   ;; word, one or more lowercase variables, and the `.' that ends it --
+   ;; and only the word itself is highlighted.
+   '("\\_<\\(all\\)\\_>\\(?:[ \t]+[a-z]\\sw*\\)+[ \t]*\\."
+     1 font-lock-keyword-face)
    ;; rest_marker = ".." , [ ident ] -- the list-pattern "rest" marker
    ;; (`..`/`..name`), Pyking's spelling of Python's `*_'/`*name' star
    ;; sub-pattern. Matched before any single-`.' rule could apply (there

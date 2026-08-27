@@ -1517,6 +1517,13 @@ def accepts(expected, actual):
             # one. This is what lets the empty list, `[!]`, be used
             # wherever a list of anything is wanted.
             return accepts(wanted, given)
+        case (TTuple(_, wanted, _), TTuple(_, given, _)) if (
+            len(wanted) == len(given)
+        ):
+            # And a tuple is covariant in each of its parts, for the same
+            # reason and so that the rule above reaches inside one:
+            # `([], 0)` has to fit `([Int], Int)`.
+            return all(map(accepts, wanted, given))
     return same_type(expected, actual)
 
 

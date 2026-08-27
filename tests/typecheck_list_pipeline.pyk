@@ -1,0 +1,73 @@
+# A larger program: a pipeline of polymorphic list functions, each one a
+# recursion with a `match`, composed at several element types.
+#
+# Nothing here is written twice for Int and String: the functions are
+# checked once at each shape of call, and the type variables are what
+# say the shapes are related.
+
+def map_pairs : ([(a, b)]) -> [a]
+def map_pairs(xs):
+    match xs:
+        case []:
+            return []
+        case [(left, right), ..rest]:
+            return [left] ++ map_pairs(rest)
+
+
+def take : ([a], Int) -> [a]
+def take(xs, n):
+    answer = match xs:
+        case []: []
+        case [first, ..rest]:
+            if n < 1:
+                []
+            else:
+                [first] ++ take(rest, n - 1)
+    return answer
+
+
+def drop : ([a], Int) -> [a]
+def drop(xs, n):
+    answer = match xs:
+        case []: []
+        case [first, ..rest]:
+            if n < 1:
+                xs
+            else:
+                drop(rest, n - 1)
+    return answer
+
+
+def join : ([String], String) -> String
+def join(parts, sep):
+    answer = match parts:
+        case []: ""
+        case [only]: only
+        case [first, ..rest]: first ++ sep ++ join(rest, sep)
+    return answer
+
+
+def sum_all : ([Int]) -> Int
+def sum_all(xs):
+    match xs:
+        case []:
+            return 0
+        case [x, ..rest]:
+            return x + sum_all(rest)
+
+
+scores = [(90, "ada"), (72, "bob"), (85, "cy"), (61, "dee")]
+
+print(map_pairs(scores))
+print(sum_all(map_pairs(scores)))
+print(take(map_pairs(scores), 2), drop(map_pairs(scores), 2))
+
+names = [name for (n, name) in scores if n > 70]
+print(names)
+print(join(names, ", "))
+print(join(take(names, 2), " and "))
+
+# The same `take` and `drop`, at three different element types.
+print(take([1, 2, 3], 2))
+print(take(["a", "b", "c"], 1))
+print(drop([true, false, true], 1))

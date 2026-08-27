@@ -1,0 +1,29 @@
+def head : ([a], a) -> a
+def head(xs, fallback):
+    answer: a = match xs:
+        case []:
+            fallback
+        case [first, ..]:
+            first
+    return answer
+def swap_pair : ((a, b)) -> (b, a)
+def swap_pair(p):
+    r: (b, a) = match p:
+        case (left, right):
+            (right, left)
+    return r
+def pairs_of : ([a], [b]) -> [(a, b)]
+def pairs_of(xs, ys):
+    return [(x, y) for x in xs for y in ys]
+def flatten : ([[a]]) -> [a]
+def flatten(xss):
+    match xss:
+        case []:
+            return []
+        case [first, ..rest]:
+            return first ++ flatten(rest)
+print(head([1, 2], 0), head(['a'], 'z'), head([], true))
+print(swap_pair((1, 'one')))
+print(pairs_of([1, 2], ['a']))
+print(flatten([[1, 2], [], [3]]))
+print(flatten([['a'], ['b', 'c']]))

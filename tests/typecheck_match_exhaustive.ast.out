@@ -1,0 +1,80 @@
+def kind(n:Int) -> String:
+    answer: String = match n:
+        case 0:
+            'zero'
+        case 1:
+            'one'
+        case _:
+            'other'
+    return answer
+def named(n:Int) -> String:
+    answer: String = match n:
+        case 0:
+            'zero'
+        case rest:
+            'other'
+    return answer
+def corner(p:(Int, Int)) -> String:
+    answer: String = match p:
+        case (0, 0):
+            'origin'
+        case (x, y):
+            'elsewhere'
+    return answer
+def spoken(b:Bool) -> String:
+    answer: String = match b:
+        case true:
+            'yes'
+        case false:
+            'no'
+    return answer
+def size(xs:[Int]) -> String:
+    answer: String = match xs:
+        case []:
+            'empty'
+        case [_, ..rest]:
+            'some'
+    return answer
+def few(xs:[Int]) -> String:
+    answer: String = match xs:
+        case []:
+            'none'
+        case [a]:
+            'one'
+        case [a, b]:
+            'two'
+        case [a, b, c, ..rest]:
+            'many'
+    return answer
+def first_or : ([a], a) -> a
+def first_or(xs, fallback):
+    answer: a = match xs:
+        case []:
+            fallback
+        case [head, ..]:
+            head
+    return answer
+def pick(z:([Int], Int)) -> [Int]:
+    x: [Int] = match z:
+        case ([1, 2], 4):
+            [1]
+        case ([_, x, y], _):
+            [x]
+        case ([x, ..y], 4):
+            y
+        case _:
+            [2]
+    return x
+print(kind(0), kind(1), kind(9))
+print(named(0), named(4))
+print(corner((0, 0)), corner((1, 2)))
+print(spoken(true), spoken(false))
+print(size([]), size([1]))
+print(few([]), few([1]), few([1, 2]), few([1, 2, 3, 4]))
+print(first_or([1, 2], 0), first_or(['a'], 'z'), first_or([], true))
+print(pick(([1, 4, 8, 10], 4)), pick(([1, 2], 4)), pick(([5, 6, 7], 9)))
+print(pick(([], 0)), pick(([3], 4)))
+match 9:
+    case 1:
+        print('never')
+print('done')

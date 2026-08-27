@@ -1,0 +1,4 @@
+'tests/fail_typecheck_match_gap.pyk' 15:13-17:35 Type error: this
+  'match' is bound to a name, so it must match every value: add a
+  'case _' or a case that binds a name, since a 'match' that matches
+  nothing yields nothing

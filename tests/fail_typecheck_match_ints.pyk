@@ -1,0 +1,18 @@
+# Int literals never cover, however many are written.
+#
+# A Bool has two values, so naming both of them is exhaustive and
+# `covers` says so (see typecheck_match_exhaustive.pyk). An Int has four
+# billion, and no list of literals reaches them all -- so a value-form
+# `match` over one always needs an irrefutable arm.
+#
+# The same goes for String, for the same reason.
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+def digit(n:Int) -> String:
+    answer = match n:
+        case 0: "zero"
+        case 1: "one"
+        case 2: "two"
+    return answer

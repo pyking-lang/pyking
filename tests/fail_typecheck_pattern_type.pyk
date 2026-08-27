@@ -1,0 +1,16 @@
+# A pattern is checked against the type of what it matches.
+#
+# A String pattern can never equal an Int, so the arm could not run
+# whatever the value turned out to be. That is a mistake about the
+# program rather than a value that happens not to match, and it is
+# refused where it is written.
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+def classify(n:Int) -> String:
+    match n:
+        case "zero":
+            return "none"
+        case _:
+            return "some"

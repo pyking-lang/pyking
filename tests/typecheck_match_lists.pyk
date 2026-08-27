@@ -1,0 +1,43 @@
+# List patterns: prefix, rest marker and suffix, and the recursion every
+# list function is written with.
+#
+# `case []` and `case [x, ..rest]` cover every list between them, which
+# is what lets the value form use them without a `case _` -- see
+# `covers` in src/typesystem.py.
+
+def total(xs:[Int]) -> Int:
+    match xs:
+        case []:
+            return 0
+        case [x, ..rest]:
+            return x + total(rest)
+
+
+def length(xs:[Int]) -> Int:
+    match xs:
+        case []:
+            return 0
+        case [_, ..rest]:
+            return 1 + length(rest)
+
+
+def reverse(xs:[Int]) -> [Int]:
+    match xs:
+        case []:
+            return []
+        case [x, ..rest]:
+            return reverse(rest) ++ [x]
+
+
+def ends(xs:[Int]) -> String:
+    answer = match xs:
+        case []: "empty"
+        case [only]: "one"
+        case [first, ..middle]: "many"
+    return answer
+
+
+print(total([1, 2, 3, 4]))
+print(length([5, 5, 5]))
+print(reverse([1, 2, 3]))
+print(ends([]), ends([1]), ends([1, 2, 3]))

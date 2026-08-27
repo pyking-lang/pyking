@@ -1,0 +1,36 @@
+# `match` over scalars: literal, wildcard and capture patterns.
+#
+# Every arm is a branch, and they must agree on one type the way an
+# `if`'s two do -- one value leaves a `match` however many ways in there
+# are. This is the fragment the C and Java backends support too, since
+# it needs neither lists nor tuples.
+
+def name(n:Int) -> String:
+    match n:
+        case 0:
+            return "zero"
+        case 1:
+            return "one"
+        case other:
+            return "many"
+
+
+def initial(word:String) -> Int:
+    match word:
+        case "alpha":
+            return 1
+        case "beta":
+            return 2
+        case _:
+            return 0
+
+
+print(name(0), name(1), name(7))
+print(initial("alpha"), initial("beta"), initial("gamma"))
+
+# A `match` that fits no arm does nothing, and is a statement.
+match 9:
+    case 1:
+        print("never")
+
+print("done")

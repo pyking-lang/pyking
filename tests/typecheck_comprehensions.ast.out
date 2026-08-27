@@ -1,0 +1,10 @@
+numbers: [Int] = [1, 2, 3, 4, 5]
+pairs: [(Int, String)] = [(1, 'a'), (2, 'b'), (3, 'c')]
+print([n * 2 for n in numbers])
+print([n for n in numbers if n > 3])
+print([s for (n, s) in pairs])
+print([s for (n, s) in pairs if n > 1])
+print([n * m for n in [1, 2] for m in [10, 20]])
+print([(n, s) for n in [1, 2] for (m, s) in pairs if n == m])
+print([s for (1, s) in pairs])
+print([[n + m for m in [0, 100]] for n in [1, 2]])

@@ -1,0 +1,32 @@
+# A rest marker between fixed elements: the prefix comes off the front
+# and the suffix off the back.
+#
+# The OCaml backend refuses this one -- its `::` matches a list from the
+# front only, and taking elements off the back would need a length and a
+# reversal it does not build (see docs/target_ocaml.md).
+
+def outer(xs:[Int]) -> Int:
+    match xs:
+        case [first, .., last]:
+            return first + last
+        case _:
+            return 0
+
+
+def middle(xs:[String]) -> [String]:
+    answer = match xs:
+        case [_, ..inner, _]: inner
+        case _: []
+    return answer
+
+
+def last_two(xs:[Int]) -> String:
+    answer = match xs:
+        case [.., a, b]: str(a) ++ "," ++ str(b)
+        case _: "too short"
+    return answer
+
+
+print(outer([1, 2, 3, 9]), outer([7]), outer([]))
+print(middle(["a", "b", "c", "d"]), middle(["x"]))
+print(last_two([1, 2, 3]), last_two([4]))

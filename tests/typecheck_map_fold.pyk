@@ -1,0 +1,96 @@
+# `map` and `fold_left`: the two functions a list library starts with,
+# and the two shapes of polymorphism they need.
+#
+# `map` takes a function from one type to another, so it names both:
+# `((a) -> b, [a]) -> [b]`. Nothing about `a` or `b` is decided by the
+# definition -- each call decides them from the function it is handed,
+# which is why the same `map` serves Int-to-Int and Int-to-String below.
+#
+# `fold_left` carries an accumulator through the list, so its function
+# takes two types and gives one of them back: `((b, a) -> b, b, [a])`.
+# The accumulator's type is the one the fold answers with.
+
+def map : ((a) -> b, [a]) -> [b]
+def map(f, xs):
+    match xs:
+        case []:
+            return []
+        case [head, ..rest]:
+            return [f(head)] ++ map(f, rest)
+
+
+def fold_left : ((b, a) -> b, b, [a]) -> b
+def fold_left(step, start, xs):
+    match xs:
+        case []:
+            return start
+        case [head, ..rest]:
+            return fold_left(step, step(start, head), rest)
+
+
+def filter : ((a) -> Bool, [a]) -> [a]
+def filter(keep, xs):
+    match xs:
+        case []:
+            return []
+        case [head, ..rest]:
+            rest_kept = filter(keep, rest)
+            if keep(head):
+                return [head] ++ rest_kept
+            else:
+                return rest_kept
+
+
+def double : (Int) -> Int
+def double(n):
+    return n * 2
+
+
+def show : (Int) -> String
+def show(n):
+    return str(n)
+
+
+def add : (Int, Int) -> Int
+def add(total, n):
+    return total + n
+
+
+def bigger : (Int, Int) -> Int
+def bigger(best, n):
+    return if n > best then n else best
+
+
+def join : (String, String) -> String
+def join(text, piece):
+    return text ++ piece
+
+
+def positive : (Int) -> Bool
+def positive(n):
+    return n > 0
+
+
+numbers = [1, 4, 2, 5]
+
+# One `map`, at two different result types.
+print(map(double, numbers))
+print(map(show, numbers))
+
+# One `fold_left`, at two different accumulator types -- Int and String.
+print(fold_left(add, 0, numbers))
+print(fold_left(bigger, 0, numbers))
+print(fold_left(join, "", map(show, numbers)))
+
+# The three composed, which is the point of their all being polymorphic.
+print(fold_left(add, 0, filter(positive, map(double, [0 - 1, 3, 0 - 2, 4]))))
+print(map(show, filter(positive, numbers)))
+
+# `fold_left` over a list of tuples, accumulating an Int from a pair.
+def take_first : (Int, (Int, String)) -> Int
+def take_first(total, pair):
+    n, s = pair
+    return total + n
+
+
+print(fold_left(take_first, 0, [(1, "a"), (2, "b"), (3, "c")]))

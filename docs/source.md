@@ -319,7 +319,10 @@ leaves evaluation order unspecified.
   this there is one shape for every later stage to read: a backend that
   refuses a type it cannot represent needs to know nothing about
   signatures. Run by `pyk.py` after `--ast` has printed, so the printed
-  AST still shows the program as it was written. Only well-formed
+  AST still shows the program as it was written — and by the
+  playground's own driver (`PYKING_WEB_PY` in
+  `tools/playground/generator.py`), which repeats `pyk.py`'s front end
+  and has to gain each step it gains. Only well-formed
   pairings are folded — a signature naming no definition is left for
   `typesystem.py` to refuse in its own words.
 - **`symbolize(stmts) -> [Stmt]`** — gives every node a unique integer

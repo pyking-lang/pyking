@@ -1,0 +1,19 @@
+def count(xs:[Int]) -> Int:
+    return len(xs)
+def label(words:[String]) -> String:
+    match words:
+        case []:
+            return 'none'
+        case [only]:
+            return only
+        case [first, ..rest]:
+            return first ++ '...'
+print([1, 2, 3])
+print(['a', 'b'])
+print([true, false])
+print([[1, 2], [3]])
+print([(1, 'a'), (2, 'b')])
+print(count([]), count([1, 2]))
+print(label([]), label(['x']), label(['x', 'y']))
+nested: [[Int]] = [[1], [2, 3]]
+print(nested)

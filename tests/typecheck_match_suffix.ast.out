@@ -1,0 +1,23 @@
+def outer(xs:[Int]) -> Int:
+    match xs:
+        case [first, .., last]:
+            return first + last
+        case _:
+            return 0
+def middle(xs:[String]) -> [String]:
+    answer: [String] = match xs:
+        case [_, ..inner, _]:
+            inner
+        case _:
+            []
+    return answer
+def last_two(xs:[Int]) -> String:
+    answer: String = match xs:
+        case [.., a, b]:
+            str(a) ++ ',' ++ str(b)
+        case _:
+            'too short'
+    return answer
+print(outer([1, 2, 3, 9]), outer([7]), outer([]))
+print(middle(['a', 'b', 'c', 'd']), middle(['x']))
+print(last_two([1, 2, 3]), last_two([4]))

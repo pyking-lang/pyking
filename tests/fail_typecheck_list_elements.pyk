@@ -1,0 +1,13 @@
+# The elements of a list literal must agree on one type.
+#
+# Every element is one of the same list, so they have one type between
+# them -- the rule an `if`'s branches obey, for the same reason. This is
+# what makes `case [x, ..rest]` able to say what `x` is at all.
+#
+# `[]` is the exception that proves it: with no element to disagree, it
+# is `[!]` and fits wherever a list is wanted (see typecheck_lists.pyk).
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+mixed = [1, "two", 3]
