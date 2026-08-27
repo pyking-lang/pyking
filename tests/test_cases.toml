@@ -190,6 +190,22 @@ file = "fail_typecheck_loop_unreachable.pyk"
 targets = ["typecheck"]
 
 [[cases]]
+file = "fail_typecheck_list_elements.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_match_arms.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_match_partial.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_pattern_type.pyk"
+targets = ["typecheck"]
+
+[[cases]]
 file = "fail_typecheck_mutual_recursion.pyk"
 targets = ["typecheck"]
 
@@ -642,6 +658,42 @@ targets = ["python", "nodejs", "esm", "html", "ocaml", "typecheck", "interpret"]
 [[cases]]
 file = "typecheck_type_variables.pyk"
 targets = ["python", "nodejs", "esm", "html", "ocaml", "typecheck", "interpret"]
+
+[[cases]]
+file = "typecheck_comprehensions.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_expr_evaluator.pyk"
+targets = ["python", "ocaml", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_list_pipeline.pyk"
+targets = ["python", "ocaml", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_lists.pyk"
+targets = ["python", "ocaml", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_match_lists.pyk"
+targets = ["python", "ocaml", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_match_polymorphic.pyk"
+targets = ["python", "ocaml", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_match_scalars.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_match_suffix.pyk"
+targets = ["python", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_match_value.pyk"
+targets = ["python", "ocaml", "interpret", "typecheck"]
 
 [[cases]]
 file = "typecheck_tail.pyk"

@@ -31,7 +31,8 @@ from syntax import (
     EAdd, EConcat, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EIf, ETuple,
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SWhile, SIf,
-    SLoop, SBreak, SContinue, SFunctionDef,
+    SLoop, SBreak, SContinue, SFunctionDef, SMatch,
+    PInt, PString, PBool, PWildcard, PCapture,
     TargetName, TargetTuple, TInt, TString, TBool,
     TList, TTuple, TOr, TFunction, TVar, TForall,
 )
@@ -699,6 +700,12 @@ class _Translator:
                     else self.tail_stmts(else_body, _block_scope(scope))
                 )
                 return [CIf(info, condition, then_branch, else_branch)]
+            case SMatch():
+                built, _ = self.match_chain(
+                    s, scope,
+                    lambda body, inner: self.tail_stmts(body, inner),
+                )
+                return built
             case SLoop(info):
                 # A function ending in a loop returns what the loop
                 # produced: what it broke with.
@@ -906,6 +913,12 @@ class _Translator:
                 c_name, scope = _bind(name, value.ctype, scope)
                 return c_stmts + [CDecl(info, value.ctype, c_name, value)], scope
 
+            case SMatch():
+                return self.match_chain(
+                    s, scope,
+                    lambda body, inner: self.stmts(body, inner)[0],
+                )
+
             case SVar(info, name, expr):
                 value = self.expr(expr, scope)
                 c_name, scope = _bind(name, value.ctype, scope)
@@ -983,6 +996,61 @@ class _Translator:
                 _unsupported(s, type(s).__name__)
 
     # -- functions --
+
+
+    def match_chain(self, s, scope, translate_body):
+        """A `match` as an if/else chain over the subject, held in a name
+        of its own so it is evaluated once. The subject is a scalar --
+        this backend has neither lists nor tuples -- so a pattern is a
+        literal, a wildcard, or a name. A `match` that fits no arm does
+        nothing, which an `if` chain with no final `else` already does.
+        SMatch -> Scope -> ([Stmt] -> Scope -> [CStmt]) -> ([CStmt], Scope)"""
+        subject = self.expr(s.subject, scope)
+        held, scope = _bind("__subject", subject.ctype, scope)
+        here = CVar(s.info, held, subject.ctype)
+        # Built from the last arm backwards. An arm whose pattern always
+        # matches becomes the `else` rather than an `if (1)`, so a total
+        # `match` reads as one -- which is what lets `_falls_through` see
+        # that every path returns.
+        chain = None
+        for case_clause in reversed(s.cases):
+            test, bindings, arm_scope = self.pattern_test(
+                case_clause.pattern, here, _block_scope(scope)
+            )
+            body = bindings + translate_body(case_clause.body, arm_scope)
+            chain = body if test is None else [
+                CIf(case_clause.info, test, body, chain)
+            ]
+        opening = CDecl(s.info, subject.ctype, held, subject)
+        return [opening] + (chain or []), scope
+
+    def pattern_test(self, pattern, subject, scope):
+        """(test, bindings, scope) for one pattern over a scalar
+        subject. The test is None when the pattern always matches, and a
+        capture becomes a declaration at the top of the arm.
+        Pattern -> CExpr -> Scope -> (CExpr?, [CStmt], Scope)"""
+        info = pattern.info
+        match pattern:
+            case PWildcard():
+                return None, [], scope
+            case PCapture(_, name, _):
+                c_name, scope = _bind(name, subject.ctype, scope)
+                return None, [CDecl(info, subject.ctype, c_name, subject)], scope
+            case PInt(_, value, _):
+                self._require(subject, INT, "an Int pattern")
+                return CBinary(
+                    info, "==", subject, CInt(info, value), BOOL
+                ), [], scope
+            case PBool(_, value, _):
+                self._require(subject, BOOL, "a Bool pattern")
+                return CBinary(
+                    info, "==", subject, CBool(info, value), BOOL
+                ), [], scope
+            case PString(_, value, _):
+                self._require(subject, STRING, "a String pattern")
+                self.uses_strcmp = True
+                return CStrEq(info, subject, CStr(info, value)), [], scope
+        _unsupported(pattern, "this pattern")
 
     def declare_functions(self, stmts, scope):
         """Registers every top-level def's signature (return type

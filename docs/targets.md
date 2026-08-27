@@ -170,6 +170,11 @@ testing — could be built end to end before the language surface grew:
 | type variables (`def id(x:a) -> a`) | ✅ | ✅ | ❌ (one concrete type per function) | ❌ (same) | ✅ (OCaml generalizes a `let` itself) |
 | … a polymorphic *parameter* (`all x. (x) -> x`) | ✅ | ✅ | ❌ | ❌ | ❌ (needs an explicit `'a.`) |
 | `def name : type` on a line of its own | ✅ | ✅ | ✅ | ✅ | ✅ |
+| unary minus | ✅ | ✅ | ✅ | ✅ | ✅ |
+| lists, list comprehensions | ✅ | ✅ | ❌ (no heap value model) | ❌ (same) | ✅ (OCaml's own lists) |
+| `match` over scalars | ✅ | ✅ | ✅ (an if/else chain) | ✅ (same) | ✅ (OCaml's own `match`) |
+| `match` over lists and tuples | ✅ | ✅ | ❌ | ❌ | ✅ |
+| … a list pattern with elements after `..` | ✅ | ✅ | ❌ | ❌ | ❌ (`::` matches from the front) |
 | operands and arguments evaluate left to right | ✅ (the host's own rule) | ✅ (same) | ✅ (unspecified in C: temporaries and the comma operator pin it down where two operands can print) | ✅ (the host's own rule) | ✅ (unspecified in OCaml: `let` pins it down, same rule) |
 | `/` | ✅ | ✅ (prints `6`, not `6.0`) | ❌ | ❌ | ❌ |
 | type annotations | erased | erased | used, when they name `Int`/`String`/`Bool` | used, when they name `Int`/`String`/`Bool` | checked, then erased — the output has none |

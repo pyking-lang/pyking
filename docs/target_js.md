@@ -77,12 +77,19 @@ Refused at compile time, with the source position:
 
 | construct | why |
 |---|---|
-| lists | no value representation yet in the JS AST |
-| `for` loops | needs the iterable protocol the lists work would bring |
-| `match`/`case`, patterns | needs a pattern compiler; JavaScript has no `match` |
-| list comprehensions | builds on lists and patterns |
-| value-form `x = if c:` / `x = match e:` | needs the statement forms above |
+| `for` loops | needs the iterable protocol |
+| value-form `x = if c:` / `x = match e:` | a JavaScript block is not an expression, so a value taken from one needs a temporary this backend does not build |
 | `str`, `len`, `range` | no JavaScript standard-library shim yet |
+
+Lists, list comprehensions and `match` *are* supported. A Pyking tuple
+is a JavaScript array, so a **list is an array carrying a marker** --
+`pykList` in the compiled program sets it, and `pykFormat` reads it to
+tell `[1, 2]` from `(1, 2)`. It is a property rather than a class
+because for the `esm` target the program and the formatter live in
+different modules, where two `class` declarations would not be the same
+class. A `match` becomes an if/else chain over the subject, held in a
+name of its own so it is evaluated once; an arm whose pattern always
+matches becomes the `else`, so a `match` that fits nothing does nothing.
 
 ```
 $ pyk compile -t nodejs tests/for_simple.pyk

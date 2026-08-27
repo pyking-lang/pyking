@@ -201,6 +201,9 @@ new Java local, which may well have a different type.
   generics, but this backend infers one concrete type per function and
   emits no type parameters, so a type the caller chooses has nothing
   here to become.
+- A list, in any form. This backend infers one concrete type per name
+  and has no representation for a list of one; `match` over a scalar is
+  supported, as an if/else chain over the subject.
 
 ### A recursive or forward-called function returning non-`Int` without an annotation
 

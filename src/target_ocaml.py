@@ -24,13 +24,16 @@ from dataclasses import dataclass
 
 from analyses import Effects, walk
 import runtime_interface
+import typesystem
 from syntax import (
     pprint_type,
     EInt, EString, EBool, EVar,
     EAdd, EConcat, ESub, EMul, ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq,
     ECall, EIf, ETuple,
     SLet, SLetStmt, SReturn, SReturnStmt, SExprStmt, SIf, SFunctionDef,
-    SLoop, SBreak, SContinue,
+    SLoop, SBreak, SContinue, SMatch,
+    ENeg, EList, EListComp, CompFor, CompIf,
+    PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, ListRest,
     TargetName, TargetTuple, TInt, TString, TBool, TList, TTuple,
     TOr, TFunction, TForall,
 )
@@ -127,6 +130,28 @@ class OApp(OExpr):
 @dataclass(frozen=True)
 class OTuple(OExpr):
     elements: list
+
+
+@dataclass(frozen=True)
+class OList(OExpr):
+    elements: list
+
+
+@dataclass(frozen=True)
+class ONeg(OExpr):
+    operand: OExpr
+
+
+@dataclass(frozen=True)
+class OMatch(OExpr):
+    subject: OExpr
+    arms: list              # [(pattern text, OExpr)], in source order
+
+
+@dataclass(frozen=True)
+class OFun(OExpr):
+    # OCaml's `function`: a lambda that matches its one argument.
+    arms: list              # [(pattern text, OExpr)]
 
 
 @dataclass(frozen=True)
@@ -387,6 +412,109 @@ class _Translator:
                     "`'a.` annotation this backend does not write",
                 )
 
+    # -- patterns --
+
+    def pattern(self, p, used=None):
+        """One Pyking pattern as OCaml pattern text. OCaml's own
+        patterns line up with Pyking's, so this is a spelling change
+        rather than a translation: `..` is `_`, `..name` is `name`, and
+        a list is written with `::` where a rest marker splits it.
+        `used` is what the arm reads; a name it does not is written
+        `_name`, the same convention an unread `let` binding follows,
+        since this target is built warning-free.
+        Pattern -> {String}? -> String"""
+        match p:
+            case PWildcard():
+                return "_"
+            case PCapture(_, name, _):
+                return _unread(_mangle(name), used)
+            case PInt(_, value, _):
+                return str(value) if value >= 0 else f"({value})"
+            case PString(_, value, _):
+                return _quote(value)
+            case PBool(_, value, _):
+                return "true" if value else "false"
+            case PTuple(_, elements, _):
+                inside = ", ".join(self.pattern(e, used) for e in elements)
+                return f"({inside})"
+            case PList(_, prefix, rest, suffix, _):
+                if rest is None:
+                    inside = "; ".join(self.pattern(e, used) for e in prefix)
+                    return f"[{inside}]"
+                if suffix:
+                    _unsupported(
+                        p,
+                        "a list pattern with elements after `..` -- OCaml "
+                        "matches a list from the front only",
+                    )
+                tail = "_" if rest.name is None else _unread(
+                    _mangle(rest.name), used
+                )
+                heads = "".join(f"{self.pattern(e, used)} :: " for e in prefix)
+                return f"({heads}{tail})" if heads else tail
+        _unsupported(p, type(p).__name__)
+
+    def arms(self, cases):
+        """A match's clauses as (pattern, body) pairs. The body is
+        translated first, so the pattern can tell which of the names it
+        binds the arm actually reads. [MatchCase] -> [(String, OExpr)]"""
+        built = []
+        for case_clause in cases:
+            body = self.body(case_clause.body)
+            built.append((self.pattern(case_clause.pattern, _free(body)), body))
+        return built
+
+    def match_value(self, stmt):
+        """A `match` whose value is taken. OCaml requires every value to
+        exist, so the clauses must cover -- which typesystem.py has
+        already required of a value-form match. SMatch -> OExpr"""
+        return OMatch(self.expr(stmt.subject), self.arms(stmt.cases))
+
+    def match_effects(self, stmt):
+        """A `match` run for what it does. A Pyking `match` may match
+        nothing and do nothing, so a catch-all arm is added unless the
+        clauses already cover. SMatch -> OExpr"""
+        arms = []
+        for c in stmt.cases:
+            body = self.effects(c.body)
+            arms.append((self.pattern(c.pattern, _free(body)), body))
+        if not typesystem.covers([c.pattern for c in stmt.cases]):
+            arms.append(("_", OUnit()))
+        return OMatch(self.expr(stmt.subject), arms)
+
+    # -- comprehensions --
+
+    def comprehension(self, e):
+        """`[expr for p in seq if c ...]` as nested folds. Each `for`
+        becomes a `List.concat_map` over its sequence, each `if` a
+        guard, and a pattern that does not match filters the element out
+        -- which is what Pyking's own comprehension does.
+        EListComp -> OExpr"""
+        return self.clauses(list(e.clauses), e.expr)
+
+    def clauses(self, clauses, element):
+        """The fold for the clauses that are left. [CompClause] -> Expr
+        -> OExpr"""
+        if not clauses:
+            return OList([self.expr(element)])
+        match clauses[0]:
+            case CompFor(_, pattern, sequence, _):
+                inner = self.clauses(clauses[1:], element)
+                text = self.pattern(pattern, _free(inner))
+                arms = [(text, inner)]
+                if not typesystem.covers([pattern]):
+                    arms.append(("_", OList([])))
+                return OApp(
+                    OVar("List.concat_map"),
+                    [OFun(arms), self.expr(sequence)],
+                )
+            case CompIf(_, condition, _):
+                return OIf(
+                    self.expr(condition),
+                    self.clauses(clauses[1:], element),
+                    OList([]),
+                )
+
     def body(self, stmts):
         """A function body: a block whose last statement is its value.
         [Stmt] -> OExpr"""
@@ -478,6 +606,10 @@ class _Translator:
                     self.block(then_body, tail),
                     None if else_body is None else self.block(else_body, tail),
                 )
+            case SMatch() if tail:
+                return self.match_value(statement)
+            case SMatch():
+                return self.match_effects(statement)
             case SLoop() if tail:
                 # A loop is an expression here, so a function ending in
                 # one needs nothing said about it -- and a `return`
@@ -615,6 +747,8 @@ class _Translator:
                     self.block(then_body, tail=True),
                     self.block(else_body, tail=True),
                 )
+            case SMatch():
+                return self.match_value(stmt)
         _unsupported(stmt, f"{type(stmt).__name__} in value position")
 
     def discard(self, statement):
@@ -632,6 +766,8 @@ class _Translator:
                     self.effects(then_body),
                     None if else_body is None else self.effects(else_body),
                 )
+            case SMatch():
+                return self.match_effects(statement)
             case SLoop():
                 translated = self.loop(statement)
                 if statement.target is None:
@@ -677,6 +813,19 @@ class _Translator:
                 return sequence(OApp(pieces[0], pieces[1:]))
             case EAdd(_, left, right, _):
                 return self.binary("+", left, right)
+            case EList(_, elements, _):
+                pieces, sequence = self.in_order(list(elements))
+                return sequence(OList(pieces))
+            case ENeg(_, operand, _):
+                return ONeg(self.expr(operand))
+            case EListComp(_, _, _, _):
+                return self.comprehension(e)
+            case EConcat(_, left, right, _) if isinstance(
+                self.type_of(e), TList
+            ):
+                # OCaml joins lists with `@` and strings with `^`; the
+                # checker has already said which this is.
+                return self.binary("@", left, right)
             case EConcat(_, left, right, _):
                 # OCaml spells concatenation `^`, and Pyking's `++` says
                 # which is meant without anything having to ask the type.
@@ -782,12 +931,27 @@ class _Translator:
             if isinstance(translated, OUnit):
                 return OStr("()")
             return OSeq(translated, OStr("()"))
-        if _is_int_list(type_):
-            self.needs_list_printer = True
-            return OApp(OVar(_LIST_PRINTER), [translated])
+        if isinstance(type_, TList):
+            return self.list_string(type_, translated, node)
         if isinstance(type_, TTuple):
             return self.tuple_string(type_, translated, node)
         _unsupported(node, f"printing a value of type {_name_of(type_)}")
+
+    def list_string(self, type_, translated, node):
+        """A list as a string, in Pyking's own notation. The element
+        formatter is built from the element's type the same way
+        `tuple_string` builds a tuple's, so a list of anything printable
+        prints -- including a list of lists.
+        TList -> OExpr -> Node -> OExpr"""
+        name = self.fresh_name()
+        element = self.string_of(type_.element, OVar(name), node, top=False)
+        mapped = OApp(
+            OVar("List.map"), [OFun([(name, element)]), translated]
+        )
+        joined = OApp(
+            OVar("String.concat"), [OStr(", "), mapped]
+        )
+        return OBin("^", OStr("["), OBin("^", joined, OStr("]")))
 
     def tuple_string(self, type_, translated, node):
         """A tuple as a string, in Pyking's own notation. OCaml has no
@@ -918,8 +1082,20 @@ def _free(e):
             return _free(expr)
         case OApp(func, args):
             return _free(func).union(*[_free(a) for a in args]) if args else _free(func)
-        case OTuple(elements):
+        case OTuple(elements) | OList(elements):
+            if not elements:
+                return frozenset()
             return frozenset().union(*[_free(el) for el in elements])
+        case ONeg(operand):
+            return _free(operand)
+        case OMatch(subject, arms):
+            # An arm's own bindings are its pattern's, and a pattern is
+            # printed text by the time it is here -- so what an arm reads
+            # from outside is over-reported rather than under-reported,
+            # which is the safe direction for `let rec` grouping.
+            return frozenset().union(_free(subject), *[_free(b) for _, b in arms])
+        case OFun(arms):
+            return frozenset().union(frozenset(), *[_free(b) for _, b in arms])
         case OBin(_, left, right):
             return _free(left) | _free(right)
         case OIf(cond, then_, else_):
@@ -1087,6 +1263,14 @@ def _polish(e):
             )
         case OTuple(elements):
             return OTuple([_polish(el) for el in elements])
+        case OList(elements):
+            return OList([_polish(el) for el in elements])
+        case ONeg(operand):
+            return ONeg(_polish(operand))
+        case OMatch(subject, arms):
+            return OMatch(_polish(subject), [(p, _polish(b)) for p, b in arms])
+        case OFun(arms):
+            return OFun([(p, _polish(b)) for p, b in arms])
         case OSeq(first, rest):
             return OSeq(_polish(first), _polish(rest))
         case OLet(bindings, body, recursive):
@@ -1128,6 +1312,15 @@ def _definitely_exits(stmts):
 def _is_int(t):
     """Type -> Bool"""
     return isinstance(t, TInt)
+
+
+def _unread(name, used):
+    """A bound name as OCaml should spell it: `_name` where the body
+    never reads it, so that a warning-free build stays warning-free.
+    String -> {String}? -> String"""
+    if used is None or name in used:
+        return name
+    return f"_{name}"
 
 
 def _has_forall(type_):
@@ -1180,7 +1373,9 @@ _SEQ, _LET, _IF, _CMP, _CONCAT, _ADD, _MUL, _APP, _ATOM = range(1, 10)
 
 _OP_LEVEL = {
     "=": _CMP, "<": _CMP, "<=": _CMP, ">": _CMP, ">=": _CMP,
-    "^": _CONCAT,
+    # `@` joins lists and `^` joins strings; both associate to the right
+    # at the same level in OCaml.
+    "^": _CONCAT, "@": _CONCAT,
     "+": _ADD, "-": _ADD,
     "*": _MUL,
 }
@@ -1272,6 +1467,28 @@ def _pprint_bare(e, level):
             # Always parenthesized, so it is an atom wherever it stands.
             inside = ", ".join(_pprint(el, _SEQ + 1, level) for el in elements)
             return (f"({inside})", _ATOM)
+        case OList(elements):
+            # Always bracketed, so it is an atom wherever it stands.
+            inside = "; ".join(_pprint(el, _SEQ + 1, level) for el in elements)
+            return (f"[{inside}]", _ATOM)
+        case ONeg(operand):
+            # OCaml's unary minus on an application needs no parentheses
+            # (`-f x` is `-(f x)`), but on anything looser it does.
+            return (f"-{_pprint(operand, _APP, level)}", _APP)
+        case OMatch(subject, arms):
+            pad = "  " * level
+            head = f"match {_pprint(subject, _SEQ + 1, level)} with"
+            lines = [head] + [
+                f"{pad}  | {pattern} -> {_pprint(body, _SEQ + 1, level + 1)}"
+                for pattern, body in arms
+            ]
+            return ("\n".join(lines), _SEQ)
+        case OFun(arms):
+            inside = " ".join(
+                f"| {pattern} -> {_pprint(body, _SEQ + 1, level)}"
+                for pattern, body in arms
+            )
+            return (f"function {inside}", _SEQ)
         case OIgnore(expr):
             return (f"ignore {_pprint(expr, _ATOM, level)}", _APP)
         case OApp(func, args):

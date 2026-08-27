@@ -311,7 +311,11 @@ statements (in both the ordinary and the value form), and fully
 annotated function definitions, over `Int`, `String` and `Bool`: `+`,
 `-` and `*` on `Int`, `++` on `String`, `<`/`<=`/`>`/`>=` on `Int`
 giving `Bool`, `==` on two values of one type giving `Bool`, calls of a
-function-typed name, and calls of the four builtins. An annotation may
+function-typed name, calls of the four builtins, unary minus, list
+literals, list comprehensions and `match` with the full pattern
+grammar. `/` is the one expression still outside it, and not for want of
+a case: it is true division, and Pyking has no `Float` for the result to
+be. An annotation may
 also name **type variables** (`(a) -> a`), quantified at its outermost
 level and written out with `all` where a nested quantifier is meant;
 see PYKING.md, "Type variables".

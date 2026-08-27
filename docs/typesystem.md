@@ -332,6 +332,35 @@ and `declared_type` puts `TUnknown` where nothing is written — not a
 mixing variables with `|` is refused outright rather than given a
 meaning nothing here would honour.
 
+## Patterns, lists, and the one rule they share
+
+Three things were added together because they are one story: a list has
+an element type, a pattern is checked against the type of what it
+matches, and a `match`'s arms agree the way an `if`'s branches do.
+
+**`check_pattern` is the whole of pattern checking** — one function over
+the Pattern datatype, taking the type the pattern matches and answering
+the environment its captures bind. Nothing in a pattern is evaluated, so
+there is no store to thread and no way for one to suspend.
+
+**`agree(a, b)` replaced `same_type` wherever two branches meet.** It
+answers the type they both fit, keeping the more general, and it is used
+by `if`, the `if` expression, a `match`'s arms, a list literal's
+elements, and a type variable met twice at one call. What forced it is
+the empty list: `[]` is `[!]`, so a base case returning `[]` has to sit
+beside a branch returning `[Int]`. `accepts` gained one covariant case
+for `TList` to make that work, which is sound because a Pyking list is
+immutable.
+
+**`covers` decides whether a `match` is total**, and it is deliberately
+syntactic: one irrefutable pattern, or a set of list patterns taking
+every length. That second rule is not a flourish — it is how every
+recursion over a list is written (`case []` and `case [x, ..rest]`), and
+without it the value form would demand a redundant `case _` in the
+language's commonest idiom. Totality is required only where a value is
+taken (`require_total`, from `SLetStmt` and `SReturnStmt`), because a
+`match` that fits no arm does nothing and there would be no value.
+
 ## Comparing types: never `==`
 
 Every `T*` node from `syntax.py` is a frozen dataclass, which means

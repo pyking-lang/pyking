@@ -386,6 +386,11 @@ scheme specifically).
   it an extended copy. The four host operations are in it at their
   `TBuiltin` type, callable but never a value, because none of them
   fits a `TFunction`.
+- **`check_pattern` / `irrefutable` / `covers` / `agree`** — patterns
+  are checked against the type they match and answer what they bind;
+  `covers` says whether a `match` is total (one irrefutable pattern, or
+  list patterns taking every length) and `agree` is what two branches,
+  two list elements or two meetings of one type variable must reach.
 - **`OPERATORS`** — node class → (spelling, list of signatures). A *list*
   because `==` is overloaded: it relates two `Int`s, two `String`s or
   two `Bool`s, and both operands must match the same signature. `+` and

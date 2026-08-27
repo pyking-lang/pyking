@@ -43,7 +43,9 @@ from syntax import (
     EInt, EString, EBool, EVar, EAdd, EConcat, ESub, EMul, ECall, EIf, ETuple,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq,
     SLet, SLetStmt, SExprStmt, SIf, SReturn, SReturnStmt, SFunctionDef,
-    SFunctionSig,
+    SFunctionSig, SMatch,
+    ENeg, EList, EListComp, CompFor, CompIf,
+    PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, ListRest,
     SLoop, SBreak, SContinue,
     Type, TInt, TString, TBool, TList, TTuple, TFunction, TOr, TUnknown, TNever,
     TBuiltin, TVar, TForall,
@@ -652,6 +654,7 @@ def check_stmt(statement, env, tmap, return_type, acc_type, store):
             # the branches having agreed on one is what the `SIf` case
             # below has already established. `x = loop ...` binds the
             # accumulator the loop stopped with, for the same reason.
+            require_total(stmt, "bound to a name")
             bound_type, _, store = check_stmt(
                 stmt, env, tmap, return_type, acc_type, store
             )
@@ -713,7 +716,8 @@ def check_stmt(statement, env, tmap, return_type, acc_type, store):
                 return else_type, env, else_store
             if isinstance(else_type, TNever):
                 return then_type, env, else_store
-            if not same_type(then_type, else_type):
+            both = agree(then_type, else_type)
+            if both is None:
                 raise TypeError_(
                     info,
                     f"the branches of this 'if' have different types: "
@@ -724,7 +728,7 @@ def check_stmt(statement, env, tmap, return_type, acc_type, store):
             # either may have worked something out; the second one's
             # holds what the first found as well, since it was threaded
             # through it.
-            return then_type, env, else_store
+            return both, env, else_store
 
         case SReturn(info, expr, _):
             # A `return` supplies the function's value explicitly, so
@@ -742,6 +746,7 @@ def check_stmt(statement, env, tmap, return_type, acc_type, store):
             # branch that runs yields.
             if return_type is None:
                 raise TypeError_(info, "'return' outside a function")
+            require_total(stmt, "returned")
             actual, _, store = check_stmt(
                 stmt, env, tmap, return_type, acc_type, store
             )
@@ -818,6 +823,52 @@ def check_stmt(statement, env, tmap, return_type, acc_type, store):
             if not accepts(acc_type, actual):
                 raise TypeError_(expr.info, continue_error(acc_type, actual))
             return acc_type, env, store
+
+        case SMatch(info, subject, cases, _):
+            # Every arm is a branch, and they must agree on one type the
+            # way an `if`'s two do -- one value leaves a `match` however
+            # many ways in there are. Each arm is checked in the
+            # environment its own pattern binds, and against what the
+            # arms before it worked out (`then_store`'s rule, for the
+            # same reason).
+            subject_type, store = check_expr(subject, env, tmap, store)
+            yielded, signalled = None, None
+            for case_clause in cases:
+                inner = check_pattern(
+                    case_clause.pattern, subject_type, env, tmap
+                )
+                arm_type, arm_store, signal = try_branch(
+                    case_clause.body, inner, tmap, return_type, acc_type, store
+                )
+                if signal is not None:
+                    signalled = signal
+                    continue
+                store = arm_store
+                if yielded is None:
+                    yielded = arm_type
+                else:
+                    both = agree(yielded, arm_type)
+                    if both is None:
+                        raise TypeError_(
+                            case_clause.info,
+                            f"the arms of this 'match' have different types: "
+                            f"{pprint_type(yielded)} and "
+                            f"{pprint_type(arm_type)}",
+                        )
+                    check_not_conflated(yielded, arm_type, case_clause.info)
+                    yielded = both
+            if yielded is None:
+                # Every arm met the recursion being worked out, or there
+                # are no arms at all; the first is the `if` rule again.
+                if signalled is not None:
+                    raise signalled
+                return unit(info), env, store
+            # A `match` may match nothing at all (PYKING.md), so as a
+            # statement it supplies no value of its own -- only the value
+            # form, which `covers` has held to being total, does.
+            record(tmap, statement.sym, yielded, store)
+            return (yielded if covers([c.pattern for c in cases])
+                    else unit(info)), env, store
 
         case SFunctionSig(info, _, _, _):
             # The signature was paired with its definition before this
@@ -1034,7 +1085,8 @@ def expr_type(expr, env, tmap, store):
                 return then_type, then_store
             # We have types on both branches. Check if the types matches,
             # raise an error otherwise.
-            if not same_type(then_type, else_type):
+            both = agree(then_type, else_type)
+            if both is None:
                 raise TypeError_(
                     info,
                     f"the branches of this 'if' have different types: "
@@ -1044,12 +1096,48 @@ def expr_type(expr, env, tmap, store):
             # and they represent different functions.
             # TODO: investigate and explain why this is needed.
             check_not_conflated(then_type, else_type, info)
-            return then_type, else_store
+            return both, else_store
 
         case EAdd() | EConcat() | ESub() | EMul() | ELessThan() | ELessThanEq() \
                 | EGreatThan() | EGreatThanEq() | EEq():
             # Check built-in binary operations
             return check_binary(expr, env, tmap, store)
+
+        case ENeg(info, operand, _):
+            operand_type, store = check_expr(operand, env, tmap, store)
+            if not isinstance(operand_type, TInt):
+                raise TypeError_(
+                    info,
+                    f"`-` cannot be applied to {pprint_type(operand_type)}; "
+                    f"it negates an Int",
+                )
+            return TInt(info), store
+
+        case EList(info, elements, _):
+            # Every element is one of the same list, so they agree on one
+            # type -- the rule the branches of an `if` obey, for the same
+            # reason. An empty list has no element to say what it holds,
+            # and is worth `[!]`: nothing arrives from it, so it fits
+            # wherever any list is wanted (see `accepts`).
+            types, store = check_each(elements, env, tmap, store)
+            if not types:
+                return TList(info, TNever(info)), store
+            element = types[0]
+            for other in types[1:]:
+                both = agree(element, other)
+                if both is None:
+                    raise TypeError_(
+                        info,
+                        f"the elements of this list have different types: "
+                        f"{pprint_type(element)} and {pprint_type(other)}",
+                    )
+                element = both
+            return TList(info, element), store
+
+        case EListComp(info, element, clauses, _):
+            inner, store = check_clauses(clauses, env, tmap, store)
+            element_type, store = check_expr(element, inner, tmap, store)
+            return TList(info, element_type), store
 
         case ECall():
             # Check
@@ -1423,6 +1511,12 @@ def accepts(expected, actual):
             return all(accepts(expected, alternative) for alternative in alternatives)
         case (TOr(_, alternatives), _):
             return any(accepts(alternative, actual) for alternative in alternatives)
+        case (TList(_, wanted, _), TList(_, given, _)):
+            # A list is covariant in its element, which is sound because
+            # a Pyking list is immutable -- nothing can be written into
+            # one. This is what lets the empty list, `[!]`, be used
+            # wherever a list of anything is wanted.
+            return accepts(wanted, given)
     return same_type(expected, actual)
 
 
@@ -1503,14 +1597,18 @@ def match_type(expected, actual, quantified, chosen, arg, position):
             earlier = chosen.get(name)
             if earlier is None:
                 return {**chosen, name: actual}
-            if not same_type(earlier, actual):
+            # A later argument may sharpen what an earlier one left
+            # open: `head([], true)` says nothing about `a` with its
+            # empty list and everything with its `true`.
+            both = agree(earlier, actual)
+            if both is None:
                 raise TypeError_(
                     arg.info,
                     f"'{name}' is {pprint_type(earlier)} in this call, from "
                     f"an earlier argument, but argument {position} makes it "
                     f"{pprint_type(actual)}",
                 )
-            return chosen
+            return {**chosen, name: both}
         case (TList(_, element), TList(_, other)):
             return match_type(element, other, quantified, chosen, arg, position)
         case (TTuple(_, mine), TTuple(_, theirs)) if len(mine) == len(theirs):
@@ -1736,6 +1834,36 @@ def alternative(expr, left_type, right_type):
     return ""
 
 
+def agree(first, second):
+    """The one type two branches both fit, or None where there is none.
+    Either may be the answer, which is what makes a base case work: `[]`
+    is `[!]` and fits any list, so an `if` or a `match` with `[]` on one
+    side and `[1]` on the other is worth `[Int]`.
+    Type -> Type -> Type?"""
+    if accepts(first, second):
+        return first
+    if accepts(second, first):
+        return second
+    return None
+
+
+def concat_lists(expr, left_type, right_type):
+    """`++` over two lists, whose result type the signature table cannot
+    state: it depends on the element type rather than being one of a
+    fixed few. The empty list is `[!]` and agrees with either side, so
+    `xs ++ []` is `xs`. None where this is not that.
+    Expr -> Type -> Type -> Type?"""
+    if not isinstance(expr, EConcat):
+        return None
+    match (left_type, right_type):
+        case (TList(_, mine, _), TList(_, theirs, _)):
+            if accepts(mine, theirs):
+                return TList(expr.info, mine)
+            if accepts(theirs, mine):
+                return TList(expr.info, theirs)
+    return None
+
+
 def check_binary(expr, env, tmap, store):
     """The type of a binary operator application, from OPERATORS.
     Expr -> Env -> {Int: Type} -> Store -> (Type, Store)"""
@@ -1746,17 +1874,186 @@ def check_binary(expr, env, tmap, store):
         if isinstance(left_type, operand) and isinstance(right_type, operand):
             # Operands match. Return the resulting type
             return result(expr.info), store
+    joined = concat_lists(expr, left_type, right_type)
+    if joined is not None:
+        return joined, store
     # Raise type error, stating what is accepted
     accepted = " or ".join(
         f"{name} {spelling} {name}"
         for name in (pprint_type(operand(expr.info)) for operand, _ in signatures)
     )
+    if isinstance(expr, EConcat):
+        accepted += " or two lists of one type"
     raise TypeError_(
         expr.info,
         f"`{spelling}` cannot be applied to {pprint_type(left_type)} and "
         f"{pprint_type(right_type)}; it accepts {accepted}"
         + alternative(expr, left_type, right_type),
     )
+
+
+# --- CompClause ------------------------------------------------------
+
+
+def check_clauses(clauses, env, tmap, store):
+    """The environment a comprehension's clauses leave for its element
+    expression. Each `for` binds over the elements of its sequence and
+    the ones after it see those bindings; each `if` is checked in
+    whatever is in scope by then.
+    [CompClause] -> Env -> {Int: Type} -> Store -> (Env, Store)"""
+    for clause in clauses:
+        match clause:
+            case CompFor(info, pattern, sequence, _):
+                sequence_type, store = check_expr(sequence, env, tmap, store)
+                match sequence_type:
+                    case TList(_, element, _):
+                        env = check_pattern(pattern, element, env, tmap)
+                    case _:
+                        raise TypeError_(
+                            info,
+                            f"a comprehension walks a list, but this one is "
+                            f"given {pprint_type(sequence_type)}",
+                        )
+            case CompIf(info, condition, _):
+                condition_type, store = check_expr(condition, env, tmap, store)
+                if not isinstance(condition_type, TBool):
+                    raise TypeError_(
+                        info,
+                        f"the condition of a comprehension must be Bool, not "
+                        f"{pprint_type(condition_type)}",
+                    )
+    return env, store
+
+
+# --- Pattern ---------------------------------------------------------
+#
+# A pattern is checked *against* the type of what it matches, and what
+# it answers is the environment its captures leave behind. Nothing in a
+# pattern is evaluated, so there is no store to thread: a pattern can
+# neither call a function nor fail in a way inference would care about.
+
+
+def check_pattern(pattern, type_, env, tmap):
+    """The environment a pattern binds, checked against the type of the
+    value it matches. Raises TypeError_ for a pattern that could never
+    match a value of that type.
+    Pattern -> Type -> Env -> {Int: Type} -> Env"""
+    record(tmap, pattern.sym, type_, empty_store())
+    match pattern:
+        case PWildcard():
+            return env
+        case PCapture(_, name, _):
+            return bind(env, name, type_)
+        case PInt(info, _, _):
+            return pattern_literal(TInt(info), type_, info, env)
+        case PString(info, _, _):
+            return pattern_literal(TString(info), type_, info, env)
+        case PBool(info, _, _):
+            return pattern_literal(TBool(info), type_, info, env)
+        case PTuple(info, elements, _):
+            match type_:
+                case TTuple(_, parts, _) if len(parts) == len(elements):
+                    for element, part in zip(elements, parts):
+                        env = check_pattern(element, part, env, tmap)
+                    return env
+            raise TypeError_(
+                info,
+                f"this pattern takes a tuple of {len(elements)} apart, but "
+                f"it is matched against {pprint_type(type_)}",
+            )
+        case PList(info, prefix, rest, suffix, _):
+            match type_:
+                case TList(_, element, _):
+                    pass
+                case _:
+                    raise TypeError_(
+                        info,
+                        f"this pattern matches a list, but it is matched "
+                        f"against {pprint_type(type_)}",
+                    )
+            for one in list(prefix) + list(suffix or []):
+                env = check_pattern(one, element, env, tmap)
+            match rest:
+                case ListRest(_, name, _) if name is not None:
+                    # The rest of a list is a list of the same elements.
+                    env = bind(env, name, type_)
+            return env
+    unsupported(pattern)
+
+
+def pattern_literal(wanted, type_, info, env):
+    """A literal pattern's environment -- unchanged, since it binds
+    nothing -- once the type it matches is the one it could equal.
+    Type -> Type -> Info -> Env -> Env"""
+    if not accepts(type_, wanted):
+        raise TypeError_(
+            info,
+            f"this pattern is {pprint_type(wanted)}, but it is matched "
+            f"against {pprint_type(type_)}",
+        )
+    return env
+
+
+def irrefutable(pattern):
+    """Whether a pattern matches every value of its type. A tuple's
+    shape is fixed by its type, so a tuple of irrefutable patterns is
+    one too; a list's length is not, so no list pattern is.
+    Pattern -> Bool"""
+    match pattern:
+        case PWildcard() | PCapture():
+            return True
+        case PTuple(_, elements, _):
+            return all(irrefutable(element) for element in elements)
+    return False
+
+
+def covers(patterns):
+    """Whether these patterns between them match every value they could
+    be matched against. One irrefutable pattern is enough on its own.
+    Two more ways: both of a Bool's values, and -- the one every
+    recursion over a list is written with -- exact lengths 0 up to k-1
+    plus one pattern with a rest marker that takes k or more. The
+    question is
+    about the patterns alone -- a list pattern matched against something
+    that is not a list has already been refused by `check_pattern`.
+    [Pattern] -> Bool"""
+    if any(irrefutable(pattern) for pattern in patterns):
+        return True
+    # A Bool has two values, so naming both of them covers it. Int and
+    # String cannot be enumerated, and are not tried.
+    booleans = {p.value for p in patterns if isinstance(p, PBool)}
+    if booleans == {True, False}:
+        return True
+    lists = [p for p in patterns if isinstance(p, PList)]
+    exact = {
+        len(p.prefix) for p in lists
+        if p.rest is None and all(irrefutable(e) for e in p.prefix)
+    }
+    for p in lists:
+        if p.rest is None:
+            continue
+        fixed = list(p.prefix) + list(p.suffix or [])
+        if all(irrefutable(e) for e in fixed) \
+                and all(n in exact for n in range(len(fixed))):
+            return True
+    return False
+
+
+def require_total(stmt, what):
+    """Refuses a value-form `match` whose cases do not cover every
+    value. A `match` that matches nothing does nothing (PYKING.md), so
+    one whose value is being taken has to be unable to match nothing --
+    otherwise the type reported for the binding names a value that need
+    never exist. Stmt -> String -> ()"""
+    match stmt:
+        case SMatch(info, _, cases, _):
+            if not covers([c.pattern for c in cases]):
+                raise TypeError_(
+                    info,
+                    f"this 'match' is {what}, so it must match every value: "
+                    f"add a 'case _' or a case that binds a name, since a "
+                    f"'match' that matches nothing yields nothing",
+                )
 
 
 # --- Type ------------------------------------------------------------

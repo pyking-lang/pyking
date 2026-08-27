@@ -2338,6 +2338,8 @@ under Pyking's ordinary lexical scoping.
 | `+` | `Int + Int` | `Int` |
 | `++` | `String ++ String` | `String` |
 | `-`, `*` | `Int`, `Int` | `Int` |
+| `-` (unary) | `Int` | `Int` |
+| `++` | two lists of one type | that list type |
 | `<`, `<=`, `>`, `>=` | `Int`, `Int` | `Bool` |
 | `==` | two `Int`s, two `String`s or two `Bool`s | `Bool` |
 
@@ -2699,6 +2701,57 @@ mixed with `|`** in one signature: an alternative says what a name was
 inferred to be, a variable says the caller decides, and no rule relates
 the two.
 
+### Lists and `match`, checked
+
+A list literal's elements agree on one type, the way an `if`'s branches
+do and for the same reason: they are all elements of the same list. The
+empty list is the exception that proves it — with nothing to disagree,
+`[]` is `[!]`, and since a Pyking list is immutable it fits wherever a
+list of anything is wanted:
+
+```pyking
+def count(xs:[Int]) -> Int:
+    return len(xs)
+
+
+print(count([]), count([1, 2]))     # 0 2
+```
+
+A **pattern is checked against the type of what it matches**, and what
+it answers is the names it binds: `case [x, ..rest]` over a `[Int]`
+gives `x : Int` and `rest : [Int]`. A pattern that could never match —
+a String pattern over an Int — is refused where it is written.
+
+The **arms of a `match` agree on one type**, again the `if` rule. Where
+the arms disagree only in how general they are, the more general one
+wins, which is what lets a base case return `[]`:
+
+```pyking
+def reverse(xs:[Int]) -> [Int]:
+    match xs:
+        case []:
+            return []                    # [!], and so [Int] here
+        case [x, ..rest]:
+            return reverse(rest) ++ [x]
+```
+
+**A `match` whose value is taken must match every value.** A `match`
+that fits no arm does nothing, so one being *bound* has to be unable to
+fit nothing — otherwise the name would simply not be there. One
+irrefutable arm (`case _`, or one that binds a name) settles it, and so
+does a set of list patterns covering every length, which is how the
+recursion above is written. The statement form is unaffected.
+
+```pyking
+label = match n:
+    case 0: "zero"
+    case _: "other"        # required: without it, `label` may not exist
+```
+
+A comprehension's `for` walks a list and its pattern binds over the
+elements; an element the pattern does not match is left out rather than
+being an error, matching what the construct already means.
+
 ### Functions without annotations
 
 A `def` that did not write its type down is not checked where it is
@@ -2805,10 +2858,13 @@ was worked out — the reasoning behind all of this is in
 
 ### What is not checked
 
-**Constructs outside the fragment.** `var` and `:=`, `for`, `while`,
-`match`, list literals, list comprehensions, `/` and unary minus are all
-refused with `Construct is not supported`. A call to a builtin *is*
-checked — see below.
+**Constructs outside the fragment.** `var` and `:=`, `for`, `while` and
+`/` are refused with `Construct is not supported`. A call to a builtin
+*is* checked — see below.
+
+`/` is the odd one out and is not waiting on the checker: it is *true
+division*, so `7 / 2` is `3.5`, and Pyking has no `Float` type for that
+to be. It is checkable only once one exists.
 
 **Names, while `--typecheck` is on.** The type checker replaces the name
 analysis rather than running after it, and does that checking itself:

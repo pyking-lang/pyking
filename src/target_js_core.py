@@ -21,7 +21,7 @@ Functions:
         text; runtime maps each runtime operation to its call spelling.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass
 
 from lexer import Info
 import runtime_interface
@@ -30,6 +30,8 @@ from syntax import (
     EAdd, EConcat, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EIf, ETuple,
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SWhile, SIf,
+    SMatch, EList, EListComp, CompFor, CompIf,
+    PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, ListRest,
     SLoop, SBreak, SContinue, SFunctionDef,
     TargetName, TargetTuple,
 )
@@ -109,6 +111,47 @@ class JsCall(JsExpr):       # func(args...)
 class JsArray(JsExpr):      # [e1, e2, ...] -- a Pyking tuple
     info: Info
     elements: list
+
+
+@dataclass(frozen=True)
+class JsList(JsExpr):       # pykList([e1, e2, ...]) -- a Pyking list
+    info: Info               # A tuple is a plain array, so a list is an
+    elements: list           # array subclass: every array operation still
+                             # works, and `pykFormat` can tell the two apart.
+
+
+@dataclass(frozen=True)
+class JsArrow(JsExpr):      # (params) => { body; return result; }
+    info: Info
+    params: list             # [String]
+    body: list               # [JsStmt] run before the result
+    result: JsExpr
+
+
+@dataclass(frozen=True)
+class JsPlain(JsExpr):      # [e1, e2, ...] with no marker -- a piece of a
+    info: Info               # comprehension, which `flatMap` flattens away
+    elements: list           # before the result is marked as a list.
+
+
+@dataclass(frozen=True)
+class JsSpread(JsExpr):     # [...a, ...b]
+    info: Info
+    parts: list
+
+
+@dataclass(frozen=True)
+class JsIndex(JsExpr):      # target[index]
+    info: Info
+    target: JsExpr
+    index: JsExpr
+
+
+@dataclass(frozen=True)
+class JsMember(JsExpr):     # target.name
+    info: Info
+    target: JsExpr
+    name: str
 
 
 @dataclass(frozen=True)
@@ -370,6 +413,24 @@ def translate_expr(e, scope):
                 translate_expr(then_expr, scope),
                 translate_expr(else_expr, scope),
             )
+        case EConcat(info, left, right) if _is_list(left) or _is_list(right):
+            # JavaScript's `+` joins strings but not arrays, and a Pyking
+            # list is an array, so joining two of them is a spread into a
+            # fresh one.
+            return JsCall(
+                info, JsVar(info, "pykList"),
+                [JsSpread(info, [translate_expr(left, scope),
+                                 translate_expr(right, scope)])],
+            )
+        case EList(info, elements):
+            return JsList(info, [translate_expr(el, scope) for el in elements])
+        case EListComp(info, element, clauses):
+            # The chain's pieces are plain arrays that `flatMap` folds
+            # together; the finished list is what carries the marker.
+            return JsCall(
+                info, JsVar(info, "pykList"),
+                [_translate_comprehension(info, element, list(clauses), scope)],
+            )
         case ETuple(info, elements):
             # A tuple is a JavaScript array: it is built, taken apart
             # and printed as one (docs/target_js.md, "Tuples").
@@ -451,6 +512,127 @@ def translate_tail_stmt(s, scope):
             return _as_stmts(translated)
 
 
+# --- patterns ---------------------------------------------------------
+#
+# A pattern becomes a test and some bindings over an expression that
+# already holds the value. The checker has settled the types, so nothing
+# here checks one: a tuple's length is fixed by its type, and only a
+# list's has to be looked at.
+
+
+def _pattern_test(pattern, subject, scope):
+    """(test, bindings, scope) for matching `pattern` against `subject`.
+    `test` is None when the pattern always matches.
+    Pattern -> JsExpr -> Scope -> (JsExpr?, [JsStmt], Scope)"""
+    info = pattern.info
+    match pattern:
+        case PWildcard():
+            return None, [], scope
+        case PCapture(_, name, _):
+            js_name, scope = _bind(name, scope)
+            return None, [JsConst(info, JsTargetName(info, js_name), subject)], scope
+        case PInt(_, value, _):
+            return JsBinary(info, "===", subject, JsNum(info, value)), [], scope
+        case PString(_, value, _):
+            return JsBinary(info, "===", subject, JsStr(info, value)), [], scope
+        case PBool(_, value, _):
+            return JsBinary(info, "===", subject, JsBool(info, value)), [], scope
+        case PTuple(_, elements, _):
+            return _pattern_parts(
+                elements,
+                [JsIndex(info, subject, JsNum(info, i))
+                 for i in range(len(elements))],
+                None, scope,
+            )
+        case PList(_, prefix, rest, suffix, _):
+            fixed = list(prefix) + list(suffix or [])
+            length = JsMember(info, subject, "length")
+            if rest is None:
+                size = JsBinary(info, "===", length, JsNum(info, len(prefix)))
+            else:
+                size = JsBinary(info, ">=", length, JsNum(info, len(fixed)))
+            places = [JsIndex(info, subject, JsNum(info, i))
+                      for i in range(len(prefix))]
+            places += [
+                JsIndex(info, subject,
+                        JsBinary(info, "-", length,
+                                 JsNum(info, len(suffix or []) - i)))
+                for i in range(len(suffix or []))
+            ]
+            test, bindings, scope = _pattern_parts(fixed, places, size, scope)
+            match rest:
+                case ListRest(_, name, _) if name is not None:
+                    js_name, scope = _bind(name, scope)
+                    middle = JsCall(
+                        info, JsVar(info, "pykList"),
+                        [JsCall(info, JsMember(info, subject, "slice"),
+                                [JsNum(info, len(prefix)),
+                                 JsBinary(info, "-", length,
+                                          JsNum(info, len(suffix or [])))])],
+                    )
+                    bindings = bindings + [
+                        JsConst(info, JsTargetName(info, js_name), middle)
+                    ]
+            return test, bindings, scope
+    _unsupported(pattern, type(pattern).__name__)
+
+
+def _pattern_parts(patterns, places, test, scope):
+    """Every sub-pattern's test and bindings, joined with `&&`.
+    [Pattern] -> [JsExpr] -> JsExpr? -> Scope -> (JsExpr?, [JsStmt], Scope)"""
+    bindings = []
+    for pattern, place in zip(patterns, places):
+        inner, made, scope = _pattern_test(pattern, place, scope)
+        if inner is not None:
+            test = inner if test is None else JsBinary(
+                pattern.info, "&&", test, inner
+            )
+        bindings += made
+    return test, bindings, scope
+
+
+def _is_list(e):
+    """Whether an expression is plainly a list, from its own form. Used
+    only to tell `++` on lists from `++` on strings, where the two need
+    different JavaScript. Expr -> Bool"""
+    return isinstance(e, (EList, EListComp)) or (
+        isinstance(e, EConcat) and (_is_list(e.left) or _is_list(e.right))
+    )
+
+
+def _translate_comprehension(info, element, clauses, scope):
+    """`[e for p in seq if c ...]` as a chain of `flatMap`s: each `for`
+    maps its sequence and flattens, each `if` and each pattern that does
+    not match contributes nothing. Info -> Expr -> [CompClause] -> Scope
+    -> JsExpr"""
+    if not clauses:
+        return JsPlain(info, [translate_expr(element, scope)])
+    match clauses[0]:
+        case CompFor(clause_info, pattern, sequence, _):
+            item, inner_scope = _bind("__item", _block_scope(scope))
+            test, bindings, inner_scope = _pattern_test(
+                pattern, JsVar(clause_info, item), inner_scope
+            )
+            body = _translate_comprehension(
+                info, element, clauses[1:], inner_scope
+            )
+            guarded = body if test is None else JsCond(
+                clause_info, test, body, JsPlain(clause_info, [])
+            )
+            return JsCall(
+                clause_info,
+                JsMember(clause_info, translate_expr(sequence, scope), "flatMap"),
+                [JsArrow(clause_info, [item], bindings, guarded)],
+            )
+        case CompIf(clause_info, condition, _):
+            return JsCond(
+                clause_info,
+                translate_expr(condition, scope),
+                _translate_comprehension(info, element, clauses[1:], scope),
+                JsPlain(clause_info, []),
+            )
+
+
 def translate_stmt(s, scope):
     """Translates one statement, returning it with the scope it leaves
     behind. A loop answers with several statements, so the result may be
@@ -461,6 +643,29 @@ def translate_stmt(s, scope):
             js_expr = translate_expr(expr, scope)
             js_target, scope = translate_target(target, scope)
             return JsConst(info, js_target, js_expr), scope
+
+        case SMatch(info, subject, cases):
+            # The subject is evaluated once, into a name of its own, and
+            # the arms become an if/else chain over it. A Pyking `match`
+            # that fits no arm does nothing, which is what an `if` chain
+            # with no final `else` already does.
+            name, scope = _bind("__subject", scope)
+            # Built from the last arm backwards. An arm whose pattern
+            # always matches becomes the `else` rather than an
+            # `if (true)`.
+            chain = None
+            for case_clause in reversed(cases):
+                arm_scope = _block_scope(scope)
+                test, bindings, arm_scope = _pattern_test(
+                    case_clause.pattern, JsVar(info, name), arm_scope
+                )
+                body, _ = translate_stmts(case_clause.body, arm_scope)
+                chain = bindings + body if test is None else [
+                    JsIf(case_clause.info, test, bindings + body, chain)
+                ]
+            held = JsConst(info, JsTargetName(info, name),
+                           translate_expr(subject, scope))
+            return [held] + (chain or []), scope
 
         case SLetStmt(info, target, SLoop() as loop):
             # `x = loop ...` -- the loop's value is the accumulator it
@@ -825,6 +1030,28 @@ def pprint_js_expr(e, runtime, min_prec=0):
             return _wrap(_CONDITIONAL_PRECEDENCE, min_prec, text)
         case JsArray(_, elements):
             return f"[{', '.join(pprint_js_expr(el, runtime) for el in elements)}]"
+        case JsList(_, elements):
+            inside = ", ".join(pprint_js_expr(el, runtime) for el in elements)
+            return f"pykList([{inside}])"
+        case JsPlain(_, elements):
+            inside = ", ".join(pprint_js_expr(el, runtime) for el in elements)
+            return f"[{inside}]"
+        case JsArrow(_, params, body, result):
+            if not body:
+                inside = pprint_js_expr(result, runtime)
+                return f"({', '.join(params)}) => {inside}"
+            lines = [pprint_js_stmt(st, runtime, 1) for st in body]
+            lines.append(f"  return {pprint_js_expr(result, runtime)};")
+            joined = "\n".join(lines)
+            return f"({', '.join(params)}) => {{\n{joined}\n}}"
+        case JsSpread(_, parts):
+            inside = ", ".join(f"...{pprint_js_expr(p, runtime)}" for p in parts)
+            return f"[{inside}]"
+        case JsIndex(_, target, index):
+            return (f"{pprint_js_expr(target, runtime, _CALL_PRECEDENCE)}"
+                    f"[{pprint_js_expr(index, runtime)}]")
+        case JsMember(_, target, name):
+            return f"{pprint_js_expr(target, runtime, _CALL_PRECEDENCE)}.{name}"
         case JsCall(_, func, args):
             args_text = ", ".join(pprint_js_expr(a, runtime) for a in args)
             return f"{pprint_js_expr(func, runtime, _CALL_PRECEDENCE)}({args_text})"
@@ -912,7 +1139,38 @@ def pprint_js_stmt(s, runtime, level=0):
             raise NotImplementedError(f"no printer for JavaScript statement {s!r}")
 
 
+_LIST_HELPER = "\n".join([
+    "// A Pyking list is a JavaScript array with a marker on it: a tuple",
+    "// is an array too, and the two print differently. A property rather",
+    "// than a class, so that a formatter in another module can read it.",
+    "function pykList(items) {",
+    "  items.pykList = true;",
+    "  return items;",
+    "}",
+])
+
+
 def pprint_js_program(stmts, runtime, level=0):
-    """stmts as JavaScript source text. [JsStmt] -> {String: String} ->
+    """stmts as JavaScript source text, with the list helper ahead of
+    them where the program builds a list. [JsStmt] -> {String: String} ->
     Int -> String"""
-    return _join_stmts(stmts, runtime, level)
+    body = _join_stmts(stmts, runtime, level)
+    if not _uses_lists(stmts):
+        return body
+    pad = "  " * level
+    helper = "\n".join(pad + line if line else line
+                        for line in _LIST_HELPER.split("\n"))
+    return helper + "\n\n" + body
+
+
+def _uses_lists(node):
+    """Whether the translated program builds a Pyking list anywhere, so
+    that `pykList` is emitted only where it is wanted -- as C's
+    `pyk_concat` is. JsStmt|[JsStmt]|... -> Bool"""
+    if isinstance(node, JsList):
+        return True
+    if isinstance(node, (list, tuple)):
+        return any(_uses_lists(item) for item in node)
+    if is_dataclass(node):
+        return any(_uses_lists(getattr(node, f.name)) for f in fields(node))
+    return False

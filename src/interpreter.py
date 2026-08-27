@@ -36,7 +36,9 @@ from syntax import (
     EInt, EString, EBool, EVar, EAdd, EConcat, ESub, EMul, ECall, EIf, ETuple,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq,
     SLet, SLetStmt, SExprStmt, SIf, SReturn, SReturnStmt, SFunctionDef,
-    SFunctionSig,
+    SFunctionSig, SMatch,
+    ENeg, EList, EListComp, CompFor, CompIf,
+    PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, ListRest,
     SLoop, SBreak, SContinue,
     TargetName, TargetTuple,
 )
@@ -85,6 +87,11 @@ from syntax import (
 #               env: Env, rest: Kont?)
 #     KElement(node: ETuple, done: [Value], todo: [Expr], env: Env,
 #              rest: Kont?)
+#     KNegate(node: ENeg, env: Env, rest: Kont?)
+#     KScrutinee(stmt: SMatch, env: Env, rest: Kont?)
+#     KComprehend(node: EListComp, want: String, index: Int,
+#                 frames: [(Int, [Value], Env)], done: [Value],
+#                 env: Env, outer: Env, rest: Kont?)
 #     KBranch(stmt: SIf, env: Env, rest: Kont?)
 #     KChoose(expr: EIf, env: Env, rest: Kont?)
 #     KDiscard(env: Env, rest: Kont?)
@@ -566,6 +573,39 @@ class KElement(Kont):
 
 
 @dataclass(frozen=True)
+class KNegate(Kont):
+    """The operand of a unary minus has arrived."""
+    node: ENeg
+    env: Env
+    rest: Kont
+
+
+@dataclass(frozen=True)
+class KScrutinee(Kont):
+    """The subject of a `match` has arrived; the arms are tried against
+    it in order. Matching evaluates nothing, so it is done in one step."""
+    stmt: SMatch
+    env: Env
+    rest: Kont
+
+
+@dataclass(frozen=True)
+class KComprehend(Kont):
+    """One value of a comprehension has arrived -- an element, a
+    sequence, or a condition, according to `want`. `frames` is the
+    iteration in progress, innermost last; `done` is what has been
+    collected so far."""
+    node: EListComp
+    want: str                   # "sequence" | "test" | "element"
+    index: int                  # which clause the value belongs to
+    frames: tuple               # ((clause_index, (Value,), Env), ...)
+    done: tuple
+    env: Env                    # where the value being awaited is evaluated
+    outer: Env                  # where the whole comprehension was written
+    rest: Kont
+
+
+@dataclass(frozen=True)
 class KBranch(Kont):
     """The condition of an `if` has arrived; enter the branch it
     chooses."""
@@ -776,6 +816,15 @@ def _evaluate(expr, env):
                     return value
         case ETuple(_, elements, _):
             return VTuple(tuple(_evaluate(element, env) for element in elements))
+        case EList(_, elements, _):
+            return VList(tuple(_evaluate(element, env) for element in elements))
+        case EListComp(_, element, clauses, _):
+            return VList(tuple(
+                _evaluate(element, inner)
+                for inner in _comprehension_envs(list(clauses), env)
+            ))
+        case ENeg(_, operand, _):
+            return apply_unary(expr, _evaluate(operand, env))
         case EAdd() | EConcat() | ESub() | EMul() | ELessThan() | ELessThanEq() \
                 | EGreatThan() | EGreatThanEq() | EEq():
             left = _evaluate(expr.left, env)
@@ -857,6 +906,53 @@ OPERATORS = {
     EGreatThanEq: (">=", _compare(lambda a, b: a >= b)),
     EEq: ("==", _equals),
 }
+
+
+def apply_unary(node, operand):
+    """The value of a unary operator application. Raises _Trap for an
+    operand the operator does not accept. Expr -> Value -> Value"""
+    match (node, operand):
+        case (ENeg(), VInt(a)):
+            return VInt(wrap32(-a))
+    raise _Trap(RuntimeError_(
+        node.info,
+        f"`-` cannot be applied to {describe(operand)}",
+    ))
+
+
+def _comprehension_envs(clauses, env):
+    """Every environment a comprehension's clauses produce, in order.
+    Used only where the whole comprehension is call-free, so nothing
+    here can suspend or print. [CompClause] -> Env -> (Env,)"""
+    if not clauses:
+        yield env
+        return
+    match clauses[0]:
+        case CompFor(_, pattern, sequence, _):
+            match _evaluate(sequence, env):
+                case VList(items):
+                    pass
+                case other:
+                    raise _Trap(RuntimeError_(
+                        clauses[0].info,
+                        f"a comprehension walks a list, not {describe(other)}",
+                    ))
+            for item in items:
+                inner = match_pattern(env, pattern, item)
+                if inner is not None:
+                    yield from _comprehension_envs(clauses[1:], inner)
+        case CompIf(_, condition, _):
+            match _evaluate(condition, env):
+                case VBool(True):
+                    yield from _comprehension_envs(clauses[1:], env)
+                case VBool(False):
+                    pass
+                case other:
+                    raise _Trap(RuntimeError_(
+                        clauses[0].info,
+                        f"the condition of a comprehension must be Bool, not "
+                        f"{describe(other)}",
+                    ))
 
 
 def apply_binary(node, left, right):
@@ -978,9 +1074,19 @@ def _step_eval(state, expr):
                 control=CEval(func),
                 kont=KCallee(expr, state.env, state.kont),
             )
-        case ETuple(_, elements, _):
+        case ETuple(_, elements, _) | EList(_, elements, _):
             return _start_elements(
                 state, expr, (), tuple(elements), state.env, state.kont
+            )
+        case ENeg(_, operand, _):
+            return _go(
+                state,
+                control=CEval(operand),
+                kont=KNegate(expr, state.env, state.kont),
+            )
+        case EListComp(_, _, _, _):
+            return _comprehend(
+                state, expr, (), (), state.env, state.env, state.kont
             )
         case EIf(_, cond, _, _, _):
             return _go(
@@ -1062,6 +1168,13 @@ def _step_stmt(state, stmt):
             if frame is None:
                 return failed(state, RuntimeError_(info, "'return' outside a function"))
             return _go(state, control=CStmt(inner), kont=KReturnTo(frame))
+
+        case SMatch(_, subject, _, _):
+            return _go(
+                state,
+                control=CEval(subject),
+                kont=KScrutinee(stmt, state.env, state.kont),
+            )
 
         case SFunctionSig():
             # A signature says what a `def` in this block is. The checker
@@ -1189,6 +1302,33 @@ def _step_apply(state, value):
                 return _leave(state, loop, value)
             return _turn(state, replace(loop, accumulator=value))
 
+        case KNegate(node, env, rest):
+            try:
+                return _go(state, control=CApply(apply_unary(node, value)),
+                           env=env, kont=rest)
+            except _Trap as trap:
+                return failed(state, trap.error)
+
+        case KScrutinee(stmt, env, rest):
+            # Matching evaluates nothing, so every arm is tried here and
+            # the first that fits has its body run. A `match` that fits
+            # none does nothing and supplies unit (PYKING.md).
+            for case_clause in stmt.cases:
+                inner = match_pattern(env, case_clause.pattern, value)
+                if inner is not None:
+                    return _go(
+                        state,
+                        control=CApply(UNIT),
+                        env=inner,
+                        kont=KSeq(case_clause.body, 0, env, rest),
+                    )
+            return _go(state, control=CApply(UNIT), env=env, kont=rest)
+
+        case KComprehend(node, want, index, frames, done, env, outer, rest):
+            return _comprehended(
+                state, node, want, index, frames, done, value, env, outer, rest
+            )
+
         case KReturnTo(frame):
             return _go(
                 state,
@@ -1198,6 +1338,107 @@ def _step_apply(state, value):
                 stack=frame.parent,
                 loops=frame.loops,
             )
+
+
+# A comprehension is a nested loop that builds a list, and the machine
+# runs it as one: `frames` is the loop stack, innermost last, each frame
+# holding which clause it belongs to, the items it has left, and the
+# environment that clause was entered in. `_comprehend` asks for the
+# next thing to be evaluated; `_comprehended` receives it. Everything
+# that can suspend -- a sequence, a condition, an element -- goes round
+# that pair, which is what lets a comprehension calling a printing
+# function interleave correctly.
+
+
+def _comprehend(state, node, frames, done, env, outer, rest):
+    """Drives a comprehension one step: enters the next clause, or takes
+    the next item, or builds the list when nothing is left.
+    State -> EListComp -> (Frame,) -> (Value,) -> Env -> Env -> Kont
+    -> State"""
+    index = len(frames)
+    if index == len(node.clauses):
+        # Every clause is entered: this environment yields one element.
+        return _go(
+            state,
+            control=CEval(node.expr),
+            env=env,
+            kont=KComprehend(
+                node, "element", index, frames, done, env, outer, rest
+            ),
+        )
+    match node.clauses[index]:
+        case CompFor(_, _, sequence, _):
+            return _go(
+                state,
+                control=CEval(sequence),
+                env=env,
+                kont=KComprehend(
+                    node, "sequence", index, frames, done, env, outer, rest
+                ),
+            )
+        case CompIf(_, condition, _):
+            return _go(
+                state,
+                control=CEval(condition),
+                env=env,
+                kont=KComprehend(
+                    node, "test", index, frames, done, env, outer, rest
+                ),
+            )
+
+
+def _comprehended(state, node, want, index, frames, done, value, env, outer,
+                  rest):
+    """One value a comprehension asked for has arrived. State -> ... ->
+    State"""
+    if want == "element":
+        return _take(state, node, frames, done + (value,), outer, rest)
+    if want == "test":
+        match value:
+            case VBool(True):
+                return _comprehend(
+                    state, node, frames + ((index, (), env),), done, env,
+                    outer, rest
+                )
+            case VBool(False):
+                return _take(state, node, frames, done, outer, rest)
+        return failed(state, RuntimeError_(
+            node.clauses[index].info,
+            f"the condition of a comprehension must be Bool, not "
+            f"{describe(value)}",
+        ))
+    match value:
+        case VList(items):
+            return _take(state, node, frames + ((index, items, env),), done,
+                         outer, rest)
+    return failed(state, RuntimeError_(
+        node.clauses[index].info,
+        f"a comprehension walks a list, not {describe(value)}",
+    ))
+
+
+def _take(state, node, frames, done, outer, rest):
+    """Takes the next item of the innermost `for`, skipping items its
+    pattern does not match, and unwinds a frame that has run out."""
+    while frames:
+        index, items, entered = frames[-1]
+        match node.clauses[index]:
+            case CompIf():
+                # A test's frame holds no items; it is a marker that the
+                # test passed, and unwinding it is all there is to do.
+                frames = frames[:-1]
+                continue
+            case CompFor(_, pattern, _, _):
+                pass
+        if not items:
+            frames = frames[:-1]
+            continue
+        inner = match_pattern(entered, pattern, items[0])
+        frames = frames[:-1] + ((index, items[1:], entered),)
+        if inner is None:
+            continue                       # the pattern filters it out
+        return _comprehend(state, node, frames, done, inner, outer, rest)
+    return _go(state, control=CApply(VList(done)), env=outer, kont=rest)
 
 
 def _start_arguments(state, call, callee, done, todo, env, rest):
@@ -1214,8 +1455,10 @@ def _start_arguments(state, call, callee, done, todo, env, rest):
 
 
 def _start_elements(state, node, done, todo, env, rest):
-    """Evaluates the next element of a tuple, or builds it if todo is
-    empty. State -> ETuple -> (Value,) -> (Expr,) -> Env -> Kont -> State"""
+    """Evaluates the next element of a tuple or a list literal, or
+    builds it if todo is empty. The two are one path because they differ
+    only in what is built at the end.
+    State -> ETuple|EList -> (Value,) -> (Expr,) -> Env -> Kont -> State"""
     if todo:
         return _go(
             state,
@@ -1223,7 +1466,61 @@ def _start_elements(state, node, done, todo, env, rest):
             env=env,
             kont=KElement(node, done, todo[1:], env, rest),
         )
-    return _go(state, control=CApply(VTuple(done)), env=env, kont=rest)
+    built = VList(done) if isinstance(node, EList) else VTuple(done)
+    return _go(state, control=CApply(built), env=env, kont=rest)
+
+
+def match_pattern(env, pattern, value):
+    """The environment a pattern binds when it matches value, or None
+    when it does not. Nothing here evaluates, so matching can neither
+    suspend nor fail at run time -- a pattern that cannot match simply
+    says so. Env -> Pattern -> Value -> Env?"""
+    match (pattern, value):
+        case (PWildcard(), _):
+            return env
+        case (PCapture(_, name, _), _):
+            return extend(env, name, value)
+        case (PInt(_, wanted, _), VInt(got)):
+            return env if wanted == got else None
+        case (PString(_, wanted, _), VString(got)):
+            return env if wanted == got else None
+        case (PBool(_, wanted, _), VBool(got)):
+            return env if wanted == got else None
+        case (PTuple(_, elements, _), VTuple(parts)) if len(elements) == len(parts):
+            for element, part in zip(elements, parts):
+                env = match_pattern(env, element, part)
+                if env is None:
+                    return None
+            return env
+        case (PList(_, prefix, rest, suffix, _), VList(items)):
+            return match_list(env, list(prefix), rest, list(suffix or []), items)
+    return None
+
+
+def match_list(env, prefix, rest, suffix, items):
+    """A list pattern against a list's items: the prefix from the front,
+    the suffix from the back, and the rest marker whatever is left over.
+    Without a rest marker the length must be exact.
+    Env -> [Pattern] -> ListRest? -> [Pattern] -> (Value,) -> Env?"""
+    if rest is None:
+        if len(items) != len(prefix):
+            return None
+        taken, middle = items, ()
+    else:
+        if len(items) < len(prefix) + len(suffix):
+            return None
+        taken = items[:len(prefix)] + items[len(items) - len(suffix):] \
+            if suffix else items[:len(prefix)]
+        middle = items[len(prefix):len(items) - len(suffix)] if suffix \
+            else items[len(prefix):]
+    for pattern, item in zip(prefix + suffix, taken):
+        env = match_pattern(env, pattern, item)
+        if env is None:
+            return None
+    match rest:
+        case ListRest(_, name, _) if name is not None:
+            env = extend(env, name, VList(middle))
+    return env
 
 
 def bind_target(env, target, value):

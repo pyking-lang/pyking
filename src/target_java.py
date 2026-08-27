@@ -34,7 +34,8 @@ from syntax import (
     EAdd, EConcat, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EIf, ETuple,
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SWhile, SIf,
-    SLoop, SBreak, SContinue, SFunctionDef,
+    SLoop, SBreak, SContinue, SFunctionDef, SMatch,
+    PInt, PString, PBool, PWildcard, PCapture,
     TargetName, TargetTuple, TInt, TString, TBool,
     TList, TTuple, TOr, TFunction, TVar, TForall,
 )
@@ -599,6 +600,11 @@ class _Translator:
                 return [translated]
             case SExprStmt(info, expr):
                 return [JReturn(info, self.expr(expr, scope))]
+            case SMatch():
+                built, _ = self.match_chain(
+                    s, scope, lambda body, inner: self.tail_stmts(body, inner)
+                )
+                return built
             case SIf(info, cond, then_body, else_body):
                 condition = self.expr(cond, scope)
                 self._require(condition, BOOL, "an `if` condition")
@@ -880,6 +886,11 @@ class _Translator:
                     _unsupported(s, "a `continue` outside a loop")
                 return self.accumulate(expr, scope, s) + [JContinue(info)], scope
 
+            case SMatch():
+                return self.match_chain(
+                    s, scope, lambda body, inner: self.stmts(body, inner)[0]
+                )
+
             case SIf(info, cond, then_body, else_body):
                 java_else = None if else_body is None else self.block(else_body, scope)
                 return JIf(
@@ -900,6 +911,60 @@ class _Translator:
                 _unsupported(s, type(s).__name__)
 
     # -- functions --
+
+    def match_chain(self, s, scope, translate_body):
+        """A `match` as an if/else chain over the subject, held in a
+        name of its own so it is evaluated once. The subject is a scalar
+        -- this backend has neither lists nor tuples -- so a pattern is
+        a literal, a wildcard, or a name. An arm whose pattern always
+        matches becomes the `else`, which is what lets
+        `_definitely_returns` see that a total `match` returns.
+        SMatch -> Scope -> ([Stmt] -> Scope -> [JStmt]) -> ([JStmt], Scope)"""
+        subject = self.expr(s.subject, scope)
+        held, scope = _bind("__subject", subject.ctype, scope)
+        here = JVar(s.info, held, subject.ctype)
+        chain = None
+        for case_clause in reversed(s.cases):
+            test, bindings, arm_scope = self.pattern_test(
+                case_clause.pattern, here, _block_scope(scope)
+            )
+            body = bindings + translate_body(case_clause.body, arm_scope)
+            chain = body if test is None else [
+                JIf(case_clause.info, test, body, chain)
+            ]
+        opening = JDecl(s.info, subject.ctype, held, subject)
+        return [opening] + (chain or []), scope
+
+    def pattern_test(self, pattern, subject, scope):
+        """(test, bindings, scope) for one pattern over a scalar
+        subject. The test is None when the pattern always matches, and a
+        capture becomes a declaration at the top of the arm.
+        Pattern -> JExpr -> Scope -> (JExpr?, [JStmt], Scope)"""
+        info = pattern.info
+        match pattern:
+            case PWildcard():
+                return None, [], scope
+            case PCapture(_, name, _):
+                java_name, scope = _bind(name, subject.ctype, scope)
+                return None, [
+                    JDecl(info, subject.ctype, java_name, subject)
+                ], scope
+            case PInt(_, value, _):
+                self._require(subject, INT, "an Int pattern")
+                return JBinary(
+                    info, "==", subject, JInt(info, value), BOOL
+                ), [], scope
+            case PBool(_, value, _):
+                self._require(subject, BOOL, "a Bool pattern")
+                return JBinary(
+                    info, "==", subject, JBool(info, value), BOOL
+                ), [], scope
+            case PString(_, value, _):
+                # Java's `==` on String compares references, so a string
+                # pattern goes through `.equals` like `==` does.
+                self._require(subject, STRING, "a String pattern")
+                return JEquals(info, subject, JStr(info, value)), [], scope
+        _unsupported(pattern, "this pattern")
 
     def declare_functions(self, stmts, scope):
         """Registers every top-level def's signature (return type

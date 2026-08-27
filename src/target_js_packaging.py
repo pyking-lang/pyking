@@ -27,6 +27,13 @@ TARGETS = ("nodejs", "html", "esm")
 _FORMAT_JS = r"""function pykFormat(value, inner) {
   if (value === undefined) return '()';
   if (typeof value === 'string') return inner ? pykQuote(value) : value;
+  // A Pyking list and a Pyking tuple are both JavaScript arrays and
+  // print differently, so a list carries a marker (see `pykList` in the
+  // compiled program). A property rather than a class, because for the
+  // `esm` target the two live in different modules.
+  if (Array.isArray(value) && value.pykList === true) {
+    return '[' + value.map((element) => pykFormat(element, true)).join(', ') + ']';
+  }
   if (Array.isArray(value)) {
     const parts = value.map((element) => pykFormat(element, true));
     return parts.length === 1 ? '(' + parts[0] + ',)' : '(' + parts.join(', ') + ')';

@@ -124,6 +124,11 @@ gets a new C variable, which may well have a different type.
   type on both arms.
 - `==` between different types — likewise.
 - `+` or `++` mixing an integer and a string.
+- A list, in any form -- a literal, a comprehension, or a pattern. C has
+  no value model for one, and Pyking has no garbage collector, so a
+  representation would have to answer a question this backend has not
+  been asked yet. `match` over a scalar *is* supported, as an if/else
+  chain over the subject.
 - A type variable in an annotation (`def id(x:a) -> a`). C needs one
   concrete type per function, and this backend infers no polymorphism,
   so guessing `Int` would compile a call at any other type into code
