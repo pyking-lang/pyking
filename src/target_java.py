@@ -36,6 +36,7 @@ from syntax import (
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SWhile, SIf,
     SLoop, SBreak, SContinue, SFunctionDef,
     TargetName, TargetTuple, TInt, TString, TBool,
+    TList, TTuple, TOr, TFunction, TVar, TForall,
 )
 
 VERSIONS = ("java8", "java17", "java21")
@@ -93,6 +94,37 @@ UNIT = "Unit"
 _JAVA_TYPES = {INT: "int", BOOL: "boolean", STRING: "String", UNIT: "void"}
 
 _ANNOTATIONS = {TInt: INT, TString: STRING, TBool: BOOL}
+
+
+def _reject_type_variables(node):
+    """Refuses a def whose annotations name a type variable. Java
+    infers one concrete type per function, so a type the caller chooses
+    has nothing here to become -- and guessing `Int` would compile a
+    call at any other type into code that is quietly wrong.
+    SFunctionDef -> ()"""
+    for annotation in [p.type for p in node.params] + [node.return_type]:
+        if annotation is not None and _mentions_type_variable(annotation):
+            _unsupported(
+                _At(annotation.info),
+                "a type variable -- Java needs one concrete type per "
+                "function, and this backend infers no polymorphism",
+            )
+
+
+def _mentions_type_variable(annotation):
+    """Whether a written type names a type variable anywhere inside it.
+    Type -> Bool"""
+    match annotation:
+        case TVar() | TForall():
+            return True
+        case TList(_, element, _):
+            return _mentions_type_variable(element)
+        case TTuple(_, elements, _) | TOr(_, elements, _):
+            return any(_mentions_type_variable(e) for e in elements)
+        case TFunction(_, params, result, _, _, _):
+            return (any(_mentions_type_variable(p) for p in params)
+                    or _mentions_type_variable(result))
+    return False
 
 
 def _annotated_type(annotation):
@@ -877,6 +909,7 @@ class _Translator:
         recursion"). [Stmt] -> Scope -> Scope"""
         for s in stmts:
             if isinstance(s, SFunctionDef):
+                _reject_type_variables(s)
                 java_name, scope = _bind(s.name, INT, scope)
                 self.signatures[s.name] = (
                     java_name,

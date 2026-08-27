@@ -1,0 +1,7 @@
+def identity : (x) -> x
+def identity(v):
+    return v
+def both_ways : ((all x. (x) -> x)) -> String
+def both_ways(f):
+    return f('a') ++ str(f(1))
+print(both_ways(identity))

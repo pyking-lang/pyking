@@ -197,6 +197,10 @@ new Java local, which may well have a different type.
   stringify the integer for `+`, but that is not what either Pyking
   operator means (neither has any implicit conversion), so this backend
   refuses the mix rather than let Java's own `+` paper over it.
+- A type variable in an annotation (`def id(x:a) -> a`). Java has
+  generics, but this backend infers one concrete type per function and
+  emits no type parameters, so a type the caller chooses has nothing
+  here to become.
 
 ### A recursive or forward-called function returning non-`Int` without an annotation
 

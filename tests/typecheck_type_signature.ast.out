@@ -1,0 +1,27 @@
+def apply_twice : ((a) -> a, a) -> a
+def compose : ((b) -> c, (a) -> b, a) -> c
+def apply_twice(f, x):
+    return f(f(x))
+def compose(g, f, x):
+    return g(f(x))
+def double : (Int) -> Int
+def double(n):
+    return n * 2
+def exclaim : (String) -> String
+def exclaim(s):
+    return s ++ '!'
+def positive : (Int) -> Bool
+def positive(n):
+    return n > 0
+def word : (Bool) -> String
+def word(b):
+    if b:
+        return 'yes'
+    else:
+        return 'no'
+print(apply_twice(double, 5))
+print(apply_twice(exclaim, 'hi'))
+print(compose(word, positive, 5))
+print(compose(word, positive, 0 - 5))
+print(compose(double, double, 3))
+print(compose(exclaim, exclaim, 'x'))

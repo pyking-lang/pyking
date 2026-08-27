@@ -1,0 +1,16 @@
+def id(x:a) -> a:
+    return x
+def pick(x:a, y:b) -> (a, a, b):
+    return (x, x, y)
+def swap(pair:(a, b)) -> (b, a):
+    (left, right): (a, b) = pair
+    return (right, left)
+print(id(1))
+print(id('two'))
+print(id(true))
+print(pick(1, 's'))
+print(pick('a', 2))
+print(swap((1, 'one')))
+same: (a) -> a = id
+print(same(3))
+print(same('three'))

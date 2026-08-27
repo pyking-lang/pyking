@@ -39,13 +39,14 @@ from dataclasses import dataclass, replace
 from analyses import AnalysisError, BUILTINS, block_functions
 from lexer import Info
 from syntax import (
-    pprint_type,
+    pprint_type, pprint_type_nested,
     EInt, EString, EBool, EVar, EAdd, EConcat, ESub, EMul, ECall, EIf, ETuple,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq,
     SLet, SLetStmt, SExprStmt, SIf, SReturn, SReturnStmt, SFunctionDef,
+    SFunctionSig,
     SLoop, SBreak, SContinue,
     Type, TInt, TString, TBool, TList, TTuple, TFunction, TOr, TUnknown, TNever,
-    TBuiltin,
+    TBuiltin, TVar, TForall,
     TargetName, TargetTuple,
 )
 
@@ -209,16 +210,23 @@ class Store:
        Avoids goint into an infinite loop.
     frame: Frame. Contains information about the inner frame, including
       information about returns and breaks.
+    signatures: {Int: Type}. A `def`'s type where the source wrote it on
+      a line of its own (`def foo : (a) -> a`) instead of on the header.
+      Keyed by the definition's symbol, filled by declare_functions from
+      the block both statements are in. Unlike the rest of the store this
+      is *given* rather than worked out, and it is here so that reaching
+      it costs no new parameter on every function that might need it.
     """
     environments: dict
     instances: dict
     checking: frozenset
     frame: Frame
+    signatures: dict
 
 
 def empty_store():
     """The store a program starts checking in. () -> Store"""
-    return Store({}, {}, frozenset(), Frame())
+    return Store({}, {}, frozenset(), Frame(), {})
 
 
 def with_environment(store, tmsym, env):
@@ -256,6 +264,12 @@ def checking_now(store, tmsym):
     """store with tmsym's body marked as being checked.
     Store -> Int -> Store"""
     return replace(store, checking=store.checking | {tmsym})
+
+
+def with_signature(store, sym, type_):
+    """store recording the type a `def name : type` line gave the
+    definition sym. Store -> Int -> Type -> Store"""
+    return replace(store, signatures={**store.signatures, sym: type_})
 
 
 def with_frame(store, frame):
@@ -351,22 +365,154 @@ def builtin_env():
 # --- [Stmt] ----------------------------------------------------------
 
 
-def fully_annotated(node):
+def signature_of(node, store):
+    """The type a `def name : type` line gave this definition, already
+    quantified, or None where the source wrote none.
+    SFunctionDef -> Store -> Type?"""
+    return store.signatures.get(node.sym)
+
+
+def fully_annotated(node, store):
     """ Returns true if a function definition has the complete type
-    annoted, including parameters and return type.
-    SFunctionDef -> Bool"""
+    annoted, either by a signature line of its own or by an annotation
+    on every parameter and the return type.
+    SFunctionDef -> Store -> Bool"""
+    if signature_of(node, store) is not None:
+        return True
     return node.return_type is not None and all(p.type is not None for p in node.params)
 
 
-def declared_type(node):
+# --- type variables --------------------------------------------------
+#
+# A written annotation may name types it does not fix: `(a) -> a` is a
+# function from anything to that same thing. Every variable a written
+# type leaves free is bound by one `all` at its outermost level, so
+# `(a) -> a` and `all a. (a) -> a` are one type and neither prints the
+# quantifier. An `all` written *inside* a type is first-class
+# polymorphism and stays where it was written.
+#
+# Nothing here solves constraints. A body is checked with its variables
+# rigid -- a TVar is `same_type` only with itself, which is exactly what
+# "the caller chose this, not you" means -- and a call matches the
+# declared parameters against the arguments one way (`match_type`),
+# binding each variable the first time it is met. See docs/typesystem.md.
+
+
+def free_vars(type_, bound=frozenset()):
+    """The variables type_ leaves free, in the order written and without
+    repeats. Type -> {String} -> [String]"""
+    found = []
+
+    def walk(t, bound):
+        match t:
+            case TVar(_, name):
+                if name not in bound and name not in found:
+                    found.append(name)
+            case TForall(_, vars, body):
+                walk(body, bound | set(vars))
+            case TList(_, element):
+                walk(element, bound)
+            case TTuple(_, elements) | TOr(_, elements):
+                for element in elements:
+                    walk(element, bound)
+            case TFunction(_, params, result, _, _, _):
+                for param in params:
+                    walk(param, bound)
+                walk(result, bound)
+
+    walk(type_, bound)
+    return found
+
+
+def has_or(type_):
+    """Whether a `|` appears anywhere in type_. Type -> Bool"""
+    match type_:
+        case TOr():
+            return True
+        case TForall(_, _, body):
+            return has_or(body)
+        case TList(_, element):
+            return has_or(element)
+        case TTuple(_, elements):
+            return any(has_or(element) for element in elements)
+        case TFunction(_, params, result, _, _, _):
+            return any(has_or(param) for param in params) or has_or(result)
+    return False
+
+
+def generalize(type_, info):
+    """A written type with its free variables quantified, or the type
+    itself when it has none. Refuses a type that mixes variables with
+    `|`: an alternative is what the checker *inferred* a name to be and
+    a variable is what a caller gets to choose, and no rule here relates
+    the two. Type -> Info -> Type"""
+    variables = free_vars(type_)
+    if not variables:
+        return type_
+    if has_or(type_):
+        raise TypeError_(
+            info,
+            f"this type has both type variables ({', '.join(variables)}) and "
+            f"a `|` alternative; a signature may use one or the other, since "
+            f"an alternative says what a name was inferred to be and a "
+            f"variable says the caller chooses",
+        )
+    return TForall(type_.info, variables, type_)
+
+
+def instantiated(type_):
+    """A type's quantified variables and its body, as ([String], Type);
+    a type with no `all` on it answers ([], itself).
+    Type -> ([String], Type)"""
+    match type_:
+        case TForall(_, vars, body):
+            return list(vars), body
+    return [], type_
+
+
+def substitute(type_, mapping):
+    """type_ with each variable `mapping` names replaced. A nested `all`
+    shadows what it binds. Type -> {String: Type} -> Type"""
+    match type_:
+        case TVar(_, name):
+            return mapping.get(name, type_)
+        case TForall(info, vars, body, sym):
+            inner = {k: v for k, v in mapping.items() if k not in vars}
+            return TForall(info, vars, substitute(body, inner), sym)
+        case TList(info, element, sym):
+            return TList(info, substitute(element, mapping), sym)
+        case TTuple(info, elements, sym):
+            return TTuple(info, [substitute(e, mapping) for e in elements], sym)
+        case TOr(info, alternatives, sym):
+            return TOr(info, [substitute(a, mapping) for a in alternatives], sym)
+        case TFunction(info, params, result, sym, tmsym, definition):
+            return TFunction(
+                info,
+                [substitute(p, mapping) for p in params],
+                substitute(result, mapping),
+                sym, tmsym, definition,
+            )
+    return type_
+
+
+def canonical(type_, vars):
+    """type_ with the variables `vars` renamed to their positions, so
+    that two types differing only in the names they bind compare equal.
+    Type -> [String] -> Type"""
+    info = type_.info
+    return substitute(type_, {name: TVar(info, f"%{i}")
+                              for i, name in enumerate(vars)})
+
+
+def declared_type(node, store):
     """Returns the type a def function, either its annotated types or
     TUnknown for the missing parts. The reason for having option types form
     parameters, and not TUnknown directy is to separate
 
-    SFunctionDef -> TFunction"""
-    if fully_annotated(node):
+    SFunctionDef -> Store -> Type"""
+    if fully_annotated(node, store):
         # Return the type, since it is fully annotated
-        return function_type(node)
+        return function_type(node, store)
     return TFunction(
         # Add TUnknown for the missing parts
         node.info,
@@ -384,16 +530,70 @@ def declare_functions(stmts, env, store):
     [Stmt] -> Env -> Store -> (Env, Store)"""
     # Returns a list of functinon definitions, SFunctionDef,
     # as a list of statments.
-    functions = list(block_functions(stmts).values())
+    defined = block_functions(stmts)
+    store = declare_signatures(stmts, defined, store)
+    functions = list(defined.values())
     for function in functions:
         # Add envinonment bindings for function definitions
-        env = bind(env, function.name, declared_type(function))
+        env = bind(env, function.name, declared_type(function, store))
     for function in functions:
         # For all the functions, store this environment inside the
         # store. Enables recursive lookup.
-        if not fully_annotated(function):
+        if not fully_annotated(function, store):
             store = with_environment(store, function.sym, env)
     return env, store
+
+
+def declare_signatures(stmts, defined, store):
+    """Pairs each `def name : type` line of a block with the definition
+    of that name in the same block, and records the type it gives it.
+    Refuses a signature that names no definition here, a second one for
+    one definition, and one whose definition also annotates itself --
+    a `def` says its type in one place or the other, never both.
+    [Stmt] -> {String: SFunctionDef} -> Store -> Store"""
+    seen = {}
+    for statement in stmts:
+        if not isinstance(statement, SFunctionSig):
+            continue
+        node = defined.get(statement.name)
+        if node is None:
+            raise TypeError_(
+                statement.info,
+                f"there is no 'def {statement.name}' in this block for this "
+                f"signature to describe",
+            )
+        if statement.name in seen:
+            raise TypeError_(
+                statement.info,
+                f"'{statement.name}' already has a signature in this block",
+            )
+        seen[statement.name] = statement
+        written = [p.name for p in node.params if p.type is not None]
+        if written or node.return_type is not None:
+            raise TypeError_(
+                node.info,
+                f"'{node.name}' has a signature of its own, so its "
+                f"definition writes no annotations; remove the ones on "
+                f"{', '.join(written) if written else 'its return type'}",
+            )
+        type_ = generalize(statement.type, statement.info)
+        _, written_type = instantiated(type_)
+        if not isinstance(written_type, TFunction):
+            raise TypeError_(
+                statement.info,
+                f"the signature of '{statement.name}' is "
+                f"{pprint_type(type_)}, which is not a function type",
+            )
+        if len(written_type.params) != len(node.params):
+            raise TypeError_(
+                statement.info,
+                f"this signature gives '{statement.name}' "
+                f"{len(written_type.params)} parameter"
+                f"{'' if len(written_type.params) == 1 else 's'}, but its "
+                f"definition takes {len(node.params)}",
+            )
+        store = with_signature(store, node.sym, type_)
+    return store
 
 
 
@@ -619,12 +819,18 @@ def check_stmt(statement, env, tmap, return_type, acc_type, store):
                 raise TypeError_(expr.info, continue_error(acc_type, actual))
             return acc_type, env, store
 
+        case SFunctionSig(info, _, _, _):
+            # The signature was paired with its definition before this
+            # block was checked (declare_signatures); on its own it says
+            # nothing and produces nothing.
+            return unit(info), env, store
+
         case SFunctionDef(info, name, _, _, _, sym):
-            if fully_annotated(statement):
+            if fully_annotated(statement, store):
                 # Checked against its annotations here; visible under its
                 # own name only to the statements that follow.
                 supplied, store = check_function(statement, env, tmap, store)
-                return supplied, bind(env, name, function_type(statement)), store
+                return supplied, bind(env, name, function_type(statement, store)), store
             # Not fully annotated: there is nothing to check yet, because
             # what an unannotated parameter is depends on what is passed
             # to it. All this statement does is fix *where* the function
@@ -856,20 +1062,26 @@ def expr_type(expr, env, tmap, store):
 # --- Param -----------------------------------------------------------
 
 
-def check_param(param, tmap, store):
-    """A parameter's declared type, recorded under its symbol. Only
-    called for a parameter that has one (see infer_call for the rest).
-    Param -> {Int: Type} -> Store -> Type"""
-    record(tmap, param.sym, param.type, store)
-    return param.type
+def check_param(param, type_, tmap, store):
+    """A parameter's declared type, recorded under its symbol. The type
+    is passed in rather than read off the node, since a `def` with a
+    signature line writes no annotation on the parameter itself.
+    Param -> Type -> {Int: Type} -> Store -> Type"""
+    record(tmap, param.sym, type_, store)
+    return type_
 
 
 # --- SFunctionDef ----------------------------------------------------
 
 
-def function_type(node):
-    """node's TFunction, if every parameter and the return type are
-    annotated. Raises TypeError_ otherwise. SFunctionDef -> TFunction"""
+def function_type(node, store):
+    """node's type, from the signature line that named it or from the
+    annotations on its own header, quantified over the type variables it
+    leaves free. Raises TypeError_ if neither says the whole type.
+    SFunctionDef -> Store -> Type"""
+    written = signature_of(node, store)
+    if written is not None:
+        return written
     unannotated = [p.name for p in node.params if p.type is None]
     if unannotated or node.return_type is None:
         missing = ", ".join(
@@ -881,41 +1093,50 @@ def function_type(node):
             f"'{node.name}' can only be checked when every parameter and "
             f"the return type is annotated; {missing} is not",
         )
-    return TFunction(node.info, [p.type for p in node.params], node.return_type)
+    return generalize(
+        TFunction(node.info, [p.type for p in node.params], node.return_type),
+        node.info,
+    )
 
 
 def check_function(node, env, tmap, store):
     """Checks a fully annotated def's body against its declared types.
     Always yields unit, whatever the function's own type is: a def is a
     statement. SFunctionDef -> Env -> {Int: Type} -> Store -> (Type, Store)"""
-    ftype = function_type(node)
-    for param in node.params:
-        check_param(param, tmap, store)
+    ftype = function_type(node, store)
+    # The body is checked at the *quantified* variables themselves, not
+    # at anything they might be instantiated to: a TVar is `same_type`
+    # only with itself, so a body that assumes `a` is an Int is refused
+    # here rather than at some call. That is the whole of skolemization.
+    _, written = instantiated(ftype)
+    param_types, result_type = written.params, written.result
+    for param, type_ in zip(node.params, param_types):
+        check_param(param, type_, tmap, store)
     record(tmap, node.sym, ftype, store)
 
     # env already binds every def of this block (declare_functions); the
     # parameters shadow over that, as analyses.py binds them.
     body_env = env
-    for param in node.params:
-        body_env = bind(body_env, param.name, param.type)
+    for param, type_ in zip(node.params, param_types):
+        body_env = bind(body_env, param.name, type_)
 
     # The body's last statement is in tail position; check_stmt already
     # answers what it supplies, by return or by value (PYKING.md).
     supplied, store = check_stmts(
-        node.body, body_env, tmap, node.return_type, None, store
+        node.body, body_env, tmap, result_type, None, store
     )
-    if accepts(node.return_type, supplied):
+    if accepts(result_type, supplied):
         return unit(node.info), store
     if is_unit(supplied):
         raise TypeError_(
             node.info,
-            f"'{node.name}' returns {pprint_type(node.return_type)}, so its "
+            f"'{node.name}' returns {pprint_type(result_type)}, so its "
             f"body must return on every path, or end in an expression of "
             f"that type",
         )
     raise TypeError_(
         node.body[-1].info,
-        f"'{node.name}' returns {pprint_type(node.return_type)}, but its "
+        f"'{node.name}' returns {pprint_type(result_type)}, but its "
         f"body ends in a value of type {pprint_type(supplied)}",
     )
 
@@ -1217,6 +1438,7 @@ def check_call(call, env, tmap, store):
                 case TBuiltin(_, builtin):
                     return check_builtin_call(builtin, call, env, tmap, store)
     func_type, store = check_expr(call.func, env, tmap, store)
+    quantified, func_type = instantiated(func_type)
     if not isinstance(func_type, TFunction):
         raise TypeError_(
             call.info,
@@ -1230,6 +1452,10 @@ def check_call(call, env, tmap, store):
             f"this function takes {expected} argument{'' if expected == 1 else 's'}, "
             f"but {given} {'was' if given == 1 else 'were'} given",
         )
+    if quantified:
+        return check_polymorphic_call(
+            call, quantified, func_type, env, tmap, store
+        )
     params, store = check_arguments(call.args, func_type.params, env, tmap, store)
     match func_type:
         case TFunction(_, _, result, _, _, None):
@@ -1238,6 +1464,77 @@ def check_call(call, env, tmap, store):
             return result, store
         case TFunction():
             return infer_call(func_type, params, call, tmap, store)
+
+
+def check_polymorphic_call(call, quantified, declared, env, tmap, store):
+    """A call to a function whose type quantifies variables. Each
+    argument decides what the variables it mentions are (`match_type`),
+    and the call is worth what they make of the declared result. There
+    is no solver: a variable is decided by the first argument that
+    reaches it and must agree with every later one.
+    ECall -> [String] -> TFunction -> Env -> {Int: Type} -> Store
+    -> (Type, Store)"""
+    chosen, quantified_set = {}, set(quantified)
+    for position, (arg, expected) in enumerate(zip(call.args, declared.params), 1):
+        actual, store = check_expr(arg, env, tmap, store)
+        chosen = match_type(expected, actual, quantified_set, chosen, arg, position)
+    undecided = [name for name in quantified if name not in chosen]
+    if undecided:
+        raise TypeError_(
+            call.info,
+            f"this call does not say what "
+            f"{', '.join(repr(name) for name in undecided)} "
+            f"{'is' if len(undecided) == 1 else 'are'}; no argument reaches "
+            f"{'it' if len(undecided) == 1 else 'them'}, so there is nothing "
+            f"to decide {'it' if len(undecided) == 1 else 'them'} from",
+        )
+    return substitute(declared.result, chosen), store
+
+
+def match_type(expected, actual, quantified, chosen, arg, position):
+    """Matches one declared parameter against an argument's type, one
+    way: a quantified variable is decided the first time it is met and
+    has to agree with every later meeting. Answers the mapping extended
+    with what this match decided; raises TypeError_ on a mismatch.
+    Type -> Type -> {String} -> {String: Type} -> Expr -> Int
+    -> {String: Type}"""
+    match (expected, actual):
+        case (TVar(_, name), _) if name in quantified:
+            earlier = chosen.get(name)
+            if earlier is None:
+                return {**chosen, name: actual}
+            if not same_type(earlier, actual):
+                raise TypeError_(
+                    arg.info,
+                    f"'{name}' is {pprint_type(earlier)} in this call, from "
+                    f"an earlier argument, but argument {position} makes it "
+                    f"{pprint_type(actual)}",
+                )
+            return chosen
+        case (TList(_, element), TList(_, other)):
+            return match_type(element, other, quantified, chosen, arg, position)
+        case (TTuple(_, mine), TTuple(_, theirs)) if len(mine) == len(theirs):
+            for mine_one, their_one in zip(mine, theirs):
+                chosen = match_type(
+                    mine_one, their_one, quantified, chosen, arg, position
+                )
+            return chosen
+        case (TFunction(_, mine, my_result, _, _, _),
+              TFunction(_, theirs, their_result, _, _, _)) if len(mine) == len(theirs):
+            for mine_one, their_one in zip(mine, theirs):
+                chosen = match_type(
+                    mine_one, their_one, quantified, chosen, arg, position
+                )
+            return match_type(
+                my_result, their_result, quantified, chosen, arg, position
+            )
+    # Everything else, a nested `all` included, is compared as it stands:
+    # a parameter declared polymorphic wants a value that is polymorphic
+    # the same way, which `same_type` decides up to the names bound.
+    settled = substitute(expected, chosen)
+    if not accepts(settled, actual):
+        raise argument_error(position, actual, settled, arg)
+    return chosen
 
 
 def check_arguments(args, declared, env, tmap, store, position=1):
@@ -1277,8 +1574,8 @@ def argument_error(position, actual, expected, arg):
     parameter type. Int -> Type -> Type -> Expr -> TypeError_"""
     return TypeError_(
         arg.info,
-        f"argument {position} has type {pprint_type(actual)}, but "
-        f"{pprint_type(expected)} was expected",
+        f"argument {position} has type {pprint_type_nested(actual)}, but "
+        f"{pprint_type_nested(expected)} was expected",
     )
 
 
@@ -1468,13 +1765,20 @@ def check_binary(expr, env, tmap, store):
 def check_annotation(annotation, actual):
     """Checks a binding's annotation, if any, against its right-hand
     side's actual type; raises TypeError_ at the annotation on a
-    mismatch. Type? -> Type -> ()"""
-    if annotation is None or accepts(annotation, actual):
+    mismatch. The annotation is quantified first, since a written type
+    is quantified wherever one is written -- without that, binding a
+    polymorphic function to an annotated name would compare an `all`
+    against a bare function type and refuse a program that is right.
+    Type? -> Type -> ()"""
+    if annotation is None:
+        return
+    annotation = generalize(annotation, annotation.info)
+    if accepts(annotation, actual):
         return
     raise TypeError_(
         annotation.info,
-        f"this binding is annotated {pprint_type(annotation)}, but its "
-        f"value has type {pprint_type(actual)}",
+        f"this binding is annotated {pprint_type_nested(annotation)}, but "
+        f"its value has type {pprint_type_nested(actual)}",
     )
 
 
@@ -1512,6 +1816,18 @@ def same_type(a, b):
             # is part of what it means (see src/syntax.py).
             return (len(ps) == len(qs) and all(map(same_type, ps, qs))
                     and same_type(r, s))
+        case (TVar(_, x), TVar(_, y)):
+            # A variable is rigid: inside a body it stands for a type the
+            # caller picked, so it is the same type as itself and nothing
+            # else. That is the whole of what makes a polymorphic body
+            # honest -- no substitution is needed to enforce it.
+            return x == y
+        case (TForall(_, mine, my_body), TForall(_, theirs, their_body)):
+            # Two polytypes are one type when they differ only in the
+            # names they bind, so both are renamed by position first.
+            return (len(mine) == len(theirs)
+                    and same_type(canonical(my_body, mine),
+                                  canonical(their_body, theirs)))
         case _:
             return False
 

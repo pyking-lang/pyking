@@ -28,7 +28,7 @@ from lexer import (
     TokInt, TokString, TokIdent,
     TokAdd, TokConcat, TokSub, TokMul, TokDiv,
     TokLessThanEq, TokLessThan, TokGreatThanEq, TokGreatThan, TokEqEq,
-    TokColon, TokIndent, TokDedent, TokEq, TokLParen, TokRParen, TokComma,
+    TokColon, TokDot, TokIndent, TokDedent, TokEq, TokLParen, TokRParen, TokComma,
     TokLBracket, TokRBracket, TokDotDot,
     TokDef, TokReturn, TokFor, TokIn, TokIf, TokWhile, TokThen, TokElse, TokVar,
     TokAssign, TokMatch, TokCase, TokArrow, TokPipe,
@@ -45,8 +45,8 @@ from syntax import (
     Stmt,
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SFor, SWhile, SIf,
     SLoop, SBreak, SContinue,
-    SFunctionDef, SMatch,
-    TInt, TString, TBool, TList, TTuple, TOr, TFunction, Param,
+    SFunctionDef, SFunctionSig, SMatch,
+    TInt, TString, TBool, TList, TTuple, TOr, TFunction, TVar, TForall, Param,
     TargetName, TargetTuple,
 )
 
@@ -392,12 +392,12 @@ def parse_type(tokens):
     """Parses a type, including `|` alternatives (Int | String); `|`
     binds looser than everything else a type is built from.
     [Token] -> (Type, [Token])"""
-    first, rest = parse_type_atom(tokens)
+    first, rest = parse_type_arrow(tokens)
     alternatives = [first]
     while True:
         match rest:
             case [TokPipe(_), *after]:
-                alternative, rest = parse_type_atom(after)
+                alternative, rest = parse_type_arrow(after)
                 alternatives.append(alternative)
             case _:
                 break
@@ -407,9 +407,24 @@ def parse_type(tokens):
             rest)
 
 
+def parse_type_arrow(tokens):
+    """Parses one type with no `|` in it. A single parameter needs no
+    parentheses -- `x -> x` is `(x) -> x` -- so any atom followed by
+    `->` is a one-parameter function; the parenthesized list form is
+    read by parse_type_atom, which is where a list of any other length
+    comes from. [Token] -> (Type, [Token])"""
+    atom, rest = parse_type_atom(tokens)
+    match rest:
+        case [TokArrow(_), *after_arrow]:
+            result, rest = parse_type(after_arrow)
+            return (TFunction(combine_info(atom.info, result.info), [atom], result),
+                    rest)
+    return atom, rest
+
+
 def parse_type_atom(tokens):
-    """Parses one type with no `|` in it (a function type included,
-    since `->` binds tighter than `|`). [Token] -> (Type, [Token])"""
+    """Parses one type that is not an unparenthesized `->` and has no
+    `|` in it. [Token] -> (Type, [Token])"""
     match tokens:
         case [TokTypeInt(info), *rest]:
             return TInt(info), rest
@@ -417,6 +432,14 @@ def parse_type_atom(tokens):
             return TString(info), rest
         case [TokTypeBool(info), *rest]:
             return TBool(info), rest
+        case [TokIdent(info, "all"), *rest]:
+            # `all a b. T`. `all` is reserved in type position, so it is
+            # never itself a variable name.
+            names, rest = parse_type_vars(rest)
+            body, rest = parse_type(rest)
+            return TForall(combine_info(info, body.info), names, body), rest
+        case [TokIdent(info, name), *rest] if _is_type_var(name):
+            return TVar(info, name), rest
         case [TokLBracket(lb_info), *rest]:
             element, rest = parse_type(rest)
             match rest:
@@ -443,6 +466,11 @@ def parse_type_atom(tokens):
                     return (TFunction(combine_info(lp_info, result.info),
                                       elements, result),
                             rest)
+                case _ if len(elements) == 1:
+                    # One type in parentheses is grouping, not a tuple:
+                    # `(1)` is likewise just `1` at the value level, so a
+                    # one-element tuple has no values and never had.
+                    return elements[0], rest
                 case _:
                     return TTuple(combine_info(lp_info, rp_info), elements), rest
         case [t, *_]:
@@ -467,6 +495,31 @@ def parse_type_elements(tokens):
                     return [elem], info, rest
                 case _:
                     raise ParseError(_here(rest), "expected ',' or ')' in tuple type")
+
+
+def _is_type_var(name):
+    """Whether an identifier in type position names a type variable: one
+    starting with a lowercase letter (`Int`, `String` and `Bool` are
+    their own tokens). String -> Bool"""
+    return name[:1].isalpha() and name[:1].islower()
+
+
+def parse_type_vars(tokens):
+    """Parses the variables an `all` binds, up to and including the `.`.
+    [Token] -> ([String], [Token])"""
+    names = []
+    while True:
+        match tokens:
+            case [TokIdent(_, name), *rest] if _is_type_var(name):
+                names.append(name)
+                tokens = rest
+            case [TokDot(_), *rest] if names:
+                return names, rest
+            case _:
+                raise ParseError(
+                    _here(tokens),
+                    "expected type variables and then '.' after 'all'",
+                )
 
 
 def parse_param(tokens):
@@ -1200,6 +1253,11 @@ def _expect_expr_value(value, what):
 def parse_statement(tokens):
     """Parses one statement. [Token] -> (Stmt, [Token])"""
     match tokens:
+        case [TokDef(info), TokIdent(_, name), TokColon(_), *rest]:
+            # `def name : type` -- a signature on a line of its own, for
+            # the `def name(...)` in this same block.
+            type_, rest = parse_type(rest)
+            return SFunctionSig(combine_info(info, type_.info), name, type_), rest
         case [TokDef(info), TokIdent(_, name), TokLParen(_), *rest]:
             params, rest = parse_params(rest)
             return_type = None

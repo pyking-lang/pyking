@@ -1,0 +1,37 @@
+# A written type may name types it does not fix. `(a) -> a` is a
+# function from anything to that same thing, and every variable a
+# written type leaves free is bound by one `all` at its outermost level
+# -- so `(a) -> a` and `all a. (a) -> a` are one type, and the printed
+# AST below shows the quantifier on neither.
+
+def id(x:a) -> a:
+    return x
+
+
+def pick(x:a, y:b) -> (a, a, b):
+    return (x, x, y)
+
+
+def swap(pair:(a, b)) -> (b, a):
+    left, right = pair
+    return (right, left)
+
+
+# One definition, used at several types: a variable is what the *caller*
+# chooses, so nothing about `id` is decided by the first call.
+print(id(1))
+print(id("two"))
+print(id(true))
+
+print(pick(1, "s"))
+print(pick("a", 2))
+
+print(swap((1, "one")))
+
+# A name bound to a polymorphic function keeps the whole type, so it is
+# still usable at more than one of them. The annotation is quantified
+# where it is written, exactly as the `def`'s own was.
+same: (a) -> a = id
+
+print(same(3))
+print(same("three"))

@@ -287,6 +287,51 @@ a String, and `'x' - 'y'` gets none either, because `-` has no
 look-alike. A suggestion that might not work is worse than none, for
 the same reason `docs/type_inference.md` gives about reported types.
 
+## Type variables, without a solver
+
+A written annotation may name a type it does not fix. The rules are in
+PYKING.md ("Type variables"); what matters here is how little machinery
+they took, and why.
+
+**Quantification happens once, where a written type enters the checker.**
+`generalize(type_, info)` wraps a type in a `TForall` over the variables
+it leaves free, and it is called at exactly three places: the type
+assembled from a `def`'s own annotations (`function_type`), the type a
+`def name : type` line gives (`declare_signatures`), and a binding's
+annotation (`check_annotation`). Miss one and a bare `TFunction` holding
+a free `TVar` reaches the rest of the pass, where it compares unequal to
+the same type properly quantified — which is exactly the bug that made
+`g: (a) -> a = id` refuse a program that is right.
+
+**Checking a body needs no substitution at all.** A `TVar` is
+`same_type` with itself and with nothing else, so binding a parameter to
+the variable its signature names *is* skolemization: a body that adds 1
+to an `a` is refused where it is written, because `a` is not `Int`. This
+is the whole of `check_function`'s change — strip the quantifier, bind
+the parameters to what is underneath.
+
+**A call matches, it does not unify.** `match_type` walks the declared
+parameters against the arguments' actual types one way, binding each
+quantified variable the first time it is reached and requiring agreement
+after that. There is no occurs check and nothing to solve, because a
+variable is only ever bound to a type already known. What it cannot
+reach it cannot decide, so `all a. (Int) -> a` is refused at the call
+rather than silently answered.
+
+**Two `all`s are compared up to renaming.** `same_type` canonicalizes
+both sides' bound variables by position (`canonical`), which is what
+makes a nested `all` — first-class polymorphism — a comparable thing at
+all. Nothing more general was built: an argument wanted at
+`all x. (x) -> x` must be that type, not merely one that could be
+instantiated to it.
+
+**Inference never produces a variable.** A `def` with no annotations is
+worked out exactly as before, in alternatives (`docs/type_inference.md`),
+and `declared_type` puts `TUnknown` where nothing is written — not a
+`TVar`. The two vocabularies stay apart, which is why a signature
+mixing variables with `|` is refused outright rather than given a
+meaning nothing here would honour.
+
 ## Comparing types: never `==`
 
 Every `T*` node from `syntax.py` is a frozen dataclass, which means

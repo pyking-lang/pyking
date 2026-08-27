@@ -206,6 +206,22 @@ file = "fail_typecheck_statement_line.pyk"
 targets = ["typecheck"]
 
 [[cases]]
+file = "fail_typecheck_type_mismatch.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_type_or.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_type_rigid.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_type_signature_clash.pyk"
+targets = ["typecheck"]
+
+[[cases]]
 file = "fail_typecheck_string_plus.pyk"
 targets = ["typecheck"]
 
@@ -614,6 +630,18 @@ targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "typecheck",
 [[cases]]
 file = "typecheck_string_recursion.pyk"
 targets = ["python", "ocaml", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_type_first_class.pyk"
+targets = ["python", "typecheck", "interpret"]
+
+[[cases]]
+file = "typecheck_type_signature.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "typecheck", "interpret"]
+
+[[cases]]
+file = "typecheck_type_variables.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "typecheck", "interpret"]
 
 [[cases]]
 file = "typecheck_tail.pyk"

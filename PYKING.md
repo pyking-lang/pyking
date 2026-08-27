@@ -129,6 +129,9 @@ Expressions:
 - Concatenation (`++`) for strings and lists — Pyking extension; a
   separate operator from `+`, which only ever adds
 - Comparison operators (`<`, `<=`, `>`, `>=`, `==`)
+- Type variables (`def id(x:a) -> a`) and `all` quantifiers, including
+  first-class polymorphism — Pyking extension; a `def`'s type may also
+  be written on a line of its own (`def id : (a) -> a`)
 - Function calls
 - List literals (`[e1, e2, ...]`)
 - List comprehensions (`[expr for pattern in seq if cond ...]`), with
@@ -212,6 +215,7 @@ block       = INDENT , { statement } , DEDENT
             | expr_stmt ;
 
 statement   = function_def
+            | function_sig
             | return_stmt
             | for_stmt
             | while_stmt
@@ -227,13 +231,18 @@ statement   = function_def
 
 function_def = "def" , ident , "(" , [ params ] , ")" , [ "->" , type ] ,
                ":" , block ;
+function_sig = "def" , ident , ":" , type ;
 params       = param , { "," , param } ;
 param        = ident , [ ":" , type ] ;
 
-type         = type_atom , { "|" , type_atom } ;
+type         = type_arrow , { "|" , type_arrow } ;
+type_arrow   = type_atom , [ "->" , type ] ;
 type_atom    = "Int" | "String" | "Bool"
+             | type_var
+             | "all" , type_var , { type_var } , "." , type
              | "[" , type , "]"
              | "(" , [ type , { "," , type } ] , ")" , [ "->" , type ] ;
+type_var     = ? an ident beginning with a lowercase letter ? ;
 
 return_stmt = "return" , bound_value ;
 
@@ -2619,6 +2628,77 @@ kind = sign(4)
 loud = shout('hi')
 ```
 
+### Type variables
+
+An annotation may name a type it does not fix. A **type variable** is an
+identifier beginning with a lowercase letter, and it stands for a type
+the *caller* chooses:
+
+```pyking
+def id(x:a) -> a:
+    return x
+
+
+print(id(1))          # 1
+print(id('two'))      # two
+print(id(true))       # true
+```
+
+Every variable a written type leaves free is **quantified at its
+outermost level**, so `(a) -> a` and `all a. (a) -> a` are the same
+type. The quantifier may be written out, and one `all` may bind several
+variables at once, but it is never needed at the top and is never
+printed there:
+
+```pyking
+def pick(x:a, y:b) -> (a, a, b):     # all a b. (a, b) -> (a, a, b)
+    return (x, x, y)
+```
+
+**A variable written twice is one type.** `(a, a) -> a` takes two
+arguments of the same type, whichever the caller picks; two different
+ones are refused. And a variable is **rigid inside the body that
+declares it** — the body knows nothing about `a` beyond its being some
+type, so `x + 1` on an `a` is an error where it is written rather than
+at whichever call turned out to be wrong.
+
+**A type may be written on a line of its own.** `def name : type` gives
+the type of the `def name(...)` in the same block; the two need not be
+adjacent, and the definition then writes no annotations of its own,
+since a `def` says its type in one place or the other:
+
+```pyking
+def compose : ((b) -> c, (a) -> b, a) -> c
+
+def compose(g, f, x):
+    return g(f(x))
+```
+
+**A single parameter needs no parentheses**: `x -> x` and `(x) -> x` are
+one type. And parentheses around one type are **grouping**, not a
+one-element tuple — as `(1)` is just `1` among values.
+
+**An `all` written inside a type stays there**, which is first-class
+polymorphism: a parameter can demand a function that is itself
+polymorphic, rather than one at whatever single type the caller picked.
+
+```pyking
+def both_ways : (all x. (x) -> x) -> String
+def both_ways(f):
+    return f('a') ++ str(f(1))       # f used at two types, in one body
+```
+
+Without the inner `all` the variable would be bound at the top, and `f`
+would be a function at one type for the whole body.
+
+Two limits, both deliberate. Type variables are **written, never
+inferred** — a `def` with no annotations is worked out the way it always
+was, in alternatives (see "Functions without annotations"), and no
+program acquires a variable it did not write. And variables may **not be
+mixed with `|`** in one signature: an alternative says what a name was
+inferred to be, a variable says the caller decides, and no rule relates
+the two.
+
 ### Functions without annotations
 
 A `def` that did not write its type down is not checked where it is
@@ -2669,8 +2749,10 @@ print(f(1))
 **A function used at two types is checked twice**, once each way, and
 each call has the type its own arguments give it. Such a function has
 *two types*, and that is what it is — one alternative per shape of call,
-each keeping its own parameters and result together, since Pyking has no
-type variables:
+each keeping its own parameters and result together. Nothing is
+*inferred* with type variables: they are written, never guessed (see
+"Type variables"), so a function with no annotations is described by
+alternatives instead:
 
 ```pyking
 def echo(x):

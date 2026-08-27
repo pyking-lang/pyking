@@ -1,0 +1,13 @@
+# A `def` says its type in one place or the other, never both.
+#
+# `also` has a signature line of its own, so its definition writes no
+# annotations; two spellings of one type could disagree, and there would
+# be no rule saying which wins. The definition is where the error is
+# reported, since that is where the redundant annotation is written.
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+def also : (Int) -> Int
+def also(n:Int):
+    return n

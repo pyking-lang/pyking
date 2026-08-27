@@ -36,6 +36,7 @@ from syntax import (
     EInt, EString, EBool, EVar, EAdd, EConcat, ESub, EMul, ECall, EIf, ETuple,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq,
     SLet, SLetStmt, SExprStmt, SIf, SReturn, SReturnStmt, SFunctionDef,
+    SFunctionSig,
     SLoop, SBreak, SContinue,
     TargetName, TargetTuple,
 )
@@ -1061,6 +1062,14 @@ def _step_stmt(state, stmt):
             if frame is None:
                 return failed(state, RuntimeError_(info, "'return' outside a function"))
             return _go(state, control=CStmt(inner), kont=KReturnTo(frame))
+
+        case SFunctionSig():
+            # A signature says what a `def` in this block is. The checker
+            # has read it; there is nothing to run, and it supplies unit.
+            # `pyk.py` erases these before a program is run, so only the
+            # REPL -- which checks and runs one entry as it stands -- gets
+            # here.
+            return _go(state, control=CApply(UNIT))
 
         case SFunctionDef():
             # The name has been in scope since the block began; this is

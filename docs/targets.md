@@ -166,6 +166,10 @@ testing — could be built end to end before the language surface grew:
 | `if … then … else …` expressions | ✅ | ✅ | ✅ (branches must agree in type) | ✅ (branches must agree in type) | ✅ (same) |
 | integers, strings, booleans | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `+ - *`, unary minus, comparisons | ✅ | ✅ | ✅ | ✅ | ✅ (no unary minus) |
+| `++` (string concatenation) | ✅ | ✅ | ✅ (a generated `pyk_concat`) | ✅ (Java's own `+`) | ✅ (`^`) |
+| type variables (`def id(x:a) -> a`) | ✅ | ✅ | ❌ (one concrete type per function) | ❌ (same) | ✅ (OCaml generalizes a `let` itself) |
+| … a polymorphic *parameter* (`all x. (x) -> x`) | ✅ | ✅ | ❌ | ❌ | ❌ (needs an explicit `'a.`) |
+| `def name : type` on a line of its own | ✅ | ✅ | ✅ | ✅ | ✅ |
 | operands and arguments evaluate left to right | ✅ (the host's own rule) | ✅ (same) | ✅ (unspecified in C: temporaries and the comma operator pin it down where two operands can print) | ✅ (the host's own rule) | ✅ (unspecified in OCaml: `let` pins it down, same rule) |
 | `/` | ✅ | ✅ (prints `6`, not `6.0`) | ❌ | ❌ | ❌ |
 | type annotations | erased | erased | used, when they name `Int`/`String`/`Bool` | used, when they name `Int`/`String`/`Bool` | checked, then erased — the output has none |

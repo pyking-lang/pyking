@@ -32,6 +32,7 @@ from syntax import (
     SLet, SLetStmt, SReturn, SReturnStmt, SExprStmt, SIf, SFunctionDef,
     SLoop, SBreak, SContinue,
     TargetName, TargetTuple, TInt, TString, TBool, TList, TTuple,
+    TOr, TFunction, TForall,
 )
 
 TARGET = "ocaml"
@@ -360,8 +361,31 @@ class _Translator:
 
     def function_binding(self, func):
         """One def, as an OBinding. SFunctionDef -> OBinding"""
+        self._check_rank_one(func)
         params = [_mangle(p.name) for p in func.params]
         return OBinding(_mangle(func.name), params, self.body(func.body))
+
+    def _check_rank_one(self, func):
+        """Refuses a def with a polymorphic *parameter*. OCaml
+        generalizes what a `let` binds, so a polymorphic definition
+        needs nothing said about it here -- but a parameter used at two
+        types inside one body is rank-2, and OCaml takes that only from
+        an explicit `'a.` annotation, which this backend never writes
+        (docs/target_ocaml.md, "Type variables"). SFunctionDef -> ()"""
+        match self.tmap.get(func.sym):
+            case TForall(_, _, TFunction(_, params, _, _, _, _)) | \
+                 TFunction(_, params, _, _, _, _):
+                pass
+            case _:
+                return
+        for param, type_ in zip(func.params, params):
+            if _has_forall(type_):
+                _unsupported(
+                    param,
+                    "a polymorphic parameter -- OCaml generalizes a `let`, "
+                    "not a parameter, and taking one needs an explicit "
+                    "`'a.` annotation this backend does not write",
+                )
 
     def body(self, stmts):
         """A function body: a block whose last statement is its value.
@@ -1104,6 +1128,21 @@ def _definitely_exits(stmts):
 def _is_int(t):
     """Type -> Bool"""
     return isinstance(t, TInt)
+
+
+def _has_forall(type_):
+    """Whether an `all` appears anywhere inside a type -- the mark of
+    polymorphism OCaml will not infer for a parameter. Type -> Bool"""
+    match type_:
+        case TForall():
+            return True
+        case TList(_, element, _):
+            return _has_forall(element)
+        case TTuple(_, elements, _) | TOr(_, elements, _):
+            return any(_has_forall(e) for e in elements)
+        case TFunction(_, params, result, _, _, _):
+            return any(_has_forall(p) for p in params) or _has_forall(result)
+    return False
 
 
 def _is_string(t):

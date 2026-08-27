@@ -140,7 +140,10 @@ The groups:
   `EGreatThan`, `EGreatThanEq`, `EEq`, `ECall`, `EList`, `ETuple`,
   `EIf`, `EListComp`.
 - **`Type`** — `TInt`, `TString`, `TBool`, `TList`, `TTuple`, `TOr`,
-  `TUnknown`, `TNever`, `TBuiltin`, `TFunction`. `TTuple` with no
+  `TUnknown`, `TNever`, `TBuiltin`, `TFunction`, `TVar`, `TForall`.
+  `TVar` is a type variable a written annotation names and a caller
+  chooses; `TForall` binds them, and the outermost one is implicit --
+  supplied by the checker and never printed. `TTuple` with no
   elements is the unit type `()`; `TOr` is an alternative type, written
   `Int | String`; `TUnknown` is a type nothing has decided yet, `TNever`
   the type of something that never happens, and `TBuiltin` the type of a
@@ -310,6 +313,15 @@ leaves evaluation order unspecified.
   **`check_no_function_clash`** it enforces the two rules that make a
   hoisted name unambiguous. Both `typesystem.py` and `interpreter.py`
   import it rather than restating the rules.
+- **`apply_signatures(stmts)`** — folds each `def name : type` line
+  onto the definition it describes and drops the line. A signature is
+  another spelling of the annotations a header could carry, so after
+  this there is one shape for every later stage to read: a backend that
+  refuses a type it cannot represent needs to know nothing about
+  signatures. Run by `pyk.py` after `--ast` has printed, so the printed
+  AST still shows the program as it was written. Only well-formed
+  pairings are folded — a signature naming no definition is left for
+  `typesystem.py` to refuse in its own words.
 - **`symbolize(stmts) -> [Stmt]`** — gives every node a unique integer
   `sym`, post-order from 1 (`0` means "not symbolized"). Unlike the
   analysis it *rewrites*: nodes are frozen, so it rebuilds the tree with

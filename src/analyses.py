@@ -46,7 +46,8 @@ from syntax import (
     PInt, PString, PWildcard, PCapture, PTuple, PList,
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SFor, SWhile, SIf,
     SLoop, SBreak, SContinue,
-    SFunctionDef, SMatch,
+    SFunctionDef, SFunctionSig, SMatch,
+    TFunction, TForall,
     TargetName, TargetTuple,
 )
 
@@ -399,6 +400,13 @@ def analyze_stmt(s, env):
                 analyze_case(case_clause, env)
             return env
 
+        case SFunctionSig(_, _, _):
+            # A signature says what a `def` in this block is; it binds no
+            # name of its own and mentions none, so there is nothing here
+            # for a scope-aware walk to check. `typesystem.py` is what
+            # pairs it with its definition.
+            return env
+
         case SFunctionDef(info, name, params, body, _return_type):
             # The function's own name is bound before its body is walked,
             # so a function may call itself; the parameters then bind in
@@ -460,6 +468,60 @@ def symbolize(stmts):
         return node
 
     return [renumber(s) for s in stmts]
+
+
+def apply_signatures(stmts):
+    """stmts with every `def name : type` line folded into the
+    definition it describes and then removed, wherever one is written.
+
+    A signature is another way of writing the annotations a `def` header
+    could have carried, so moving them onto the header leaves one shape
+    for every later stage to read: a backend that refuses a type it
+    cannot represent, or infers from the ones it is given, needs to know
+    nothing about signatures at all. Like `symbolize` this rebuilds
+    rather than mutates, and is generic over dataclass fields so a new
+    node needs nothing here.
+
+    Only well-formed pairings are folded; a signature naming no
+    definition, or one of the wrong arity, is left for typesystem.py to
+    refuse in its own words. [Stmt] -> [Stmt]"""
+
+    def annotated(node, signature):
+        """A definition carrying the types its signature gave it.
+        The quantifier is dropped: the parts written on a header are
+        quantified again wherever they are read.
+        SFunctionDef -> Type -> SFunctionDef"""
+        written = signature.body if isinstance(signature, TForall) else signature
+        if not isinstance(written, TFunction) \
+                or len(written.params) != len(node.params):
+            return node
+        return replace(
+            node,
+            params=[replace(p, type=t)
+                    for p, t in zip(node.params, written.params)],
+            return_type=written.result,
+        )
+
+    def apply(node):
+        if isinstance(node, list):
+            signatures = {s.name: s.type for s in node
+                          if isinstance(s, SFunctionSig)}
+            out = []
+            for item in node:
+                if isinstance(item, SFunctionSig):
+                    continue
+                if isinstance(item, SFunctionDef) and item.name in signatures:
+                    item = annotated(item, signatures[item.name])
+                out.append(apply(item))
+            return out
+        if isinstance(node, tuple):
+            return tuple(apply(item) for item in node)
+        if is_dataclass(node):
+            return replace(node, **{f.name: apply(getattr(node, f.name))
+                                    for f in fields(node)})
+        return node
+
+    return apply(stmts)
 
 
 # --- effects ---

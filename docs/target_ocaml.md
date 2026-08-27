@@ -174,6 +174,14 @@ on. This backend is the reason that is true. Two decisions need it:
 - **`print` is the only thing that needs a type.** Pyking's `+` and
   `++` map straight onto OCaml's `+` and `^`, so nothing has to ask an
   operand's type to choose between them.
+- **Type variables need nothing, up to a point.** This backend writes no
+  type annotations, and OCaml generalizes what a `let` binds, so a
+  polymorphic Pyking function becomes a polymorphic OCaml one by itself
+  -- `def id(x:a) -> a` is `let id x = x`, usable at every type its
+  Pyking original was. A polymorphic *parameter* is where that stops:
+  OCaml does not generalize one, and taking a function used at two types
+  inside a body needs an explicit `'a.` annotation this backend does not
+  write, so such a `def` is refused with a source position.
 - **`print` formats by type.** An `Int` argument becomes
   `string_of_int e`, a `Bool` becomes `string_of_bool e`, a `String` is
   written as it is, unit becomes `"()"`, and a list of `Int` goes

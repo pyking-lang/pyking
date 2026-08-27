@@ -1,0 +1,24 @@
+# First-class polymorphism: an `all` written *inside* a type stays where
+# it was written, so a parameter can demand a function that is itself
+# polymorphic rather than one at whatever type the caller happened to
+# pick.
+#
+# The outermost quantifier is the implicit one, which is why
+# `(x) -> x` below is written with its `all` spelled out: without it the
+# variable would be bound at the top and the parameter would be a
+# function at one type, chosen by whoever calls `both_ways`.
+
+def identity : (x) -> x
+def identity(v):
+    return v
+
+
+def both_ways : (all x. (x) -> x) -> String
+def both_ways(f):
+    return f("a") ++ str(f(1))
+
+
+# The argument is used at two different types *inside* the body, which
+# is exactly what the nested `all` buys and what a top-level variable
+# could not express.
+print(both_ways(identity))

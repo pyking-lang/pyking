@@ -26,7 +26,7 @@ import tempfile
 import textwrap
 from dataclasses import dataclass
 
-from analyses import analyze_program, symbolize, AnalysisError
+from analyses import analyze_program, apply_signatures, symbolize, AnalysisError
 import optimization
 from lexer import lexing, pprint_info, pprint_token, LexError
 from parser import parse, ParseError
@@ -589,6 +589,13 @@ def main(argv):
     if options.ast:
         print(pprint_program(program, symbols=options.symbols, tmap=tmap))
         return 0
+
+    # A `def name : type` line is another spelling of the annotations a
+    # header could carry, so it is folded onto the header here -- after
+    # `--ast` has had its chance to print the program as it was written.
+    # Downstream there is then one shape to read, and a backend that
+    # cannot represent a type still sees the type it must refuse.
+    program = apply_signatures(program)
 
     match options.command:
         case "run":

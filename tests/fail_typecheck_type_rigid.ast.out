@@ -1,0 +1,2 @@
+'tests/fail_typecheck_type_rigid.pyk' 17:11-17:16 Type error: `+`
+  cannot be applied to a and Int; it accepts Int + Int

@@ -1,0 +1,17 @@
+# A type variable is rigid inside the body that declares it.
+#
+# `a` is what the *caller* chose, so the body may not assume anything
+# about it. Adding 1 to an `a` would be fine for a caller who picked
+# Int and nonsense for one who picked String, and since the body is
+# checked once, for every caller at once, it is refused here rather than
+# at whichever call turned out to be wrong.
+#
+# This is the whole of what "checking a polymorphic function" means in
+# this checker: no substitution, no solver -- a `TVar` is simply the
+# same type as itself and nothing else.
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+def wrong(x:a) -> a:
+    return x + 1

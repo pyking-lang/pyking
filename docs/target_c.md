@@ -124,6 +124,10 @@ gets a new C variable, which may well have a different type.
   type on both arms.
 - `==` between different types — likewise.
 - `+` or `++` mixing an integer and a string.
+- A type variable in an annotation (`def id(x:a) -> a`). C needs one
+  concrete type per function, and this backend infers no polymorphism,
+  so guessing `Int` would compile a call at any other type into code
+  that is quietly wrong.
 
 ### A function that produces a value on some paths and none on others
 

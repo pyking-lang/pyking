@@ -1,0 +1,13 @@
+# Type variables and `|` alternatives may not be mixed.
+#
+# They answer different questions. An alternative is what the checker
+# *inferred* a name to be across the calls it saw (see
+# typecheck_infer_or.pyk); a variable is what the caller gets to choose.
+# No rule here relates the two, so a signature uses one or the other and
+# a type naming both is refused where it is written.
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+def confused(x:a) -> a | Int:
+    return x

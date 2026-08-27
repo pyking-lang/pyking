@@ -1,0 +1,18 @@
+# One variable, written twice, is one type.
+#
+# `(a, a) -> a` says both arguments have the same type -- whichever the
+# caller picks. The first argument decides what `a` is for this call and
+# the second has to agree, which is what makes a variable a promise
+# rather than a wildcard.
+#
+# The error names the argument that broke the agreement and what the
+# earlier one had already settled.
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+def first(x:a, y:a) -> a:
+    return x
+
+
+print(first(1, "two"))

@@ -14,7 +14,7 @@ Functions:
         pprint_param(p) / pprint_target(t) -- print one node of that kind.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass
 
 from lexer import Info
 
@@ -84,6 +84,8 @@ from lexer import Info
 #     TBuiltin(info: Info, name: String, sym: Int)
 #     TFunction(info: Info, params: [Type], result: Type, sym: Int,
 #               tmsym: Int, definition: SFunctionDef?)
+#     TVar(info: Info, name: String, sym: Int)
+#     TForall(info: Info, vars: [String], body: Type, sym: Int)
 #
 # datatype Pattern:
 #     PInt(info: Info, value: Int, sym: Int)
@@ -122,6 +124,7 @@ from lexer import Info
 #         sym: Int)
 #     SFunctionDef(info: Info, name: String, params: [Param],
 #                  body: [Stmt], return_type: Type?, sym: Int)
+#     SFunctionSig(info: Info, name: String, type: Type, sym: Int)
 #     SMatch(info: Info, subject: Expr, cases: [MatchCase], sym: Int)
 #
 # datatype Param:
@@ -327,10 +330,12 @@ class TTuple(Type):         # (e1, e2, ...); zero elements is the Unit type "()"
 @dataclass(frozen=True)
 class TOr(Type):            # T1 | T2 | ...
     info: Info              # A value of this type is one of the alternatives.
-    alternatives: list      # There are no type variables, so this is how a
-    sym: int = 0            # name that means different things in different
-                            # places is described: `Int | String` (see
-                            # docs/type_inference.md).
+    alternatives: list      # How an *inferred* name that means different
+    sym: int = 0            # things in different places is described:
+                            # `Int | String` (see docs/type_inference.md).
+                            # Unrelated to `TVar`, which is a variable an
+                            # annotation wrote and a caller chooses; the two
+                            # may not be mixed in one signature.
 
 
 @dataclass(frozen=True)
@@ -395,6 +400,25 @@ class TFunction(Type):      # (T1, T2, ...) -> T
     definition: object = None
 
 
+@dataclass(frozen=True)
+class TVar(Type):           # a lowercase name: a type the caller chooses
+    info: Info               # Bound by the `TForall` around it -- every free
+    name: str                # variable of a written annotation is quantified
+    sym: int = 0             # at its outermost level, so one never escapes
+                             # (see PYKING.md, "Type variables").
+
+
+@dataclass(frozen=True)
+class TForall(Type):        # all a b. body
+    info: Info               # The variables `body` may be instantiated at.
+    vars: list               # list[str]. Written only where it is *not* the
+    body: Type = None        # outermost quantifier: that one is implicit,
+    sym: int = 0             # supplied by the parser and left unprinted, so
+                             # `(a) -> a` and `all a. (a) -> a` are one type.
+                             # A nested one is first-class polymorphism and
+                             # is both written and printed.
+
+
 # Whether `--symbols` asked for each node's symbol number to be shown
 # (see `symbolize` in src/analyses.py). This is a module-level display
 # setting rather than a parameter threaded through every printer:
@@ -425,7 +449,29 @@ def _sym(node, text):
 
 
 def pprint_type(t):
-    """Formats one type. Type -> String"""
+    """Formats one type. The outermost `all` is not printed: every free
+    variable of a written annotation is quantified there, so the
+    quantifier carries no information the type does not already show,
+    and leaving it off is what keeps `(a) -> a` printing as it was
+    written. A nested one *is* printed. Type -> String"""
+    match t:
+        case TForall(_, _, body):
+            return _sym(t, _pprint_type(body))
+    return _sym(t, _pprint_type(t))
+
+
+def _grouped(t):
+    """A type as it must be written where something follows it: an `all`
+    reaches to the end of the type, so one used as an element or a
+    parameter is parenthesized. Type -> String"""
+    if isinstance(t, TForall):
+        return f"({pprint_type_nested(t)})"
+    return pprint_type(t)
+
+
+def pprint_type_nested(t):
+    """Formats one type with its outermost `all` shown -- what a type
+    *inside* another is printed as. Type -> String"""
     return _sym(t, _pprint_type(t))
 
 
@@ -475,16 +521,17 @@ def _pprint_type(t):
         case TBool(_):
             return "Bool"
         case TList(_, element):
-            return f"[{pprint_type(element)}]"
+            return f"[{_grouped(element)}]"
         case TTuple(_, elements):
-            return f"({', '.join(pprint_type(e) for e in elements)})"
+            return f"({', '.join(_grouped(e) for e in elements)})"
         case TOr(_, alternatives):
             # `|` binds looser than anything else a type can be, so the
             # alternatives never need parentheses of their own -- except a
             # function type, whose `->` would otherwise swallow what
             # follows it.
             return " | ".join(
-                f"({pprint_type(a)})" if isinstance(a, TFunction) else pprint_type(a)
+                f"({pprint_type_nested(a)})"
+                if isinstance(a, (TFunction, TForall)) else pprint_type(a)
                 for a in alternatives
             )
         case TUnknown(_):
@@ -507,8 +554,12 @@ def _pprint_type(t):
             # one parameter that happens to be a tuple keeps its own pair:
             # `((Int, Bool)) -> Int` takes one pair, `(Int, Bool) -> Int`
             # takes two.
-            return (f"({', '.join(pprint_type(p) for p in params)})"
+            return (f"({', '.join(_grouped(p) for p in params)})"
                     f" -> {pprint_type(result)}")
+        case TVar(_, name):
+            return name
+        case TForall(_, vars, body):
+            return f"all {' '.join(vars)}. {pprint_type(body)}"
 
 
 @dataclass(frozen=True)
@@ -953,6 +1004,17 @@ class SFunctionDef(Stmt):   # def name(params...) [-> return_type]: body
 
 
 @dataclass(frozen=True)
+class SFunctionSig(Stmt):   # def name : type -- Pyking extension
+    info: Info               # A `def`'s type written on a line of its own,
+    name: str                # instead of a piece at a time on the header.
+    type: Type = None        # It names a `def` in the same block, which then
+    sym: int = 0             # writes no annotations of its own (see
+                             # PYKING.md, "Type variables"). Carries no body:
+                             # it says what a definition elsewhere is, and
+                             # produces nothing by itself.
+
+
+@dataclass(frozen=True)
 class SMatch(Stmt):         # match subject: case pattern: body ...
     info: Info
     subject: Expr
@@ -1035,6 +1097,8 @@ def _pprint_stmt(s, level=0):
                         lines += [pprint_stmt(st, level + 1) for st in else_body]
                         break
             return "\n".join(lines)
+        case SFunctionSig(_, name, type_):
+            return f"{pad}def {name} : {pprint_type_nested(type_)}"
         case SFunctionDef(_, name, params, body, return_type):
             header = _function_header(s, pad, name, params, return_type)
             lines = [header + ":"]
@@ -1100,6 +1164,11 @@ def _function_header(node, pad, name, params, return_type):
     saved = _tmap
     if isinstance(_tmap.get(node.sym) if _tmap is not None else None, TOr):
         _tmap = None
+    if node.sym in _signed:
+        # Its type is on a `def name : type` line of its own, and a
+        # definition says its type in one place or the other -- printing
+        # both would give a program this checker refuses.
+        _tmap = None
     try:
         return (f"{pad}def {name}({', '.join(pprint_param(p) for p in params)})"
                 + _return_annotation(node, return_type))
@@ -1113,7 +1182,11 @@ def _return_annotation(node, return_type):
     if _tmap is not None:
         # tmap holds the function's whole type; only its result is
         # printed here (the parameters are printed one by one already).
+        # An `all` around it binds the whole signature, so it is stepped
+        # through rather than printed on the result alone.
         return_type = _tmap.get(node.sym)
+        if isinstance(return_type, TForall):
+            return_type = return_type.body
         if isinstance(return_type, TFunction):
             return_type = return_type.result
     return "" if return_type is None else f" -> {_pprint_annotation_type(return_type)}"
@@ -1125,11 +1198,41 @@ def pprint_program(stmts, symbols=False, tmap=None):
     symbol -> Type table; every annotation then comes from it instead
     of from the source.
     [Stmt] -> Bool -> {Int: Type}? -> String"""
-    global _show_symbols, _tmap
+    global _show_symbols, _tmap, _signed
     _show_symbols = symbols
     _tmap = tmap
+    _signed = _signed_defs(stmts)
     try:
         return "\n".join(pprint_stmt(s) for s in stmts)
     finally:
         _show_symbols = False
         _tmap = None
+        _signed = frozenset()
+
+
+# The definitions whose type is written on a `def name : type` line
+# rather than on their own header. Those print no annotations, since
+# writing both is a program the checker refuses. Computed once per
+# program because a block is printed in eight different places here and
+# a set threaded through all of them would be eight chances to forget.
+_signed = frozenset()
+
+
+def _signed_defs(node):
+    """The symbols of definitions that a signature line in their own
+    block describes. Node -> {Int}"""
+    found = set()
+
+    def walk(node):
+        if isinstance(node, list):
+            names = {s.name for s in node if isinstance(s, SFunctionSig)}
+            found.update(s.sym for s in node
+                         if isinstance(s, SFunctionDef) and s.name in names)
+            for item in node:
+                walk(item)
+        elif is_dataclass(node):
+            for f in fields(node):
+                walk(getattr(node, f.name))
+
+    walk(node)
+    return frozenset(found)

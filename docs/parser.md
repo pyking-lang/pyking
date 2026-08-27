@@ -59,6 +59,13 @@ def parse_additive(tokens):
                 return left, rest
 ```
 
+`parse_type` follows the same shape one level down: `parse_type_arrow`
+is where a single parameter needs no parentheses (`x -> x` is
+`(x) -> x`), and the parenthesized branch of `parse_type_atom` reads a
+list followed by `->` as a parameter list and one without as a tuple --
+except for a single type in parentheses, which is *grouping*, since
+`(1)` is likewise just `1` among values.
+
 The `while True` loop, not recursion, is what makes `+`/`++`/`-`
 **left-associative**: `1 + 2 + 3` parses as `parse_multiplicative` reads
 `1`, then the loop sees `+`, reads `2` with another call to

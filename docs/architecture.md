@@ -311,7 +311,10 @@ statements (in both the ordinary and the value form), and fully
 annotated function definitions, over `Int`, `String` and `Bool`: `+`,
 `-` and `*` on `Int`, `++` on `String`, `<`/`<=`/`>`/`>=` on `Int`
 giving `Bool`, `==` on two values of one type giving `Bool`, calls of a
-function-typed name, and calls of the four builtins.
+function-typed name, and calls of the four builtins. An annotation may
+also name **type variables** (`(a) -> a`), quantified at its outermost
+level and written out with `all` where a nested quantifier is meant;
+see PYKING.md, "Type variables".
 
 A binding takes its right-hand side's type, and an annotation it wrote
 is checked against that rather than replaced by it — `f: (Int, String)
