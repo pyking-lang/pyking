@@ -185,7 +185,9 @@ class Exit:
 class Frame:
     """What the current inference has gathered, and what the innermost
     loop has been broken with. Fields: uses: (Use,), returns: (Type,),
-    breaks: (Exit,)."""
+    breaks: (Exit,).
+      TODO: explain better how Frame is used.
+    """
     uses: tuple = ()
     returns: tuple = ()
     breaks: tuple = ()
@@ -193,12 +195,20 @@ class Frame:
 
 @dataclass(frozen=True)
 class Store:
-    """Everything inference has worked out, threaded through the pass
-    like env (see docs/type_inference.md). Fields:
-    environments: {Int: Env} (tmsym -> where that def was written),
-    instances: {Int: (Instance,)} (tmsym -> what has been worked out),
-    checking: {Int} (tmsyms whose bodies are being checked right now),
-    frame: Frame (the innermost inference's)."""
+    """
+    The store is used as an immutable state that is threaded through
+    the type checker.
+    environments: {Int: Env}. Maps a symbol for a node to an environment.
+       This is used during call-based inference. When checking the function
+       during a call, the checker needs to look up the environment for
+       the specific function.
+    instances: {Int: (Instance,)} This is a cache that is important
+       for handling mutal recursion, so it terminates. TODO: explain more.
+    checking: {Int} A set of symbols that are being checked right now.
+       Avoids goint into an infinite loop.
+    frame: Frame. Contains information about the inner frame, including
+      information about returns and breaks.
+    """
     environments: dict
     instances: dict
     checking: frozenset
@@ -349,12 +359,15 @@ def fully_annotated(node):
 
 def declared_type(node):
     """Returns the type a def function, either its annotated types or
-    TUnknown for the missing parts.
+    TUnknown for the missing parts. The reason for having option types form
+    parameters, and not TUnknown directy is to separate
+
     SFunctionDef -> TFunction"""
     if fully_annotated(node):
         # Return the type, since it is fully annotated
         return function_type(node)
     return TFunction(
+        # Add TUnknown for the missing parts
         node.info,
         [p.type if p.type is not None else TUnknown(p.info) for p in node.params],
         node.return_type if node.return_type is not None else TUnknown(node.info),
@@ -372,8 +385,11 @@ def declare_functions(stmts, env, store):
     # as a list of statments.
     functions = list(block_functions(stmts).values())
     for function in functions:
+        # Add envinonment bindings for function definitions
         env = bind(env, function.name, declared_type(function))
     for function in functions:
+        # For all the functions, store this environment inside the
+        # store. Enables recursive lookup.
         if not fully_annotated(function):
             store = with_environment(store, function.sym, env)
     return env, store
@@ -393,28 +409,30 @@ def check_stmts(stmts, env, tmap, return_type, acc_type, store):
        acc_type: the type of the accumulator in a loop statement. If
          not inside a loop, then None. Used when checking 'continue'
          statements.
+       store:
 
     [Stmt] -> Env -> {Int: Type} -> Type? -> Type? -> Store
     -> (Type, Store)"""
+    # update env with name to type bindings for all function definitions (def)
+    # updates the store with new environments for functions. This
+    # enables mutual recursion
     env, store = declare_functions(stmts, env, store)
-    yielded = unit(stmts[0].info if stmts else Info("<empty>", 1, 0, 1, 0))
+    # res_type is the resulting type from the last statement
+    # Starts with the unit type, if an empty statement list
+    res_type = unit(stmts[0].info if stmts else Info("<empty>", 1, 0, 1, 0))
     for statement in stmts:
-        yielded, env, store = check_stmt(
+        res_type, env, store = check_stmt(
             statement, env, tmap, return_type, acc_type, store
         )
-    return yielded, store
+    return res_type, store
 
 
 # --- Stmt ------------------------------------------------------------
 
 
 def check_stmt(statement, env, tmap, return_type, acc_type, store):
-    """The type statement supplies (PYKING.md, "Tail position"), the
-    environment for the statements after it, and the store.
-    return_type is the enclosing function's declared return type,
-    INFERRING while one is worked out, or None at the top level;
-    acc_type is what the loop a break/continue here belongs to
-    carries, or None where there is no such loop.
+    """ Type checking each statement. Returns the type of the statement,
+    as well as the extended environment (if, e.g., a name binding =.
     Stmt -> Env -> {Int: Type} -> Type? -> Type? -> Store
     -> (Type, Env, Store)"""
     match statement:
@@ -669,8 +687,8 @@ def loop_value(ways_out, info):
 
 
 def try_expr(expr, env, tmap, store):
-    """One branch of an if expression, as (type, store, signal): signal
-    is the _Recursive that stopped it, or None.
+    """Try to get the type of an expression. Either returns the type
+    or it found a recursion and returns None
     Expr -> Env -> {Int: Type} -> Store -> (Type?, Store, _Recursive?)"""
     try:
         type_, store = check_expr(expr, env, tmap, store)
@@ -735,9 +753,7 @@ def check_return(actual, return_type, info, store):
 
 
 def check_expr(expr, env, tmap, store):
-    """The type of one expression, recorded in tmap under its symbol
-    (every expression, not just annotatable ones -- target_ocaml.py
-    reads these back rather than inferring a second time).
+    """Get the type of one expression and  record it in tmap under its symbol
     Expr -> Env -> {Int: Type} -> Store -> (Type, Store)"""
     type_, store = expr_type(expr, env, tmap, store)
     record(tmap, expr.sym, type_, store)
@@ -745,7 +761,8 @@ def check_expr(expr, env, tmap, store):
 
 
 def expr_type(expr, env, tmap, store):
-    """check_expr without the recording -- the rules themselves.
+    """Type check expression, without recroding in tmap.
+    Returns the type of the expression.
     Expr -> Env -> {Int: Type} -> Store -> (Type, Store)"""
     match expr:
         case EInt(info, _, _):
@@ -792,32 +809,43 @@ def expr_type(expr, env, tmap, store):
                     f"the condition of an 'if' must be Bool, not "
                     f"{pprint_type(cond_type)}",
                 )
+            # Try to type check the then an else branch.
+            # A signal if the branch is recursive (does not return a concrete type)
             then_type, then_store, then_signal = try_expr(then_expr, env, tmap, store)
-            # As in the statement form: the second branch is checked
-            # against what the first found out.
-            else_type, else_store, else_signal = try_expr(
-                else_expr, env, tmap, then_store
-            )
+            else_type, else_store, else_signal = try_expr(else_expr, env, tmap, then_store)
+            # If both branches are recursive, raise the signal to the next level
+            # (Catched as an error if no futher if statements)
             if then_signal is not None and else_signal is not None:
                 raise then_signal
+            # We have one type in the then_branch. The else branch
+            # will be revisited and checked again.
             if then_signal is not None:
                 return else_type, else_store
+            # We have one type on the else_branch. The then_branch
+            # will be vistited and checked again.
             if else_signal is not None:
                 return then_type, then_store
+            # We have types on both branches. Check if the types matches,
+            # raise an error otherwise.
             if not same_type(then_type, else_type):
                 raise TypeError_(
                     info,
                     f"the branches of this 'if' have different types: "
                     f"{pprint_type(then_type)} and {pprint_type(else_type)}",
                 )
+            # Raises a type error if they both carry a function defintion
+            # and they represent different functions.
+            # TODO: investigate and explain why this is needed.
             check_not_conflated(then_type, else_type, info)
             return then_type, else_store
 
         case EAdd() | ESub() | EMul() | ELessThan() | ELessThanEq() \
                 | EGreatThan() | EGreatThanEq() | EEq():
+            # Check built-in binary operations
             return check_binary(expr, env, tmap, store)
 
         case ECall():
+            # Check
             return check_call(expr, env, tmap, store)
 
         case _:
@@ -1180,10 +1208,8 @@ def accepts(expected, actual):
 
 
 def check_call(call, env, tmap, store):
-    """A call's type: its function's result, once the arguments are
-    checked against its parameters. Also where an unannotated function
-    is deferred and checked (see infer_call). ECall -> Env -> {Int:
-    Type} -> Store -> (Type, Store)"""
+    """ Type check a function call.
+    ECall -> Env -> {Int:Type} -> Store -> (Type, Store)"""
     match call.func:
         case EVar(_, name, _) if name in env:
             match env[name]:
@@ -1206,8 +1232,8 @@ def check_call(call, env, tmap, store):
     params, store = check_arguments(call.args, func_type.params, env, tmap, store)
     match func_type:
         case TFunction(_, _, result, _, _, None):
-            # A function whose type was written down: the call has its
-            # declared result, as it always did.
+            # None in the function defition place (last parameter) states
+            # that the result type is available. Return the result type.
             return result, store
         case TFunction():
             return infer_call(func_type, params, call, tmap, store)
@@ -1396,8 +1422,9 @@ def check_binary(expr, env, tmap, store):
     right_type, store = check_expr(expr.right, env, tmap, store)
     for operand, result in signatures:
         if isinstance(left_type, operand) and isinstance(right_type, operand):
+            # Operands match. Return the resulting type
             return result(expr.info), store
-    # A signature's operand is a class here; instantiate it to print it.
+    # Raise type error, stating what is accepted
     accepted = " or ".join(
         f"{name} {spelling} {name}"
         for name in (pprint_type(operand(expr.info)) for operand, _ in signatures)
