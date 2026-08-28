@@ -33,7 +33,7 @@ from syntax import (
     SLet, SLetStmt, SReturn, SReturnStmt, SExprStmt, SIf, SFunctionDef,
     SLoop, SBreak, SContinue, SMatch,
     ENeg, EList, EListComp, CompFor, CompIf,
-    PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, ListRest,
+    PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, PText, ListRest,
     TargetName, TargetTuple, TInt, TString, TBool, TList, TTuple,
     TOr, TFunction, TForall,
 )
@@ -437,6 +437,13 @@ class _Translator:
             case PTuple(_, elements, _):
                 inside = ", ".join(self.pattern(e, used) for e in elements)
                 return f"({inside})"
+            case PText():
+                _unsupported(
+                    p,
+                    "a `++` pattern over a string -- OCaml's patterns do not "
+                    "split a string, and doing it with a guard would need a "
+                    "`when` clause this backend does not build",
+                )
             case PList(_, prefix, rest, suffix, _):
                 if rest is None:
                     inside = "; ".join(self.pattern(e, used) for e in prefix)

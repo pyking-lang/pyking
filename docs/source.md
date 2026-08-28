@@ -139,6 +139,10 @@ The groups:
   `EMul`, `EDiv`, `ENeg`, `EConcat`, `ELessThan`, `ELessThanEq`,
   `EGreatThan`, `EGreatThanEq`, `EEq`, `ECall`, `EList`, `ETuple`,
   `EIf`, `EListComp`.
+- **`Pattern`** — `PInt`, `PString`, `PBool`, `PWildcard`, `PCapture`,
+  `PTuple`, `PList`, `PText`. `PText` is a string split around a fixed
+  beginning and end (`"ab" ++ rest`); the list form of `++` is folded
+  into `PList` by the parser, so only the string one is a node.
 - **`Type`** — `TInt`, `TString`, `TBool`, `TList`, `TTuple`, `TOr`,
   `TUnknown`, `TNever`, `TBuiltin`, `TFunction`, `TVar`, `TForall`.
   `TVar` is a type variable a written annotation names and a caller

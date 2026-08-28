@@ -1,0 +1,9 @@
+GET(key)
+PUT(key)
+QUIT
+EMPTY
+UNKNOWN(hello)
+a b c
+3 0 0
+[3, 7, 11] [3]
+[2, 3, 1] []

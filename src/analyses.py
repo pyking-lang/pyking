@@ -43,7 +43,7 @@ from syntax import (
     EAdd, EConcat, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList, ETuple,
     EIf, EListComp, CompFor, CompIf,
-    PInt, PString, PWildcard, PCapture, PTuple, PList,
+    PInt, PString, PWildcard, PCapture, PTuple, PList, PText,
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SFor, SWhile, SIf,
     SLoop, SBreak, SContinue,
     SFunctionDef, SFunctionSig, SMatch,
@@ -124,6 +124,8 @@ def pattern_bindings(pattern):
             return [(name, info)]
         case PTuple(_, elements):
             return [b for e in elements for b in pattern_bindings(e)]
+        case PText(info, _, name, _, _):
+            return [] if name is None else [(name, info)]
         case PList(_, prefix, rest, suffix):
             bindings = [b for e in prefix for b in pattern_bindings(e)]
             if rest is not None and rest.name is not None:

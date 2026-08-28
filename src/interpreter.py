@@ -38,7 +38,7 @@ from syntax import (
     SLet, SLetStmt, SExprStmt, SIf, SReturn, SReturnStmt, SFunctionDef,
     SFunctionSig, SMatch,
     ENeg, EList, EListComp, CompFor, CompIf,
-    PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, ListRest,
+    PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, PText, ListRest,
     SLoop, SBreak, SContinue,
     TargetName, TargetTuple,
 )
@@ -1492,6 +1492,13 @@ def match_pattern(env, pattern, value):
                 if env is None:
                     return None
             return env
+        case (PText(_, prefix, name, suffix, _), VString(text)):
+            if len(text) < len(prefix) + len(suffix) \
+                    or not text.startswith(prefix) \
+                    or not text.endswith(suffix):
+                return None
+            middle = text[len(prefix):len(text) - len(suffix)]
+            return env if name is None else extend(env, name, VString(middle))
         case (PList(_, prefix, rest, suffix, _), VList(items)):
             return match_list(env, list(prefix), rest, list(suffix or []), items)
     return None

@@ -1,0 +1,56 @@
+# `++` in a pattern: splitting a list or a string around one name.
+#
+# It is the same operator concatenation uses, read backwards -- a
+# pattern says how the value was put together. For a list it is another
+# spelling of the `..` form, folded into it by the parser, so nothing
+# after the front end knows the form exists:
+#
+#   [x] ++ xs                is  [x, ..xs]
+#   first ++ [x, y, z]       is  [..first, x, y, z]
+#   [x, y] ++ m ++ [k1, k2]  is  [x, y, ..m, k1, k2]
+#
+# A string has no `..` spelling of its own, so for strings this form is
+# the only one -- and the only way to match a string by anything but
+# equality.
+
+def head_tail(xs:[Int]) -> String:
+    answer = match xs:
+        case [x] ++ rest: "head " ++ str(x)
+        case _: "empty"
+    return answer
+
+
+def last_three(xs:[Int]) -> String:
+    answer = match xs:
+        case start ++ [x, y, z]: str(x) ++ str(y) ++ str(z)
+        case _: "too short"
+    return answer
+
+
+def ends(xs:[Int]) -> String:
+    answer = match xs:
+        case [a, b] ++ middle ++ [y, z]: "wide"
+        case _: "narrow"
+    return answer
+
+
+def greet(s:String) -> String:
+    answer = match s:
+        case "hello " ++ who: "hi " ++ who
+        case "bye" ++ _: "farewell"
+        case other: "?" ++ other
+    return answer
+
+
+def wrapped(s:String) -> String:
+    answer = match s:
+        case "<" ++ inside ++ ">": inside
+        case _: "unwrapped"
+    return answer
+
+
+print(head_tail([1, 2, 3]), head_tail([]))
+print(last_three([1, 2, 3, 4, 5]), last_three([1]))
+print(ends([1, 2, 3, 4, 5, 6]), ends([1, 2]))
+print(greet("hello world"), greet("byebye"), greet("nope"))
+print(wrapped("<tag>"), wrapped("plain"), wrapped("<>"))

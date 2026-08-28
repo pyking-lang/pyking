@@ -31,7 +31,7 @@ from syntax import (
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EIf, ETuple,
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SWhile, SIf,
     SMatch, EList, EListComp, CompFor, CompIf,
-    PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, ListRest,
+    PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, PText, ListRest,
     SLoop, SBreak, SContinue, SFunctionDef,
     TargetName, TargetTuple,
 )
@@ -544,6 +544,41 @@ def _pattern_test(pattern, subject, scope):
                  for i in range(len(elements))],
                 None, scope,
             )
+        case PText(_, prefix, name, suffix, _):
+            # A string split around a fixed beginning and end.
+            length = JsMember(info, subject, "length")
+            tests = []
+            if prefix:
+                tests.append(JsCall(
+                    info, JsMember(info, subject, "startsWith"),
+                    [JsStr(info, prefix)],
+                ))
+            if suffix:
+                tests.append(JsCall(
+                    info, JsMember(info, subject, "endsWith"),
+                    [JsStr(info, suffix)],
+                ))
+            if prefix and suffix:
+                # A prefix and a suffix that overlap would each match on
+                # their own; the length is what keeps them apart.
+                tests.append(JsBinary(
+                    info, ">=", length,
+                    JsNum(info, len(prefix) + len(suffix)),
+                ))
+            test = None
+            for one in tests:
+                test = one if test is None else JsBinary(info, "&&", test, one)
+            bindings = []
+            if name is not None:
+                js_name, scope = _bind(name, scope)
+                middle = JsCall(
+                    info, JsMember(info, subject, "slice"),
+                    [JsNum(info, len(prefix))] + ([
+                        JsBinary(info, "-", length, JsNum(info, len(suffix)))
+                    ] if suffix else []),
+                )
+                bindings = [JsConst(info, JsTargetName(info, js_name), middle)]
+            return test, bindings, scope
         case PList(_, prefix, rest, suffix, _):
             fixed = list(prefix) + list(suffix or [])
             length = JsMember(info, subject, "length")
@@ -978,6 +1013,9 @@ _PRECEDENCE = {
     "+": 11, "-": 11,
     "<": 9, "<=": 9, ">": 9, ">=": 9,
     "===": 8,
+    # `&&` joins the tests a pattern is compiled into; looser than every
+    # comparison above it, which is what lets those go unparenthesized.
+    "&&": 4,
 }
 _UNARY_PRECEDENCE = 14
 _CONDITIONAL_PRECEDENCE = 3

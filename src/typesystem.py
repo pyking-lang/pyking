@@ -45,7 +45,7 @@ from syntax import (
     SLet, SLetStmt, SExprStmt, SIf, SReturn, SReturnStmt, SFunctionDef,
     SFunctionSig, SMatch,
     ENeg, EList, EListComp, CompFor, CompIf,
-    PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, ListRest,
+    PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, PText, ListRest,
     SLoop, SBreak, SContinue,
     Type, TInt, TString, TBool, TList, TTuple, TFunction, TOr, TUnknown, TNever,
     TBuiltin, TVar, TForall,
@@ -1968,6 +1968,17 @@ def check_pattern(pattern, type_, env, tmap):
                 f"this pattern takes a tuple of {len(elements)} apart, but "
                 f"it is matched against {pprint_type(type_)}",
             )
+        case PText(info, _, name, _, _):
+            # A string split around a fixed beginning and end. The middle
+            # is a String like the whole, so there is one type here and
+            # nothing to take apart.
+            if not accepts(type_, TString(info)):
+                raise TypeError_(
+                    info,
+                    f"this pattern matches a String, but it is matched "
+                    f"against {pprint_type(type_)}",
+                )
+            return env if name is None else bind(env, name, TString(info))
         case PList(info, prefix, rest, suffix, _):
             match type_:
                 case TList(_, element, _):

@@ -1,0 +1,60 @@
+# `++` patterns nested inside other patterns, and inside each other.
+#
+# A `++` chain is one pattern, so it goes wherever a pattern goes: an
+# element of a list, a part of a tuple, a comprehension's `for`. And its
+# fixed parts are patterns in their turn, so they may split further.
+
+def inner(xss:[[Int]]) -> String:
+    answer = match xss:
+        # The element of the outer list is itself split.
+        case [[a] ++ more] ++ rest: "first row starts " ++ str(a)
+        case [] : "no rows"
+        case _: "other"
+    return answer
+
+
+def tagged(p:(String, [Int])) -> String:
+    answer = match p:
+        # A `++` pattern on each side of a tuple at once.
+        case ("id:" ++ name, [n] ++ _): name ++ "=" ++ str(n)
+        case ("id:" ++ name, []): name ++ "=none"
+        case (other, _): "?" ++ other
+    return answer
+
+
+def both_ends(s:String) -> String:
+    answer = match s:
+        case "(" ++ body ++ ")": "paren " ++ body
+        case "[" ++ body ++ "]": "square " ++ body
+        case _: "bare " ++ s
+    return answer
+
+
+def peel(s:String) -> String:
+    # A recursion that eats a fixed prefix off a string until it is gone.
+    answer = match s:
+        case "ab" ++ rest: peel(rest)
+        case _: s
+    return answer
+
+
+def depth(xs:[Int]) -> Int:
+    match xs:
+        case [_, _] ++ rest:
+            return 1 + depth(rest)
+        case _:
+            return 0
+
+
+# `++` patterns in a comprehension's `for`, where a pattern that does
+# not match filters the element out rather than being an error.
+rows = [[1, 2], [], [3, 4, 5]]
+words = ["id:one", "plain", "id:two"]
+
+print(inner(rows), inner([]), inner([[]]))
+print(tagged(("id:x", [7])), tagged(("id:y", [])), tagged(("nope", [1])))
+print(both_ends("(hi)"), both_ends("[hi]"), both_ends("hi"))
+print(peel("ababc"), peel("xyz"), peel("abab"))
+print(depth([1, 2, 3, 4, 5]))
+print([str(a) for [a] ++ _ in rows])
+print([n for "id:" ++ n in words])

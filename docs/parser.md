@@ -59,6 +59,12 @@ def parse_additive(tokens):
                 return left, rest
 ```
 
+`parse_pattern` has a level of its own for the same reason:
+`parse_pattern_concat` reads patterns joined with `++` and folds the
+chain into one ordinary pattern (`_joined_pattern`). For a list that is
+the existing `PList` with its rest marker, so no stage after the parser
+knows the form exists; only the string case needs a node of its own.
+
 `parse_type` follows the same shape one level down: `parse_type_arrow`
 is where a single parameter needs no parentheses (`x -> x` is
 `(x) -> x`), and the parenthesized branch of `parse_type_atom` reads a

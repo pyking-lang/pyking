@@ -1,0 +1,68 @@
+# A larger program built on `++` patterns: a tiny reader that takes a
+# command string apart, and list splitting beside it.
+#
+# Every `match` here is the statement form, so this runs on the
+# JavaScript backends too -- they refuse a value-form binding, `if` and
+# `match` alike, which is unrelated to the patterns being used.
+
+def command(line:String) -> String:
+    match line:
+        case "get " ++ rest:
+            return "GET(" ++ rest ++ ")"
+        case "put " ++ rest:
+            return "PUT(" ++ rest ++ ")"
+        case "quit" ++ _:
+            return "QUIT"
+        case "":
+            return "EMPTY"
+        case other:
+            return "UNKNOWN(" ++ other ++ ")"
+
+
+def strip_quotes(s:String) -> String:
+    match s:
+        case "'" ++ inside ++ "'":
+            return inside
+        case "\"" ++ inside ++ "\"":
+            return inside
+        case _:
+            return s
+
+
+# A recursion that eats a fixed piece off the front until it is gone.
+# Only a *literal* can be stripped this way: `_ ++ rest` would leave two
+# parts open and is refused, since a string has no element patterns for
+# a fixed-length one to be built from.
+def leading_dots(s:String) -> Int:
+    match s:
+        case "." ++ rest:
+            return 1 + leading_dots(rest)
+        case _:
+            return 0
+
+
+def pairs_up(xs:[Int]) -> [Int]:
+    match xs:
+        case [a, b] ++ rest:
+            return [a + b] ++ pairs_up(rest)
+        case _:
+            return []
+
+
+def rotate(xs:[Int]) -> [Int]:
+    match xs:
+        case [first] ++ rest:
+            return rest ++ [first]
+        case _:
+            return xs
+
+
+print(command("get key"))
+print(command("put key"))
+print(command("quit now"))
+print(command(""))
+print(command("hello"))
+print(strip_quotes("'a'"), strip_quotes("\"b\""), strip_quotes("c"))
+print(leading_dots("...x"), leading_dots("x..."), leading_dots(""))
+print(pairs_up([1, 2, 3, 4, 5, 6]), pairs_up([1, 2, 3]))
+print(rotate([1, 2, 3]), rotate([]))

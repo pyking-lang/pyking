@@ -1,0 +1,49 @@
+def inner(xss:[[Int]]) -> String:
+    answer: String = match xss:
+        case [[a, ..more], ..rest]:
+            'first row starts ' ++ str(a)
+        case []:
+            'no rows'
+        case _:
+            'other'
+    return answer
+def tagged(p:(String, [Int])) -> String:
+    answer: String = match p:
+        case ('id:' ++ name, [n, ..]):
+            name ++ '=' ++ str(n)
+        case ('id:' ++ name, []):
+            name ++ '=none'
+        case (other, _):
+            '?' ++ other
+    return answer
+def both_ends(s:String) -> String:
+    answer: String = match s:
+        case '(' ++ body ++ ')':
+            'paren ' ++ body
+        case '[' ++ body ++ ']':
+            'square ' ++ body
+        case _:
+            'bare ' ++ s
+    return answer
+def peel(s:String) -> String:
+    answer: String = match s:
+        case 'ab' ++ rest:
+            peel(rest)
+        case _:
+            s
+    return answer
+def depth(xs:[Int]) -> Int:
+    match xs:
+        case [_, _, ..rest]:
+            return 1 + depth(rest)
+        case _:
+            return 0
+rows: [[Int]] = [[1, 2], [], [3, 4, 5]]
+words: [String] = ['id:one', 'plain', 'id:two']
+print(inner(rows), inner([]), inner([[]]))
+print(tagged(('id:x', [7])), tagged(('id:y', [])), tagged(('nope', [1])))
+print(both_ends('(hi)'), both_ends('[hi]'), both_ends('hi'))
+print(peel('ababc'), peel('xyz'), peel('abab'))
+print(depth([1, 2, 3, 4, 5]))
+print([str(a) for [a, ..] in rows])
+print([n for 'id:' ++ n in words])

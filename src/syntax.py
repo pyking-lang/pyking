@@ -96,6 +96,7 @@ from lexer import Info
 #     PTuple(info: Info, elements: [Pattern], sym: Int)
 #     PList(info: Info, prefix: [Pattern], rest: ListRest?, suffix: [Pattern]?,
 #           sym: Int)
+#     PText(info: Info, prefix: String, rest: String?, suffix: String, sym: Int)
 #
 # datatype CompClause:
 #     CompFor(info: Info, pattern: Pattern, sequence: Expr, sym: Int)
@@ -733,6 +734,18 @@ class ListRest:              # the `..` / `..name` rest marker inside a PList
 
 
 @dataclass(frozen=True)
+class PText(Pattern):        # case "ab" ++ rest ++ "z": splits a string value
+    info: Info               # around a fixed beginning and end. Written only
+    prefix: str = ""         # with `++` -- there is no `..` spelling for a
+    rest: str = None         # string, since a string has no elements to list.
+    suffix: str = ""         # `rest` is the name the middle binds to, or None
+    sym: int = 0             # where the pattern discards it (`"ab" ++ _`). A
+                             # `++` pattern with no name in it is not one of
+                             # these at all: the parser joins the literals and
+                             # builds a plain `PString`.
+
+
+@dataclass(frozen=True)
 class PList(Pattern):        # case [p1, ..., pk]: destructures a list value;
     info: Info               # at most one `rest` marker, appearing anywhere
     prefix: list              # among the elements (prefix/suffix split around it)
@@ -765,6 +778,12 @@ def _pprint_pattern(p):
                 parts.append(f"..{rest.name}" if rest.name is not None else "..")
             parts += [pprint_pattern(e) for e in (suffix or [])]
             return f"[{', '.join(parts)}]"
+        case PText(_, prefix, rest, suffix):
+            # Printed in the `++` form it can only have been written in.
+            parts = ([_quote_string(prefix)] if prefix else [])
+            parts.append(rest if rest is not None else "_")
+            parts += [_quote_string(suffix)] if suffix else []
+            return " ++ ".join(parts)
 
 
 # --- list comprehension AST (depends on Pattern, so defined after it) ---

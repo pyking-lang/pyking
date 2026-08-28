@@ -172,7 +172,8 @@ Statements:
 - `if`/`else` statements, chained with `else if` — spelled as two
   keywords; Pyking has no `elif`
 - `match`/`case` pattern matching, including tuple patterns
-  (`case (a, b):`) and list patterns (`case [a, ..rest]:`) that
+  (`case (a, b):`) and list patterns (`case [a, ..rest]:`, or the same
+  written `[a] ++ rest`; `"get " ++ rest` splits a string) that
   destructure a tuple or list value
 - Expression statements
 - A block written on its header's own line (`def f(x): x * x`,
@@ -267,7 +268,8 @@ if_stmt     = "if" , expr , ":" , block ,
    there is nothing its header's line could carry. *)
 match_stmt  = "match" , expr , ":" , INDENT , case_clause , { case_clause } , DEDENT ;
 case_clause = "case" , pattern , ":" , block ;
-pattern     = pattern_atom , { "," , pattern_atom } ;
+pattern     = pattern_join , { "," , pattern_join } ;
+pattern_join = pattern_atom , { "++" , pattern_atom } ;
 pattern_atom = int | "-" , int | string | bool | "_" | ident
              | "(" , ")"
              | "(" , pattern_atom , "," , ")"
@@ -276,7 +278,7 @@ pattern_atom = int | "-" , int | string | bool | "_" | ident
 
 list_pattern = "[" , [ list_pattern_items ] , "]" ;
 list_pattern_items = list_pattern_item , { "," , list_pattern_item } ;
-list_pattern_item  = pattern_atom | rest_marker ;
+list_pattern_item  = pattern_join | rest_marker ;
 rest_marker        = ".." , [ ident ] ;
 
 var_decl    = "var" , ident , "=" , bound_expr ;
@@ -1822,6 +1824,37 @@ Since a pattern used in one function can only ever reach whichever
 the earlier, more general `[first, ..rest]` case for any list of two or
 more elements — see `tests/list_pattern_match.pyk` for each of the seven
 forms demonstrated in its own function, so every one is actually reached.
+
+**Splitting with `++`.** A pattern may be written as pieces joined with
+`++`, the concatenation operator read backwards: a pattern says how the
+value was put together. Every piece but one has a fixed length, and the
+one name in the middle takes whatever is left:
+
+```pyking
+[x] ++ xs                is  [x, ..xs]
+first ++ [x, y, z]       is  [..first, x, y, z]
+[x, y] ++ m ++ [k1, k2]  is  [x, y, ..m, k1, k2]
+```
+
+For a list the two spellings are the same pattern, and `--ast` prints
+the `..` one whichever was written. For a **string** this is the only
+spelling, and the only way to match a string by anything but equality:
+
+```pyking
+def command(line:String) -> String:
+    match line:
+        case "get " ++ rest:
+            return "GET(" ++ rest ++ ")"
+        case "<" ++ body ++ ">":
+            return body
+        case other:
+            return "?" ++ other
+```
+
+Only *literal* text can be stripped this way. `_ ++ rest` leaves two
+parts open and is refused, and so is a chain mixing a list with a
+string, or one whose pieces are not all of fixed length (`[x, ..r] ++ ys`
+would need two rest markers).
 
 A `case` clause opens a block like any other header, so an arm whose
 body is one expression can be written on the clause's own line (see "A

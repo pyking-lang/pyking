@@ -672,6 +672,18 @@ file = "typecheck_comprehensions.pyk"
 targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "typecheck"]
 
 [[cases]]
+file = "typecheck_concat_nested.pyk"
+targets = ["python", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_concat_parse.pyk"
+targets = ["python", "nodejs", "esm", "html", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_concat_patterns.pyk"
+targets = ["python", "interpret", "typecheck"]
+
+[[cases]]
 file = "typecheck_expr_evaluator.pyk"
 targets = ["python", "ocaml", "interpret", "typecheck"]
 

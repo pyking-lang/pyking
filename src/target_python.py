@@ -31,7 +31,7 @@ from syntax import (
     EAdd, EConcat, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList, ETuple,
     EIf, EListComp, CompFor, CompIf,
-    PInt, PString, PBool, PWildcard, PCapture, PTuple, PList,
+    PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, PText,
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SFor, SWhile, SIf,
     SLoop, SBreak, SContinue,
     SFunctionDef, SMatch,
@@ -147,6 +147,28 @@ class PyEq(PyExpr):         # left == right
 
 
 @dataclass(frozen=True)
+class PyAttr(PyExpr):       # target.name
+    info: Info
+    target: PyExpr
+    name: str
+
+
+@dataclass(frozen=True)
+class PyAnd(PyExpr):        # left and right
+    info: Info
+    left: PyExpr
+    right: PyExpr
+
+
+@dataclass(frozen=True)
+class PySlice(PyExpr):      # target[start:stop]; either end may be absent
+    info: Info
+    target: PyExpr
+    start: PyExpr = None
+    stop: PyExpr = None
+
+
+@dataclass(frozen=True)
 class PyCall(PyExpr):       # func(args...)
     info: Info
     func: PyExpr
@@ -219,6 +241,14 @@ class PyListRest:           # the `*name` / `*_` star sub-pattern of a PyPList
 
 
 @dataclass(frozen=True)
+class PyPGuarded(PyPattern):  # case str() as name:  -- with a guard and
+    info: Info                 # some bindings the arm opens with, both
+    name: str                  # supplied by whoever built it.
+    guard: object = None       # PyExpr
+    bindings: tuple = ()       # [PyStmt]
+
+
+@dataclass(frozen=True)
 class PyPList(PyPattern):   # case [p1, ..., *rest_or_wildcard, ..., pk]:
     info: Info
     prefix: list
@@ -227,10 +257,14 @@ class PyPList(PyPattern):   # case [p1, ..., *rest_or_wildcard, ..., pk]:
 
 
 @dataclass(frozen=True)
-class PyMatchCase:          # case pattern: body
+class PyMatchCase:          # case pattern [if guard]: body
     info: Info
     pattern: PyPattern
     body: list
+    guard: PyExpr = None     # Python has no string-splitting pattern, so
+                             # `case "ab" ++ rest:` becomes a capture with
+                             # a guard and one assignment at the top of
+                             # the arm (see `translate_pattern`).
 
 
 class PyTarget:
@@ -434,6 +468,8 @@ def pattern_captured_names(pattern):
             return [name]
         case PTuple(_, elements):
             return [n for e in elements for n in pattern_captured_names(e)]
+        case PText(_, _, name, _, _):
+            return [] if name is None else [name]
         case PList(_, prefix, rest, suffix):
             names = [n for e in prefix for n in pattern_captured_names(e)]
             if rest is not None and rest.name is not None:
@@ -828,7 +864,7 @@ def _build_match_helper(pattern, helper_name):
     )
     helper_scope = Scope({}, {}, frozenset())
     py_pattern, _ = translate_pattern(pattern, helper_scope)
-    match_stmt = PyMatch(info, v, [PyMatchCase(info, py_pattern, [success])])
+    match_stmt = PyMatch(info, v, [_match_case(info, py_pattern, [success])])
     failure = PyReturn(info, PyList(info, []))
     helper = PyFunctionDef(info, helper_name, ["v"], [match_stmt, failure])
     _pending_comp_helpers.append(helper)
@@ -1183,8 +1219,55 @@ def translate_pattern(p, scope):
                 py_element, scope = translate_pattern(element, scope)
                 py_suffix.append(py_element)
             return PyPList(info, py_prefix, py_rest, py_suffix), scope
+        case PText(info, prefix, name, suffix, _):
+            # Python's `match` cannot split a string, so the arm captures
+            # the whole and tests it: `case str() as t if t.startswith(...)`,
+            # with the middle sliced out at the top of the body.
+            held, scope = _bind("__text", scope)
+            tests = [PyCall(
+                info, PyAttr(info, PyVar(info, held), "startswith"),
+                [PyString(info, prefix)],
+            )] if prefix else []
+            if suffix:
+                tests.append(PyCall(
+                    info, PyAttr(info, PyVar(info, held), "endswith"),
+                    [PyString(info, suffix)],
+                ))
+            if prefix and suffix:
+                # A prefix and a suffix that overlap would each match on
+                # their own; the length is what keeps them apart.
+                tests.append(PyGreatThanEq(
+                    info,
+                    PyCall(info, PyVar(info, "len"), [PyVar(info, held)]),
+                    PyInt(info, len(prefix) + len(suffix)),
+                ))
+            guard = None
+            for test in tests:
+                guard = test if guard is None else PyAnd(info, guard, test)
+            bindings = []
+            if name is not None:
+                py_name, scope = _bind(name, scope)
+                bindings = [PyAssign(
+                    info, PyTargetName(info, py_name),
+                    _slice_middle(info, held, prefix, suffix),
+                )]
+            return PyPGuarded(info, held, guard, tuple(bindings)), scope
         case _:
             raise NotImplementedError(f"no Python translation for pattern {p!r}")
+
+
+def _slice_middle(info, held, prefix, suffix):
+    """`held[len(prefix):len(held) - len(suffix)]`, with either end left
+    off where it is empty. Info -> String -> String -> String -> PyExpr"""
+    start = PyInt(info, len(prefix)) if prefix else None
+    stop = None
+    if suffix:
+        stop = PySub(
+            info,
+            PyCall(info, PyVar(info, "len"), [PyVar(info, held)]),
+            PyInt(info, len(suffix)),
+        )
+    return PySlice(info, PyVar(info, held), start, stop)
 
 
 def translate_target(t, scope, rebinding=False):
@@ -1204,12 +1287,52 @@ def translate_target(t, scope, rebinding=False):
             raise NotImplementedError(f"no Python translation for assignment target {t!r}")
 
 
+def _match_case(info, py_pattern, body):
+    """One arm, with every guarded pattern's parts put where they
+    belong: the tests joined onto the `case`, and the bindings they need
+    at the top of the body. A guarded pattern may sit anywhere inside
+    the arm's pattern -- `case ("a" ++ x, [n] ++ _)` has one nested in a
+    tuple -- and Python's guard covers the whole arm, which is what
+    "every part matched" means.
+    Info -> PyPattern -> [PyStmt] -> PyMatchCase"""
+    guard, bindings = _guarded_parts(py_pattern)
+    return PyMatchCase(info, py_pattern, bindings + body, guard)
+
+
+def _guarded_parts(py_pattern):
+    """Every guard and binding a pattern carries, in source order: the
+    guards joined with `and`, the bindings concatenated.
+    PyPattern -> (PyExpr?, [PyStmt])"""
+    guard, bindings = None, []
+    for found in _guarded_in(py_pattern):
+        if found.guard is not None:
+            guard = found.guard if guard is None else PyAnd(
+                found.info, guard, found.guard
+            )
+        bindings += list(found.bindings)
+    return guard, bindings
+
+
+def _guarded_in(py_pattern):
+    """The PyPGuarded nodes inside a pattern, outermost first.
+    PyPattern -> [PyPGuarded]"""
+    match py_pattern:
+        case PyPGuarded():
+            return [py_pattern]
+        case PyPTuple(_, elements):
+            return [g for e in elements for g in _guarded_in(e)]
+        case PyPList(_, prefix, _, suffix):
+            return [g for e in list(prefix) + list(suffix or [])
+                    for g in _guarded_in(e)]
+    return []
+
+
 def translate_case(c, scope):
     """One case arm outside a binding. MatchCase -> Scope ->
     PyMatchCase"""
     py_pattern, arm_scope = translate_pattern(c.pattern, _block_scope(scope))
     body, _ = _translate_stmts(c.body, arm_scope)
-    return PyMatchCase(c.info, py_pattern, body)
+    return _match_case(c.info, py_pattern, body)
 
 
 def _yields_unit(expr):
@@ -1301,7 +1424,9 @@ def _translate_tail_case(c, scope):
     """One case arm of a match in tail position. MatchCase -> Scope ->
     PyMatchCase"""
     py_pattern, arm_scope = translate_pattern(c.pattern, _block_scope(scope))
-    return PyMatchCase(c.info, py_pattern, _translate_tail_block(c.body, arm_scope))
+    return _match_case(
+        c.info, py_pattern, _translate_tail_block(c.body, arm_scope)
+    )
 
 
 def _translate_value_stmt(s, py_target, scope):
@@ -1507,7 +1632,7 @@ def _translate_loop_case(c, py_target, scope):
     """One case arm of a match at the tail of a loop body.
     MatchCase -> PyTarget -> Scope -> PyMatchCase"""
     py_pattern, arm_scope = translate_pattern(c.pattern, _block_scope(scope))
-    return PyMatchCase(
+    return _match_case(
         c.info, py_pattern, _translate_loop_block(c.body, py_target, arm_scope)
     )
 
@@ -1524,7 +1649,7 @@ def _translate_value_case(c, py_target, scope):
     -> PyMatchCase"""
     py_pattern, arm_scope = translate_pattern(c.pattern, _block_scope(scope))
     body = _translate_value_block(c.body, py_target, arm_scope)
-    return PyMatchCase(c.info, py_pattern, body)
+    return _match_case(c.info, py_pattern, body)
 
 
 def translate_stmt(s, scope):
@@ -1926,6 +2051,14 @@ def translate_program(stmts):
 
 # --- pretty printer: Python target AST -> Python source text ---
 
+# Two levels beside the arithmetic ones the printers below use (1 for a
+# comparison, up to 5 for an atom): `and` is looser than all of them,
+# and a call, an attribute or a slice binds tighter, so their target is
+# asked for an atom.
+_AND_PREC = 0
+_CALL_PREC = 5
+
+
 def _wrap(prec, min_prec, s):
     """s, parenthesized if prec is below min_prec. Int -> Int -> String
     -> String"""
@@ -1960,6 +2093,19 @@ def pprint_py_expr(e, min_prec=0):
             return "True" if v else "False"
         case PyVar(_, name):
             return name
+        case PyAttr(_, target, name):
+            return f"{pprint_py_expr(target, _CALL_PREC)}.{name}"
+        case PySlice(_, target, start, stop):
+            first = "" if start is None else pprint_py_expr(start)
+            last = "" if stop is None else pprint_py_expr(stop)
+            return f"{pprint_py_expr(target, _CALL_PREC)}[{first}:{last}]"
+        case PyAnd(_, l, r):
+            # `and` binds looser than everything built here, so it takes
+            # the lowest level and its operands are parenthesized where
+            # they need to be by the rule above.
+            return _wrap(_AND_PREC, min_prec,
+                         f"{pprint_py_expr(l, _AND_PREC)} and "
+                         f"{pprint_py_expr(r, _AND_PREC + 1)}")
         case PyAdd(_, l, r):
             return _wrap(2, min_prec, f"{pprint_py_expr(l, 2)} + {pprint_py_expr(r, 3)}")
         case PySub(_, l, r):
@@ -2038,6 +2184,10 @@ def pprint_py_pattern(p):
             return "_"
         case PyPCapture(_, name):
             return name
+        case PyPGuarded(_, name, _, _):
+            # `str() as name`: the class test is what makes the guard
+            # below it safe to run on any subject.
+            return f"str() as {name}"
         case PyPTuple(_, elements):
             match elements:
                 case [single]:
@@ -2132,7 +2282,10 @@ def pprint_py_stmt(s, level=0):
         case PyMatch(_, subject, cases):
             lines = [f"{pad}match {pprint_py_expr(subject)}:"]
             for c in cases:
-                lines.append(f"{pad}    case {pprint_py_pattern(c.pattern)}:")
+                guard = "" if c.guard is None else f" if {pprint_py_expr(c.guard)}"
+                lines.append(
+                    f"{pad}    case {pprint_py_pattern(c.pattern)}{guard}:"
+                )
                 lines += _render_block(c.body, level + 2)
             return "\n".join(lines)
         case _:

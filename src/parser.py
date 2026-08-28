@@ -40,7 +40,8 @@ from syntax import (
     EAdd, EConcat, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList, ETuple,
     EIf, EListComp, CompFor, CompIf,
-    PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, ListRest, MatchCase,
+    PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, PText,
+    ListRest, MatchCase,
     pprint_stmt, pprint_pattern,
     Stmt,
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SFor, SWhile, SIf,
@@ -809,7 +810,7 @@ def parse_pattern_atom(tokens):
         case [TokLParen(lp_info), TokRParen(rp_info), *rest]:
             return PTuple(combine_info(lp_info, rp_info), []), rest
         case [TokLParen(lp_info), *rest]:
-            first, rest = parse_pattern_atom(rest)
+            first, rest = parse_pattern_concat(rest)
             match rest:
                 case [TokComma(_), TokRParen(rp_info), *rest]:
                     return PTuple(combine_info(lp_info, rp_info), [first]), rest
@@ -872,7 +873,7 @@ def parse_list_pattern_item(tokens):
         case [TokDotDot(info), *rest]:
             return ListRest(info, None), rest
         case _:
-            return parse_pattern_atom(tokens)
+            return parse_pattern_concat(tokens)
 
 
 def parse_pattern_paren_tail(tokens):
@@ -880,7 +881,7 @@ def parse_pattern_paren_tail(tokens):
         case [TokRParen(info), *rest]:
             return [], info, rest
         case _:
-            elem, rest = parse_pattern_atom(tokens)
+            elem, rest = parse_pattern_concat(tokens)
             match rest:
                 case [TokComma(_), *rest]:
                     elems, rp_info, rest = parse_pattern_paren_tail(rest)
@@ -891,15 +892,107 @@ def parse_pattern_paren_tail(tokens):
                     raise ParseError(_here(rest), "expected ',' or ')' in tuple pattern")
 
 
-def parse_pattern(tokens):
-    """Parses a pattern: one parse_pattern_atom, or a bare
-    comma-separated sequence of them. [Token] -> (Pattern, [Token])"""
+def parse_pattern_concat(tokens):
+    """Parses patterns joined with `++`, which is how a list or a string
+    is split around a name: `[x] ++ xs` is `[x, ..xs]`, and
+    `"ab" ++ rest` is the same idea for a string, which has no `..`
+    spelling of its own. The chain is folded into one ordinary pattern
+    here, so nothing after the parser knows the form exists.
+    [Token] -> (Pattern, [Token])"""
     first, rest = parse_pattern_atom(tokens)
+    segments = [first]
+    while True:
+        match rest:
+            case [TokConcat(_), *after]:
+                segment, rest = parse_pattern_atom(after)
+                segments.append(segment)
+            case _:
+                break
+    if len(segments) == 1:
+        return first, rest
+    return _joined_pattern(segments), rest
+
+
+def _joined_pattern(segments):
+    """The one pattern a `++` chain means. Each segment is either fixed
+    -- a list with no rest of its own, or a string literal -- or the
+    single name the middle binds to. [Pattern] -> Pattern"""
+    info = combine_info(segments[0].info, segments[-1].info)
+    before, middle, after = [], None, []
+    for segment in segments:
+        if isinstance(segment, (PCapture, PWildcard)):
+            if middle is not None:
+                raise ParseError(
+                    segment.info,
+                    "a '++' pattern takes at most one name: the rest is the "
+                    "one part whose length is not fixed",
+                )
+            middle = segment
+        elif middle is None:
+            before.append(segment)
+        else:
+            after.append(segment)
+    if middle is None:
+        # Nothing is left open, so this is just the pieces joined up.
+        return _joined_fixed(info, before)
+    return _split_pattern(info, before, middle, after)
+
+
+def _joined_fixed(info, segments):
+    """A `++` chain with no name in it: the segments joined into the one
+    pattern they spell out. Info -> [Pattern] -> Pattern"""
+    if all(isinstance(s, PString) for s in segments):
+        return PString(info, "".join(s.value for s in segments))
+    if all(_fixed_list(s) for s in segments):
+        return PList(info, [e for s in segments for e in s.prefix], None, [])
+    raise ParseError(info, _JOIN_ERROR)
+
+
+def _split_pattern(info, before, middle, after):
+    """A `++` chain around one name: a list pattern with a rest marker,
+    or its string counterpart.
+    Info -> [Pattern] -> Pattern -> [Pattern] -> Pattern"""
+    name = middle.name if isinstance(middle, PCapture) else None
+    fixed = before + after
+    if all(isinstance(s, PString) for s in fixed):
+        return PText(
+            info,
+            "".join(s.value for s in before),
+            name,
+            "".join(s.value for s in after),
+        )
+    if all(_fixed_list(s) for s in fixed):
+        return PList(
+            info,
+            [e for s in before for e in s.prefix],
+            ListRest(middle.info, name),
+            [e for s in after for e in s.prefix],
+        )
+    raise ParseError(info, _JOIN_ERROR)
+
+
+def _fixed_list(pattern):
+    """Whether a `++` segment is a list pattern of a fixed length -- one
+    with no rest marker of its own, since two would leave the split
+    ambiguous. Pattern -> Bool"""
+    return isinstance(pattern, PList) and pattern.rest is None
+
+
+_JOIN_ERROR = (
+    "'++' joins list patterns or string patterns, and the two may not be "
+    "mixed; every part but one name must have a fixed length"
+)
+
+
+def parse_pattern(tokens):
+    """Parses a pattern: one parse_pattern_concat, or a bare
+    comma-separated sequence of them. [Token] -> (Pattern, [Token])"""
+    first, rest = parse_pattern_concat(tokens)
     match rest:
         case [TokComma(_), *rest]:
             elements = [first]
             while True:
-                elem, rest = parse_pattern_atom(rest)
+                elem, rest = parse_pattern_concat(rest)
                 elements.append(elem)
                 match rest:
                     case [TokComma(_), *rest2]:

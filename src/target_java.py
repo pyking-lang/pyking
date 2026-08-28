@@ -35,7 +35,7 @@ from syntax import (
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EIf, ETuple,
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SWhile, SIf,
     SLoop, SBreak, SContinue, SFunctionDef, SMatch,
-    PInt, PString, PBool, PWildcard, PCapture,
+    PInt, PString, PBool, PWildcard, PCapture, PText,
     TargetName, TargetTuple, TInt, TString, TBool,
     TList, TTuple, TOr, TFunction, TVar, TForall,
 )
@@ -959,6 +959,13 @@ class _Translator:
                 return JBinary(
                     info, "==", subject, JBool(info, value), BOOL
                 ), [], scope
+            case PText():
+                _unsupported(
+                    pattern,
+                    "a `++` pattern over a string -- taking the middle out "
+                    "means allocating one, which this backend has no value "
+                    "model for",
+                )
             case PString(_, value, _):
                 # Java's `==` on String compares references, so a string
                 # pattern goes through `.equals` like `==` does.

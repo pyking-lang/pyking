@@ -1,0 +1,42 @@
+def head_tail(xs:[Int]) -> String:
+    answer: String = match xs:
+        case [x, ..rest]:
+            'head ' ++ str(x)
+        case _:
+            'empty'
+    return answer
+def last_three(xs:[Int]) -> String:
+    answer: String = match xs:
+        case [..start, x, y, z]:
+            str(x) ++ str(y) ++ str(z)
+        case _:
+            'too short'
+    return answer
+def ends(xs:[Int]) -> String:
+    answer: String = match xs:
+        case [a, b, ..middle, y, z]:
+            'wide'
+        case _:
+            'narrow'
+    return answer
+def greet(s:String) -> String:
+    answer: String = match s:
+        case 'hello ' ++ who:
+            'hi ' ++ who
+        case 'bye' ++ _:
+            'farewell'
+        case other:
+            '?' ++ other
+    return answer
+def wrapped(s:String) -> String:
+    answer: String = match s:
+        case '<' ++ inside ++ '>':
+            inside
+        case _:
+            'unwrapped'
+    return answer
+print(head_tail([1, 2, 3]), head_tail([]))
+print(last_three([1, 2, 3, 4, 5]), last_three([1]))
+print(ends([1, 2, 3, 4, 5, 6]), ends([1, 2]))
+print(greet('hello world'), greet('byebye'), greet('nope'))
+print(wrapped('<tag>'), wrapped('plain'), wrapped('<>'))
