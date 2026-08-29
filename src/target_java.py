@@ -677,8 +677,6 @@ class _Translator:
         # its own to leave the answer in.
         result = None
         first_value = _first_break_value(s.body)
-        if len(slots) > 1 and _breaks_bare(s.body):
-            _breakable(s)
         if first_value is not None:
             result_type = self.expr(first_value, body_scope).ctype
             result_name, _ = _bind(
@@ -701,7 +699,10 @@ class _Translator:
             JVar(info, result[0], result[1]) if result
             else JVar(info, slots[0][0], slots[0][1])
         )
-        if result is None and len(slots) > 1:
+        if _breaks_bare(s.body) or (result is None and len(slots) > 1):
+            # Either the loop is worth `()` -- a bare `break` gives unit,
+            # which Java has no value for -- or the answer would be the
+            # tuple of its slots. Nothing may read the value.
             value = None
         # `while c` becomes the loop's own test; `then:` would need a
         # flag, which is not built here.
@@ -711,9 +712,9 @@ class _Translator:
                 self._require(test, BOOL, "a `while` condition")
                 body = [JIf(info, JUnary(info, "!", test, BOOL),
                             [JBreak(info)], None)] + body
-        if s.after is not None:
+        if s.result is not None:
             _unsupported(
-                s, "a `then:` block on a loop -- Java has no loop `else`, "
+                s, "a `result` expression on a loop -- Java has no loop `else`, "
                 "and the flag it would need is not built yet"
             )
         return setup + [JLoop(info, body)], value, _reserve(taken, scope)
@@ -721,8 +722,8 @@ class _Translator:
     def plain_while(self, s, scope):
         """`while c:` with no accumulator: nothing to carry, nothing to
         be worth. SLoop -> Scope -> ([JStmt], JExpr?, Scope)"""
-        if s.after is not None:
-            _unsupported(s, "a `then:` block on a loop")
+        if s.result is not None:
+            _unsupported(s, "a `result` expression on a loop")
         condition = self.expr(s.iterate.condition, scope)
         self._require(condition, BOOL, "a `while` condition")
         self.loops.append(_Loop([], None))
@@ -766,13 +767,14 @@ class _Translator:
         """The statements that give the innermost loop its value and
         leave it. Expr? -> Scope -> Stmt -> [JStmt]"""
         loop = self.loops[-1]
-        if loop.result is None:
+        if expr is None or loop.result is None:
+            # A bare `break` gives unit, which Java has no value for, and
+            # `loop` has already refused anything that reads it. With no
+            # result local the accumulator is the answer, and there is
+            # nothing to assign either way.
             return [JBreak(node.info)]
         name, jtype = loop.result
-        value = (
-            JVar(node.info, loop.slots[0][0], loop.slots[0][1]) if expr is None
-            else self.expr(expr, scope)
-        )
+        value = self.expr(expr, scope)
         if value.ctype != jtype:
             _unsupported(
                 node,
@@ -1277,9 +1279,16 @@ def _breaks_bare(body):
 
 
 def _breakable(node):
-    """Refuses a loop whose value Java has no room for: one carrying
-    several slots that a bare `break` would answer with all of them.
-    Stmt -> ()"""
+    """Refuses a loop whose value Java has no room for: one worth `()`,
+    which is what a bare `break` gives, or one carrying several slots
+    that no `break` picks one of. Stmt -> ()"""
+    if _breaks_bare(node.body):
+        _unsupported(
+            node,
+            "a loop worth `()` -- a bare `break` gives unit, and Java has no "
+            "value for one; `break` with the value the loop is for, or run "
+            "the loop for what it does rather than what it is worth",
+        )
     _unsupported(
         node,
         "a loop that carries several values and is worth all of them -- "

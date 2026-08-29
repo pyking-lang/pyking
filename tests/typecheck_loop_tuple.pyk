@@ -11,7 +11,7 @@
 
 foo, bar = loop x, y = 0, true:
     if x <= 10:
-        x + 1, y
+        continue x + 1, y
     else:
         break x + 100, false
 
@@ -26,7 +26,7 @@ def summed(limit: Int) -> (Int, Int):
         if k > limit:
             break total, k
         else:
-            total + k, k + 1
+            continue total + k, k + 1
 
 
 print(summed(10))

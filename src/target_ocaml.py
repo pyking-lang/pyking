@@ -388,7 +388,12 @@ class _Translator:
     def function_binding(self, func):
         """One def, as an OBinding. SFunctionDef -> OBinding"""
         self._check_rank_one(func)
-        params = [_mangle(p.name) for p in func.params]
+        # OCaml has no nullary function, so a `def f():` takes unit --
+        # the empty tuple pattern, which prints as `()`. Without it the
+        # binding would be a value, evaluated where it is written rather
+        # than where it is called, and a body that never returns would
+        # hang the program at start-up.
+        params = [_mangle(p.name) for p in func.params] or [()]
         return OBinding(_mangle(func.name), params, self.body(func.body))
 
     def _check_rank_one(self, func):
@@ -648,10 +653,10 @@ class _Translator:
         is the value the call returns. OCaml optimises the tail call,
         so this runs in constant space -- which is why this backend
         needs no imperative loop at all. SLoop -> OExpr"""
-        if s.iterate is not None or s.after is not None:
+        if s.iterate is not None or s.result is not None:
             _unsupported(
                 s,
-                "a `for`/`while` clause or a `then:` block on a loop -- this "
+                "a `for`/`while` clause or a `result` expression on a loop -- this "
                 "backend compiles a loop to a local recursive function, and "
                 "the recursion over the sequence is not built yet",
             )
@@ -712,7 +717,11 @@ class _Translator:
                 # is what the turn outside goes round with.
                 return self.again(loop, self.loop(statement))
             case SBreak(_, expr, _):
-                return loop.accumulator if expr is None else self.expr(expr)
+                # A bare `break` is `break ()` -- it leaves without
+                # saying what the loop is worth (PYKING.md, "Leaving a
+                # loop"), which is a different question from what the
+                # loop carries.
+                return OUnit() if expr is None else self.expr(expr)
             case SContinue(_, expr, _):
                 return self.again(
                     loop, loop.accumulator if expr is None else self.expr(expr)
@@ -825,7 +834,9 @@ class _Translator:
                 return self.builtin_call(e, name, args)
             case ECall(_, func, args, _):
                 pieces, sequence = self.in_order([func] + list(args))
-                return sequence(OApp(pieces[0], pieces[1:]))
+                # A call with no arguments passes unit, since that is
+                # what `function_binding` gave the definition to take.
+                return sequence(OApp(pieces[0], pieces[1:] or [OUnit()]))
             case EAdd(_, left, right, _):
                 return self.binary("+", left, right)
             case EList(_, elements, _):

@@ -543,23 +543,25 @@ Division by zero falls through it to Python's own `ZeroDivisionError`,
 which is what this target is documented as doing (see
 [targets.md](targets.md)).
 
-## `then:` is Python's loop `else`
+## A loop's value is Python's loop `else`
 
 Python's `for`/`while` take an `else` clause that runs exactly when the
-loop finished without a `break` -- which is the rule Pyking's `then:`
-states, so the two map onto each other directly:
+loop finished without a `break` -- which is where what a Pyking loop is
+worth ends up, so the two map onto each other directly:
 
-```pyking                           # generated Python
-loop i, acc = 0, [] for x in xs:    i, acc = 0, []
-    i + 1, [(i, x)] ++ acc          for x in xs:
-then:                                   i, acc = i + 1, [(i, x)] + acc
-    acc                             else:
-                                        __result = acc
+```pyking                                    # generated Python
+loop i, acc = 0, [] for x in xs result acc:  i, acc = 0, []
+    continue i + 1, [(i, x)] ++ acc          for x in xs:
+                                                 i, acc = i + 1, [(i, x)] + acc
+                                             else:
+                                                 __result = acc
 ```
 
-The loop's value lives in a variable of its own wherever the
-accumulator has no room for it -- a tuple accumulator, or none at all --
-and `then:` assigns it in the same place a `break` would.
+The loop's value lives in a variable of its own whenever anything
+`break`s at all, since a `break` need not give what the accumulator
+holds. The `else` assigns the `result` expression when one is written,
+the accumulator when one is, and `()` otherwise -- the rule PYKING.md
+states under "What a loop is worth".
 
 ## Where the output is not optimal
 

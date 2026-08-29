@@ -1,0 +1,65 @@
+# Case 3 -- `for` and `while` without an accumulator.
+#
+# These end on their own: a `for` when the list runs out, a `while` when
+# its condition stops holding. With no accumulator and no `result` such
+# a loop is worth unit, so `break` and `continue` take no value there --
+# a `break "x"` is refused (see fail_typecheck_for_no_value.pyk).
+#
+# The body is unconstrained, since nothing is carried from turn to turn.
+
+def count_down(from_:Int) -> String:
+    # A `while` with no accumulator: nothing is carried, so the
+    # condition can only be about what is already in scope -- which is
+    # why a `while` on its own needs a `break` to end (or a condition
+    # that was false to begin with).
+    while from_ > 0:
+        print(from_)
+        break
+    return "counted"
+
+
+def scan(xs:[Int]) -> String:
+    # `break` with no value leaves at once; the loop is worth unit and
+    # the binding takes that.
+    nothing = for x in xs:
+        if x == 0:
+            break
+        print(x)
+    return "scanned"
+
+
+def skipping(xs:[Int]) -> String:
+    # `continue` with no value starts the next turn.
+    for x in xs:
+        if x < 0:
+            continue
+        print(x)
+    return "filtered"
+
+
+def nested(xss:[[Int]]) -> String:
+    # A `break` belongs to the innermost loop, so the inner one leaves
+    # without touching the outer.
+    for xs in xss:
+        for x in xs:
+            if x == 0:
+                break
+            print(x)
+    return "nested"
+
+
+def never_runs(xs:[Int]) -> Int:
+    # Zero turns is not a special case: the loop is worth unit either
+    # way, and nothing here observes it.
+    for x in xs:
+        print(x)
+    while false:
+        print(0)
+    return 1
+
+
+print(count_down(3), count_down(0))
+print(scan([1, 2, 0, 3]))
+print(skipping([1, 0 - 1, 2]))
+print(nested([[1, 2], [3, 0, 4]]))
+print(never_runs([]))

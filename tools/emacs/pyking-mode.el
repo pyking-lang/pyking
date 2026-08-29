@@ -154,6 +154,43 @@ builtin.")
   (regexp-opt pyking-mode-builtins 'symbols)
   "Regexp matching any name in `pyking-mode-builtins' as a whole symbol.")
 
+(defun pyking--match-loop-result (limit)
+  "Font-lock matcher for the loop-header keyword `result\='.
+Moves point and leaves the match data around the word, whose group 1 the
+font-lock entry highlights, the same as the regexp entries beside it.
+
+`result\=' is a keyword only between a loop\='s iteration clause and the
+`:\=' that opens its block, and an ordinary name everywhere else, so the
+shape is what has to be recognized rather than the word. Three things
+say it is the keyword: it follows the `in\=' of a `for\=' or the `while\=' of
+a `while\='; it is not the first thing after either, which would make it
+the sequence or the condition; and an expression follows it before the
+`:\=' ends the line. `while i > result + 1:\=' is the shape this cannot
+tell from the keyword without parsing the condition, and is the one
+place it highlights a name."
+  (let ((found nil))
+    (while (and (not found)
+                (re-search-forward "\\_<\\(result\\)\\_>" limit t))
+      (let ((start (match-beginning 1))
+            (end (match-end 1))
+            (data (match-data)))
+        (when (and (save-excursion
+                     (goto-char start)
+                     (let ((bol (line-beginning-position)))
+                       (and (re-search-backward "\\_<\\(?:in\\|while\\)\\_>" bol t)
+                            ;; A token of iteration clause in between.
+                            (string-match-p
+                             "[^ \t]" (buffer-substring (match-end 0) start))
+                            ;; And that `in\=' is a `for\='s.
+                            (or (string= (match-string 0) "while")
+                                (re-search-backward "\\_<for\\_>" bol t)))))
+                   (save-excursion
+                     (goto-char end)
+                     (looking-at "[ \t]+[^\n]*[^ \t:][ \t]*:[ \t]*$")))
+          (set-match-data data)
+          (setq found t))))
+    found))
+
 (defconst pyking-mode-font-lock-keywords
   (list
    ;; function_def = "def" , ident , "(" ... -- the declared function name.
@@ -190,6 +227,14 @@ builtin.")
    ;; and only the word itself is highlighted.
    '("\\_<\\(all\\)\\_>\\(?:[ \t]+[a-z]\\sw*\\)+[ \t]*\\."
      1 font-lock-keyword-face)
+   ;; `for x in xs result e:' -- what a loop is worth when it ends
+   ;; without breaking (see PYKING.md, "What a loop is worth"). Not in
+   ;; `pyking-mode-keywords' for the same reason `all' is not: it is
+   ;; recognized only in a loop header (see `parse_loop_result' in
+   ;; src/parser.py), so `result' stays usable as an ordinary name.
+   ;; Where `all' can be matched by a regexp, this one needs the shape
+   ;; of the whole header, so a function does the matching.
+   '(pyking--match-loop-result 1 font-lock-keyword-face)
    ;; rest_marker = ".." , [ ident ] -- the list-pattern "rest" marker
    ;; (`..`/`..name`), Pyking's spelling of Python's `*_'/`*name' star
    ;; sub-pattern. Matched before any single-`.' rule could apply (there
@@ -329,25 +374,6 @@ one chain aligns with the `if' that opens it."
   (pyking--backward-dedent-target
    "\\_<else\\_>" pyking--if-block-opener-regexp 0))
 
-(defconst pyking--loop-block-opener-regexp
-  "\\(?:[^=\n]*=[ \t]*\\|return[ \t]+\\)?\\_<\\(?:loop\\|for\\|while\\)\\_>[^\n]*:"
-  "Regexp matching a line that opens a loop, from its first word.
-`for', `while' and `loop' are one construct in PYKING.md (see its
-section on the three halves of a loop), so a `then:' clause may close
-any of them -- and, like
-`pyking--if-block-opener-regexp', the header may be a value form
-\(`total = loop acc = 0 for x in xs:'), which is why the keyword can't
-simply be required to be the line's first word.")
-
-(defun pyking--then-target-indent ()
-  "Indentation for a `then:' line: aligned with the loop header it
-closes, found by the same backward scan `else' uses. `then' is also the
-`if' expression's keyword (`if c then a else b'), but that one never
-starts a line -- it follows an expression -- so a `then' in first
-position is always this clause."
-  (pyking--backward-dedent-target
-   "\\_<then\\_>" pyking--loop-block-opener-regexp 0))
-
 (defun pyking--case-target-indent ()
   "Indentation for a `case' line: aligned with the previous sibling
 `case_clause' if there is one at the same depth, otherwise one
@@ -384,9 +410,8 @@ dedent out of the block is one TAB away."
 Mirrors `python-mode's own simple case: a `block' is one
 `pyking-indent-offset' deeper than the `:'-terminated line that opens
 it (see `block'/`if_stmt'/`match_stmt' et al. in PYKING.md's grammar),
-`else'/`case'/`then' dedent back out of the block(s) they close (see
-`pyking--else-target-indent'/`pyking--case-target-indent'/
-`pyking--then-target-indent'), a line
+`else'/`case' dedent back out of the block(s) they close (see
+`pyking--else-target-indent'/`pyking--case-target-indent'), a line
 following a `pyking--dedenter-line-p' line dedents one level, and any
 other line matches the previous non-blank line's indentation --
 leaving the user to dedent further manually, the same as `python-mode'
@@ -397,7 +422,6 @@ does for a plain statement following a multi-level nested block."
      ((bobp) 0)
      ((pyking--line-first-word-matches-p "\\_<else\\_>") (pyking--else-target-indent))
      ((pyking--line-first-word-matches-p "\\_<case\\_>") (pyking--case-target-indent))
-     ((pyking--line-first-word-matches-p "\\_<then\\_>") (pyking--then-target-indent))
      (t (let (prev-indent prev-opens-block prev-is-dedenter)
           (save-excursion
             (forward-line -1)
@@ -634,7 +658,8 @@ block opener that list holds a single forced column (see
 
 Provides syntax highlighting for Pyking's keywords (`for', `in', `if',
 `while', `loop', `break', `continue', `then', `else', `var', `def',
-`return', `match', `case'), the
+`return', `match', `case'), the two keywords recognized only where
+they are one (`all' in a type, `result' in a loop header), the
 `:=' mutation operator, the `..'/`..name' list-pattern rest marker,
 string literals (with backslash escapes), `#' comments, the name an
 annotated binding declares (`x: Int = 1'), integer and

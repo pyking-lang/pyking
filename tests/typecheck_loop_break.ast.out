@@ -1,0 +1,31 @@
+def count_to(limit:Int) -> Int:
+    return loop i: Int = 0:
+        if i >= limit:
+            break i
+        else:
+            continue i + 1
+def name_of(limit:Int) -> String:
+    return loop i: Int = 0:
+        if i >= limit:
+            break 'enough'
+        else:
+            continue i + 1
+def nothing(limit:Int) -> ():
+    return loop i: Int = 0:
+        if i >= limit:
+            break
+        else:
+            continue i + 1
+def spin() -> Int:
+    loop:
+        continue
+def carried() -> (Int, String):
+    return loop (n, s): (Int, String) = (0, ''):
+        if n > 2:
+            break (n, s)
+        else:
+            continue (n + 1, s ++ 'x')
+print(count_to(3), count_to(0))
+print(name_of(2))
+print(nothing(2))
+print(carried())

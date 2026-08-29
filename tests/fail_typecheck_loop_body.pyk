@@ -9,4 +9,4 @@
 # the error message, not a program's output.
 
 counted = loop x = 1:
-    print(x)
+    continue print(x)

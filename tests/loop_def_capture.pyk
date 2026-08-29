@@ -17,7 +17,7 @@ loop i = 0:
     if i > 1:
         break
     else:
-        i + 1
+        continue i + 1
 
 for f in makers:
     print(f())
@@ -36,7 +36,7 @@ loop n = 10:
     if n >= 30:
         break
     else:
-        n + 10
+        continue n + 10
 
 for f in pairs:
     print(f())

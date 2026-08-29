@@ -333,7 +333,10 @@ def _going_on(info, expr, context, jumping):
                 # A loop carrying nothing: there is no next value to
                 # give it, only another turn.
                 return [SContinue(info, None)]
-            return [SContinue(info, state)] if jumping else [SExprStmt(info, state)]
+            # Always explicit: an accumulator loop says what the next
+            # turn carries with `continue`, and there is no implicit tail
+            # any more (PYKING.md, "Going round").
+            return [SContinue(info, state)]
     return [SBreak(info, expr)]
 
 
@@ -393,7 +396,7 @@ def _loop_over(info, names, body, carried, work):
     type into the table.
     Info -> [String] -> [Stmt] -> [Type?] -> Pass -> SLoop"""
     if not names:
-        return SLoop(info, None, None, None, None, body)
+        return SLoop(info, None, None, None, None, None, body)
     target = (
         TargetName(info, names[0]) if len(names) == 1
         else TargetTuple(info, [TargetName(info, name) for name in names])
@@ -402,7 +405,7 @@ def _loop_over(info, names, body, carried, work):
         EVar(info, names[0]) if len(names) == 1
         else ETuple(info, [EVar(info, name) for name in names])
     )
-    loop = SLoop(info, target, init, None, None, body)
+    loop = SLoop(info, target, init, None, None, None, body)
     if any(type_ is None for type_ in carried):
         return loop
     accumulator = carried[0] if len(carried) == 1 else TTuple(info, list(carried))
@@ -668,11 +671,8 @@ def _walk(statement, work):
     match statement:
         case SFunctionDef(_, _, _, body, _, _) if body is not None:
             return replace(statement, body=_block(body, work))
-        case SLoop(_, _, _, _, _, body, after, _):
-            rewritten = replace(statement, body=_block(body, work))
-            if after is None:
-                return rewritten
-            return replace(rewritten, after=_block(after, work))
+        case SLoop(_, _, _, _, _, _, body, _):
+            return replace(statement, body=_block(body, work))
         case SIf(_, _, then_body, else_body, _):
             return replace(
                 statement,

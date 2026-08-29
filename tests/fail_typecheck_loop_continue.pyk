@@ -11,4 +11,4 @@ counted = loop x = 1:
     if x > 3:
         continue true
     else:
-        x + 1
+        continue x + 1

@@ -16,7 +16,7 @@ def countdown(n:Int) -> String:
     loop n: Int = n:
         if n < 1:
             break 'liftoff'
-        n - 1
+        continue n - 1
 print(fact(5), sum_to(4))
 print(repeat('ab', 3))
 print(countdown(3))

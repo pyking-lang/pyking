@@ -1,2 +1,0 @@
-'tests/fail_typecheck_loop_then_break.pyk' 13:8-13:21 Type error: this
-  loop's 'then' gives Int, but this 'break' gives String

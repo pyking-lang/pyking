@@ -1,4 +1,4 @@
-'tests/fail_typecheck_for_no_value.pyk' 17:8-18:13 Type error: this
-  loop is bound to a name, but it has no value to give: it ends when
-  it runs out of turns, and there is no accumulator, no 'then:' block
-  and no 'break' to say what it is worth then
+'tests/fail_typecheck_for_no_value.pyk' 17:12-17:28 Type error: this
+  loop is worth (), but this 'break' gives String: nothing says what
+  the loop is worth when it ends without breaking. Add 'result
+  <expression>' to its header, or give it an accumulator

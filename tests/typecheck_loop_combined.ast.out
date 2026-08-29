@@ -1,12 +1,12 @@
 def total(xs:[Int]) -> Int:
     return loop acc: Int = 0 for x in xs:
-        acc + x
+        continue acc + x
 def joined(words:[String], sep:String) -> String:
     return loop text: String = '' for w in words:
         if text == '':
-            w
+            continue w
         else:
-            text ++ sep ++ w
+            continue text ++ sep ++ w
 def countdown(from_:Int) -> Int:
     return loop i: Int = from_ while i > 0:
         continue i - 1
@@ -15,12 +15,10 @@ def first_over(xs:[Int], limit:Int) -> Int:
         if x > limit:
             break x
         else:
-            seen + 1
+            continue seen + 1
 def indexed(xs:[String]) -> [(Int, String)]:
-    return loop (i, acc): (Int, [(Int, String)]) = (0, []) for x in xs:
-        (i + 1, [(i, x)] ++ acc)
-    then:
-        acc
+    return loop (i, acc): (Int, [(Int, String)]) = (0, []) for x in xs result acc:
+        continue (i + 1, [(i, x)] ++ acc)
 print(total([1, 2, 3, 4]), total([]))
 print(joined(['a', 'b', 'c'], '-'), joined([], '-'))
 print(countdown(3))

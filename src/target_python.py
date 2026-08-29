@@ -606,7 +606,7 @@ def _captured_in_block(stmts, bound, captured):
                 # A function nested inside this one is part of the same
                 # question one level down, and is reached when that body
                 # is translated.
-            case SLoop(_, target, _, _, iterate, body, after):
+            case SLoop(_, target, _, _, iterate, result, body):
                 inner = set(bound)
                 if target is not None:
                     inner |= set(_target_names(target))
@@ -615,8 +615,6 @@ def _captured_in_block(stmts, bound, captured):
                         _captured_in_block(body, inner | {name}, captured)
                     case _:
                         _captured_in_block(body, inner, captured)
-                if after is not None:
-                    _captured_in_block(after, inner, captured)
             case SIf(_, _, then_body, else_body):
                 _captured_in_block(then_body, set(bound), captured)
                 if else_body is not None:
@@ -682,7 +680,7 @@ def _free_in_stmt(s, bound, free):
             _free_in_expr(expr, bound, free)
         case SReturnStmt(_, stmt):
             _free_in_stmt(stmt, bound, free)
-        case SLoop(_, target, init, _, iterate, body, after):
+        case SLoop(_, target, init, _, iterate, result, body):
             # The initializer is read outside the loop; the accumulator
             # is bound in the body and nowhere else.
             inner = set(bound)
@@ -698,8 +696,8 @@ def _free_in_stmt(s, bound, free):
                     _free_in_nested(body, inner, free)
                 case _:
                     _free_in_nested(body, inner, free)
-            if after is not None:
-                _free_in_nested(after, inner, free)
+            if result is not None:
+                _free_in_expr(result, inner, free)
         case SBreak(_, expr) | SContinue(_, expr):
             if expr is not None:
                 _free_in_expr(expr, bound, free)
@@ -1550,14 +1548,12 @@ def _translate_loop(s, scope):
         setup.append(PyAssign(info, py_target, py_init))
         value = _target_as_expr(py_target)
     # A loop is worth what it breaks with, which need not be shaped like
-    # what it carries: `break acc` in a loop carrying two values has
-    # nowhere in the accumulator to go, so it gets a variable of its own.
-    # A `loop:` carrying nothing has no accumulator variable at all, so
-    # a `break` with an operand there needs the same.
+    # what it carries -- `break acc` in a loop carrying two values has
+    # nowhere in the accumulator to go, and a bare `break` is `break ()`
+    # whatever the loop carries. So a loop with any `break` at all keeps
+    # its value in a variable of its own, and every way out writes there.
     result = None
-    if (py_target is None or isinstance(py_target, PyTargetTuple)) and (
-        _breaks_with_value(s.body)
-    ):
+    if _breaks_anywhere(s.body):
         result = PyTargetName(info, _fresh_result_name())
         value = PyVar(info, result.name)
     # The iteration clause decides which Python loop this is. A `for`
@@ -1583,20 +1579,28 @@ def _translate_loop(s, scope):
         # `then:` is Python's own loop `else`, which runs exactly when no
         # `break` fired -- the rule Pyking's `then:` states. Its tail is
         # the loop's value, so it assigns wherever a `break` would.
+        # Python's loop `else` runs exactly when no `break` fired, which
+        # is when a Pyking loop ends by running out of turns -- so that
+        # is where what it is worth *then* is written.
         py_after = None
-        if s.after is not None:
+        if s.result is not None or result is not None:
             if result is None:
                 result = PyTargetName(info, _fresh_result_name())
                 value = PyVar(info, result.name)
                 _loop_accumulators[-1] = _Loop(py_target, result)
-            # The accumulator is in scope in `then:`, the element name
+            # The accumulator is in scope in `result`, the element name
             # is not: there may have been no turns at all.
             after_scope = _loop_scope(scope)
             if s.target is not None:
                 _, after_scope = translate_target(
                     s.target, after_scope, rebinding=True
                 )
-            py_after = _translate_loop_block(s.after, result, after_scope)
+            ending = (
+                translate_expr(s.result, after_scope) if s.result is not None
+                else _target_as_expr(py_target) if py_target is not None
+                else PyTuple(info, [])
+            )
+            py_after = [PyAssign(info, result, ending)]
     finally:
         _loop_accumulators.pop()
 
@@ -1633,6 +1637,29 @@ def _fresh_result_name():
             return candidate
 
 
+def _breaks_anywhere(body):
+    """Whether any `break` belonging to this body's own loop is written
+    in it -- a nested loop's breaks belong to that loop.
+    [Stmt] -> Bool"""
+    for s in body:
+        match s:
+            case SBreak():
+                return True
+            case SLoop() | SFunctionDef():
+                continue
+            case SIf(_, _, then_body, else_body):
+                if _breaks_anywhere(then_body) or _breaks_anywhere(else_body or []):
+                    return True
+            case SMatch(_, _, cases):
+                for c in cases:
+                    if c.body and _breaks_anywhere(c.body):
+                        return True
+            case SLetStmt(_, _, inner) | SReturnStmt(_, inner):
+                if _breaks_anywhere([inner]):
+                    return True
+    return False
+
+
 def _breaks_with_value(body):
     """Whether any `break` belonging to this body's own loop carries an
     operand -- a nested loop's breaks belong to that loop.
@@ -1657,13 +1684,11 @@ def _breaks_with_value(body):
 
 def _break_answer(info, loop, expr, scope):
     """What a `break` leaves in its loop's result variable: its operand,
-    or the accumulator it is going round with -- unit where the loop
-    carries nothing. Info -> _Loop -> Expr? -> Scope -> PyExpr"""
+    or unit -- a bare `break` is `break ()` (PYKING.md, "Leaving a
+    loop"). Info -> _Loop -> Expr? -> Scope -> PyExpr"""
     if expr is not None:
         return translate_expr(expr, scope)
-    if loop.accumulator is None:
-        return PyTuple(info, [])
-    return _target_as_expr(loop.accumulator)
+    return PyTuple(info, [])
 
 
 def _target_as_expr(target):
@@ -2010,12 +2035,10 @@ def _movable(s, in_loop=False):
                 else_body is None
                 or all(_movable(st, in_loop) for st in else_body)
             )
-        case SLoop(_, _, _, _, _, body, after):
+        case SLoop(_, _, _, _, _, _, body):
             # A loop takes its own break/continue with it, wherever it
             # is moved to.
-            return all(_movable(st, True) for st in body) and (
-                after is None or all(_movable(st, in_loop) for st in after)
-            )
+            return all(_movable(st, True) for st in body)
         case SMatch(_, _, cases):
             return all(
                 _movable(st, in_loop)

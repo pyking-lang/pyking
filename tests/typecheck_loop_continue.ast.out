@@ -1,16 +1,35 @@
-res: Int = loop x: Int = 5:
-    if x <= 10:
-        continue x + 1
-    p: Int = x + 10
-    if p < 30:
-        p + 2
-    else:
-        break
-print(res)
-def first_odd_over(start:Int) -> Int:
-    loop n: Int = start:
-        if n > 10:
-            break
+def total(xs:[Int]) -> Int:
+    return loop acc: Int = 0 for x in xs result acc:
+        continue acc + x
+def branches(n:Int) -> Int:
+    return loop acc: Int = 0:
+        if acc > n:
+            break acc
+        else if acc == 3:
+            continue acc + 10
         else:
-            continue n + 1
-print(first_odd_over(1))
+            continue acc + 1
+def over_match(xs:[String]) -> Int:
+    return loop acc: Int = 0 for x in xs result acc:
+        match x:
+            case 'double':
+                continue acc + 2
+            case _:
+                continue acc + 1
+def early(xs:[Int]) -> Int:
+    loop acc: Int = 0 for x in xs result acc:
+        if x < 0:
+            return 0 - 1
+        else:
+            continue acc + x
+def loose(xs:[Int]) -> String:
+    for x in xs:
+        if x < 0:
+            continue
+        'this value goes nowhere'
+    return 'done'
+print(total([1, 2, 3]), total([]))
+print(branches(5), branches(0))
+print(over_match(['double', 'x', 'double']))
+print(early([1, 2]), early([1, 0 - 1]))
+print(loose([1, 0 - 1, 2]))

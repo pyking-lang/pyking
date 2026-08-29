@@ -1,23 +1,23 @@
 total: Int = loop row: Int = 0:
     if row > 3:
-        break
+        break row
     inner: Int = loop column: Int = 0:
         if column > row:
-            break
+            break column
         else:
-            column + 1
+            continue column + 1
     print(row, inner)
-    row + 1
+    continue row + 1
 print(total)
 def stepped(limit:Int) -> Int:
     loop n: Int = 0:
         if n >= limit:
-            break
+            break n
         step: Int = loop k: Int = 1:
             if k >= n:
-                break
+                break k
             else:
-                k + k
-        n + step + 1
+                continue k + k
+        continue n + step + 1
 print(stepped(10))
 print(stepped(0))

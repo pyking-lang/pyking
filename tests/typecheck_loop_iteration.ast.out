@@ -1,0 +1,35 @@
+def count_down(from_:Int) -> String:
+    while from_ > 0:
+        print(from_)
+        break
+    return 'counted'
+def scan(xs:[Int]) -> String:
+    nothing: () = for x in xs:
+        if x == 0:
+            break
+        print(x)
+    return 'scanned'
+def skipping(xs:[Int]) -> String:
+    for x in xs:
+        if x < 0:
+            continue
+        print(x)
+    return 'filtered'
+def nested(xss:[[Int]]) -> String:
+    for xs in xss:
+        for x in xs:
+            if x == 0:
+                break
+            print(x)
+    return 'nested'
+def never_runs(xs:[Int]) -> Int:
+    for x in xs:
+        print(x)
+    while false:
+        print(0)
+    return 1
+print(count_down(3), count_down(0))
+print(scan([1, 2, 0, 3]))
+print(skipping([1, 0 - 1, 2]))
+print(nested([[1, 2], [3, 0, 4]]))
+print(never_runs([]))

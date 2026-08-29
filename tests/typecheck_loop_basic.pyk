@@ -1,11 +1,10 @@
 # The `loop` construct at its simplest: a loop whose state is a binding
 # rather than a mutable variable.
 #
-# `loop x = 5:` binds `x` to 5 for the first turn. What the body
-# produces -- its value, by the ordinary tail-position rules -- is the
-# `x` the next turn gets, and `break` stops the loop with the `x` it
-# has. So this counts 5, 6, ... up to 11, then stops, and the loop
-# itself is worth 11.
+# `loop x = 5:` binds `x` to 5 for the first turn. `continue e` says
+# what the next turn's `x` is, and `break e` stops the loop with `e`.
+# So this counts 5, 6, ... up to 11, then stops, and the loop itself is
+# worth 11.
 #
 # The `.ast.out` beside this file pins the types: the accumulator's, on
 # the loop header, and the binding's, which is the same type since a
@@ -14,9 +13,9 @@
 counted =
 loop x = 5:
     if x <= 10:
-        x + 1
+        continue x + 1
     else:
-        break
+        break x
 
 print(counted)
 
@@ -27,9 +26,9 @@ print(counted)
 def multiple_over(start: Int, limit: Int) -> Int:
     loop n = start:
         if n > limit:
-            break
+            break n
         else:
-            n * 2
+            continue n * 2
 
 
 print(multiple_over(1, 100))

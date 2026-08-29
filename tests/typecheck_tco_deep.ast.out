@@ -3,7 +3,7 @@ def climb(x:Int) -> Int:
         if x >= 20000:
             break 1000 + x
         else:
-            x + 1
+            continue x + 1
 print(climb(0))
 def tail_group2(state:Int, n:Int) -> Bool:
     loop (state, n): (Int, Int) = (state, n):
@@ -11,11 +11,11 @@ def tail_group2(state:Int, n:Int) -> Bool:
             if n == 0:
                 break true
             else:
-                (1, n - 1)
+                continue (1, n - 1)
         else if n == 0:
             break false
         else:
-            (0, n - 1)
+            continue (0, n - 1)
 def is_even(n:Int) -> Bool:
     tail_group2(0, n)
 def is_odd(n:Int) -> Bool:
@@ -27,11 +27,11 @@ def tail_group3(state:Int, n:Int, step:Int) -> Int:
             if n == 0:
                 break 0
             else:
-                (1, n, 1)
+                continue (1, n, 1)
         else if n == 0:
             break 1
         else:
-            (0, n - step, step)
+            continue (0, n - step, step)
 def count_down(n:Int) -> Int:
     tail_group3(0, n, 0)
 def count_by(n:Int, step:Int) -> Int:

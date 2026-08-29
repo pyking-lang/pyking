@@ -4,16 +4,16 @@ def tail_group1(state:Int, a:Int, b:Int, c:Int) -> Int:
             if a > 20:
                 break a
             else:
-                (1, a + 1, a + a, c)
+                continue (1, a + 1, a + a, c)
         else if state == 1:
             if b > 30:
-                (2, a, b, 100)
+                continue (2, a, b, 100)
             else:
-                (0, a + b + 1, b, c)
+                continue (0, a + b + 1, b, c)
         else if c == 0:
             break a + b
         else:
-            (0, a + b + c, b, c)
+            continue (0, a + b + c, b, c)
 def one(a:Int) -> Int:
     tail_group1(0, a, 0, 0)
 def two(a:Int, b:Int) -> Int:
@@ -28,7 +28,7 @@ def start(a:String, b:Int) -> String:
         if b == 0:
             break finish(a)
         else:
-            (a ++ '*', b - 1)
+            continue (a ++ '*', b - 1)
 def finish(a:String) -> String:
     a ++ '!'
 print(start('', 3))

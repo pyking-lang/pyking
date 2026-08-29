@@ -1,19 +1,17 @@
-# A `for` whose value is taken, with nothing to give.
+# A `for` that breaks with a value, and nothing saying what it is worth
+# when it does not.
 #
-# A `for` ends when it runs out of turns. With no accumulator to carry,
-# no `then:` block and no `break`, it has nothing to show for itself
-# when it does -- so binding its value would name a value that need not
-# exist, the same objection the value form of `match` answers.
+# A `for` ends when it runs out of turns. With no accumulator and no
+# `result`, it is worth unit then -- so a `break` giving a String
+# disagrees with the only other way out. The message names the fix.
 #
-# Any one of the three settles it: `loop y = 0 for x in xs:`, a `then:`
-# block, or a `break` (see typecheck_for_value.pyk).
-#
-# The statement form is unaffected: it takes no value at all.
+# Either settles it: `result "..."` on the header, or an accumulator
+# whose type the `break` matches (see typecheck_loop_result.pyk).
 #
 # This program is expected to FAIL type checking. Its `.ast.out` holds
 # the error message, not a program's output.
 
-def doubled(xs:[Int]) -> Int:
-    y = for x in xs:
-        x * 2
-    return y
+def describe(xs:[Int]) -> String:
+    return for x in xs:
+        if x < 0:
+            break "negative"

@@ -1,3 +1,2 @@
-'tests/fail_typecheck_loop_body.pyk' 12:4-12:12 Type error: this loop
-  carries Int, so its body must end in a value of that type -- the
-  accumulator for the next turn -- but it ends in ()
+'tests/fail_typecheck_loop_body.pyk' 12:13-12:21 Type error: this loop
+  carries Int, but this 'continue' gives ()

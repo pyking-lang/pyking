@@ -99,7 +99,7 @@ from syntax import (
 #     KStartLoop(loop: Loop)
 #     KSequence(loop: Loop)                  a `for`'s sequence
 #     KTest(loop: Loop)                      a `while`'s condition
-#     KEnding(loop: Loop)                    the `then:` block's value
+#     KEnding(loop: Loop)                    the `result` expression
 #     KIterate(loop: Loop)
 #     KExit(loop: Loop, leaving: Bool)       break (leaving) / continue
 #     KReturnTo(frame: Frame)
@@ -667,7 +667,7 @@ class KTest(Kont):
 
 @dataclass(frozen=True)
 class KEnding(Kont):
-    """A loop's `then:` block has produced the loop's own value."""
+    """A loop's `result` expression has produced the loop's own value."""
     loop: Loop
 
 
@@ -1198,10 +1198,10 @@ def _step_stmt(state, stmt):
                 )
             leaving = isinstance(stmt, SBreak)
             if expr is None:
-                # The accumulator this turn started with is what a bare
-                # `break` yields and what a bare `continue` goes round
-                # with -- the same value, put in two different places.
-                return (_leave(state, loop, loop.accumulator) if leaving
+                # A bare `break` is `break ()`: it leaves without saying
+                # what the loop is worth. A bare `continue` goes round
+                # with the accumulator this turn started with, unchanged.
+                return (_leave(state, loop, UNIT) if leaving
                         else _turn(state, loop))
             return _go(state, control=CEval(expr), kont=KExit(loop, leaving))
 
@@ -1359,7 +1359,7 @@ def _step_apply(state, value):
             ))
 
         case KEnding(loop):
-            # The `then:` block's value is the loop's own.
+            # The `result` expression's value is the loop's own.
             return _leave(state, loop, value)
 
         case KIterate(loop):
@@ -1661,10 +1661,10 @@ def _start(state, loop):
 
 
 def _finish(state, loop):
-    """The loop has run out of turns. Its `then:` block, if it has one,
-    says what it is worth; otherwise it is worth the accumulator it
+    """The loop has run out of turns. Its `result` expression, if it has
+    one, says what it is worth; otherwise it is worth the accumulator it
     stopped with. State -> Loop -> State"""
-    if loop.node.after is None:
+    if loop.node.result is None:
         return _leave(state, loop, loop.accumulator)
     env = loop.env
     if loop.node.target is not None:
@@ -1672,11 +1672,9 @@ def _finish(state, loop):
             env = bind_target(env, loop.node.target, loop.accumulator)
         except _Trap as trap:
             return failed(state, trap.error)
-    return enter_block(
-        _go(state, control=state.control, loops=loop.parent),
-        loop.node.after,
-        env,
-        KEnding(loop),
+    return _go(
+        state, control=CEval(loop.node.result), env=env,
+        kont=KEnding(loop), loops=loop.parent,
     )
 
 

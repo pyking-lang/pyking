@@ -190,12 +190,14 @@ class Exit:
 class Frame:
     """What the current inference has gathered, and what the innermost
     loop has been broken with. Fields: uses: (Use,), returns: (Type,),
-    breaks: (Exit,).
+    breaks: (Exit,), carries: (Type,) -- what its `continue`s give,
+    which is how an accumulator that starts narrow is widened.
       TODO: explain better how Frame is used.
     """
     uses: tuple = ()
     returns: tuple = ()
     breaks: tuple = ()
+    carries: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -292,6 +294,15 @@ def breaking(store, info, type_):
     Store -> Info -> Type -> Store"""
     return with_frame(
         store, replace(store.frame, breaks=store.frame.breaks + (Exit(info, type_),))
+    )
+
+
+def carrying(store, type_):
+    """store whose frame has seen a `continue` giving type_ -- what the
+    loop being checked carries into its next turn.
+    Store -> Type -> Store"""
+    return with_frame(
+        store, replace(store.frame, carries=store.frame.carries + (type_,))
     )
 
 
@@ -753,13 +764,10 @@ def check_stmt(statement, env, tmap, return_type, acc_type, store):
             )
             return actual, env, check_return(actual, return_type, info, store)
 
-        case SLoop(info, target, init, annotation, iterate, body, after, sym):
+        case SLoop(info, target, init, annotation, iterate, result, body, sym):
             # The accumulator is what the initializer turned out to be,
-            # and the loop carries exactly that from turn to turn: the
-            # body has to produce one, `break`/`continue` have to give
-            # one, and the loop yields one. A loop with none written
-            # carries unit and its body's value is thrown away, so there
-            # is nothing for the body to get wrong.
+            # and the loop carries exactly that from turn to turn. A loop
+            # with none written carries unit.
             if target is None:
                 accumulator = unit(info)
                 body_env = env
@@ -767,68 +775,60 @@ def check_stmt(statement, env, tmap, return_type, acc_type, store):
                 accumulator, store = check_expr(init, env, tmap, store)
                 check_annotation(annotation, accumulator)
                 body_env = check_target(target, accumulator, env, tmap, store)
+                # Every path has to say what the next turn carries. There
+                # is no implicit tail: the value a body happens to end in
+                # is not the accumulator (PYKING.md, "Going round").
+                if not ends_every_path(body):
+                    raise TypeError_(
+                        body[-1].info if body else info,
+                        "this loop carries an accumulator, so every path "
+                        "through its body must say what the next turn "
+                        "carries -- end each one in 'continue', 'break' or "
+                        "'return'",
+                    )
             # An accumulator may start narrower than it ends: `[]` is
             # `[!]`, and the list it grows into is what the loop really
             # carries. Where that can happen the body is walked once
             # against a throwaway table, only to learn the width; the
-            # real check below then runs against the type the body will
-            # actually see from the second turn on.
+            # real check below then runs against the settled type.
             outer = store.frame
             if target is not None and has_never(accumulator):
                 probe, _ = check_iteration(iterate, env, body_env, {}, store)
-                grown, _, _ = check_turn(
+                _, _, grown, _ = check_turn(
                     body, probe, {}, return_type, accumulator, store, outer
                 )
-                widened = agree(accumulator, grown)
-                if widened is not None and not same_type(widened, accumulator):
+                widened = accumulator
+                for carried in grown:
+                    wider = agree(widened, carried)
+                    if wider is not None:
+                        widened = wider
+                if not same_type(widened, accumulator):
                     accumulator = widened
                     body_env = check_target(target, accumulator, env, tmap, store)
             record(tmap, sym, accumulator, store)
-            # The iteration clause: a `for` binds its element over the
-            # body only; a `while` is tested where the accumulator is in
-            # scope, so it can ask about it.
             turn_env, store = check_iteration(
                 iterate, env, body_env, tmap, store
             )
-            supplied, ways_out, store = check_turn(
+            _, ways_out, _, store = check_turn(
                 body, turn_env, tmap, return_type, accumulator, store, outer
             )
-            if target is not None and not accepts(accumulator, supplied):
-                raise TypeError_(
-                    body[-1].info if body else info,
-                    f"this loop carries {pprint_type(accumulator)}, so its "
-                    f"body must end in a value of that type -- the "
-                    f"accumulator for the next turn -- but it ends in "
-                    f"{pprint_type(supplied)}",
-                )
-            # What the loop is *worth*: the `then:` block's value if one
-            # was written, otherwise what its `break`s give, otherwise
-            # the accumulator it stopped with. `then:` sees the
-            # accumulator but not the element name -- there may have
-            # been no turns at all, which is exactly the case it answers.
-            if after is not None:
-                ending, store = check_stmts(
-                    after, body_env, tmap, return_type, None, store
-                )
-                for way in ways_out:
-                    if agree(ending, way.type) is None:
-                        raise TypeError_(
-                            way.info,
-                            f"this loop's 'then' gives "
-                            f"{pprint_type(ending)}, but this 'break' gives "
-                            f"{pprint_type(way.type)}",
-                        )
-                return ending, env, store
-            if ways_out:
+            # A plain `loop:` can only end by breaking, so its `break`s
+            # say what it is worth, and one with none never ends at all.
+            if iterate is None:
                 return loop_value(ways_out, info), env, store
-            # No `break` and no `then:`. An accumulator loop is worth
-            # what it carries; one without an accumulator has run out of
-            # ways to be worth anything, and `TNever` says so -- it can
-            # only be reached by never finishing (the bare `loop:`) or
-            # by finishing with nothing to show (`for`/`while`).
-            if target is not None and iterate is not None:
-                return accumulator, env, store
-            return loop_value(ways_out, info), env, store
+            # One that iterates ends on its own too, so something has to
+            # say what it is worth then: the `result` expression, the
+            # accumulator, or unit. Every `break` has to give that.
+            if result is not None:
+                worth, store = check_expr(result, body_env, tmap, store)
+            else:
+                worth = accumulator
+            for way in ways_out:
+                if agree(worth, way.type) is None:
+                    raise TypeError_(way.info, break_error(
+                        worth, way.type, target, result
+                    ))
+            return worth, env, store
 
         case SBreak(info, expr, _):
             # A `break` says what the loop is *worth*, which is a
@@ -842,7 +842,10 @@ def check_stmt(statement, env, tmap, return_type, acc_type, store):
             if acc_type is None:
                 raise TypeError_(info, "'break' outside a loop")
             if expr is None:
-                return TNever(info), env, breaking(store, info, acc_type)
+                # A bare `break` is `break ()`: it leaves without saying
+                # what the loop is worth, and unit is what that means
+                # (PYKING.md, "Leaving a loop").
+                return TNever(info), env, breaking(store, info, unit(info))
             actual, store = check_expr(expr, env, tmap, store)
             return TNever(info), env, breaking(store, info, actual)
 
@@ -854,11 +857,17 @@ def check_stmt(statement, env, tmap, return_type, acc_type, store):
             if acc_type is None:
                 raise TypeError_(info, "'continue' outside a loop")
             if expr is None:
-                return acc_type, env, store
+                return TNever(info), env, store
             actual, store = check_expr(expr, env, tmap, store)
-            if not accepts(acc_type, actual):
+            # `agree`, not `accepts`: an accumulator may start narrower
+            # than the loop grows it (`[]` is `[!]`), and what the
+            # `continue`s give is how the loop's own case widens it.
+            if agree(acc_type, actual) is None:
                 raise TypeError_(expr.info, continue_error(acc_type, actual))
-            return acc_type, env, store
+            # Nothing arrives after a `continue`, so the statement
+            # supplies `TNever` -- the same answer `break` gives, and for
+            # the same reason.
+            return TNever(info), env, carrying(store, actual)
 
         case SMatch(info, subject, cases, _):
             # Every arm is a branch, and they must agree on one type the
@@ -976,17 +985,61 @@ def has_never(type_):
     return False
 
 
+def ends_every_path(stmts):
+    """Whether every path through a loop body says what happens next --
+    `continue`, `break` or `return`, or a branching statement whose every
+    branch does. An `if` with no `else` has a path that runs neither, so
+    it does not. [Stmt] -> Bool"""
+    match list(stmts):
+        case [*_, last]:
+            return ends_here(last)
+    return False
+
+
+def ends_here(statement):
+    """Whether one statement says what happens next on every path
+    through it. Stmt -> Bool"""
+    match statement:
+        case SContinue() | SBreak() | SReturn() | SReturnStmt():
+            return True
+        case SIf(_, _, then_body, else_body, _):
+            return (else_body is not None
+                    and ends_every_path(then_body)
+                    and ends_every_path(else_body))
+        case SMatch(_, _, cases, _):
+            return (covers([c.pattern for c in cases])
+                    and all(ends_every_path(c.body) for c in cases))
+    return False
+
+
+def break_error(worth, given, target, result):
+    """The message for a `break` that does not give what its loop is
+    worth. Where nothing said what that is, the loop is worth unit by
+    default and the fix is to say so -- which is the common mistake, so
+    the message names it. Type -> Type -> AssignTarget? -> Expr? -> String"""
+    if target is None and result is None:
+        return (
+            f"this loop is worth {pprint_type(worth)}, but this 'break' "
+            f"gives {pprint_type(given)}: nothing says what the loop is "
+            f"worth when it ends without breaking. Add 'result "
+            f"<expression>' to its header, or give it an accumulator"
+        )
+    return (f"this loop is worth {pprint_type(worth)}, but this 'break' "
+            f"gives {pprint_type(given)}")
+
+
 def check_turn(body, turn_env, tmap, return_type, accumulator, store, outer):
     """One pass over a loop body: what it supplies, the ways out its
     `break`s give, and the store. The breaks are gathered in a frame of
     the loop's own, so a nested loop's are not mistaken for these.
     [Stmt] -> Env -> {Int: Type} -> Type? -> Type -> Store -> Frame
-    -> (Type, (Exit,), Store)"""
+    -> (Type, (Exit,), (Type,), Store)"""
     supplied, store = check_stmts(
         body, turn_env, tmap, return_type, accumulator,
-        with_frame(store, replace(outer, breaks=())),
+        with_frame(store, replace(outer, breaks=(), carries=())),
     )
-    return supplied, store.frame.breaks, with_frame(store, outer)
+    return (supplied, store.frame.breaks, store.frame.carries,
+            with_frame(store, outer))
 
 
 def check_iteration(iterate, env, body_env, tmap, store):

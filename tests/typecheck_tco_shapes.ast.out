@@ -9,9 +9,9 @@ def gcd(a:Int, b:Int) -> Int:
         if b == 0:
             break a
         else if a > b:
-            (a - b, b)
+            continue (a - b, b)
         else:
-            (a, b - a)
+            continue (a, b - a)
 print(gcd(12, 18))
 print(gcd(7, 1))
 def countdown(n:Int) -> Int:
@@ -19,7 +19,7 @@ def countdown(n:Int) -> Int:
         if n == 0:
             break 0
         else:
-            n - 1
+            continue n - 1
 print(countdown(500))
 def outer(n:Int) -> Int:
     def inner(k:Int) -> Int:
@@ -27,7 +27,7 @@ def outer(n:Int) -> Int:
             if k > 20:
                 break k
             else:
-                k + k + 1
+                continue k + k + 1
     inner(n) + 1
 print(outer(1))
 def only_two(a:Int, b:Int) -> Int:
@@ -35,5 +35,5 @@ def only_two(a:Int, b:Int) -> Int:
         if a == 0:
             break b
         else:
-            (a - 1, b + a)
+            continue (a - 1, b + a)
 print(only_two(4, 0))

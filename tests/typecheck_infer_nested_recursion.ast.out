@@ -3,12 +3,12 @@ def f1(x:Int) -> Int:
         if x >= 10:
             break 1000 + x
         else:
-            x + 1
+            continue x + 1
 print(f1(0))
 def f2(x:Int) -> Int:
     loop x: Int = x:
         if x < 10:
-            x + 1
+            continue x + 1
         else:
             break 2000 + x
 print(f2(0))
@@ -18,45 +18,45 @@ def f11(x:Int) -> Int:
             if x >= 10:
                 break 1100 + x
             else:
-                x + 1
+                continue x + 1
         else if x < 5:
-            x + 1
+            continue x + 1
         else:
-            x + 1
+            continue x + 1
 print(f11(0))
 def f12(x:Int) -> Int:
     loop x: Int = x:
         if x >= 10:
             if x < 10:
-                x + 1
+                continue x + 1
             else:
                 break 1200 + x
         else if x < 5:
-            x + 1
+            continue x + 1
         else:
-            x + 1
+            continue x + 1
 print(f12(0))
 def f21(x:Int) -> Int:
     loop x: Int = x:
         if x < 10:
             if x >= 10:
-                x + 1
+                continue x + 1
             else:
-                x + 1
+                continue x + 1
         else if x >= 5:
             break 2100 + x
         else:
-            x + 1
+            continue x + 1
 print(f21(0))
 def f22(x:Int) -> Int:
     loop x: Int = x:
         if x < 10:
             if x >= 10:
-                x + 1
+                continue x + 1
             else:
-                x + 1
+                continue x + 1
         else if x < 10:
-            x + 1
+            continue x + 1
         else:
             break 2200 + x
 print(f22(0))
@@ -65,20 +65,20 @@ def f33(x:Int) -> Int:
         if x < 10:
             if x >= 10:
                 if x < 10:
-                    x + 1
+                    continue x + 1
                 else:
-                    x + 1
+                    continue x + 1
             else if x < 10:
-                x + 1
+                continue x + 1
             else:
-                x + 1
+                continue x + 1
         else if x < 10:
             if x < 10:
-                x + 1
+                continue x + 1
             else:
-                x + 1
+                continue x + 1
         else if x < 10:
-            x + 1
+            continue x + 1
         else:
             break 3300 + x
 print(f33(0))

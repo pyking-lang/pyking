@@ -375,16 +375,27 @@ all of them. Three additions to what was already there:
 binds its element over the body; a `while` is a `Bool` test, asked where
 the accumulator is in scope so it can ask about it.
 
-**`then:`** is checked in the accumulator's scope — not the element's,
-since there may have been no turns. Its value is the loop's, and every
-`break` must `agree` with it: both answer the same question, from the
-two sides.
+**`result`** is checked in the accumulator's scope — not the element's,
+since there may have been no turns, and nothing the body bound is in
+scope either. What a loop is worth is the `result` expression if one is
+written, else the accumulator if one is, else unit; every `break` must
+`agree` with that. A plain `loop:` is the exception, and `loop_value`
+decides it from the `break`s alone: it ends only by breaking, so they
+are the only answer there is.
 
-**A `break` supplies `TNever`**, not the accumulator. Nothing arrives
-after it, every type accepts `TNever`, and `agree` keeps the other
-branch's answer — which is what lets a branch that breaks sit beside one
-that ends in the next accumulator *whatever the loop carries*, including
-a `for` carrying nothing.
+**A `break` supplies `TNever`**, and so does a `continue`. Nothing
+arrives after either, every type accepts `TNever`, and `agree` keeps the
+other branch's answer — which is what lets a branch that breaks sit
+beside one that goes round again. A *bare* `break` is `break ()`, so
+what it gives the loop is unit rather than the accumulator.
+
+**A loop with an accumulator must say what the next turn carries on
+every path**, which `ends_every_path`/`ends_here` check structurally:
+each path ends in a `continue`, a `break` or a `return`, or in an
+`if`/`match` whose branches all do (a `match` has to cover its subject
+as well). A `continue`'s operand goes into `Frame.carries`, which is
+also what the accumulator widening reads. A loop carrying nothing is
+asked none of this.
 
 ### The accumulator can widen
 

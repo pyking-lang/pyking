@@ -1185,12 +1185,8 @@ def _check_loop_context(stmts, held, crossed=None):
             case SBreak(info) | SContinue(info):
                 if held is None:
                     _no_loop_here(stmt, info, crossed)
-            case SLoop(_, _, _, _, _, body, after):
+            case SLoop(_, _, _, _, _, _, body):
                 _check_loop_context(body, stmt)
-                if after is not None:
-                    # A `then:` runs after the loop has ended, so a
-                    # `break` there belongs to no loop of its own.
-                    _check_loop_context(after, None, "then" if held else crossed)
             case SFunctionDef(_, _, _, body):
                 if body is not None:
                     _check_loop_context(body, None, "def" if held else crossed)
@@ -1243,22 +1239,41 @@ def parse_loop_stmt(loop_info, tokens):
 
 def parse_loop_tail(loop_info, target, annotation, init, tokens):
     """Parses what follows a loop's accumulator: an optional `for`/`while`
-    clause, the `:` and body, and an optional `then:` block. Every loop in
-    the language comes through here, `for x in e:` and `while c:` included.
+    clause, an optional `result` expression, then the `:` and body. Every
+    loop in the language comes through here, `for x in e:` and `while c:`
+    included.
     Info -> AssignTarget? -> Type? -> Expr? -> [Token] -> (SLoop, [Token])"""
     iterate, rest = parse_loop_iter(tokens)
+    result, rest = parse_loop_result(rest, iterate)
     match rest:
         case [TokColon(colon_info), *rest]:
             pass
         case _:
             raise ParseError(_here(rest), "expected ':' after loop header")
     body, rest = parse_block(rest, colon_info)
-    after, rest = parse_then_clause(rest, body)
-    end = body if after is None else after
     return SLoop(
-        combine_info(loop_info, _block_end_info(loop_info, end)),
-        target, init, annotation, iterate, body, after,
+        combine_info(loop_info, _block_end_info(loop_info, body)),
+        target, init, annotation, iterate, result, body,
     ), rest
+
+
+def parse_loop_result(tokens, iterate):
+    """Parses a loop's `result` expression, or answers None where none
+    was written. `result` is a keyword only here -- between the loop's
+    header and its `:` -- so it stays an ordinary name everywhere else,
+    the way `all` does in type position.
+    [Token] -> LoopIter? -> (Expr?, [Token])"""
+    match tokens:
+        case [TokIdent(info, "result"), *rest]:
+            if iterate is None:
+                raise ParseError(
+                    info,
+                    "'result' says what a loop is worth when it ends "
+                    "without breaking, and a plain 'loop' can only end by "
+                    "breaking; write 'for'/'while', or say it on the 'break'",
+                )
+            return parse_expr(rest)
+    return None, tokens
 
 
 def parse_loop_iter(tokens):
@@ -1273,23 +1288,6 @@ def parse_loop_iter(tokens):
         case [TokWhile(info), *rest]:
             condition, rest = parse_expr(rest)
             return WhileTest(combine_info(info, condition.info), condition), rest
-    return None, tokens
-
-
-def parse_then_clause(tokens, body):
-    """Parses a loop's `then:` block, or answers None where none was
-    written. `then` is the keyword the `if` expression already uses,
-    told apart by standing at the start of a statement -- exactly as
-    `else` serves both `if c then a else b` and `else:`.
-    [Token] -> [Stmt] -> ([Stmt]?, [Token])"""
-    match tokens:
-        case [TokThen(_), TokColon(then_colon), *rest]:
-            _check_ends_line(body, tokens, "then")
-            after, rest = parse_block(rest, then_colon)
-            _check_nothing_indented(rest)
-            return after, rest
-        case [TokThen(then_info), *_]:
-            raise ParseError(then_info, "expected ':' after 'then'")
     return None, tokens
 
 

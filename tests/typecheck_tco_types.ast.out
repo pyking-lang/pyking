@@ -5,7 +5,7 @@ def spell(n:Int) -> String:
         else if n == 1:
             break 'one'
         else:
-            n - 2
+            continue n - 2
 print(spell(9))
 print(spell(8))
 def all_marked(n:Int, marks:String) -> Bool:
@@ -13,13 +13,13 @@ def all_marked(n:Int, marks:String) -> Bool:
         if n == 0:
             break marks == ''
         else:
-            (n - 1, marks ++ '*')
+            continue (n - 1, marks ++ '*')
 print(all_marked(0, ''))
 print(all_marked(3, ''))
 def counts_down(n:Int, seen:String) -> Bool:
     loop (n, seen): (Int, String) = (n, seen):
         if n == 0:
             break seen == ''
-        (n - 1, seen ++ '*')
+        continue (n - 1, seen ++ '*')
 print(counts_down(0, ''))
 print(counts_down(4, ''))

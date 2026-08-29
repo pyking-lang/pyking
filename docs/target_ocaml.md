@@ -233,6 +233,14 @@ with a local binding mentions that name without recursing, and a
 free-variable walk sees the difference that a search for the name alone
 would not.
 
+A `def` with no parameters takes unit, and a call with no arguments
+passes it — `def f() -> Int:` becomes `let f () = …` and `f()` becomes
+`f ()`. OCaml has no nullary function, so without the unit the binding
+would be a *value*, evaluated where it is written rather than where it
+is called: a body that prints would print at start-up, and one that
+never returns (a `loop:` with no `break`, which Pyking allows) would
+hang the program before `main` ran.
+
 ### `if`
 
 An `if` is an expression in OCaml, which is what Pyking's value form

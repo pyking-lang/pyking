@@ -172,8 +172,22 @@ DOM_FLUSH = "\nprocess.stdout.write(__pykCaptured);\n"
 SCRIPT_RE = re.compile(r'<script type="module">\n(.*?)\n</script>', re.S)
 
 
+# A Pyking loop need never end (PYKING.md, "Leaving a loop"), so a test
+# that gets one wrong hangs rather than fails. Nothing here should take
+# anywhere near this long.
+STEP_TIMEOUT = 300
+
+
 def run(cmd):
-    return subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        return subprocess.run(
+            cmd, capture_output=True, text=True, timeout=STEP_TIMEOUT
+        )
+    except subprocess.TimeoutExpired as expired:
+        return subprocess.CompletedProcess(
+            cmd, 1, expired.stdout or "",
+            f"timed out after {STEP_TIMEOUT} seconds",
+        )
 
 
 def executed(result):

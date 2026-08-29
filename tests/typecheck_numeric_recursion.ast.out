@@ -13,7 +13,7 @@ def fib_from(a:Int, b:Int, steps:Int) -> Int:
         if steps == 0:
             break a
         else:
-            (b, a + b, steps - 1)
+            continue (b, a + b, steps - 1)
 def fib_fast(n:Int) -> Int:
     fib_from(0, 1, n)
 def gcd(a:Int, b:Int) -> Int:
@@ -21,9 +21,9 @@ def gcd(a:Int, b:Int) -> Int:
         if a == b:
             break a
         else if a > b:
-            (a - b, b)
+            continue (a - b, b)
         else:
-            (a, b - a)
+            continue (a, b - a)
 def power(base:Int, exponent:Int) -> Int:
     if exponent <= 0:
         1
@@ -35,11 +35,11 @@ def tail_group7(state:Int, n:Int) -> Bool:
             if n == 0:
                 break true
             else:
-                (1, n - 1)
+                continue (1, n - 1)
         else if n == 0:
             break false
         else:
-            (0, n - 1)
+            continue (0, n - 1)
 def is_even(n:Int) -> Bool:
     tail_group7(0, n)
 def is_odd(n:Int) -> Bool:
@@ -54,9 +54,9 @@ def collatz_length(n:Int) -> Int:
             if current <= 1:
                 break count
             else if is_even(current):
-                (halve(current), count + 1)
+                continue (halve(current), count + 1)
             else:
-                (3 * current + 1, count + 1)
+                continue (3 * current + 1, count + 1)
     def halve(m:Int) -> Int:
         if m < 2:
             0

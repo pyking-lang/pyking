@@ -3,7 +3,7 @@ def climb(x:Int) -> Int:
         if x >= 300:
             break 1000 + x
         else:
-            x + 1
+            continue x + 1
 print(climb(0))
 def first_over(limit:Int) -> Int:
     loop limit: Int = limit:
@@ -11,6 +11,6 @@ def first_over(limit:Int) -> Int:
             break 0
         if limit > 100:
             break limit
-        limit * 2 + 1
+        continue limit * 2 + 1
 print(first_over(3))
 print(first_over(0))

@@ -767,10 +767,6 @@ class _Translator:
         # its own to leave the answer in.
         result = None
         first_value = _first_break_value(s.body)
-        if len(slots) > 1 and _breaks_bare(s.body):
-            # The answer would be the tuple of slots, which C has no
-            # room for.
-            _breakable(s)
         if first_value is not None:
             # Translated for its type alone, so anything it allocated is
             # forgotten again; the `break` itself translates it for real.
@@ -793,10 +789,12 @@ class _Translator:
             CVar(info, result[0], result[1]) if result
             else CVar(info, slots[0][0], slots[0][1])
         )
-        if result is None and len(slots) > 1:
-            # Nothing breaks out with a value, so nothing reads the
-            # loop's own value either; `tail_stmt` and the binding case
-            # both check that before using it.
+        if _breaks_bare(s.body) or (result is None and len(slots) > 1):
+            # Either the loop is worth `()` -- a bare `break` gives unit,
+            # which C has no value for -- or the answer would be the
+            # tuple of its slots, which C has no room for. Nothing may
+            # read the value; `tail_stmt` and the binding case both check
+            # that before using it.
             value = None
         # `while c` becomes the loop's own test; a `then:` block runs
         # after it, guarded by a flag since C has no loop `else`.
@@ -807,9 +805,9 @@ class _Translator:
                 body = [CIf(info, CUnary(info, "!", test, BOOL),
                             [CBreak(info)], None)] + body
         loop = [CLoop(info, body)]
-        if s.after is not None:
+        if s.result is not None:
             _unsupported(
-                s, "a `then:` block on a loop -- C has no loop `else`, and "
+                s, "a `result` expression on a loop -- C has no loop `else`, and "
                 "the flag it would need is not built yet"
             )
         return setup + loop, value, _reserve(taken, scope)
@@ -817,8 +815,8 @@ class _Translator:
     def plain_while(self, s, scope):
         """`while c:` with no accumulator: nothing to carry, nothing to
         be worth. SLoop -> Scope -> ([CStmt], CExpr?, Scope)"""
-        if s.after is not None:
-            _unsupported(s, "a `then:` block on a loop")
+        if s.result is not None:
+            _unsupported(s, "a `result` expression on a loop")
         condition = self.expr(s.iterate.condition, scope)
         self._require(condition, BOOL, "a `while` condition")
         self.loops.append(_Loop([], None))
@@ -862,15 +860,14 @@ class _Translator:
         """The statements that give the innermost loop its value and
         leave it. Expr? -> Scope -> Stmt -> [CStmt]"""
         loop = self.loops[-1]
-        if loop.result is None:
-            # Nothing breaks with a value here, so the accumulator is
-            # the answer and there is nothing to assign.
+        if expr is None or loop.result is None:
+            # A bare `break` gives unit, which C has no value for, and
+            # `loop` has already refused anything that reads it. With no
+            # result variable the accumulator is the answer, and there is
+            # nothing to assign either way.
             return [CBreak(node.info)]
         name, ctype = loop.result
-        value = (
-            CVar(node.info, loop.slots[0][0], loop.slots[0][1]) if expr is None
-            else self.expr(expr, scope)
-        )
+        value = self.expr(expr, scope)
         if value.ctype != ctype:
             _unsupported(
                 node,
@@ -1302,9 +1299,16 @@ def _first_break_value(body):
 
 
 def _breakable(node):
-    """Refuses a loop whose value C has no room for: one carrying
-    several slots that a bare `break` would answer with all of them.
-    Stmt -> ()"""
+    """Refuses a loop whose value C has no room for: one worth `()`,
+    which is what a bare `break` gives, or one carrying several slots
+    that no `break` picks one of. Stmt -> ()"""
+    if _breaks_bare(node.body):
+        _unsupported(
+            node,
+            "a loop worth `()` -- a bare `break` gives unit, and C has no "
+            "value for one; `break` with the value the loop is for, or run "
+            "the loop for what it does rather than what it is worth",
+        )
     _unsupported(
         node,
         "a loop that carries several values and is worth all of them -- C "

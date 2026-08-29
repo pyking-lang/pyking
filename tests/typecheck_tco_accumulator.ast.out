@@ -3,7 +3,7 @@ def factorial(n:Int, acc:Int) -> Int:
         if n == 0:
             break acc
         else:
-            (n - 1, n * acc)
+            continue (n - 1, n * acc)
 print(factorial(10, 1))
 print(factorial(0, 1))
 def marked(n:Int, step:Int, marks:String) -> String:
@@ -11,6 +11,6 @@ def marked(n:Int, step:Int, marks:String) -> String:
         if n <= 0:
             break marks
         else:
-            (n - step, step, marks ++ '*')
+            continue (n - step, step, marks ++ '*')
 print(marked(9, 2, ''))
 print(marked(0, 1, '|'))

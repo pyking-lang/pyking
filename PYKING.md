@@ -248,7 +248,7 @@ return_stmt = "return" , bound_value ;
 (* `for`, `while` and the accumulator loop are one construct with
    different halves written; every combination of them is a loop_stmt. *)
 loop_stmt   = ( "loop" , accumulator , [ iteration ]
-              | iteration ) , ":" , block , [ "then" , ":" , block ] ;
+              | iteration ) , [ "result" , expr ] , ":" , block ;
 accumulator = target , [ ":" , type ] , "=" , tuple_or_expr ;
 iteration   = "for" , ident , "in" , expr | "while" , expr ;
 
@@ -1511,13 +1511,13 @@ while i < 3:
 
 `for`, `while` and `loop` are the same construct with different halves
 written: an **accumulator** and an **iteration clause**, either of which
-may be left out. So they combine, and `break`, `continue` and `then:`
+may be left out. So they combine, and `break`, `continue` and `result`
 mean the same thing in every combination.
 
 ```pyking
 def total(xs:[Int]) -> Int:
     return loop acc = 0 for x in xs:
-        acc + x
+        continue acc + x
 
 
 def countdown(from_:Int) -> Int:
@@ -1529,38 +1529,55 @@ A `for`/`while` is a loop, so a `break` in one belongs to *it* — there
 is no crossing out of a loop any more. A `def` is the one thing a
 `break` still may not reach out of.
 
-**`then:` — what the loop is worth when it ends on its own.** `break`
-and `then:` answer the same question from the two sides, so if both are
-written they must agree on one type; a `break` skips `then:` entirely.
-`then:` runs however many turns there were, **none included**, which is
-what makes it an answer for a loop that never ran.
+**Going round.** A loop that carries an accumulator says what the next
+turn carries, on every path, with `continue`. There is no implicit
+tail — the value a body happens to end in is not taken as the
+accumulator — so each path ends in `continue`, `break` or `return`. A
+loop carrying nothing has no such rule: its body may end in anything,
+and `continue` there takes no value.
 
 ```pyking
+def total(xs:[Int]) -> Int:
+    return loop acc = 0 for x in xs:
+        continue acc + x        # `acc + x` alone is an error
+```
+
+**Leaving a loop.** `break` says what the loop is worth on the way out.
+A bare `break` is `break ()` — it leaves without saying, and unit is
+what that means.
+
+**What a loop is worth.** One rule:
+
+> the `result` expression, if one is written; else the accumulator, if
+> one is written; else `()`.
+
+and every `break` has to give that. A plain `loop:` is the exception,
+and has to be: it ends only by breaking, so its `break`s say it, and
+`result` is refused there.
+
+**`result` — what the loop is worth when it ends without breaking.**
+Written between the header and the `:`, it overrides the accumulator,
+and may be a different type entirely. Only the accumulator is in scope
+in it: not the loop variable, and nothing the body bound.
+
+```pyking
+def describe(xs:[Int]) -> String:
+    return for x in xs result "all fine":
+        if x < 0:
+            break "negative"
+
+
 def indexed(xs:[String]) -> [(Int, String)]:
-    return loop i, acc = 0, [] for x in xs:
-        i + 1, [(i, x)] ++ acc
-    then:
-        acc
+    return loop i, acc = 0, [] for x in xs result acc:
+        continue i + 1, [(i, x)] ++ acc
 ```
 
-Without the `then:` that loop would be worth the *pair* it carries;
-with it, the index is dropped and only the list comes out. `then:` sees
-the accumulator, but not the loop variable — there may have been no
-turns for it to have a value from.
+Without the `result` the first is worth `()` — nothing says otherwise —
+so the `break` would not typecheck; the second would be worth the
+*pair* it carries rather than just the list.
 
-**A loop is worth** its `then:` block if it has one, otherwise what its
-`break`s give, otherwise the accumulator it stopped with. A `for` or a
-`while` with none of the three has nothing to give when it runs out of
-turns, so its value cannot be taken:
-
-```pyking
-y = for x in xs:        # error: no accumulator, no `then:`, no `break`
-    x * 2
-```
-
-Any one of them settles it. The statement form is unaffected — it takes
-no value at all. (A bare `loop:` is not this case: it never ends, so
-`!` is an honest answer for it.)
+`result` is a keyword only there, between a loop's header and its `:`,
+so it stays an ordinary name everywhere else.
 
 ### `loop` loops -- Pyking extension
 
@@ -1570,25 +1587,25 @@ equivalent, so everything in this section is Pyking source rather than
 valid Python.
 
 `loop x = 5:` evaluates `5` once and binds `x` to it for the first turn.
-What the body produces -- its value, by the ordinary tail-position rules
--- is the `x` the next turn gets. `break` ends the loop, and the loop is
-then worth the accumulator it stopped with:
+`continue e` says what the next turn's `x` is, and `break e` ends the
+loop with `e`:
 
 ```pyking
 counted = loop x = 5:
     if x <= 10:
-        x + 1
+        continue x + 1
     else:
-        break
+        break x
 
 print(counted)          # 11
 ```
 
-Both keywords take an optional value. `break e` stops the loop with `e`
-rather than with the accumulator; `continue e` starts the next turn with
-`e`; and a bare `continue` starts it with the accumulator unchanged. The
-operand must begin on the same line as the keyword (see the grammar
-notes above).
+Every path through the body ends in `continue`, `break` or `return`:
+there is no implicit tail, so an expression left at the end of a path is
+an error rather than the next accumulator. A bare `break` is `break ()`,
+and a bare `continue` starts the next turn with the accumulator
+unchanged. The operand must begin on the same line as the keyword (see
+the grammar notes above).
 
 **What a loop carries and what it is worth are two questions.** The
 accumulator is the state: the initializer's type, what the body must end
@@ -1605,16 +1622,14 @@ def factorial(n, acc) -> Int:
         if n == 0:
             break acc          # and is worth Int
         else:
-            n - 1, n * acc
+            continue n - 1, n * acc
 
 
 print(factorial(10, 1))        # 3628800
 ```
 
-`continue` is what tells the construct apart from a body that simply
-ends in an expression: the last expression says "go round with this"
-*after* everything else in the body has run, while `continue` says it
-from wherever it is written and skips the rest:
+`continue` says "go round with this" from wherever it is written, and
+skips the rest of the body:
 
 ```pyking
 res = loop x = 5:
@@ -1622,9 +1637,9 @@ res = loop x = 5:
         continue x + 1
     p = x + 10
     if p < 30:
-        p + 2
+        continue p + 2
     else:
-        break
+        break x
 
 print(res)              # 23
 ```
@@ -1637,9 +1652,9 @@ a function's last statement:
 def doubled_over(limit) -> Int:
     loop n = 1:
         if n > limit:
-            break
+            break n
         else:
-            n * 2
+            continue n * 2
 
 
 print(doubled_over(50))   # 64
@@ -1653,7 +1668,7 @@ give the whole tuple back.
 ```pyking
 foo, bar = loop x, y = 0, true:
     if x <= 10:
-        x + 1, y
+        continue x + 1, y
     else:
         break x + 100, false
 
@@ -1661,10 +1676,11 @@ foo, bar = loop x, y = 0, true:
 print(foo, bar)         # 111 false
 ```
 
-**`loop:` carries nothing.** Written with no accumulator it is a loop
-over unit: the body runs for what it does, its value is discarded, and
-the only way out is a bare `break` -- there is nothing for an operand to
-become. Such a loop is worth `()`.
+**`loop:` carries nothing.** Written with no accumulator its body may
+end in anything -- there is no accumulator to say, so nothing is asked
+of a path's last statement, and a `continue` there takes no operand.
+The only way out is `break`, and what the loop is worth is what its
+`break`s give.
 
 ```pyking
 loop:
@@ -1691,9 +1707,9 @@ x = "outer"
 
 shadowed = loop x = 1:
     if x > 2:
-        break
+        break x
     else:
-        x + 1
+        continue x + 1
 
 print(shadowed, x)      # 3 outer
 ```

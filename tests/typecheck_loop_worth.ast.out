@@ -1,0 +1,33 @@
+def by_accumulator(xs:[Int]) -> Int:
+    return loop acc: Int = 0 for x in xs:
+        continue acc + x
+def by_result(xs:[Int]) -> String:
+    return loop acc: Int = 0 for x in xs result 'counted ' ++ str(acc):
+        continue acc + 1
+def by_unit(xs:[Int]) -> String:
+    nothing: () = for x in xs:
+        break
+    return 'unit'
+def part_of_it(xs:[String]) -> [String]:
+    return loop (n, seen): (Int, [String]) = (0, []) for x in xs result seen:
+        continue (n + 1, [x] ++ seen)
+def agreeing(xs:[Int]) -> String:
+    return for x in xs result 'ran out':
+        if x > 10:
+            break 'found one'
+def no_result_needed(xs:[Int]) -> Int:
+    return loop acc: Int = 0 for x in xs:
+        if x < 0:
+            break 0 - 1
+        else:
+            continue acc + x
+def while_result(n:Int) -> String:
+    return loop i: Int = n while i > 0 result 'down to ' ++ str(i):
+        continue i - 1
+print(by_accumulator([1, 2, 3]), by_accumulator([]))
+print(by_result([1, 2, 3]))
+print(by_unit([1]))
+print(part_of_it(['a', 'b']))
+print(agreeing([1, 2]), agreeing([1, 20]))
+print(no_result_needed([1, 2]), no_result_needed([1, 0 - 1]))
+print(while_result(3), while_result(0))

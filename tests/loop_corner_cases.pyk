@@ -4,7 +4,7 @@
 # A loop that stops on its first turn: the accumulator never changes,
 # and the loop is worth what it was initialized with.
 straight = loop x = 7:
-    break
+    break x
 
 print(straight)
 
@@ -22,9 +22,9 @@ var turns = 0
 counted = loop x = 0:
     turns := turns + 1
     if turns > 2:
-        break
+        break x
     else:
-        x
+        continue x
 
 print(counted, turns)
 
@@ -33,15 +33,15 @@ print(counted, turns)
 # own, in its own body, and neither is in scope after its loop.
 first = loop x = 1:
     if x > 3:
-        break
+        break x
     else:
-        x + 1
+        continue x + 1
 
 second = loop x = 10:
     if x > 30:
-        break
+        break x
     else:
-        x + 10
+        continue x + 10
 
 print(first, second)
 
@@ -51,9 +51,9 @@ print(first, second)
 x = "outer"
 shadowed = loop x = 1:
     if x > 2:
-        break
+        break x
     else:
-        x + 1
+        continue x + 1
 
 print(shadowed, x)
 
@@ -64,8 +64,8 @@ print(shadowed, x)
 start = 4
 from_outside = loop start = start * 2:
     if start > 20:
-        break
+        break start
     else:
-        start + 5
+        continue start + 5
 
 print(from_outside, start)

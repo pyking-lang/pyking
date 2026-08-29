@@ -854,6 +854,29 @@ def _fresh_result_name(scope):
     return f"tmp{n}"
 
 
+def _breaks_anywhere(body):
+    """Whether any `break` belonging to this body's own loop is written
+    in it -- a nested loop's breaks belong to that loop.
+    [Stmt] -> Bool"""
+    for s in body:
+        match s:
+            case SBreak():
+                return True
+            case SLoop() | SFunctionDef():
+                continue
+            case SIf(_, _, then_body, else_body):
+                if _breaks_anywhere(then_body) or _breaks_anywhere(else_body or []):
+                    return True
+            case SMatch(_, _, cases):
+                for c in cases:
+                    if c.body and _breaks_anywhere(c.body):
+                        return True
+            case SLetStmt(_, _, inner) | SReturnStmt(_, inner):
+                if _breaks_anywhere([inner]):
+                    return True
+    return False
+
+
 def _breaks_with_value(body):
     """Whether any `break` belonging to this body's own loop carries an
     operand -- a nested loop's breaks belong to that loop.
@@ -883,13 +906,11 @@ def _target_names(target):
 
 def _break_answer(info, loop, expr, scope):
     """What a `break` leaves in its loop's result variable: its operand,
-    or the accumulator it is going round with -- unit where the loop
-    carries nothing. Info -> _Loop -> Expr? -> Scope -> JsExpr"""
+    or unit -- a bare `break` is `break ()` (PYKING.md, "Leaving a
+    loop"). Info -> _Loop -> Expr? -> Scope -> JsExpr"""
     if expr is not None:
         return translate_expr(expr, scope)
-    if loop.accumulator is None:
-        return JsArray(info, [])
-    return _target_as_expr(loop.accumulator)
+    return JsArray(info, [])
 
 
 def _target_as_expr(target):
@@ -935,11 +956,12 @@ def _translate_loop(s, scope):
     # A `loop:` carrying nothing has no accumulator variable at all, so
     # a `break` with an operand there needs the same.
     result = None
-    if (js_target is None or isinstance(js_target, JsTargetArray)) and (
-        _breaks_with_value(s.body)
-    ):
+    if _breaks_anywhere(s.body):
         result = JsTargetName(info, _fresh_result_name(scope))
         scope = _reserve([result.name], scope)
+        # And in the body too, so a loop nested there picks a different
+        # name rather than shadowing this one before it is assigned.
+        body_scope = _reserve([result.name], body_scope)
         setup.append(JsLet(info, result, JsArray(info, [])))
         value = JsVar(info, result.name)
     # A `for` binds its element in the body's scope; a `while` becomes
@@ -954,9 +976,9 @@ def _translate_loop(s, scope):
         js_body = _translate_loop_block(s.body, js_target, body_scope)
     finally:
         _loop_accumulators.pop()
-    if s.after is not None:
+    if s.result is not None:
         _unsupported(
-            s, "a `then:` block on a loop -- JavaScript has no loop `else`, "
+            s, "a `result` expression on a loop -- JavaScript has no loop `else`, "
             "and the flag it would need is not built yet"
         )
     match s.iterate:

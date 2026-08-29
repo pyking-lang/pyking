@@ -362,7 +362,7 @@ def analyze_stmt(s, env):
             analyze_expr(expr, env)
             return env
 
-        case SLoop(_, target, init, _, iterate, body, after):
+        case SLoop(_, target, init, _, iterate, result, body):
             # The initializer is analyzed outside the loop, exactly as an
             # `=` binding's right-hand side is: `loop x = x + 1:` reads
             # the enclosing `x` and binds a new one for the body.
@@ -383,10 +383,11 @@ def analyze_stmt(s, env):
                     analyze_scope(body, inner)
                 case _:
                     analyze_scope(body, inner)
-            if after is not None:
-                # `then:` runs after the loop, so it sees the accumulator
-                # but not the element name -- there may have been none.
-                analyze_scope(after, inner)
+            if result is not None:
+                # `result` says what the loop is worth when it ends
+                # without breaking. Only the accumulator is in scope in
+                # it -- not the element name, and nothing the body bound.
+                analyze_expr(result, inner)
             return env
 
         case SBreak(_, expr) | SContinue(_, expr):

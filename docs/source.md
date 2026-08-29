@@ -173,8 +173,10 @@ The groups:
   `SMutate` (`:=`), `SReturn`, `SReturnStmt`, `SExprStmt`, `SFor`,
   `SWhile`, `SLoop` (`loop x = e:`), `SBreak`, `SContinue`, `SIf`,
   `SFunctionDef`, `SMatch`. `SLoop` carries its accumulator as a
-  `target`/`init` pair, both absent for the bare `loop:`; `SBreak` and
-  `SContinue` carry an optional operand.
+  `target`/`init` pair, both absent for the bare `loop:`, and a
+  `result` expression saying what the loop is worth when it ends
+  without breaking; `SBreak` and `SContinue` carry an optional
+  operand.
 - **Single-constructor records** — `Param`, `ListRest`, `MatchCase`.
 
 Every node carries `info` (its span) and `sym` (its symbol, `0` until
@@ -236,6 +238,10 @@ Around them:
   keyword: the optional accumulator (a target, an optional annotation,
   `=`, an expression) and the body. A loop is also a *bound* value, so
   `parse_bound_value` reaches it too.
+- **`parse_loop_result(tokens, iterate)`** — the optional `result`
+  expression between a loop's header and its `:`. `result` is a keyword
+  only there, so it stays an ordinary name everywhere else; a plain
+  `loop` is refused one, since it can end only by breaking.
 - **`parse_exit_operand(info, tokens)`** — the optional operand of a
   `break`/`continue`, taken only when one begins on the keyword's own
   line.
@@ -386,13 +392,15 @@ scheme specifically).
   being worked out; a `return` checked against it contributes its type to
   the store's frame instead of being compared with one.
 - **`Exit(info, type)`** — one way out of the loop being checked: where
-  the `break` is written and what it gives. The store's frame collects
-  them; `loop_value` requires them to agree, and the `info` is what lets
-  the refusal point at the `break` that disagreed.
+  the `break` is written and what it gives (unit for a bare `break`).
+  The store's frame collects them in `breaks`, and the `info` is what
+  lets a refusal point at the `break` that disagreed. `Frame.carries`
+  collects the `continue` operands the same way, which is what the
+  accumulator widening reads.
 - **`acc_type`** — what the loop a `break`/`continue` in the statement
   being checked belongs to carries, threaded beside the declared return
   type and `None` where there is no such loop. A bare `loop:` carries
-  unit, so `None` and `()` are different answers.
+  nothing, so `None` and `()` are different answers.
 - **`env`** — name → `Type`, and nothing else: a name it does not hold
   is a name not in scope. Used immutably: a binding hands what follows
   it an extended copy. The four host operations are in it at their
@@ -439,10 +447,23 @@ OCaml-style near the top of the file):
   expression compare without any of them being a special case: a
   `return` supplies the function's type, a `break`/`continue` the
   enclosing loop's accumulator.
-- **`loop_value(ways_out, info) -> Type`** — what a loop is worth: the
-  type its `break`s give, refused where two of them disagree, and
-  `TNever` where there are none (a loop nothing breaks out of never
-  finishes, so nothing can be wrong about its value).
+- **`loop_value(ways_out, info) -> Type`** — what a plain `loop` is
+  worth: the type its `break`s give, refused where two of them
+  disagree, and `TNever` where there are none (a loop nothing breaks
+  out of never finishes, so nothing can be wrong about its value). A
+  `for`/`while` instead takes its `result` expression, or its
+  accumulator, or unit, and every `break` must `agree` with that.
+- **`ends_every_path(stmts)` / `ends_here(statement)`** — whether every
+  path through a loop body ends in a `continue`, a `break` or a
+  `return`, structurally: an `if` or a `match` counts when all its
+  branches do, and a `match` has to cover its subject as well. Asked
+  only of a loop with an accumulator, which is the one that has
+  something to say about the next turn.
+- **`break_error(worth, given, target, result)` / `carrying(store,
+  type_)`** — the refusal a disagreeing `break` gets, worded from what
+  said the loop's worth (a loop with neither an accumulator nor a
+  `result` is told to add one); and the record of a `continue`'s
+  operand in the frame.
 - **`check_target(target, type_, env, tmap, store) -> Env`** — a binding
   target, one name or a tuple taken apart; a destructuring target
   requires a tuple type of the same length.
@@ -622,7 +643,7 @@ three are design rather than accident:
   `KArgument`, `KElement` (one element of a tuple), `KBranch` (an `if`
   statement), `KChoose` (an `if` expression), `KDiscard`, `KStartLoop`,
   `KIterate`, `KExit` (a `break`/`continue` with an operand),
-  `KReturnTo`. Each holds `rest`, so
+  `KEnding` (a loop's `result` expression), `KReturnTo`. Each holds `rest`, so
   the chain is a linked list — pushing and popping cost one allocation
   and no copying, and two states can share a tail, which is what makes a
   paused state cheap to keep. Most also hold the `env` their remaining
@@ -676,7 +697,9 @@ three are design rather than accident:
   and enters the body with `KIterate` waiting for its value, which comes
   back here — so a turn costs no continuation chain however many turns
   there are, and a loop that never ends never grows. `_leave` delivers
-  the loop's value where the loop statement stood.
+  the loop's value where the loop statement stood. `_finish` is the
+  other end: a loop that ran out of turns evaluates its `result`
+  expression under `KEnding`, or is worth its accumulator, or unit.
 - **`bind_target(env, target, value)`** — binds one name, or takes a
   tuple apart; used by both `KBind` and each turn of a loop.
 - **`declare(stmts, env)` / `define(env, node)`** — the two halves of

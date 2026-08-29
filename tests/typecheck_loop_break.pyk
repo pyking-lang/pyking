@@ -1,0 +1,60 @@
+# Case 1 -- leaving a plain loop.
+#
+# `loop:` and `loop acc = ...:` have no ending of their own: a `break`
+# is the only way out, so the `break`s say what the loop is worth and
+# they have to agree with each other. A loop with none never ends, which
+# is allowed and is worth `!` -- the type every other type accepts, so a
+# function whose body is such a loop honours whatever it declares.
+#
+# A bare `break` is `break ()`: it leaves without saying what the loop
+# is worth, and unit is what that means.
+
+def count_to(limit:Int) -> Int:
+    # The accumulator says what the loop *carries*; the `break` says
+    # what it is *worth*. Here they happen to be the same type.
+    return loop i = 0:
+        if i >= limit:
+            break i
+        else:
+            continue i + 1
+
+
+def name_of(limit:Int) -> String:
+    # And here they are not: the loop carries an Int and is worth a
+    # String. Nothing requires them to agree.
+    return loop i = 0:
+        if i >= limit:
+            break "enough"
+        else:
+            continue i + 1
+
+
+def nothing(limit:Int) -> ():
+    # A bare `break` is `break ()`, so this loop is worth unit.
+    return loop i = 0:
+        if i >= limit:
+            break
+        else:
+            continue i + 1
+
+
+def spin() -> Int:
+    # No `break` at all: this never ends, so it is worth `!`, which
+    # satisfies the declared `Int` without ever producing one.
+    loop:
+        continue
+
+
+def carried() -> (Int, String):
+    # A loop carrying a pair, broken with the pair.
+    return loop n, s = 0, "":
+        if n > 2:
+            break (n, s)
+        else:
+            continue n + 1, s ++ "x"
+
+
+print(count_to(3), count_to(0))
+print(name_of(2))
+print(nothing(2))
+print(carried())

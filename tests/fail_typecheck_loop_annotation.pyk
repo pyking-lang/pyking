@@ -11,4 +11,4 @@ counted = loop x: String = 1:
     if x > 3:
         break
     else:
-        x + 1
+        continue x + 1

@@ -1,29 +1,23 @@
 def first_big(xs:[Int]) -> Int:
-    found: Int = for x in xs:
+    return for x in xs result 0 - 1:
         if x > 10:
             break x
-        else:
-            0
-    then:
-        0 - 1
-    return found
 def any_of(xs:[Int]) -> Bool:
-    seen: Bool = for x in xs:
+    return for x in xs result false:
         if x == 3:
             break true
-        else:
-            false
-    then:
-        false
-    return seen
 def label(words:[String]) -> String:
-    answer: String = for w in words:
+    return for w in words result 'none':
         break w
-    then:
-        'none'
-    return answer
+def shout(xs:[Int]) -> String:
+    nothing: () = for x in xs:
+        if x < 0:
+            break
+        'whatever this is'
+    return 'done'
 for x in [1, 2, 3]:
     print(x)
 print(first_big([1, 20, 3]), first_big([1, 2]))
 print(any_of([1, 3]), any_of([1, 2]))
 print(label(['a', 'b']), label([]))
+print(shout([1, 0 - 1]))
