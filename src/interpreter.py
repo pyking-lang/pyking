@@ -39,7 +39,7 @@ from syntax import (
     SFunctionSig, SMatch,
     ENeg, EList, EListComp, CompFor, CompIf,
     PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, PText, ListRest,
-    SLoop, SBreak, SContinue,
+    SLoop, SBreak, SContinue, ForIn, WhileTest,
     TargetName, TargetTuple,
 )
 
@@ -96,6 +96,9 @@ from syntax import (
 #     KChoose(expr: EIf, env: Env, rest: Kont?)
 #     KDiscard(env: Env, rest: Kont?)
 #     KStartLoop(loop: Loop)
+#     KSequence(loop: Loop)                  a `for`'s sequence
+#     KTest(loop: Loop)                      a `while`'s condition
+#     KEnding(loop: Loop)                    the `then:` block's value
 #     KIterate(loop: Loop)
 #     KExit(loop: Loop, leaving: Bool)       break (leaving) / continue
 #     KReturnTo(frame: Frame)
@@ -650,6 +653,24 @@ class KIterate(Kont):
 
 
 @dataclass(frozen=True)
+class KSequence(Kont):
+    """A `for` loop's sequence has arrived; the turns can start."""
+    loop: Loop
+
+
+@dataclass(frozen=True)
+class KTest(Kont):
+    """A `while` loop's condition has arrived: another turn, or the end."""
+    loop: Loop
+
+
+@dataclass(frozen=True)
+class KEnding(Kont):
+    """A loop's `then:` block has produced the loop's own value."""
+    loop: Loop
+
+
+@dataclass(frozen=True)
 class KExit(Kont):
     """A `break`/`continue` operand has arrived: leaving means the
     loop ends with it, otherwise the next turn starts with it."""
@@ -692,6 +713,7 @@ class Loop:
     env: Env
     kont: Kont
     parent: "Loop" = None
+    remaining: tuple = ()    # what a `for` has left to walk
 
 
 # Maximum Pyking call depth before the machine raises a runtime error.
@@ -1133,12 +1155,12 @@ def _step_stmt(state, stmt):
                 kont=KBranch(stmt, state.env, state.kont),
             )
 
-        case SLoop(_, target, init, _, _, _):
+        case SLoop(_, target, init, _, _, _, _, _):
             loop = Loop(stmt, UNIT, state.env, state.kont, state.loops)
             if target is None:
-                # No accumulator to work out: the first turn can start
-                # at once, and every turn carries unit.
-                return _turn(state, loop)
+                # No accumulator to work out: go straight on to whatever
+                # decides the first turn. Every turn carries unit.
+                return _start(state, loop)
             return _go(state, control=CEval(init), kont=KStartLoop(loop))
 
         case SBreak(info, expr, _) | SContinue(info, expr, _):
@@ -1287,20 +1309,45 @@ def _step_apply(state, value):
             return _go(state, control=CApply(UNIT), env=env, kont=rest)
 
         case KStartLoop(loop):
-            return _turn(state, replace(loop, accumulator=value))
+            return _start(state, replace(loop, accumulator=value))
+
+        case KSequence(loop):
+            match value:
+                case VList(items):
+                    return _begin(state, replace(loop, remaining=items))
+            return failed(state, RuntimeError_(
+                loop.node.iterate.info,
+                f"a 'for' loop walks a list, not {describe(value)}",
+            ))
+
+        case KTest(loop):
+            match value:
+                case VBool(True):
+                    return _turn(state, loop)
+                case VBool(False):
+                    return _finish(state, loop)
+            return failed(state, RuntimeError_(
+                loop.node.iterate.info,
+                f"the condition of a 'while' must be Bool, not "
+                f"{describe(value)}",
+            ))
+
+        case KEnding(loop):
+            # The `then:` block's value is the loop's own.
+            return _leave(state, loop, value)
 
         case KIterate(loop):
             # What the body produced is the next turn's accumulator --
             # unless the loop carries none, in which case it is thrown
             # away and every turn starts from unit again.
             if loop.node.target is None:
-                return _turn(state, loop)
-            return _turn(state, replace(loop, accumulator=value))
+                return _begin(state, loop)
+            return _begin(state, replace(loop, accumulator=value))
 
         case KExit(loop, leaving):
             if leaving:
                 return _leave(state, loop, value)
-            return _turn(state, replace(loop, accumulator=value))
+            return _begin(state, replace(loop, accumulator=value))
 
         case KNegate(node, env, rest):
             try:
@@ -1550,6 +1597,63 @@ def bind_target(env, target, value):
             ))
 
 
+def _begin(state, loop):
+    """Decides whether the loop takes another turn, and starts it. A
+    `for` takes the next item, a `while` asks its condition, and a bare
+    `loop:` goes round unconditionally. State -> Loop -> State"""
+    match loop.node.iterate:
+        case ForIn():
+            if not loop.remaining:
+                return _finish(state, loop)
+            return _turn(state, loop)
+        case WhileTest(_, condition, _):
+            # The condition can ask about the accumulator, so it is
+            # evaluated where the accumulator is bound.
+            env = loop.env
+            if loop.node.target is not None:
+                try:
+                    env = bind_target(env, loop.node.target, loop.accumulator)
+                except _Trap as trap:
+                    return failed(state, trap.error)
+            return _go(
+                state, control=CEval(condition), env=env,
+                kont=KTest(loop), loops=loop.parent,
+            )
+    return _turn(state, loop)
+
+
+def _start(state, loop):
+    """The first thing a loop needs: a `for`'s sequence, evaluated once
+    before any turn. State -> Loop -> State"""
+    match loop.node.iterate:
+        case ForIn(_, _, sequence, _):
+            return _go(
+                state, control=CEval(sequence), env=loop.env,
+                kont=KSequence(loop), loops=loop.parent,
+            )
+    return _begin(state, loop)
+
+
+def _finish(state, loop):
+    """The loop has run out of turns. Its `then:` block, if it has one,
+    says what it is worth; otherwise it is worth the accumulator it
+    stopped with. State -> Loop -> State"""
+    if loop.node.after is None:
+        return _leave(state, loop, loop.accumulator)
+    env = loop.env
+    if loop.node.target is not None:
+        try:
+            env = bind_target(env, loop.node.target, loop.accumulator)
+        except _Trap as trap:
+            return failed(state, trap.error)
+    return enter_block(
+        _go(state, control=state.control, loops=loop.parent),
+        loop.node.after,
+        env,
+        KEnding(loop),
+    )
+
+
 def _turn(state, loop):
     """Starts a turn of loop's body, with the accumulator bound afresh.
     The body's value goes to KIterate, which comes back here -- so a
@@ -1561,6 +1665,12 @@ def _turn(state, loop):
             env = bind_target(env, loop.node.target, loop.accumulator)
         except _Trap as trap:
             return failed(state, trap.error)
+    match loop.node.iterate:
+        case ForIn(_, name, _, _):
+            # Each turn binds the element afresh, and the loop keeps
+            # what is left for the next one.
+            env = extend(env, name, loop.remaining[0])
+            loop = replace(loop, remaining=loop.remaining[1:])
     return enter_block(
         _go(state, control=state.control, loops=loop),
         loop.node.body,

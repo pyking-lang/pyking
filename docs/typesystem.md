@@ -366,6 +366,38 @@ language's commonest idiom. Totality is required only where a value is
 taken (`require_total`, from `SLetStmt` and `SReturnStmt`), because a
 `match` that fits no arm does nothing and there would be no value.
 
+## One loop, and what it is worth
+
+`for`, `while` and `loop` are one node, so the checker has one case for
+all of them. Three additions to what was already there:
+
+**The iteration clause** (`check_iteration`): a `for` walks a `[T]` and
+binds its element over the body; a `while` is a `Bool` test, asked where
+the accumulator is in scope so it can ask about it.
+
+**`then:`** is checked in the accumulator's scope — not the element's,
+since there may have been no turns. Its value is the loop's, and every
+`break` must `agree` with it: both answer the same question, from the
+two sides.
+
+**A `break` supplies `TNever`**, not the accumulator. Nothing arrives
+after it, every type accepts `TNever`, and `agree` keeps the other
+branch's answer — which is what lets a branch that breaks sit beside one
+that ends in the next accumulator *whatever the loop carries*, including
+a `for` carrying nothing.
+
+### The accumulator can widen
+
+`loop i, acc = 0, [] for x in xs:` starts at `(Int, [!])` and ends at
+`(Int, [(Int, String)])`. The body cannot be checked against the
+initializer's type, because from the second turn on it will see the
+wider one. So where the accumulator holds a `TNever` anywhere
+(`has_never`), the body is walked once against a **throwaway `tmap`**,
+purely to learn the width; the real check then runs against the settled
+type. Recording both passes into the real table would merge them into a
+`TOr` — which is what the first cut did, and why the probe table is
+separate.
+
 ## Comparing types: never `==`
 
 Every `T*` node from `syntax.py` is a frozen dataclass, which means

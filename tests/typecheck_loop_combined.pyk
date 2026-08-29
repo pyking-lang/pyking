@@ -1,0 +1,50 @@
+# The accumulator loop combined with an iteration clause.
+#
+# `loop`, `for` and `while` are one construct with different halves
+# written, so they combine: `loop acc = 0 for x in xs:` carries an
+# accumulator *and* walks a list, and every `break`, `continue` and
+# `then:` works the same in each combination.
+
+def total(xs:[Int]) -> Int:
+    return loop acc = 0 for x in xs:
+        acc + x
+
+
+def joined(words:[String], sep:String) -> String:
+    return loop text = "" for w in words:
+        if text == "":
+            w
+        else:
+            text ++ sep ++ w
+
+
+def countdown(from_:Int) -> Int:
+    # `while` with an accumulator: the condition asks about what the
+    # loop carries, which is why it is tested where that is in scope.
+    return loop i = from_ while i > 0:
+        continue i - 1
+
+
+def first_over(xs:[Int], limit:Int) -> Int:
+    # An accumulator, an iteration clause and a `break` at once.
+    return loop seen = 0 for x in xs:
+        if x > limit:
+            break x
+        else:
+            seen + 1
+
+
+def indexed(xs:[String]) -> [(Int, String)]:
+    # Two accumulators, and a `then:` that picks one of them out --
+    # without it the loop would be worth the pair.
+    return loop i, acc = 0, [] for x in xs:
+        i + 1, [(i, x)] ++ acc
+    then:
+        acc
+
+
+print(total([1, 2, 3, 4]), total([]))
+print(joined(["a", "b", "c"], "-"), joined([], "-"))
+print(countdown(3))
+print(first_over([1, 5, 9], 4), first_over([1, 2], 4))
+print(indexed(["a", "b", "c"]))

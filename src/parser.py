@@ -44,7 +44,8 @@ from syntax import (
     ListRest, MatchCase,
     pprint_stmt, pprint_pattern,
     Stmt,
-    SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SFor, SWhile, SIf,
+    SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SIf,
+    ForIn, WhileTest,
     SLoop, SBreak, SContinue,
     SFunctionDef, SFunctionSig, SMatch,
     TInt, TString, TBool, TList, TTuple, TOr, TFunction, TVar, TForall, Param,
@@ -1184,12 +1185,12 @@ def _check_loop_context(stmts, held, crossed=None):
             case SBreak(info) | SContinue(info):
                 if held is None:
                     _no_loop_here(stmt, info, crossed)
-            case SLoop(_, _, _, _, body):
+            case SLoop(_, _, _, _, _, body, after):
                 _check_loop_context(body, stmt)
-            case SFor(_, _, _, body):
-                _check_loop_context(body, None, "for" if held else crossed)
-            case SWhile(_, _, body):
-                _check_loop_context(body, None, "while" if held else crossed)
+                if after is not None:
+                    # A `then:` runs after the loop has ended, so a
+                    # `break` there belongs to no loop of its own.
+                    _check_loop_context(after, None, "then" if held else crossed)
             case SFunctionDef(_, _, _, body):
                 if body is not None:
                     _check_loop_context(body, None, "def" if held else crossed)
@@ -1222,40 +1223,74 @@ def _no_loop_here(stmt, info, crossed):
 
 
 def parse_loop_stmt(loop_info, tokens):
-    """Parses a loop from just after its 'loop' keyword: the optional
-    accumulator, then the body. Info -> [Token] -> (SLoop, [Token])"""
-    target = None
-    annotation = None
-    init = None
-    rest = tokens
-    colon_info = None
+    """Parses a loop from just after its `loop` keyword: the accumulator,
+    then an optional iteration clause, then the body and any `then:`.
+    Info -> [Token] -> (SLoop, [Token])"""
+    match tokens:
+        case [TokColon(_), *_] | [TokFor(_), *_] | [TokWhile(_), *_]:
+            # `loop:` and `loop for ...:` bind nothing.
+            return parse_loop_tail(loop_info, None, None, None, tokens)
+    parsed = _try_parse_assignment_target(tokens)
+    if parsed is None:
+        raise ParseError(
+            _here(tokens),
+            "expected ':' or an accumulator ('loop x = 0:') after 'loop'",
+        )
+    target, annotation, rest = parsed
+    init, rest = parse_tuple_or_expr(rest)
+    return parse_loop_tail(loop_info, target, annotation, init, rest)
+
+
+def parse_loop_tail(loop_info, target, annotation, init, tokens):
+    """Parses what follows a loop's accumulator: an optional `for`/`while`
+    clause, the `:` and body, and an optional `then:` block. Every loop in
+    the language comes through here, `for x in e:` and `while c:` included.
+    Info -> AssignTarget? -> Type? -> Expr? -> [Token] -> (SLoop, [Token])"""
+    iterate, rest = parse_loop_iter(tokens)
     match rest:
-        case [TokColon(info), *after_colon]:
-            # `loop:` -- no accumulator, so nothing to bind and nothing
-            # for the body to produce.
-            colon_info, rest = info, after_colon
+        case [TokColon(colon_info), *rest]:
+            pass
         case _:
-            parsed = _try_parse_assignment_target(rest)
-            if parsed is None:
-                raise ParseError(
-                    _here(rest),
-                    "expected ':' or an accumulator ('loop x = 0:') after 'loop'",
-                )
-            target, annotation, rest = parsed
-            init, rest = parse_tuple_or_expr(rest)
-            match rest:
-                case [TokColon(info), *after_colon]:
-                    colon_info, rest = info, after_colon
-                case _:
-                    raise ParseError(_here(rest), "expected ':' after loop header")
+            raise ParseError(_here(rest), "expected ':' after loop header")
     body, rest = parse_block(rest, colon_info)
+    after, rest = parse_then_clause(rest, body)
+    end = body if after is None else after
     return SLoop(
-        combine_info(loop_info, _block_end_info(loop_info, body)),
-        target,
-        init,
-        annotation,
-        body,
+        combine_info(loop_info, _block_end_info(loop_info, end)),
+        target, init, annotation, iterate, body, after,
     ), rest
+
+
+def parse_loop_iter(tokens):
+    """Parses a loop's iteration clause, or answers None where the loop
+    takes another turn unconditionally. [Token] -> (LoopIter?, [Token])"""
+    match tokens:
+        case [TokFor(info), TokIdent(_, name), TokIn(_), *rest]:
+            sequence, rest = parse_expr(rest)
+            return ForIn(combine_info(info, sequence.info), name, sequence), rest
+        case [TokFor(info), *_]:
+            raise ParseError(info, "expected `for <name> in <expression>`")
+        case [TokWhile(info), *rest]:
+            condition, rest = parse_expr(rest)
+            return WhileTest(combine_info(info, condition.info), condition), rest
+    return None, tokens
+
+
+def parse_then_clause(tokens, body):
+    """Parses a loop's `then:` block, or answers None where none was
+    written. `then` is the keyword the `if` expression already uses,
+    told apart by standing at the start of a statement -- exactly as
+    `else` serves both `if c then a else b` and `else:`.
+    [Token] -> [Stmt] -> ([Stmt]?, [Token])"""
+    match tokens:
+        case [TokThen(_), TokColon(then_colon), *rest]:
+            _check_ends_line(body, tokens, "then")
+            after, rest = parse_block(rest, then_colon)
+            _check_nothing_indented(rest)
+            return after, rest
+        case [TokThen(then_info), *_]:
+            raise ParseError(then_info, "expected ':' after 'then'")
+    return None, tokens
 
 
 # The tokens an expression can begin with. `break`/`continue` take an
@@ -1304,6 +1339,12 @@ def parse_bound_value(tokens):
             stmt, rest = parse_match_stmt(info, rest)
             _check_value_stmt(stmt)
             return stmt, rest
+        case [TokFor(info), *_] | [TokWhile(info), *_]:
+            # A `for`/`while` in value position is the same loop the
+            # statement form is; what it is *worth* is checked by
+            # typesystem.py, which is where the accumulator and the
+            # `then:` block are known.
+            return parse_loop_tail(info, None, None, None, tokens)
         case [TokLoop(info), *rest]:
             # A loop needs no `_check_value_stmt`: its value is the
             # accumulator, which every loop has (unit where none was
@@ -1383,25 +1424,10 @@ def parse_statement(tokens):
                 case _:
                     return SReturn(return_info, value), rest
 
-        case [TokFor(info), TokIdent(_, name), TokIn(_), *rest]:
-            iterable, rest = parse_expr(rest)
-            match rest:
-                case [TokColon(colon_info), *rest]:
-                    body, rest = parse_block(rest, colon_info)
-                    for_info = combine_info(info, _block_end_info(info, body))
-                    return SFor(for_info, name, iterable, body), rest
-                case _:
-                    raise ParseError(_here(rest), "expected ':' after for header")
-
-        case [TokWhile(info), *rest]:
-            cond, rest = parse_expr(rest)
-            match rest:
-                case [TokColon(colon_info), *rest]:
-                    body, rest = parse_block(rest, colon_info)
-                    while_info = combine_info(info, _block_end_info(info, body))
-                    return SWhile(while_info, cond, body), rest
-                case _:
-                    raise ParseError(_here(rest), "expected ':' after while header")
+        case [TokFor(info), *_] | [TokWhile(info), *_]:
+            # A `for` or a `while` is a loop with no accumulator written:
+            # the same node, and so the same `break`/`continue`/`then:`.
+            return parse_loop_tail(info, None, None, None, tokens)
 
         case [TokLoop(info), *rest]:
             return parse_loop_stmt(info, rest)

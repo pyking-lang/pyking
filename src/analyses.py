@@ -44,7 +44,8 @@ from syntax import (
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList, ETuple,
     EIf, EListComp, CompFor, CompIf,
     PInt, PString, PWildcard, PCapture, PTuple, PList, PText,
-    SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SFor, SWhile, SIf,
+    SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SIf,
+    ForIn, WhileTest,
     SLoop, SBreak, SContinue,
     SFunctionDef, SFunctionSig, SMatch,
     TFunction, TForall,
@@ -361,25 +362,31 @@ def analyze_stmt(s, env):
             analyze_expr(expr, env)
             return env
 
-        case SFor(info, name, iterable, body):
-            analyze_expr(iterable, env)
-            analyze_scope(body, bind(env, name, LOOP_VAR, info))
-            return env
-
-        case SWhile(_, cond, body):
-            analyze_expr(cond, env)
-            analyze_scope(body, env)
-            return env
-
-        case SLoop(_, target, init, _, body):
+        case SLoop(_, target, init, _, iterate, body, after):
             # The initializer is analyzed outside the loop, exactly as an
             # `=` binding's right-hand side is: `loop x = x + 1:` reads
             # the enclosing `x` and binds a new one for the body.
-            if target is None:
-                analyze_scope(body, env)
-            else:
+            inner = env
+            if target is not None:
                 analyze_expr(init, env)
-                analyze_scope(body, bind_target(env, target, LOOP_VAR))
+                inner = bind_target(env, target, LOOP_VAR)
+            match iterate:
+                case ForIn(info, name, sequence, _):
+                    # The sequence is read outside the loop; the element
+                    # name is bound for the body only.
+                    analyze_expr(sequence, env)
+                    analyze_scope(body, bind(inner, name, LOOP_VAR, info))
+                case WhileTest(_, condition, _):
+                    # The test can ask about the accumulator, so it is
+                    # read where the accumulator is bound.
+                    analyze_expr(condition, inner)
+                    analyze_scope(body, inner)
+                case _:
+                    analyze_scope(body, inner)
+            if after is not None:
+                # `then:` runs after the loop, so it sees the accumulator
+                # but not the element name -- there may have been none.
+                analyze_scope(after, inner)
             return env
 
         case SBreak(_, expr) | SContinue(_, expr):

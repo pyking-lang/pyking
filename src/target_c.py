@@ -30,7 +30,8 @@ from syntax import (
     EInt, EString, EBool, EVar,
     EAdd, EConcat, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EIf, ETuple,
-    SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SWhile, SIf,
+    SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SIf,
+    ForIn, WhileTest,
     SLoop, SBreak, SContinue, SFunctionDef, SMatch,
     PInt, PString, PBool, PWildcard, PCapture, PText,
     TargetName, TargetTuple, TInt, TString, TBool,
@@ -57,7 +58,6 @@ _CONSTRUCT_NAMES = {
     "EList": "list literals",
     "ETuple": "tuples",
     "EListComp": "list comprehensions",
-    "SFor": "`for` loops",
     "SMatch": "`match` statements",
     "SLetStmt": "value-form `if`/`match` bindings",
 }
@@ -728,12 +728,23 @@ class _Translator:
         in the block around it, so those C names stay spoken for there.
         SLoop -> Scope -> ([CStmt], CExpr?, Scope)"""
         info = s.info
-        if s.target is None:
+        match s.iterate:
+            case ForIn():
+                _unsupported(
+                    s.iterate,
+                    "a `for` loop -- it walks a list, and this backend has "
+                    "no value model for one",
+                )
+        if s.target is None and s.iterate is None:
             _unsupported(
                 s,
                 "a `loop` with no accumulator -- C has no value to give it, "
                 "so write `loop x = 0:` and break with what you want",
             )
+        if s.target is None:
+            # `while c:` on its own: no accumulator, so nothing to carry
+            # and nothing to be worth. Run for what it does.
+            return self.plain_while(s, scope)
         names = _slot_names(s.target)
         if names is None:
             _unsupported(s, "a loop accumulator that is not one name per slot")
@@ -786,7 +797,35 @@ class _Translator:
             # loop's own value either; `tail_stmt` and the binding case
             # both check that before using it.
             value = None
-        return setup + [CLoop(info, body)], value, _reserve(taken, scope)
+        # `while c` becomes the loop's own test; a `then:` block runs
+        # after it, guarded by a flag since C has no loop `else`.
+        match s.iterate:
+            case WhileTest(_, condition, _):
+                test = self.expr(condition, body_scope)
+                self._require(test, BOOL, "a `while` condition")
+                body = [CIf(info, CUnary(info, "!", test, BOOL),
+                            [CBreak(info)], None)] + body
+        loop = [CLoop(info, body)]
+        if s.after is not None:
+            _unsupported(
+                s, "a `then:` block on a loop -- C has no loop `else`, and "
+                "the flag it would need is not built yet"
+            )
+        return setup + loop, value, _reserve(taken, scope)
+
+    def plain_while(self, s, scope):
+        """`while c:` with no accumulator: nothing to carry, nothing to
+        be worth. SLoop -> Scope -> ([CStmt], CExpr?, Scope)"""
+        if s.after is not None:
+            _unsupported(s, "a `then:` block on a loop")
+        condition = self.expr(s.iterate.condition, scope)
+        self._require(condition, BOOL, "a `while` condition")
+        self.loops.append(_Loop([], None))
+        try:
+            body = self.block(s.body, _block_scope(scope))
+        finally:
+            self.loops.pop()
+        return [CWhile(s.info, condition, body)], None, scope
 
     def accumulate(self, expr, scope, node):
         """The statements that give the innermost loop its next values.
@@ -958,9 +997,6 @@ class _Translator:
 
             case SExprStmt(info, expr):
                 return CExprStmt(info, self.expr(expr, scope, allow_unit=True)), scope
-
-            case SWhile(info, cond, body):
-                return CWhile(info, self.expr(cond, scope), self.block(body, scope)), scope
 
             case SLoop():
                 c_stmts, _, scope = self.loop(s, scope)

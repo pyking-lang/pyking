@@ -29,7 +29,8 @@ from syntax import (
     EInt, EString, EBool, EVar,
     EAdd, EConcat, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EIf, ETuple,
-    SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SWhile, SIf,
+    SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SIf,
+    ForIn, WhileTest,
     SMatch, EList, EListComp, CompFor, CompIf,
     PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, PText, ListRest,
     SLoop, SBreak, SContinue, SFunctionDef,
@@ -229,6 +230,14 @@ class JsIf(JsStmt):         # if (cond) { ... } else { ... }
 
 
 @dataclass(frozen=True)
+class JsForOf(JsStmt):      # for (const name of sequence) { ... }
+    info: Info
+    name: str
+    sequence: JsExpr
+    body: list
+
+
+@dataclass(frozen=True)
 class JsWhile(JsStmt):      # while (cond) { ... }
     info: Info
     cond: JsExpr
@@ -375,7 +384,6 @@ _BINARY_OPS = {
 _CONSTRUCT_NAMES = {
     "EList": "list literals",
     "EListComp": "list comprehensions",
-    "SFor": "`for` loops",
     "SMatch": "`match` statements",
     "SLetStmt": "value-form `if`/`match` bindings",
 }
@@ -735,10 +743,6 @@ def translate_stmt(s, scope):
         case SExprStmt(info, expr):
             return JsExprStmt(info, translate_expr(expr, scope)), scope
 
-        case SWhile(info, cond, body):
-            js_body, _ = translate_stmts(body, _block_scope(scope))
-            return JsWhile(info, translate_expr(cond, scope), js_body), scope
-
         case SLoop():
             js_stmts, _, scope = _translate_loop(s, scope)
             return js_stmts, scope
@@ -916,12 +920,31 @@ def _translate_loop(s, scope):
         scope = _reserve([result.name], scope)
         setup.append(JsLet(info, result, JsArray(info, [])))
         value = JsVar(info, result.name)
+    # A `for` binds its element in the body's scope; a `while` becomes
+    # the loop's own test.
+    js_name = None
+    match s.iterate:
+        case ForIn(_, name, sequence, _):
+            js_sequence = translate_expr(sequence, scope)
+            js_name, body_scope = _bind(name, body_scope)
     _loop_accumulators.append(_Loop(js_target, result))
     try:
         js_body = _translate_loop_block(s.body, js_target, body_scope)
     finally:
         _loop_accumulators.pop()
-    return setup + [JsWhile(info, JsBool(info, True), js_body)], value, scope
+    if s.after is not None:
+        _unsupported(
+            s, "a `then:` block on a loop -- JavaScript has no loop `else`, "
+            "and the flag it would need is not built yet"
+        )
+    match s.iterate:
+        case ForIn():
+            loop = JsForOf(info, js_name, js_sequence, js_body)
+        case WhileTest(_, condition, _):
+            loop = JsWhile(info, translate_expr(condition, body_scope), js_body)
+        case _:
+            loop = JsWhile(info, JsBool(info, True), js_body)
+    return setup + [loop], value, scope
 
 
 def _translate_loop_block(stmts, js_target, scope):
@@ -1157,6 +1180,12 @@ def pprint_js_stmt(s, runtime, level=0):
                         lines.append(f"{pad}}} else {{")
                         lines.append(_join_stmts(else_body, runtime, level + 1))
                         break
+            lines.append(f"{pad}}}")
+            return "\n".join(lines)
+        case JsForOf(_, name, sequence, body):
+            lines = [f"{pad}for (const {name} of "
+                     f"{pprint_js_expr(sequence, runtime)}) {{"]
+            lines.append(_join_stmts(body, runtime, level + 1))
             lines.append(f"{pad}}}")
             return "\n".join(lines)
         case JsWhile(_, cond, body):

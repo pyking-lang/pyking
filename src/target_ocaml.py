@@ -647,6 +647,13 @@ class _Translator:
         is the value the call returns. OCaml optimises the tail call,
         so this runs in constant space -- which is why this backend
         needs no imperative loop at all. SLoop -> OExpr"""
+        if s.iterate is not None or s.after is not None:
+            _unsupported(
+                s,
+                "a `for`/`while` clause or a `then:` block on a loop -- this "
+                "backend compiles a loop to a local recursive function, and "
+                "the recursion over the sequence is not built yet",
+            )
         name = self.fresh_name()
         if s.target is None:
             # Nothing is carried, so the parameter is unit and the

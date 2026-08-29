@@ -32,7 +32,8 @@ from syntax import (
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList, ETuple,
     EIf, EListComp, CompFor, CompIf,
     PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, PText,
-    SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SFor, SWhile, SIf,
+    SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SIf,
+    ForIn, WhileTest,
     SLoop, SBreak, SContinue,
     SFunctionDef, SMatch,
     TargetName, TargetTuple,
@@ -333,18 +334,21 @@ class PyExprStmt(PyStmt):   # expr used as a statement, e.g. print(x)
 
 
 @dataclass(frozen=True)
-class PyFor(PyStmt):        # for name in iterable: body
+class PyFor(PyStmt):        # for name in iterable: body [else: orelse]
     info: Info
     name: str
     iterable: PyExpr
     body: list
+    orelse: list = None      # Python's loop `else`, which runs exactly
+                             # when no `break` fired -- Pyking's `then:`.
 
 
 @dataclass(frozen=True)
-class PyWhile(PyStmt):      # while cond: body
+class PyWhile(PyStmt):      # while cond: body [else: orelse]
     info: Info
     cond: PyExpr
     body: list
+    orelse: list = None      # as `PyFor.orelse`.
 
 
 @dataclass(frozen=True)
@@ -594,13 +598,17 @@ def _captured_in_block(stmts, bound, captured):
                 # A function nested inside this one is part of the same
                 # question one level down, and is reached when that body
                 # is translated.
-            case SFor(_, name, _, body):
-                _captured_in_block(body, bound | {name}, captured)
-            case SWhile(_, _, body):
-                _captured_in_block(body, set(bound), captured)
-            case SLoop(_, target, _, _, body):
-                accumulator = set() if target is None else set(_target_names(target))
-                _captured_in_block(body, bound | accumulator, captured)
+            case SLoop(_, target, _, _, iterate, body, after):
+                inner = set(bound)
+                if target is not None:
+                    inner |= set(_target_names(target))
+                match iterate:
+                    case ForIn(_, name, _, _):
+                        _captured_in_block(body, inner | {name}, captured)
+                    case _:
+                        _captured_in_block(body, inner, captured)
+                if after is not None:
+                    _captured_in_block(after, inner, captured)
             case SIf(_, _, then_body, else_body):
                 _captured_in_block(then_body, set(bound), captured)
                 if else_body is not None:
@@ -666,20 +674,24 @@ def _free_in_stmt(s, bound, free):
             _free_in_expr(expr, bound, free)
         case SReturnStmt(_, stmt):
             _free_in_stmt(stmt, bound, free)
-        case SFor(_, name, iterable, body):
-            _free_in_expr(iterable, bound, free)
-            _free_in_nested(body, bound | {name}, free)
-        case SWhile(_, cond, body):
-            _free_in_expr(cond, bound, free)
-            _free_in_nested(body, bound, free)
-        case SLoop(_, target, init, _, body):
+        case SLoop(_, target, init, _, iterate, body, after):
             # The initializer is read outside the loop; the accumulator
             # is bound in the body and nowhere else.
             inner = set(bound)
             if target is not None:
                 _free_in_expr(init, bound, free)
                 inner |= set(_target_names(target))
-            _free_in_nested(body, inner, free)
+            match iterate:
+                case ForIn(_, name, sequence, _):
+                    _free_in_expr(sequence, bound, free)
+                    _free_in_nested(body, inner | {name}, free)
+                case WhileTest(_, condition, _):
+                    _free_in_expr(condition, inner, free)
+                    _free_in_nested(body, inner, free)
+                case _:
+                    _free_in_nested(body, inner, free)
+            if after is not None:
+                _free_in_nested(after, inner, free)
         case SBreak(_, expr) | SContinue(_, expr):
             if expr is not None:
                 _free_in_expr(expr, bound, free)
@@ -1501,12 +1513,55 @@ def _translate_loop(s, scope):
     ):
         result = PyTargetName(info, _fresh_result_name())
         value = PyVar(info, result.name)
+    # The iteration clause decides which Python loop this is. A `for`
+    # binds its element in the body's scope, where Python's own `for`
+    # target lives too, so it renames like anything else when it shadows.
+    py_name = None
+    py_sequence = None
+    match s.iterate:
+        case ForIn(_, name, sequence, _):
+            # `for i in range(n)` iterates lazily, as Python's own does:
+            # only a range used as a *value* is materialised into the
+            # list its type says it is (see `translate_expr`).
+            py_sequence = (
+                _lazy_range(sequence, scope)
+                if _is_builtin_range(sequence, scope)
+                else translate_expr(sequence, scope)
+            )
+            py_name, body_scope = _bind(name, body_scope)
+
     _loop_accumulators.append(_Loop(py_target, result))
     try:
         py_body = _translate_loop_block(s.body, py_target, body_scope)
+        # `then:` is Python's own loop `else`, which runs exactly when no
+        # `break` fired -- the rule Pyking's `then:` states. Its tail is
+        # the loop's value, so it assigns wherever a `break` would.
+        py_after = None
+        if s.after is not None:
+            if result is None:
+                result = PyTargetName(info, _fresh_result_name())
+                value = PyVar(info, result.name)
+                _loop_accumulators[-1] = _Loop(py_target, result)
+            # The accumulator is in scope in `then:`, the element name
+            # is not: there may have been no turns at all.
+            after_scope = _loop_scope(scope)
+            if s.target is not None:
+                _, after_scope = translate_target(
+                    s.target, after_scope, rebinding=True
+                )
+            py_after = _translate_loop_block(s.after, result, after_scope)
     finally:
         _loop_accumulators.pop()
-    return setup + [PyWhile(info, PyBool(info, True), py_body)], value, scope
+
+    match s.iterate:
+        case ForIn():
+            loop = PyFor(info, py_name, py_sequence, py_body, py_after)
+        case WhileTest(_, condition, _):
+            loop = PyWhile(info, translate_expr(condition, body_scope),
+                           py_body, py_after)
+        case _:
+            loop = PyWhile(info, PyBool(info, True), py_body, py_after)
+    return setup + [loop], value, scope
 
 
 @dataclass(frozen=True)
@@ -1703,26 +1758,6 @@ def translate_stmt(s, scope):
 
         case SExprStmt(info, expr):
             return PyExprStmt(info, translate_expr(expr, scope)), scope
-
-        case SFor(info, name, iterable, body):
-            # `for i in range(n)` iterates lazily, as Python's own does:
-            # only a range used as a *value* is materialised into the list
-            # its type says it is (see `translate_expr`).
-            py_iterable = (
-                _lazy_range(iterable, scope)
-                if _is_builtin_range(iterable, scope)
-                else translate_expr(iterable, scope)
-            )
-            # The loop variable belongs to the body's scope, and Python's
-            # `for` target is function-scoped, so it renames like anything
-            # else when it shadows.
-            py_name, body_scope = _bind(name, _loop_scope(scope))
-            py_body, _ = _translate_stmts(body, body_scope)
-            return PyFor(info, py_name, py_iterable, py_body), scope
-
-        case SWhile(info, cond, body):
-            py_body, _ = _translate_stmts(body, _loop_scope(scope))
-            return PyWhile(info, translate_expr(cond, scope), py_body), scope
 
         case SLoop():
             py_stmts, _, scope = _translate_loop(s, scope)
@@ -1928,12 +1963,12 @@ def _movable(s, in_loop=False):
                 else_body is None
                 or all(_movable(st, in_loop) for st in else_body)
             )
-        case SLoop(_, _, _, _, body):
+        case SLoop(_, _, _, _, _, body, after):
             # A loop takes its own break/continue with it, wherever it
             # is moved to.
-            return all(_movable(st, True) for st in body)
-        case SWhile(_, _, body) | SFor(_, _, _, body):
-            return all(_movable(st, in_loop) for st in body)
+            return all(_movable(st, True) for st in body) and (
+                after is None or all(_movable(st, in_loop) for st in after)
+            )
         case SMatch(_, _, cases):
             return all(
                 _movable(st, in_loop)
@@ -2245,13 +2280,19 @@ def pprint_py_stmt(s, level=0):
             return f"{pad}return {pprint_py_expr(expr)}"
         case PyExprStmt(_, expr):
             return f"{pad}{pprint_py_expr(expr)}"
-        case PyFor(_, name, iterable, body):
+        case PyFor(_, name, iterable, body, orelse):
             lines = [f"{pad}for {name} in {pprint_py_expr(iterable)}:"]
             lines += _render_block(body, level + 1)
+            if orelse:
+                lines.append(f"{pad}else:")
+                lines += _render_block(orelse, level + 1)
             return "\n".join(lines)
-        case PyWhile(_, cond, body):
+        case PyWhile(_, cond, body, orelse):
             lines = [f"{pad}while {pprint_py_expr(cond)}:"]
             lines += _render_block(body, level + 1)
+            if orelse:
+                lines.append(f"{pad}else:")
+                lines += _render_block(orelse, level + 1)
             return "\n".join(lines)
         case PyBreak(_):
             return f"{pad}break"

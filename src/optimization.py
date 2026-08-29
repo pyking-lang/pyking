@@ -31,7 +31,7 @@ from typesystem import same_type
 from syntax import (
     EInt, EString, EBool, EVar, EEq, ECall, EIf, EList, ETuple,
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt,
-    SFor, SWhile, SLoop, SBreak, SContinue, SIf, SFunctionDef, SMatch,
+    SLoop, SBreak, SContinue, SIf, SFunctionDef, SMatch, ForIn,
     Param, TInt, TString, TBool, TList, TTuple, TFunction, TOr, TUnknown,
     TNever, TargetName, TargetTuple,
 )
@@ -167,7 +167,7 @@ def _tail_calls_in_stmt(statement, names, found, tail):
         case SMatch(_, _, cases, _):
             for case_clause in cases:
                 _tail_calls_in(case_clause.body, names, found, tail)
-        case SFor() | SWhile() | SLoop() | SFunctionDef():
+        case SLoop() | SFunctionDef():
             # A `break` written in one of these would belong to it, and
             # a `def`'s tail is its own.
             pass
@@ -241,7 +241,7 @@ def _rewrite_tail(statement, context, jumping):
                 SBreak(info, ETuple(info, [])),
             ]
 
-        case SLoop(info, _, _, _, _, _):
+        case SLoop(info, _, _, _, _, _, _, _):
             # A loop of the program's own in tail position is what the
             # function is worth, so it is bound and then broken with.
             name = _fresh(context.reserved, "answer")
@@ -393,7 +393,7 @@ def _loop_over(info, names, body, carried, work):
     type into the table.
     Info -> [String] -> [Stmt] -> [Type?] -> Pass -> SLoop"""
     if not names:
-        return SLoop(info, None, None, None, body)
+        return SLoop(info, None, None, None, None, body)
     target = (
         TargetName(info, names[0]) if len(names) == 1
         else TargetTuple(info, [TargetName(info, name) for name in names])
@@ -402,7 +402,7 @@ def _loop_over(info, names, body, carried, work):
         EVar(info, names[0]) if len(names) == 1
         else ETuple(info, [EVar(info, name) for name in names])
     )
-    loop = SLoop(info, target, init, None, body)
+    loop = SLoop(info, target, init, None, None, body)
     if any(type_ is None for type_ in carried):
         return loop
     accumulator = carried[0] if len(carried) == 1 else TTuple(info, list(carried))
@@ -668,10 +668,11 @@ def _walk(statement, work):
     match statement:
         case SFunctionDef(_, _, _, body, _, _) if body is not None:
             return replace(statement, body=_block(body, work))
-        case SFor(_, _, _, body, _) | SWhile(_, _, body, _):
-            return replace(statement, body=_block(body, work))
-        case SLoop(_, _, _, _, body, _):
-            return replace(statement, body=_block(body, work))
+        case SLoop(_, _, _, _, _, body, after, _):
+            rewritten = replace(statement, body=_block(body, work))
+            if after is None:
+                return rewritten
+            return replace(rewritten, after=_block(after, work))
         case SIf(_, _, then_body, else_body, _):
             return replace(
                 statement,
@@ -768,12 +769,17 @@ def _binds(node, names):
             case SLet(_, target, _, _, _) | SLetStmt(_, target, _, _, _):
                 if names & set(_target_names(target)):
                     found[0] = True
-            case SVar(_, name, _, _) | SFor(_, name, _, _, _):
+            case SVar(_, name, _, _):
                 if name in names:
                     found[0] = True
-            case SLoop(_, target, _, _, _, _) if target is not None:
-                if names & set(_target_names(target)):
+            case SLoop(_, target, _, _, iterate, _, _, _):
+                if target is not None and names & set(_target_names(target)):
                     found[0] = True
+                # A `for` binds its element name each turn, so it is a
+                # rebinding like any other.
+                match iterate:
+                    case ForIn(_, name, _, _) if name in names:
+                        found[0] = True
             case SFunctionDef(_, name, params, _, _, _):
                 if name in names or names & {p.name for p in params}:
                     found[0] = True

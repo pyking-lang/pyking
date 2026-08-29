@@ -1,0 +1,19 @@
+# A `for` whose value is taken, with nothing to give.
+#
+# A `for` ends when it runs out of turns. With no accumulator to carry,
+# no `then:` block and no `break`, it has nothing to show for itself
+# when it does -- so binding its value would name a value that need not
+# exist, the same objection the value form of `match` answers.
+#
+# Any one of the three settles it: `loop y = 0 for x in xs:`, a `then:`
+# block, or a `break` (see typecheck_for_value.pyk).
+#
+# The statement form is unaffected: it takes no value at all.
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+def doubled(xs:[Int]) -> Int:
+    y = for x in xs:
+        x * 2
+    return y

@@ -329,6 +329,25 @@ one chain aligns with the `if' that opens it."
   (pyking--backward-dedent-target
    "\\_<else\\_>" pyking--if-block-opener-regexp 0))
 
+(defconst pyking--loop-block-opener-regexp
+  "\\(?:[^=\n]*=[ \t]*\\|return[ \t]+\\)?\\_<\\(?:loop\\|for\\|while\\)\\_>[^\n]*:"
+  "Regexp matching a line that opens a loop, from its first word.
+`for', `while' and `loop' are one construct in PYKING.md (see its
+section on the three halves of a loop), so a `then:' clause may close
+any of them -- and, like
+`pyking--if-block-opener-regexp', the header may be a value form
+\(`total = loop acc = 0 for x in xs:'), which is why the keyword can't
+simply be required to be the line's first word.")
+
+(defun pyking--then-target-indent ()
+  "Indentation for a `then:' line: aligned with the loop header it
+closes, found by the same backward scan `else' uses. `then' is also the
+`if' expression's keyword (`if c then a else b'), but that one never
+starts a line -- it follows an expression -- so a `then' in first
+position is always this clause."
+  (pyking--backward-dedent-target
+   "\\_<then\\_>" pyking--loop-block-opener-regexp 0))
+
 (defun pyking--case-target-indent ()
   "Indentation for a `case' line: aligned with the previous sibling
 `case_clause' if there is one at the same depth, otherwise one
@@ -365,8 +384,9 @@ dedent out of the block is one TAB away."
 Mirrors `python-mode's own simple case: a `block' is one
 `pyking-indent-offset' deeper than the `:'-terminated line that opens
 it (see `block'/`if_stmt'/`match_stmt' et al. in PYKING.md's grammar),
-`else'/`case' dedent back out of the block(s) they close (see
-`pyking--else-target-indent'/`pyking--case-target-indent'), a line
+`else'/`case'/`then' dedent back out of the block(s) they close (see
+`pyking--else-target-indent'/`pyking--case-target-indent'/
+`pyking--then-target-indent'), a line
 following a `pyking--dedenter-line-p' line dedents one level, and any
 other line matches the previous non-blank line's indentation --
 leaving the user to dedent further manually, the same as `python-mode'
@@ -377,6 +397,7 @@ does for a plain statement following a multi-level nested block."
      ((bobp) 0)
      ((pyking--line-first-word-matches-p "\\_<else\\_>") (pyking--else-target-indent))
      ((pyking--line-first-word-matches-p "\\_<case\\_>") (pyking--case-target-indent))
+     ((pyking--line-first-word-matches-p "\\_<then\\_>") (pyking--then-target-indent))
      (t (let (prev-indent prev-opens-block prev-is-dedenter)
           (save-excursion
             (forward-line -1)

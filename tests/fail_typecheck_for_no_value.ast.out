@@ -1,0 +1,4 @@
+'tests/fail_typecheck_for_no_value.pyk' 17:8-18:13 Type error: this
+  loop is bound to a name, but it has no value to give: it ends when
+  it runs out of turns, and there is no accumulator, no 'then:' block
+  and no 'break' to say what it is worth then

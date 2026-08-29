@@ -139,6 +139,11 @@ The groups:
   `EMul`, `EDiv`, `ENeg`, `EConcat`, `ELessThan`, `ELessThanEq`,
   `EGreatThan`, `EGreatThanEq`, `EEq`, `ECall`, `EList`, `ETuple`,
   `EIf`, `EListComp`.
+- **`LoopIter`** — `ForIn`, `WhileTest`. A loop's iteration clause;
+  `None` for a bare `loop:`. `SFor` and `SWhile` no longer exist:
+  `for x in e:` and `while c:` *are* `SLoop`, with no accumulator
+  written, which is what lets every combination of the three halves
+  work without a construct of its own.
 - **`Pattern`** — `PInt`, `PString`, `PBool`, `PWildcard`, `PCapture`,
   `PTuple`, `PList`, `PText`. `PText` is a string split around a fixed
   beginning and end (`"ab" ++ rest`); the list form of `++` is folded

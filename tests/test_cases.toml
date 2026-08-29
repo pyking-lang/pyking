@@ -150,6 +150,14 @@ file = "fail_typecheck_int_string3.pyk"
 targets = ["typecheck"]
 
 [[cases]]
+file = "fail_typecheck_for_no_value.pyk"
+targets = ["typecheck"]
+
+[[cases]]
+file = "fail_typecheck_loop_then_break.pyk"
+targets = ["typecheck"]
+
+[[cases]]
 file = "fail_typecheck_loop_annotation.pyk"
 targets = ["typecheck"]
 
@@ -488,6 +496,18 @@ targets = ["python", "ocaml", "interpret", "typecheck"]
 [[cases]]
 file = "typecheck_function_types.pyk"
 targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_for_value.pyk"
+targets = ["python", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_loop_combined.pyk"
+targets = ["python", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_loop_then.pyk"
+targets = ["python", "interpret", "typecheck"]
 
 [[cases]]
 file = "typecheck_functions.pyk"

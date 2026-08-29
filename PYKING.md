@@ -218,8 +218,6 @@ block       = INDENT , { statement } , DEDENT
 statement   = function_def
             | function_sig
             | return_stmt
-            | for_stmt
-            | while_stmt
             | loop_stmt
             | break_stmt
             | continue_stmt
@@ -247,12 +245,12 @@ type_var     = ? an ident beginning with a lowercase letter ? ;
 
 return_stmt = "return" , bound_value ;
 
-for_stmt    = "for" , ident , "in" , expr , ":" , block ;
-
-while_stmt  = "while" , expr , ":" , block ;
-
-loop_stmt   = "loop" , [ target , [ ":" , type ] , "=" , tuple_or_expr ] ,
-              ":" , block ;
+(* `for`, `while` and the accumulator loop are one construct with
+   different halves written; every combination of them is a loop_stmt. *)
+loop_stmt   = ( "loop" , accumulator , [ iteration ]
+              | iteration ) , ":" , block , [ "then" , ":" , block ] ;
+accumulator = target , [ ":" , type ] , "=" , tuple_or_expr ;
+iteration   = "for" , ident , "in" , expr | "while" , expr ;
 
 (* The operand is taken only from the keyword's own line -- see the
    notes below. *)
@@ -1486,7 +1484,7 @@ for i in range(3):
 ### `while` loops
 
 `while cond:` runs its indented body repeatedly for as long as `cond`
-holds. There is no `else` clause on `while` (unlike Python).
+holds.
 
 ```python
 var i = 0
@@ -1494,6 +1492,61 @@ while i < 3:
     print(i)
     i := i + 1
 ```
+
+### One loop, three halves — Pyking extension
+
+`for`, `while` and `loop` are the same construct with different halves
+written: an **accumulator** and an **iteration clause**, either of which
+may be left out. So they combine, and `break`, `continue` and `then:`
+mean the same thing in every combination.
+
+```pyking
+def total(xs:[Int]) -> Int:
+    return loop acc = 0 for x in xs:
+        acc + x
+
+
+def countdown(from_:Int) -> Int:
+    return loop i = from_ while i > 0:
+        continue i - 1
+```
+
+A `for`/`while` is a loop, so a `break` in one belongs to *it* — there
+is no crossing out of a loop any more. A `def` is the one thing a
+`break` still may not reach out of.
+
+**`then:` — what the loop is worth when it ends on its own.** `break`
+and `then:` answer the same question from the two sides, so if both are
+written they must agree on one type; a `break` skips `then:` entirely.
+`then:` runs however many turns there were, **none included**, which is
+what makes it an answer for a loop that never ran.
+
+```pyking
+def indexed(xs:[String]) -> [(Int, String)]:
+    return loop i, acc = 0, [] for x in xs:
+        i + 1, [(i, x)] ++ acc
+    then:
+        acc
+```
+
+Without the `then:` that loop would be worth the *pair* it carries;
+with it, the index is dropped and only the list comes out. `then:` sees
+the accumulator, but not the loop variable — there may have been no
+turns for it to have a value from.
+
+**A loop is worth** its `then:` block if it has one, otherwise what its
+`break`s give, otherwise the accumulator it stopped with. A `for` or a
+`while` with none of the three has nothing to give when it runs out of
+turns, so its value cannot be taken:
+
+```pyking
+y = for x in xs:        # error: no accumulator, no `then:`, no `break`
+    x * 2
+```
+
+Any one of them settles it. The statement form is unaffected — it takes
+no value at all. (A bare `loop:` is not this case: it never ends, so
+`!` is an honest answer for it.)
 
 ### `loop` loops -- Pyking extension
 

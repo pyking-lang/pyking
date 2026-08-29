@@ -526,6 +526,24 @@ def scale(x, factor:Int) -> Int:   def scale(x, factor):
     return x * factor                  return x * factor
 ```
 
+## `then:` is Python's loop `else`
+
+Python's `for`/`while` take an `else` clause that runs exactly when the
+loop finished without a `break` -- which is the rule Pyking's `then:`
+states, so the two map onto each other directly:
+
+```pyking                           # generated Python
+loop i, acc = 0, [] for x in xs:    i, acc = 0, []
+    i + 1, [(i, x)] ++ acc          for x in xs:
+then:                                   i, acc = i + 1, [(i, x)] + acc
+    acc                             else:
+                                        __result = acc
+```
+
+The loop's value lives in a variable of its own wherever the
+accumulator has no room for it -- a tuple accumulator, or none at all --
+and `then:` assigns it in the same place a `break` would.
+
 ## Where the output is not optimal
 
 - **Renamed shadows.** Correct, but the generated names drift from the

@@ -1,0 +1,46 @@
+# `for` as a loop that is worth something.
+#
+# A `for` is a loop with no accumulator written, so it takes the same
+# `break`, `continue` and `then:` every loop does. What it is *worth* is
+# the same rule too: the `then:` block if there is one, otherwise what
+# its `break`s give, otherwise the accumulator -- and a `for` with no
+# accumulator has none, which is why one with neither a `then:` nor a
+# `break` cannot be bound (see fail_typecheck_for_no_value.pyk).
+
+def first_big(xs:[Int]) -> Int:
+    found = for x in xs:
+        if x > 10:
+            break x
+        else:
+            0
+    then:
+        0 - 1
+    return found
+
+
+def any_of(xs:[Int]) -> Bool:
+    seen = for x in xs:
+        if x == 3:
+            break true
+        else:
+            false
+    then:
+        false
+    return seen
+
+
+def label(words:[String]) -> String:
+    answer = for w in words:
+        break w
+    then:
+        "none"
+    return answer
+
+
+# The statement form takes no value at all, and needs none of this.
+for x in [1, 2, 3]:
+    print(x)
+
+print(first_big([1, 20, 3]), first_big([1, 2]))
+print(any_of([1, 3]), any_of([1, 2]))
+print(label(["a", "b"]), label([]))

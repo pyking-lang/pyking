@@ -1,18 +1,19 @@
-# A `break` inside a `for` inside a `loop`.
+# A `break` inside a `def` inside a loop.
 #
-# A `break` belongs to the innermost `loop` it is written in, and may
-# not reach out of a `for`, a `while` or a function to find one: a
-# reader would otherwise have to know which of two loops it left, and
-# every backend would have to agree with them.
+# A `break` belongs to the innermost loop it is written in, and `for`
+# and `while` are loops of their own now -- so a `break` in one belongs
+# to it, and nothing crosses a loop boundary any more.
 #
-# `for` and `while` have no `break` of their own yet, which is why this
-# is an error rather than a `for` loop's own exit.
+# A `def` is the one thing it still may not reach out of: a function is
+# called from wherever, and the loop it was *written* in need not even
+# be running. A reader would have to know which loop it left, and every
+# backend would have to agree with them.
 #
 # This program is expected to FAIL. Its `.ast.out` holds the error
 # message, not a program's output.
 
 total = loop x = 0:
-    for i in range(3):
+    def leave() -> Int:
         break
     if x > 2:
         break

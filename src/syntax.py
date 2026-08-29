@@ -115,10 +115,8 @@ from lexer import Info
 #     SReturn(info: Info, expr: Expr, sym: Int)
 #     SReturnStmt(info: Info, stmt: Stmt, sym: Int)
 #     SExprStmt(info: Info, expr: Expr, sym: Int)
-#     SFor(info: Info, name: String, iterable: Expr, body: [Stmt], sym: Int)
-#     SWhile(info: Info, cond: Expr, body: [Stmt], sym: Int)
 #     SLoop(info: Info, target: AssignTarget?, init: Expr?, type: Type?,
-#           body: [Stmt], sym: Int)
+#           iterate: LoopIter?, body: [Stmt], after: [Stmt]?, sym: Int)
 #     SBreak(info: Info, expr: Expr?, sym: Int)
 #     SContinue(info: Info, expr: Expr?, sym: Int)
 #     SIf(info: Info, cond: Expr, then_body: [Stmt], else_body: [Stmt]?,
@@ -133,6 +131,10 @@ from lexer import Info
 #
 # datatype ListRest:
 #     ListRest(info: Info, name: String?, sym: Int)
+#
+# datatype LoopIter:
+#     ForIn(info: Info, name: String, sequence: Expr, sym: Int)
+#     WhileTest(info: Info, condition: Expr, sym: Int)
 #
 # datatype MatchCase:
 #     MatchCase(info: Info, pattern: Pattern, body: [Stmt], sym: Int)
@@ -956,36 +958,52 @@ class SExprStmt(Stmt):      # expr used as a statement, e.g. print(x)
     sym: int = 0
 
 
+class LoopIter:
+    """Base class for what makes a loop take another turn."""
+
+
 @dataclass(frozen=True)
-class SFor(Stmt):           # for name in iterable: body
-    info: Info
+class ForIn(LoopIter):      # for name in sequence
+    info: Info               # A turn per element, with `name` bound to it.
     name: str
-    iterable: Expr
-    body: list
+    sequence: Expr
     sym: int = 0
 
 
 @dataclass(frozen=True)
-class SWhile(Stmt):         # while cond: body
-    info: Info
-    cond: Expr
-    body: list
-    sym: int = 0
+class WhileTest(LoopIter):  # while condition
+    info: Info               # A turn while the condition holds. It is tested
+    condition: Expr          # where the accumulator is in scope, so it can
+    sym: int = 0             # ask about it.
 
 
 @dataclass(frozen=True)
-class SLoop(Stmt):          # loop [target[: type] = init]: body
-    info: Info               # Pyking extension: a loop whose state is a
-    target: AssignTarget      # binding rather than a mutable variable. The
-    init: Expr                # body's value (tail position, as everywhere
-                              # else) is the accumulator for the next turn,
-                              # and the loop's own value is the accumulator
-                              # it stopped with. `target`/`init` are both
-                              # None for the bare `loop:`, whose accumulator
-                              # is unit and whose body's value is discarded.
+class SLoop(Stmt):          # [loop target[: type] = init] [for n in e |
+    info: Info               #  while c] : body [then: after]
+    target: AssignTarget      # Pyking extension, and every loop in the
+    init: Expr                # language: `for`, `while` and the accumulator
+                              # loop are this one node with different halves
+                              # written. The body's value (tail position, as
+                              # everywhere else) is the accumulator for the
+                              # next turn.
+                              #
+                              # `target`/`init` are None where no accumulator
+                              # was written, and the accumulator is then unit.
+                              # `iterate` is None for the bare `loop:`, which
+                              # takes another turn unconditionally.
+                              #
+                              # What the loop is *worth* is `after`'s value if
+                              # a `then:` was written, otherwise what its
+                              # `break`s give, otherwise the accumulator it
+                              # stopped with. `then` runs however many turns
+                              # there were, none included -- which is what
+                              # makes it an answer for a loop that never ran
+                              # -- but not when a `break` left the loop.
     type: Type = None         # as `SLet.type`: what the source annotated,
                               # never written back by the type checker.
+    iterate: LoopIter = None
     body: list = None
+    after: list = None        # list[Stmt]; the `then:` block
     sym: int = 0
 
 
@@ -1069,26 +1087,27 @@ def _pprint_stmt(s, level=0):
             return "\n".join([f"{pad}return {head.strip()}"] + rest)
         case SExprStmt(_, expr):
             return f"{pad}{pprint_expr(expr)}"
-        case SFor(_, name, iterable, body):
-            lines = [f"{pad}for {name} in {pprint_expr(iterable)}:"]
+        case SLoop(_, target, init, type_, iterate, body, after):
+            # Printed in the form it was written: the accumulator half
+            # where one was written -- annotation and all, so a
+            # `--typecheck --ast` run's header re-parses -- and then the
+            # iteration half, if any.
+            head = ""
+            if target is not None:
+                head = (f"loop {pprint_target(target)}{_annotation(s, type_)}"
+                        f" = {pprint_expr(init)}")
+            match iterate:
+                case ForIn(_, name, sequence, _):
+                    turn = f"for {name} in {pprint_expr(sequence)}"
+                case WhileTest(_, condition, _):
+                    turn = f"while {pprint_expr(condition)}"
+                case _:
+                    turn = "" if head else "loop"
+            lines = [pad + " ".join(p for p in (head, turn) if p) + ":"]
             lines += [pprint_stmt(st, level + 1) for st in body]
-            return "\n".join(lines)
-        case SWhile(_, cond, body):
-            lines = [f"{pad}while {pprint_expr(cond)}:"]
-            lines += [pprint_stmt(st, level + 1) for st in body]
-            return "\n".join(lines)
-        case SLoop(_, target, init, type_, body):
-            # The accumulator prints like a binding, annotation and all,
-            # so a `--typecheck --ast` run's header re-parses; a `loop:`
-            # with no accumulator has nothing to annotate.
-            if target is None:
-                lines = [f"{pad}loop:"]
-            else:
-                lines = [
-                    f"{pad}loop {pprint_target(target)}{_annotation(s, type_)}"
-                    f" = {pprint_expr(init)}:"
-                ]
-            lines += [pprint_stmt(st, level + 1) for st in body]
+            if after is not None:
+                lines.append(f"{pad}then:")
+                lines += [pprint_stmt(st, level + 1) for st in after]
             return "\n".join(lines)
         case SBreak(_, expr):
             return f"{pad}break" if expr is None else f"{pad}break {pprint_expr(expr)}"

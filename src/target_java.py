@@ -33,7 +33,8 @@ from syntax import (
     Expr, EInt, EString, EBool, EVar,
     EAdd, EConcat, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EIf, ETuple,
-    SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SWhile, SIf,
+    SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SIf,
+    ForIn, WhileTest,
     SLoop, SBreak, SContinue, SFunctionDef, SMatch,
     PInt, PString, PBool, PWildcard, PCapture, PText,
     TargetName, TargetTuple, TInt, TString, TBool,
@@ -69,7 +70,6 @@ _CONSTRUCT_NAMES = {
     "EList": "list literals",
     "ETuple": "tuples",
     "EListComp": "list comprehensions",
-    "SFor": "`for` loops",
     "SMatch": "`match` statements",
     "SLetStmt": "value-form `if`/`match` bindings",
 }
@@ -641,6 +641,17 @@ class _Translator:
         in the block around it, so those Java names stay spoken for
         there. SLoop -> Scope -> ([JStmt], JExpr?, Scope)"""
         info = s.info
+        match s.iterate:
+            case ForIn():
+                _unsupported(
+                    s.iterate,
+                    "a `for` loop -- it walks a list, and this backend has "
+                    "no value model for one",
+                )
+        if s.target is None and s.iterate is not None:
+            # `while c:` on its own: no accumulator, so nothing to carry
+            # and nothing to be worth. Run for what it does.
+            return self.plain_while(s, scope)
         if s.target is None:
             _unsupported(
                 s,
@@ -693,7 +704,34 @@ class _Translator:
         )
         if result is None and len(slots) > 1:
             value = None
+        # `while c` becomes the loop's own test; `then:` would need a
+        # flag, which is not built here.
+        match s.iterate:
+            case WhileTest(_, condition, _):
+                test = self.expr(condition, body_scope)
+                self._require(test, BOOL, "a `while` condition")
+                body = [JIf(info, JUnary(info, "!", test, BOOL),
+                            [JBreak(info)], None)] + body
+        if s.after is not None:
+            _unsupported(
+                s, "a `then:` block on a loop -- Java has no loop `else`, "
+                "and the flag it would need is not built yet"
+            )
         return setup + [JLoop(info, body)], value, _reserve(taken, scope)
+
+    def plain_while(self, s, scope):
+        """`while c:` with no accumulator: nothing to carry, nothing to
+        be worth. SLoop -> Scope -> ([JStmt], JExpr?, Scope)"""
+        if s.after is not None:
+            _unsupported(s, "a `then:` block on a loop")
+        condition = self.expr(s.iterate.condition, scope)
+        self._require(condition, BOOL, "a `while` condition")
+        self.loops.append(_Loop([], None))
+        try:
+            body = self.block(s.body, _block_scope(scope))
+        finally:
+            self.loops.pop()
+        return [JWhile(s.info, condition, body)], None, scope
 
     def accumulate(self, expr, scope, node):
         """The statements that give the innermost loop its next values.
@@ -866,9 +904,6 @@ class _Translator:
                         "the call inside it",
                     )
                 return JNoEffect(info, pprint_expr(expr)), scope
-
-            case SWhile(info, cond, body):
-                return JWhile(info, self.expr(cond, scope), self.block(body, scope)), scope
 
             case SLoop():
                 java_stmts, _, scope = self.loop(s, scope)

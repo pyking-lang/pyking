@@ -1,0 +1,29 @@
+def first_big(xs:[Int]) -> Int:
+    found: Int = for x in xs:
+        if x > 10:
+            break x
+        else:
+            0
+    then:
+        0 - 1
+    return found
+def any_of(xs:[Int]) -> Bool:
+    seen: Bool = for x in xs:
+        if x == 3:
+            break true
+        else:
+            false
+    then:
+        false
+    return seen
+def label(words:[String]) -> String:
+    answer: String = for w in words:
+        break w
+    then:
+        'none'
+    return answer
+for x in [1, 2, 3]:
+    print(x)
+print(first_big([1, 20, 3]), first_big([1, 2]))
+print(any_of([1, 3]), any_of([1, 2]))
+print(label(['a', 'b']), label([]))

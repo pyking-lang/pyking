@@ -160,6 +160,10 @@ testing — could be built end to end before the language surface grew:
 | unit-returning functions (`void`) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `if` / `else if` / `else`, `while` | ✅ | ✅ | ✅ | ✅ | ✅ (`if` only) |
 | `loop`, `break`, `continue` | ✅ | ✅ | ✅ (an accumulator is required) | ✅ (same) | ✅ (a local `let rec`, applied at once) |
+| `for x in e:` | ✅ | ✅ (`for…of`) | ❌ (needs lists) | ❌ (same) | ❌ (not built yet) |
+| `while c:` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| … with an accumulator (`loop a = 0 while c:`) | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `then:` on a loop | ✅ (Python's loop `else`) | ❌ | ❌ | ❌ | ❌ |
 | tail calls run in constant space | ✅ | ✅ | ✅ | ✅ | ✅ (natively; the pass is skipped) |
 | … for a program the type checker accepts | required | required | required | required | n/a |
 | `=`, `var`, `:=` | ✅ | ✅ | ✅ | ✅ | ✅ (`=` only) |
