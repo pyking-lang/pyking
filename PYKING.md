@@ -770,6 +770,20 @@ print(x, y)
 precedence (`*`/`/` bind tighter than `+`/`-`). Parentheses override the
 default precedence.
 
+`/` is **integer division, truncating toward zero**: Pyking has no
+floating-point type, so it answers an `Int` like the other three.
+Truncation is toward zero rather than downward, so `-7 / 2` is `-3` and
+not `-4`:
+
+```pyking
+print(7 / 2, (0 - 7) / 2)     # 3 -3
+print(7 / (0 - 2))            # -3
+print((0 - 7) / (0 - 2))      # 3
+```
+
+Dividing by zero is left to whatever the target does with it, and the
+targets differ — see `docs/targets.md`.
+
 ```python
 a = 2 + 3 * 4
 b = (2 + 3) * 4
@@ -2423,7 +2437,7 @@ under Pyking's ordinary lexical scoping.
 |---|---|---|
 | `+` | `Int + Int` | `Int` |
 | `++` | `String ++ String` | `String` |
-| `-`, `*` | `Int`, `Int` | `Int` |
+| `-`, `*`, `/` | `Int`, `Int` | `Int` |
 | `-` (unary) | `Int` | `Int` |
 | `++` | two lists of one type | that list type |
 | `<`, `<=`, `>`, `>=` | `Int`, `Int` | `Bool` |
@@ -2944,13 +2958,9 @@ was worked out — the reasoning behind all of this is in
 
 ### What is not checked
 
-**Constructs outside the fragment.** `var` and `:=`, `for`, `while` and
-`/` are refused with `Construct is not supported`. A call to a builtin
-*is* checked — see below.
-
-`/` is the odd one out and is not waiting on the checker: it is *true
-division*, so `7 / 2` is `3.5`, and Pyking has no `Float` type for that
-to be. It is checkable only once one exists.
+**Constructs outside the fragment.** `var` and `:=` are refused with
+`Construct is not supported`. A call to a builtin *is* checked — see
+below.
 
 **Names, while `--typecheck` is on.** The type checker replaces the name
 analysis rather than running after it, and does that checking itself:

@@ -40,7 +40,8 @@ from analyses import AnalysisError, BUILTINS, block_functions
 from lexer import Info
 from syntax import (
     pprint_type, pprint_type_nested,
-    EInt, EString, EBool, EVar, EAdd, EConcat, ESub, EMul, ECall, EIf, ETuple,
+    EInt, EString, EBool, EVar, EAdd, EConcat, ESub, EMul, EDiv, ECall, EIf,
+    ETuple,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq,
     SLet, SLetStmt, SExprStmt, SIf, SReturn, SReturnStmt, SFunctionDef,
     SFunctionSig, SMatch,
@@ -1189,8 +1190,8 @@ def expr_type(expr, env, tmap, store):
             check_not_conflated(then_type, else_type, info)
             return both, else_store
 
-        case EAdd() | EConcat() | ESub() | EMul() | ELessThan() | ELessThanEq() \
-                | EGreatThan() | EGreatThanEq() | EEq():
+        case EAdd() | EConcat() | ESub() | EMul() | EDiv() | ELessThan() \
+                | ELessThanEq() | EGreatThan() | EGreatThanEq() | EEq():
             # Check built-in binary operations
             return check_binary(expr, env, tmap, store)
 
@@ -1901,6 +1902,7 @@ OPERATORS = {
     EConcat: ("++", [(TString, TString)]),
     ESub: ("-", [(TInt, TInt)]),
     EMul: ("*", [(TInt, TInt)]),
+    EDiv: ("/", [(TInt, TInt)]),
     ELessThan: ("<", [(TInt, TBool)]),
     ELessThanEq: ("<=", [(TInt, TBool)]),
     EGreatThan: (">", [(TInt, TBool)]),

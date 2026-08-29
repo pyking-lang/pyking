@@ -485,14 +485,13 @@ class _Translator:
                 inner = self.expr(operand, scope)
                 self._require(inner, INT, "negation")
                 return JUnary(info, "-", inner, INT)
-            case EDiv(info, _, _):
-                # docs/target_java.md, "/".
-                _unsupported(
-                    e,
-                    "`/` is true division in Pyking and truncating integer "
-                    "division in Java; matching it needs a floating-point "
-                    "type this backend does not have yet",
-                )
+            case EDiv(info, l, r):
+                # Java's `/` on ints truncates toward zero, which is
+                # Pyking's own rule.
+                left, right = self.expr(l, scope), self.expr(r, scope)
+                self._require(left, INT, "`/`")
+                self._require(right, INT, "`/`")
+                return JBinary(info, "/", left, right, INT)
             case EAdd(info, l, r):
                 left, right = self.expr(l, scope), self.expr(r, scope)
                 self._require(left, INT, "`+`")
@@ -1386,7 +1385,7 @@ def default_class_name(stem):
 # --- printer: Java AST -> Java source text ---
 
 _PRECEDENCE = {
-    "*": 13,
+    "*": 13, "/": 13,
     "+": 12, "-": 12,
     "<": 10, "<=": 10, ">": 10, ">=": 10,
     "==": 9,

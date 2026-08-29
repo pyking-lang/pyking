@@ -107,6 +107,13 @@ class PyDiv(PyExpr):        # left / right
 
 
 @dataclass(frozen=True)
+class PyFloorDiv(PyExpr):   # left // right
+    info: Info               # Only the division helper builds one: Pyking's
+    left: PyExpr             # `/` truncates and Python's `//` floors, so the
+    right: PyExpr            # helper corrects the sign around this.
+
+
+@dataclass(frozen=True)
 class PyNeg(PyExpr):        # -operand (unary minus)
     info: Info
     operand: PyExpr
@@ -417,6 +424,7 @@ _result_counter = 0
 # docs/target_python.md, "Booleans".
 _format_helper_name_value = None
 _format_helper_def = None
+_divide_helper_def = None
 
 
 def _collect_identifiers(node, acc=None):
@@ -916,6 +924,35 @@ def _escaped(info, char):
     return result
 
 
+_DIVIDE_HELPER = "__pyk_div"
+
+
+def _build_divide_helper(info):
+    """Synthesizes Pyking's `/`: integer division truncating toward
+    zero. Python's `//` rounds down instead, so the two differ whenever
+    exactly one operand is negative -- `-7 // 2` is -4 where every
+    Pyking backend gives -3. Division by zero is left to Python, as it
+    is left to each host (docs/targets.md). Info -> PyFunctionDef"""
+    def var(n):
+        return PyVar(info, n)
+
+    size = PyFloorDiv(
+        info,
+        PyCall(info, var("abs"), [var("a")]),
+        PyCall(info, var("abs"), [var("b")]),
+    )
+    same_sign = PyEq(
+        info,
+        PyLessThan(info, var("a"), PyInt(info, 0)),
+        PyLessThan(info, var("b"), PyInt(info, 0)),
+    )
+    return PyFunctionDef(info, _DIVIDE_HELPER, ["a", "b"], [
+        PyAssign(info, PyTargetName(info, "q"), size),
+        PyReturn(info, PyIfExp(info, same_sign, var("q"),
+                               PyNeg(info, var("q")))),
+    ])
+
+
 def _build_format_helper(info, name):
     """Synthesizes the closure-free formatter Pyking's print needs: a
     Bool spelled `true`/`false` wherever it sits, including inside a
@@ -1110,7 +1147,17 @@ def translate_expr(e, scope):
         case EMul(info, l, r):
             return PyMul(info, translate_expr(l, scope), translate_expr(r, scope))
         case EDiv(info, l, r):
-            return PyDiv(info, translate_expr(l, scope), translate_expr(r, scope))
+            # Pyking's `/` truncates toward zero; Python's `//` rounds
+            # down, so they part company on a negative operand. A helper
+            # in the prelude does it, rather than the same conditional
+            # inlined at every division.
+            global _divide_helper_def
+            if _divide_helper_def is None:
+                _divide_helper_def = _build_divide_helper(info)
+            return PyCall(
+                info, PyVar(info, _DIVIDE_HELPER),
+                [translate_expr(l, scope), translate_expr(r, scope)],
+            )
         case ENeg(info, operand):
             return PyNeg(info, translate_expr(operand, scope))
         case ELessThan(info, l, r):
@@ -2065,6 +2112,7 @@ def translate_program(stmts):
     prepended. [Stmt] -> PyProgram"""
     global _comp_counter, _pending_comp_helpers, _used_identifiers, _turn_counter
     global _format_helper_name_value, _format_helper_def, _loop_accumulators
+    global _divide_helper_def
     global _result_counter
     _comp_counter = 0
     _loop_accumulators = []
@@ -2073,6 +2121,7 @@ def translate_program(stmts):
     _pending_comp_helpers = []
     _format_helper_name_value = None
     _format_helper_def = None
+    _divide_helper_def = None
     _used_identifiers = _collect_identifiers(stmts)
     translated, _ = _translate_stmts(
         stmts,
@@ -2080,7 +2129,8 @@ def translate_program(stmts):
     )
     helpers = _pending_comp_helpers
     _pending_comp_helpers = []
-    prelude = [_format_helper_def] if _format_helper_def is not None else []
+    prelude = [d for d in (_divide_helper_def, _format_helper_def)
+               if d is not None]
     return PyProgram(prelude, helpers + translated)
 
 
@@ -2149,6 +2199,8 @@ def pprint_py_expr(e, min_prec=0):
             return _wrap(3, min_prec, f"{pprint_py_expr(l, 3)} * {pprint_py_expr(r, 4)}")
         case PyDiv(_, l, r):
             return _wrap(3, min_prec, f"{pprint_py_expr(l, 3)} / {pprint_py_expr(r, 4)}")
+        case PyFloorDiv(_, l, r):
+            return _wrap(3, min_prec, f"{pprint_py_expr(l, 3)} // {pprint_py_expr(r, 4)}")
         case PyNeg(_, operand):
             # Python's unary minus binds tighter than `*`/`/` too, so the
             # same precedences as Pyking's `ENeg` apply (see `pprint_expr`

@@ -14,9 +14,8 @@
 - Output is one `.java` file with no imports: string concatenation is
   Java's own `+`, string equality is `.equals()`, and `System.out` needs
   nothing declared.
-- `/` is **not supported**, for the same reason as the C targets:
-  Pyking's division is Python's (`7 / 2` is `3.5`) and Java's on `int`
-  truncates.
+- `/` is Java's own `/` on `int`: Pyking divides integers truncating
+  toward zero, which is what Java does.
 - **Unlike C, a function must provably return on every path.** `javac`
   refuses to compile one that can fall off the end instead of returning,
   where C only warns -- so this backend checks that itself and refuses
@@ -73,19 +72,6 @@ Everything the JavaScript and C targets refuse -- lists, tuples, `for`,
 `match`/`case`, comprehensions, value-form bindings, `str`/`len`/`range`
 -- plus the following. All are refused at compile time with a source
 position.
-
-### `/`
-
-```
-$ pyk compile -t java21 divide.pyk
-'divide.pyk' 1:6-1:11 Unsupported by target 'java21': `/` is true
-  division in Pyking and truncating integer division in Java; matching
-  it needs a floating-point type this backend does not have yet
-```
-
-Same reasoning as [the C targets](target_c.md): the *value* would be
-wrong, not just its rendering, and fixing that needs a floating-point
-type this backend does not have.
 
 ### Nested `def`
 

@@ -136,6 +136,13 @@ class JsPlain(JsExpr):      # [e1, e2, ...] with no marker -- a piece of a
 
 
 @dataclass(frozen=True)
+class JsConcat(JsExpr):     # pykConcat(left, right) -- Pyking's `++`
+    info: Info
+    left: JsExpr
+    right: JsExpr
+
+
+@dataclass(frozen=True)
 class JsSpread(JsExpr):     # [...a, ...b]
     info: Info
     parts: list
@@ -366,7 +373,6 @@ _BINARY_OPS = {
     EConcat: "+",
     ESub: "-",
     EMul: "*",
-    EDiv: "/",
     ELessThan: "<",
     ELessThanEq: "<=",
     EGreatThan: ">",
@@ -421,14 +427,21 @@ def translate_expr(e, scope):
                 translate_expr(then_expr, scope),
                 translate_expr(else_expr, scope),
             )
-        case EConcat(info, left, right) if _is_list(left) or _is_list(right):
+        case EConcat(info, left, right):
             # JavaScript's `+` joins strings but not arrays, and a Pyking
-            # list is an array, so joining two of them is a spread into a
-            # fresh one.
+            # list is an array. This backend infers no types, so which of
+            # the two `++` means is decided at run time by `pykConcat` --
+            # the same answer `pykFormat` gives for printing.
+            return JsConcat(info, translate_expr(left, scope),
+                            translate_expr(right, scope))
+        case EDiv(info, l, r):
+            # JavaScript's `/` is float division, so the quotient is
+            # truncated toward zero -- Pyking's rule, and what `Math.trunc`
+            # does for either sign.
             return JsCall(
-                info, JsVar(info, "pykList"),
-                [JsSpread(info, [translate_expr(left, scope),
-                                 translate_expr(right, scope)])],
+                info, JsMember(info, JsVar(info, "Math"), "trunc"),
+                [JsBinary(info, "/", translate_expr(l, scope),
+                          translate_expr(r, scope))],
             )
         case EList(info, elements):
             return JsList(info, [translate_expr(el, scope) for el in elements])
@@ -493,10 +506,48 @@ def translate_tail_stmts(stmts, scope):
     return body + translate_tail_stmt(stmts[-1], tail_scope)
 
 
+def translate_stmts_only(stmts, scope):
+    """A statement list, for a caller that wants only the statements.
+    [Stmt] -> Scope -> [JsStmt]"""
+    translated, _ = translate_stmts(stmts, scope)
+    return translated
+
+
+def _translate_match(s, scope, translate_body):
+    """A `match` as an if/else chain over the subject, held in a name of
+    its own so it is evaluated once. `translate_body` decides what an
+    arm's body becomes -- plain statements, or a tail block whose value
+    is returned. An arm whose pattern always matches becomes the `else`,
+    so a `match` that fits no arm does nothing.
+    SMatch -> Scope -> ([Stmt] -> Scope -> [JsStmt]) -> ([JsStmt], Scope)"""
+    info = s.info
+    name, scope = _bind("__subject", scope)
+    chain = None
+    for case_clause in reversed(s.cases):
+        arm_scope = _block_scope(scope)
+        test, bindings, arm_scope = _pattern_test(
+            case_clause.pattern, JsVar(info, name), arm_scope
+        )
+        body = translate_body(case_clause.body, arm_scope)
+        chain = bindings + body if test is None else [
+            JsIf(case_clause.info, test, bindings + body, chain)
+        ]
+    held = JsConst(info, JsTargetName(info, name),
+                   translate_expr(s.subject, scope))
+    return [held] + (chain or []), scope
+
+
 def translate_tail_stmt(s, scope):
     """The last statement of a body in tail position, as a list of JS
     statements. Stmt -> Scope -> [JsStmt]"""
     match s:
+        case SMatch():
+            # Every arm is in tail position too, so each one's value is
+            # the function's -- without this the arms would be plain
+            # expression statements and the function would return
+            # nothing.
+            built, _ = _translate_match(s, scope, translate_tail_stmts)
+            return built
         case SExprStmt(_, expr) if _yields_unit(expr):
             translated, _ = translate_stmt(s, scope)
             return [translated]
@@ -634,15 +685,6 @@ def _pattern_parts(patterns, places, test, scope):
     return test, bindings, scope
 
 
-def _is_list(e):
-    """Whether an expression is plainly a list, from its own form. Used
-    only to tell `++` on lists from `++` on strings, where the two need
-    different JavaScript. Expr -> Bool"""
-    return isinstance(e, (EList, EListComp)) or (
-        isinstance(e, EConcat) and (_is_list(e.left) or _is_list(e.right))
-    )
-
-
 def _translate_comprehension(info, element, clauses, scope):
     """`[e for p in seq if c ...]` as a chain of `flatMap`s: each `for`
     maps its sequence and flattens, each `if` and each pattern that does
@@ -687,28 +729,8 @@ def translate_stmt(s, scope):
             js_target, scope = translate_target(target, scope)
             return JsConst(info, js_target, js_expr), scope
 
-        case SMatch(info, subject, cases):
-            # The subject is evaluated once, into a name of its own, and
-            # the arms become an if/else chain over it. A Pyking `match`
-            # that fits no arm does nothing, which is what an `if` chain
-            # with no final `else` already does.
-            name, scope = _bind("__subject", scope)
-            # Built from the last arm backwards. An arm whose pattern
-            # always matches becomes the `else` rather than an
-            # `if (true)`.
-            chain = None
-            for case_clause in reversed(cases):
-                arm_scope = _block_scope(scope)
-                test, bindings, arm_scope = _pattern_test(
-                    case_clause.pattern, JsVar(info, name), arm_scope
-                )
-                body, _ = translate_stmts(case_clause.body, arm_scope)
-                chain = bindings + body if test is None else [
-                    JsIf(case_clause.info, test, bindings + body, chain)
-                ]
-            held = JsConst(info, JsTargetName(info, name),
-                           translate_expr(subject, scope))
-            return [held] + (chain or []), scope
+        case SMatch():
+            return _translate_match(s, scope, translate_stmts_only)
 
         case SLetStmt(info, target, SLoop() as loop):
             # `x = loop ...` -- the loop's value is the accumulator it
@@ -1105,6 +1127,9 @@ def pprint_js_expr(e, runtime, min_prec=0):
             lines.append(f"  return {pprint_js_expr(result, runtime)};")
             joined = "\n".join(lines)
             return f"({', '.join(params)}) => {{\n{joined}\n}}"
+        case JsConcat(_, left, right):
+            return (f"pykConcat({pprint_js_expr(left, runtime)}, "
+                    f"{pprint_js_expr(right, runtime)})")
         case JsSpread(_, parts):
             inside = ", ".join(f"...{pprint_js_expr(p, runtime)}" for p in parts)
             return f"[{inside}]"
@@ -1206,6 +1231,15 @@ def pprint_js_stmt(s, runtime, level=0):
             raise NotImplementedError(f"no printer for JavaScript statement {s!r}")
 
 
+_CONCAT_HELPER = "\n".join([
+    "// Pyking's `++` joins two strings or two lists. A list is an array",
+    "// here and JavaScript's `+` would stringify one, so which is meant",
+    "// is decided by looking -- this backend infers no types.",
+    "function pykConcat(a, b) {",
+    "  return Array.isArray(a) ? pykList([...a, ...b]) : a + b;",
+    "}",
+])
+
 _LIST_HELPER = "\n".join([
     "// A Pyking list is a JavaScript array with a marker on it: a tuple",
     "// is an array too, and the two print differently. A property rather",
@@ -1222,22 +1256,30 @@ def pprint_js_program(stmts, runtime, level=0):
     them where the program builds a list. [JsStmt] -> {String: String} ->
     Int -> String"""
     body = _join_stmts(stmts, runtime, level)
-    if not _uses_lists(stmts):
-        return body
     pad = "  " * level
-    helper = "\n".join(pad + line if line else line
-                        for line in _LIST_HELPER.split("\n"))
-    return helper + "\n\n" + body
+    wanted = []
+    # `pykConcat` builds a list, so it needs `pykList` beside it.
+    if _uses(stmts, JsList) or _uses(stmts, JsConcat):
+        wanted.append(_LIST_HELPER)
+    if _uses(stmts, JsConcat):
+        wanted.append(_CONCAT_HELPER)
+    if not wanted:
+        return body
+    helpers = "\n\n".join(
+        "\n".join(pad + line if line else line for line in helper.split("\n"))
+        for helper in wanted
+    )
+    return helpers + "\n\n" + body
 
 
-def _uses_lists(node):
-    """Whether the translated program builds a Pyking list anywhere, so
-    that `pykList` is emitted only where it is wanted -- as C's
-    `pyk_concat` is. JsStmt|[JsStmt]|... -> Bool"""
-    if isinstance(node, JsList):
+def _uses(node, kind):
+    """Whether the translated program contains a node of this kind, so
+    that a helper is emitted only where it is wanted -- as C's
+    `pyk_concat` is. JsStmt|[JsStmt]|... -> type -> Bool"""
+    if isinstance(node, kind):
         return True
     if isinstance(node, (list, tuple)):
-        return any(_uses_lists(item) for item in node)
+        return any(_uses(item, kind) for item in node)
     if is_dataclass(node):
-        return any(_uses_lists(getattr(node, f.name)) for f in fields(node))
+        return any(_uses(getattr(node, f.name), kind) for f in fields(node))
     return False

@@ -573,13 +573,14 @@ class _Translator:
                 inner = self.expr(operand, scope)
                 self._require(inner, INT, "negation")
                 return CUnary(info, "-", inner, INT)
-            case EDiv(info, _, _):
-                # docs/target_c.md, "/".
-                _unsupported(
-                    e,
-                    "`/` is true division in Pyking and truncating integer "
-                    "division in C; matching it needs a floating-point type "
-                    "this backend does not have yet",
+            case EDiv(info, l, r):
+                # C99 onward truncates toward zero, which is Pyking's own
+                # rule, so this is the host's `/` unchanged.
+                (left, right), steps = self.in_order([l, r], scope)
+                self._require(left, INT, "`/`")
+                self._require(right, INT, "`/`")
+                return self.sequenced(
+                    steps, CBinary(info, "/", left, right, INT)
                 )
             case EAdd(info, l, r):
                 (left, right), steps = self.in_order([l, r], scope)

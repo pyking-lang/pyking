@@ -180,7 +180,7 @@ testing — could be built end to end before the language surface grew:
 | `match` over lists and tuples | ✅ | ✅ | ❌ | ❌ | ✅ |
 | … a list pattern with elements after `..` | ✅ | ✅ | ❌ | ❌ | ❌ (`::` matches from the front) |
 | operands and arguments evaluate left to right | ✅ (the host's own rule) | ✅ (same) | ✅ (unspecified in C: temporaries and the comma operator pin it down where two operands can print) | ✅ (the host's own rule) | ✅ (unspecified in OCaml: `let` pins it down, same rule) |
-| `/` | ✅ | ✅ (prints `6`, not `6.0`) | ❌ | ❌ | ❌ |
+| `/` (integer division, truncating) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | type annotations | erased | erased | used, when they name `Int`/`String`/`Bool` | used, when they name `Int`/`String`/`Bool` | checked, then erased — the output has none |
 | functions as values (passing a `def`, calling a parameter) | ✅ | ✅ | ❌ (refused: a function used as a value, or a call to an unknown one) | ❌ (same) | ✅ |
 | a function reading a binding from around it (a closure) | ✅ | ✅ | ❌ (no closures) | ❌ (no closures) | ✅ |
@@ -214,14 +214,13 @@ Two programs that compile everywhere can still print different
 characters, and both cases are documented rather than papered over —
 followed by a third difference, which is about the values themselves:
 
-- **Float display.** Pyking's `/` is true division, so `(4 + 8) / 2` is a
-  float: Python prints `6.0`, JavaScript `6`. See
-  [target_js.md](target_js.md#numbers).
-- **Integer division.** C's and Java's `/` on integers truncates, which
-  is a different *value*, not just a different rendering — so the C and
-  Java targets refuse `/` outright. See
-  [target_c.md](target_c.md#what-is-not-supported) and
-  [target_java.md](target_java.md#what-is-not-supported).
+- **Division by zero.** Pyking's `/` is integer division and every
+  target divides natively, so `1 / 0` is whatever the host does: a
+  `ZeroDivisionError` on Python, an `ArithmeticException` on Java,
+  `Division_by_zero` on OCaml, `Infinity` on JavaScript, and undefined
+  behaviour in C. The interpreter is the exception, and has to be: its
+  `step` is total, so it reports a Pyking runtime error with a stack
+  trace like any other. Nothing guards the compiled output.
 
 ### Integers are 32 bit
 

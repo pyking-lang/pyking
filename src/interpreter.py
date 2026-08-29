@@ -33,7 +33,8 @@ import runtime_interface
 import typesystem
 from syntax import (
     Expr, Stmt,
-    EInt, EString, EBool, EVar, EAdd, EConcat, ESub, EMul, ECall, EIf, ETuple,
+    EInt, EString, EBool, EVar, EAdd, EConcat, ESub, EMul, EDiv, ECall, EIf,
+    ETuple,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq,
     SLet, SLetStmt, SExprStmt, SIf, SReturn, SReturnStmt, SFunctionDef,
     SFunctionSig, SMatch,
@@ -847,8 +848,8 @@ def _evaluate(expr, env):
             ))
         case ENeg(_, operand, _):
             return apply_unary(expr, _evaluate(operand, env))
-        case EAdd() | EConcat() | ESub() | EMul() | ELessThan() | ELessThanEq() \
-                | EGreatThan() | EGreatThanEq() | EEq():
+        case EAdd() | EConcat() | ESub() | EMul() | EDiv() | ELessThan() \
+                | ELessThanEq() | EGreatThan() | EGreatThanEq() | EEq():
             left = _evaluate(expr.left, env)
             right = _evaluate(expr.right, env)
             return apply_binary(expr, left, right)
@@ -901,6 +902,21 @@ def _compare(op):
     return rule
 
 
+def _divide(left, right):
+    """Integer division, truncating toward zero -- Python's `//` rounds
+    down instead, so `-7 / 2` would be -4 rather than the -3 every
+    backend gives. Division by zero is a Pyking error rather than a
+    crash: `step` is total (docs/interpreter.md).
+    Value -> Value -> Value?"""
+    match (left, right):
+        case (VInt(_), VInt(0)):
+            raise _Trap(RuntimeError_(_DIVIDE_INFO, "division by zero"))
+        case (VInt(a), VInt(b)):
+            quotient = abs(a) // abs(b)
+            return VInt(wrap32(quotient if (a < 0) == (b < 0) else -quotient))
+    return None
+
+
 def _concat(left, right):
     match (left, right):
         case (VString(a), VString(b)):
@@ -922,6 +938,7 @@ OPERATORS = {
     EConcat: ("++", _concat),
     ESub: ("-", _arith(lambda a, b: a - b)),
     EMul: ("*", _arith(lambda a, b: a * b)),
+    EDiv: ("/", _divide),
     ELessThan: ("<", _compare(lambda a, b: a < b)),
     ELessThanEq: ("<=", _compare(lambda a, b: a <= b)),
     EGreatThan: (">", _compare(lambda a, b: a > b)),
@@ -977,12 +994,21 @@ def _comprehension_envs(clauses, env):
                     ))
 
 
+# A `_divide` that fails has no node to hand, so it raises with this and
+# `apply_binary` puts the real position in. Every other rule answers
+# None and lets the operand message below do the reporting.
+_DIVIDE_INFO = Info("<division>", 0, 0, 0, 0)
+
+
 def apply_binary(node, left, right):
     """The value of one binary operator application. Raises _Trap for
     operands the operator does not accept.
     Expr -> Value -> Value -> Value"""
     spelling, rule = OPERATORS[type(node)]
-    value = rule(left, right)
+    try:
+        value = rule(left, right)
+    except _Trap as trap:
+        raise _Trap(RuntimeError_(node.info, trap.error.message)) from None
     if value is None:
         raise _Trap(RuntimeError_(
             node.info,
@@ -1083,8 +1109,8 @@ def _step_eval(state, expr):
         except _Trap as trap:
             return failed(state, trap.error)
     match expr:
-        case EAdd() | EConcat() | ESub() | EMul() | ELessThan() | ELessThanEq() \
-                | EGreatThan() | EGreatThanEq() | EEq():
+        case EAdd() | EConcat() | ESub() | EMul() | EDiv() | ELessThan() \
+                | ELessThanEq() | EGreatThan() | EGreatThanEq() | EEq():
             return _go(
                 state,
                 control=CEval(expr.left),

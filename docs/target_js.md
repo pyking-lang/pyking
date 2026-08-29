@@ -81,6 +81,11 @@ Refused at compile time, with the source position:
 | value-form `x = if c:` / `x = match e:` | a JavaScript block is not an expression, so a value taken from one needs a temporary this backend does not build |
 | `str`, `len`, `range` | no JavaScript standard-library shim yet |
 
+`++` is `pykConcat`, which looks at its left operand: a Pyking list is
+an array and JavaScript's `+` would stringify one, so which of the two
+`++` means is decided at run time. This backend infers no types, so
+that is the same answer `pykFormat` gives for printing.
+
 Lists, list comprehensions and `match` *are* supported. A Pyking tuple
 is a JavaScript array, so a **list is an array carrying a marker** --
 `pykList` in the compiled program sets it, and `pykFormat` reads it to
@@ -372,22 +377,27 @@ rename twice.
 
 ### Numbers
 
-Pyking's `/` is Python's true division, so `(4 + 8) / 2` is a float and
-Python prints `6.0`. JavaScript has a single number type and prints `6`.
-The value is right; only the rendering differs.
+JavaScript has one number type and Pyking has only `Int`, so the two
+line up everywhere except division: JavaScript's `/` is float division,
+and Pyking's truncates toward zero. `Math.trunc` around the quotient is
+the whole of the difference, and it is right for either sign.
 
-*Not optimal, and deliberately so:* matching Python exactly would mean
-carrying the int/float distinction into the generated code — integers as
-`BigInt`, division as `Number`, and a coercion helper wrapped around
-every arithmetic operator and comparison. That would cost the thing this
-backend is built for: output that reads like the source. Programs whose
-printed output contains a float are therefore marked python-only in
-`tests/test_cases.toml` (`arithmetic_division.pyk`,
-`short_function_values.pyk`).
+```pyking            // generated JavaScript
+7 / 2                Math.trunc(7 / 2)
+```
+
+*Not optimal, and deliberately so:* an `Int` is 32-bit and wrapping in
+Pyking, and nothing here enforces that — a JavaScript number is a
+double, so a program that overflows prints a value this backend does not
+wrap. Matching it would mean `| 0` on every arithmetic operator, or
+`BigInt` throughout, either of which costs the thing this backend is
+built for: output that reads like the source. See
+[targets.md](targets.md) for the same difference measured across all the
+backends.
 
 ## Where the output is not optimal
 
-- **Float display**, as above.
+- **No 32-bit wrapping**, as above.
 - **Over-eager renaming** around the temporal dead zone, as above.
 - **`pykFormat` on every printed value**, including integers that
   `String()` would have handled — one code path is easier to keep

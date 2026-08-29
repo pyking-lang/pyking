@@ -14,9 +14,8 @@
   from.
 - Output is one `.c` file with no dependencies beyond the C standard
   library, and only the headers the program actually uses.
-- `/` is **not supported**: Pyking's division is Python's (`7 / 2` is
-  `3.5`) and C's truncates. This is the only feature the JavaScript
-  targets have and these do not.
+- `/` is C's own `/`: Pyking divides integers truncating toward zero,
+  which is what C has done since C99.
 - Least optimal at: string concatenation, which allocates and never
   frees.
 
@@ -60,22 +59,6 @@ Everything the JavaScript targets refuse — lists, tuples, `for`,
 `match`/`case`, comprehensions, value-form bindings, `str`/`len`/`range`
 — plus the following, each because C demands an answer Pyking never had
 to give. All are refused at compile time with a source position.
-
-### `/`
-
-```
-$ pyk compile -t c23 divide.pyk
-'divide.pyk' 1:6-1:11 Unsupported by target 'c23': `/` is true
-  division in Pyking and truncating integer division in C; matching it
-  needs a floating-point type this backend does not have yet
-```
-
-Pyking's `7 / 2` is `3.5`; C's is `3`. Unlike the JavaScript targets,
-where only the *printed form* differs, here the **value** would be wrong.
-Producing the right one needs a floating-point type throughout, and
-printing it the way Python does needs a float-repr routine; neither
-exists yet, so `/` is refused rather than quietly computing something
-else.
 
 ### A `loop` C cannot give a value
 

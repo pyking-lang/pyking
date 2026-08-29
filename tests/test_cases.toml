@@ -27,7 +27,7 @@ targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "
 
 [[cases]]
 file = "arithmetic_division.pyk"
-targets = ["python"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
 
 [[cases]]
 file = "boolean_literals.pyk"
@@ -303,7 +303,7 @@ targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret"]
 
 [[cases]]
 file = "list_complex.pyk"
-targets = ["python"]
+targets = ["python", "nodejs", "esm", "html"]
 
 [[cases]]
 file = "list_comprehension_basic.pyk"
@@ -427,7 +427,7 @@ targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "
 
 [[cases]]
 file = "short_function_values.pyk"
-targets = ["python"]
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret"]
 
 [[cases]]
 file = "strings.pyk"
@@ -471,7 +471,7 @@ targets = ["python"]
 
 [[cases]]
 file = "tuples_functions.pyk"
-targets = ["python"]
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret"]
 
 [[cases]]
 file = "tuples_lists.pyk"
@@ -702,6 +702,10 @@ targets = ["python", "nodejs", "esm", "html", "interpret", "typecheck"]
 [[cases]]
 file = "typecheck_concat_patterns.pyk"
 targets = ["python", "interpret", "typecheck"]
+
+[[cases]]
+file = "typecheck_division.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "typecheck"]
 
 [[cases]]
 file = "typecheck_expr_evaluator.pyk"

@@ -526,6 +526,23 @@ def scale(x, factor:Int) -> Int:   def scale(x, factor):
     return x * factor                  return x * factor
 ```
 
+## `/` needs a helper, because Python floors
+
+Pyking's `/` truncates toward zero; Python's `//` rounds *down*, so the
+two part company whenever exactly one operand is negative -- `-7 // 2`
+is `-4` where every Pyking backend gives `-3`. A prelude helper corrects
+the sign, emitted only in a program that divides:
+
+```python
+def __pyk_div(a, b):
+    q = abs(a) // abs(b)
+    return q if (a < 0) == (b < 0) else -q
+```
+
+Division by zero falls through it to Python's own `ZeroDivisionError`,
+which is what this target is documented as doing (see
+[targets.md](targets.md)).
+
 ## `then:` is Python's loop `else`
 
 Python's `for`/`while` take an `else` clause that runs exactly when the

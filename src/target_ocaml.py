@@ -28,7 +28,8 @@ import typesystem
 from syntax import (
     pprint_type,
     EInt, EString, EBool, EVar,
-    EAdd, EConcat, ESub, EMul, ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq,
+    EAdd, EConcat, ESub, EMul, EDiv,
+    ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq,
     ECall, EIf, ETuple,
     SLet, SLetStmt, SReturn, SReturnStmt, SExprStmt, SIf, SFunctionDef,
     SLoop, SBreak, SContinue, SMatch,
@@ -848,6 +849,10 @@ class _Translator:
                 return self.binary("-", left, right)
             case EMul(_, left, right, _):
                 return self.binary("*", left, right)
+            case EDiv(_, left, right, _):
+                # OCaml's `/` on ints truncates toward zero, which is
+                # Pyking's own rule.
+                return self.binary("/", left, right)
             case ELessThan(_, left, right, _):
                 return self.binary("<", left, right)
             case ELessThanEq(_, left, right, _):
@@ -1391,7 +1396,7 @@ _OP_LEVEL = {
     # at the same level in OCaml.
     "^": _CONCAT, "@": _CONCAT,
     "+": _ADD, "-": _ADD,
-    "*": _MUL,
+    "*": _MUL, "/": _MUL,
 }
 
 
