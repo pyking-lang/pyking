@@ -526,7 +526,10 @@ def _pprint_type(t):
         case TList(_, element):
             return f"[{_grouped(element)}]"
         case TTuple(_, elements):
-            return f"({', '.join(_grouped(e) for e in elements)})"
+            # A singleton keeps the comma that tells it from a grouping,
+            # exactly as the singleton *value* `(e,)` does.
+            inside = ", ".join(_grouped(e) for e in elements)
+            return f"({inside},)" if len(elements) == 1 else f"({inside})"
         case TOr(_, alternatives):
             # `|` binds looser than anything else a type can be, so the
             # alternatives never need parentheses of their own -- except a

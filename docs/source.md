@@ -230,8 +230,9 @@ Around them:
   opens a list of clauses, not a block of statements.
 - **`parse_type` / `parse_type_atom` / `parse_param` / `parse_params`** —
   annotations. A parenthesized list followed by `->` is a `TFunction`;
-  without the arrow it is a `TTuple`, at every length -- `(Int)` is a
-  one-tuple, not a grouped `Int`. `|` binds looser than either, so
+  without the arrow it is a `TTuple`. At one element the comma decides,
+  as it does among values: `(Int,)` is a one-tuple and `(Int)` is
+  grouping. `|` binds looser than either, so
   `parse_type` reads the alternatives and `parse_type_atom` everything
   else.
 - **`parse_pattern`, `parse_case`, `parse_cases`, `parse_match_stmt`** —

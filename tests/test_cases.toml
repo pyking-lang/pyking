@@ -930,3 +930,7 @@ targets = ["python", "interpret", "pyking"]
 [[cases]]
 file = "match_exhaustive_tuple.pyk"
 targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret"]
+
+[[cases]]
+file = "typecheck_singleton_tuple.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]

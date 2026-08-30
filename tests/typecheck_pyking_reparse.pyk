@@ -8,9 +8,9 @@
 #   - a type the checker can infer but the syntax cannot write. `[]` has
 #     element type `!`, which the lexer does not accept, so an
 #     annotation naming it has to be left off rather than printed.
-#   - a one-element tuple, whose type the checker prints as `(Int)`.
-#     Reading that back as a plain `Int` would make the printed program
-#     one this compiler refuses.
+#   - a one-element tuple, whose type the checker prints as `(Int,)`.
+#     Printing it without the comma would say `Int`, and the printed
+#     program would be one this compiler refuses.
 #   - a loop the tail-call pass built with a `break ()` after a `match`
 #     that already answers on every arm. The `break`s then disagree
 #     about what the loop is worth, and the printed program no longer
@@ -35,15 +35,15 @@ def keep(xs: [Int]) -> [Int]:
 print(keep([]))
 
 
-# A one-element tuple, bound, annotated, passed and destructured. `(Int)`
-# is its type in every one of those places, and the type grammar has no
-# other spelling for it.
-single: (Int) = (1,)
+# A one-element tuple, bound, annotated, passed and destructured.
+# `(Int,)` is its type in every one of those places, written with the
+# comma the value is written with.
+single: (Int,) = (1,)
 (only,) = single
 print(single, only)
 
 
-def unwrap(p: (Int)) -> Int:
+def unwrap(p: (Int,)) -> Int:
     (n,) = p
     return n
 

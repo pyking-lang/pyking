@@ -1,0 +1,142 @@
+# One spelling per shape: a tuple *type* is written the way the tuple
+# *value* is, so the singleton carries the comma that tells it from a
+# grouping. `(1,)` has type `(Int,)`; `(1)` is just `1`, and `(Int)` is
+# just `Int`.
+#
+# The two questions this file answers are separate, and both are here
+# because only the printed AST can settle them:
+#
+#   - does the *parser* read each spelling as the shape it names, and
+#   - does the *printer* write each shape back in the spelling it was
+#     read from?
+#
+# The second is why this is a `typecheck_*` file: its `.ast.out` holds
+# the program with the types the checker inferred, so a `(Int,)` that
+# printed as `(Int)` would show up there -- and would leave the `pyking`
+# target's output saying `Int` where the value is a one-tuple, which is
+# a program this compiler refuses.
+
+# --- inferred, with nothing written down -----------------------------
+
+one = (1,)
+two = (1, true)
+none = ()
+nested = ((1,),)
+listed = [(1,), (2,)]
+
+print(one, two, none, nested, listed)
+
+
+# --- the same shapes, written as annotations -------------------------
+
+a: (Int,) = (1,)
+b: (String,) = ("x",)
+c: (Bool,) = (true,)
+d: (Int, Bool) = (1, true)
+e: () = ()
+f: ((Int,),) = ((1,),)
+g: (Int, (Bool,)) = (1, (true,))
+h: [(Int,)] = [(1,), (2,)]
+i: ([Int],) = ([1, 2],)
+
+print(a, b, c, d, e)
+print(f, g, h, i)
+
+
+# --- parentheses as grouping -----------------------------------------
+#
+# Without a comma, parentheses around one type group and nothing more --
+# so each of these annotates a plain scalar, not a tuple.
+
+p: (Int) = 1
+q: ((Int)) = 2
+r: (((String))) = "deep"
+s: [(Int)] = [1, 2]
+t: ((Int), (Bool)) = (1, true)
+
+print(p, q, r, s, t)
+
+
+# --- destructuring a singleton ---------------------------------------
+
+def unwrap(v: (Int,)) -> Int:
+    (n,) = v
+    return n
+
+
+def wrap(n: Int) -> (Int,):
+    return (n,)
+
+
+print(unwrap((7,)), wrap(7), unwrap(wrap(9)))
+
+
+# --- a singleton through a `match` -----------------------------------
+
+def only(v: (String,)) -> String:
+    match v:
+        case (word,): word
+
+
+print(only(("hello",)))
+
+
+# --- function types, where the arrow decides -------------------------
+#
+# The token after `)` is the whole rule: a parenthesized list is a
+# parameter list when `->` follows it and a tuple otherwise. So `(Int)`
+# and `(Int,)` before an arrow are both one Int parameter, while
+# `((Int,))` before one is a single parameter that *is* a one-tuple.
+
+def apply_plain(fn: (Int) -> Int, n: Int) -> Int:
+    return fn(n)
+
+
+def apply_comma(fn: (Int,) -> Int, n: Int) -> Int:
+    return fn(n)
+
+
+def apply_tupled(fn: ((Int,)) -> Int, v: (Int,)) -> Int:
+    return fn(v)
+
+
+def twice(n: Int) -> Int:
+    return n * 2
+
+
+print(apply_plain(twice, 4), apply_comma(twice, 5))
+print(apply_tupled(unwrap, (6,)))
+
+
+# A function *returning* a one-tuple, and one taking and returning them.
+def pair_up(n: Int) -> ((Int,), (Int,)):
+    return ((n,), (n + 1,))
+
+
+print(pair_up(3))
+
+
+# A function type *inside* a singleton, where the element needs
+# parentheses of its own and the singleton's comma has to survive them.
+held: ((Int) -> Int,) = (twice,)
+
+
+def call_held(t: ((Int) -> Int,), n: Int) -> Int:
+    (fn,) = t
+    return fn(n)
+
+
+print(call_held(held, 5))
+
+
+# --- a singleton carried by a loop -----------------------------------
+
+def counted(limit: Int) -> (Int,):
+    loop acc = (0,):
+        if unwrap(acc) < limit:
+            continue (unwrap(acc) + 1,)
+        else:
+            break acc
+
+
+print(counted(0), counted(4))

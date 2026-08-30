@@ -218,3 +218,10 @@ tuples and tuple patterns (never the comma-only literal form some of
 them can be parsed from). This is what makes `-t pyking` output a *useful*
 canonical form to diff or to read: two programs that mean the same
 tuple print identically, whatever punctuation the author chose.
+
+Tuple *types* follow the value they describe, so `pprint_type` writes a
+one-element tuple `(Int,)` with the same comma `(1,)` carries — and
+grouping, having no shape of its own, simply disappears: a source
+`(Int)` prints as `Int` and `((Bool))` as `Bool`. A comma written in a
+*parameter list* disappears with it, `(Int,) -> Int` printing as
+`(Int) -> Int`, since the arrow means there was no tuple there to make.

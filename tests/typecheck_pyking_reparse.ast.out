@@ -4,11 +4,11 @@ print(empty, bare, len(empty))
 def keep(xs:[Int]) -> [Int]:
     return xs
 print(keep([]))
-single: (Int) = (1,)
-(only,): (Int) = single
+single: (Int,) = (1,)
+(only,): (Int,) = single
 print(single, only)
-def unwrap(p:(Int)) -> Int:
-    (n,): (Int) = p
+def unwrap(p:(Int,)) -> Int:
+    (n,): (Int,) = p
     return n
 print(unwrap((7,)), unwrap(single))
 def total(xs:[Int], acc:Int) -> Int:

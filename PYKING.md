@@ -155,7 +155,8 @@ Statements:
 - Mutable variables (`var` and `:=`) — Pyking extension
 - Function definitions (`def`), with optional parameter and return type
   annotations (`Int`, `String`, `Bool`, list types `[T]`, tuple types
-  `(T1, T2, ...)` including the unit type `()`, function types
+  `(T1, T2, ...)` including the singleton `(T,)` and the unit type `()`,
+  function types
   `(T1, T2, ...) -> T`, and nesting of any of these) — annotations are
   pretty-printed in Pyking's own syntax but erased when compiling
 - `return` statements, whose operand may be an ordinary expression or
@@ -239,7 +240,15 @@ type_atom    = "Int" | "String" | "Bool"
              | type_var
              | "all" , type_var , { type_var } , "." , type
              | "[" , type , "]"
-             | "(" , [ type , { "," , type } ] , ")" , [ "->" , type ] ;
+             | type_paren ;
+(* One parenthesized list, three readings, decided by the token after
+   ")" and by whether a comma is written -- exactly as `tuple_lit` and a
+   parenthesized expression are told apart among values. *)
+type_paren   = "(" , [ type , { "," , type } , [ "," ] ] , ")" , "->" , type
+             | "(" , type , ")"
+             | "(" , ")"
+             | "(" , type , "," , ")"
+             | "(" , type , ( "," , type )+ , [ "," ] , ")" ;
 type_var     = ? an ident beginning with a lowercase letter ? ;
 
 return_stmt = "return" , bound_value ;
@@ -570,29 +579,43 @@ Notes that don't fall out of the grammar alone:
   completely — no generated code carries type syntax at all. Whether
   anything is *verified* against them is a separate question, answered by
   "Type checking" at the end of this reference.
-- A tuple `type` with zero elements, `()`, is the Unit type. One with a
-  single element, e.g. `(Int)`, is a genuine 1-element tuple type, not a
-  parenthesized `Int` — Pyking's type grammar has no parenthesization for
-  grouping, so there's no ambiguity to resolve. Tuple and list types can
-  nest arbitrarily, e.g. `[(Int, Bool)]` or `(Int, [String], (Bool, Bool))`.
+- **A tuple type is written the way the tuple value is.** A tuple `type`
+  with zero elements, `()`, is the Unit type; one with a single element
+  is `(Int,)`, carrying the same comma the singleton value `(1,)`
+  carries; and `(Int, Bool)` upwards needs no comma to be a tuple, with
+  a trailing one allowed as it is among values. So `(1,)` has type
+  `(Int,)` and `(1, true)` has type `(Int, Bool)`, each spelled like the
+  value it describes. Tuple and list types nest arbitrarily, e.g.
+  `[(Int, Bool)]`, `(Int, [String], (Bool, Bool))` or `((Int,),)`.
+- **Parentheses around one type are grouping**, exactly as they are
+  around one expression: `(Int)` is `Int`, `((Int))` is `Int` again, and
+  `(1)` is likewise just `1`. The comma is the whole difference between
+  grouping and a singleton, in types and in values alike — which is why
+  a singleton must be written with it in both.
 - The trailing `[ "->" , type ]` in `type` is what makes a **function
   type**, `(Int, Bool) -> Int`. The parenthesized list before the arrow
   is the *parameter list*, and the same list without an arrow after it is
   a tuple — which is the whole rule, decided by the one token after `)`.
   So `(Int, Bool)` is a pair, `(Int, Bool) -> Int` takes two parameters,
   and `((Int, Bool)) -> Int` takes one parameter that is a pair. The
+  arrow settles the singleton too: `(Int) -> Int` and `(Int,) -> Int`
+  both take one `Int` — the comma is a list's, and there is no tuple
+  there for it to make — while `((Int,)) -> Int` takes one parameter
+  that *is* a one-tuple. The
   result is a `type` in its turn, so `->` groups to the right:
   `(Int) -> (Int) -> Int` returns a function and needs no parentheses of
   its own. A function type may appear wherever a type may, including
   nested inside list and tuple types — `[(Int) -> Bool]`,
   `((Int) -> Int, Int)` — and as another function type's parameter,
   `((Int) -> Int) -> Int`.
-- The same is true of `tuple_lit`, `target_atom`, and `pattern_atom`:
+- The same is true of `tuple_lit`, `target_atom`, and `pattern_atom` —
+  and of `type_paren` above, which is the point of writing them alike:
   `()` is the empty tuple, and a *parenthesized* single element followed
-  by a comma, e.g. `(1,)`, `(x,)`, or `case (p,):`, is a genuine singleton
-  tuple/target/pattern, distinct from a plain parenthesized `(1)`/`(x)`/
-  `(p)` (which is just grouping, unwrapped by the parser). Tuples nest
-  arbitrarily in all three positions.
+  by a comma, e.g. `(1,)`, `(x,)`, `case (p,):` or `(Int,)`, is a genuine
+  singleton tuple/target/pattern/type, distinct from a plain
+  parenthesized `(1)`/`(x)`/`(p)`/`(Int)` (which is just grouping,
+  unwrapped by the parser). Tuples nest arbitrarily in all four
+  positions.
 - `tuple_or_expr`, `target`, and `pattern` all also accept a *bare*
   (unparenthesized) form — `1, 2`, `a, b`, `case a, b:` — but deliberately
   require at least two elements and forbid a trailing comma there: a
@@ -1410,10 +1433,11 @@ total: Int = count + 1
 ```
 
 Parameters and the return value may optionally be annotated with a type:
-`Int`, `String`, `Bool`, a list type `[T]`, a tuple type `(T1, T2, ...)`,
-or a function type `(T1, T2, ...) -> T` (all nesting freely, e.g.
-`[(Int, Bool)]` or `[(Int) -> Bool]`). `()`, the zero-element tuple type,
-is the Unit type. Annotations are entirely optional and independent per
+`Int`, `String`, `Bool`, a list type `[T]`, a tuple type `(T1, T2, ...)`
+or `(T,)`, or a function type `(T1, T2, ...) -> T` (all nesting freely,
+e.g. `[(Int, Bool)]` or `[(Int) -> Bool]`). `()`, the zero-element tuple
+type, is the Unit type, and `(T)` with no comma is grouping rather than
+a tuple. Annotations are entirely optional and independent per
 parameter/return value — a function can mix annotated and unannotated
 parameters freely.
 
@@ -2401,7 +2425,8 @@ always be refused.
 
 The checker works in the types "Type annotations" lists, and no others:
 `Int`, `String`, `Bool`, list types `[T]`, tuple types `(T1, T2, ...)`
-— with `()`, the zero-element tuple, as the unit type — function types
+— with `(T,)` the one-element one and `()`, the zero-element tuple, the
+unit type — function types
 `(T1, T2, ...) -> T`, and *alternative* types `T1 | T2`.
 
 An alternative type is a value that is one of several: `Int | String` is
@@ -2802,10 +2827,10 @@ def compose(g, f, x):
 
 **A single parameter needs no parentheses**: `x -> x` and `(x) -> x` are
 one type — the `->` after the `)` is what makes the parenthesized list a
-parameter list. With no arrow after it, one type in parentheses is a
-one-element tuple, `(x)`, as the grammar notes above say: the type
-grammar has no parenthesization for grouping, and `(1,)` is a value that
-needs a type to be written for it.
+parameter list. With no arrow after it, one type in parentheses is
+*grouping*, `(x)` being `x`, as the grammar notes above say; a
+one-element tuple is `(x,)`, written with the comma the value `(1,)` is
+written with.
 
 **An `all` written inside a type stays there**, which is first-class
 polymorphism: a parameter can demand a function that is itself

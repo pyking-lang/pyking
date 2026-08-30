@@ -68,13 +68,15 @@ knows the form exists; only the string case needs a node of its own.
 `parse_type` follows the same shape one level down: `parse_type_arrow`
 is where a single parameter needs no parentheses (`x -> x` is
 `(x) -> x`), and the parenthesized branch of `parse_type_atom` reads a
-list followed by `->` as a parameter list and one without as a tuple --
-at *every* length, `(Int)` included. The type grammar has no
-parenthesization for grouping, so there is nothing else one type in
-parentheses could mean, and `(1,)` is a value that needs a type to be
-written for it: reading `(Int)` as `Int` would leave a one-tuple
-unannotatable, and would leave the `pyking` target's own output
-unparsable, since that is the type it prints for such a value.
+list followed by `->` as a parameter list and one without as a tuple.
+At one element the comma decides, exactly as it does among values:
+`parse_type_elements` reports whether one came just before the `)`, so
+`(Int,)` is the one-tuple and `(Int)` is grouping, unwrapped the way
+`parse_atom` unwraps `(1)`. That is the whole reason the two are
+written alike -- a type is spelled like the value it describes, and
+`(1,)` needs `(Int,)` to name it. A trailing comma before an *arrow*
+makes no tuple, there being a parameter list there instead, so
+`(Int,) -> Int` and `(Int) -> Int` are one type.
 
 The `while True` loop, not recursion, is what makes `+`/`++`/`-`
 **left-associative**: `1 + 2 + 3` parses as `parse_multiplicative` reads

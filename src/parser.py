@@ -457,7 +457,7 @@ def parse_type_atom(tokens):
             # itself a tuple writable, as `((Int, Bool)) -> Int`: the
             # inner pair is read as a tuple because no arrow follows it,
             # and the outer as a parameter list because one does.
-            elements, rp_info, rest = parse_type_elements(rest)
+            elements, trailing, rp_info, rest = parse_type_elements(rest)
             match rest:
                 case [TokArrow(_), *after_arrow]:
                     # The result is a whole type in its turn, so a
@@ -468,12 +468,16 @@ def parse_type_atom(tokens):
                     return (TFunction(combine_info(lp_info, result.info),
                                       elements, result),
                             rest)
+                case _ if len(elements) == 1 and not trailing:
+                    # `(T)` is grouping, exactly as `(e)` is among
+                    # values; the comma is what makes a singleton, and
+                    # `(T,)` below is the type of `(e,)`.
+                    return (replace(elements[0],
+                                    info=combine_info(lp_info, rp_info)),
+                            rest)
                 case _:
-                    # Every length is a tuple, `(Int)` included: the type
-                    # grammar has no parenthesization for grouping, so
-                    # there is nothing else one type in parentheses could
-                    # mean, and `(1,)` is a value that needs a type to be
-                    # written for it (PYKING.md, the grammar notes).
+                    # `()`, `(T,)`, `(T1, T2)`, ... -- one tuple type per
+                    # tuple value, written the way the value is.
                     return TTuple(combine_info(lp_info, rp_info), elements), rest
         case [t, *_]:
             raise ParseError(t.info, "expected a type")
@@ -482,19 +486,23 @@ def parse_type_atom(tokens):
 
 
 def parse_type_elements(tokens):
-    """Parses comma-separated types up to and including ')'.
-    [Token] -> ([Type], Info, [Token])"""
+    """Parses comma-separated types up to and including ')', also saying
+    whether a comma came just before that ')' -- which is the whole of
+    what tells the singleton tuple `(T,)` from the grouping `(T)`.
+    [Token] -> ([Type], Bool, Info, [Token])"""
     match tokens:
         case [TokRParen(info), *rest]:
-            return [], info, rest
+            return [], False, info, rest
         case _:
             elem, rest = parse_type(tokens)
             match rest:
+                case [TokComma(_), TokRParen(info), *rest]:
+                    return [elem], True, info, rest
                 case [TokComma(_), *rest]:
-                    elems, rp_info, rest = parse_type_elements(rest)
-                    return [elem] + elems, rp_info, rest
+                    elems, trailing, rp_info, rest = parse_type_elements(rest)
+                    return [elem] + elems, trailing, rp_info, rest
                 case [TokRParen(info), *rest]:
-                    return [elem], info, rest
+                    return [elem], False, info, rest
                 case _:
                     raise ParseError(_here(rest), "expected ',' or ')' in tuple type")
 

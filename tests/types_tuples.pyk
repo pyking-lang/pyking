@@ -2,18 +2,18 @@
 # inside another -- written as an annotation, passed a value of that
 # shape, and destructured.
 #
-# A one-element tuple type `(Int)` is a genuine one-tuple, not `Int`
-# with brackets round it: the type grammar has no parenthesization for
-# grouping, and `(1,)` is a value that needs a type to be written for
-# it. That is also what the `pyking` target prints for such a value, so
-# reading `(Int)` any other way would leave that output unparsable.
+# A one-element tuple type is written `(Int,)`, with the comma the
+# singleton value `(1,)` is written with -- one spelling per shape, and
+# the same rule in both places. `(Int)` is grouping, as `(1)` is among
+# values. types_singleton_tuple.pyk is the file that pins the pair of
+# them against each other.
 
 def describe_pair(p:(Int, Bool)) -> String:
     a, b = p
     return "pair " ++ str(a) ++ " " ++ str(b)
 
 
-def describe_single(p:(Int)) -> String:
+def describe_single(p:(Int,)) -> String:
     (a,) = p
     return "single " ++ str(a)
 
