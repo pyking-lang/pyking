@@ -7,11 +7,10 @@
 # rename: each turn's functions are built by a small factory that takes
 # the turn's values (see docs/target_python.md).
 
-var fns = []
-
-for i in range(4):
+fns =
+loop made = [] for i in range(4):
     def show(): i * 10
-    fns := fns ++ [show]
+    continue made ++ [show]
 
 for f in fns:
     print(f())
@@ -19,14 +18,12 @@ for f in fns:
 
 # The functions of one turn may call each other -- and themselves --
 # and each turn's group is its own.
-var pairs = []
-
-for n in range(3):
+pairs =
+loop seen = [] for n in range(3):
     def down(k): if k < 1 then n else up(k - 1)
     def up(k): down(k)
     def alone(k): if k < 1 then n * 100 else alone(k - 1)
-    pairs := pairs ++ [down]
-    pairs := pairs ++ [alone]
+    continue seen ++ [down] ++ [alone]
 
 for g in pairs:
     print(g(3))
@@ -34,12 +31,11 @@ for g in pairs:
 
 # Bindings made *inside* the body are per-turn too, not just the loop
 # variable.
-var doubled = []
-
-for m in range(3):
+doubled =
+loop kept = [] for m in range(3):
     twice = m + m
     def report(): twice
-    doubled := doubled ++ [report]
+    continue kept ++ [report]
 
 for h in doubled:
     print(h())

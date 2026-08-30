@@ -22,7 +22,7 @@ Functions:
 """
 
 import keyword
-from dataclasses import dataclass, fields, is_dataclass, replace
+from dataclasses import dataclass, field, fields, is_dataclass, replace
 
 import runtime_interface
 from lexer import Info
@@ -36,6 +36,7 @@ from syntax import (
     ForIn, WhileTest,
     SLoop, SBreak, SContinue,
     SFunctionDef, SMatch,
+    TInt, TString, TBool, TList, TTuple, TOr, TNever,
     TargetName, TargetTuple,
 )
 
@@ -341,6 +342,18 @@ class PyExprStmt(PyStmt):   # expr used as a statement, e.g. print(x)
 
 
 @dataclass(frozen=True)
+class PyGlobal(PyStmt):     # global a, b
+    info: Info
+    names: list
+
+
+@dataclass(frozen=True)
+class PyNonlocal(PyStmt):   # nonlocal a, b
+    info: Info
+    names: list
+
+
+@dataclass(frozen=True)
 class PyFor(PyStmt):        # for name in iterable: body [else: orelse]
     info: Info
     name: str
@@ -419,8 +432,13 @@ _loop_accumulators = []
 # How many loop-result variables have been named in this program.
 _result_counter = 0
 
+# The type checker's symbol -> type table, set by `translate_program`.
+# What a `print` argument is worth knowing about is its type, and this
+# is where that is read from.
+_tmap = {}
+
 # Lazily generated helper for printing a value that might hold a Bool
-# at runtime but isn't provably one from its Pyking source form; see
+# at runtime but whose type does not say so; see
 # docs/target_python.md, "Booleans".
 _format_helper_name_value = None
 _format_helper_def = None
@@ -547,13 +565,19 @@ class Scope:
     captured: {String} (names functions defined in this scope read from
         around them; see _captured_names),
     loop_names: {String}? (names the nearest enclosing loop rebinds each
-        turn, or None outside a loop)."""
+        turn, or None outside a loop),
+    depth: Int (how many Python function scopes deep this is; 0 is the
+        module),
+    mutables: {String: Int} (each `var` in scope, and the depth its
+        declaration sits at -- what decides `global` from `nonlocal`)."""
     outer: dict
     local: dict
     block: frozenset
     shadowed: frozenset = frozenset()
     captured: frozenset = frozenset()
     loop_names: frozenset = None
+    depth: int = 0
+    mutables: dict = field(default_factory=dict)
 
 
 def _function_scope(scope, shadowed=frozenset(), captured=frozenset()):
@@ -569,7 +593,8 @@ def _function_scope(scope, shadowed=frozenset(), captured=frozenset()):
     # the `def` was written.
     return Scope(
         {**scope.outer, **scope.local}, {}, frozenset(),
-        frozenset(shadowed), frozenset(captured),
+        frozenset(shadowed), frozenset(captured), None,
+        scope.depth + 1, scope.mutables,
     )
 
 
@@ -767,6 +792,68 @@ def _target_names(target):
     return []
 
 
+# --- what a body writes to from outside itself ---
+#
+# Python makes any assigned name local to the whole function, so a `def`
+# that writes a `var` bound outside it has to say so: `global` for one
+# declared at the module level, `nonlocal` for one in an enclosing
+# function. Every other backend needs nothing here -- JavaScript closes
+# over the binding, OCaml over the `ref` -- and C and Java refuse such a
+# function outright, having no closures at all. See
+# docs/target_python.md, "A `var` written from inside a function".
+
+
+def _mutated_names(stmts):
+    """The names a body writes with `:=` and does not itself declare
+    with `var`. The walk stops at a nested `def`: that body declares its
+    own. [Stmt] -> {String}"""
+    written, declared = set(), set()
+    _mutated_in_block(stmts, written, declared)
+    return frozenset(written - declared)
+
+
+def _mutated_in_block(stmts, written, declared):
+    """Adds to written and declared over one statement list.
+    [Stmt] -> {String} -> {String} -> ()"""
+    for s in stmts:
+        match s:
+            case SVar(_, name, _):
+                declared.add(name)
+            case SMutate(_, name, _):
+                written.add(name)
+            case SIf(_, _, then_body, else_body):
+                _mutated_in_block(then_body, written, declared)
+                if else_body is not None:
+                    _mutated_in_block(else_body, written, declared)
+            case SLoop(_, _, _, _, _, _, body):
+                _mutated_in_block(body, written, declared)
+            case SMatch(_, _, cases):
+                for arm in cases:
+                    _mutated_in_block(arm.body, written, declared)
+            case SLetStmt(_, _, inner) | SReturnStmt(_, inner):
+                _mutated_in_block([inner], written, declared)
+
+
+def _scope_declarations(names, scope, info):
+    """The `global`/`nonlocal` lines a function body needs for the
+    names it writes: `global` for a `var` declared at the module level,
+    `nonlocal` for one in an enclosing function. A name no `var` in
+    scope owns gets neither -- `src/analyses.py` has already refused a
+    `:=` that names anything else. {String} -> Scope -> Info -> [PyStmt]"""
+    outer, enclosing = [], []
+    for name in sorted(names):
+        depth = scope.mutables.get(name)
+        if depth is None:
+            continue
+        (outer if depth == 0 else enclosing).append(_lookup(name, scope))
+    lines = []
+    if outer:
+        lines.append(PyGlobal(info, outer))
+    if enclosing:
+        lines.append(PyNonlocal(info, enclosing))
+    return lines
+
+
 def _block_scope(scope):
     """The scope for a nested Pyking block: the same Python function
     scope -- which is exactly why bindings inside it may need renaming --
@@ -774,7 +861,7 @@ def _block_scope(scope):
     when the caller keeps using its own scope."""
     return Scope(
         scope.outer, scope.local, frozenset(), scope.shadowed, scope.captured,
-        scope.loop_names,
+        scope.loop_names, scope.depth, scope.mutables,
     )
 
 
@@ -837,13 +924,15 @@ def _fresh_py_name(name, scope):
     return f"{name}{n}"
 
 
-def _bind(name, scope, rebinding=False, loop_carried=True):
+def _bind(name, scope, rebinding=False, loop_carried=True, mutable=False):
     """Binds a Pyking name, renaming only where it would otherwise land
     on a Python name still live in this function scope
     (docs/target_python.md, "Blocks are scopes; Python's are not").
     rebinding marks a value binding (= or var) that may reuse this
     block's own prior binding of name, unless a function already
-    captured it. String -> Scope -> Bool -> Bool -> (String, Scope)"""
+    captured it; mutable marks a `var`, whose declaring depth is what
+    later decides `global` from `nonlocal`.
+    String -> Scope -> Bool -> Bool -> Bool -> (String, Scope)"""
     if name in scope.block and not (rebinding and name in scope.captured):
         return scope.local[name], scope
     py_name = name
@@ -866,6 +955,11 @@ def _bind(name, scope, rebinding=False, loop_carried=True):
         None
         if scope.loop_names is None
         else (scope.loop_names | {name} if loop_carried else scope.loop_names - {name}),
+        scope.depth,
+        # A `var` records where it was declared; anything else of that
+        # name is no longer a cell, so it drops out.
+        {**scope.mutables, name: scope.depth} if mutable
+        else {k: v for k, v in scope.mutables.items() if k != name},
     )
 
 
@@ -1082,42 +1176,44 @@ def _translate_comp_for(clause, scope):
 # Pyking has no type checker in an ordinary compile (see PYKING.md), so
 # whether a given expression holds a Bool is, in general, not knowable
 # at compile time -- but for plenty of expressions it plainly is,
-# straight from their Pyking AST *shape* alone, with no type system
-# needed: a comparison or a boolean literal always does, an arithmetic
-# expression or a string/int literal never does. What a *container*
-# holds is a different question from what it is, so a list, tuple or
-# comprehension is "unknown" however plainly it is not itself a Bool --
-# `print([true])` has a Bool to spell either way. `_bool_shape` answers
-# where it can and says "unknown" everywhere else, which
-# `_wrap_print_argument` (the only caller) treats as the safe default: a
-# runtime walk via `_format_helper_name`.
-_PROVABLY_BOOL_EXPRS = (EEq, ELessThan, ELessThanEq, EGreatThan, EGreatThanEq)
-_PROVABLY_NOT_BOOL_EXPRS = (EInt, EString, EAdd, EConcat, ESub, EMul, EDiv, ENeg)
+# straight from the *type* the checker gave it -- `tmap`, keyed by
+# symbol, which `translate_program` is handed. A `Bool` is spelled
+# inline, anything with no `Bool` anywhere inside it is printed as
+# Python already prints it, and only a value that really can hold one
+# (a `[Bool]`, a `(Int, Bool)`, a type nothing has pinned down) needs
+# the runtime walk. That is what keeps an ordinary program's output
+# free of a prelude it has no use for.
 
 
-def _bool_shape(e):
-    """'bool', 'not-bool', or 'unknown' for whether e provably holds a
-    Bool, provably doesn't, or can't be told without a type checker
-    (docs/target_python.md, "Booleans"). Expr -> String"""
-    if isinstance(e, EBool) or isinstance(e, _PROVABLY_BOOL_EXPRS):
-        return "bool"
-    if isinstance(e, _PROVABLY_NOT_BOOL_EXPRS):
-        return "not-bool"
-    if isinstance(e, EIf):
-        then_shape = _bool_shape(e.then_expr)
-        return then_shape if then_shape == _bool_shape(e.else_expr) else "unknown"
+def _bool_kind(type_):
+    """'bool' for a Bool, 'not-bool' for a type with no Bool anywhere
+    inside it, 'unknown' otherwise. Type? -> String"""
+    match type_:
+        case TBool():
+            return "bool"
+        case TInt() | TString() | TNever():
+            return "not-bool"
+        case TList(_, element, _):
+            return "not-bool" if _bool_kind(element) == "not-bool" else "unknown"
+        case TTuple(_, elements, _):
+            # `()` is the zero-element tuple, and holds nothing at all.
+            kinds = {_bool_kind(e) for e in elements}
+            return "not-bool" if kinds <= {"not-bool"} else "unknown"
+        case TOr(_, alternatives, _):
+            kinds = {_bool_kind(a) for a in alternatives}
+            return kinds.pop() if len(kinds) == 1 else "unknown"
     return "unknown"
 
 
 def _wrap_print_argument(pyking_expr, translated, info):
     """One print argument, formatted for Pyking's true/false spelling:
-    inline where _bool_shape proves the type, a call through the
+    inline where the checker's type settles it, a call through the
     generated helper otherwise (docs/target_python.md, "Booleans").
     Expr -> PyExpr -> Info -> PyExpr"""
-    shape = _bool_shape(pyking_expr)
-    if shape == "bool":
+    kind = _bool_kind(_tmap.get(pyking_expr.sym))
+    if kind == "bool":
         return PyIfExp(info, translated, PyString(info, "true"), PyString(info, "false"))
-    if shape == "not-bool":
+    if kind == "not-bool":
         return translated
     helper = PyVar(info, _format_helper_name(info))
     return PyCall(info, helper, [translated, PyBool(info, True)])
@@ -1424,18 +1520,22 @@ def _translate_tail_stmt(s, scope):
             return [translated]
         case SExprStmt(info, expr):
             return [PyReturn(info, translate_expr(expr, scope))]
+        case SIf(_, _, _, None):
+            # An `if` with no `else` supplies unit whatever its one
+            # branch ends in (PYKING.md, "Type checking"): a path runs no
+            # branch at all, so there is no value the statement can be
+            # counted on for. Translated as an ordinary statement, so the
+            # function falls out of its end -- Python's own implicit
+            # `None`, i.e. unit.
+            translated, _ = translate_stmt(s, scope)
+            return [translated]
         case SIf(info, cond, then_body, else_body):
-            # An `if` with no `else` leaves that path with no value; it
-            # simply falls out of the function, which is Python's own
-            # implicit `None` -- i.e. unit.
             return [
                 PyIf(
                     info,
                     translate_expr(cond, scope),
                     _translate_tail_block(then_body, _block_scope(scope)),
-                    None
-                    if else_body is None
-                    else _translate_tail_block(else_body, _block_scope(scope)),
+                    _translate_tail_block(else_body, _block_scope(scope)),
                 )
             ]
         case SMatch(info, subject, cases):
@@ -1815,7 +1915,9 @@ def translate_stmt(s, scope):
             # per turn of a loop -- a copy handed to a factory would
             # freeze at the value it had when the turn's functions were
             # built, which is the opposite of what `var` means.
-            py_name, scope = _bind(name, scope, rebinding=True, loop_carried=False)
+            py_name, scope = _bind(
+                name, scope, rebinding=True, loop_carried=False, mutable=True
+            )
             return PyAssign(info, PyTargetName(info, py_name), py_expr), scope
 
         case SMutate(info, name, expr):
@@ -1882,10 +1984,19 @@ def translate_stmt(s, scope):
             for param in params:
                 py_param, body_scope = _bind(param.name, body_scope)
                 param_names.append(py_param)
+            # Before anything in the body is translated, since the
+            # declarations name the variables as they are known *outside*
+            # it -- which is what `body_scope` still holds here.
+            declarations = _scope_declarations(
+                _mutated_names(body), body_scope, info
+            )
             py_body = _translate_tail_block(body, body_scope)
             if _falls_through(py_body):
                 py_body.append(PyReturn(info, PyTuple(info, [])))
-            return PyFunctionDef(info, py_name, param_names, py_body), scope
+            return (
+                PyFunctionDef(info, py_name, param_names, declarations + py_body),
+                scope,
+            )
 
         case SReturnStmt(_, stmt):
             # `return if c: ...` -- the same push-down as a tail-position
@@ -2129,14 +2240,18 @@ def _translate_stmts(stmts, scope):
     return translated, scope
 
 
-def translate_program(stmts):
+def translate_program(stmts, tmap):
     """Translates a full program: comprehension and Bool-format helper
     state is reset first, and every helper synthesized along the way is
-    prepended. [Stmt] -> PyProgram"""
+    prepended. `tmap` is the checker's symbol -> type table, which is
+    what decides how a `print` argument is formatted.
+    [Stmt] -> {Int: Type} -> PyProgram"""
     global _comp_counter, _pending_comp_helpers, _used_identifiers, _turn_counter
     global _format_helper_name_value, _format_helper_def, _loop_accumulators
     global _divide_helper_def
     global _result_counter
+    global _tmap
+    _tmap = tmap
     _comp_counter = 0
     _loop_accumulators = []
     _result_counter = 0
@@ -2355,6 +2470,10 @@ def pprint_py_stmt(s, level=0):
             return f"{pad}return {pprint_py_expr(expr)}"
         case PyExprStmt(_, expr):
             return f"{pad}{pprint_py_expr(expr)}"
+        case PyGlobal(_, names):
+            return f"{pad}global {', '.join(names)}"
+        case PyNonlocal(_, names):
+            return f"{pad}nonlocal {', '.join(names)}"
         case PyFor(_, name, iterable, body, orelse):
             lines = [f"{pad}for {name} in {pprint_py_expr(iterable)}:"]
             lines += _render_block(body, level + 1)

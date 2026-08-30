@@ -553,14 +553,23 @@ def translate_tail_stmt(s, scope):
             return [translated]
         case SExprStmt(info, expr):
             return [JsReturn(info, translate_expr(expr, scope))]
+        case SIf(_, _, _, None):
+            # An `if` with no `else` supplies unit whatever its one
+            # branch ends in (PYKING.md, "Type checking"): a path runs no
+            # branch at all, so there is no value the statement can be
+            # counted on for. Translated as an ordinary statement, so the
+            # function falls out of its end.
+            translated, _ = translate_stmt(s, scope)
+            return _as_stmts(translated)
         case SIf(info, cond, then_body, else_body):
-            js_then = translate_tail_stmts(then_body, _block_scope(scope))
-            js_else = (
-                None
-                if else_body is None
-                else translate_tail_stmts(else_body, _block_scope(scope))
-            )
-            return [JsIf(info, translate_expr(cond, scope), js_then, js_else)]
+            return [
+                JsIf(
+                    info,
+                    translate_expr(cond, scope),
+                    translate_tail_stmts(then_body, _block_scope(scope)),
+                    translate_tail_stmts(else_body, _block_scope(scope)),
+                )
+            ]
         case SLoop(info):
             # A function ending in a loop returns what the loop
             # produced: the accumulator it stopped with.
@@ -845,6 +854,32 @@ class _Loop:
     result: JsTarget
 
 
+def _defines_function(stmts):
+    """Whether a `def` is written anywhere in these statements, at any
+    depth. A loop whose body defines one has to give every turn its own
+    accumulator, since the function outlives the turn and JavaScript's
+    `let` outside the loop is one binding for all of them (see
+    `_translate_loop`). [Stmt] -> Bool"""
+    for node in _walk(stmts):
+        if isinstance(node, SFunctionDef):
+            return True
+    return False
+
+
+def _walk(node):
+    """Every dataclass node in a tree, the tree itself included.
+    Any -> [Any]"""
+    if isinstance(node, (list, tuple)):
+        for item in node:
+            yield from _walk(item)
+        return
+    if not is_dataclass(node):
+        return
+    yield node
+    for f in fields(node):
+        yield from _walk(getattr(node, f.name))
+
+
 def _fresh_result_name(scope):
     """A name for a loop-result variable that nothing here uses.
     Scope -> String"""
@@ -937,6 +972,10 @@ def _translate_loop(s, scope):
     info = s.info
     setup = []
     js_target = None
+    # What the *next* turn's accumulator is assigned to, which is the
+    # accumulator itself unless the body defines a function (below).
+    carried = None
+    per_turn = []
     # A loop carrying nothing yields unit, which is the empty tuple.
     value = JsArray(info, [])
     body_scope = _block_scope(scope)
@@ -950,6 +989,22 @@ def _translate_loop(s, scope):
         # Pyking binds afresh on every turn.
         setup.append(JsLet(info, js_target, js_init))
         value = _target_as_expr(js_target)
+        carried = js_target
+        if _defines_function(s.body):
+            # Pyking binds the accumulator afresh on every turn, and a
+            # function written in the body outlives the turn -- so one
+            # `let` around the loop would give every one of them the last
+            # turn's value. The `let` becomes a carrier holding what the
+            # next turn starts with, and the accumulator itself becomes a
+            # `const` inside the body: one binding per turn, which is
+            # what each function closes over. See docs/target_js.md,
+            # "A def inside a loop".
+            carried = JsTargetName(info, _fresh_result_name(scope))
+            scope = _reserve([carried.name], scope)
+            body_scope = _reserve([carried.name], body_scope)
+            setup = [JsLet(info, carried, js_init)]
+            per_turn = [JsConst(info, js_target, JsVar(info, carried.name))]
+            value = JsVar(info, carried.name)
     # A loop is worth what it breaks with, which need not be shaped like
     # what it carries: `break acc` in a loop carrying two values has
     # nowhere in the accumulator to go, so it gets a variable of its own.
@@ -971,9 +1026,9 @@ def _translate_loop(s, scope):
         case ForIn(_, name, sequence, _):
             js_sequence = translate_expr(sequence, scope)
             js_name, body_scope = _bind(name, body_scope)
-    _loop_accumulators.append(_Loop(js_target, result))
+    _loop_accumulators.append(_Loop(carried, result))
     try:
-        js_body = _translate_loop_block(s.body, js_target, body_scope)
+        js_body = per_turn + _translate_loop_block(s.body, carried, body_scope)
     finally:
         _loop_accumulators.pop()
     if s.result is not None:

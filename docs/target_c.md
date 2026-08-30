@@ -441,7 +441,7 @@ it `break`s with, which need not be shaped like what it carries — the
 shape every accumulator-passing function has after the tail-call pass
 (docs/optimization.md) — so a `break` with an operand gets a variable of
 its own, typed from what the breaks give. A loop whose breaks disagree
-about that type is refused here too, though `--typecheck` now refuses it
+about that type is refused here too, though the type checker now refuses it
 first and in the language's own words (PYKING.md, "Type checking"); this
 backend keeps its own check because it compiles whether the checker ran
 or not. A *bare* `break` in a multi-slot loop is refused for a reason of

@@ -1,0 +1,45 @@
+# `var` and `:=` under the type checker.
+#
+# A mutable variable is Int or Bool -- the two types mutation reaches so
+# far. Its type is its initializer's, and nothing marks it as mutable:
+# a `var` Int is read as an ordinary Int and stands wherever one does,
+# so `total` below is added, compared and printed like any binding.
+#
+# `:=` writes a value of that same type back into it; it binds nothing
+# and is worth nothing. Whether a name may be written to at all is not a
+# type question -- src/analyses.py answers that one.
+
+var total = 0
+total := total + 1
+total := total * 21
+print(total)
+
+var ready = false
+ready := total > 10
+print(ready)
+
+
+# Read where an ordinary Int is wanted: as an argument, in an operator,
+# and as the thing a function returns.
+def doubled(n: Int) -> Int:
+    return n + n
+
+
+print(doubled(total))
+print(total - 1, total == 21)
+
+
+# A `var` inside a function, updated from inside a nested block, and
+# read as the function's value.
+def stepped(limit: Int) -> Int:
+    var seen = 0
+    loop i = 0:
+        if i >= limit:
+            break
+        seen := seen + i
+        continue i + 1
+    return seen
+
+
+print(stepped(5))
+print(stepped(0))

@@ -213,7 +213,7 @@ same = echo        # same : ((Int) -> Int) | ((String) -> String)
 ```
 
 A `def` with several types is printed *as it was written* by
-`--typecheck --ast`, because the syntax of a `def` header has one slot
+`-t pyking`, because the syntax of a `def` header has one slot
 per parameter and no way to say which result goes with which — see
 "The mistake that made this page necessary".
 
@@ -291,7 +291,7 @@ The alternatives are parenthesised because `->` reaches past `|` in
 Pyking's type grammar: `(Int, Int) -> Int | (String, String) -> String`
 would read as one function returning
 `Int | ((String, String) -> String)`. Printing them parenthesised keeps
-`--typecheck --ast` output re-parsable and keeps an error message
+`-t pyking` output re-parsable and keeps an error message
 unambiguous however the reader groups it.
 
 ### 4. A mixed body yields an alternative type, not an error
@@ -339,7 +339,7 @@ either function fixes it.
 ### 6. An uncalled function gets no type at all
 
 Nothing is inferred for a function nobody calls — there is nothing to
-infer it from. `--typecheck --ast` prints it exactly as written, with no
+infer it from. `-t pyking` prints it exactly as written, with no
 annotations. That is honest, and it is also why the `typecheck_infer_*`
 tests all call what they define.
 
@@ -351,7 +351,7 @@ until something outside the cycle calls one of the others (see
 
 ### 7. `?` in printed output does not round-trip
 
-`--typecheck --ast` output is otherwise re-parsable Pyking, and `|` was
+`-t pyking` output is otherwise re-parsable Pyking, and `|` was
 added to the type grammar partly to keep it that way. `?` is the one
 exception: it is printed for a `TUnknown` — a function passed somewhere
 and never called — and there is deliberately no syntax for it, because

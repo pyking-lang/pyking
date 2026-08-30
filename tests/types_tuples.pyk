@@ -1,30 +1,36 @@
-# Pyking has no tuple *literal* syntax yet, and type annotations aren't
-# enforced by anything -- so these functions just demonstrate that every
-# shape of tuple type (0, 1, 2, and 4 elements, nested) parses, pretty
-# prints, and compiles; they don't destructure their tuple-typed params.
+# Every shape of tuple type -- 0, 1, 2 and 4 elements, and one nested
+# inside another -- written as an annotation, passed a value of that
+# shape, and destructured.
+#
+# A one-element tuple type `(Int)` is just `Int` with brackets round it,
+# as it is in most languages that spell tuples this way; there is no
+# one-tuple value for it to describe.
 
 def describe_pair(p:(Int, Bool)) -> String:
-    return "pair"
+    a, b = p
+    return "pair " ++ str(a) ++ " " ++ str(b)
 
 
 def describe_single(p:(Int)) -> String:
-    return "single"
-
-
-def describe_unit(u:()) -> String:
-    return "unit"
+    return "single " ++ str(p)
 
 
 def describe_wide(w:(Int, String, Int, (Bool, Bool))) -> String:
-    return "wide"
+    a, b, c, d = w
+    e, f = d
+    return "wide " ++ str(a) ++ b ++ str(c) ++ str(e) ++ str(f)
+
+
+def announce(label:String) -> ():
+    print(label)
 
 
 def make_report() -> (String, Int):
-    return "ok"
+    return "ok", 3
 
 
-print(describe_pair(1))
+print(describe_pair((1, true)))
 print(describe_single(1))
-print(describe_unit(1))
-print(describe_wide(1))
+announce("unit")
+print(describe_wide((1, "x", 2, (true, false))))
 print(make_report())

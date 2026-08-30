@@ -262,7 +262,7 @@ sense, "not parsing":
   rather than only that no loop was found. It is here rather than in
   `analyses.py` for the same reason `_check_value_stmt` is: it needs
   only the tree's shape, never what a name means. Being here, it also
-  holds under `--typecheck`, which replaces the name analysis entirely.
+  holds even though the type checker replaced the name analysis entirely.
 - **`_check_reachable`** — nothing may be written after a `break` or a
   `continue` in the same block, since nothing there can run. It is
   applied as each block is built, comparing the statement just parsed

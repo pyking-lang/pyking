@@ -27,15 +27,17 @@ AST variant, and `match`/`case` over them rather than method dispatch.
                     │ src/parser.py  │   tokens → AST
                     └────────┬────────┘
                     ┌────────▼────────┐
-                    │src/analyses.py │   names & scoping: rejects,
-                    │  analyze_program│   never rewrites (not under
-                    ├─────────────────┤   --typecheck, which replaces it)
-                    │   symbolize     │   one unique integer per node
+                    │src/analyses.py │   one unique integer per node
+                    │   symbolize     │
                     └────────┬────────┘
                     ┌────────▼────────┐
-                    │src/typesystem.py│   every mode; leaves the AST alone
-                    └────────┬────────┘   and fills a symbol→type tmap. Only
-                             │            some modes *report* a failure
+                    │src/typesystem.py│   names and types, always: leaves
+                    └────────┬────────┘   the AST alone and fills a
+                             │            symbol→type tmap
+                    ┌────────▼────────┐
+                    │src/analyses.py │   `:=` names a `var`, and nothing
+                    │analyze_mutability│  shadows one: rejects, never
+                    └────────┬────────┘   rewrites
                     ┌────────▼────────┐
                     │src/optimization │   tail calls → loops, for a program
                     │      .py        │   the checker accepted; then
@@ -65,13 +67,14 @@ AST variant, and `match`/`case` over them rather than method dispatch.
 ```
 
 Everything above the split is target-independent, and every backend —
-and the interpreter — starts from the same checked AST. `--ast` prints
-that AST and therefore ignores `--target`.
+and the interpreter — starts from the same checked AST. The `pyking`
+target is that AST printed back out, which is why it is a target with
+nothing under the split: it is the shared program itself.
 
 The interpreter is on the same line as the backends because it is their
 peer, not their supervisor: it consumes the AST every one of them
 consumes. What it does with it differs — it *runs* the program rather
-than writing a file — which is why it is a command (`pyk run`, `pyk
+than writing a file — which is why it is a command (`pyk <file>`, `pyk
 repl`) rather than a `--target`.
 
 ## Stages
@@ -81,8 +84,9 @@ repl`) rather than a `--target`.
 | `src/lexer.py` | Characters → tokens. `Info` (file, row/column span) is attached to every token and rides along on every later node, so any stage can report an error against the source. |
 | `src/parser.py` | Recursive descent, tokens → the AST in `syntax.py`. Also enforces the few rules the grammar cannot state (duplicate pattern bindings, "every branch of a bound `if` yields a value", one statement per line, what a block written on its header's own line may hold, and where a `break`/`continue` may stand). |
 | `src/syntax.py` | The AST itself — one dataclass per variant — plus a pretty printer that prints Pyking back out. |
-| `src/analyses.py` | Static passes over the AST. `analyze_program` checks names and scoping — it only rejects, never rewrites; it binds every `def` in a block before walking it, which is what lets functions be recursive, mutually recursive or used before they are written; it runs for every mode except `--typecheck`, which replaces it. `symbolize` then gives every node a unique integer `sym`, rebuilding the tree (nodes are frozen); it runs for every mode, `--ast` included. `Effects` is a third pass the driver never runs: the C and OCaml backends ask it which expressions can print, since their host languages leave evaluation order unspecified. |
-| `src/typesystem.py` | The type checker. It runs for every mode, since the tail-call pass needs what it knows, but only `--typecheck`, `pyk run` and the `ocaml` target *report* a failure — for everything else, not checking simply means not optimized. It covers only part of the language; it leaves the AST alone and reports what it inferred in `tmap`, a symbol → type table, which is what `--ast` then prints from. |
+| `src/analyses.py` | Static passes over the AST. `symbolize` gives every node a unique integer `sym`, rebuilding the tree (nodes are frozen), and runs before anything reasons about the program. `analyze_mutability` runs *after* the checker and applies the one rule a type cannot state: `:=` may only name a `var`, and nothing may shadow one. It only rejects, never rewrites. `Effects` is a third pass the driver never runs: the C and OCaml backends ask it which expressions can print, since their host languages leave evaluation order unspecified. |
+| `src/typesystem.py` | The type checker, and the only pass that checks *names*: its environment is a scope, so an unbound name is refused here, as an `analyses.AnalysisError`. It runs for every mode and every target, since Pyking is statically typed — there is no flag and no way round it. It covers only part of the language; it leaves the AST alone and reports what it inferred in `tmap`, a symbol → type table, which is what `-t pyking` then prints from. |
+| `src/execution.py` | What `--run` runs: the commands each target's host uses to build and run what was compiled. One table, so the driver stays a sequencer. |
 | `src/optimization.py` | Tail calls into loops: a function that calls itself in tail position becomes a `loop` carrying its parameters, and a group that tail-calls each other becomes one loop they share. AST in, AST out, after the checker and only for a program it accepted — the types decide which groups can share a loop, and what a slot a narrower member does not fill is entered with. `--no-tail-call-opt` turns it off. |
 | `src/target_python.py` | Python backend: its own `Py*` AST, translation, printer. |
 | `src/target_js_core.py` | JavaScript AST, translation, printer — with no knowledge of packaging. |
@@ -93,7 +97,7 @@ repl`) rather than a `--target`.
 | `src/interpreter.py` | The interpreter: runtime values, environments, and a resumable small-step machine over the AST. Runs the fragment the checker accepts, and is the reference for what a program *means* at run time. |
 | `src/repl.py` | `pyk repl`: a session as a program written one statement at a time — checked as one program, run one statement at a time. |
 | `src/runtime_interface.py` | The host/IO boundary. Backend-agnostic. |
-| `src/pyk.py` | The driver: argv, stage sequencing, error reporting, and the four commands (`pyk <file>`, `run`, `repl`, `compile`). |
+| `src/pyk.py` | The driver: argv, stage sequencing, error reporting, and the three commands (`pyk <file>`, `repl`, `compile`). |
 
 ## The runtime interface
 
@@ -144,7 +148,7 @@ real difference between the three JavaScript targets.
 
 ## Symbols and types
 
-Two passes sit between the name analysis and the backends.
+Two passes sit between the parser and the backends.
 
 **`symbolize`** (in `src/analyses.py`) gives every AST node a unique
 integer `sym`, numbering post-order from 1 — so `0`, every node's
@@ -154,11 +158,11 @@ type, so a node added to `syntax.py` is covered without touching this
 pass. Nothing consumes symbols yet; they exist so that a later stage
 wanting to attach information to a node has a stable key that does not
 depend on the node's identity or its position in the tree. `--symbols`
-prints them, as an `@n` suffix, alongside `--ast`:
+prints them, as an `@n` suffix, alongside the `pyking` target:
 
 ```
-$ pyk compile --ast --symbols prog.pyk
-x@1 = (12@2 + 20@3)@4  @5
+$ pyk compile -t pyking --symbols --stdout prog.pyk
+x@1: Int = (12@2 + 20@3)@4  @5
 ```
 
 A node that already has a symbol keeps it and fresh numbers continue
@@ -166,9 +170,9 @@ past the highest in the tree, which makes the pass safe to run twice
 should a later pass ever synthesize nodes into an already-symbolized
 tree: those get symbols without anything else being renumbered.
 
-**`type_check`** (in `src/typesystem.py`) is the type checker, run only
-under `--typecheck`, after symbolizing and before `--ast` prints
-anything. What it means for a *program* — the rules it applies, what it
+**`type_check`** (in `src/typesystem.py`) is the type checker, run for
+every mode and every target, after symbolizing and before anything else
+reads the program. What it means for a *program* — the rules it applies, what it
 refuses and why — is [PYKING.md](../PYKING.md)'s "Type checking"
 section, since that is language, not compiler; what follows is how the
 pass is built. Its signature is
@@ -226,7 +230,7 @@ again afterwards.
 
 Types are the `T*` nodes from `syntax.py` rather than a vocabulary of
 their own, so a checked binding prints as `x: Int = 1` — syntax the
-parser accepts, which is what keeps `--typecheck --ast` output
+parser accepts, which is what keeps `-t pyking` output
 re-parsable. They are synthesized by the checker and so carry no symbols
 of their own: under `--symbols` an inferred type prints bare, since `@0`
 means "not symbolized yet" and that is not what a type from `tmap` is.
@@ -257,8 +261,8 @@ frozen dataclasses, so `==` would compare their `info` and `sym` too and
 find `Int` written in one place different from `Int` inferred in
 another.
 
-`--typecheck` runs *instead of* `analyze_program`, not after it, and
-does that pass's job as well as its own: `Env` **is** the scope. A name
+The checker does the old name analysis's job as well as its own, which
+is why there is no separate name pass any more: `Env` **is** the scope. A name
 must be bound where it is used, a block's bindings do not escape it
 (`check_stmts` hands its extended environment to nobody), a name is
 visible only after its own binding, an inner binding shadows an outer
@@ -365,7 +369,7 @@ accepted what it had not reasoned about would be worse than one that
 says where it stops:
 
 ```
-$ pyk compile --typecheck prog.pyk
+$ pyk compile prog.pyk
 'prog.pyk' 1:4-1:16 Type error: `+` cannot be applied to Int and String;
   it accepts Int + Int
 ```
@@ -374,8 +378,8 @@ $ pyk compile --typecheck prog.pyk
 
 `src/interpreter.py` runs a program instead of translating it, and it is
 where the language's *runtime* semantics are defined. Where a compiled
-target disagrees with it, the target is wrong. `pyk run` and `pyk repl`
-are its two front ends; `src/repl.py` adds a prompt and nothing else to
+target disagrees with it, the target is wrong. `pyk <file>` and `pyk
+repl` are its two front ends; `src/repl.py` adds a prompt and nothing else to
 the semantics.
 
 It runs the fragment the type checker accepts, and the gate is the
@@ -458,7 +462,7 @@ pages it links to; what follows is the shape of the mechanism.
 | `java8` | `Foo.java` | `System.out.println`, `javac --release 8` |
 | `java17` | `Foo.java` | `System.out.println`, `javac --release 17` |
 | `java21` | `Foo.java` | `System.out.println`, `javac --release 21` |
-| `ocaml` | `foo.ml` | `print_endline`, `ocamlfind ocamlopt` |
+| `ocaml` | `foo.ml` | `print_endline`, `ocamlopt` |
 
 `esm` is the interesting one. The module exports `run(runtime)` and
 prints through `runtime.print(...)`, so it reaches nothing by itself:
@@ -531,8 +535,7 @@ disk, which is why it is a separate target rather than a wrapper.
 ## Command line
 
 ```
-pyk [options] <filename>          run it with the python backend
-pyk run [options] <filename>      run it with the interpreter
+pyk [options] <filename>          run it with the interpreter
 pyk repl                          start the REPL
 pyk compile [options] <filename>  compile it (alias: pyk c)
 ```
@@ -543,23 +546,26 @@ every argument through. Run it with no arguments for the full option and
 target list, which the driver builds from `TARGETS`/`EXTENSIONS` so it
 cannot drift from what the backends actually support.
 
-Two of the four commands *run* a program, by two different routes, and
-the difference is worth knowing:
+Two of the three commands *run* a program, and both run it the same way:
 
-- **`pyk <file>`** compiles with the Python backend to a temporary file,
-  runs that with the host's own `python3`, and removes it. What runs is
-  generated Python, with Python's semantics under it (arbitrary-precision
-  integers, Python's recursion limit). It covers the whole language.
-- **`pyk run <file>`** runs the AST with `src/interpreter.py`. Pyking's
-  own semantics: 32-bit integers, Pyking runtime errors with spans and a
-  stack trace, and the type checker's fragment rather than the whole
-  language.
+- **`pyk <file>`** runs the AST with `src/interpreter.py`. Pyking's own
+  semantics: 32-bit integers, and Pyking runtime errors with spans and a
+  stack trace.
+- **`pyk repl`** is the same interpreter with a prompt in front of it.
+
+The third way to run one is `pyk compile --run`, which builds what was
+compiled and runs it with that target's own commands — generated Python
+under the host's `python3`, generated C under `cc` and then the binary,
+and so on. That is how a *backend's* semantics are observed rather than
+the interpreter's, and where the two disagree the backend is the bug.
+The commands are `src/execution.py`'s, and each is printed before it
+runs.
 
 The flags are shared by every command rather than being per-command, so
-`--tokens`, `--ast`, `--symbols` and `--typecheck` mean the same thing
-wherever they are written. `--target`/`-t`, `--output`/`-o` and
-`--stdout` only affect `pyk compile`, which with none of them writes a
-file the compiler names (see "Naming the output" above).
+`--tokens` and `--symbols` mean the same thing wherever they are
+written. `--target`/`-t`, `--output`/`-o`, `--stdout` and `--run` only
+affect `pyk compile`, which with none of them writes a file the compiler
+names (see "Naming the output" above).
 
 A file that fails to lex, parse, resolve its names, or type-check, that
 uses a construct the chosen target does not support, or that fails while
@@ -627,7 +633,7 @@ for real. A program it accepts is one `typesystem.py` accepted, which
 also means the subset grows when the checker does, without the backend
 being touched.
 
-The interpreter (`pyk run`) shares that arrangement: it runs the checker
+The interpreter (`pyk <file>`) shares that arrangement: it runs the checker
 and then the program, so its coverage grows with the checker's too. It is
 not in the target pages because it emits nothing to document — what it
 supports is [typesystem.py](../src/typesystem.py)'s fragment, and what it
@@ -671,13 +677,13 @@ a program and compares the printed AST against its `.ast.out`;
 against the same `.out` as every compiling target. That last comparison
 is the whole reason the interpreter is cheap to trust: it is a second
 definition of the language's semantics, and holding it to the files the
-ten targets are held to is worth more than any amount of care in
+eleven targets are held to is worth more than any amount of care in
 review.
 
 Each target is executed the way a user would run it: `python3` on the
 generated `.py`, `node` on the generated `.js`, `cc -std=… -pedantic` and
 then the binary for `c89`/`c23`, `javac --release <8|17|21>` and then
-`java` for `java8`/`java17`/`java21`, `ocamlfind ocamlopt -w +a` and then
+`java` for `java8`/`java17`/`java21`, `ocamlopt -w +a` and then
 the binary for `ocaml`, and, for `esm`, `node` on the
 *generated node driver* rather than the module — the wrapper is the
 artifact a user runs, and exercising it also checks that `run(runtime)`
@@ -688,7 +694,7 @@ same kind of reason: that target's promise is *clean* OCaml, so a
 warning about generated code is a failing test rather than a note. The C
 compiler comes from `$CC`, defaulting to `cc`; the Java tools come from
 `$JAVAC`/`$JAVA`, defaulting to `javac`/`java`; the OCaml compiler comes
-from `$OCAMLOPT`, defaulting to `ocamlfind ocamlopt`.
+from `$OCAMLOPT`, defaulting to `ocamlopt`.
 
 ### Testing the HTML target
 

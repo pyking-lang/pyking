@@ -14,17 +14,17 @@ def is_vowel(c):
     return result
 
 
-def count_vowels(s):
+def count_vowels(letters):
     count = 0
-    for c in s:
+    for c in letters:
         if is_vowel(c):
             count = count + 1
     return count
 
 
 found = False
-for c in "hello":
+for c in ["h", "e", "l", "l", "o"]:
     if c == "z":
         found = True
 print(found)
-print(count_vowels("hello world"))
+print(count_vowels(["h", "e", "l", "l", "o", " ", "w", "o", "r", "l", "d"]))

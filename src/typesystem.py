@@ -43,7 +43,8 @@ from syntax import (
     EInt, EString, EBool, EVar, EAdd, EConcat, ESub, EMul, EDiv, ECall, EIf,
     ETuple,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq,
-    SLet, SLetStmt, SExprStmt, SIf, SReturn, SReturnStmt, SFunctionDef,
+    SLet, SLetStmt, SVar, SMutate, SExprStmt, SIf, SReturn, SReturnStmt,
+    SFunctionDef,
     SFunctionSig, SMatch,
     ENeg, EList, EListComp, CompFor, CompIf,
     PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, PText, ListRest,
@@ -674,6 +675,35 @@ def check_stmt(statement, env, tmap, return_type, acc_type, store):
             record(tmap, sym, bound_type, store)
             return unit(info), check_target(target, bound_type, env, tmap, store), store
 
+        case SVar(info, name, expr, sym):
+            # A mutable variable's type is its value's, with no mark of
+            # mutability on it: a `var` Int is read as an ordinary Int
+            # and stands wherever one does. Whether this name may be
+            # bound here at all, and whether a `:=` may name it, is
+            # analyses.py's rule rather than a type (see PYKING.md,
+            # "Mutable variables").
+            var_type, store = check_expr(expr, env, tmap, store)
+            check_mutable(var_type, info, name)
+            record(tmap, sym, var_type, store)
+            return unit(info), bind(env, name, var_type), store
+
+        case SMutate(info, name, expr, sym):
+            # A mutation binds nothing and is worth nothing: the name
+            # keeps the type it was declared with, and the value written
+            # into it must fit that type.
+            declared = env.get(name)
+            if declared is None:
+                raise AnalysisError(info, f"unbound name '{name}'")
+            actual, store = check_expr(expr, env, tmap, store)
+            if not accepts(declared, actual):
+                raise TypeError_(
+                    info,
+                    f"'{name}' is {pprint_type(declared)}, but this ':=' "
+                    f"gives {pprint_type(actual)}",
+                )
+            record(tmap, sym, declared, store)
+            return unit(info), env, store
+
         case SExprStmt(_, expr, _):
             # An expression statement has its expression's type. That is
             # what lets a block yield a value, and so what makes the two
@@ -941,6 +971,20 @@ def check_stmt(statement, env, tmap, return_type, acc_type, store):
             unsupported(statement)
 
 
+def check_mutable(type_, info, name):
+    """Refuses a `var` of a type mutation does not reach yet: Int and
+    Bool are the whole of it so far. A type nothing has decided passes,
+    since a `def` with no annotations is checked again at each call,
+    where the type is known. Type -> Info -> String -> ()"""
+    if isinstance(type_, (TInt, TBool, TUnknown, TNever)):
+        return
+    raise TypeError_(
+        info,
+        f"a mutable variable must be Int or Bool, but '{name}' is "
+        f"{pprint_type(type_)}",
+    )
+
+
 def check_not_conflated(then_type, else_type, info):
     """Raises TypeError_ if an if yields one of two different
     unannotated functions (see docs/type_inference.md).
@@ -967,6 +1011,13 @@ def continue_error(acc_type, actual):
         return "this loop carries no accumulator, so its 'continue' takes no value"
     return (f"this loop carries {pprint_type(acc_type)}, but this 'continue' "
             f"gives {pprint_type(actual)}")
+
+
+def is_never(type_):
+    """Whether this type is `!` itself -- the type of an expression no
+    value ever reaches. Nothing of that type arrives, so a use of one is
+    vacuously well-typed wherever it is written. Type -> Bool"""
+    return isinstance(type_, TNever)
 
 
 def has_never(type_):
@@ -1875,9 +1926,10 @@ def check_builtin_call(name, call, env, tmap, store):
 
         case ("str", [value]):
             check_builtin_arity(name, call, 1, 1)
-            if not every(value, (TInt, TString, TBool)):
+            if not every(value, (TInt, TString, TBool, TList, TTuple)):
                 raise builtin_argument_error(
-                    name, call.args[0], value, "Int, String or Bool"
+                    name, call.args[0], value,
+                    "Int, String, Bool, a list or a tuple",
                 )
             return TString(call.info), store
 
@@ -1918,8 +1970,11 @@ def check_each(exprs, env, tmap, store):
 
 def every(type_, kinds):
     """Whether type_ is one of kinds, or (for a TOr) every alternative
-    is. Type -> (type,) -> Bool"""
-    return all(isinstance(one, kinds) for one in alternatives_of(type_))
+    is. `!` counts as any of them, since no value of it arrives.
+    Type -> (type,) -> Bool"""
+    return all(
+        isinstance(one, kinds) or is_never(one) for one in alternatives_of(type_)
+    )
 
 
 def check_builtin_arity(name, call, low, high):
@@ -2017,6 +2072,12 @@ def concat_lists(expr, left_type, right_type):
     return None
 
 
+def fits(operand, type_):
+    """Whether an operand of this type may stand where the signature
+    wants `operand`. `!` fits every one of them. type -> Type -> Bool"""
+    return isinstance(type_, operand) or is_never(type_)
+
+
 def check_binary(expr, env, tmap, store):
     """The type of a binary operator application, from OPERATORS.
     Expr -> Env -> {Int: Type} -> Store -> (Type, Store)"""
@@ -2024,7 +2085,7 @@ def check_binary(expr, env, tmap, store):
     left_type, store = check_expr(expr.left, env, tmap, store)
     right_type, store = check_expr(expr.right, env, tmap, store)
     for operand, result in signatures:
-        if isinstance(left_type, operand) and isinstance(right_type, operand):
+        if fits(operand, left_type) and fits(operand, right_type):
             # Operands match. Return the resulting type
             return result(expr.info), store
     joined = concat_lists(expr, left_type, right_type)
@@ -2091,6 +2152,7 @@ def check_pattern(pattern, type_, env, tmap):
     value it matches. Raises TypeError_ for a pattern that could never
     match a value of that type.
     Pattern -> Type -> Env -> {Int: Type} -> Env"""
+    type_ = taken_apart(pattern, type_)
     record(tmap, pattern.sym, type_, empty_store())
     match pattern:
         case PWildcard():
@@ -2143,6 +2205,27 @@ def check_pattern(pattern, type_, env, tmap):
                     env = bind(env, name, type_)
             return env
     unsupported(pattern)
+
+
+def taken_apart(pattern, type_):
+    """The type to match a pattern against: the subject's own, except
+    where that is `!`, which every pattern matches and which a pattern
+    with parts takes apart into `!`s of its own shape.
+    Pattern -> Type -> Type"""
+    if not is_never(type_):
+        return type_
+    match pattern:
+        case PInt(info, _, _):
+            return TInt(info)
+        case PString(info, _, _) | PText(info, _, _, _, _):
+            return TString(info)
+        case PBool(info, _, _):
+            return TBool(info)
+        case PTuple(info, elements, _):
+            return TTuple(info, [TNever(info) for _ in elements])
+        case PList(info, _, _, _, _):
+            return TList(info, TNever(info))
+    return type_
 
 
 def pattern_literal(wanted, type_, info, env):

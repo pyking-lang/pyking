@@ -55,6 +55,8 @@ class Scope:
     shadowed: frozenset   # outer names this scope reads (question 2)
     captured: frozenset   # names nested functions read from around them
     loop_names: frozenset # names the nearest loop rebinds each turn, or None
+    depth: int            # Python function scopes deep; 0 is the module
+    mutables: dict        # each `var` in scope -> the depth it was declared at
 ```
 
 The split between `outer` and `local` is not bookkeeping for its own
@@ -78,6 +80,16 @@ and the `rebinding`/`captured` interaction in `_bind`).
 context here is that it's what tells `_bind` a binding is happening
 *inside* a loop, so that name can be recorded as "rebound each turn" —
 information the turn-groups mechanism needs and nothing else does.
+
+`depth` and `mutables` answer a question none of the others can: a `def`
+that writes a `var` bound outside it has to say `global` or `nonlocal`,
+and which of the two depends on *where the declaration is*, not on
+anything about the name itself. `_function_scope` increments `depth`;
+`_bind` records `mutables[name] = scope.depth` for a `var` and drops the
+name for anything else, since a name rebound with `=` is no longer a
+cell. A `var` at depth 0 is `global`, one deeper is `nonlocal`. See
+[target_python.md](target_python.md), "A `var` written from inside a
+function".
 
 ## `_bind`: the actual decision
 
@@ -202,18 +214,20 @@ against `_used_identifiers` — every identifier anywhere in the source,
 collected once by `_collect_identifiers` — so a generated name can
 never collide with, or shadow, anything the program actually wrote.
 
-**A possibly-boolean `print`/`str` argument.** Pyking spells its
-booleans `true`/`false`; Python's `print` would spell the same value
+**A possibly-boolean `print` argument.** Pyking spells its booleans
+`true`/`false`; Python's `print` would spell the same value
 `True`/`False`. Most arguments don't need a runtime check at all —
-`_bool_shape` looks at an argument's own Pyking AST shape and often can
-prove it's definitely a `Bool` (any comparison, a boolean literal) or
-definitely *not* one, in which case `_wrap_print_argument` emits either
-an inline `'true' if <expr> else 'false'` or the expression completely
-unwrapped. Only when neither can be proven — a variable, a function call
-result, anything the translator can't see through — does
-`_bool_format_helper_name` build (once, lazily, the first time it's
-actually needed) a small `__pyk_bool_str` helper and route the argument
-through a call to it. Like the comprehension helper, this one is kept
+`_bool_kind` reads the argument's type out of `tmap`, the checker's
+symbol → type table that `translate_program` is handed, and
+`_wrap_print_argument` emits either an inline `'true' if <expr> else
+'false'` (for a `Bool`) or the expression completely unwrapped (for a
+type with no `Bool` anywhere inside it, which is most of them). Only a
+value that genuinely can hold one — a `[Bool]`, a `(Int, Bool)`, a type
+nothing pinned down — makes `_format_helper_name` build (once, lazily,
+the first time it's actually needed) a small `__pyk_str` helper and
+route the argument through a call to it. Reading the types rather than
+guessing at AST shapes is what keeps an ordinary program's output free
+of a prelude it has no use for. Like the comprehension helper, this one is kept
 separate from the translated program itself and printed in its own
 marked-off prelude block (`pprint_py_program`), because it's boilerplate
 for the host Python interpreter, not a rendering of anything the Pyking

@@ -1,6 +1,6 @@
 # Mutable variables and scope. A `var` may shadow any immutable name, and
 # `:=` always updates the nearest `var` in scope. The one thing that is
-# rejected -- at compile time, by the name analysis -- is binding a name
+# rejected -- at compile time, by the mutability analysis -- is binding a name
 # that a visible mutable variable owns, which is what keeps `:=`
 # unambiguous. See "Names and scoping" in PYKING.md.
 
@@ -41,12 +41,12 @@ print(sum_of([1, 2, 3, 4]), biggest_of([3, 9, 2]))
 # A `var` declared in a loop body belongs to that body's scope, so each
 # iteration starts a fresh one; the outer variable is updated from inside
 # the same nested blocks, since `:=` reaches out and no block shadows it.
-var log = ""
+var log = 0
 for row in [[1, 2], [3, 4]]:
-    var line = ""
+    var line = 0
     for cell in row:
-        line := line ++ str(cell)
-    log := log ++ line ++ ";"
+        line := line + cell
+    log := log * 100 + line
 
 print(log)
 
@@ -62,12 +62,12 @@ for a in range(3):
 print(deepest)
 
 
-# A mutable variable may hold anything a binding can, and a pattern
-# variable of another name may shadow freely alongside it.
-var report = ""
+# A pattern variable of another name may shadow freely alongside a
+# mutable one.
+var report = 0
 for pair in [(1, "one"), (2, "two")]:
     match pair:
         case (k, name):
-            report := report ++ str(k) ++ "=" ++ name ++ " "
+            report := report + k * len(name)
 
 print(report)

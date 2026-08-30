@@ -1,8 +1,9 @@
 """The driver: what `pyk` on the command line runs. Parses argv,
-sequences the front-end stages, and dispatches to one of four commands
-(`pyk <file>`, `run`, `repl`, `compile`). Each backend owns its own
-translation, packaging and file naming. See docs/architecture.md
-("Command line") and docs/source.md ("pyk.py").
+sequences the front-end stages, and dispatches to one of three commands
+(`pyk <file>`, `repl`, `compile`). Every program is type-checked, so a
+program that does not check is refused whatever was asked for. Each
+backend owns its own translation, packaging and file naming. See
+docs/architecture.md ("Command line") and docs/source.md ("pyk.py").
 
 Data structures:
     Options -- argv parsed into one value: command, filename, flags.
@@ -10,23 +11,21 @@ Data structures:
 Functions:
     main(argv) -- argv in, exit status out.
     parse_args(argv) -- argv, as an Options.
-    front_end(options) -- runs lexing/parsing/analyses/symbolizing/typing.
+    front_end(options) -- runs lexing/parsing/symbolizing/typing/analyses.
     format_error(error) -- formats any front-end error as one line.
-    command_python(program, filename) -- `pyk <file>`.
-    command_run(program) -- `pyk run`.
+    command_interpret(program) -- `pyk <file>`.
     command_repl() -- `pyk repl`.
     command_compile(program, tmap, options) -- `pyk compile`.
     wrap(text) -- reflows text to the driver's line width.
 """
 
 import os
-import subprocess
 import sys
-import tempfile
 import textwrap
 from dataclasses import dataclass
 
-from analyses import analyze_program, apply_signatures, symbolize, AnalysisError
+from analyses import analyze_mutability, apply_signatures, symbolize, AnalysisError
+import execution
 import optimization
 from lexer import lexing, pprint_info, pprint_token, LexError
 from parser import parse, ParseError
@@ -42,15 +41,19 @@ from target_python import translate_program, pprint_py_program
 
 # The compiling targets, in the order the usage message lists them. The
 # interpreter is *not* one of them: it produces no source file, so it is
-# a command (`pyk run`) rather than something `--target` selects. The
+# what `pyk <file>` does rather than something `--target` selects. The
 # test harness calls it a target because there it is one -- a way of
 # running a program and comparing its output (see tests/test_script.py).
+#
+# `pyking` is the odd one: it compiles Pyking to Pyking, which is to say
+# it prints the program the front end worked out -- with the types the
+# checker inferred, and the loops the tail-call pass built.
 TARGETS = (
     ("python",)
     + target_js_packaging.TARGETS
     + target_c.STANDARDS
     + target_java.VERSIONS
-    + (target_ocaml.TARGET,)
+    + (target_ocaml.TARGET, execution.PYKING_TARGET)
 )
 
 # The targets whose host language eliminates tail calls itself, and which
@@ -69,6 +72,7 @@ EXTENSIONS = {
     **{standard: ".c" for standard in target_c.STANDARDS},
     **{version: ".java" for version in target_java.VERSIONS},
     target_ocaml.TARGET: target_ocaml.EXTENSION,
+    execution.PYKING_TARGET: ".pyk",
 }
 
 # Every message this module prints is laid out for a terminal this wide.
@@ -108,8 +112,7 @@ def _target_table():
 # command and the flags; what someone who asked for `--help` wants is
 # everything, including the target table and the paragraphs explaining
 # what the commands actually do.
-_SYNOPSIS = """Usage: pyk [options] <filename>          run it with the python backend
-       pyk run [options] <filename>      run it with the interpreter
+_SYNOPSIS = """Usage: pyk [options] <filename>          run it with the interpreter
        pyk repl                          start the REPL
        pyk compile [options] <filename>  compile it (alias: pyk c)
 
@@ -117,8 +120,8 @@ Options:
   -t, --target <name>   compile for <name> (default: python)
   -o, --output <file>   write the output to <file>
   --stdout              print the generated code instead of writing it
-  --ast                 print the parsed program and stop
-  --typecheck           type-check before doing anything else
+  --run                 build and run what was compiled, with the
+                        target's own commands
   --help                this, in full: the rest of the flags, what each
                         command does, and what each target writes"""
 
@@ -126,7 +129,7 @@ Options:
 # two that show a stage's own output, and one that turns off a
 # transformation nobody has to know about to use the compiler.
 _MORE_OPTIONS = """More options:
-  --symbols             with --ast, also print each node's symbol
+  --symbols             with -t pyking, also print each node's symbol
   --tokens              print the token stream first
   --no-tail-call-opt    leave tail calls as calls. A function that calls
                         itself in tail position is otherwise rewritten
@@ -152,16 +155,36 @@ USAGE_FULL = f"""{_SYNOPSIS}
 Targets:
 {_target_table()}
 
-`pyk <filename>` compiles to a temporary file, runs it, and removes it.
-`pyk run` runs the program directly instead, on the AST, with Pyking's
-own semantics -- 32-bit integers, and its own runtime errors. It covers
-the fragment the type checker covers, and type-checks first.
+Pyking is statically typed, and every program is type-checked before
+anything else happens -- there is no flag for it and no way round it.
+
+`pyk <filename>` runs the program on the AST, with Pyking's own
+semantics: 32-bit integers, and its own runtime errors.
 
 `pyk compile` writes a file named after the source, in the current
 directory, unless --output says otherwise. The `esm` target writes three
 more files beside its .js: a .node.js driver, an .html wrapper, and
 package.json. The Java targets name the file and its class in Java's own
-casing: foo_bar.pyk -> FooBar.java."""
+casing: foo_bar.pyk -> FooBar.java. The `pyking` target writes Pyking
+again -- the program as the front end worked it out, with the types the
+checker inferred and the loops the tail-call pass built.
+
+`--run` builds and runs what was compiled, with the commands that
+target's host uses, each printed before it runs:
+
+  python           python3 prog.py
+  nodejs           node prog.js
+  esm              node prog.node.js
+  html             xdg-open prog.html (open, on macOS)
+  c89, c23         cc -std=<standard> -o prog prog.c, then prog
+  java8, java17,   javac --release <version> prog.java, then java prog
+  java21
+  ocaml            ocamlopt -o prog prog.ml, then prog
+  pyking           pyk prog.pyk
+
+$CC, $JAVAC, $JAVA and $OCAMLOPT say which tool to use where there is a
+choice. --run needs a file to run, so it cannot be combined with
+--stdout."""
 
 
 # --- what was asked for ----------------------------------------------
@@ -170,24 +193,23 @@ casing: foo_bar.pyk -> FooBar.java."""
 # out. A bare `pyk foo.pyk` runs the program -- the thing someone with a
 # file in their hand almost always wants -- and every other command says
 # its name.
-COMMANDS = {"run": "run", "repl": "repl", "compile": "compile", "c": "compile"}
-DEFAULT_COMMAND = "python"
+COMMANDS = {"repl": "repl", "compile": "compile", "c": "compile"}
+DEFAULT_COMMAND = "interpret"
 
 
 @dataclass(frozen=True)
 class Options:
     """argv parsed into one value. Flags are shared by every command.
     Fields: command: String, filename: String?, target: String,
-    output: String?, stdout: Bool, ast: Bool, symbols: Bool,
-    typecheck: Bool, tokens: Bool, tail_calls: Bool."""
+    output: String?, stdout: Bool, run: Bool, symbols: Bool,
+    tokens: Bool, tail_calls: Bool."""
     command: str
     filename: str = None
     target: str = "python"
     output: str = None
     stdout: bool = False
-    ast: bool = False
+    run: bool = False
     symbols: bool = False
-    typecheck: bool = False
     tokens: bool = False
     tail_calls: bool = True
 
@@ -195,14 +217,8 @@ class Options:
 def compiling_natively(options):
     """Whether this run hands the program to a backend whose own host
     eliminates tail calls, in which case the pass would only be undone
-    (see docs/optimization.md). `--ast` is not compiling: it ignores
-    --target, so it must not depend on one either.
-    Options -> Bool"""
-    return (
-        options.command == "compile"
-        and not options.ast
-        and options.target in NATIVE_TAIL_CALLS
-    )
+    (see docs/optimization.md). Options -> Bool"""
+    return options.command == "compile" and options.target in NATIVE_TAIL_CALLS
 
 
 def usage_error(message):
@@ -231,12 +247,10 @@ def parse_args(argv):
                 sys.exit(0)
             case "--tokens":
                 flags["tokens"] = True
-            case "--ast":
-                flags["ast"] = True
+            case "--run":
+                flags["run"] = True
             case "--symbols":
                 flags["symbols"] = True
-            case "--typecheck":
-                flags["typecheck"] = True
             case "--no-tail-call-opt":
                 flags["tail_calls"] = False
             case "--stdout":
@@ -257,6 +271,8 @@ def parse_args(argv):
             case _:
                 positional.append(argument)
 
+    if flags.get("run") and flags.get("stdout"):
+        usage_error("--run needs a file to run, so it cannot be used with --stdout")
     if command == "repl":
         if positional:
             usage_error("'pyk repl' takes no filename")
@@ -316,9 +332,9 @@ def fail_unsupported(target, error):
 
 def front_end(options):
     """Every stage before a backend, in the order they run: lexing,
-    parsing, name analysis, symbolizing, type checking, and the
-    tail-call pass. Exits via fail() on the first error a mode asked
-    about. Options -> ([Stmt], {Int: Type}?)"""
+    parsing, symbolizing, type checking, the mutability analysis, and
+    the tail-call pass. Exits via fail() on the first error.
+    Options -> ([Stmt], {Int: Type})"""
     with open(options.filename, "r") as f:
         data = f.read()
 
@@ -336,48 +352,34 @@ def front_end(options):
     except ParseError as e:
         fail(e)
 
-    # Whether a *failure* to type-check stops the compile. The checker
-    # runs either way (below); this says who asked about the answer.
-    # `pyk run` and the OCaml target have to know -- the first because
-    # the interpreter runs exactly the checker's fragment, the second
-    # because that backend reads the types back rather than inferring
-    # them -- and `--typecheck` is asking on purpose.
-    required = (
-        options.typecheck
-        or options.command == "run"
-        or (options.command == "compile" and options.target == target_ocaml.TARGET)
-    )
-    if not required:
-        try:
-            analyze_program(program)
-        except AnalysisError as e:
-            fail(e)
-
-    # Every node gets a unique symbol once the names check out. This runs
-    # for every mode, like the analysis before it: `--symbols` prints
-    # them, `tmap` is keyed by them, and so is the interpreter's
-    # call-free table.
+    # Every node gets a unique symbol before anything reasons about it:
+    # `--symbols` prints them, `tmap` is keyed by them, and so is the
+    # interpreter's call-free table.
     program = symbolize(program)
 
-    # The checker runs for every mode, because the tail-call pass needs
-    # what it knows (see docs/optimization.md): a program it accepts is
-    # optimized, one it refuses is compiled as written. Only `required`
-    # decides whether a refusal is reported rather than simply meaning
-    # "no optimization here".
-    tmap = None
+    # Pyking is statically typed, so this is not a mode: a program that
+    # does not check is refused, whatever was asked for. The checker
+    # carries a scope of its own, so it reports an unbound name too, in
+    # analyses.py's words.
     try:
         tmap = typesystem.type_check(program)
     except (AnalysisError, typesystem.TypeError_) as e:
-        if required:
-            fail(e)
+        fail(e)
+
+    # The one rule types do not state: only a `var` may be written to
+    # with `:=`, and nothing may shadow one.
+    try:
+        analyze_mutability(program)
+    except AnalysisError as e:
+        fail(e)
 
     # Tail calls become loops before anything reads the program, so what
-    # `--ast` prints and what every backend compiles are the same
-    # program. The pass builds nodes, so symbols are handed out again --
+    # the `pyking` target prints and what every backend compiles are the
+    # same program. The pass builds nodes, so symbols are handed out again --
     # `symbolize` keeps the ones already given and continues past the
     # highest -- and it extends `tmap` for what it built, since the
     # checker will not run again to say what those nodes are.
-    if tmap is not None and options.tail_calls and not compiling_natively(options):
+    if options.tail_calls and not compiling_natively(options):
         program, tmap = optimization.optimize(program, tmap)
         program = symbolize(program)
 
@@ -400,10 +402,9 @@ def command_repl():
 TRACE_LIMIT = 10
 
 
-def command_run(program):
-    """Runs `pyk run <file>` with the interpreter; prints a runtime
-    error (with a truncated stack trace) if one occurs.
-    [Stmt] -> Int"""
+def command_interpret(program):
+    """Runs `pyk <file>` with the interpreter; prints a runtime error
+    (with a truncated stack trace) if one occurs. [Stmt] -> Int"""
     state = interpreter.run_program(program, interpreter.ConsoleHost())
     error = interpreter.failure(state)
     if error is None:
@@ -415,20 +416,6 @@ def command_run(program):
     if len(trace) > TRACE_LIMIT:
         print(f"  ... {len(trace) - TRACE_LIMIT} more calls", file=sys.stderr)
     return 1
-
-
-def command_python(program, filename):
-    """Runs `pyk <file>`: compiles with the Python backend to a temp
-    file, runs it, removes it. Returns the program's own exit status.
-    [Stmt] -> String -> Int"""
-    source = pprint_py_program(translate_program(program)) + "\n"
-    handle, path = tempfile.mkstemp(prefix="pyk", suffix=".py")
-    try:
-        with os.fdopen(handle, "w") as f:
-            f.write(source)
-        return subprocess.run([sys.executable, path]).returncode
-    finally:
-        os.remove(path)
 
 
 def command_compile(program, tmap, options):
@@ -491,8 +478,20 @@ def command_compile(program, tmap, options):
                 file=sys.stderr,
             )
 
-    if target == "python":
-        py_source = pprint_py_program(translate_program(program))
+    if target == execution.PYKING_TARGET:
+        # Pyking back out again: the program as the front end worked it
+        # out, with the checker's types and the tail-call pass's loops.
+        # It is printed *before* `apply_signatures`, so a `def name :
+        # type` line stays the line the source wrote rather than being
+        # folded onto its header.
+        pyking_source = pprint_program(program, symbols=options.symbols, tmap=tmap)
+        if options.stdout:
+            print(pyking_source)
+        else:
+            write(output_path, pyking_source + "\n")
+    elif target == "python":
+        program = apply_signatures(program)
+        py_source = pprint_py_program(translate_program(program, tmap))
         if options.stdout:
             print(py_source)
         else:
@@ -500,6 +499,7 @@ def command_compile(program, tmap, options):
     elif target in target_c.STANDARDS:
         # One backend, two standards: the difference is in how the C is
         # printed, not in what it means.
+        program = apply_signatures(program)
         try:
             c_program = target_c.translate_program(program)
         except target_c.UnsupportedError as e:
@@ -512,6 +512,7 @@ def command_compile(program, tmap, options):
         else:
             write(output_path, c_source)
     elif target in target_java.VERSIONS:
+        program = apply_signatures(program)
         try:
             java_program = target_java.translate_program(program)
         except target_java.UnsupportedError as e:
@@ -539,6 +540,7 @@ def command_compile(program, tmap, options):
         # type-checks whether or not `--typecheck` was passed (see
         # `required` there), and why a program that does not check has
         # already been refused before this point.
+        program = apply_signatures(program)
         try:
             ocaml_program = target_ocaml.translate_program(program, tmap)
         except target_ocaml.UnsupportedError as e:
@@ -554,6 +556,7 @@ def command_compile(program, tmap, options):
         # The JavaScript backends support a subset of Pyking so far;
         # anything outside it is reported here rather than emitting
         # broken JavaScript.
+        program = apply_signatures(program)
         try:
             js_program = target_js_core.translate_program(program)
         except target_js_core.UnsupportedError as e:
@@ -570,6 +573,11 @@ def command_compile(program, tmap, options):
                     write_manifest(path, contents)
                 else:
                     write(path, contents)
+
+    if options.run:
+        # `--stdout` wrote no file, and parse_args already refused the
+        # combination, so there is always something here to run.
+        return execution.execute(target, output_path)
     return 0
 
 
@@ -581,29 +589,15 @@ def main(argv):
 
     program, tmap = front_end(options)
 
-    # `--ast` is the Pyking AST, which every target and the interpreter
-    # share, so it is printed before any of them runs and ignores
-    # `--target`. With the types worked out it is printed against `tmap`,
-    # so the annotations shown are the ones the checker inferred rather
-    # than the ones the source happened to write.
-    if options.ast:
-        print(pprint_program(program, symbols=options.symbols, tmap=tmap))
-        return 0
-
     # A `def name : type` line is another spelling of the annotations a
-    # header could carry, so it is folded onto the header here -- after
-    # `--ast` has had its chance to print the program as it was written.
-    # Downstream there is then one shape to read, and a backend that
-    # cannot represent a type still sees the type it must refuse.
-    program = apply_signatures(program)
-
-    match options.command:
-        case "run":
-            return command_run(program)
-        case "compile":
-            return command_compile(program, tmap, options)
-        case _:
-            return command_python(program, options.filename)
+    # header could carry, so it is folded onto the header before a
+    # backend or the interpreter reads the program: downstream there is
+    # then one shape to read, and a backend that cannot represent a type
+    # still sees the type it must refuse. The `pyking` target is the
+    # exception, and folds nothing -- it prints the program as it stands.
+    if options.command == "compile":
+        return command_compile(program, tmap, options)
+    return command_interpret(apply_signatures(program))
 
 
 if __name__ == "__main__":

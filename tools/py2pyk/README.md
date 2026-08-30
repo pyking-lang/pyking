@@ -106,7 +106,7 @@ translation strategy clearly:
 | `arithmetic.py` | `+ - * /`, parentheses, precedence |
 | `comparisons.py` | `< <= > >= ==` |
 | `unary_minus.py` | unary `-`, double negation, precedence vs. `*`/`+` |
-| `strings.py` | string literals, escapes, `+` concatenation, `str()` |
+| `strings.py` | string literals, escapes, `+` concatenation (translated to `++`), `str()` |
 | `tuples.py` | tuple literals: unit, singleton, bare, nested |
 | `tuple_destructuring.py` | `=`-destructuring, incl. nested and singleton |
 | `variables_rebinding.py` | plain rebinding, parameter shadowing an outer name |
@@ -132,7 +132,7 @@ translation strategy clearly:
 | `sum_of_squares.py`, `power_by_loop.py` | small numeric algorithms without `%`/`**` |
 | `conditional_assignment_valueif.py` | `if`/`elif`/`else` all assigning one name -> value-form `if` |
 | `conditional_assignment_tuple.py` | same, but the assigned name is a tuple destructuring |
-| `boolean_flags_and_helpers.py` | `True`/`False` literals, a boolean-returning helper built from `if`/`elif`/`else` (no `and`/`or`) |
+| `boolean_flags_and_helpers.py` | `True`/`False` literals, a boolean-returning helper built from `if`/`elif`/`else` (no `and`/`or`), and a `for` over a list of one-character strings |
 | `list_comprehensions.py` | filter, multiple `for`s, nesting |
 | `list_comprehension_pattern.py` | a tuple pattern (`(_, label)`) as a comprehension target |
 
@@ -146,7 +146,7 @@ README instead, as the error py2pyk gives for them.
 
 ### Literals, operators, calls
 
-Int and string literals, `+ - * /`, unary `-`, `< <= > >= ==`, function
+Int and string literals, `- * /`, unary `-`, `< <= > >= ==`, function
 calls, list literals, tuple literals, and `if c then a else b` (from
 Python's `a if c else b`) all translate directly -- Pyking's precedence
 for these matches Python's exactly, so py2pyk reuses Python's own parse
@@ -155,6 +155,15 @@ otherwise misparse (e.g. an `if`-expression is always
 self-parenthesized, since PYKING.md documents at least one position --
 inside a comprehension's own `if` -- where that is mandatory, and it's
 harmless everywhere else).
+
+`+` is the one operator that does not, because Pyking splits it in two:
+`+` adds numbers and `++` joins strings, where Python spells both `+`.
+Which one a `+` is has to be decided from the syntax alone, and
+`_is_string` is the whole of what can be: a string literal, an f-string,
+a `str(...)` call, or a `+` with one of those on either side. A `+`
+whose operands are only names stays `+`, and the type checker says so if
+it was a join -- which is the right failure, since guessing would turn
+arithmetic into concatenation.
 
 Only four call targets are ever bound in a fresh Pyking program:
 `print`, `range`, `str`, `len` (see `BUILTINS` in `src/analyses.py`).
@@ -183,6 +192,14 @@ stand-in. That workaround is gone now that Pyking has the real thing;
 `git log -p` on this file has the old translation if you're curious.)
 
 ### Variable classification: `var` vs `=` vs value-form `if`
+
+One limit before the mechanism: **a Pyking `var` holds an `Int` or a
+`Bool` and nothing else** (see PYKING.md, "Mutable variables"). So a
+Python variable that is mutated across blocks *and* holds a string or a
+list has no translation, and the type checker refuses the generated
+program with a message naming the variable. That is a limit of Pyking
+today rather than of this tool, and it is why the fixtures under
+`tests/` accumulate into numbers rather than into strings.
 
 This is the one place Python and Pyking genuinely disagree about what
 code *means*, not just how it's spelled. Python scopes at function
@@ -437,6 +454,9 @@ than guess. Each gives a specific, worded error naming the construct.
   `.items`, ...) and no attribute lookups.
 - **Dicts and sets** (literals and comprehensions) -- Pyking has `Int`,
   `String`, `Bool`, lists, and tuples; no mapping or set type.
+- **`for` over a string** (`for c in "abc":`) -- Pyking's `for` walks a
+  list, and a String is not one. Take the string apart with a pattern
+  instead (see PYKING.md, "String patterns").
 - **Classes** -- no objects, no `self`, no inheritance.
 - **Exceptions** -- no `try`/`except`/`finally`/`raise`/`assert`.
 - **`and`/`or`/`not`** -- Pyking's only boolean-producing operators are

@@ -35,7 +35,7 @@ def climb(x):                   def climb(x):
 
 Eight backends benefit without knowing this pass exists, the interpreter
 included, and the ninth — OCaml — already had what they are being given. And because the output is ordinary Pyking, it can be read:
-`--ast` shows it, and any mistake in it is a mistake in a program a
+`-t pyking` shows it, and any mistake in it is a mistake in a program a
 person can look at.
 
 ## What counts as a tail call
@@ -254,7 +254,7 @@ any of them is left as the recursion it was written as. All four are
    gives a shared loop a single answer.
 
 Declining is invisible: the program compiles and runs exactly as
-written, one frame per call, and `--ast` shows it unchanged. That is the
+written, one frame per call, and `-t pyking` shows it unchanged. That is the
 whole difference from how this used to work, when a group was merged on
 arity alone and the checker refused the result with a message about an
 accumulator nobody had written.
@@ -311,10 +311,9 @@ failure, since that is the pass's fingerprint.
 
 Three consequences worth stating plainly:
 
-- **`--ast` is unaffected.** It ignores `--target` (it prints the
-  Pyking AST every backend shares), so it must not depend on one
-  either: `pyk compile -t ocaml --ast` prints the optimized AST, and
-  only an actual compile takes the other path.
+- **The `pyking` target is unaffected.** It prints the Pyking AST every
+  backend shares, so it prints the optimized one; only a compile for
+  `ocaml` itself takes the other path.
 - **The `ocaml` target checks the program as written.** Its subset is
   whatever `src/typesystem.py` accepts, and what it hands the checker is
   now the original — so a `fail_tco_*` program compiles here perfectly
@@ -329,21 +328,18 @@ Three consequences worth stating plainly:
 `src/pyk.py` owns the order, and every stage is called there:
 
 ```
-lex -> parse -> names -> symbolize -> typecheck -> optimize -> symbolize -> --ast / backend
-                          (skipped under --typecheck, where the checker checks names too)
+lex -> parse -> symbolize -> typecheck -> mutability -> optimize -> symbolize -> backend
 ```
 
 Three things about that line are load-bearing:
 
-- **The checker runs for every mode**, not only under `--typecheck`.
-  Its answer decides whether the pass may run; whether a *failure* is
-  reported is a separate question, and one only `--typecheck`, `pyk run`
-  and the `ocaml` target answer yes to. A program outside the checker's
-  fragment compiles exactly as it always did, unoptimized and unbothered.
+- **The checker runs before the pass, always.** Pyking is statically
+  typed, so there is no mode in which the pass is asked to work without
+  types: a program the checker refuses never reaches it.
 - **`optimize` hands back an extended `tmap`.** The checker will not run
   again, so the pass records what it built — the loop's accumulator, the
   worker's parameters and its type — keyed by symbols it allocates past
-  the highest already in use. Without that, `--typecheck --ast` would
+  the highest already in use. Without that, `-t pyking` would
   print the rewritten program with those annotations missing.
 - **`symbolize` runs again** for everything else the pass built, keeping
   the symbols already handed out (see `docs/analyses.md`), so a moved

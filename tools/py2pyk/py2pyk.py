@@ -603,6 +603,28 @@ def _find_valueif_owner(lca_stmts, name, deeper_assigns):
 # ---------------------------------------------------------------------------
 
 BINOP_SYMBOLS = {ast.Add: ("+", 2), ast.Sub: ("-", 2), ast.Mult: ("*", 3), ast.Div: ("/", 3)}
+# Pyking spells joining strings `++` and adding numbers `+`, where Python
+# spells both `+`. Which one a `+` is has to be decided here, and this is
+# the whole of what can be decided from the syntax: a string literal, an
+# f-string, a `str(...)` call, or a `+` of two of those. A `+` whose
+# operands are only names is left as `+`, and the type checker will say
+# so if it was a join -- which is the right failure, since guessing would
+# turn arithmetic into concatenation.
+STRING_CONCAT = "++"
+
+
+def _is_string(node):
+    """Whether an expression is visibly a String. ast.expr -> Bool"""
+    match node:
+        case ast.Constant(value=str()):
+            return True
+        case ast.JoinedStr():
+            return True
+        case ast.Call(func=ast.Name(id="str")):
+            return True
+        case ast.BinOp(op=ast.Add()):
+            return _is_string(node.left) or _is_string(node.right)
+    return False
 BINOP_UNSUPPORTED = {
     ast.Mod: "'%%' (modulo) has no Pyking operator (only +, -, *, /)",
     ast.FloorDiv: "'//' (floor division) has no Pyking operator ('/' is true "
@@ -709,6 +731,8 @@ class ExprTranslator:
         if op_type not in BINOP_SYMBOLS:
             unsupported(node, f"the '{op_type.__name__}' operator is not supported")
         sym, prec = BINOP_SYMBOLS[op_type]
+        if op_type is ast.Add and _is_string(node):
+            sym = STRING_CONCAT
         left = self.translate(node.left, prec)
         right = self.translate(node.right, prec + 1)
         return _wrap(prec, min_prec, f"{left} {sym} {right}")
@@ -1088,6 +1112,13 @@ class FunctionTranslator:
         if node.orelse:
             unsupported(node, "a 'for ... else:' clause has no Pyking "
                                "equivalent (Pyking's 'for' has no 'else')")
+        if _is_string(node.iter):
+            unsupported(
+                node.iter,
+                "a 'for' over a string has no Pyking equivalent (Pyking's "
+                "'for' walks a list; match the string with a pattern "
+                "instead)",
+            )
         et_iter = self.expr_of(scope)
         iterable = et_iter.translate(node.iter, 0)
         pad = self._pad(level)

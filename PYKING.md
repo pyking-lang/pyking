@@ -195,9 +195,8 @@ Structure:
   body stands; every other binding stays sequential, and a `def` may not
   share its name with another binding of the same block (see "Names and
   scoping")
-- Static checking in two layers: names and scoping always, types only
-  under `--typecheck` and only over part of the language so far (see
-  "Type checking")
+- Statically typed: every program is type-checked, whatever is then done
+  with it, and a type error stops the compile (see "Type checking")
 
 ## Grammar
 
@@ -559,7 +558,7 @@ Notes that don't fall out of the grammar alone:
 - `assignment`'s `[ ":" , type ]` annotates the *binding*, e.g.
   `x: Int = 1`. Like every other annotation it is optional and nothing
   verifies it (see "Type annotations"), but it is the one the type
-  checker writes back into: `pyk compile --typecheck --ast` prints each binding
+  checker writes back into: `pyk compile -t pyking` prints each binding
   with the type it inferred, in exactly this syntax, so that output can
   be fed back to the compiler. A destructuring target takes one
   annotation for the whole binding, not one per name.
@@ -1041,9 +1040,25 @@ total := total + 1
 print(total)
 ```
 
+**A mutable variable is `Int` or `Bool`.** Those are the two types
+mutation reaches so far; a `var` of any other type is refused:
+
+```
+'prog.pyk' 3:0-3:22 Type error: a mutable variable must be Int or Bool,
+  but 'greeting' is String
+```
+
+Its type is its initializer's, decided once, and every `:=` must give
+that same type — a mutation is not a rebinding, so it cannot change what
+the name holds. Nothing else marks the name as mutable: reading one
+yields an ordinary value of that type, usable anywhere an immutable one
+is, which is why `total` above is added to, compared and printed like
+any binding. (There are no references or pointers yet; when there are,
+that reading step becomes something a program can talk about.)
+
 A mutable variable is also the one name that may not be shadowed, and
-`:=` only ever accepts one — both checked at compile time; see "Names and
-scoping" below.
+`:=` only ever accepts one — both checked at compile time, and neither
+of them a question about types; see "Names and scoping" below.
 
 ### Names and scoping
 
@@ -1282,11 +1297,10 @@ find each other's copy from that turn, wherever in the body they are
 written:
 
 ```pyking
-var fns = []
-
-for i in range(3):
+fns =
+loop made = [] for i in range(3):
     def show(): i
-    fns := fns ++ [show]
+    continue made ++ [show]
 
 for f in fns:
     print(f())          # 0, then 1, then 2
@@ -1919,8 +1933,8 @@ first ++ [x, y, z]       is  [..first, x, y, z]
 [x, y] ++ m ++ [k1, k2]  is  [x, y, ..m, k1, k2]
 ```
 
-For a list the two spellings are the same pattern, and `--ast` prints
-the `..` one whichever was written. For a **string** this is the only
+For a list the two spellings are the same pattern, and the printed
+program uses the `..` one whichever was written. For a **string** this is the only
 spelling, and the only way to match a string by anything but equality:
 
 ```pyking
@@ -2354,28 +2368,22 @@ form, and is the error it always was — `expected an indented block`.
 
 ## Type checking
 
-Pyking's static semantics come in two layers. One is always on and is
-about *names*; the other is about *types*, and today it is opt-in.
-
-**Always checked**, in every mode and for every target — including
-`--ast`, since a program whose names do not resolve is not worth
-printing either:
+**Pyking is statically typed.** Every program is checked before anything
+is printed, compiled or run — there is no flag for it and no way round
+it — and a failure stops the compile. Static semantics come in three
+kinds, reported under three labels:
 
 - the shape rules the grammar cannot state: a value-form `if` must have
   its `else` and every branch must end in an expression (see the section
   on `if`/`match` statements as bound values), and a `case` pattern may
   not bind the same name twice. These are reported as `Parsing error`.
-- names and scoping: every name must be bound where it is used, and a
-  `var` may not be shadowed (see "Names and scoping"). These are
-  reported as `Name error`.
-
-**Checked only under `--typecheck`**: everything below. Without that
-flag no type is ever verified — annotations are parsed, pretty-printed
-and then erased, and each backend infers for itself whatever the target
-language forces it to (which is why a program can be rejected by the C
-or Java backend and accepted by the Python one). With the flag, the
-program is type-checked before anything is printed or compiled, and a
-failure is reported as `Type error` and stops the compile.
+- names and types, both settled by the checker: every name must be bound
+  where it is used, and every value must have the type its use requires.
+  An unbound name is a `Name error`; everything else below is a
+  `Type error`.
+- mutability, the one rule about a name that a type cannot state: `:=`
+  may only name a `var`, and a `var` may not be shadowed (see "Names and
+  scoping"). Also a `Name error`.
 
 The checker covers a *fragment* of the language, and refuses everything
 else rather than guessing:
@@ -2422,7 +2430,7 @@ can say about "one of these".
 
 The function type is the one a program rarely writes but the checker
 constantly infers, since it is what a `def`'s *name* means. So it is
-what `pyk compile --typecheck --ast` prints for a name bound to a function,
+what `pyk compile -t pyking` prints for a name bound to a function,
 whether or not the source said so:
 
 ```pyking
@@ -2490,8 +2498,8 @@ ok:(Int, Int) -> Int = foo      # fine
 ```
 
 A binding with no annotation claims nothing and takes whatever its value
-has; `--typecheck --ast` then prints the type that was worked out, which
-is what makes that output worth reading.
+has; `-t pyking` then prints the type that was worked out, which is what
+makes that output worth reading.
 
 **Blocks and `if`.** A block's type is its last statement's, and unit if
 it is empty. The two branches of an `if` must have the *same* type —
@@ -2695,7 +2703,7 @@ that can be written down, and it may be called and nothing else.
 | call | accepts | gives |
 |---|---|---|
 | `print(…)` | any number of arguments, of any type | `()` |
-| `str(x)` | one `Int`, `String` or `Bool` | `String` |
+| `str(x)` | one `Int`, `String`, `Bool`, list or tuple | `String` |
 | `len(x)` | one list or `String` | `Int` |
 | `range(n)` | one to three `Int`s | `[Int]` |
 
@@ -2937,7 +2945,7 @@ The alternatives are not interchangeable: `((Int, Int) -> Int) |
 ((String, String) -> String)` accepts two Ints or two Strings, and
 refuses one of each — which a single `(Int | String, Int | String) ->
 Int | String` would have allowed. A `def` with several types is printed
-as it was *written* by `--typecheck --ast`, since a `def` header has one
+as it was *written* by `-t pyking`, since a `def` header has one
 slot per parameter and no way to say which result goes with which; bind
 it to a name to see the whole type.
 
@@ -2968,34 +2976,31 @@ yields one of them is refused: nothing could say which of the two a
 later call would be checking. Annotating either one settles it.
 
 Which functions ended up with which types is what
-`pyk compile --typecheck --ast` prints, and is the best way to see what
+`pyk compile -t pyking` prints, and is the best way to see what
 was worked out — the reasoning behind all of this is in
 [docs/type_inference.md](docs/type_inference.md).
 
-### What is not checked
+### Names, and what is not checked
 
-**Constructs outside the fragment.** `var` and `:=` are refused with
-`Construct is not supported`. A call to a builtin *is* checked — see
-below.
-
-**Names, while `--typecheck` is on.** The type checker replaces the name
-analysis rather than running after it, and does that checking itself:
-its environment *is* the scope, so it applies the rules under "Names and
-scoping" — a name must be bound where it is used, a block's bindings do
-not escape it, a name is visible only after its own binding *unless it
-is a `def`*, an inner binding shadows an outer one, a `def` may not
-share its name with another binding of its block, and the builtins are
-in scope throughout. An unbound name is reported
-exactly as it is without the flag:
+**Names are the checker's too.** Its environment *is* the scope, so it
+applies the rules under "Names and scoping" — a name must be bound where
+it is used, a block's bindings do not escape it, a name is visible only
+after its own binding *unless it is a `def`*, an inner binding shadows an
+outer one, a `def` may not share its name with another binding of its
+block, and the builtins are in scope throughout. An unbound name is
+reported as a name error rather than a type error, since that is what it
+is:
 
 ```
 'prog.pyk' 14:16-14:23 Name error: unbound name 'missing'
 ```
 
-The one rule that is *not* applied in this mode is the mutable one: a
-`var` may not be shadowed. This checker does not cover `var` at all, so
-there is nothing for that rule to protect here; compiling without
-`--typecheck` applies it as usual.
+**Mutability is not a type.** A `var` is Int or Bool, which the checker
+does say; *which* names may be written to is a separate question, and
+one a type cannot answer — the same `Int` is a `var` in one scope and an
+`=` binding in another. So a pass of its own applies the two rules under
+"Mutable variables": `:=` may only name a `var`, and nothing may shadow
+one. Both are `Name error`s.
 
 A name may be in scope and still have no type the checker knows — a
 builtin, or a function's own name inside its own body. Using one is

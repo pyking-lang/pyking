@@ -1,0 +1,25 @@
+var deepest = 0
+for a in range(3):
+    for b in range(3):
+        if a + b > deepest:
+            deepest := a + b
+print(deepest, str(deepest))
+var level = 1
+def report() -> Int:
+    return level * 100
+print(report())
+level := 4
+print(report())
+sums: [Int] = loop acc: [Int] = [] for row in [[1, 2], [3, 4, 5]]:
+    var here = 0
+    for cell in row:
+        here := here + cell
+    continue acc ++ [here]
+print(sums)
+count: Int = 100
+def tally(items:[Int]) -> Int:
+    var count = 0
+    for item in items:
+        count := count + item
+    return count
+print(tally([1, 2, 3]), count)

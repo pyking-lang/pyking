@@ -10,10 +10,10 @@ straight:
 
   <name>.out       what the program *prints* when it runs. Every backend
                    is compared against this one file.
-  <name>.ast.out   what `--typecheck --ast` prints for it: the program
+  <name>.ast.out   what `-t pyking` prints for it: the program
                    pretty-printed with the types the checker inferred,
                    or -- for a `fail_typecheck_*` program -- the error it
-                   was written to provoke. Only the `typecheck` target
+                   was written to provoke. Only the `pyking` target
                    reads this.
   <name>.notail.out
   <name>.notail.ast.out
@@ -25,7 +25,7 @@ straight:
                    `.out` -- meaning is what the pass must not change --
                    while the `.notail.ast.out` shows the program as it
                    was written. Read by the `python_notail` and
-                   `typecheck_notail` targets.
+                   `pyking_notail` targets.
 
 A `typecheck_*` program therefore has *both*: its types are pinned by the
 `.ast.out`, and it still runs on the backends like any other program, so
@@ -47,7 +47,7 @@ How each target is executed:
   java17  run the class with `java`, compare stdout. All three share one
   java21  backend and differ only in how the Java is printed, the same
           reason all three run here.
-  ocaml   compile to a temp .ml, build it with `ocamlfind ocamlopt -w +a`,
+  ocaml   compile to a temp .ml, build it with `ocamlopt -w +a`,
           run the binary, compare stdout. Every warning is on: the
           target's promise is clean OCaml, so a warning is a failure.
   html    no browser is needed: the page's embedded module is extracted
@@ -56,7 +56,7 @@ How each target is executed:
           like any other output. See `run_html` for what that does and
           does not prove.
   interpret
-          nothing is compiled: `pyk run` runs the program on the AST with
+          nothing is compiled: `pyk <file>` runs the program on the AST with
           src/interpreter.py and its stdout is compared like any other
           backend's. That comparison is the point -- the interpreter is a
           second definition of the language's semantics, and the cheapest
@@ -83,17 +83,17 @@ from concurrent.futures import ThreadPoolExecutor
 
 PYK = os.path.join("src", "pyk.py")
 CASES_FILE = os.path.join("tests", "test_cases.toml")
-# The `typecheck` target is not a backend: it compiles nothing and runs
-# nothing. It type-checks a program and compares the *printed AST*
-# against the `.ast.out` file, which is how a `typecheck_*.pyk` test pins
-# down the types the checker infers. See `run_typecheck` below.
-TYPECHECK_TARGET = "typecheck"
+# The `pyking` target compiles Pyking to Pyking: it runs the front end
+# and prints the program back, with the types the checker inferred. That
+# printed AST is compared against the `.ast.out` file, which is how a
+# `typecheck_*.pyk` test pins those types down. See `run_pyking` below.
+PYKING_TARGET = "pyking"
 # Nor is `interpret` a backend: it compiles nothing either, and runs the
 # program on the AST with src/interpreter.py. It is still compared
 # against the same `.out` as every compiling target, which is what makes
 # it a test of the *language* rather than of the interpreter alone. Its
-# subset is the type checker's (see `interpreter.check`), so a program
-# outside that fragment simply does not list it.
+# subset is the type checker's (see `interpreter.check`), and every
+# program is type-checked, so every program that runs at all lists it.
 INTERPRET_TARGET = "interpret"
 # A `typecheck_*` program must type-check, and its `.ast.out` holds the
 # printed AST; it lists real backends too, so the program it describes is
@@ -105,12 +105,12 @@ FAIL_TYPECHECK_PREFIX = "fail_typecheck_"
 # The two targets that turn the tail-call pass off. `python_notail` runs
 # the program without it and compares the same output the optimized one
 # produced -- if those two ever differ, the pass changed what a program
-# means. `typecheck_notail` prints the AST without it, which is where a
+# means. `pyking_notail` prints the AST without it, which is where a
 # program's own shape is pinned once the pass has rewritten it.
-TYPECHECK_NOTAIL_TARGET = "typecheck_notail"
+PYKING_NOTAIL_TARGET = "pyking_notail"
 PYTHON_NOTAIL_TARGET = "python_notail"
 NOTAIL_FLAG = "--no-tail-call-opt"
-# What the `typecheck` target compares against, beside the `.out` every
+# What the `pyking` target compares against, beside the `.out` every
 # backend shares.
 AST_SUFFIX = ".ast.out"
 # How many runs to keep in flight, when neither `--jobs` nor this says.
@@ -124,13 +124,13 @@ def is_typecheck_file(name):
 
 def expected_path(source, target):
     """The file holding what this target should produce: the printed AST
-    for the two typecheck targets, the program's own output for every
+    for the two pyking targets, the program's own output for every
     backend, each with `.notail` in front of it where the target turns
     the tail-call pass off."""
     stem = os.path.splitext(source)[0]
-    if target == TYPECHECK_TARGET:
+    if target == PYKING_TARGET:
         return stem + AST_SUFFIX
-    if target == TYPECHECK_NOTAIL_TARGET:
+    if target == PYKING_NOTAIL_TARGET:
         return stem + ".notail" + AST_SUFFIX
     if target == PYTHON_NOTAIL_TARGET:
         return stem + ".notail.out"
@@ -139,8 +139,8 @@ def expected_path(source, target):
 
 TARGETS = (
     "python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17",
-    "java21", "ocaml", INTERPRET_TARGET, TYPECHECK_TARGET,
-    PYTHON_NOTAIL_TARGET, TYPECHECK_NOTAIL_TARGET,
+    "java21", "ocaml", INTERPRET_TARGET, PYKING_TARGET,
+    PYTHON_NOTAIL_TARGET, PYKING_NOTAIL_TARGET,
 )
 
 # The compiler used for the C targets; `cc` is the standard name.
@@ -151,10 +151,11 @@ C_COMPILER = os.environ.get("CC", "cc")
 JAVA_COMPILER = os.environ.get("JAVAC", "javac")
 JAVA_RUNTIME = os.environ.get("JAVA", "java")
 
-# The OCaml native compiler. `ocamlfind ocamlopt` rather than plain
-# `ocamlopt` for the same reason `cc` is used for C: it is the spelling a
-# user reaches for.
-OCAML_COMPILER = os.environ.get("OCAMLOPT", "ocamlfind ocamlopt").split()
+# The OCaml native compiler. Plain `ocamlopt`: a generated Pyking program
+# uses no package, so `ocamlfind` would only add a dependency on a
+# working ld.conf. The same default `src/execution.py` uses, so a machine
+# set up for one is set up for the other.
+OCAML_COMPILER = os.environ.get("OCAMLOPT", "ocamlopt").split()
 
 # Stands in for the browser: the generated page's only contact with the
 # outside world is the element it prints into, so a `document` with one
@@ -359,8 +360,7 @@ def run_java(source, workdir, version):
 
 
 def run_ocaml(source, workdir):
-    """Compiles to OCaml, builds it with `ocamlfind ocamlopt`, runs the
-    binary.
+    """Compiles to OCaml, builds it with `ocamlopt`, runs the binary.
 
     The bytecode compiler would do as well, but the native one is the
     stricter reader of the two and is what a user would reach for. The
@@ -397,9 +397,10 @@ def run_ocaml(source, workdir):
     return executed(run([binary]))
 
 
-# `ocamlfind` writes its own diagnostics to the same stream the compiler
-# does, and they are about the *installation* rather than about anything
-# that was compiled -- a switch whose `ld.conf` names a `stublibs`
+# `$OCAMLOPT` may name a wrapper rather than the compiler, and
+# `ocamlfind` -- the usual one -- writes its own diagnostics to the same
+# stream. They are about the *installation* rather than about anything
+# that was compiled: a switch whose `ld.conf` names a `stublibs`
 # directory that is not there produces two of them on every single
 # invocation. Reading those as "the generated code is not clean" would
 # fail every OCaml case on a machine whose opam switch is merely untidy,
@@ -423,16 +424,16 @@ def run_interpret(source, _workdir):
     printed against the same `.out` every compiling target is compared
     against.
 
-    Nothing is written to the work directory: `pyk run` produces no file
+    Nothing is written to the work directory: `pyk <file>` produces no file
     at all, which is the whole difference between this and the nine
     targets above it. The exit status still goes through `executed`, so
     a program that prints its output and *then* hits a runtime error is a
     failure rather than a pass."""
-    return executed(run([sys.executable, PYK, "run", source]))
+    return executed(run([sys.executable, PYK, source]))
 
 
-def run_typecheck(source, workdir):
-    """Type-checks `source`. Nothing is compiled or executed.
+def run_pyking(source, workdir):
+    """Compiles `source` to Pyking. Nothing is executed.
 
     For a `typecheck_*` program the result is its pretty-printed AST:
     the checker writes the types it inferred into it (`x: Int = 1`), so
@@ -443,18 +444,19 @@ def run_typecheck(source, workdir):
     For a `fail_typecheck_*` program it is the other way round -- the
     checker is *expected* to reject it, so the error message becomes the
     output to compare and type-checking cleanly is the failure."""
-    return _typecheck(
+    return _pyking(
         source,
         [],
         expect_failure=os.path.basename(source).startswith(FAIL_TYPECHECK_PREFIX),
     )
 
 
-def _typecheck(source, flags, expect_failure):
-    """Runs `pyk compile --typecheck --ast` with these extra flags, and
+def _pyking(source, flags, expect_failure):
+    """Runs `pyk compile -t pyking --stdout` with these extra flags, and
     answers with whichever stream this program is expected to produce."""
     result = run(
-        [sys.executable, PYK, "compile", "--typecheck", "--ast"] + flags + [source]
+        [sys.executable, PYK, "compile", "-t", PYKING_TARGET, "--stdout"]
+        + flags + [source]
     )
     if expect_failure:
         if result.returncode == 0:
@@ -476,21 +478,21 @@ def run_python_notail(source, workdir):
     return _run_python(source, workdir, [NOTAIL_FLAG])
 
 
-def run_typecheck_notail(source, _workdir):
-    """Type-checks and prints the AST with the tail-call pass off, so
-    the `.notail.ast.out` holds the program as it was written.
+def run_pyking_notail(source, _workdir):
+    """Prints the program with the tail-call pass off, so the
+    `.notail.ast.out` holds the program as it was written.
 
-    The two typecheck targets never disagree about whether a program
+    The two pyking targets never disagree about whether a program
     checks: the pass runs only on programs that already do, and cannot
     turn one into a program that does not (docs/optimization.md, "Why
     one check is enough"). What they disagree about is the *shape* they
     print."""
-    return _typecheck(source, [NOTAIL_FLAG], expect_failure=False)
+    return _pyking(source, [NOTAIL_FLAG], expect_failure=False)
 
 
 RUNNERS = {
-    TYPECHECK_TARGET: run_typecheck,
-    TYPECHECK_NOTAIL_TARGET: run_typecheck_notail,
+    PYKING_TARGET: run_pyking,
+    PYKING_NOTAIL_TARGET: run_pyking_notail,
     PYTHON_NOTAIL_TARGET: run_python_notail,
     INTERPRET_TARGET: run_interpret,
     "python": run_python,
@@ -525,17 +527,17 @@ def load_cases():
         targets = case["targets"]
         checks = name.startswith(TYPECHECK_PREFIX)
         fails = name.startswith(FAIL_TYPECHECK_PREFIX)
-        uses_typecheck = TYPECHECK_TARGET in targets
+        uses_pyking = PYKING_TARGET in targets
 
-        if (checks or fails) and not uses_typecheck:
+        if (checks or fails) and not uses_pyking:
             print(
                 f"WARNING: {name} is named {TYPECHECK_PREFIX}* or "
                 f"{FAIL_TYPECHECK_PREFIX}* but does not list the "
-                f"{TYPECHECK_TARGET} target"
+                f"{PYKING_TARGET} target"
             )
-        if uses_typecheck and not (checks or fails):
+        if uses_pyking and not (checks or fails):
             print(
-                f"WARNING: {name} uses the {TYPECHECK_TARGET} target "
+                f"WARNING: {name} uses the {PYKING_TARGET} target "
                 f"but is named neither {TYPECHECK_PREFIX}* nor "
                 f"{FAIL_TYPECHECK_PREFIX}*"
             )
@@ -566,12 +568,19 @@ def load_cases():
                 f'"{INTERPRET_TARGET}"; the interpreter runs exactly the '
                 f"fragment the checker accepts"
             )
+        # Every program is type-checked, and the interpreter runs what
+        # the checker accepts, so a program that runs at all runs there.
+        if not fails and INTERPRET_TARGET not in targets:
+            print(
+                f'WARNING: {name} does not list "{INTERPRET_TARGET}"; every '
+                f"program that runs at all runs under the interpreter"
+            )
         # A `fail_typecheck_*` program is written to be refused, so there
         # is nothing to run and no `.out` to compare.
-        if fails and targets != [TYPECHECK_TARGET]:
+        if fails and targets != [PYKING_TARGET]:
             print(
                 f"WARNING: {name} is named {FAIL_TYPECHECK_PREFIX}* so it "
-                f'must list exactly targets = ["{TYPECHECK_TARGET}"]'
+                f'must list exactly targets = ["{PYKING_TARGET}"]'
             )
         # The pass may make a program run in less space; it may never
         # make it print something else. Where both files exist, that is
@@ -711,8 +720,8 @@ def main():
     print("Summary")
     total_failed = 0
     # Width taken from the names themselves rather than fixed, so the
-    # columns stay lined up whatever a target is called -- `typecheck` is
-    # already longer than every backend name.
+    # columns stay lined up whatever a target is called -- `pyking_notail`
+    # is already longer than every backend name.
     width = max(len(target) for target in TARGETS)
     for target in TARGETS:
         total = passed[target] + failed[target]

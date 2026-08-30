@@ -52,28 +52,30 @@ out capitalised, `True`/`False`, but Pyking prints `true`/`false` (see
 backend's native behavior actively disagrees with Pyking's, rather than
 simply lacking a distinction Pyking makes.
 
-There is no type checker in an ordinary compile (see PYKING.md), so in
-general this backend cannot know whether a given `print` argument holds
-a `Bool` — but it doesn't need one to know for *most* arguments: a
-comparison or a boolean literal always is one, and an arithmetic
-expression or a literal int/string never is, straight from the Pyking
-AST's own shape (`_bool_shape` in `target_python.py`). What a
-*container* holds is a different question from what it is, so a list, a
-tuple or a comprehension counts as unknown however plainly it is not
-itself a `Bool`: `print([true])` has a boolean to spell either way.
-Each argument is handled according to what that tells it:
+Which arguments need that spelling is read off the **type checker's own
+answers**: `translate_program` takes `tmap`, the symbol → type table, and
+`_bool_kind` asks it about each `print` argument. Pyking is statically
+typed, so there is always an answer to ask for.
 
 ```pyking                                     # generated Python
 print(1 < 2, true, 5, "hi")                   print('true' if 1 < 2 else 'false', 'true' if True else 'false', 5, 'hi')
+count = 3                                     count = 3
+print(count)                                  print(count)
 ```
 
-A provable `Bool` becomes an inline `'true' if <expr> else 'false'` —
-`<expr>` is evaluated exactly once either way, since it's the
-conditional's own condition, not repeated in each branch — and a provable
-non-`Bool` is passed through completely unwrapped, exactly as if this
-backend didn't exist. Everything else — a variable, a call, a list, a
-tuple — goes through a small generated helper that walks the value at
-*runtime* and formats it by `runtime_interface.py`'s rules:
+A `Bool` becomes an inline `'true' if <expr> else 'false'` — `<expr>` is
+evaluated exactly once either way, since it's the conditional's own
+condition, not repeated in each branch. A type with no `Bool` anywhere
+inside it — `Int`, `String`, `()`, `[Int]`, `(Int, String)` — is passed
+through completely unwrapped, exactly as if this backend didn't exist.
+That second case is the common one, and it is why an ordinary program
+compiles to Python with no helper in front of it at all.
+
+What is left is a value that really can hold a `Bool` where Python and
+Pyking spell it differently — a `[Bool]`, a `(Int, Bool)`, or a type
+nothing has pinned down. Those go through a small generated helper that
+walks the value at *runtime* and formats it by `runtime_interface.py`'s
+rules:
 
 ```pyking                              # generated Python (only ever emitted if needed)
 flags = [true, false]
@@ -130,6 +132,55 @@ inside a container, and the quoting is Pyking's own (single quotes,
 backslash escapes) rather than Python's `repr`, which would switch to
 double quotes for a string containing an apostrophe and so disagree with
 the other backends on `print(("it's", 1))`.
+
+### A `var` written from inside a function
+
+A mutable variable is one location, so a `def` that writes one bound
+outside it writes *that* location. Python does not agree by default:
+assigning a name anywhere in a function makes it local to the whole
+function, so the obvious translation would silently make a second
+variable — and, worse, would raise `UnboundLocalError` the moment the
+body also *read* it.
+
+So a function body declares what it writes, before anything else in it:
+
+```pyking                       # generated Python
+var x = 8                       x = 8
+
+def foo(y):                     def foo(y):
+    x := y                          global x
+                                    x = y
+                                    return ()
+```
+
+`global` for a `var` declared at the module level, `nonlocal` for one in
+an enclosing function:
+
+```pyking                       # generated Python
+def outer(start):               def outer(start):
+    var total = start               total = start
+
+    def bump(n):                    def bump(n):
+        total := total + n              nonlocal total
+                                        total = total + n
+                                        return ()
+    bump(1)                         bump(1)
+    return total                    return total
+```
+
+`Scope` carries what that decision needs: `depth`, how many Python
+function scopes deep the translation is (0 is the module), and
+`mutables`, each `var` in scope and the depth its declaration sits at.
+`_mutated_names` collects the names a body writes with `:=` and does not
+itself declare with `var`, stopping at a nested `def` — that body
+declares its own. Nothing needs to be declared for a name the body
+declares itself, and nothing may shadow a `var` anyway (PYKING.md,
+"Names and scoping"), so there is never a second candidate for a write
+to mean.
+
+This is the one backend that needs any of this. JavaScript closes over
+the binding and OCaml over the `ref`; C and Java have no closures at all
+and refuse such a function outright, with a worded error.
 
 ### Names that are keywords in Python
 
@@ -515,11 +566,10 @@ would actually cost something.
 
 ### Type annotations
 
-Parsed, stored, pretty-printed back by `--ast`, and erased here —
-function types (`(Int) -> Int`) exactly like the rest. Nothing verifies
-them in an ordinary compile (`--typecheck` is a separate, opt-in pass;
-see PYKING.md's "Type checking"), and the generated Python carries no
-typing information at all:
+Parsed, stored, pretty-printed back by `-t pyking`, and erased here —
+function types (`(Int) -> Int`) exactly like the rest. They are verified
+before this backend ever sees them (see PYKING.md's "Type checking"),
+and the generated Python carries no typing information at all:
 
 ```pyking                          # generated Python
 def scale(x, factor:Int) -> Int:   def scale(x, factor):
@@ -569,18 +619,18 @@ states under "What a loop is worth".
   source (see above).
 - **Comprehension helpers.** One generated function per refutable
   clause, plus a list allocation per element tested.
-- **An unclassifiable `print` argument always pays for a function call.**
-  `_bool_shape` (see "Booleans" above) only recognises a `Bool` from the
-  Pyking AST shape directly in front of it; a variable or a function call
-  falls back to the `__pyk_bool_str` runtime check even on every run where
-  the value turns out not to be a `Bool` at all, since there's no static
-  type information to rule that out ahead of time.
+- **A `print` argument whose type is unknown pays for a function call.**
+  `_bool_kind` (see "Booleans" above) answers from the checker's own
+  table, so a variable, a call and a list are all settled where their
+  types are; what is left is a value the checker could not pin down,
+  which falls back to the `__pyk_str` runtime walk on every run.
 - **No `pass`.** Pyking has no empty block, so the case never arises —
   but it also means the backend has no way to emit one if the language
   ever gains it.
 - **The immutability distinction disappears.** `=`, `var` and `:=` all
-  become assignment, so generated Python will happily let you do things
-  the Pyking source would have been rejected for. The checking lives in
+  become assignment (plus a `global`/`nonlocal` where one is needed), so
+  generated Python will happily let you do things the Pyking source would
+  have been rejected for. The checking lives in `src/typesystem.py` and
   `src/analyses.py`, ahead of every backend; it is not re-expressible in
   the output.
 - **No optimisation of any kind.** The backend is a printer: no constant

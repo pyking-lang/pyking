@@ -31,8 +31,9 @@ def just_binds(n):
 
 print(just_binds(3))
 
-# An `if` with no `else`: the taken path has a value, the missing one is
-# unit, and both print as themselves.
+# An `if` with no `else` supplies unit whatever its one branch ends in:
+# a path runs no branch at all, so there is no value the statement can
+# be counted on for (PYKING.md, "Type checking").
 def only_when_positive(n):
     if n > 0:
         "positive"

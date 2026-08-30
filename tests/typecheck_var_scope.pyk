@@ -1,0 +1,55 @@
+# What a `var` is, and how long it lasts.
+#
+# A `var` is one cell rather than a value, so `:=` reaches out of any
+# number of nested blocks to the one declaration, and a function written
+# where it is in scope reads the cell rather than a copy of it. A `var`
+# written inside a loop body belongs to that body, so every turn gets a
+# fresh one.
+
+var deepest = 0
+for a in range(3):
+    for b in range(3):
+        if a + b > deepest:
+            deepest := a + b
+
+print(deepest, str(deepest))
+
+
+# A function reading a `var` sees what is written to it afterwards.
+var level = 1
+
+
+def report() -> Int:
+    return level * 100
+
+
+print(report())
+level := 4
+print(report())
+
+
+# One per turn: `here` is declared inside the body, so each turn starts
+# it at zero rather than carrying the last turn's value.
+sums =
+loop acc = [] for row in [[1, 2], [3, 4, 5]]:
+    var here = 0
+    for cell in row:
+        here := here + cell
+    continue acc ++ [here]
+
+print(sums)
+
+
+# A `var` may shadow an immutable binding of the same name; the two are
+# separate, and the outer one is untouched.
+count = 100
+
+
+def tally(items: [Int]) -> Int:
+    var count = 0
+    for item in items:
+        count := count + item
+    return count
+
+
+print(tally([1, 2, 3]), count)

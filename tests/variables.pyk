@@ -8,10 +8,10 @@ x = 4
 # Changing a name from inside a block *is* an update, so the name is
 # declared mutable and updated with `:=`. An `=` there would bind a new
 # name local to the block, leaving this one untouched.
-var greeting = "start"
+var seen = 0
 var done = false
 while done == false:
-    greeting := "hi"
+    seen := seen + 1
     done := true
 
-print(x, greeting)
+print(x, seen)

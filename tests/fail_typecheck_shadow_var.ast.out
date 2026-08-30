@@ -1,0 +1,4 @@
+'tests/fail_typecheck_shadow_var.pyk' 13:4-13:11 Name error: cannot
+  bind 'counter': the mutable variable 'counter' (declared on line 11)
+  is in scope, and a mutable variable may not be shadowed (update it
+  with ':=', or choose another name)

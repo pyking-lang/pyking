@@ -56,8 +56,9 @@ around to be extended rather than thrown away as an error; see
 next: `state` (`interpreter.State` — the machine's names to values),
 `types` (the checker's names to types), `store` (what the deferred
 half of the type checker has worked out — see `typesystem.py`'s own
-page and `type_inference.md`), and `sources` (each name's own defining
-text, for `:edit`). `types`/`store` and `state` are genuinely two
+page and `type_inference.md`), `kinds` (the mutability analysis's names
+to binding kinds, so `:=` at the prompt is held to the same rule a file
+is), and `sources` (each name's own defining text, for `:edit`). `types`/`store` and `state` are genuinely two
 separate environments, extended by two separate modules
 (`typesystem.declare_functions`/`check_stmt` for the first,
 `interpreter.declare_entry`/`eval_in` for the second) — the REPL keeps

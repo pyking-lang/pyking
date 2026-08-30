@@ -21,7 +21,7 @@
 - Least optimal at: `range`, which builds a list where OCaml would
   iterate.
 
-Verified with `ocamlfind ocamlopt -w +a`, every warning on: the target's
+Verified with `ocamlopt -w +a`, every warning on: the target's
 promise is clean OCaml, so a warning is a failing test rather than a
 note. See "What the compiler would have said" below.
 
@@ -35,6 +35,7 @@ Exactly the fragment `src/typesystem.py` checks, no more and no less:
   own line (`def f(x): e`);
 - functions as values: passed as arguments, returned, and called;
 - `=` bindings, including ones that shadow;
+- `var` and `:=`, as OCaml `ref` cells;
 - `if` / `else if` / `else`, in statement form and in value form
   (`x = if c:`), and `if … then … else …` expressions;
 - `loop` with `break` and `continue`, in every position a value stands;
@@ -59,9 +60,10 @@ $ pyk compile -t ocaml program.pyk
   Construct is not supported
 ```
 
-That covers `var` and `:=`, `for`, `while`, `match`/`case`, lists,
-comprehensions, `/`, unary minus, and any `def` missing an annotation. Passing `--typecheck` is not required and changes nothing:
-the check happens either way.
+That covers `for`, `while`, `match`/`case`, lists, comprehensions, `/`,
+unary minus, and any `def` missing an annotation. Every program is
+type-checked anyway, so this target asks for nothing extra: the check
+happens either way.
 
 Two further things the checker accepts and this backend still refuses,
 each because OCaml has no way to say it.
@@ -312,7 +314,33 @@ Because a loop is an expression, it needs nothing said about it in any
 of the positions a value can stand: bound with `=`, returned, or as a
 function's last statement. `rec` is emitted only when the body really
 does call the loop function — a loop that always breaks does not — since
-`ocamlfind ocamlopt -w +a` treats a needless `rec` as an error.
+`ocamlopt -w +a` treats a needless `rec` as an error.
+
+### `var` and `:=`
+
+A mutable variable is an OCaml `ref`, which is the same idea spelled the
+same way: `var x = 0` becomes `let x = ref 0 in`, `x := e` stays
+`x := e` (unit-valued in both languages, so it needs nothing said about
+where it stands), and every *read* of the name becomes `!x`.
+
+```pyking
+var total = 0
+total := total + 1
+print(total)
+```
+```ocaml
+let total = ref 0
+
+let () = total := !total + 1; print_endline (string_of_int !total)
+```
+
+The scope falls out of `let … in` exactly as an `=` binding's does: a
+`var` is in scope for the rest of its block and no further. What the
+translation has to carry is which names are cells, so a read knows to
+dereference — a set threaded through the block walk, pushed when a `var`
+opens a scope and dropped when it closes. Pyking refuses to shadow a
+`var`, which is what makes that set safe: a name in it means the same
+cell wherever it is read.
 
 ### Tuples
 

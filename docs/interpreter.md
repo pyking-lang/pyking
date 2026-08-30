@@ -228,10 +228,20 @@ overwrites that one entry with the real `VClosure`, built by capturing
 half of the rule: a function's captured environment is where it's
 *written*, not the block-entry environment `declare` used to make the
 name resolvable ahead of time. Everything before the assignment is
-immutable; this one line is the entire exception, and it exists because
-nothing immutable could make one cell mean two different things (in
-scope, then defined) at two different points without either widening
+immutable; this and `mutate` are the two exceptions, and this one exists
+because nothing immutable could make one cell mean two different things
+(in scope, then defined) at two different points without either widening
 what a "binding" is or accepting this one controlled mutation instead.
+
+`mutate(env, name, value)` is the other, and it is `var` and `:=`.
+`KVarBind` declares a mutable variable in a **new** frame, which is what
+makes the cell fresh each time the declaration runs — once per turn of a
+loop it is written in — and `KMutate` walks outward exactly as `define`
+does and overwrites that frame's entry. A closure holding the
+environment therefore sees what is written afterwards, which is what a
+`var` means: it is one cell, not a value copied at capture time (see
+`tests/typecheck_var_scope.pyk`). Pyking refuses to shadow a `var`, so
+the outward walk cannot find the wrong one.
 
 ## Loops: a stack beside the frames, and a continuation that replaces itself
 
@@ -316,7 +326,7 @@ tree built only from these nine shapes will.
 `runtime_interface.OPERATIONS` exactly (see that module's own page for
 what the interface itself specifies) — with three implementations
 serving three different embeddings: `ConsoleHost` writes to a real
-stream (`sys.stdout` by default, for `pyk run`); `BufferHost` collects
+stream (`sys.stdout` by default, for `pyk <file>`); `BufferHost` collects
 lines for a caller that wants to inspect output after the fact rather
 than watch it stream (used by the test harness); `CallbackHost` hands
 each line to a function, which is the shape both a debugger's "output"

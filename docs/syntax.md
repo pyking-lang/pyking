@@ -103,9 +103,9 @@ how much of it is still a promise.
 
 ## The pretty printer: precedence mirrors the parser, backwards
 
-`pprint_expr`, `pprint_stmt`, and the rest exist so that `--ast` output
+`pprint_expr`, `pprint_stmt`, and the rest exist so that `-t pyking` output
 is itself valid Pyking — re-parsable, which is what makes
-`--typecheck --ast` a useful way to *see* what the checker inferred
+`-t pyking` a useful way to *see* what the checker inferred
 rather than a debug dump only a human can read. That means every printer
 has to solve the same problem the parser solved in the other direction:
 decide when a sub-expression needs parentheses to force the same
@@ -147,7 +147,7 @@ the desugaring its own parser rule performed.
 `pprint_program(stmts, symbols=False, tmap=None)` is the *only* entry
 point any caller uses — not `pprint_stmt` or `pprint_expr` directly,
 even though those are the functions that do the actual formatting. The
-reason is `tmap`: when the type checker has run, `--typecheck --ast`
+reason is `tmap`: the type checker has always run, so `-t pyking`
 is supposed to show the types it *inferred*, which may differ from (or
 simply exist where the source omitted) what was written. The checker
 doesn't write into the AST — see `typesystem.py`'s design note that it
@@ -203,6 +203,6 @@ A few node kinds have more than one way to write the same thing, and
 the printer always picks one, regardless of which the source used —
 `(x,)` for a one-element tuple (never bare `x,`), fully parenthesized
 tuples and tuple patterns (never the comma-only literal form some of
-them can be parsed from). This is what makes `--ast` output a *useful*
+them can be parsed from). This is what makes `-t pyking` output a *useful*
 canonical form to diff or to read: two programs that mean the same
 tuple print identically, whatever punctuation the author chose.

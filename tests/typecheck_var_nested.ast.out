@@ -1,0 +1,61 @@
+def three_deep(start:Int) -> Int:
+    var depth = start
+    def middle() -> ():
+        def inner() -> ():
+            depth := depth + 1
+        inner()
+        inner()
+    middle()
+    return depth
+print(three_deep(0))
+print(three_deep(40))
+var counted = 0
+fns: [() -> ()] = loop (i, made): (Int, [() -> ()]) = (0, []):
+    def add_turn() -> ():
+        counted := counted + i
+    if i >= 3:
+        break made ++ [add_turn]
+    else:
+        continue (i + 1, made ++ [add_turn])
+def run_all(fs:[() -> ()]) -> ():
+    loop fs: [() -> ()] = fs:
+        match fs:
+            case []:
+                break ()
+            case [f, ..rest]:
+                f()
+                continue rest
+        break ()
+run_all(fns)
+print(counted)
+def biggest(xs:[Int]) -> Int:
+    var best = 0
+    def scan(rest:[Int]) -> ():
+        loop rest: [Int] = rest:
+            match rest:
+                case []:
+                    break ()
+                case [value, ..more]:
+                    if value > best:
+                        best := value
+                    continue more
+            break ()
+    scan(xs)
+    return best
+print(biggest([3, 9, 2]))
+print(biggest([]))
+def left() -> Int:
+    var same = 1
+    same := same + 1
+    return same
+def right() -> Int:
+    var same = 100
+    same := same + 1
+    return same
+print(left(), right())
+same: String = 'outside'
+def inner_shadow() -> Int:
+    var same = 7
+    same := same * 3
+    return same
+print(inner_shadow(), same)

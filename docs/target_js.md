@@ -177,6 +177,32 @@ the loop's own body — so a second loop reusing the Pyking name gets a
 fresh JavaScript one rather than a duplicate declaration, and a name the
 accumulator shadowed means what it meant again afterwards.
 
+#### A `def` inside a loop
+
+That single `let` is one binding for every turn, which is exactly wrong
+for a function written in the body: Pyking binds the accumulator afresh
+on every turn, and a function outlives the turn it was written on, so
+all of them would close over the last turn's value. Where the body
+defines a function (`_defines_function`), the `let` becomes a *carrier*
+holding what the next turn starts with, and the accumulator itself
+becomes a `const` inside the body — one binding per turn, which is what
+each function closes over:
+
+```pyking                          // generated JavaScript
+fns =                              let tmp1 = [0, pykList([])];
+loop i, made = 0, []:              while (true) {
+    def show(): i * 10               const [i, made] = tmp1;
+    if i >= 3:                       function show() { return i * 10; }
+        break made ++ [show]         ...
+    else:                            tmp1 = [i + 1, pykConcat(made, pykList([show]))];
+        continue i + 1,              continue;
+                made ++ [show]     }
+```
+
+A loop with no function in its body keeps the plain `let`, so ordinary
+output stays ordinary. A `for … of` header needs none of this:
+JavaScript already gives each iteration its own binding for the element.
+
 ### Control flow, functions, expressions
 
 ```pyking

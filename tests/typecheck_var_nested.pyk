@@ -1,0 +1,107 @@
+# How deep a `:=` reaches, and what it does not reach.
+#
+# `:=` names the one `var` in scope for it, however many blocks and
+# functions are in between: nothing may shadow a mutable variable, so
+# there is never a second candidate. What *is* separate is a `var` of
+# the same name in a scope the write cannot see.
+
+# Three levels of function, and the write is at the bottom.
+def three_deep(start: Int) -> Int:
+    var depth = start
+
+    def middle() -> ():
+        def inner() -> ():
+            depth := depth + 1
+
+        inner()
+        inner()
+
+    middle()
+    return depth
+
+
+print(three_deep(0))
+print(three_deep(40))
+
+
+# A `def` written inside a loop, writing a variable from outside it.
+# Every turn builds its own copy of the function -- each closing over
+# that turn's `i` -- and every copy writes the same one location.
+var counted = 0
+
+fns =
+loop i, made = 0, []:
+    def add_turn() -> ():
+        counted := counted + i
+
+    if i >= 3:
+        break made ++ [add_turn]
+    else:
+        continue i + 1, made ++ [add_turn]
+
+
+def run_all(fs: [() -> ()]) -> ():
+    match fs:
+        case []:
+            ()
+        case [f, ..rest]:
+            f()
+            run_all(rest)
+
+
+run_all(fns)
+print(counted)
+
+
+# A write from inside an `if` inside a `match` inside a nested `def`
+# that recurses: every call of `scan` writes the one `best` its own
+# call of `biggest` declared.
+def biggest(xs: [Int]) -> Int:
+    var best = 0
+
+    def scan(rest: [Int]) -> ():
+        match rest:
+            case []:
+                ()
+            case [value, ..more]:
+                if value > best:
+                    best := value
+                scan(more)
+
+    scan(xs)
+    return best
+
+
+print(biggest([3, 9, 2]))
+print(biggest([]))
+
+
+# Sibling scopes may each declare a `var` of the same name: neither is
+# in scope where the other is written, so the two never meet.
+def left() -> Int:
+    var same = 1
+    same := same + 1
+    return same
+
+
+def right() -> Int:
+    var same = 100
+    same := same + 1
+    return same
+
+
+print(left(), right())
+
+
+# A `var` inside a function shadowing an immutable binding outside it.
+# The outer name is a binding, not a cell, and is untouched.
+same = "outside"
+
+
+def inner_shadow() -> Int:
+    var same = 7
+    same := same * 3
+    return same
+
+
+print(inner_shadow(), same)

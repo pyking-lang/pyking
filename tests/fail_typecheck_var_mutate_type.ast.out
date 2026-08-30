@@ -1,0 +1,2 @@
+'tests/fail_typecheck_var_mutate_type.pyk' 12:0-12:13 Type error:
+  'count' is Int, but this ':=' gives Bool

@@ -1,11 +1,14 @@
-"""Static analyses over the Pyking AST (src/syntax.py): name and scope
-checking, symbolizing (giving every node a unique integer id), and
-which expressions can produce output. The first two run after parsing
-and before any backend, for every mode except --typecheck, which does
-its own name checking; the third is asked for by the backends whose
-host language leaves evaluation order unspecified. See PYKING.md,
-"Names and scoping", and docs/architecture.md, docs/source.md
-("analyses.py").
+"""Static analyses over the Pyking AST (src/syntax.py): mutability
+checking, symbolizing (giving every node a unique integer id), and which
+expressions can produce output. The first two run after parsing and
+before any backend; the third is asked for by the backends whose host
+language leaves evaluation order unspecified. See PYKING.md, "Names and
+scoping", and docs/architecture.md, docs/source.md ("analyses.py").
+
+Names and types are src/typesystem.py's, which every mode runs: a name
+that is not in scope is refused there, in this module's words. What is
+left here is the one rule types do not state -- which names may be
+written to with `:=`, and that nothing may shadow one that can be.
 
 Data structures:
     AnalysisError -- a name/scoping failure, with the source position.
@@ -13,15 +16,13 @@ Data structures:
     Effects -- which calls in a program can end up printing.
 
 Functions:
-    analyze_program(stmts) -- checks a whole program's names.
+    analyze_mutability(stmts) -- checks a whole program's mutability.
     analyze_stmts(stmts, env) -- analyzes a statement sequence.
     analyze_stmt(s, env) -- analyzes one statement.
-    analyze_expr(e, env) -- analyzes one expression.
     analyze_scope(stmts, env) -- analyzes a nested block.
     bind(env, name, kind, info) -- extends env with one binding.
     bind_target(env, target, kind) -- binds every name in an assign target.
     bind_pattern(env, pattern) -- binds every name a pattern captures.
-    check_bound(name, env, info) -- checks that name is in scope.
     pattern_bindings(pattern) -- the (name, info) pairs a pattern binds.
     bound_names(stmt) -- the (name, info) pairs a statement binds in its block.
     target_names(target) -- the (name, info) pairs an assign target binds.
@@ -39,13 +40,10 @@ from dataclasses import dataclass, fields, is_dataclass, replace
 from lexer import Info
 import runtime_interface
 from syntax import (
-    EInt, EString, EBool, EVar,
-    EAdd, EConcat, ESub, EMul, EDiv, ENeg,
-    ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList, ETuple,
-    EIf, EListComp, CompFor, CompIf,
-    PInt, PString, PWildcard, PCapture, PTuple, PList, PText,
+    EVar, ECall,
+    PCapture, PTuple, PList, PText,
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SIf,
-    ForIn, WhileTest,
+    ForIn,
     SLoop, SBreak, SContinue,
     SFunctionDef, SFunctionSig, SMatch,
     TFunction, TForall,
@@ -110,13 +108,6 @@ def bind(env, name, kind, info):
     return {**env, name: Binding(kind, info)}
 
 
-def check_bound(name, env, info):
-    """Raises AnalysisError if name is not bound in env.
-    String -> {String: Binding} -> Info -> ()"""
-    if name not in env:
-        raise AnalysisError(info, f"unbound name '{name}'")
-
-
 def pattern_bindings(pattern):
     """The names a pattern binds, as (name, info) pairs, in source
     order. Pattern -> [(String, Info)]"""
@@ -158,52 +149,13 @@ def bind_target(env, target, kind=BINDING):
             return env
 
 
-# --- the walk ---
+# --- mutability ---
 
-def analyze_expr(e, env):
-    """Checks that every name e uses is bound in env. Raises
-    AnalysisError on the first unbound name.
-    Expr -> {String: Binding} -> ()"""
-    match e:
-        case EInt(_, _) | EString(_, _) | EBool(_, _):
-            pass
-        case EVar(info, name):
-            check_bound(name, env, info)
-        case (EAdd(_, l, r) | EConcat(_, l, r) | ESub(_, l, r) | EMul(_, l, r)
-              | EDiv(_, l, r)
-              | ELessThan(_, l, r) | ELessThanEq(_, l, r) | EGreatThan(_, l, r)
-              | EGreatThanEq(_, l, r) | EEq(_, l, r)):
-            analyze_expr(l, env)
-            analyze_expr(r, env)
-        case ENeg(_, operand):
-            analyze_expr(operand, env)
-        case ECall(_, func, args):
-            analyze_expr(func, env)
-            for arg in args:
-                analyze_expr(arg, env)
-        case EList(_, elements) | ETuple(_, elements):
-            for element in elements:
-                analyze_expr(element, env)
-        case EIf(_, cond, then_expr, else_expr):
-            analyze_expr(cond, env)
-            analyze_expr(then_expr, env)
-            analyze_expr(else_expr, env)
-        case EListComp(_, expr, clauses):
-            # A comprehension is its own scope: its pattern variables are
-            # visible to the element expression and to the clauses after
-            # them (`[x + y for x in xs for y in f(x)]`), and nowhere else.
-            comp_env = env
-            for clause in clauses:
-                match clause:
-                    case CompFor(_, pattern, sequence):
-                        analyze_expr(sequence, comp_env)
-                        comp_env = bind_pattern(comp_env, pattern)
-                    case CompIf(_, condition):
-                        analyze_expr(condition, comp_env)
-            analyze_expr(expr, comp_env)
-        case _:
-            raise NotImplementedError(f"no name analysis for expression {e!r}")
-
+# The one rule types cannot state: `:=` writes to a name, and only a
+# `var` may be written to. Everything else about a name -- that it is
+# in scope where it is used, and what it holds -- src/typesystem.py
+# settles, so this walk never descends into an expression: no
+# expression mutates anything.
 
 def analyze_scope(stmts, env):
     """Analyzes a nested block in env; whatever it binds is not visible
@@ -296,12 +248,10 @@ def analyze_value_stmt(stmt, env):
             # on its own: it binds its accumulator in its own body and
             # nothing in the block around it.
             analyze_stmt(stmt, env)
-        case SIf(_, cond, then_body, else_body):
-            analyze_expr(cond, env)
+        case SIf(_, _, then_body, else_body):
             analyze_scope(then_body, env)
             analyze_scope(else_body, env)
-        case SMatch(_, subject, cases):
-            analyze_expr(subject, env)
+        case SMatch(_, _, cases):
             for case_clause in cases:
                 analyze_case(case_clause, env)
 
@@ -317,38 +267,33 @@ def analyze_stmt(s, env):
     """Analyzes one statement in env. Returns the environment the
     statements after it should see. Stmt -> {String: Binding} -> {String: Binding}"""
     match s:
-        case SLet(_, target, expr):
-            # The right-hand side is analyzed *before* the target is
-            # bound, so `x = x + 1` reads the enclosing `x` and binds a
-            # new one -- a binding, never an update.
-            analyze_expr(expr, env)
+        case SLet(_, target, _):
             return bind_target(env, target)
 
         case SLetStmt(_, target, stmt):
             analyze_value_stmt(stmt, env)
             return bind_target(env, target)
 
-        case SVar(info, name, expr):
-            analyze_expr(expr, env)
+        case SVar(info, name, _):
             return bind(env, name, MUTABLE, info)
 
-        case SMutate(info, name, expr):
-            analyze_expr(expr, env)
-            match env.get(name):
-                case None:
-                    raise AnalysisError(info, f"unbound name '{name}'")
-                case Binding(kind, _) as existing if kind != MUTABLE:
-                    raise AnalysisError(
-                        info,
-                        f"cannot update '{name}' with ':=': it is a {kind}"
-                        f"{where_bound(existing)}, not a mutable variable (declare "
-                        "it with 'var' to make it one)",
-                    )
-                case _:
-                    return env
+        case SMutate(info, name, _):
+            existing = env.get(name)
+            if existing is not None and existing.kind == MUTABLE:
+                return env
+            # The type checker has already refused a name in no scope at
+            # all, so a name missing here is one bound where this walk
+            # does not follow; either way it is not a `var`.
+            what = "not a mutable variable" if existing is None else (
+                f"a {existing.kind}{where_bound(existing)}, not a mutable variable"
+            )
+            raise AnalysisError(
+                info,
+                f"cannot update '{name}' with ':=': it is {what} (declare it "
+                "with 'var' to make it one)",
+            )
 
-        case SReturn(_, expr):
-            analyze_expr(expr, env)
+        case SReturn(_, _) | SExprStmt(_, _) | SBreak(_, _) | SContinue(_, _):
             return env
 
         case SReturnStmt(_, stmt):
@@ -358,54 +303,26 @@ def analyze_stmt(s, env):
             analyze_value_stmt(stmt, env)
             return env
 
-        case SExprStmt(_, expr):
-            analyze_expr(expr, env)
-            return env
-
-        case SLoop(_, target, init, _, iterate, result, body):
-            # The initializer is analyzed outside the loop, exactly as an
-            # `=` binding's right-hand side is: `loop x = x + 1:` reads
-            # the enclosing `x` and binds a new one for the body.
+        case SLoop(_, target, _, _, iterate, _, body):
+            # The accumulator is bound for the body only, exactly as an
+            # `=` binding's target is bound for what follows it.
             inner = env
             if target is not None:
-                analyze_expr(init, env)
                 inner = bind_target(env, target, LOOP_VAR)
             match iterate:
-                case ForIn(info, name, sequence, _):
-                    # The sequence is read outside the loop; the element
-                    # name is bound for the body only.
-                    analyze_expr(sequence, env)
+                case ForIn(info, name, _, _):
                     analyze_scope(body, bind(inner, name, LOOP_VAR, info))
-                case WhileTest(_, condition, _):
-                    # The test can ask about the accumulator, so it is
-                    # read where the accumulator is bound.
-                    analyze_expr(condition, inner)
-                    analyze_scope(body, inner)
                 case _:
                     analyze_scope(body, inner)
-            if result is not None:
-                # `result` says what the loop is worth when it ends
-                # without breaking. Only the accumulator is in scope in
-                # it -- not the element name, and nothing the body bound.
-                analyze_expr(result, inner)
             return env
 
-        case SBreak(_, expr) | SContinue(_, expr):
-            # Where these may stand is the parser's rule (it is shape,
-            # not scope); here there is only the operand to check.
-            if expr is not None:
-                analyze_expr(expr, env)
-            return env
-
-        case SIf(_, cond, then_body, else_body):
-            analyze_expr(cond, env)
+        case SIf(_, _, then_body, else_body):
             analyze_scope(then_body, env)
             if else_body is not None:
                 analyze_scope(else_body, env)
             return env
 
-        case SMatch(_, subject, cases):
-            analyze_expr(subject, env)
+        case SMatch(_, _, cases):
             for case_clause in cases:
                 analyze_case(case_clause, env)
             return env
@@ -413,8 +330,8 @@ def analyze_stmt(s, env):
         case SFunctionSig(_, _, _):
             # A signature says what a `def` in this block is; it binds no
             # name of its own and mentions none, so there is nothing here
-            # for a scope-aware walk to check. `typesystem.py` is what
-            # pairs it with its definition.
+            # for this walk to check. `typesystem.py` is what pairs it
+            # with its definition.
             return env
 
         case SFunctionDef(info, name, params, body, _return_type):
@@ -429,13 +346,15 @@ def analyze_stmt(s, env):
             return env
 
         case _:
-            raise NotImplementedError(f"no name analysis for statement {s!r}")
+            raise NotImplementedError(f"no mutability analysis for statement {s!r}")
 
 
-def analyze_program(stmts):
-    """Checks a whole program's names, with the builtins in scope.
-    Raises AnalysisError on the first problem; never rewrites the AST.
-    [Stmt] -> ()"""
+def analyze_mutability(stmts):
+    """Checks that every `:=` names a `var`, and that nothing shadows
+    one. Raises AnalysisError on the first problem; never rewrites the
+    AST. [Stmt] -> ()
+
+    """
     env = {name: Binding(BUILTIN) for name in BUILTINS}
     analyze_stmts(stmts, env)
 

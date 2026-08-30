@@ -1,0 +1,73 @@
+# A `var` written from inside a function.
+#
+# A mutable variable is one location, so a function that names it in a
+# `:=` writes *that* location rather than making one of its own. The
+# write is visible to everything that reads the variable afterwards, and
+# it is the call that does it -- writing the function down changes
+# nothing.
+#
+# Every backend with closures gets this for free; the Python one has to
+# say `global` or `nonlocal`, since Python makes an assigned name local
+# to the whole function otherwise (docs/target_python.md). C and Java
+# have no closures at all and refuse this file, which is why they are
+# not in its target list.
+
+var x = 8
+
+print(x)
+
+
+def foo(y: Int) -> ():
+    x := y
+
+
+# Written, not yet called: nothing has happened to `x`.
+print(x)
+
+foo(5)
+
+print(x)
+
+
+# A `var` in an enclosing function, written by a nested `def`. Each call
+# of `outer` has a `total` of its own, so the two calls below do not see
+# each other's.
+def outer(start: Int) -> Int:
+    var total = start
+
+    def bump(n: Int) -> ():
+        total := total + n
+
+    bump(1)
+    bump(10)
+    return total
+
+
+print(outer(0))
+print(outer(100))
+
+
+# Two functions writing the same variable, and a third that only reads
+# it -- the reader sees whatever the last writer left.
+var shared = 0
+
+
+def double_it() -> ():
+    shared := shared * 2
+
+
+def add_three() -> ():
+    shared := shared + 3
+
+
+def report() -> Int:
+    return shared
+
+
+add_three()
+print(report())
+double_it()
+print(report())
+add_three()
+double_it()
+print(report())

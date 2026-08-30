@@ -13,22 +13,20 @@ counting something up needs no mutable variable at all — and a function
 that calls itself in tail position is compiled into exactly such a loop,
 so it runs in constant space on every target.
 
-A program can be compiled for any of ten targets, or run directly by the
-interpreter. The `pyk` script at the repository root is the front end for
-all of it, and has four commands:
+Pyking is statically typed: every program is type-checked, whatever is
+then done with it. A program can be compiled for any of eleven targets,
+or run directly by the interpreter. The `pyk` script at the repository
+root is the front end for all of it, and has three commands:
 
 ```sh
-./pyk hello.pyk                # compile with the python backend and run it
-./pyk run hello.pyk            # run it with the interpreter
+./pyk hello.pyk                # run it with the interpreter
 ./pyk repl                     # a prompt, with the same interpreter behind it
 ./pyk compile hello.pyk        # compile it (alias: ./pyk c)
 ```
 
-`./pyk hello.pyk` compiles to a temporary file, runs it, and cleans up;
-it covers the whole language. `./pyk run` runs the AST directly, with
-Pyking's own semantics — 32-bit integers, and runtime errors reported
-against Pyking source positions — and covers the fragment the type
-checker accepts. Where the two disagree, the interpreter is the
+`./pyk hello.pyk` runs the AST directly, with Pyking's own semantics —
+32-bit integers, and runtime errors reported against Pyking source
+positions. Where a backend disagrees with it, the interpreter is the
 reference; see [docs/targets.md](docs/targets.md).
 
 `compile` writes a file named after the source, unless `--output` (`-o`)
@@ -45,17 +43,22 @@ says otherwise:
 ./pyk c -t java17  hello.pyk   # ./Hello.java   (Java 17)
 ./pyk c -t java21  hello.pyk   # ./Hello.java   (Java 21)
 ./pyk c -t ocaml   hello.pyk   # ./hello.ml
+./pyk c -t pyking  hello.pyk   # ./hello.pyk    (Pyking, as the front end has it)
 ```
 
-`--stdout` prints the generated code instead of writing it, `--ast` shows
-the parsed program, and `--tokens` the token stream. Two flags go with
-`--ast`: `--symbols` labels each node with the unique number the
-`symbolize` pass gave it, and `--typecheck` runs the type checker first,
-so the printed program carries the types it inferred:
+`--stdout` prints the generated code instead of writing it, and
+`--tokens` the token stream. `--run` builds and runs what was compiled,
+with the commands that target's host uses, each printed before it runs.
+
+The `pyking` target compiles Pyking to Pyking: it prints the program the
+front end worked out, carrying the types the checker inferred and the
+loops the tail-call pass built. `--symbols` goes with it, labelling each
+node with the unique number the `symbolize` pass gave it:
 
 ```sh
-./pyk c --typecheck --ast hello.pyk    # x: Int = 12 + 20
-./pyk c --ast --symbols hello.pyk      # x@1 = (12@2 + 20@3)@4  @5
+./pyk c -t pyking --stdout hello.pyk             # x: Int = 12 + 20
+./pyk c -t pyking --symbols --stdout hello.pyk   # x@1: Int = (12@2 + 20@3)@4  @5
+./pyk c -t nodejs --run hello.pyk                # $ node hello.js
 ```
 
 The type checker is opt-in for compiling because it covers only part of
@@ -170,5 +173,5 @@ clean` but the cache itself only goes on `make distclean`.
 Requires Python 3.11+ (`match`/`case`, `tomllib`). Running the generated
 code needs `node` for the JavaScript targets, a C compiler for the C
 ones, a JDK (`javac`/`java`) for the Java ones and an OCaml compiler for
-`ocaml`; producing it needs none of them, and `./pyk run` needs nothing
-at all. No third-party dependencies.
+`ocaml`; producing it needs none of them, and running a program with
+`./pyk` needs nothing at all. No third-party dependencies.

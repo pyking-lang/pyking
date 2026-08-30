@@ -26,8 +26,9 @@ The one thing missing from `src/` is a callable entry point — `pyk.py` is
 a script that reads `argv`, opens files and calls `sys.exit`. The generator
 emits a small `pyking_web.py` beside the copied modules that exposes the same
 stage sequence as two functions returning values. Everything else in `src/`
-is already pure: `os` and `sys` appear only in the two front ends, `pyk.py`
-and `repl.py`, and neither is copied.
+is already pure: `os`, `sys` and `subprocess` appear only in the driver
+and the two front ends -- `pyk.py`, `repl.py` and `execution.py` -- and
+none of the three is copied.
 
 ## What `make` does
 
@@ -37,7 +38,7 @@ and `repl.py`, and neither is copied.
 | `make build` | regenerate `build/` from `generator.py` |
 | `make vendor` | download Ace + Pyodide into `vendor/` (cached; skipped if present) |
 | `make check` | compile every example for every target it claims, headlessly |
-| `make e2e` | browser tests — layout, workers, Stop (needs Playwright) |
+| `make e2e` | browser tests — mounting, compiling, running, Stop (needs Playwright) |
 | `make serve` | serve `build/`, print a clickable `http://localhost:8000/` |
 | `make clean` | remove `build/` |
 | `make distclean` | also remove `vendor/` |
@@ -125,26 +126,16 @@ static host will do; nothing runs server-side.
   - **Clear it each time you press Run** — on by default. Only *Run* clears;
     compiling deliberately does not, so a compile error stays beside the
     output you were comparing it against.
-  - **Enable typechecker** and **Print AST output** — the compiler's own
-    `--typecheck` and `--ast`, both **off** by default. Each changes what
-    compiling means, so nobody gets them without asking:
-    - *Enable typechecker* reports what `src/typesystem.py` refuses, and,
-      exactly as `pyk` does, uses it *instead of* the name analysis. The
-      checker itself runs either way — the tail-call pass needs what it
-      knows — so what the box turns on is the refusal, not the question:
-      it covers only a fragment of the language so far and refuses the
-      rest with `Construct is not supported`, so it will reject most
-      examples, and that floor is the point rather than a bug. It applies
-      to **Run** as well: a program the checker rejects is rejected
-      whichever button you press.
-    - *Print AST output* stops after the front end and shows the
-      pretty-printed Pyking AST, whatever target is selected — the same
-      view as the `ast` target, carrying whatever types the checker could
-      work out, which is what `pyk compile --ast` prints too. There is
-      then no generated code, so the generated pane's ▶ Run is disabled:
-      it runs *what is shown*, and an AST is a view of the program rather
-      than code any host could run.
   - **Reset pane sizes**.
+
+  There is no type-checking switch: Pyking is statically typed, so every
+  compile here checks, exactly as `pyk` does, and a program the checker
+  refuses is refused whichever button you press. Seeing what it worked
+  out is the **pyking** target in the dropdown — Pyking compiled back to
+  Pyking, carrying the types the checker inferred. There is then no
+  generated code, so the generated pane's ▶ Run is disabled: it runs
+  *what is shown*, and that view is a program rather than code a host
+  could run.
 
   Close it with `Esc`, the ✕, or a click on the backdrop. Every setting, and
   both split positions, are remembered in `localStorage`, so the layout you
@@ -317,7 +308,8 @@ The playground cannot drift from the compiler, because it does not restate
 anything the compiler already knows:
 
 1. **The compiler modules** are copied from `src/` at build time — never
-   forked. `pyk.py` and `repl.py` are excluded; they are the front ends.
+   forked. `pyk.py`, `repl.py` and `execution.py` are excluded: the two
+   front ends and the driver's own way of running what was compiled.
 2. **The keyword and builtin lists** in `pyking-mode.js` are lifted out of
    `src/lexer.py` and `src/analyses.py` while generating it, and **the value
    formatter** in `js-worker.js` out of `src/target_js_packaging.py`.
@@ -425,7 +417,8 @@ js.stop();
 ```
 
 A successful result also carries `views`: the names in `files` that are a
-view of the front end (`--ast`) rather than code a host could run. The page
+view of the front end (the `pyking` target) rather than code a host
+could run. The page
 uses it to keep its Run button honest, and an embedder that runs generated
 code should skip them the same way.
 
@@ -444,16 +437,15 @@ make check                       # every example/target pair, through the shim
 make e2e                         # the same page, in a real browser
 ```
 
-`make check` needs nothing but Python. It also exercises the two front-end
-flags, neither of which is reachable by selecting a target: every example is
-compiled once more with `--ast` against a target that would otherwise
-generate code, and the type-checker fixtures under `tests/` are held to the
-rule their names state — `typecheck_*` must check, `fail_typecheck_*` must
+`make check` needs nothing but Python. Every example is compiled for the
+`pyking` target as well as for every target it claims, and the
+type-checker fixtures under `tests/` are held to the rule their names
+state — `typecheck_*` must check, `fail_typecheck_*` must
 not. A `fail_typecheck_*` fixture is held to *only* that rule: some of them
 are not valid programs at all (one names something unbound), so expecting
 them to compile any other way would be expecting the front end to miss what
 they exist to catch. What those programs *infer* is `tests/test_script.py`'s
-business; this only proves the flags reach the checker through the shim.
+business; this only proves the checker is reached through the shim.
 `make e2e` needs Playwright — the one
 dependency anywhere in this tool, which is why it is a separate target and
 why the script prints an install line and exits cleanly when it is absent:
@@ -463,13 +455,16 @@ npm install playwright && npx playwright install chromium
 ```
 
 It is worth having, because there is a class of defect nothing headless can
-see. jsdom has no layout engine, so it can prove two CSS rules resolve alike
-but not that a control is the right size; and node can model a Worker but not
-run WebAssembly inside one. Both gaps hid real bugs — a Stop button that was
-never styled at all, and a doubled URL path that broke startup outright — and
-both are now covered: `make e2e` starts its own server, measures the real
-geometry of the toolbar, boots Pyodide in a real worker, runs a program that
-never terminates, and checks the page stays responsive while Stop ends it.
+see: node can model a Worker but not run WebAssembly inside one, so nothing
+short of a browser proves the page actually compiles anything. `make e2e`
+starts its own server on a free port and drives the built page: that it
+mounts with every target in the dropdown, that Compile boots Pyodide and
+produces a file, that the `pyking` target prints the front end's own output,
+that both Run buttons produce output, that **every example compiles for every
+target it claims** — the same pairs `make check` compiles, but through the
+worker rather than under the host CPython — and that Stop ends a program
+written never to end (`loop: continue`) with the page still answering. Any
+error on the console fails the run.
 
 The build was additionally validated by driving the real vendored Pyodide from
 node — mounting the compiler, compiling all ten targets, and confirming the

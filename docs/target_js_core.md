@@ -10,13 +10,13 @@ summary, see [source.md](source.md#target_js_corepy).
 
 ## Why this `Scope` doesn't need what Python's does
 
-`target_python.py`'s `Scope` carries six fields — `outer`, `local`,
-`block`, `shadowed`, `captured`, `loop_names` — because Python scopes
-at the function boundary and Pyking scopes at every block, and
-reconciling the two needs to know, for every binding, both what's
-already live in the enclosing Python function and what any function
-defined in that scope reads from around itself (see
-[target_python_internals.md](target_python_internals.md)).
+`target_python.py`'s `Scope` carries eight fields — `outer`, `local`,
+`block`, `shadowed`, `captured`, `loop_names`, `depth`, `mutables` —
+because Python scopes at the function boundary and Pyking scopes at
+every block, and reconciling the two needs to know, for every binding,
+both what's already live in the enclosing Python function and what any
+function defined in that scope reads from (or writes to) around itself
+(see [target_python_internals.md](target_python_internals.md)).
 
 This module's `Scope` is three fields:
 
@@ -58,6 +58,17 @@ accumulator: the `let` stands in the block around the loop, but the name
 is in scope only in the loop's body, so `_reserve` adds the JavaScript
 name without binding the Pyking one. See [target_js.md](target_js.md), "Scope and
 renaming," for what a rename actually looks like in the output.
+
+The one thing JavaScript's block scoping does *not* give for free is a
+loop turn. That `let` around the loop is one binding for every turn, so
+a function written in the body would close over the last turn's value
+rather than its own — Pyking binds the accumulator afresh each time
+round. `_defines_function` asks whether the body writes a `def` at all;
+where it does, the `let` becomes a carrier holding what the next turn
+starts with and the accumulator becomes a `const` inside the body, which
+is one binding per turn. Where it does not, the plain `let` stands, so
+an ordinary loop compiles to ordinary JavaScript. See
+[target_js.md](target_js.md), "A `def` inside a loop".
 
 ## `JsRuntimeCall`: one core, three ways to print it
 
@@ -129,7 +140,7 @@ explicit argument, rather than a module-level flag the way
 `syntax.py`'s `pprint_program` sets `_show_symbols`/`_tmap` around one
 call (see `docs/syntax.md`). The difference is deliberate: `syntax.py`'s
 flags are genuinely global to one print — everything in a single
-`--ast` invocation shares the same `symbols`/`tmap` setting — while
+`pyking` target shares the same `symbols`/`tmap` setting — while
 `runtime` varies *per target*, and `target_js_packaging.py` calls this
 printer three separate times in the course of building one `esm`
 output (once for the module itself, differently for each of its

@@ -24,7 +24,10 @@ import shutil
 import sys
 from dataclasses import dataclass, field, replace
 
-from analyses import BUILTINS, bound_names, symbolize, AnalysisError
+from analyses import (
+    BUILTINS, BUILTIN, Binding, analyze_stmts, bound_names, symbolize,
+    AnalysisError,
+)
 import optimization
 from lexer import lexing, pprint_info, pprint_token, LexError
 from parser import parse, ParseError
@@ -59,6 +62,12 @@ INDENT = "    "
 INCOMPLETE = ("unexpected end of input", "expected an indented block")
 
 
+def builtin_kinds():
+    """The mutability analysis's starting environment: the builtins, and
+    nothing a `:=` may name. () -> {String: Binding}"""
+    return {name: Binding(BUILTIN) for name in BUILTINS}
+
+
 @dataclass(frozen=True)
 class Session:
     """A REPL session. An entry is checked the way it is run: each is
@@ -68,11 +77,13 @@ class Session:
     state: interpreter.State (the machine's names -> values),
     types: {String: Type} (the checker's names -> types),
     store: typesystem.Store (what the checker has worked out),
+    kinds: {String: Binding} (the mutability analysis's names -> kinds),
     sources: {String: String} (each name's own source text, for :edit)."""
     seen: tuple = ()
     state: interpreter.State = None
     types: dict = field(default_factory=typesystem.builtin_env)
     store: typesystem.Store = field(default_factory=typesystem.empty_store)
+    kinds: dict = field(default_factory=builtin_kinds)
     sources: dict = field(default_factory=dict)
 
 
@@ -684,6 +695,9 @@ def submit(session, stmts, report, source=""):
     entry = seen[len(session.seen):]
     try:
         checked, tmap = check_entry(entry, session.types, session.store)
+        # The one rule types do not state, asked of the entry as a
+        # block, exactly as `pyk` asks it of a file.
+        kinds = analyze_stmts(entry, session.kinds)
     except (AnalysisError, typesystem.TypeError_) as e:
         return session, e
 
@@ -703,7 +717,7 @@ def submit(session, stmts, report, source=""):
 
     # `seen` grows whether or not every statement runs: a symbol handed
     # out once must not be handed out again.
-    session = replace(session, seen=tuple(seen))
+    session = replace(session, seen=tuple(seen), kinds=kinds)
     state = interpreter.declare_entry(session.state, entry)
     for stmt, supplied, types, store in checked:
         after = interpreter.eval_in(state, stmt)

@@ -6,13 +6,12 @@
 # program means: they are still one group, still one turn's worth. This
 # file is the case that used to be compiled wrongly (see docs/gap.md).
 
-var fns = []
-
-for i in range(3):
+fns =
+loop made = [] for i in range(3):
     def outer_call(): inner()
     marker = "unrelated"
     def inner(): i
-    fns := fns ++ [outer_call]
+    continue made ++ [outer_call]
 
 for f in fns:
     print(f())
@@ -21,13 +20,12 @@ for f in fns:
 # The same with the pair mutually recursive, and with the statement
 # between them binding something the *second* one reads -- so the group
 # takes that binding along.
-var pairs = []
-
-for n in range(3):
+pairs =
+loop seen = [] for n in range(3):
     def even(k): if k < 1 then n else odd(k - 1)
     step = 1
     def odd(k): even(k - step + 1)
-    pairs := pairs ++ [even]
+    continue seen ++ [even]
 
 for g in pairs:
     print(g(2))
@@ -36,15 +34,14 @@ for g in pairs:
 # A chain of three, split twice: `first` names `second`, `second` names
 # `third`, and only `third` reads the loop. All three are still one
 # group, since a reference is a reference wherever it points.
-var chains = []
-
-for m in range(3):
+chains =
+loop linked = [] for m in range(3):
     def first(): second()
     left = "a"
     def second(): third()
     right = "b"
     def third(): m * 100
-    chains := chains ++ [first]
+    continue linked ++ [first]
 
 for h in chains:
     print(h())
@@ -53,12 +50,11 @@ for h in chains:
 # Functions in a loop that read nothing the loop rebinds need none of
 # this: they mean the same thing every turn, and are compiled exactly as
 # they are written.
-var plain = []
-
-for p in range(2):
+plain =
+loop simple = [] for p in range(2):
     def constant(): 7
     def doubled_constant(): constant() * 2
-    plain := plain ++ [doubled_constant]
+    continue simple ++ [doubled_constant]
 
 for q in plain:
     print(q())
@@ -67,13 +63,12 @@ for q in plain:
 # A `var` is a location, not a value: `:=` updates the one binding, so a
 # function reading it sees this turn's updates rather than a copy taken
 # when the function was made.
-var readers = []
-
-for r in range(2):
+readers =
+loop reading = [] for r in range(2):
     var acc = 0
     def read_acc(): acc
     acc := acc + 10
-    readers := readers ++ [read_acc]
+    continue reading ++ [read_acc]
 
 for s in readers:
     print(s())
@@ -84,14 +79,12 @@ for s in readers:
 # its own, and does not get one.
 outside = "outer"
 
-var readers2 = []
-
-for t in range(2):
+readers2 =
+loop later = [] for t in range(2):
     def before(): outside ++ "/before"
     outside = "inner"
     def after(): outside ++ "/after"
-    readers2 := readers2 ++ [before]
-    readers2 := readers2 ++ [after]
+    continue later ++ [before] ++ [after]
 
 for u in readers2:
     print(u())
@@ -104,14 +97,13 @@ def noisy(tag:String) -> Int:
     1
 
 
-var noisy_fns = []
-
-for v in range(1):
+noisy_fns =
+loop noted = [] for v in range(1):
     def uses(): held()
     stays = noisy("first")
     held_value = noisy("second") + v
     def held(): held_value
-    noisy_fns := noisy_fns ++ [uses]
+    continue noted ++ [uses]
 
 for w in noisy_fns:
     print(w())
@@ -121,14 +113,14 @@ for w in noisy_fns:
 # group's factory -- stays exactly where it is, and the group takes only
 # the binding it needs.
 def guarded(n:Int) -> Int:
-    var kept = []
-    for y in range(1):
+    kept =
+    loop keeping = [] for y in range(1):
         def outer_use(): inner_use()
         if n > 100:
             return 0
         held = y + 5
         def inner_use(): held
-        kept := kept ++ [outer_use]
+        continue keeping ++ [outer_use]
     for z in kept:
         print(z())
     n

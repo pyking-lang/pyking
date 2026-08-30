@@ -1,0 +1,21 @@
+var total = 0
+total := total + 1
+total := total * 21
+print(total)
+var ready = false
+ready := total > 10
+print(ready)
+def doubled(n:Int) -> Int:
+    return n + n
+print(doubled(total))
+print(total - 1, total == 21)
+def stepped(limit:Int) -> Int:
+    var seen = 0
+    loop i: Int = 0:
+        if i >= limit:
+            break
+        seen := seen + i
+        continue i + 1
+    return seen
+print(stepped(5))
+print(stepped(0))

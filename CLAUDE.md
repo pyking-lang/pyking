@@ -55,10 +55,11 @@ of it.
 When a change touches how something *compiles* rather than what it
 *means*, PYKING.md is not the file to edit.
 
-**Static semantics are language, not compiler**, and they are the one
-place PYKING.md names a flag. Its "Type checking" section documents both
-layers — the name and scope rules every compile applies, and the types
-`--typecheck` checks — including what the checker refuses and why, since
+**Static semantics are language, not compiler.** Its "Type checking"
+section documents all three layers — the shape rules the parser applies,
+the names and types the checker settles, and the mutability rule
+`analyses.py` applies after it — including what the checker refuses and
+why, since
 "which programs are well-typed" is a property of Pyking rather than of
 the pass that decides it. Extending `src/typesystem.py` therefore means
 editing that section too; `docs/architecture.md` keeps only how the pass
@@ -72,7 +73,8 @@ these is updated in the same change — none of them is optional, and the
 last ones are the ones that get forgotten:
 
 1. **`src/`** — the stage(s) implementing it (lexer → parser → syntax →
-   `analyses.py` → `optimization.py` → `typesystem.py` → each backend).
+   `analyses.py`'s `symbolize` → `typesystem.py` → `analyses.py`'s
+   `analyze_mutability` → `optimization.py` → each backend).
    `optimization.py` usually needs nothing: it rewrites tail calls and
    passes everything else through. A construct that can *hold* a tail
    position -- a new branching statement, say -- does need a case there,
@@ -83,14 +85,18 @@ last ones are the ones that get forgotten:
    `syntax.py` gets a symbol for free. `typesystem.py` does need a
    decision, but only a cheap one — either check the construct or let it
    fall through to `Construct is not supported`, which is what every
-   construct it has not reached yet already does. A construct that binds or uses a *name*
-   always reaches `analyses.py`: it has to bind through `bind` (so the
-   no-shadowing-a-`var` rule covers it) or be walked so its names are
-   checked, or it silently escapes the analysis. Every backend needs a
+   construct it has not reached yet already does. But it is not really
+   optional any more: the checker runs for every program, so a construct
+   it does not reach is a construct nothing can compile. A construct that
+   *binds* a name also reaches `analyses.py`: it has to bind through
+   `bind`, so the no-shadowing-a-`var` rule covers it, and it has to be
+   walked into so a `:=` written inside it is seen. Every backend needs a
    decision, not just the Python one: either translate the construct in
    `target_js_core.py`, `target_c.py` and `target_java.py` too, or leave
    it to each of those modules' `_unsupported` so that target refuses it
-   with a source position. `target_ocaml.py` is the exception, and the
+   with a source position. A target added rather than a construct also
+   needs a row in `src/execution.py`, which is what `--run` uses to build
+   and run its output. `target_ocaml.py` is the exception, and the
    reason to keep `typesystem.py` honest: it compiles exactly what the
    checker accepts, so a construct the checker refuses needs nothing
    there, and one the checker *starts* accepting needs a translation
@@ -116,13 +122,14 @@ last ones are the ones that get forgotten:
    no targets or generated code. Its "Type checking" section is the
    exception that proves it — static semantics *are* language, so a
    change to what `analyses.py` or `typesystem.py` accepts belongs there
-   too, `--typecheck` and all.
+   too.
 4. **`docs/`** — anything about *compiling* or *running*.
    `architecture.md` for the pipeline itself (a new stage or module, a
    change to how the driver works, the interpreter's machine);
    `source.md` for what the module in question now holds;
    `type_inference.md` for anything about how a type is *worked out*
-   rather than what the rules are;
+   rather than what the rules are; `analyses.md` for the mutability
+   pass;
    `targets.md` for the target list, the shared-subset table, and the
    differences that survive it;
    and the family page — `target_python.md`, `target_js.md`,
@@ -269,32 +276,35 @@ The bootstrap is split into one module per compiler stage:
    the indented form does, so no later stage knows which was written. Two more
    belong to the `loop` construct and are here for the same reason --
    both are shape, neither needs to know what a name means, and being
-   here they hold under `--typecheck` too, which replaces the name
-   analysis: `_check_loop_context` (a `break`/`continue` belongs to the
+   here they hold whatever else runs: `_check_loop_context` (a `break`/`continue` belongs to the
    innermost `loop`, and may not reach out of a `for`, a `while` or a
    `def` to find one) and `_check_reachable` (nothing may be written
    after one in the same block). The operand of a `break`/`continue` is
    taken only from the keyword's own line (`parse_exit_operand`), by the
    same row check `call_tail` uses and for the same reason.
 4. **`src/analyses.py`** — static analyses over the parsed AST, run
-   between the parser and any backend (for every mode, `--ast` included);
-   errors raise `AnalysisError(info, message)`. The one the driver runs
-   is names: Pyking is lexically scoped, so `analyze_program` is a single
-   recursive walk carrying a *name environment* (`dict` name → kind of
-   binding) that is rebuilt rather than mutated — entering a nested scope
-   is "keep using the environment you were handed", leaving one is "go
+   between the parser and any backend; errors raise
+   `AnalysisError(info, message)`. The one the driver runs is
+   *mutability*, and it runs **after** `typesystem.py`, which owns names
+   now: `analyze_mutability` is a single
+   recursive walk carrying a *binding-kind environment* (`dict` name →
+   kind of binding) that is rebuilt rather than mutated — entering a
+   nested scope is "keep using the environment you were handed", leaving one is "go
    back to the caller's", which is what makes a block's bindings unable
    to escape it. `analyze_stmt` returns the environment its statement
    leaves behind (that is how a statement sequence accumulates
    bindings); `analyze_scope` deliberately discards it. Everything that
    introduces a name funnels through `bind`, which is where the one
    shadowing rule lives (a `var` may not be shadowed by anything), so a
-   new binding form only has to call it to be covered. `BUILTINS` seeds
-   `print`/`range`/`str`/`len` so that every *other* unbound name can be
-   an error — extend it when a program starts calling another builtin.
+   new binding form only has to call it to be covered. The other rule is
+   `analyze_stmt`'s `SMutate` case: `:=` may only name a `var`. The walk
+   never descends into an expression, because no expression mutates
+   anything. `BUILTINS` seeds
+   `print`/`range`/`str`/`len`, and `typesystem.py` imports it — extend
+   it when a program starts calling another builtin.
    Keep new analyses in this module as separate `analyze_*` entry points
    rather than folding more checking into the parser: the parser's job
-   is shape, and only a scope-aware walk can judge names.
+   is shape, and only a scope-aware walk can judge how a name is bound.
    `analyze_stmts` binds every `def` in a block *before* walking any of
    it, which is what makes functions usable ahead of their definition —
    recursion, mutual recursion, a helper at the bottom of the file — and
@@ -309,7 +319,7 @@ The bootstrap is split into one module per compiler stage:
 
    Also here: **`symbolize`**, which gives every AST node a unique
    integer `sym` (post-order from 1; `0` means "not symbolized yet").
-   Unlike `analyze_program` it *rewrites* — nodes are frozen, so it
+   Unlike `analyze_mutability` it *rewrites* — nodes are frozen, so it
    rebuilds the tree with `replace`. Its walk is generic over dataclass
    fields rather than one case per node type, so a node added to
    `syntax.py` is covered without touching it. A node that already has a
@@ -360,10 +370,11 @@ The bootstrap is split into one module per compiler stage:
    *types*, which only the checker can see; `docs/optimization.md` is
    the long form, including that case and the `fail_tco_*` tests that
    pin it.
-6. **`src/typesystem.py`** — the type checker, run only under
-   `--typecheck`, by `pyk run`/`pyk repl`, and by the OCaml backend,
-   after `symbolize` and before `--ast` prints anything; it runs
-   *instead of* `analyze_program`, not after it (see `pyk.py` below).
+6. **`src/typesystem.py`** — the type checker, run for every mode and
+   every target, after `symbolize` and before anything else reads the
+   program: Pyking is statically typed and there is no flag for it. It
+   runs *instead of* the old name analysis, which no longer exists (see
+   `pyk.py` below).
    One entry point, `type_check(stmts) -> tmap`: a whole program in, the
    types it worked out back. Two consumers now define their coverage as
    "whatever this accepts" — `target_ocaml.py` and `interpreter.py` — so
@@ -407,10 +418,12 @@ The bootstrap is split into one module per compiler stage:
    fits a `TFunction` (a variadic `print` is not a `(T) -> ()`) and
    `runtime_interface.py` calls them operations rather than functions. A
    new builtin needs a case there as well as an entry in
-   `analyses.BUILTINS`. The one rule still only
-   in `analyses.py` is that a `var` may not be shadowed; this checker
-   refuses `var` outright, so there is nothing here for it to protect
-   yet. That is the last gap before the analysis can be deleted. `TMap` is
+   `analyses.BUILTINS`. **`var` and `:=` are checked here**, and only
+   for *types*: a `var` is `Int` or `Bool` (`check_mutable`), and a `:=`
+   must give the type the declaration fixed. Which names may be written
+   to is not a type question — the same `Int` is a `var` in one scope and
+   an `=` binding in another — so `analyses.analyze_mutability` answers
+   that one, in a walk of its own, after this pass. `TMap` is
    the deliberate opposite: one mutable dict, mapping a node's *symbol*
    to the type inferred for it, built as the pass runs and returned as
    its result. **The checker does not
@@ -430,7 +443,7 @@ The bootstrap is split into one module per compiler stage:
    must, it reads them back from here. Types are `syntax.py`'s own
    `T*` nodes, not a separate vocabulary, so a checked binding prints as
    `x: Int = 1` — syntax the parser accepts, which keeps
-   `--typecheck --ast` output re-parsable; they are synthesized here, so
+   `-t pyking` output re-parsable; they are synthesized here, so
    they carry no symbols. That includes `TFunction`, `(Int, Bool) -> Int`,
    which `parse_type` reads as well as prints, so `g: (Int) -> Int = f`
    round-trips like anything else. Compare types with `same_type`, never
@@ -572,6 +585,15 @@ The bootstrap is split into one module per compiler stage:
    it (`const` redeclaration, and the temporal dead zone), not on every
    shadow the way `target_python.py` must. Constructs outside the
    supported subset raise `UnsupportedError`, which carries an `Info`.
+   The one place a `let` is not enough is a `loop` whose body defines a
+   function (`_defines_function`): the accumulator's `let` stands outside
+   the loop and is therefore *one* binding, so every turn's function
+   would close over the last turn's value. There the `let` becomes a
+   carrier holding what the next turn starts with, and the accumulator
+   becomes a `const` inside the body -- one binding per turn, which is
+   what each function closes over. A loop with no function in its body
+   keeps the plain `let`, so ordinary output stays ordinary. See
+   `tests/loop_def_capture.pyk` and `docs/target_js.md`.
 9. **`src/target_js_packaging.py`** — the JavaScript backend's packaging
    half: wraps core output into `nodejs` (one self-contained script),
    `html` (one self-contained page printing into a visible box), and `esm`
@@ -650,7 +672,8 @@ The bootstrap is split into one module per compiler stage:
    `total` → `total2`, → `total3` if taken; `_bind`/`_lookup`/
    `_block_scope`/`_function_scope` are the whole mechanism, and it
    renames only when necessary, never inside a `def` body or
-   comprehension, where Python already scopes), `translate_program`/
+   comprehension, where Python already scopes, and which also carries
+   `depth`/`mutables` for the rule below), `translate_program`/
    `translate_stmt`/`translate_expr` (Pyking AST → `Py*` AST; statement
    translators return `(node, scope)` so a sequence accumulates
    bindings, and a caller entering a block discards the returned scope;
@@ -690,6 +713,23 @@ The bootstrap is split into one module per compiler stage:
    additionally refuses a factory in any program with no `def` inside a
    loop, which is what keeps ordinary output ordinary. C and Java instead *refuse* a function that
    reads a binding from around it — they have no closures.
+
+   Two more things this backend has to say out loud where no other one
+   does. **A `def` that writes a `var` bound outside it opens with
+   `global` or `nonlocal`** (`_mutated_names`, `_scope_declarations`),
+   since assigning a name anywhere in a Python function makes it local to
+   the whole function — without it the write would make a second variable,
+   or raise `UnboundLocalError` where the body reads it too. `Scope.depth`
+   (0 is the module) and `Scope.mutables` (each `var`, and the depth its
+   declaration sits at) are what pick between the two. See
+   `tests/typecheck_var_functions.pyk` and `tests/typecheck_var_nested.pyk`.
+   And **`translate_program` takes `tmap`**: Pyking prints `true`/`false`
+   where Python prints `True`/`False`, so a `print` argument is formatted
+   by its *type* (`_bool_kind`) — inline for a `Bool`, bare for a type
+   with no `Bool` anywhere inside it, and through the generated
+   `__pyk_str` walker only for one that can hold one. That is what keeps
+   an ordinary program's output free of a prelude it has no use for; do
+   not go back to guessing from the AST's shape.
 14. **`src/interpreter.py`** — the interpreter: a *resumable machine*
    that runs the AST directly instead of translating it, and the
    reference for what a program means at run time (where a backend
@@ -814,18 +854,28 @@ The bootstrap is split into one module per compiler stage:
    and the terminal in the class: that split is what makes the editing
    testable without a tty.
 
-16. **`src/pyk.py`** — the entry point (formerly `pykboot.py`): parses a
-   command and the flags `--tokens`/`--ast`/`--symbols`/`--typecheck`/
+16. **`src/execution.py`** — what `--run` runs: one table saying which
+   commands each target's host uses to build and run what `pyk compile`
+   wrote (`node prog.js`; `cc -std=c89 -o prog prog.c` and then `prog`;
+   `xdg-open` for `html`, which is a page; this compiler again for
+   `pyking`, since what runs Pyking is the interpreter). `plan_for`
+   answers with a `Plan` — build commands, the run command, and the
+   directory they run in, all absolute — and `execute` runs them,
+   printing each first on **stderr** so the program's own stdout stays
+   its own. `$CC`/`$JAVAC`/`$JAVA`/`$OCAMLOPT` name the tools, the same
+   variables the test harness reads. Adding a target means adding its
+   row here as well as its extension in `pyk.py`.
+
+17. **`src/pyk.py`** — the entry point (formerly `pykboot.py`): parses a
+   command and the flags `--tokens`/`--symbols`/`--run`/
    `--stdout`/`--output|-o <file>`/`--target|-t <target>` from argv into
    an `Options` value, runs `lexer.lexing`, `parser.parse`,
-   `analyses.analyze_program` and `analyses.symbolize`, optionally
-   `typesystem.type_check`, and then dispatches. Four commands:
-   `pyk <file>` compiles with the Python backend to a temp file, runs it
-   and removes it (the whole language); `pyk run <file>` interprets it
-   (the checker's fragment); `pyk repl` starts the REPL; `pyk compile`
+   `analyses.symbolize`, `typesystem.type_check` and
+   `analyses.analyze_mutability`, and then dispatches. Three commands:
+   `pyk <file>` interprets it; `pyk repl` starts the REPL; `pyk compile`
    (alias `pyk c`) compiles, which is what every flag above is for.
-   Flags are shared by all four rather than per-command, so `--ast` means
-   the same thing wherever it is written.
+   Flags are shared by all three rather than per-command, so `--tokens`
+   means the same thing wherever it is written.
    Errors: `ERROR_KINDS` pairs each front-end exception with its label,
    and `format_error` turns any of them into one
    `'file' row:col-row:col Kind: message` line (`Lexing error` /
@@ -834,28 +884,30 @@ The bootstrap is split into one module per compiler stage:
    message names the target that refused it. `repl.py` is handed
    `format_error` itself, which is why `command_repl` imports it lazily —
    at the top it would be an import cycle. Every message goes through
-   `wrap`, which reflows to 70 columns. The name analysis runs for every
-   mode, `--ast` included — an AST whose names don't resolve is not worth
-   printing, compiling or running — *except* when the checker runs, which
-   replaces it: the checker's environment *is* a scope, so it checks
-   names itself and raises the analysis's own `AnalysisError` for one it
-   cannot find, and the driver prints the same `Name error` either way.
-   `pyk run` always takes that path, since type checking is the
-   interpreter's gate. `symbolize` still runs in every mode, since `tmap`
-   and the interpreter's call-free table are keyed by symbol; nothing
+   `wrap`, which reflows to 70 columns. There is no branch in
+   `front_end`: every program is lexed, parsed, symbolized, type-checked
+   and mutability-checked, and a refusal at any step is an error. The
+   checker is the only pass that checks names — its environment *is* a
+   scope, so it raises `analyses.AnalysisError` for one it cannot find,
+   and the driver prints `Name error` for it. `analyze_mutability` runs
+   after it, which is what lets it say "not a mutable variable" rather
+   than "unbound". `symbolize` runs before both, since `tmap` and the
+   interpreter's call-free table are keyed by symbol; nothing
    needs symbolizing again afterwards, because the checker synthesizes
-   nothing into the tree. The `tmap` is handed to `pprint_program`, so a
-   `--typecheck --ast` run prints inferred types rather than written
+   nothing into the tree. The `tmap` is handed to `pprint_program`, so
+   `-t pyking` prints inferred types rather than written
    ones. Every flag has a default: `--target` is `python`, and with no
-   `--ast`/`--stdout`/`--output` the program is compiled to a file named
+   `--stdout`/`--output` the program is compiled to a file named
    from the source stem and the target's extension — except the Java
    targets, where the driver instead calls
    `target_java.default_class_name(stem)`, since Java requires the file
    and its public class to match and the source's own spelling usually
-   isn't a legal, correctly-cased class name. `--ast` prints the *Pyking*
-   AST via `syntax.pprint_program` and returns before any backend or the
-   interpreter runs, since that AST is what all of them share. Keep the
-   driver thin: it sequences stages and reports errors, and each backend
+   isn't a legal, correctly-cased class name. `-t pyking` prints the
+   *Pyking* AST via `syntax.pprint_program`, before `apply_signatures`
+   folds a `def name : type` line onto its header, since that AST is what
+   every backend and the interpreter share. `--run` hands the compiled
+   output to `src/execution.py`, which owns each target's build and run
+   commands. Keep the driver thin: it sequences stages and reports errors, and each backend
    owns its own translation, packaging, and file naming (`esm` writing
    three files is `target_js_packaging.package`'s business, not the
    driver's; deriving a Java class name from an explicit `--output` is
@@ -874,14 +926,13 @@ operators, so `|` needed none).
 ## Running
 
 ```
-pyk [options] <filename>          run it with the python backend
-pyk run [options] <filename>      run it with the interpreter
+pyk [options] <filename>          run it with the interpreter
 pyk repl                          start the REPL
 pyk compile [options] <filename>  compile it (alias: pyk c)
 
-options: [--tokens] [--symbols] [--typecheck] [--no-tail-call-opt]
+options: [--tokens] [--symbols] [--no-tail-call-opt] [--run]
          [--target|-t <target>]
-         [--ast | --stdout | --output|-o <file>]
+         [--stdout | --output|-o <file>]
 ```
 
 `pyk --help` prints the long help: the short one that a bare `pyk`
@@ -897,26 +948,27 @@ for the usage message, which is generated from `TARGETS`/`EXTENSIONS` and
 reflowed to 70 columns by `wrap`, along with every error the driver
 prints.)
 
-The two commands that *run* a program do so by different routes, and the
-difference is the point: `pyk <file>` compiles with the Python backend to
-a temp file, runs it with the host's `python3` and removes it — the whole
-language, on Python's semantics — while `pyk run` uses
-`src/interpreter.py` — the checker's fragment, on Pyking's own semantics
-(32-bit `Int`, Pyking runtime errors with a stack trace). `pyk repl` is
-the same interpreter with a prompt. Where the two disagree, the
-interpreter is the reference and the backend is the bug.
+`pyk <file>` and `pyk repl` both run a program with
+`src/interpreter.py`, on Pyking's own semantics (32-bit `Int`, Pyking
+runtime errors with a stack trace). The third way to run one is
+`pyk compile --run`, which builds what was compiled and runs it with
+that target's own commands — and so shows a *backend's* semantics.
+Where the two disagree, the interpreter is the reference and the
+backend is the bug.
+
+**Pyking is statically typed**: every program is type-checked, whatever
+is then done with it, and there is no flag for it.
 
 Flags are accepted by every command rather than being per-command, so
-`--tokens` and `--ast` mean the same thing wherever they are written.
-`--tokens` prints the token stream first (in addition to whatever else
-happens); `--typecheck` runs the type checker, which `pyk run` and `pyk
-repl` do anyway, since it is what decides what they can run. The other
-three select what `pyk compile` does, and none of them is required:
+`--tokens` and `--symbols` mean the same thing wherever they are
+written. `--tokens` prints the token stream first (in addition to
+whatever else happens); `--symbols` adds each node's symbol as an `@n`
+suffix to what `-t pyking` prints. The other three select what
+`pyk compile` does, and none of them is required:
 
-- `--ast` stops after the front end and prints the pretty-printed *Pyking*
-  AST. Target-independent, so it ignores `--target`. `--symbols` adds
-  each node's symbol as an `@n` suffix; `--typecheck` runs the type
-  checker first, so the printed AST carries the types it inferred.
+- `--run` builds and runs what was compiled, with the commands that
+  target's host uses (`src/execution.py`), each printed before it runs
+  on stderr. Cannot be combined with `--stdout`, which writes no file.
 - `--stdout` compiles and prints the generated source. For `esm`, whose
   wrappers only exist as files, this prints the module alone.
 - `--output <file>` compiles and writes to `<file>`. A single-file target
@@ -926,7 +978,7 @@ three select what `pyk compile` does, and none of them is required:
   `out/prog.html`, and `out/package.json` (`{"type": "module"}`, which is
   what lets the first two be plain `.js`). An existing `package.json` is
   never overwritten — it belongs to the surrounding project.
-- With none of them, the compiler names the file: the source's own stem
+- With neither of the two above, the compiler names the file: the source's own stem
   plus the target's extension (`EXTENSIONS` in `pyk.py`, fed by each
   backend), in the *current* directory — `-t nodejs tests/hello.pyk`
   writes `./hello.js`. Writing over the input, or into a directory that
@@ -937,8 +989,13 @@ three select what `pyk compile` does, and none of them is required:
   tests/foo_bar.pyk` writes `./FooBar.java`, not `./foo_bar.java`.
 
 `--target`/`-t` selects the backend: `python` (the default), `nodejs`,
-`html`, `esm`, `c89`, `c23`, `java8`, `java17`, `java21`, or `ocaml`.
-Targets come in groups sharing a backend: the JavaScript three differ
+`html`, `esm`, `c89`, `c23`, `java8`, `java17`, `java21`, `ocaml`, or
+`pyking`. The last is the odd one: it compiles Pyking to Pyking, which
+is to say it prints the program the front end worked out — with the
+types the checker inferred and the loops the tail-call pass built — and
+so supports everything, because it *is* the shared AST rather than a
+translation of it. `--symbols` goes with it, and nothing else does.
+The rest come in groups sharing a backend: the JavaScript three differ
 only in `src/target_js_packaging.py`, the C two only in a `standard`
 parameter to `src/target_c.py`'s printer, and the Java three only in a
 `version` parameter to `src/target_java.py`'s printer; `ocaml` is a
@@ -949,12 +1006,12 @@ whose subset is not a list it maintains: it is whatever
 `src/typesystem.py` accepts, checked by running it. See
 `docs/architecture.md` for the subsets and the target table.
 
-`pyk run` and `pyk repl` take no target: the interpreter emits nothing to
-name. What they accept is `src/typesystem.py`'s fragment, checked by
-running it — the same arrangement `ocaml` uses, and the reason a program
-with `var`, `for`, `while`, `match`, lists or an unannotated `def` is
-refused there with the checker's own message. A `loop` and a tuple are
-both inside that fragment.
+`pyk <file>` and `pyk repl` take no target: the interpreter emits
+nothing to name. What they accept is `src/typesystem.py`'s fragment,
+checked by running it — the same arrangement `ocaml` uses, and the
+reason a program with `for`, `while`, `match`, lists or an unannotated
+`def` is refused there with the checker's own message. A `loop`, a
+tuple, a `var` and a `:=` are all inside that fragment.
 
 Plain `make` with no target prints the help: the `Makefile`'s first rule,
 `all`, is `help`, since nothing here is built and someone typing `make`
@@ -972,11 +1029,11 @@ eventually delete someone's own file. Keep it that way.
 reads `tests/test_cases.toml`, and for every (program, target) pair the
 manifest declares, compiles the program to a temp directory, runs it the
 way a user would — `python3` on the `.py`, `node` on the `.js`, `node` on
-the *generated driver* for `esm`, `cc`/`javac`/`ocamlfind ocamlopt` and
+the *generated driver* for `esm`, `cc`/`javac`/`ocamlopt` and
 then the binary for the C, Java and OCaml targets, and, for `html`, the
 page's extracted module under a small `document` stub — and compares
 stdout against the sibling `.out` file. `interpret` is the one that
-compiles nothing: it runs `pyk run <program>` and compares that. One
+compiles nothing: it runs `pyk <program>` and compares that. One
 `.out` serves every target, which is the property being tested — and the
 reason the interpreter is cheap to trust, since it is a second definition
 of the language's semantics held to the files the nine backends are held
@@ -995,27 +1052,27 @@ against a serial one. Keep it that way — a new runner belongs in
 `RUNNERS` like the others, writing only into the `workdir` it is handed.
 
 **Four kinds of expected output**, two of them about the tail-call
-pass. `<name>.notail.ast.out` is what `--typecheck --ast
---no-tail-call-opt` prints -- the program as *written*, where `.ast.out`
+pass. `<name>.notail.ast.out` is what `-t pyking --no-tail-call-opt`
+prints -- the program as *written*, where `.ast.out`
 shows what the pass built -- and `<name>.notail.out` is what it prints
 when run with the pass off, which must equal `<name>.out` exactly: the
 pass may change how much room a program needs and never what it means.
-The targets that read them are `typecheck_notail` and `python_notail`.
+The targets that read them are `pyking_notail` and `python_notail`.
 A program the pass *declines* to rewrite has the same text in both
 `.ast.out` files, which is what being declined looks like from here.
 
-**Two kinds of expected output.** `<name>.out` is what the program
-*prints*, and every backend is compared against that one file.
-`<name>.ast.out` is what `pyk compile --typecheck --ast` prints for it — the
-program with the types the checker inferred — and only the `typecheck`
-target reads it. Keep the distinction: a `.out` is never an AST.
+`<name>.out` is what the program *prints*, and every backend is compared
+against that one file. `<name>.ast.out` is what
+`pyk compile -t pyking --stdout` prints for it — the program with the
+types the checker inferred — and only the `pyking` target reads it. Keep
+the distinction: a `.out` is never an AST.
 
-`typecheck` and `interpret` are targets in that list but not backends:
-neither compiles anything. `interpret` still *runs* the program, so it
-takes an ordinary `.out`; a case lists it when the checker accepts the
-program, and the harness warns about a `typecheck_*` case that does not.
-`typecheck` runs nothing at all, and two filename prefixes say what to
-expect of it:
+`pyking` and `interpret` are targets in that list but not backends:
+neither generates code for a host. `interpret` *runs* the program, so it
+takes an ordinary `.out`, and **every program that runs at all lists
+it**, since every program is type-checked; the harness warns about one
+that does not. `pyking` runs nothing, and two filename prefixes say what
+to expect of it:
 
 - **`typecheck_*.pyk`** must type-check, and its `.ast.out` holds the
   *printed AST*, pinning the types inferred. It **also lists real
@@ -1025,8 +1082,9 @@ expect of it:
   nothing. The harness warns if such a file lists no backend, because a
   type nobody executes is a type nobody has tested.
 - **`fail_typecheck_*.pyk`** must **not** type-check, and its
-  `.ast.out` holds the *error message*. It lists exactly
-  `targets = ["typecheck"]`: a program written to be refused is not one
+  `.ast.out` holds the *error message* — a `Type error` or, for the two
+  mutability rules, a `Name error`. It lists exactly
+  `targets = ["pyking"]`: a program written to be refused is not one
   to run.
 
 The `typecheck_infer_*` and `fail_typecheck_infer_*` files are the same
@@ -1053,9 +1111,9 @@ No third-party dependencies. Requires Python 3.11+ (`match`/`case`, and
 `tomllib` for the manifest). Running the generated code needs `node` for
 the JavaScript targets, a C compiler (`$CC`, default `cc`) for the C
 ones, a JDK (`$JAVAC`/`$JAVA`) for the Java ones and an OCaml compiler
-(`$OCAMLOPT`, default `ocamlfind ocamlopt`) for `ocaml` — none of them
-is needed to *produce* the code, and none at all to run a program under
-`pyk run`, so the compiler itself stays Python-only. The OCaml cases are built with `-w +a`: that target's
+(`$OCAMLOPT`, default `ocamlopt`) for `ocaml` — none of them
+is needed to *produce* the code, and none at all to run a program with
+`pyk <file>`, so the compiler itself stays Python-only. The OCaml cases are built with `-w +a`: that target's
 promise is clean OCaml, so a warning about generated code fails the
 test.
 
@@ -1064,7 +1122,7 @@ test.
 **`design/plan-eval-lsp.md`** is the plan for an interpreter, a REPL,
 step debugging in the playground, and LSP and DAP servers with editor
 integration. **The first two are built** — `src/interpreter.py` and
-`src/repl.py`, reached as `pyk run` and `pyk repl`, with `interpret` a
+`src/repl.py`, reached as `pyk <file>` and `pyk repl`, with `interpret` a
 target in the test manifest — and the rest is not. Read it before adding
 anything in that direction; it settles several things by design rather
 than by accident:

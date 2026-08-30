@@ -36,7 +36,8 @@ from syntax import (
     EInt, EString, EBool, EVar, EAdd, EConcat, ESub, EMul, EDiv, ECall, EIf,
     ETuple,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq,
-    SLet, SLetStmt, SExprStmt, SIf, SReturn, SReturnStmt, SFunctionDef,
+    SLet, SLetStmt, SVar, SMutate, SExprStmt, SIf, SReturn, SReturnStmt,
+    SFunctionDef,
     SFunctionSig, SMatch,
     ENeg, EList, EListComp, CompFor, CompIf,
     PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, PText, ListRest,
@@ -79,9 +80,13 @@ from syntax import (
 #          exit_env: Env, rest: Kont?)       of them carries the `rest` of
 #     KBind(target: AssignTarget, env: Env,  the chain; the ones that resume
 #           rest: Kont?)                     an expression carry the `env`
-#     KBinaryLeft(node: Expr, right: Expr,   that expression is written in,
-#                 env: Env, rest: Kont?)     since only `KSeq` adopts the
-#     KBinaryRight(node: Expr, left: Value,  environment it is handed.
+#     KVarBind(name: String, env: Env,       that expression is written in,
+#              rest: Kont?)
+#     KMutate(name: String, info: Info,
+#             env: Env, rest: Kont?)
+#     KBinaryLeft(node: Expr, right: Expr,   since only `KSeq` adopts the
+#                 env: Env, rest: Kont?)     environment it is handed.
+#     KBinaryRight(node: Expr, left: Value,
 #                  env: Env, rest: Kont?)
 #     KCallee(call: ECall, env: Env, rest: Kont?)
 #     KArgument(call: ECall, callee: Value, done: [Value], todo: [Expr],
@@ -444,6 +449,21 @@ def define(env, node):
     return env
 
 
+def mutate(env, name, value):
+    """Writes value into the frame that holds name, and returns env.
+    The second of this module's two mutations (see `define`): a `var` is
+    one cell, so a closure over the environment holding it sees what is
+    written there afterwards. False if no frame holds the name.
+    Env -> String -> Value -> Bool"""
+    frame = env
+    while frame is not None:
+        if name in frame.bindings:
+            frame.bindings[name] = value
+            return True
+        frame = frame.parent
+    return False
+
+
 def closure(node, env):
     """The VClosure a def denotes, capturing env.
     SFunctionDef -> Env -> VClosure"""
@@ -523,6 +543,27 @@ class KBind(Kont):
     """Binds the incoming value to a target -- one name, or a tuple
     taken apart -- then supplies unit."""
     target: "AssignTarget"
+    env: Env
+    rest: Kont
+
+
+@dataclass(frozen=True)
+class KVarBind(Kont):
+    """Declares a mutable variable holding the incoming value, in a
+    frame of its own, then supplies unit. A frame of its own is what
+    makes the cell fresh each time the declaration runs -- once per turn
+    of a loop it is written in."""
+    name: str
+    env: Env
+    rest: Kont
+
+
+@dataclass(frozen=True)
+class KMutate(Kont):
+    """Writes the incoming value into the cell a `var` already made,
+    then supplies unit."""
+    name: str
+    info: Info
     env: Env
     rest: Kont
 
@@ -1169,6 +1210,20 @@ def _step_stmt(state, stmt):
                 kont=KBind(target, state.env, state.kont),
             )
 
+        case SVar(_, name, expr, _):
+            return _go(
+                state,
+                control=CEval(expr),
+                kont=KVarBind(name, state.env, state.kont),
+            )
+
+        case SMutate(info, name, expr, _):
+            return _go(
+                state,
+                control=CEval(expr),
+                kont=KMutate(name, info, state.env, state.kont),
+            )
+
         case SExprStmt(_, expr, _):
             # Supplies its expression's value, and binds nothing, so its
             # continuation is simply the one that was already there.
@@ -1269,6 +1324,19 @@ def _step_apply(state, value):
             except _Trap as trap:
                 return failed(state, trap.error)
             return _go(state, control=CApply(UNIT), env=bound, kont=rest)
+
+        case KVarBind(name, env, rest):
+            return _go(
+                state,
+                control=CApply(UNIT),
+                env=extend(env, name, value),
+                kont=rest,
+            )
+
+        case KMutate(name, info, env, rest):
+            if not mutate(env, name, value):
+                return failed(state, RuntimeError_(info, f"unbound name '{name}'"))
+            return _go(state, control=CApply(UNIT), env=env, kont=rest)
 
         case KBinaryLeft(node, right, env, rest):
             return _go(

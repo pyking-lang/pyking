@@ -1,0 +1,30 @@
+var x = 8
+print(x)
+def foo(y:Int) -> ():
+    x := y
+print(x)
+foo(5)
+print(x)
+def outer(start:Int) -> Int:
+    var total = start
+    def bump(n:Int) -> ():
+        total := total + n
+    bump(1)
+    bump(10)
+    return total
+print(outer(0))
+print(outer(100))
+var shared = 0
+def double_it() -> ():
+    shared := shared * 2
+def add_three() -> ():
+    shared := shared + 3
+def report() -> Int:
+    return shared
+add_three()
+print(report())
+double_it()
+print(report())
+add_three()
+double_it()
+print(report())

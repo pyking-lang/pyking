@@ -7,8 +7,7 @@ def clamp(x, lo, hi):
 
 
 def label(n):
-    var prefix = ""
-    prefix := if n < 10 then "small " else "big "
+    prefix = if n < 10 then "small " else "big "
     return prefix ++ str(n)
 
 

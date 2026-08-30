@@ -1,0 +1,13 @@
+# `:=` names something that is not a mutable variable.
+#
+# Types say nothing about this: `total` is an Int, and `total + 1` is an
+# Int, so the checker is content. What refuses it is the mutability
+# analysis in src/analyses.py -- the one rule about names that a type
+# cannot state (PYKING.md, "Names and scoping").
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+total = 0
+total := total + 1
+print(total)

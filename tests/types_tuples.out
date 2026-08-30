@@ -1,5 +1,5 @@
-pair
-single
+pair 1 true
+single 1
 unit
-wide
-ok
+wide 1x2truefalse
+('ok', 3)

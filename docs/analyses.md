@@ -1,15 +1,36 @@
 # `analyses.py`: design
 
-How `src/analyses.py` checks names and scoping, gives every AST node a
-unique symbol, and works out which expressions can print. For what the
-rules *are* (as language, not
-implementation), see PYKING.md, "Names and scoping"; for where this
-module sits in the pipeline, see [architecture.md](architecture.md);
-for a one-page summary, see [source.md](source.md#analysespy).
+How `src/analyses.py` checks mutability, gives every AST node a unique
+symbol, and works out which expressions can print. For what the rules
+*are* (as language, not implementation), see PYKING.md, "Names and
+scoping"; for where this module sits in the pipeline, see
+[architecture.md](architecture.md); for a one-page summary, see
+[source.md](source.md#analysespy).
+
+## What is left here, and what moved
+
+This module used to own *names*: every name bound where it is used,
+every scope rule, the lot. `src/typesystem.py` does that now — Pyking is
+statically typed, the checker runs for every program, and its `Env` is a
+scope, so a second walk asking the same questions would only be a second
+place for the answers to drift.
+
+What could not move is **mutability**: `:=` may only name a `var`, and
+nothing may shadow one. That is not a question a type can answer — the
+same `Int` is a `var` in one scope and an `=` binding in another, so the
+rule is about the *binding form*, not the value. `analyze_mutability` is
+therefore a walk of its own, and it runs *after* the checker.
+
+Two things follow from that order, and both are why it is that way
+round. The walk never descends into an expression, because no expression
+mutates anything — a `:=` is a statement, and so is a `var`. And a name
+it cannot find in its own environment is never "unbound", because the
+checker already refused those: it is "not a mutable variable", which is
+the message worth printing.
 
 ## The environment is a dict that gets rebuilt, not mutated
 
-`analyze_program` and everything it calls thread one value through the
+`analyze_mutability` and everything it calls thread one value through the
 whole walk: `env`, a plain `{name: Binding}` dict. Every function that
 introduces a name returns a **new** dict — `bind` is `return {**env,
 name: Binding(kind, info)}`, never `env[name] = ...` — and that one
@@ -44,16 +65,16 @@ and there is no environment-stack data structure anywhere in this file.
 both follow the identical discipline, for the identical reason — see
 their own design pages.
 
-## `analyze_stmt` returns an environment; `analyze_expr` doesn't
+## `analyze_stmt` returns an environment; there is no `analyze_expr`
 
 Every statement analyzer returns `{String: Binding}` — the environment
-the statements *after* it should see — while every expression analyzer
-returns nothing (`None`; its job is only to raise on the first unbound
-name). That split is a direct reflection of the language: a Pyking
-expression cannot introduce a binding visible to what follows it (there
-is no `x := 1` expression form, no assignment-as-expression), but a
-statement — `x = 1`, `var y = 2`, `def f(): ...` — can. `SReturn`,
-`SExprStmt`, `SWhile` and the rest all return `env` completely
+the statements *after* it should see. There is no expression analyzer at
+all, which is a direct reflection of the language: a Pyking expression
+cannot introduce a binding visible to what follows it (there is no
+`x := 1` expression form, no assignment-as-expression) and cannot write
+to one either, so an expression has nothing this walk needs to see.
+A statement — `x = 1`, `var y = 2`, `def f(): ...` — can. `SReturn`,
+`SExprStmt`, `SBreak` and the rest all return `env` completely
 unchanged for the same reason: they don't bind anything, so what
 follows them sees exactly what they saw.
 
@@ -104,7 +125,7 @@ directly rather than reimplementing this logic, specifically so the
 three passes cannot disagree about which programs are legal — see their
 own pages.
 
-## The one shadowing rule this module enforces
+## The two rules this module enforces
 
 `bind` checks exactly one thing before adding a name: is there already
 a **mutable** (`var`) binding of it in scope? If so, it refuses —
@@ -129,21 +150,6 @@ instead of a generic "cannot do that here." `where_bound` turns the
 `info` half into "(declared on line N)" when there is one — a builtin
 has none, since it was never written in this source file at all.
 
-## Comprehensions are their own scope
-
-`EListComp`'s case in `analyze_expr` is the one place an *expression*
-analyzer extends the environment locally, because a list comprehension
-genuinely is its own small scope: `[x + y for x in xs for y in f(x)]`
-has to make `x` visible to `f(x)` (a later clause) and to the element
-expression, but nowhere else. The loop over `clauses` accumulates
-`comp_env` exactly the way `analyze_stmts` accumulates `env` across
-statements — each `CompFor`'s pattern is bound into `comp_env` after
-its own `sequence` is checked *against the environment so far* (so
-`for y in f(x)` sees `x` from the clause before it, but the clause
-binding `x` doesn't see itself) — and `comp_env` is a local variable
-inside this one `case` arm, never returned, so none of it leaks past
-the comprehension's own closing bracket.
-
 ## Symbols: a generic walk, so a new AST node needs no code here
 
 `symbolize(stmts)` is unlike everything above it in this file: it
@@ -157,7 +163,7 @@ field if it was `0`.
 The walk is written generically over `is_dataclass(node) and
 hasattr(node, "sym")`, not as one `match`/`case` arm per AST node type.
 That is a deliberate difference from every other tree walk in this
-file (`analyze_expr`, `analyze_stmt`, ... are all one `match` per node
+file (`analyze_stmt`, `bound_names`, ... are all one `match` per node
 kind) and the reason is squarely practical: `syntax.py` has upward of
 forty node kinds, and `symbolize`'s job — "give this node a number, and
 recurse into its children, whatever they are" — doesn't actually depend

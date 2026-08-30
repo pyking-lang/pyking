@@ -1,0 +1,13 @@
+# `:=` writes the type the `var` was declared with.
+#
+# A mutable variable takes its type from its initializer, once, and
+# every write must fit it -- a mutation is not a rebinding, so it cannot
+# change what the name holds.
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+var count = 0
+count := count + 1
+count := true
+print(count)

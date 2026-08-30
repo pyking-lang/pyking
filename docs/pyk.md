@@ -3,15 +3,17 @@
 How `src/pyk.py` — the command-line driver — is put together: why it
 stays thin, how `Options` and `TARGETS` are built so they can't drift
 from what the backends actually support, and how one front end feeds
-four different commands. For the pipeline itself, see
+three different commands. For the pipeline itself, see
 [architecture.md](architecture.md), "Command line"; for a one-page
 summary, see [source.md](source.md#pykpy).
 
 ## What the driver does, and what it deliberately doesn't
 
 `pyk.py`'s job is narrow on purpose: parse `argv`, run the front-end
-stages every command needs, dispatch to one of four command functions,
-and format whatever error comes back. Every backend owns its **own**
+stages every command needs, dispatch to one of three command functions,
+and format whatever error comes back. Running what was *compiled* is
+`src/execution.py`'s, by the same rule: which command builds a `.c` and
+which runs the binary is that target's knowledge, not the driver's. Every backend owns its **own**
 translation, packaging, and file naming — `command_compile` calls
 `target_c.translate_program`, `target_java.default_class_name`,
 `target_js_packaging.package`, and so on, but never reimplements what
@@ -24,19 +26,18 @@ each know their own business.
 ## `Options`: one value, flags shared by every command
 
 `Options` is a single frozen dataclass carrying the command, the
-filename, and every flag — `target`, `output`, `stdout`, `ast`,
-`symbols`, `typecheck`, `tokens`, `tail_calls` — regardless of which
-command was
-actually invoked. That's a deliberate choice over, say, four different
-per-command option types: it's what makes `--ast` and `--typecheck`
+filename, and every flag — `target`, `output`, `stdout`, `run`,
+`symbols`, `tokens`, `tail_calls` — regardless of which command was
+actually invoked. That's a deliberate choice over, say, three different
+per-command option types: it's what makes `--tokens` and `--symbols`
 mean the *same thing* wherever they're written, since there's exactly
-one code path (`front_end`, then `main`'s check of `options.ast`) that
-interprets them, rather than four copies of that interpretation that
-could quietly drift apart. `parse_args` builds one `Options` from
-`argv` regardless of which command word appeared (or was left out — a
-bare `pyk foo.pyk` defaults to `"python"`, `DEFAULT_COMMAND`, on the
-theory, stated in the comment beside it, that someone holding a file
-almost always wants to just run it).
+one code path (`front_end`, then `main`) that interprets them, rather
+than three copies of that interpretation that could quietly drift apart.
+`parse_args` builds one `Options` from `argv` regardless of which
+command word appeared (or was left out — a bare `pyk foo.pyk` defaults
+to `"interpret"`, `DEFAULT_COMMAND`, on the theory, stated in the
+comment beside it, that someone holding a file almost always wants to
+just run it).
 
 ## `TARGETS`/`EXTENSIONS`: assembled from the backends, not stated here
 
@@ -46,11 +47,11 @@ TARGETS = (
     + target_js_packaging.TARGETS
     + target_c.STANDARDS
     + target_java.VERSIONS
-    + (target_ocaml.TARGET,)
+    + (target_ocaml.TARGET, execution.PYKING_TARGET)
 )
 ```
 
-Nothing in this module *lists* the ten targets by name — it concatenates
+Nothing in this module *lists* the compiling targets by name — it concatenates
 each backend's own declaration of what it supports
 (`target_js_packaging.TARGETS`, `target_c.STANDARDS`, ...). That's what
 makes the usage message, `--target`'s validation, and the default
@@ -65,44 +66,37 @@ documentation.
 ## `front_end`: the stages every command shares, with one branch
 
 `front_end(options)` runs every stage before a backend, in the order
-they run: lexing, parsing, name analysis, symbolizing, type checking and
-the tail-call pass, returning `(program, tmap)`. That the order lives
-here and nowhere else is deliberate — no stage reaches for another one
-on its own, which is why `interpreter.check` no longer exists and why
-`target_ocaml.translate_program` takes the table rather than filling
-it. Every command needs this much; nothing past it is
-shared. The one real branch inside it is:
+they run: lexing, parsing, symbolizing, type checking, the mutability
+analysis and the tail-call pass, returning `(program, tmap)`. That the
+order lives here and nowhere else is deliberate — no stage reaches for
+another one on its own, which is why `interpreter.check` no longer
+exists and why `target_ocaml.translate_program` takes the table rather
+than filling it. Every command needs this much; nothing past it is
+shared, and there is no branch in it at all.
 
-```python
-required = (
-    options.typecheck
-    or options.command == "run"
-    or (options.command == "compile" and options.target == target_ocaml.TARGET)
-)
-```
-
-The checker itself runs for *every* mode: the tail-call pass needs what
-it knows (see [optimization.md](optimization.md)), so a program it
-accepts is optimized and one it refuses is compiled as written. What
-`required` decides is narrower — whether a refusal is an *error*. `pyk
-run` says yes because the interpreter's fragment is the checker's
-fragment, the `ocaml` target because that backend reads the types back
-rather than inferring them, and `--typecheck` because it was asked for.
-When `required` is true, `analyze_program` is skipped
-entirely and the type checker's own name checking stands in its place —
-not *in addition to* the name analysis, because the checker's own `Env`
-**is** a scope and re-derives every rule `analyze_program` would have
-checked, in the identical wording (`typesystem.py` raises
+There used to be one. Type checking was a *mode*, and a `required` flag
+decided whose refusal counted — `pyk run`'s, the `ocaml` target's, and
+`--typecheck`'s. Pyking is statically typed now, so the question is
+gone: the checker runs, and a program it refuses is refused. What
+follows from that is that the checker is also the **only** pass that
+checks names. Its `Env` **is** a scope and derives every rule the old
+`analyze_program` did, in the identical wording (`typesystem.py` raises
 `analyses.AnalysisError` for an unbound name, imported rather than
 reimplemented, specifically so `format_error` can't tell which pass
-caught it from the message alone). Symbolizing runs unconditionally,
-after whichever naming pass ran, because both `--symbols` output and
-`tmap` need every node keyed by a stable symbol regardless of which
-path got there.
+caught it from the message alone).
+
+What is left in `src/analyses.py` runs *after* the checker, and is one
+rule: `:=` may only name a `var`, and nothing may shadow one. It goes
+second precisely because by then every name is known to be bound, so a
+name the mutability walk cannot find is never "unbound" — it is
+"not a mutable variable", which is the message worth printing.
+
+Symbolizing runs before either of them, because both `--symbols` output
+and `tmap` need every node keyed by a stable symbol.
 
 The tail-call pass (`src/optimization.py`) sits between symbolizing and
 type checking, and that position is the whole of its wiring: it rewrites
-before *anything* reads the program, so `--ast` prints what it built,
+before *anything* reads the program, so `-t pyking` prints what it built,
 the checker checks that, and `tmap` is keyed to it — which the OCaml
 backend depends on, since it reads types back rather than inferring
 them. `symbolize` runs a second time afterwards, for the nodes the pass
@@ -118,16 +112,16 @@ since the pass would only be undone there. Which targets those are is
 `NATIVE_TAIL_CALLS`, a plain list of names here rather than something
 asked of each backend -- unlike `TARGETS` and `EXTENSIONS`, which each
 backend really does own, this is the driver's own decision about which
-stage to run. It asks for `--ast` being off as well as the target,
-because `--ast` ignores `--target` and so must not depend on one.
+stage to run.
 
 ## Two lengths of help
 
 `_SYNOPSIS` is what someone who typed `pyk` by itself needs: the shape
 of the command, and the flags that change what it *produces*.
 `USAGE_FULL`, printed for `--help`, adds `_MORE_OPTIONS` — `--symbols`,
-`--tokens`, `--no-tail-call-opt` — plus the target table and the
-paragraphs about what each command does. The split is by *who is
+`--tokens`, `--no-tail-call-opt` — plus the target table, the commands
+`--run` uses for each target, and the paragraphs about what each command
+does. The split is by *who is
 asking*: the short form answers "how do I run this", and the three flags
 in the long form are ones nobody needs to know about to use the
 compiler at all. `usage_error` prints the short form, since a mistyped
@@ -201,6 +195,47 @@ Java-cased default) — a dependency none of the other targets have,
 because none of them require the file and the code inside it to agree
 on a name.
 
+## Running what was compiled: `--run` and `src/execution.py`
+
+`--run` compiles for the selected target and then builds and runs the
+result the way a user would by hand. What each target needs to do that
+is that target's own knowledge — `node prog.js`, but `cc -std=c89 -o
+prog prog.c` *and then* `prog` — so it lives in `src/execution.py`, not
+here. The driver's whole part is one line at the end of
+`command_compile`:
+
+```python
+if options.run:
+    return execution.execute(target, output_path)
+```
+
+`plan_for(target, path)` answers with a `Plan`: the build commands (each
+of which must succeed), the command that is the program itself, and the
+directory to run them in. Everything in it is made absolute, since the
+commands run in the *output file's* directory rather than the one `pyk`
+was called from — which is what makes `esm`'s generated `package.json`
+and Java's `-cp` find what they expect. `_shown` puts them back for the
+announcement: relative to the directory the command runs in, with `./`
+on the program being run, since a bare name would mean PATH.
+
+Every command is printed before it runs, prefixed `$ `, on **stderr**:
+the program's own output belongs on stdout, and mixing the two would
+make `pyk c --run … > out.txt` capture the wrong thing. `$CC`, `$JAVAC`,
+`$JAVA` and `$OCAMLOPT` name the tools where there is a choice — the
+same variables `tests/test_script.py` reads, so a machine set up to run
+the suite is set up to run this.
+
+Two targets are runnable in a way the others are not, and both are the
+table's business rather than a special case here. `html` is a page, so
+running it means handing it to `xdg-open` (`open` on macOS). `pyking`
+compiles Pyking to Pyking, so running it means handing it back to this
+compiler: `python3 src/pyk.py prog.pyk`, the interpreter, on the
+generated source.
+
+`--run` with `--stdout` is refused in `parse_args` rather than here,
+because it is a statement about the *arguments*: `--stdout` writes no
+file, so there is nothing for `--run` to run.
+
 ## Why `command_repl` imports `repl` lazily
 
 ```python
@@ -227,7 +262,7 @@ imports.
 
 `wrap(text)` runs every user-facing message — usage errors, front-end
 errors formatted by `format_error`, the `Unsupported by target ...`
-messages, even the stack-trace lines `command_run` prints — through
+messages, even the stack-trace lines `command_interpret` prints — through
 `textwrap.wrap` at a fixed width of 70 (not the more common 80),
 continuation lines indented two spaces, never breaking a word or a
 hyphen. The width is narrower than usual specifically so a message

@@ -167,8 +167,7 @@ quote is matched last, which needs its own small loop rather than one
 
 Every failure raises `LexError(info, message)`, an ordinary Python
 exception carrying an `Info`. There is no error recovery here, or
-anywhere in the front end before `--typecheck`'s replacement of
-`analyze_program`: the first lexical mistake stops the lexer, `pyk.py`
+anywhere in the front end: the first lexical mistake stops the lexer, `pyk.py`
 formats it as one `Lexing error` line and reports it verbatim (see
 `design/plan-eval-lsp.md` for where recoverable per-token diagnostics
 are on the roadmap, and why they aren't built yet).

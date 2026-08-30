@@ -6,18 +6,16 @@ def sum_list(xs:[Int]) -> Int:
 
 
 def join_all(words:[String]) -> String:
-    var result = ""
-    for w in words:
-        result := result ++ w
-    return result
+    return loop text = "" for w in words:
+        continue text ++ w
 
 
 def flatten(rows:[[Int]]) -> [Int]:
-    var result = []
-    for row in rows:
-        for x in row:
-            result := result ++ [x]
-    return result
+    return loop out = [] for row in rows:
+        added =
+        loop inner = out for x in row:
+            continue inner ++ [x]
+        continue added
 
 
 print(sum_list([1, 2, 3, 4]))

@@ -31,7 +31,8 @@ from syntax import (
     EAdd, EConcat, ESub, EMul, EDiv,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq,
     ECall, EIf, ETuple,
-    SLet, SLetStmt, SReturn, SReturnStmt, SExprStmt, SIf, SFunctionDef,
+    SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SIf,
+    SFunctionDef,
     SLoop, SBreak, SContinue, SMatch,
     ENeg, EList, EListComp, CompFor, CompIf,
     PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, PText, ListRest,
@@ -78,6 +79,9 @@ def _unsupported(node, message):
 #     OLet(bindings: [OBinding], body: OExpr, recursive: Bool)
 #                                              let a = x and b = y in body
 #     OSeq(first: OExpr, rest: OExpr)          first; rest
+#     ORef(value: OExpr)                    ref e
+#     ODeref(name: String)                  !x
+#     OAssign(name: String, value: OExpr)   x := e
 #     OIgnore(expr: OExpr)                     ignore (expr)
 #
 # datatype OItem:                              one top-level definition
@@ -191,6 +195,22 @@ class OLet(OExpr):
 class OSeq(OExpr):
     first: OExpr
     rest: OExpr
+
+
+@dataclass(frozen=True)
+class ORef(OExpr):          # ref e -- a mutable cell holding e
+    value: OExpr
+
+
+@dataclass(frozen=True)
+class ODeref(OExpr):        # !x -- reading one
+    name: str
+
+
+@dataclass(frozen=True)
+class OAssign(OExpr):       # x := e -- writing one
+    name: str
+    value: OExpr
 
 
 @dataclass(frozen=True)
@@ -311,6 +331,11 @@ class _Translator:
         # name of the local function that *is* the loop, and the
         # accumulator a bare `break`/`continue` uses.
         self.loops = []
+        # The names currently declared `var`, which are OCaml `ref`s:
+        # a read of one is `!x` rather than `x`. Pyking refuses to
+        # shadow a `var`, so a name in here means the same cell
+        # wherever it is read (src/analyses.py).
+        self.refs = set()
 
     # -- top level --
 
@@ -331,6 +356,20 @@ class _Translator:
                 ]
                 index += len(run)
                 continue
+            if isinstance(statement, SVar):
+                # A top-level `var` is a top-level `ref`, in scope for
+                # everything after it, which is what the items are.
+                items.append(
+                    OItemLet([
+                        OBinding(
+                            _mangle(statement.name), [],
+                            ORef(self.expr(statement.expr)),
+                        )
+                    ])
+                )
+                self.refs.add(statement.name)
+                index += 1
+                continue
             if isinstance(statement, (SLet, SLetStmt)):
                 items.append(OItemLet([self.binding(statement)]))
                 index += 1
@@ -338,7 +377,7 @@ class _Translator:
             # A run of statements with nothing to bind: one `let () =`.
             run = []
             while index < len(stmts) and not isinstance(
-                stmts[index], (SLet, SLetStmt, SFunctionDef)
+                stmts[index], (SLet, SLetStmt, SVar, SFunctionDef)
             ):
                 run.append(stmts[index])
                 index += 1
@@ -576,6 +615,18 @@ class _Translator:
             return self.last(first, tail)
 
         match first:
+            case SVar(_, name, expr, _):
+                # A `var` is a `ref`, and its scope is the rest of this
+                # block -- which is exactly what `let ... in` gives it.
+                value = self.expr(expr)
+                self.refs.add(name)
+                try:
+                    body = self.block(rest, tail)
+                finally:
+                    self.refs.discard(name)
+                return OLet([OBinding(_mangle(name), [], ORef(value))], body)
+            case SMutate():
+                return OSeq(self.discard(first), self.block(rest, tail))
             case SLet() | SLetStmt():
                 return OLet([self.binding(first)], self.block(rest, tail))
             case SFunctionDef():
@@ -629,6 +680,16 @@ class _Translator:
                 # inside it returns from the function, since the loop's
                 # value *is* the function's.
                 return self.loop(statement, returning=True)
+            case SVar(_, name, expr, _):
+                # As for `=` below: the cell is unreachable from outside
+                # the block, so the block supplies unit.
+                return OLet(
+                    [OBinding(_mangle(name), [], ORef(self.expr(expr)))], OUnit()
+                )
+            case SMutate():
+                # A mutation is worth unit, which is what a block run for
+                # what it does supplies anyway.
+                return self.discard(statement)
             case SLet() | SLetStmt():
                 # A block ending in a binding supplies unit; the binding
                 # itself is unreachable from outside the block.
@@ -797,6 +858,8 @@ class _Translator:
                 if statement.target is None:
                     return translated
                 return OIgnore(translated)
+            case SMutate(_, name, expr, _):
+                return OAssign(_mangle(name), self.expr(expr))
             case SBreak() | SContinue():
                 _unsupported(statement, _NO_EARLY_EXIT)
         _unsupported(statement, f"{type(statement).__name__} in this position")
@@ -817,6 +880,9 @@ class _Translator:
             case EBool(_, value, _):
                 return OBool(value)
             case EVar(_, name, _):
+                # A `var` is a cell, so reading it is a dereference.
+                if name in self.refs:
+                    return ODeref(_mangle(name))
                 return OVar(_mangle(name))
             case EIf(_, cond, then_expr, else_expr, _):
                 return OIf(self.expr(cond), self.expr(then_expr), self.expr(else_expr))
@@ -1108,8 +1174,12 @@ def _free(e):
             return frozenset()
         case OVar(name):
             return frozenset([name])
-        case OIgnore(expr):
+        case OIgnore(expr) | ORef(expr):
             return _free(expr)
+        case ODeref(name):
+            return frozenset([name])
+        case OAssign(name, value):
+            return frozenset([name]) | _free(value)
         case OApp(func, args):
             return _free(func).union(*[_free(a) for a in args]) if args else _free(func)
         case OTuple(elements) | OList(elements):
@@ -1281,6 +1351,12 @@ def _polish(e):
             return e
         case OIgnore(expr):
             return OIgnore(_polish(expr))
+        case ORef(value):
+            return ORef(_polish(value))
+        case ODeref():
+            return e
+        case OAssign(name, value):
+            return OAssign(name, _polish(value))
         case OApp(func, args):
             return OApp(_polish(func), [_polish(a) for a in args])
         case OBin(op, left, right):
@@ -1416,7 +1492,7 @@ def pprint_ocaml_program(program, source="a Pyking program"):
     top-level items. OProgram -> String -> String"""
     parts = [
         f"(* Generated from {source} by the Pyking compiler. Do not edit. *)",
-        "(* Target: ocaml. Compile with:  ocamlfind ocamlopt <this file>",
+        "(* Target: ocaml. Compile with:  ocamlopt <this file>",
         "   or run it directly with:      ocaml <this file> *)",
     ]
     if program.needs_list_printer:
@@ -1493,6 +1569,14 @@ def _pprint_bare(e, level):
             return ("()", _ATOM)
         case OVar(name):
             return (name, _ATOM)
+        case ODeref(name):
+            # `!` is a prefix operator and binds tighter than anything
+            # else, so a dereference is an atom wherever it stands.
+            return (f"!{name}", _ATOM)
+        case ORef(value):
+            return (f"ref {_pprint(value, _ATOM, level)}", _APP)
+        case OAssign(name, value):
+            return (f"{name} := {_pprint(value, _LET + 1, level)}", _LET)
         case OTuple(elements):
             # Always parenthesized, so it is an atom wherever it stands.
             inside = ", ".join(_pprint(el, _SEQ + 1, level) for el in elements)

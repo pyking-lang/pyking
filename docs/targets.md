@@ -1,6 +1,6 @@
 # Compiler targets
 
-A Pyking program can be compiled for any of ten targets, or run directly
+A Pyking program can be compiled for any of eleven targets, or run directly
 by the interpreter. This page lists them, what each one produces, and how
 much of the language it takes. For how the compiler is put together see
 [architecture.md](architecture.md); for the code itself see
@@ -20,8 +20,9 @@ much of the language it takes. For how the compiler is put together see
 | `java8` | [Java](target_java.md) | `Foo.java` | `javac --release 8 Foo.java && java Foo` | subset, minus `/` |
 | `java17` | [Java](target_java.md) | `Foo.java` | `javac --release 17 Foo.java && java Foo` | subset, minus `/` |
 | `java21` | [Java](target_java.md) | `Foo.java` | `javac --release 21 Foo.java && java Foo` | subset, minus `/` |
-| `ocaml` | [OCaml](target_ocaml.md) | `foo.ml` | `ocamlfind ocamlopt foo.ml -o foo && ./foo` | whatever type-checks |
-| *(none — `pyk run`)* | [the interpreter](source.md#interpreterpy) | nothing | `pyk run foo.pyk` | whatever type-checks |
+| `ocaml` | [OCaml](target_ocaml.md) | `foo.ml` | `ocamlopt foo.ml -o foo && ./foo` | whatever type-checks |
+| `pyking` | *(the front end itself)* | `foo.pyk` | `pyk foo.pyk` | everything |
+| *(none — `pyk foo.pyk`)* | [the interpreter](source.md#interpreterpy) | nothing | `pyk foo.pyk` | whatever type-checks |
 
 Select one with `pyk compile --target <name>`, or `-t <name>`; `python`
 is the default. With no `--output`, the compiler names the file after the
@@ -35,15 +36,30 @@ pyk compile -t ocaml   tests/hello.pyk   # ./hello.ml
 ```
 
 (`-t python` is spelled out because it is the *default* target, not
-because it has to be: `pyk tests/hello.pyk`, with no command at all,
-compiles with the Python backend, runs the program, and leaves no file
-behind.)
+because it has to be. `pyk tests/hello.pyk`, with no command at all,
+does not compile at all: it runs the program with the interpreter.)
+
+`--run` builds and runs what was compiled, with the commands in the
+table's fourth column, each printed before it runs:
+
+```sh
+$ pyk compile -t c23 --run hello.pyk
+$ cc -std=c23 -o hello hello.c
+$ ./hello
+Hello, world!
+```
+
+`pyking` is the odd row: it compiles Pyking to Pyking, printing the
+program the front end worked out — with the types the checker inferred
+and the loops the tail-call pass built. It supports everything because it
+*is* the shared AST rather than a translation of it, and running it means
+handing it back to this compiler.
 
 The interpreter is the one row in the table that is not a `--target`,
 because it produces no file to name. It is a command of its own:
 
 ```sh
-pyk run tests/hello.pyk          # runs it; nothing is written anywhere
+pyk tests/hello.pyk              # runs it; nothing is written anywhere
 ```
 
 It runs the AST directly (`src/interpreter.py`) rather than translating
@@ -86,7 +102,7 @@ always accept exactly the same programs:
   subset is not a list of constructs but a *stage*: it compiles exactly
   what the type checker accepts, by running it and reading the types
   back.
-- **The interpreter** — `pyk run`, `pyk repl`. Not a family and not a
+- **The interpreter** — `pyk <file>`, `pyk repl`. Not a family and not a
   backend: `src/interpreter.py` runs the AST on a small-step machine
   instead of translating it. Like `ocaml`, its subset is the type
   checker's, run for real.
@@ -128,13 +144,14 @@ anything for it: what each of them compiles is a program with a `loop`
 in it, which they already knew how to do.
 
 The pass runs over programs the **type checker accepts** — the types are
-what decide whether a group can share one loop. A program outside that
-fragment (`var`, `for`, `while`, `match`, lists) is compiled as written
-and recurses as it always did.
+what decide whether a group can share one loop. Every program is
+type-checked, so that is every program; what the pass can still decline
+is a group whose members disagree about their parameter types, which is
+left as the recursion it was.
 
 `--no-tail-call-opt` turns the pass off. Two things then differ, and
 only these two: how deep a tail recursion can go before the host gives
-out, and what `--ast` prints.
+out, and what `-t pyking` prints.
 
 The `ocaml` target is the exception, and gets the guarantee without the
 pass: OCaml eliminates tail calls itself, so that target is compiled
@@ -166,8 +183,9 @@ testing — could be built end to end before the language surface grew:
 | `result` on a loop | ✅ (Python's loop `else`) | ❌ | ❌ | ❌ | ❌ |
 | a loop worth `()` (a bare `break`) | ✅ | ✅ | ❌ (no unit value) | ❌ (same) | ✅ |
 | tail calls run in constant space | ✅ | ✅ | ✅ | ✅ | ✅ (natively; the pass is skipped) |
-| … for a program the type checker accepts | required | required | required | required | n/a |
-| `=`, `var`, `:=` | ✅ | ✅ | ✅ | ✅ | ✅ (`=` only) |
+| … for a program the type checker accepts | always: every program is checked | same | same | same | n/a |
+| `=`, `var`, `:=` | ✅ | ✅ | ✅ | ✅ | ✅ (`var` is a `ref`) |
+| … a `var` of any type but `Int`/`Bool` | ❌ (refused by the checker) | ❌ (same) | ❌ (same) | ❌ (same) | ❌ (same) |
 | `if … then … else …` expressions | ✅ | ✅ | ✅ (branches must agree in type) | ✅ (branches must agree in type) | ✅ (same) |
 | integers, strings, booleans | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `+ - *`, unary minus, comparisons | ✅ | ✅ | ✅ | ✅ | ✅ (no unary minus) |
@@ -185,6 +203,8 @@ testing — could be built end to end before the language surface grew:
 | type annotations | erased | erased | used, when they name `Int`/`String`/`Bool` | used, when they name `Int`/`String`/`Bool` | checked, then erased — the output has none |
 | functions as values (passing a `def`, calling a parameter) | ✅ | ✅ | ❌ (refused: a function used as a value, or a call to an unknown one) | ❌ (same) | ✅ |
 | a function reading a binding from around it (a closure) | ✅ | ✅ | ❌ (no closures) | ❌ (no closures) | ✅ |
+| a function *writing* a `var` from around it | ✅ (`global`/`nonlocal`) | ✅ | ❌ (same) | ❌ (same) | ✅ (the `ref` it closes over) |
+| a `def` inside a loop, keeping that turn's values | ✅ (a per-turn factory) | ✅ (a per-turn `const`) | ❌ | ❌ | ✅ |
 | lists | ✅ | ❌ | ❌ | ❌ | ❌ |
 | tuples, destructuring | ✅ | ✅ (arrays) | ❌ | ❌ | ✅ |
 | `for`, `match`/`case`, patterns | ✅ | ❌ | ❌ | ❌ | ❌ |
@@ -234,7 +254,7 @@ The hosts do not all agree, and they are not forced to:
 
 | where | width | `2147483647 + 1` |
 |---|---|---|
-| the interpreter (`pyk run`, `pyk repl`) | 32, wrapping | `-2147483648` |
+| the interpreter (`pyk <file>`, `pyk repl`) | 32, wrapping | `-2147483648` |
 | `c89`, `c23` | whatever the C compiler's `int` is — 32 on every mainstream target | `-2147483648` (undefined behaviour, in practice this) |
 | `java8`, `java17`, `java21` | 32, wrapping (the JVM defines it) | `-2147483648` |
 | `python` | arbitrary precision | `2147483648` |

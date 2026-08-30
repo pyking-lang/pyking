@@ -198,7 +198,7 @@ is never checked against anything, so it can go stale forever without
 consequence; an annotation here cannot.
 
 A binding with no annotation makes no claim and simply takes whatever
-its value has — which is what `--typecheck --ast` is for: printing the
+its value has — which is what `-t pyking` is for: printing the
 type that was worked out is the only way to see it, since nothing was
 written down to check it against.
 
@@ -222,13 +222,12 @@ in being unwritable in source; it goes further in never being recorded
 in `tmap` either, so it cannot reach printed output. Two `TBuiltin`s
 are the same type when they name the same operation.
 
-## `env` *is* the scope, while `--typecheck` is on
+## `env` *is* the scope
 
-`analyses.py`'s `analyze_program` runs for every mode except one:
-`--typecheck` replaces it outright rather than running after it (see
+There is no separate name analysis: this module replaced it (see
 `pyk.py`'s `front_end`, and `architecture.md`'s "Symbols and types").
 That's only sound because this module's `Env` genuinely does the same
-job `analyses.py`'s environment does, and more: a name must be bound
+job the old `analyze_program`'s environment did, and more: a name must be bound
 where it's used, a block's own bindings don't survive it, an inner
 binding shadows an outer one, a `def`'s name is in scope in its own
 body, and the builtins are in scope from the start — all of that falls
@@ -239,13 +238,20 @@ specifically so the driver's `Name error` message reads identically
 whichever pass caught it; a caller shouldn't be able to tell which one
 ran from the wording alone.
 
-The one rule `analyses.py` still owns exclusively is that a `var` may
-not be shadowed. This checker refuses `var` outright (it's outside the
-fragment it accepts), so there is, for now, nothing here that rule
-would need to protect. CLAUDE.md and `architecture.md` both call this
-out as the last piece standing between the two passes: once this
-checker's fragment grows to include `var`, the corresponding rule has
-to move here too, and at that point `analyses.py`'s job is finished.
+What `analyses.py` still owns is *mutability*, and it is a separate
+question rather than a leftover. This module does check `var` and `:=`
+— a `var` is `Int` or `Bool`, and a `:=` must give the type the
+declaration fixed — but which names may be *written to* is not
+something a type can say: the same `Int` is a `var` in one scope and an
+`=` binding in another, so the answer is about the binding form, not
+the value. That is why `analyze_mutability` is a walk of its own,
+running after this pass; it needs no types, and this pass needs no
+knowledge of which `Int`s are cells.
+
+That order also settles the wording. By the time the mutability walk
+runs, every name is known to be bound, so a name it cannot find in its
+own environment is never "unbound" — it is "not a mutable variable",
+which is the message worth printing.
 
 ## Hoisting `def`s, the same way `analyses.py` does
 

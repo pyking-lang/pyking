@@ -8,16 +8,14 @@
 # blocks are not scopes, so each turn's functions are built by a
 # per-turn factory.
 
-var makers = []
-
-loop i = 0:
+makers =
+loop i, made = 0, []:
     def show(): i
 
-    makers := makers ++ [show]
     if i > 1:
-        break
+        break made ++ [show]
     else:
-        continue i + 1
+        continue i + 1, made ++ [show]
 
 for f in makers:
     print(f())
@@ -25,18 +23,16 @@ for f in makers:
 
 # Two functions written on the same turn that name each other find that
 # turn's copies, wherever in the body they are written.
-var pairs = []
-
-loop n = 10:
+pairs =
+loop n, seen = 10, []:
     def left(): right() + n
 
     def right(): n * 2
 
-    pairs := pairs ++ [left]
     if n >= 30:
-        break
+        break seen ++ [left]
     else:
-        continue n + 10
+        continue n + 10, seen ++ [left]
 
 for f in pairs:
     print(f())

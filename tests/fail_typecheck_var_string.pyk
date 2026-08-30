@@ -1,0 +1,12 @@
+# A `var` of a type mutation does not reach yet.
+#
+# Int and Bool are the whole of what a mutable variable may hold so far.
+# A String is a perfectly good Pyking value and a perfectly good `=`
+# binding; what it may not be is a cell written to with `:=`.
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+var greeting = "start"
+greeting := "hi"
+print(greeting)
