@@ -2282,10 +2282,11 @@ def breaks_anywhere(stmts):
 def covers(patterns):
     """Whether these patterns between them match every value they could
     be matched against. One irrefutable pattern is enough on its own.
-    Two more ways: both of a Bool's values, and -- the one every
+    Three more ways: both of a Bool's values; -- the one every
     recursion over a list is written with -- exact lengths 0 up to k-1
-    plus one pattern with a rest marker that takes k or more. The
-    question is
+    plus one pattern with a rest marker that takes k or more; and a
+    column of tuples that covers while every other column matches
+    anything (`covers_column`). The question is
     about the patterns alone -- a list pattern matched against something
     that is not a list has already been refused by `check_pattern`.
     [Pattern] -> Bool"""
@@ -2308,6 +2309,32 @@ def covers(patterns):
         if all(irrefutable(e) for e in fixed) \
                 and all(n in exact for n in range(len(fixed))):
             return True
+    return covers_column(patterns)
+
+
+def covers_column(patterns):
+    """Whether a list of tuple patterns covers because *one* of its
+    columns does, every other column matching anything in every pattern.
+
+    A tuple's shape is fixed by its type, so `(a, true)` and `(a, false)`
+    between them take every `(Int, Bool)` for exactly the reason `true`
+    and `false` take every Bool -- and the first column, matching
+    anything either way, cannot rule any value out. Restricting it to
+    one refutable column is what keeps this sound without a full
+    decision procedure: two columns that only cover *together*, such as
+    `(true, true)`, `(true, false)` and `(false, _)`, are answered no,
+    which asks for an arm that is not needed rather than accepting a
+    `match` with a hole in it. [Pattern] -> Bool"""
+    if not patterns or not all(isinstance(p, PTuple) for p in patterns):
+        return False
+    arity = len(patterns[0].elements)
+    if any(len(p.elements) != arity for p in patterns):
+        return False
+    for column in range(arity):
+        elsewhere = [i for i in range(arity) if i != column]
+        if all(irrefutable(p.elements[i]) for p in patterns for i in elsewhere):
+            if covers([p.elements[column] for p in patterns]):
+                return True
     return False
 
 

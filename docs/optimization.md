@@ -141,6 +141,19 @@ rather than fall out of the match: a subject matching no arm falls out
 of the function as unit, so a `break ()` follows the match, and an arm
 that merely ended in the next accumulator would reach it.
 
+**Only a function worth unit gets those `break ()`s**, and that is what
+keeps the rewrite typed (`_falls_through`). Every other body was already
+asked by the checker to return on every path or end in a value of its
+type, so there is no path for one to stand for: adding it anyway builds
+a loop whose `break`s disagree about what the loop is worth — `break
+acc` giving `Int` beside a `break ()` giving unit — which still *runs*,
+the extra exit being unreachable, but is no longer a program the checker
+would accept. That matters because nothing checks the pass's output
+("Why one check is enough" below), and because the `pyking` target
+prints it: `tests/typecheck_pyking_reparse.pyk` is a program whose
+printed form would not compile if the rule were dropped. A unit-returning function
+keeps its fallthrough, since for that one the path is real.
+
 The pass declines a function whose parameters are not distinct names it
 leaves alone — one that rebinds its own parameter, or its own name, in
 its body. The loop carries those names, and a rewrite has to mean the

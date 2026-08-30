@@ -381,7 +381,12 @@ private protected public return short static strictfp super switch
 synchronized this throw throws transient try void volatile while
 true false null var record sealed permits yield
 String System Object Integer Boolean Math args main
+_
 """.split())
+# `_` is on that list for Java's own reason: it has been a keyword since
+# Java 9, and naming an unnamed variable with it is a preview feature in
+# 21. It is an ordinary Pyking name, so it is renamed like any other that
+# a host has spoken for.
 
 
 def _fresh_java_name(name, scope):
@@ -710,8 +715,20 @@ class _Translator:
             case WhileTest(_, condition, _):
                 test = self.expr(condition, body_scope)
                 self._require(test, BOOL, "a `while` condition")
+                # Running out is this loop's other way to stop, and it is
+                # worth its accumulator then rather than whatever a
+                # `break` left behind (PYKING.md, "What a loop is
+                # worth"). The exhaustion test is built right here, so
+                # the answer is put in place where the loop is left.
+                # Several slots have no answer Java can hold, and `value`
+                # is already None for them.
+                leaving = []
+                if result is not None and len(slots) == 1:
+                    leaving.append(JAssign(
+                        info, result[0], JVar(info, slots[0][0], slots[0][1])
+                    ))
                 body = [JIf(info, JUnary(info, "!", test, BOOL),
-                            [JBreak(info)], None)] + body
+                            leaving + [JBreak(info)], None)] + body
         if s.result is not None:
             _unsupported(
                 s, "a `result` expression on a loop -- Java has no loop `else`, "

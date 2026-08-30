@@ -1,0 +1,77 @@
+# What a loop is worth when it ends *without* breaking.
+#
+# PYKING.md, "What a loop is worth": the `result` expression if one is
+# written, else the accumulator if one is written, else `()`. A loop
+# with both an accumulator and a `break` has two ways to stop and must
+# answer differently for each -- and only a `for`/`while` can stop the
+# second way, since a plain `loop:` has no other exit.
+#
+# Python says it with a loop `else`; JavaScript has none, so a backend
+# that only ever leaves the `break`'s answer behind reports the wrong
+# value for every run that goes all the way through.
+
+def upto(xs: [Int], limit: Int) -> Int:
+    return loop acc = 0 for x in xs:
+        if acc > limit:
+            break acc
+        else:
+            continue acc + x
+
+
+# The first breaks out; the second and third run out, and are worth the
+# accumulator they were carrying.
+print(upto([1, 2, 3, 4, 5], 5), upto([1], 100), upto([], 100))
+
+
+def counted(n: Int) -> Int:
+    var i = 0
+    return loop acc = 0 while i < n:
+        i := i + 1
+        if acc > 100:
+            break acc
+        else:
+            continue acc + i
+
+
+print(counted(0), counted(4), counted(30))
+
+
+# A loop carrying a *pair*, broken with something else entirely: the
+# break's answer has nowhere in the accumulator to go, so it needs a
+# variable of its own -- and the run that ends by running out still has
+# to answer with the pair.
+def paired(n: Int) -> (Int, Int):
+    return loop a, b = 0, 1 while a < n:
+        if b > 50:
+            break (0 - 1, 0 - 1)
+        else:
+            continue a + 1, b * 2
+
+
+print(paired(0), paired(3), paired(20))
+
+
+# A plain `loop:` can only break, so it is worth what its `break` gives
+# and nothing else -- the case that already worked, kept beside the
+# others so a fix for them cannot quietly change it.
+def only_breaks() -> Int:
+    loop acc = 0:
+        if acc > 3:
+            break acc * 10
+        else:
+            continue acc + 1
+
+
+print(only_breaks())
+
+
+# A `for` with a `break` and no accumulator at all is worth `()` when it
+# runs out, which is what it already starts as.
+def nothing_carried(xs: [Int]):
+    for x in xs:
+        if x > 2:
+            print("big", x)
+
+
+nothing_carried([1, 2, 3])
+nothing_carried([])

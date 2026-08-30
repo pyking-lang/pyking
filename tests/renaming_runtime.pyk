@@ -1,0 +1,98 @@
+# Identifiers that clash with the *generated program's own* runtime
+# rather than with a word of the host language.
+#
+# renaming_keywords.pyk covers the host's reserved words; these are the
+# helpers each backend writes around the program it compiled, and a
+# binding of one of those names has to be renamed exactly as a keyword
+# is. Getting it wrong is not a shadow but a redeclaration -- a second
+# `const pykFormat` is a JavaScript SyntaxError, and a second
+# `pyk_concat` a C redefinition.
+#
+# The names, and who writes them:
+#   pykFormat, pykQuote, pykConcat, pykList,
+#   pykOutput, pykWrite, print                -- the JavaScript packagings
+#   Array, document                           -- host globals the same
+#                                                prelude *calls*, which a
+#                                                binding would shadow out
+#                                                from under it
+#   pyk_concat                                -- the C backend
+#   __pyk_str                                 -- the Python backend
+#   _                                         -- a keyword in Java 9+,
+#                                                and the wildcard in OCaml
+#
+# Each is bound and then read, beside the construct whose helper it
+# collides with, so the helper is actually emitted.
+
+pykFormat = 1
+pykQuote = 2
+pykConcat = 3
+pykList = 4
+pykOutput = 5
+pykWrite = 6
+pyk_concat = 7
+__pyk_str = 8
+
+print(pykFormat, pykQuote, pykConcat, pykList)
+print(pykOutput, pykWrite, pyk_concat, __pyk_str)
+
+
+# Host globals the prelude reaches for while formatting: shadowing one
+# is not a redeclaration but a substitution, and shows up as a run-time
+# TypeError rather than a parse error.
+Array = 9
+document = 10
+print(Array, document)
+
+
+# `++` pulls in the concatenation helper, and printing a Bool pulls in
+# the formatter -- so each name above is live beside the helper it would
+# otherwise redeclare, and each global above is shadowed where the
+# formatter would have used it.
+print("a" ++ "b", true, false)
+print("quote'd", "tab\there")
+
+
+# The same names as parameters and as a function's own name.
+def pykFormat2(pykQuote2: Int, pykConcat2: Int) -> Int:
+    return pykQuote2 + pykConcat2
+
+
+print(pykFormat2(1, 2))
+
+
+# `_` is an ordinary Pyking name: a letter like any other to the lexer,
+# and only the *pattern* `_` is a wildcard.
+_ = 9
+_x = 10
+__ = 11
+
+print(_, _x, __)
+
+
+# A rename that has to skip a name the program already uses: both
+# `pykList2` and the renaming of `pykList` want the same spelling.
+pykList2 = 12
+print(pykList2)
+
+
+# The same clash, but against the spelling a *different* backend renames
+# with. Each of these pairs is one name a host has taken and one name
+# already spelled the way that host's rename would spell it, so a
+# backend that renames without looking would map both onto one variable
+# -- which is a silent substitution, not a shadow.
+#
+#   mod / mod_       -- OCaml suffixes a reserved word with `_`
+#   Foo / v_Foo      -- OCaml prefixes an uppercase name with `v_`
+#   final / final2   -- the others count upwards (in renaming_keywords)
+mod = 13
+mod_ = 14
+print(mod, mod_)
+
+Foo = 15
+v_Foo = 16
+print(Foo, v_Foo)
+
+
+# Rebinding one of them, so shadow-renaming and runtime-renaming compose.
+pykFormat = pykFormat + 100
+print(pykFormat)

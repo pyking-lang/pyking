@@ -55,6 +55,18 @@ print(only_zero(0), only_zero(7))
 nothing = announce(2)
 print(nothing)
 
+# `print` itself yields unit, so a `print` call is a value like any
+# other -- not merely a statement. A host whose own print answers
+# something else (Python's None) has to be made to agree here.
+straight = print("bound")
+print(straight)
+print(print("nested"))
+
+# And inside a structure, where the host's answer would show up beside
+# ordinary values rather than on its own.
+print((print("in a tuple"), 1))
+print([print("in a list")])
+
 # Unit inside a data structure keeps its own spelling.
 print([(), ()])
 print((1, ()))

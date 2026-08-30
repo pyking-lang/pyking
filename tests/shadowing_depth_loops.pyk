@@ -1,0 +1,38 @@
+# The shadowing of shadowing_depth.pyk, one block-opening form at a
+# time: a `for` and a `loop` nest like an `if` does, so a name shadowed
+# inside them has to be renamed against every enclosing block the same
+# way. Python-only for the `for`, not for the shadowing.
+
+def looped() -> Int:
+    z = 1
+    for i in range(1):
+        z = 2
+        for j in range(1):
+            z = 3
+            for k in range(1):
+                z = 4
+        return z
+    return 0
+
+
+print(looped())
+
+
+def carried() -> Int:
+    w = 1
+    for i in range(1):
+        w = 2
+        answer = loop acc = 0:
+            w = 3
+            inner = loop deeper = 0:
+                w = 4
+                break w
+
+            break acc + inner
+
+        print(w, answer)
+        return w
+    return 0
+
+
+print(carried())

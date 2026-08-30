@@ -230,7 +230,8 @@ Around them:
   opens a list of clauses, not a block of statements.
 - **`parse_type` / `parse_type_atom` / `parse_param` / `parse_params`** —
   annotations. A parenthesized list followed by `->` is a `TFunction`;
-  without the arrow it is a `TTuple`. `|` binds looser than either, so
+  without the arrow it is a `TTuple`, at every length -- `(Int)` is a
+  one-tuple, not a grouped `Int`. `|` binds looser than either, so
   `parse_type` reads the alternatives and `parse_type_atom` everything
   else.
 - **`parse_pattern`, `parse_case`, `parse_cases`, `parse_match_stmt`** —
@@ -896,7 +897,11 @@ factory).
   another *within one Python function scope* is renamed (`total` →
   `total2`). `_bind`, `_lookup`, `_block_scope` and `_function_scope` are
   the whole mechanism, and it renames only when it must — never inside a
-  `def` body or a comprehension, where Python already scopes.
+  `def` body or a comprehension, where Python already scopes. Its `used`
+  field is every Python name an enclosing block of the same Python
+  function scope has been given: the name → name map holds only the
+  newest one per Pyking name, so `used` is what stops a third shadow
+  being handed a name the first is still reading.
 
 ### Main functions
 

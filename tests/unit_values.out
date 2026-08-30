@@ -8,6 +8,14 @@ n = 1
 zero ()
 n = 2
 ()
+bound
+()
+nested
+()
+in a tuple
+((), 1)
+in a list
+[()]
 [(), ()]
 (1, ())
 negative not negative

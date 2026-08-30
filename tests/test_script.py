@@ -160,8 +160,15 @@ OCAML_COMPILER = os.environ.get("OCAMLOPT", "ocamlopt").split()
 # Stands in for the browser: the generated page's only contact with the
 # outside world is the element it prints into, so a `document` with one
 # accumulating `textContent` is the whole of what it needs.
+#
+# `document` is declared here rather than assigned onto `globalThis`,
+# because the stub and the program share one module scope: a Pyking
+# program binding `globalThis` would emit a `const globalThis` that this
+# text then reads before its initializer runs. `document` itself is safe
+# to name, being one of the words `target_js_core.py` renames a Pyking
+# binding away from.
 DOM_STUB = """let __pykCaptured = '';
-globalThis.document = {
+const document = {
   getElementById: () => ({
     get textContent() { return __pykCaptured; },
     set textContent(value) { __pykCaptured = value; },

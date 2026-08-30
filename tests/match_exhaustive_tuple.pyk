@@ -1,0 +1,76 @@
+# Exhaustiveness seen through a tuple.
+#
+# A `match` used as a value has to cover every case (`require_total`),
+# and a tuple's shape is fixed by its type -- so `(a, true)` and
+# `(a, false)` between them take every `(Int, Bool)` for exactly the
+# reason `true` and `false` take every `Bool`. `covers` reads one
+# refutable column at a time, every other column matching anything.
+#
+# Without that, each of these needs a `case _:` arm that can never run.
+# Which is not merely untidy: the OCaml backend compiles what the
+# checker accepts, and OCaml *can* see the arm is unreachable, so it
+# warns -- and a warning about generated code is a failing test for that
+# target.
+
+# Both of a Bool's values, under a column that matches anything.
+def signed(v: (Int, Bool)) -> Int:
+    match v:
+        case (a, true): a
+        case (a, false): 0 - a
+
+
+print(signed((7, true)), signed((7, false)))
+
+
+# The refutable column second, and a list rather than a Bool: the same
+# `[]` / `[x, ..rest]` split every recursion over a list is written
+# with, one level in.
+def head_plus(v: (Int, [Int])) -> Int:
+    match v:
+        case (a, []): a
+        case (a, [b, ..rest]): a + b
+
+
+print(head_plus((1, [])), head_plus((1, [2, 3])))
+
+
+# The refutable column *first*, so the search is not just "the last one".
+def described(v: (Bool, String)) -> String:
+    match v:
+        case (true, s): "yes " ++ s
+        case (false, s): "no " ++ s
+
+
+print(described((true, "x")), described((false, "y")))
+
+
+# Three columns, one of them refutable.
+def middle(v: (Int, Bool, Int)) -> Int:
+    match v:
+        case (a, true, c): a + c
+        case (a, false, c): a - c
+
+
+print(middle((10, true, 3)), middle((10, false, 3)))
+
+
+# Still covered when an irrefutable tuple arm is what does it -- the
+# rule that was already there, kept beside the new one.
+def anywhere(v: (Int, Int)) -> String:
+    match v:
+        case (0, 0): "origin"
+        case (a, b): "elsewhere"
+
+
+print(anywhere((0, 0)), anywhere((1, 2)))
+
+
+# A list of tuples: the element pattern is irrefutable, so the list
+# split is what covers, exactly as it did before.
+def total(xs: [(Int, Int)]) -> Int:
+    match xs:
+        case []: 0
+        case [(a, b), ..rest]: a + b + total(rest)
+
+
+print(total([]), total([(1, 2), (3, 4)]))

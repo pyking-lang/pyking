@@ -171,6 +171,18 @@ principle `typesystem.py`'s own design note states about `merge`: when
 a type can't be written down in the syntax available, print less, never
 print something that isn't true.
 
+`_spellable` applies that same principle one level down, to types rather
+than to whole signatures. `TUnknown` and `TNever` print as `?` and `!`,
+which the lexer does not accept, and `TBuiltin` names an operation
+rather than a value — so an annotation whose type holds one of them
+anywhere is left off entirely. The type of `[]` is `[!]`, which makes
+this an ordinary program's problem rather than a corner of unreachable
+code: `xs = []` would otherwise print as `xs: [!] = []`, and the
+`pyking` target's whole promise is output this compiler can read back.
+Printing no annotation there loses nothing, since the checker infers the
+same type again from the same expression.
+`tests/typecheck_pyking_reparse.pyk` pins it.
+
 `symbols` and `tmap` are **module-level variables** (`_show_symbols`,
 `_tmap`), not parameters threaded through every one of the dozen
 printer functions. `pprint_program` sets them, calls the (parameterless,

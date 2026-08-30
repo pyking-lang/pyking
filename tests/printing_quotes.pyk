@@ -1,0 +1,38 @@
+# How a string is spelled when it is printed *inside* something.
+#
+# runtime_interface.py's rule: a string prints bare on its own and
+# quoted with `'` inside a list or a tuple, with `'` escaped as `\'`.
+# A host's own idea of how to quote a string is not that rule -- Python's
+# `repr` switches to double quotes when the text holds an apostrophe, so
+# `["it's"]` where every other target writes `['it\'s']` -- so a backend
+# that lets the host print a container has to stop doing that as soon as
+# a string can be inside it.
+
+# Bare on its own, quoted inside.
+print("it's")
+print(["it's"])
+print(("it's", 1))
+print([["it's"]])
+
+# Every escape the lexer knows, inside a container.
+print(["a\nb"])
+print(["a\tb"])
+print(["a\rb"])
+print(["a\\b"])
+print(["a'b"])
+print(["a\"b"])
+print(("tab\there", "nl\nhere"))
+
+# An apostrophe and a backslash together, which is where a host's own
+# quoting is most likely to differ.
+print(["it's a \\ thing"])
+
+# Nothing to quote: these must stay as plain as they were.
+print([1, 2, 3])
+print((1, true))
+print("plain")
+print([])
+print(())
+
+# The same values through `str` are in printing_quotes_str.pyk, which
+# the JavaScript backends cannot take.

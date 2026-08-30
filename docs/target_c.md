@@ -450,6 +450,17 @@ to hold them. Since a turn may only carry one C type per slot, a `continue`
 whose operand has a different type is refused rather than silently
 converted.
 
+A `while c` has a second way to stop — **running out** — and the loop is
+worth its accumulator then, not whatever a `break` left in the result
+variable (PYKING.md, "What a loop is worth"). C has no loop `else`, but
+it needs no flag either: the exhaustion test is one this backend writes
+itself, `if (!c) break;` at the top of a `while (1)`, so the accumulator
+is assigned to the result variable right there, where the loop is
+actually left. A multi-slot loop has no answer C could hold and is
+already refused. `tests/loop_worth_ran_out_subset.pyk` is the case;
+`src/target_java.py` does the same at the same place, and the JavaScript
+backends, whose `for`/`while` ends by itself, need the flag instead.
+
 A `while (1)` no `break` leaves is a loop that never finishes, so
 `_falls_through` (see "A function that produces a value on some paths
 and none on others") counts a function ending in one as returning —

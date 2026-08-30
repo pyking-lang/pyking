@@ -1,0 +1,19 @@
+# printing_quotes.pyk's question asked through `str`, which follows
+# print's own formatting rules (runtime_interface.py). Split out because
+# the JavaScript backends do not support `str` yet.
+
+print(str(["it's"]))
+print(str("it's"))
+print(str(("a\nb", 2)))
+print(str([["a'b"]]))
+print(str([1, 2]))
+print(str(()))
+
+# A string built at run time rather than written as a literal, so
+# nothing can decide its spelling from the source form alone.
+def apostrophe(word: String) -> String:
+    return word ++ "'s"
+
+
+print([apostrophe("cat")])
+print(str([apostrophe("dog")]))

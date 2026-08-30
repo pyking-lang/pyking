@@ -2,9 +2,11 @@
 # inside another -- written as an annotation, passed a value of that
 # shape, and destructured.
 #
-# A one-element tuple type `(Int)` is just `Int` with brackets round it,
-# as it is in most languages that spell tuples this way; there is no
-# one-tuple value for it to describe.
+# A one-element tuple type `(Int)` is a genuine one-tuple, not `Int`
+# with brackets round it: the type grammar has no parenthesization for
+# grouping, and `(1,)` is a value that needs a type to be written for
+# it. That is also what the `pyking` target prints for such a value, so
+# reading `(Int)` any other way would leave that output unparsable.
 
 def describe_pair(p:(Int, Bool)) -> String:
     a, b = p
@@ -12,7 +14,8 @@ def describe_pair(p:(Int, Bool)) -> String:
 
 
 def describe_single(p:(Int)) -> String:
-    return "single " ++ str(p)
+    (a,) = p
+    return "single " ++ str(a)
 
 
 def describe_wide(w:(Int, String, Int, (Bool, Bool))) -> String:
@@ -30,7 +33,7 @@ def make_report() -> (String, Int):
 
 
 print(describe_pair((1, true)))
-print(describe_single(1))
+print(describe_single((1,)))
 announce("unit")
 print(describe_wide((1, "x", 2, (true, false))))
 print(make_report())

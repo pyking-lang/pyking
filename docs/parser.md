@@ -69,8 +69,12 @@ knows the form exists; only the string case needs a node of its own.
 is where a single parameter needs no parentheses (`x -> x` is
 `(x) -> x`), and the parenthesized branch of `parse_type_atom` reads a
 list followed by `->` as a parameter list and one without as a tuple --
-except for a single type in parentheses, which is *grouping*, since
-`(1)` is likewise just `1` among values.
+at *every* length, `(Int)` included. The type grammar has no
+parenthesization for grouping, so there is nothing else one type in
+parentheses could mean, and `(1,)` is a value that needs a type to be
+written for it: reading `(Int)` as `Int` would leave a one-tuple
+unannotatable, and would leave the `pyking` target's own output
+unparsable, since that is the type it prints for such a value.
 
 The `while True` loop, not recursion, is what makes `+`/`++`/`-`
 **left-associative**: `1 + 2 + 3` parses as `parse_multiplicative` reads

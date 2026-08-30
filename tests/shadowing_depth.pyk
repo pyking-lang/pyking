@@ -1,0 +1,79 @@
+# Shadowing one name deeper than twice, inside one function scope.
+#
+# The Python target renames a binding that shadows a live one, `x` ->
+# `x2` -> `x3`; the name it picks has to miss every name an *enclosing*
+# block is still using, not merely the newest one it recorded for that
+# Pyking name. Nesting four deep is where a renamer that remembers only
+# the newest one wraps back round to `x2` and clobbers the block two
+# levels out -- so each `print` on the way out is what pins it.
+#
+# The loops that shadow the same way are in shadowing_depth_loops.pyk,
+# which only the Python target takes.
+
+x = 1
+
+if true:
+    x = 2
+    if true:
+        x = 3
+        if true:
+            x = 4
+            if true:
+                x = 5
+                print(x)
+            print(x)
+        print(x)
+    print(x)
+
+print(x)
+
+
+# The same inside a `def`, where the Python function scope is the body
+# rather than the module.
+def deep() -> Int:
+    y = 1
+    if true:
+        y = 2
+        if true:
+            y = 3
+            if true:
+                y = 4
+        return y
+    return 0
+
+
+print(deep())
+
+
+# Two names shadowed side by side, so neither renaming can be reading
+# the other's history.
+a = 1
+b = 10
+
+if true:
+    a = 2
+    b = 20
+    if true:
+        a = 3
+        b = 30
+        if true:
+            a = 4
+            b = 40
+    print(a, b)
+
+print(a, b)
+
+
+# A Pyking name that is *spelled* like a renaming the backend hands out.
+# `p2` here must not land on the Python variable standing in for the
+# second `p`, which the block outside it still reads.
+p = 1
+
+if true:
+    p = 2
+    if true:
+        p = 3
+        if true:
+            p2 = 99
+            print(p2)
+    print(p)

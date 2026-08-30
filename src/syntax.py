@@ -1186,11 +1186,34 @@ def _pprint_annotation_type(t):
         _show_symbols = saved
 
 
+def _spellable(t):
+    """Whether a type can be written in Pyking's own syntax. `TUnknown`
+    and `TNever` print as `?` and `!`, which the lexer does not accept,
+    and `TBuiltin` names an operation rather than a value -- so a type
+    holding one of them anywhere is printed as no annotation at all,
+    rather than as text that cannot be read back. Type? -> Bool"""
+    match t:
+        case TUnknown() | TNever() | TBuiltin():
+            return False
+        case TList(_, element, _):
+            return _spellable(element)
+        case TTuple(_, elements, _) | TOr(_, elements, _):
+            return all(_spellable(e) for e in elements)
+        case TFunction(_, params, result, _, _, _):
+            return all(_spellable(p) for p in params) and _spellable(result)
+        case TForall(_, _, body, _):
+            return _spellable(body)
+        case _:
+            return True
+
+
 def _annotation(node, type_):
-    """Formats `: Type` for a node whose type is known, "" otherwise.
-    Node -> Type? -> String"""
+    """Formats `: Type` for a node whose type is known and writable, ""
+    otherwise. Node -> Type? -> String"""
     type_ = _node_type(node, type_)
-    return "" if type_ is None else f": {_pprint_annotation_type(type_)}"
+    if type_ is None or not _spellable(type_):
+        return ""
+    return f": {_pprint_annotation_type(type_)}"
 
 
 def _function_header(node, pad, name, params, return_type):
@@ -1228,7 +1251,9 @@ def _return_annotation(node, return_type):
             return_type = return_type.body
         if isinstance(return_type, TFunction):
             return_type = return_type.result
-    return "" if return_type is None else f" -> {_pprint_annotation_type(return_type)}"
+    if return_type is None or not _spellable(return_type):
+        return ""
+    return f" -> {_pprint_annotation_type(return_type)}"
 
 
 def pprint_program(stmts, symbols=False, tmap=None):

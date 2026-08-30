@@ -1,0 +1,109 @@
+# Programs whose *printed* form is where a bug can hide.
+#
+# The `pyking` target writes the program back out as Pyking, with the
+# types the checker inferred and the loops the tail-call pass built, so
+# its output has to be a program this compiler still accepts. Two ways
+# it stopped being one:
+#
+#   - a type the checker can infer but the syntax cannot write. `[]` has
+#     element type `!`, which the lexer does not accept, so an
+#     annotation naming it has to be left off rather than printed.
+#   - a one-element tuple, whose type the checker prints as `(Int)`.
+#     Reading that back as a plain `Int` would make the printed program
+#     one this compiler refuses.
+#   - a loop the tail-call pass built with a `break ()` after a `match`
+#     that already answers on every arm. The `break`s then disagree
+#     about what the loop is worth, and the printed program no longer
+#     type-checks even though the compiled one runs.
+#
+# The `pyking` target's own `.ast.out` is what pins both: the harness
+# compares the printed program against it, and this file is here to be
+# printed.
+
+# An empty list, annotated and not.
+empty: [Int] = []
+bare = []
+print(empty, bare, len(empty))
+
+
+# An empty list that stays empty through a function, so nothing narrows
+# its element type on the way.
+def keep(xs: [Int]) -> [Int]:
+    return xs
+
+
+print(keep([]))
+
+
+# A one-element tuple, bound, annotated, passed and destructured. `(Int)`
+# is its type in every one of those places, and the type grammar has no
+# other spelling for it.
+single: (Int) = (1,)
+(only,) = single
+print(single, only)
+
+
+def unwrap(p: (Int)) -> Int:
+    (n,) = p
+    return n
+
+
+print(unwrap((7,)), unwrap(single))
+
+
+# A tail-recursive function whose body is a `match` answering on every
+# arm: the pass turns it into a loop, and must not add an exit that
+# disagrees with the ones already there.
+def total(xs: [Int], acc: Int) -> Int:
+    match xs:
+        case []: acc
+        case [x, ..rest]: total(rest, acc + x)
+
+
+print(total([1, 2, 3, 4, 5], 0))
+
+
+# The same through a mutually recursive pair, which the pass merges into
+# one worker carrying a state tag.
+def evens(xs: [Int], acc: [Int]) -> [Int]:
+    match xs:
+        case []: acc
+        case [x, ..rest]: odds(rest, acc ++ [x])
+
+
+def odds(xs: [Int], acc: [Int]) -> [Int]:
+    match xs:
+        case []: acc
+        case [x, ..rest]: evens(rest, acc)
+
+
+print(evens([1, 2, 3, 4, 5], []))
+
+
+# The same again for a `def` that annotated nothing and was worked out
+# at two argument types: its entry in the table is a `TOr` of the two
+# instantiations rather than one function type, and the question has to
+# be asked of each of them.
+def counted(xs, acc):
+    match xs:
+        case []: acc
+        case [x, ..rest]: counted(rest, acc + 1)
+
+
+print(counted([1, 2, 3], 0), counted(["a"], 0))
+
+
+# A function that genuinely *is* worth unit still needs its fallthrough:
+# a `match` with no arm for a value falls out of it as unit, and the
+# loop the pass builds has to be able to leave that way.
+def announce(n: Int):
+    match n:
+        case 0:
+            print("zero")
+        case 1:
+            print("one")
+
+
+announce(0)
+announce(1)
+announce(7)

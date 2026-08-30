@@ -364,13 +364,34 @@ for `TList` to make that work, which is sound because a Pyking list is
 immutable.
 
 **`covers` decides whether a `match` is total**, and it is deliberately
-syntactic: one irrefutable pattern, or a set of list patterns taking
-every length. That second rule is not a flourish — it is how every
-recursion over a list is written (`case []` and `case [x, ..rest]`), and
-without it the value form would demand a redundant `case _` in the
-language's commonest idiom. Totality is required only where a value is
-taken (`require_total`, from `SLetStmt` and `SReturnStmt`), because a
-`match` that fits no arm does nothing and there would be no value.
+syntactic: one irrefutable pattern, both of a Bool's values, or a set of
+list patterns taking every length. That last rule is not a flourish — it
+is how every recursion over a list is written (`case []` and
+`case [x, ..rest]`), and without it the value form would demand a
+redundant `case _` in the language's commonest idiom. Totality is
+required only where a value is taken (`require_total`, from `SLetStmt`
+and `SReturnStmt`), because a `match` that fits no arm does nothing and
+there would be no value.
+
+**`covers_column` reads those same rules one level in.** A tuple's shape
+is fixed by its type, so a column that matches anything in every pattern
+can rule no value out, and a set of tuple patterns covers as soon as
+*one* column does: `(a, true)` and `(a, false)` take every `(Int, Bool)`
+for exactly the reason `true` and `false` take every `Bool`, and
+`(a, [])` beside `(a, [b, ..rest])` takes every `(Int, [Int])`. Without
+it those need a `case _` that can never run — which is worse than
+untidy, since `target_ocaml.py` compiles what this checker accepts and
+OCaml *can* see the arm is unreachable, so it warns, and a warning about
+generated code fails that target's tests.
+
+One refutable column is the whole of the rule, and the limit is
+deliberate: columns that only cover *together* — `(true, true)`,
+`(true, false)`, `(false, _)` — are answered no. Saying no asks for an
+arm that is not needed; saying yes without a decision procedure would
+accept a `match` with a hole in it. A refutable pattern nested inside a
+*list element* is not read this way either (`[[], ..r]` beside
+`[[a, ..s], ..r]` over a `[[Int]]` still wants a `case _`).
+`tests/match_exhaustive_tuple.pyk` pins what is covered.
 
 ## One loop, and what it is worth
 

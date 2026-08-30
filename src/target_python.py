@@ -178,6 +178,13 @@ class PySlice(PyExpr):      # target[start:stop]; either end may be absent
 
 
 @dataclass(frozen=True)
+class PyIndex(PyExpr):      # target[index]
+    info: Info
+    target: PyExpr
+    index: PyExpr
+
+
+@dataclass(frozen=True)
 class PyCall(PyExpr):       # func(args...)
     info: Info
     func: PyExpr
@@ -569,7 +576,11 @@ class Scope:
     depth: Int (how many Python function scopes deep this is; 0 is the
         module),
     mutables: {String: Int} (each `var` in scope, and the depth its
-        declaration sits at -- what decides `global` from `nonlocal`)."""
+        declaration sits at -- what decides `global` from `nonlocal`),
+    used: {String} (every Python name handed out by an enclosing block of
+        this Python function scope; `local` keeps only the newest name
+        per Pyking name, so this is what remembers the ones a shadow
+        replaced -- see `_fresh_py_name`)."""
     outer: dict
     local: dict
     block: frozenset
@@ -578,6 +589,7 @@ class Scope:
     loop_names: frozenset = None
     depth: int = 0
     mutables: dict = field(default_factory=dict)
+    used: frozenset = frozenset()
 
 
 def _function_scope(scope, shadowed=frozenset(), captured=frozenset()):
@@ -862,6 +874,11 @@ def _block_scope(scope):
     return Scope(
         scope.outer, scope.local, frozenset(), scope.shadowed, scope.captured,
         scope.loop_names, scope.depth, scope.mutables,
+        # `used` is inherited rather than reset: a name this block hands
+        # out must miss every one an enclosing block is still using. It
+        # deliberately does not travel back out, so two *sibling* blocks
+        # may reuse a name -- nothing reads the first one once it ends.
+        scope.used,
     )
 
 
@@ -917,6 +934,10 @@ def _fresh_py_name(name, scope):
     taken = (
         set(scope.local) | set(scope.local.values())
         | set(scope.outer) | set(scope.outer.values())
+        # `local` holds one Python name per Pyking name, so a shadow
+        # replaces the name the block outside it is still using; `used`
+        # is what keeps that one from being handed out twice.
+        | set(scope.used)
     )
     n = 2
     while f"{name}{n}" in taken or f"{name}{n}" in RESERVED:
@@ -940,6 +961,7 @@ def _bind(name, scope, rebinding=False, loop_carried=True, mutable=False):
         name in RESERVED
         or name in scope.local
         or name in scope.local.values()
+        or name in scope.used
         or name in scope.shadowed
     ):
         py_name = _fresh_py_name(name, scope)
@@ -960,6 +982,7 @@ def _bind(name, scope, rebinding=False, loop_carried=True, mutable=False):
         # name is no longer a cell, so it drops out.
         {**scope.mutables, name: scope.depth} if mutable
         else {k: v for k, v in scope.mutables.items() if k != name},
+        scope.used | {py_name},
     )
 
 
@@ -1205,15 +1228,34 @@ def _bool_kind(type_):
     return "unknown"
 
 
+def _nests_a_string(type_, inside=False):
+    """Whether a String sits anywhere *inside* a list or tuple of this
+    type. Such a string is quoted when it is printed, and Python's own
+    `repr` picks its quotes for itself -- writing `["it's"]` where every
+    other target writes `['it\\'s']` -- so the helper has to spell it
+    instead. A String on its own is not one of these: it prints bare,
+    which Python already agrees with. Type? -> Bool -> Bool"""
+    match type_:
+        case TString():
+            return inside
+        case TList(_, element, _):
+            return _nests_a_string(element, True)
+        case TTuple(_, elements, _) | TOr(_, elements, _):
+            return any(_nests_a_string(e, True) for e in elements)
+    return False
+
+
 def _wrap_print_argument(pyking_expr, translated, info):
-    """One print argument, formatted for Pyking's true/false spelling:
-    inline where the checker's type settles it, a call through the
-    generated helper otherwise (docs/target_python.md, "Booleans").
+    """One print argument, formatted for Pyking's true/false spelling
+    and its own string quoting: inline where the checker's type settles
+    it, a call through the generated helper otherwise
+    (docs/target_python.md, "Booleans").
     Expr -> PyExpr -> Info -> PyExpr"""
-    kind = _bool_kind(_tmap.get(pyking_expr.sym))
+    type_ = _tmap.get(pyking_expr.sym)
+    kind = _bool_kind(type_)
     if kind == "bool":
         return PyIfExp(info, translated, PyString(info, "true"), PyString(info, "false"))
-    if kind == "not-bool":
+    if kind == "not-bool" and not _nests_a_string(type_):
         return translated
     helper = PyVar(info, _format_helper_name(info))
     return PyCall(info, helper, [translated, PyBool(info, True)])
@@ -1265,12 +1307,17 @@ def translate_expr(e, scope):
         case EEq(info, l, r):
             return PyEq(info, translate_expr(l, scope), translate_expr(r, scope))
         case ECall(info, EVar(_, name), args) if runtime_interface.lookup(name) is not None:
-            # A runtime_interface call's arguments are formatted, not
-            # merely translated -- see _wrap_print_argument.
-            return PyCall(
+            # Python's own `print` answers None, and Pyking's answers
+            # unit -- which this backend spells `()`, as the `return ()`
+            # on a unit-returning `def` does. In *value* position the two
+            # have to be made to agree, so the call is followed by the
+            # unit it is worth; a print written as a statement keeps the
+            # bare call (see `_runtime_call_stmt`).
+            return PyIndex(
                 info,
-                PyVar(info, name),
-                [_wrap_print_argument(a, translate_expr(a, scope), info) for a in args],
+                PyTuple(info, [_runtime_call(info, name, args, scope),
+                               PyTuple(info, [])]),
+                PyInt(info, 1),
             )
         case ECall(info, EVar(_, "str"), [argument]) if not _is_bound("str", scope):
             # str follows print's own Bool formatting rule.
@@ -1486,6 +1533,28 @@ def translate_case(c, scope):
     py_pattern, arm_scope = translate_pattern(c.pattern, _block_scope(scope))
     body, _ = _translate_stmts(c.body, arm_scope)
     return _match_case(c.info, py_pattern, body)
+
+
+def _runtime_call(info, name, args, scope):
+    """One runtime_interface call (print), as the bare Python call.
+    A call's arguments are formatted, not merely translated -- see
+    _wrap_print_argument.
+    Info -> String -> [Expr] -> Scope -> PyCall"""
+    return PyCall(
+        info,
+        PyVar(info, name),
+        [_wrap_print_argument(a, translate_expr(a, scope), info) for a in args],
+    )
+
+
+def _runtime_call_stmt(expr, scope):
+    """A runtime_interface call written as a statement: the bare call,
+    with none of the unit `translate_expr` adds for value position.
+    Expr -> Scope -> PyExprStmt"""
+    match expr:
+        case ECall(info, EVar(_, name), args):
+            return PyExprStmt(info, _runtime_call(info, name, args, scope))
+    raise NotImplementedError(f"{expr!r} is not a runtime call")
 
 
 def _yields_unit(expr):
@@ -1930,6 +1999,11 @@ def translate_stmt(s, scope):
         case SReturn(info, expr):
             return PyReturn(info, translate_expr(expr, scope)), scope
 
+        case SExprStmt(_, expr) if _yields_unit(expr):
+            # Nothing reads what a statement is worth, so `print(x)` is
+            # written as itself rather than as the value form.
+            return _runtime_call_stmt(expr, scope), scope
+
         case SExprStmt(info, expr):
             return PyExprStmt(info, translate_expr(expr, scope)), scope
 
@@ -2322,6 +2396,9 @@ def pprint_py_expr(e, min_prec=0):
             first = "" if start is None else pprint_py_expr(start)
             last = "" if stop is None else pprint_py_expr(stop)
             return f"{pprint_py_expr(target, _CALL_PREC)}[{first}:{last}]"
+        case PyIndex(_, target, index):
+            return (f"{pprint_py_expr(target, _CALL_PREC)}"
+                    f"[{pprint_py_expr(index)}]")
         case PyAnd(_, l, r):
             # `and` binds looser than everything built here, so it takes
             # the lowest level and its operands are parenthesized where

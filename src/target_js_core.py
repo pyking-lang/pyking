@@ -316,7 +316,22 @@ else enum export extends false finally for function if implements import
 in instanceof interface let new null package private protected public
 return static super switch this throw true try typeof var void while
 with yield arguments eval undefined NaN Infinity console String
+Array document
+""".split()) | frozenset("""
+print pykConcat pykFormat pykList pykOutput pykQuote pykWrite
 """.split())
+# `Array` and `document` are there with `console` and `String`: globals
+# the prelude itself calls (`Array.isArray`, `document.getElementById`),
+# so a Pyking binding of one shadows it out from under the helper rather
+# than breaking the program's own syntax -- a `TypeError` at run time,
+# which is harder to see than a parse error.
+#
+# The second group is the generated program's *own* runtime: the helpers
+# this module calls by name (`pykList`, `pykConcat`) and the ones each
+# packaging writes around it (see target_js_packaging.py). A binding of
+# one of those names would be a second `const` of it in the same scope,
+# which is a SyntaxError rather than a shadow -- so they are spoken for
+# here exactly as JavaScript's own words are.
 
 
 def _fresh_js_name(name, scope):
@@ -397,11 +412,20 @@ _CONSTRUCT_NAMES = {
 
 def _unsupported(node, what):
     """Raises UnsupportedError naming what (a construct or an AST class
-    name) at node. Expr|Stmt -> String -> ()"""
+    name) at node. `what` is the plural noun the sentence is built
+    around -- a caller with more to say than a name uses
+    `_unsupported_because` instead, so that the two are not glued into
+    one ungrammatical sentence. Expr|Stmt -> String -> ()"""
     name = _CONSTRUCT_NAMES.get(what, what)
     raise UnsupportedError(
         node.info, f"{name} are not supported by the JavaScript backends yet"
     )
+
+
+def _unsupported_because(node, message):
+    """Raises UnsupportedError with a whole message of its own, for a
+    refusal that has a reason worth giving. Expr|Stmt -> String -> ()"""
+    raise UnsupportedError(node.info, message)
 
 
 def translate_expr(e, scope):
@@ -464,7 +488,11 @@ def translate_expr(e, scope):
         case ECall(info, EVar(_, name), _) if (
             name in UNSUPPORTED_BUILTINS and _lookup(name, scope) == name
         ):
-            _unsupported(e, f"the builtin `{name}` is not supported yet")
+            _unsupported_because(
+                e,
+                f"the builtin `{name}` is not supported by the JavaScript "
+                "backends yet",
+            )
         case ECall(info, func, args):
             return JsCall(
                 info,
@@ -785,7 +813,15 @@ def translate_stmt(s, scope):
                 # bare `break` leaves the accumulator there, which for a
                 # `loop:` carrying nothing is unit.
                 answer = _break_answer(info, loop, expr, scope)
-                return [JsAssign(info, loop.result, answer), JsBreak(info)], scope
+                leaving = [JsAssign(info, loop.result, answer)]
+                if loop.finished is not None:
+                    # This loop could also have ended by running out, and
+                    # is worth its accumulator when it does; saying here
+                    # that it did not is what tells the two apart.
+                    leaving.append(
+                        JsAssign(info, loop.finished, JsBool(info, False))
+                    )
+                return leaving + [JsBreak(info)], scope
             if expr is None:
                 return JsBreak(info), scope
             js_expr = translate_expr(expr, scope)
@@ -849,9 +885,13 @@ class _Loop:
     """One `loop` being translated. Fields: accumulator, JsTarget? (what
     the loop carries, absent for a `loop:` carrying nothing); result,
     JsTarget? (where the loop's value is left, present only when a
-    `break` gives something the accumulator has no room for)."""
+    `break` gives something the accumulator has no room for); finished,
+    JsTarget? (the "ran to the end" flag a `break` clears, present only
+    when the loop could have ended either way -- see
+    `_translate_loop`)."""
     accumulator: JsTarget
     result: JsTarget
+    finished: JsTarget = None
 
 
 def _defines_function(stmts):
@@ -1011,7 +1051,13 @@ def _translate_loop(s, scope):
     # A `loop:` carrying nothing has no accumulator variable at all, so
     # a `break` with an operand there needs the same.
     result = None
+    finished = None
     if _breaks_anywhere(s.body):
+        # What the loop is worth when it ends *without* breaking: the
+        # accumulator, if it carries one, else unit (PYKING.md, "What a
+        # loop is worth"). `value` still holds that, since nothing has
+        # overwritten it yet.
+        ran_out = value
         result = JsTargetName(info, _fresh_result_name(scope))
         scope = _reserve([result.name], scope)
         # And in the body too, so a loop nested there picks a different
@@ -1019,6 +1065,18 @@ def _translate_loop(s, scope):
         body_scope = _reserve([result.name], body_scope)
         setup.append(JsLet(info, result, JsArray(info, [])))
         value = JsVar(info, result.name)
+        # A `for`/`while` can stop because it ran out rather than because
+        # it broke, and then the loop is worth `ran_out` instead of
+        # whatever a `break` would have left. JavaScript has no loop
+        # `else` to say that in, so a flag does. A plain `loop:` needs
+        # none: breaking is its only way out. Nor does a loop with
+        # nothing to carry, whose `ran_out` is the unit `result` already
+        # starts as.
+        if s.iterate is not None and s.target is not None:
+            finished = JsTargetName(info, _fresh_result_name(scope))
+            scope = _reserve([finished.name], scope)
+            body_scope = _reserve([finished.name], body_scope)
+            setup.append(JsLet(info, finished, JsBool(info, True)))
     # A `for` binds its element in the body's scope; a `while` becomes
     # the loop's own test.
     js_name = None
@@ -1026,15 +1084,18 @@ def _translate_loop(s, scope):
         case ForIn(_, name, sequence, _):
             js_sequence = translate_expr(sequence, scope)
             js_name, body_scope = _bind(name, body_scope)
-    _loop_accumulators.append(_Loop(carried, result))
+    _loop_accumulators.append(_Loop(carried, result, finished))
     try:
         js_body = per_turn + _translate_loop_block(s.body, carried, body_scope)
     finally:
         _loop_accumulators.pop()
     if s.result is not None:
-        _unsupported(
-            s, "a `result` expression on a loop -- JavaScript has no loop `else`, "
-            "and the flag it would need is not built yet"
+        _unsupported_because(
+            s,
+            "a `result` expression on a loop is not supported by the "
+            "JavaScript backends yet -- JavaScript has no loop `else` to "
+            "say it in, and the flag that stands in for one is only built "
+            "for a loop that carries an accumulator",
         )
     match s.iterate:
         case ForIn():
@@ -1043,7 +1104,11 @@ def _translate_loop(s, scope):
             loop = JsWhile(info, translate_expr(condition, body_scope), js_body)
         case _:
             loop = JsWhile(info, JsBool(info, True), js_body)
-    return setup + [loop], value, scope
+    after = []
+    if finished is not None:
+        after = [JsIf(info, JsVar(info, finished.name),
+                      [JsAssign(info, result, ran_out)], None)]
+    return setup + [loop] + after, value, scope
 
 
 def _translate_loop_block(stmts, js_target, scope):

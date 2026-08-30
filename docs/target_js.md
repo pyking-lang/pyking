@@ -171,6 +171,31 @@ accumulator to squeeze anything into: `n = loop: break 7` binds `7`,
 not `[]`. A bare `break` in such a loop leaves unit there, which is the
 accumulator it was going round with.
 
+That `let` is only half the answer, because a `for`/`while` has a second
+way to stop: **running out**. The loop is then worth its accumulator
+rather than whatever a `break` would have left (PYKING.md, "What a loop
+is worth"), and JavaScript has no loop `else` to say so in — so a
+second `let` carries the flag one would have been, set to `true` and
+cleared by every `break`:
+
+```pyking                          // generated JavaScript
+loop acc = 0 for x in xs:          let acc = 0;
+    if acc > limit:                let tmp1 = [];
+        break acc                  let tmp2 = true;
+    else:                          for (const x of xs) {
+        continue acc + x             if (acc > limit) {
+                                       tmp1 = acc; tmp2 = false; break;
+                                     } else { acc = acc + x; continue; }
+                                   }
+                                   if (tmp2) { tmp1 = acc; }
+```
+
+The flag is built only where both ways out exist: a plain `loop:` can
+end only by breaking, and a loop carrying nothing is worth the unit its
+`let` already holds. `tests/loop_worth_ran_out.pyk` is the case, and the
+C and Java backends answer the same question at their own generated
+exhaustion test (`docs/target_c.md`).
+
 The accumulator's `let` stands in the block *around* the loop, since
 that is where it has to be declared, but the name is in scope only in
 the loop's own body — so a second loop reusing the Pyking name gets a
@@ -347,6 +372,17 @@ The list (`RESERVED` in `src/target_js_core.py`) also holds a few
 globals a generated file leans on -- `undefined`, `console`, `String` --
 because shadowing one of those would break the prelude rather than the
 program's own syntax, which is harder to spot.
+
+It holds the generated program's **own** runtime beside them:
+`pykFormat`, `pykQuote`, `pykConcat`, `pykList`, `pykOutput`, `pykWrite`
+and `print`. Those are not words JavaScript has taken but ones this
+compiler emits, and a binding of one is a redeclaration rather than a
+shadow -- `const pykFormat = 3` beside the prelude's `function
+pykFormat` is a `SyntaxError`, so the file does not run at all. The
+`esm` packaging keeps its helpers in a module of their own and would
+survive, which is exactly why the list lives in the core: the three
+packagings must accept the same programs. `tests/renaming_runtime.pyk`
+is the case.
 
 ### Scope and renaming
 

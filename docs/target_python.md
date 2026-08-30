@@ -82,6 +82,16 @@ flags = [true, false]
 print(flags)                           print(__pyk_str(flags, True))    # [true, false]
 ```
 
+Booleans are not the only thing the host spells its own way. A string
+prints **bare on its own and quoted inside a list or a tuple**
+(`runtime_interface.py`), with `'` escaped as `\'` — and Python's own
+`repr` picks its quotes for itself, writing `["it's"]` where every other
+target writes `['it\'s']`. So a value that can hold a string *inside* a
+container goes through the helper too, whatever its booleans say
+(`_nests_a_string`). A string on its own does not: it prints bare, which
+Python already agrees with, and neither does a container of `Int`s.
+`tests/printing_quotes.pyk` is the case.
+
 `isinstance`, not `v is True`/`v is False`: Python's `bool` is a subclass
 of `int` and `1 == True`, but `isinstance(1, bool)` is always `False`, so
 an ordinary Pyking `Int` that happens to hold `0` or `1` is never
@@ -221,6 +231,20 @@ comprehension (Python already scopes those), and not when the shadowed
 binding is unreachable anyway — rebinding within one block, or two
 sibling blocks that each use the same name.
 
+The name it picks has to miss every name an **enclosing** block is still
+using, and that is more than the scope's `local` map can answer: `local`
+holds one Python name per Pyking name, so `x` → `x3` at the third level
+has already overwritten the `x2` the second level is still reading.
+`Scope.used` is what remembers the ones a shadow replaced — every Python
+name handed out by an enclosing block of this Python function scope. It
+is inherited by `_block_scope` and reset by `_function_scope`, and it
+deliberately does *not* travel back out of a finished block, so two
+sibling blocks may still reuse a name. Without it, a fourth level of
+`x` wraps back round to `x2` and assigns over the second level's
+binding — silently, since the program still runs.
+`tests/shadowing_depth.pyk` is the case, and
+`tests/shadowing_depth_loops.pyk` the same through `for` and `loop`.
+
 There is a second way the two scopings disagree, and it needs looking
 *ahead* rather than behind. Any binding of a name inside a Python
 function makes that name local to the **whole** function, so a block that
@@ -308,6 +332,32 @@ no value at all — an `if` with no `else` as the body's last statement.
 PYKING.md's tail-position table says such a statement supplies unit, so
 the generated `else` assigns `()`, which is what the interpreter does
 with it too.
+
+### Unit, and `print` as a value
+
+This backend spells Pyking's unit as Python's empty tuple, `()`: a
+unit-returning `def` gets an explicit `return ()`, and the literal `()`
+is itself. Python's own `print` is the one thing that does not agree —
+it answers `None`, where Pyking's `print` yields unit
+(`runtime_interface.py`) — so a `print` call *used as a value* is
+followed by the unit it is worth:
+
+```pyking                          # generated Python
+x = print("a")                     x = (print('a'), ())[1]
+```
+
+Written as a statement it keeps the bare call, since nothing reads what
+a statement is worth:
+
+```pyking                          # generated Python
+print("a")                         print('a')
+```
+
+Without that, `print(print("a"))` writes `None` where every other target
+writes `()`, and `(print("a"), 1)` writes `(None, 1)`. It is not only a
+matter of spelling: `__pyk_str` walks a value, so a `None` sitting
+inside a list or tuple would show up there too.
+`tests/unit_values.pyk` covers both positions.
 
 ### A `def` inside a loop
 

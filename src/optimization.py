@@ -62,10 +62,13 @@ class Context:
     (the calls this loop stands for); slots, [String] (the values the
     loop carries, *not* counting the state tag, so a call that fills
     fewer of them can carry the rest forward); reserved, {String}
-    (every name the program already uses)."""
+    (every name the program already uses); falls_through, Bool (whether
+    a path that supplies no value can be reached at all -- see
+    `_falls_through`)."""
     names: dict
     slots: list
     reserved: frozenset
+    falls_through: bool = True
 
 
 class Pass:
@@ -189,6 +192,42 @@ def _record_call(expr, names, found):
 # --- rewriting one body ----------------------------------------------
 
 
+def _falls_through(result):
+    """Whether a body of this result type can reach a path that supplies
+    no value, and so needs the `break ()` that stands for one.
+
+    Only a function worth unit can: the checker asks every other body to
+    return on every path or to end in a value of its type, so a
+    fallthrough is already ruled out. Emitting `break ()` there anyway
+    builds a loop whose `break`s disagree -- unreachable, so the program
+    still runs, but no longer a program the checker accepts, which is
+    what the `pyking` target's output would show. Unknown counts as
+    "can", since dropping one that is needed leaves a loop nothing goes
+    round with. Type? -> Bool"""
+    match result:
+        case TTuple(_, elements, _):
+            return not elements
+        case None:
+            return True
+        case _:
+            return False
+
+
+def _falls_through_signature(signature):
+    """The same question asked of a function's whole type rather than of
+    its result -- which is a `TOr` where the checker worked the function
+    out at several argument types, one alternative per instantiation
+    (docs/type_inference.md). One of those being worth unit is enough
+    for the body to need its fallthrough. Type? -> Bool"""
+    match signature:
+        case TFunction(_, _, result, _, _, _):
+            return _falls_through(result)
+        case TOr(_, alternatives, _):
+            return any(_falls_through_signature(a) for a in alternatives)
+        case _:
+            return True
+
+
 def _rewrite_block(stmts, context, jumping):
     """A block whose last statement is what the loop does next, and
     whose `return`s are likewise wherever they are. `jumping` says the
@@ -217,15 +256,18 @@ def _rewrite_tail(statement, context, jumping):
 
         case SIf(info, cond, then_body, else_body, _):
             # A path that runs no branch supplies unit, and that is what
-            # the function would have returned.
-            return [SIf(
-                info,
-                cond,
-                _rewrite_block(then_body, context, jumping),
-                _rewrite_block(else_body, context, jumping)
-                if else_body is not None
-                else [SBreak(info, ETuple(info, []))],
-            )]
+            # the function would have returned -- where such a path
+            # exists at all (`_falls_through`).
+            if else_body is not None:
+                otherwise = _rewrite_block(else_body, context, jumping)
+            elif context.falls_through:
+                otherwise = [SBreak(info, ETuple(info, []))]
+            else:
+                # No such path, so the `if` keeps the one branch it was
+                # written with rather than growing an empty `else`.
+                otherwise = None
+            return [SIf(info, cond, _rewrite_block(then_body, context, jumping),
+                        otherwise)]
 
         case SMatch(info, subject, cases, _):
             # A subject matching no arm falls out of the function as
@@ -233,13 +275,13 @@ def _rewrite_tail(statement, context, jumping):
             # is also why every arm has to *jump*: an arm that merely
             # ended in the next accumulator would fall out of the match
             # and reach it.
-            return [
-                SMatch(
-                    info, subject,
-                    [_rewrite_case(c, context, jumping=True) for c in cases],
-                ),
-                SBreak(info, ETuple(info, [])),
-            ]
+            rewritten = SMatch(
+                info, subject,
+                [_rewrite_case(c, context, jumping=True) for c in cases],
+            )
+            if not context.falls_through:
+                return [rewritten]
+            return [rewritten, SBreak(info, ETuple(info, []))]
 
         case SLoop(info, _, _, _, _, _, _, _):
             # A loop of the program's own in tail position is what the
@@ -375,7 +417,8 @@ def _rewrite_self(func, work):
     parameters. SFunctionDef -> Pass -> SFunctionDef"""
     slots = [p.name for p in func.params]
     context = Context(
-        {func.name: Callee(None, len(func.params))}, slots, work.reserved
+        {func.name: Callee(None, len(func.params))}, slots, work.reserved,
+        _falls_through_signature(work.types.get(func.sym)),
     )
     body = func.body
     carried = [work.types.get(p.sym) for p in func.params]
@@ -436,6 +479,7 @@ def _merge(group, work, index):
         },
         slots,
         frozenset(work.reserved | {worker, state} | set(slots)),
+        _falls_through(result),
     )
 
     info = group[0].info

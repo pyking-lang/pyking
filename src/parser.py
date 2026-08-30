@@ -468,12 +468,12 @@ def parse_type_atom(tokens):
                     return (TFunction(combine_info(lp_info, result.info),
                                       elements, result),
                             rest)
-                case _ if len(elements) == 1:
-                    # One type in parentheses is grouping, not a tuple:
-                    # `(1)` is likewise just `1` at the value level, so a
-                    # one-element tuple has no values and never had.
-                    return elements[0], rest
                 case _:
+                    # Every length is a tuple, `(Int)` included: the type
+                    # grammar has no parenthesization for grouping, so
+                    # there is nothing else one type in parentheses could
+                    # mean, and `(1,)` is a value that needs a type to be
+                    # written for it (PYKING.md, the grammar notes).
                     return TTuple(combine_info(lp_info, rp_info), elements), rest
         case [t, *_]:
             raise ParseError(t.info, "expected a type")

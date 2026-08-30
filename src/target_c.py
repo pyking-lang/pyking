@@ -802,8 +802,21 @@ class _Translator:
             case WhileTest(_, condition, _):
                 test = self.expr(condition, body_scope)
                 self._require(test, BOOL, "a `while` condition")
+                # Running out is this loop's other way to stop, and it is
+                # worth its accumulator then rather than whatever a
+                # `break` left behind (PYKING.md, "What a loop is
+                # worth"). The exhaustion test is built right here, so
+                # the answer is put in place where the loop is left --
+                # no flag needed, unlike a host whose `while` ends by
+                # itself. Several slots have no answer C can hold, and
+                # `value` is already None for them.
+                leaving = []
+                if result is not None and len(slots) == 1:
+                    leaving.append(CAssign(
+                        info, result[0], CVar(info, slots[0][0], slots[0][1])
+                    ))
                 body = [CIf(info, CUnary(info, "!", test, BOOL),
-                            [CBreak(info)], None)] + body
+                            leaving + [CBreak(info)], None)] + body
         loop = [CLoop(info, body)]
         if s.result is not None:
             _unsupported(

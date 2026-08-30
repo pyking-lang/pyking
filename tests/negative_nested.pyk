@@ -1,0 +1,67 @@
+# Unary minus applied to something that is itself negative, in every
+# position one can be written.
+#
+# `- -x` is two operators, and a backend that writes them out with
+# nothing between them produces a host token that is neither: OCaml
+# lexes `--` as one infix operator, so `-(-8)` has to keep them apart.
+# negative_numbers.pyk covers unary minus itself; this file is only the
+# nesting, so that every target -- OCaml included -- runs it.
+
+# Literals, doubled and tripled.
+print(- -8)
+print(- - -6)
+print(- - - -5)
+print(-(-8))
+print(-(-(-8)))
+print(-(- -8))
+
+# Over a name rather than a literal.
+x = 8
+print(- -x)
+print(-(-x))
+
+# Over a call's result, which binds tighter than the minus.
+def negate(n: Int) -> Int:
+    return 0 - n
+
+
+print(- -negate(3))
+print(-(-negate(3)))
+
+# Mixed with the binary operators, where the second `-` is unary and the
+# first is not.
+print(1 - -2)
+print(2 * - -3)
+print(- -2 * - -3)
+print(- -10 / - -2)
+
+# In a comparison, a binding, a return and a tail.
+print(- -1 > 0)
+
+doubled = - -4
+print(doubled)
+
+
+def from_return() -> Int:
+    return - -7
+
+
+def from_tail() -> Int: - -9
+
+
+print(from_return(), from_tail())
+
+# As a call argument, and in an if expression's branches.
+print(negate(- -2))
+print(if true then - -3 else - -4)
+
+# Inside a loop's accumulator, its `continue` and its `break`.
+def counted() -> Int:
+    loop acc = - -1:
+        if acc < 5:
+            continue acc + - -1
+        else:
+            break - -acc
+
+
+print(counted())

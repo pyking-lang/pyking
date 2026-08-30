@@ -890,3 +890,43 @@ targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
 [[cases]]
 file = "typecheck_var_nested.pyk"
 targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "negative_nested.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
+
+[[cases]]
+file = "renaming_runtime.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
+
+[[cases]]
+file = "shadowing_depth.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
+
+[[cases]]
+file = "shadowing_depth_loops.pyk"
+targets = ["python", "interpret"]
+
+[[cases]]
+file = "loop_worth_ran_out.pyk"
+targets = ["python", "nodejs", "esm", "html", "interpret"]
+
+[[cases]]
+file = "loop_worth_ran_out_subset.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "interpret"]
+
+[[cases]]
+file = "printing_quotes.pyk"
+targets = ["python", "nodejs", "esm", "html", "interpret"]
+
+[[cases]]
+file = "printing_quotes_str.pyk"
+targets = ["python", "ocaml", "interpret"]
+
+[[cases]]
+file = "typecheck_pyking_reparse.pyk"
+targets = ["python", "interpret", "pyking"]
+
+[[cases]]
+file = "match_exhaustive_tuple.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret"]

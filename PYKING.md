@@ -2801,8 +2801,11 @@ def compose(g, f, x):
 ```
 
 **A single parameter needs no parentheses**: `x -> x` and `(x) -> x` are
-one type. And parentheses around one type are **grouping**, not a
-one-element tuple — as `(1)` is just `1` among values.
+one type — the `->` after the `)` is what makes the parenthesized list a
+parameter list. With no arrow after it, one type in parentheses is a
+one-element tuple, `(x)`, as the grammar notes above say: the type
+grammar has no parenthesization for grouping, and `(1,)` is a value that
+needs a type to be written for it.
 
 **An `all` written inside a type stays there**, which is first-class
 polymorphism: a parameter can demand a function that is itself
@@ -2862,15 +2865,36 @@ def reverse(xs:[Int]) -> [Int]:
 **A `match` whose value is taken must match every value.** A `match`
 that fits no arm does nothing, so one being *bound* has to be unable to
 fit nothing — otherwise the name would simply not be there. One
-irrefutable arm (`case _`, or one that binds a name) settles it, and so
-does a set of list patterns covering every length, which is how the
-recursion above is written. The statement form is unaffected.
+irrefutable arm (`case _`, or one that binds a name) settles it; so do
+both of a `Bool`'s values; and so does a set of list patterns covering
+every length, which is how the recursion above is written. The statement
+form is unaffected.
 
 ```pyking
 label = match n:
     case 0: "zero"
     case _: "other"        # required: without it, `label` may not exist
 ```
+
+**Those rules are read through a tuple as well.** A tuple's shape is
+fixed by its type, so a position matching anything in every arm can rule
+no value out, and the arms cover as soon as *one* position does:
+
+```pyking
+def signed(v:(Int, Bool)) -> Int:
+    match v:
+        case (a, true): a
+        case (a, false): 0 - a       # covered: the second position is
+                                     # every Bool, the first anything
+```
+
+Only one position may be doing the work. Arms that cover between them
+across two positions at once — `(true, true)`, `(true, false)`,
+`(false, _)` — are not accepted, and want an arm that matches
+everything; so does a refutable pattern nested inside a *list element*
+rather than a tuple's. The rule is deliberately one a reader can apply
+by eye, and it errs towards asking for an arm rather than towards
+accepting a `match` with a hole in it.
 
 A comprehension's `for` walks a list and its pattern binds over the
 elements; an element the pattern does not match is left out rather than

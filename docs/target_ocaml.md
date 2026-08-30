@@ -434,8 +434,19 @@ all.
 
 An OCaml value name must start with a lowercase letter or an underscore
 and must not be a keyword, so a Pyking `Total` becomes `v_Total` and a
-Pyking `method` becomes `method_`. Everything else reaches the output
-unchanged.
+Pyking `method` becomes `method_`. `_` is on the keyword list for
+OCaml's own reason: it is the wildcard pattern rather than a name, so
+`let _ = 2` binds nothing and `_` is not an expression. Everything else
+reaches the output unchanged.
+
+Neither rule is injective on its own — `mod` and `mod_` both want
+`mod_`, and `Foo` and `v_Foo` both want `v_Foo` — and two Pyking names
+landing on one OCaml name is a silent substitution rather than a shadow:
+whichever `let` came last wins, and the other name reads as it. So the
+names are chosen for the **whole program at once**, before anything is
+translated (`_plan_names`): a name OCaml already accepts keeps its own
+spelling, and the rest take the first free `base`, `base2`, ….
+`tests/renaming_runtime.pyk` pins both pairs.
 
 ### What the compiler would have said
 

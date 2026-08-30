@@ -440,6 +440,15 @@ because it compiles whether the checker ran or not. A *bare* `break` in
 a multi-slot loop is refused for a reason of Java's alone: its answer
 would be all the slots at once, and Java has no tuple to hold them.
 
+A `while c` can also stop by **running out**, and the loop is worth its
+accumulator then rather than whatever a `break` left in that local
+(PYKING.md, "What a loop is worth"). Java has no loop `else`, and needs
+no flag for one: the exhaustion test is written by this backend itself,
+`if (!c) break;` at the top of a `while (true)`, so the accumulator is
+assigned to the result local right there.
+`tests/loop_worth_ran_out_subset.pyk` is the case;
+[target_c.md](target_c.md) says the same of C.
+
 Binding a loop is that `final` declaration after it, and a loop in tail
 position is `return x` -- unless nothing breaks out of the loop, in
 which case the `return` is left out, javac refusing a statement that
@@ -459,7 +468,11 @@ def static(n):                     private static int static2(final int n) {
 
 The list (`RESERVED` in `src/target_java.py`) also holds `String`,
 `System`, `args` and `main`: not keywords, but a Pyking function
-shadowing one would break the generated file just as thoroughly.
+shadowing one would break the generated file just as thoroughly. And
+`_`, which is a keyword in Java 9 and later and an unnamed variable
+(a preview feature) in 21 -- an ordinary Pyking name that `java8` alone
+would have accepted, so it is renamed for every version rather than
+splitting the family (`tests/renaming_runtime.pyk`).
 
 ### Immutable bindings stay immutable
 

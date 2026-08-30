@@ -20,7 +20,7 @@ Functions:
     pprint_program(items) -- [OItem] to OCaml source text.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass
 
 from analyses import Effects, walk
 import runtime_interface
@@ -251,16 +251,81 @@ exception external false for fun function functor if in include inherit
 initializer land lazy let lor lsl lsr lxor match method mod module
 mutable new nonrec object of open or private rec sig struct then to true
 try type val virtual when while with
+_
 """.split())
+# `_` is there because OCaml's is the wildcard pattern rather than a
+# name: `let _ = 2` binds nothing and `_` is not an expression. It is an
+# ordinary Pyking name, so it is mangled like any other word OCaml has
+# taken.
 
 
-def _mangle(name):
-    """name as a legal OCaml value name. String -> String"""
+# Pyking name -> OCaml name, for the program being translated. Built by
+# `_plan_names` before anything is translated, because the context-free
+# rules below are not injective on their own: `mod` and `mod_` both want
+# `mod_`, and `Foo` and `v_Foo` both want `v_Foo`. Two Pyking names
+# sharing one OCaml name is not a shadow but a silent substitution, so
+# the map is what keeps them apart.
+_names = {}
+
+
+def _mangle_base(name):
+    """name as a legal OCaml value name, before collisions are resolved.
+    String -> String"""
     if name in RESERVED:
         return name + "_"
     if name[:1].isupper():
         return "v_" + name
     return name
+
+
+def _plan_names(stmts):
+    """Chooses one OCaml name per Pyking name in stmts, so that no two
+    of them land on the same one. A name OCaml already accepts keeps its
+    own spelling; the rest take the first free `base`, `base2`, ...
+    [Stmt] -> {String: String}"""
+    used = _collect_identifiers(stmts)
+    plan = {}
+    # A name that needs no change is settled first, so that the ones that
+    # do are what move out of the way -- keeping generated OCaml as close
+    # to the source's own spelling as it can be.
+    unchanged = {n for n in used if _mangle_base(n) == n}
+    taken = set(unchanged)
+    for name in unchanged:
+        plan[name] = name
+    for name in sorted(used - unchanged):
+        candidate = _mangle_base(name)
+        suffix = 1
+        while candidate in taken or candidate in RESERVED:
+            suffix += 1
+            candidate = f"{_mangle_base(name)}{suffix}"
+        plan[name] = candidate
+        taken.add(candidate)
+    return plan
+
+
+def _collect_identifiers(node, acc=None):
+    """Every identifier used anywhere in node, as a set. Relies on every
+    field literally named name holding an identifier in syntax.py.
+    Stmt|Expr|... -> {String}? -> {String}"""
+    if acc is None:
+        acc = set()
+    if is_dataclass(node):
+        for f in fields(node):
+            value = getattr(node, f.name)
+            if f.name == "name" and isinstance(value, str):
+                acc.add(value)
+            else:
+                _collect_identifiers(value, acc)
+    elif isinstance(node, (list, tuple)):
+        for element in node:
+            _collect_identifiers(element, acc)
+    return acc
+
+
+def _mangle(name):
+    """The OCaml name a Pyking name is translated to, as `_plan_names`
+    settled it. String -> String"""
+    return _names.get(name, _mangle_base(name))
 
 
 def _unused_prefix(stmts):
@@ -286,6 +351,8 @@ def translate_program(stmts, tmap):
     worked out rather than inferring any. src/pyk.py runs the checker
     and hands the table here, so a program that does not check has been
     refused before this is called. [Stmt] -> {Int: Type} -> OProgram"""
+    global _names
+    _names = _plan_names(stmts)
     translator = _Translator(tmap, stmts)
     items = _polish_items(translator.items(stmts))
     return OProgram(items, translator.needs_list_printer, translator.needs_quote)
@@ -1588,7 +1655,13 @@ def _pprint_bare(e, level):
         case ONeg(operand):
             # OCaml's unary minus on an application needs no parentheses
             # (`-f x` is `-(f x)`), but on anything looser it does.
-            return (f"-{_pprint(operand, _APP, level)}", _APP)
+            inner = _pprint(operand, _APP, level)
+            # A `-` straight after this one would lex as the single
+            # operator `--`, whatever the precedence says, so an operand
+            # that starts with one is parenthesized to break them apart.
+            if inner.startswith("-"):
+                return (f"-({inner})", _APP)
+            return (f"-{inner}", _APP)
         case OMatch(subject, arms):
             pad = "  " * level
             head = f"match {_pprint(subject, _SEQ + 1, level)} with"
