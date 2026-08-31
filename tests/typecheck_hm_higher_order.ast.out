@@ -1,0 +1,14 @@
+def foo(f:(a, Int) -> b, a:a, x:Int) -> b:
+    loop (f, a, x): ((a, Int) -> b, a, Int) = (f, a, x):
+        if x < 10:
+            continue (f, a, x + 1)
+        else:
+            break f(a, x)
+def m(x:a, i:b) -> (a, b, a):
+    (x, i, x)
+def keep(x:a, i:b) -> a:
+    x
+print(foo(m, 7, 0))
+print(foo(m, 'hi', 0))
+print(foo(keep, true, 3))
+looping: ((a, Int) -> b, a, Int) -> b = foo

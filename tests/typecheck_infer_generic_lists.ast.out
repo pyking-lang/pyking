@@ -1,0 +1,16 @@
+def append(one:[a], other:[a]) -> [a]:
+    match one:
+        case [x, ..xs]:
+            [x] ++ append(xs, other)
+        case []:
+            other
+def reverse(lst:[a]) -> [a]:
+    match lst:
+        case [x, ..xs]:
+            append(reverse(xs), [x])
+        case []:
+            []
+print(append([1, 2], [3]))
+print(reverse([1, 2, 3]))
+print(reverse(['a', 'b']))
+print(append(reverse([true]), [false]))

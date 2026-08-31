@@ -1,0 +1,2 @@
+'tests/fail_typecheck_infer_pinned.pyk' 23:15-23:19 Type error:
+  argument 1 has type Bool, but Int was expected

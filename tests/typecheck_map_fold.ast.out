@@ -13,7 +13,6 @@ def fold_left(step, start, xs):
                 break start
             case [head, ..rest]:
                 continue (step, step(start, head), rest)
-        break ()
 def filter : ((a) -> Bool, [a]) -> [a]
 def filter(keep, xs):
     match xs:

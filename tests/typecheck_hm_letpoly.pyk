@@ -1,0 +1,26 @@
+# `let`-polymorphism: a definition used at two types by *one* caller.
+#
+# This is the rule that separates Hindley-Milner from simple typing. A
+# `def` is generalised before anything that names it is checked, so
+# `pair_up` may use `identity` at Int and at String in a single body --
+# each use is its own instance of `all a. (a) -> a`.
+#
+# What it is *not* is higher rank. `identity` is a definition and gets a
+# scheme; a *parameter* is not generalised, and a body that used one at
+# two types is refused (see fail_typecheck_hm_rank2.pyk). That is
+# exactly Hindley-Milner's line, and the whole reason this checker needs
+# no first-class polymorphism to infer.
+
+def identity(x): x
+
+def pair_up(n, word):
+    (identity(n), identity(word), identity(true))
+
+def both_ways(n):
+    first = identity(n)
+    second = identity('fixed')
+    (first, second)
+
+print(pair_up(1, 'one'))
+print(both_ways(9))
+print(both_ways('nine'))

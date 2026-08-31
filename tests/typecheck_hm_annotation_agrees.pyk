@@ -1,0 +1,44 @@
+# An annotation and an inference of the same body agree.
+#
+# Each pair below is one function written twice: once with its type
+# spelled out and once with nothing at all. The checker has to reach the
+# same answer both ways, or an annotation would be changing what a
+# program means rather than saying what it already meant.
+#
+# The annotated half is checked with its variables *rigid* -- a body
+# that assumed `a` was an Int would be refused where it is written --
+# and the inferred half is checked again against its own answer the same
+# way. So the two are held to one standard reached from two directions.
+
+def pair_written : (a, b) -> (a, b)
+def pair_written(x, y):
+    (x, y)
+
+def pair_inferred(x, y): (x, y)
+
+def apply_written : ((a) -> b, a) -> b
+def apply_written(f, x):
+    f(x)
+
+def apply_inferred(f, x): f(x)
+
+def map_written : ((a) -> b, [a]) -> [b]
+def map_written(f, lst):
+    match lst:
+        case [x] ++ xs: [f(x)] ++ map_written(f, xs)
+        case []: []
+
+def map_inferred(f, lst):
+    match lst:
+        case [x] ++ xs: [f(x)] ++ map_inferred(f, xs)
+        case []: []
+
+def negate(n): 0 - n
+
+print(pair_written(1, 'a'), pair_inferred(1, 'a'))
+print(apply_written(negate, 3), apply_inferred(negate, 3))
+print(map_written(negate, [1, 2]), map_inferred(negate, [1, 2]))
+print(map_written(negate, [3]), map_inferred(negate, [3]))
+
+written = map_written
+inferred = map_inferred

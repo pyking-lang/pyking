@@ -1,0 +1,80 @@
+# Recursion, with every annotation taken off.
+#
+# The twin of tests/typecheck_recursion.pyk: the same program, with no parameter
+# type, no return type and no signature line anywhere in it. Its `.out`
+# is that file's `.out`, unchanged -- an annotation says what a program
+# means to a reader and to the checker, never what it does.
+#
+# What this file is really for is its `.ast.out`, which holds the types
+# the checker worked out with nothing to go on but the calls. Read the
+# two side by side: where they differ, inference found something more
+# general than the annotation claimed.
+
+def factorial(n):
+    if n < 2:
+        1
+    else:
+        n * factorial(n - 1)
+
+# A recursive function whose result is not the type of its argument.
+def spell(n):
+    if n < 1:
+        ""
+    else:
+        "x" ++ spell(n - 1)
+
+# Mutual recursion: each body names the other, and neither is written
+# first in any sense that matters.
+def is_even(n):
+    if n == 0:
+        true
+    else:
+        is_odd(n - 1)
+
+def is_odd(n):
+    if n == 0:
+        false
+    else:
+        is_even(n - 1)
+
+# A plain forward reference: no cycle, just a helper written afterwards.
+def describe(n):
+    label(n) ++ "!"
+
+def label(n):
+    if n < 0:
+        "negative"
+    else:
+        "positive"
+
+# Nested functions, mutually recursive inside their enclosing body, and
+# reading the enclosing parameter.
+def parity(limit):
+    def even(m):
+        if m == 0:
+            true
+        else:
+            odd(m - 1)
+    def odd(m):
+        if m == 0:
+            false
+        else:
+            even(m - 1)
+    if even(limit):
+        "even"
+    else:
+        "odd"
+
+# A function's name means its function type, before and after its own
+# definition, so binding it to another name works either way round.
+alias = factorial
+paired = is_even
+
+six = factorial(3)
+word = spell(3)
+flag = is_even(4)
+told = describe(1)
+kind = parity(6)
+
+
+print(six, word, flag, told, kind)

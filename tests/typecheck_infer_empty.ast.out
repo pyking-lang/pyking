@@ -1,0 +1,18 @@
+empty: [a] = []
+print(empty, len(empty))
+none_yet: [Int] = []
+print(none_yet)
+def keep(xs:[String]) -> [String]:
+    return xs
+print(keep([]))
+built: [Int] = loop acc: [Int] = [] for n in [1, 2, 3]:
+    continue acc ++ [n * n]
+print(built)
+def count_of(xs:[a]) -> Int:
+    match xs:
+        case []:
+            0
+        case [_, ..rest]:
+            1 + count_of(rest)
+print(count_of([]), count_of([1, 2]), count_of(['a', 'b', 'c']))
+sized: ([a]) -> Int = count_of

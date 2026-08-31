@@ -32,8 +32,8 @@ from syntax import (
     EInt, EString, EBool, EVar, EEq, ECall, EIf, EList, ETuple,
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt,
     SLoop, SBreak, SContinue, SIf, SFunctionDef, SMatch, ForIn,
-    Param, TInt, TString, TBool, TList, TTuple, TFunction, TOr, TUnknown,
-    TNever, TargetName, TargetTuple,
+    Param, TInt, TString, TBool, TList, TTuple, TFunction, TUnknown, TForall,
+    TVar, TargetName, TargetTuple,
 )
 
 
@@ -215,15 +215,14 @@ def _falls_through(result):
 
 def _falls_through_signature(signature):
     """The same question asked of a function's whole type rather than of
-    its result -- which is a `TOr` where the checker worked the function
-    out at several argument types, one alternative per instantiation
-    (docs/type_inference.md). One of those being worth unit is enough
-    for the body to need its fallthrough. Type? -> Bool"""
+    its result. An `all` around it says what its variables are and
+    nothing about whether it falls through, so it is stepped past.
+    Type? -> Bool"""
     match signature:
+        case TForall(_, _, body, _):
+            return _falls_through_signature(body)
         case TFunction(_, _, result, _, _, _):
             return _falls_through(result)
-        case TOr(_, alternatives, _):
-            return any(_falls_through_signature(a) for a in alternatives)
         case _:
             return True
 
@@ -552,7 +551,8 @@ def _signature(func, types):
 def _undecided(type_):
     """Whether the checker left this type open, so that nothing can be
     written down for it. Type -> Bool"""
-    return isinstance(type_, (TUnknown, TNever))
+    return isinstance(type_, TUnknown) or (
+        isinstance(type_, TVar) and not type_.rigid)
 
 
 def _zero(type_, info):
@@ -573,8 +573,8 @@ def _zero(type_, info):
             if any(inside is None for inside in insides):
                 return None
             return ETuple(info, insides)
-    # A function has no zero, and neither has an alternative: there is
-    # no one value that is both an Int and a String.
+    # A function has no zero, and neither has a type variable: the
+    # caller picks what it is, so nothing here can name a value of it.
     return None
 
 
@@ -683,6 +683,16 @@ def _block(stmts, work):
         members = [functions[name] for name in group]
         if not all(_rewritable(func) for func in members):
             continue
+        if not _same_scope(stmts, group):
+            # One of them reads a name bound between the group's members.
+            # The merged worker stands where the *first* member did, so
+            # that name would not be bound yet -- see
+            # tests/lexical_capture_group.pyk, whose `odd` reads a `step`
+            # written between it and `even`.
+            for func in members:
+                if func.name in tail_calls(func, {func.name}):
+                    rewritten[func.name] = _rewrite_self(func, work)
+            continue
         merged = _merge(members, work, index)
         if merged is None:
             # A group the checker's types say cannot share one loop may
@@ -774,6 +784,50 @@ def _groups(functions):
         grouped.update(group)
         groups.append(group)
     return groups
+
+
+def _same_scope(stmts, group):
+    """Whether a group may be merged where its first member stands: no
+    member may read a name the block binds between them, since the
+    merged worker takes the first member's place and everything after it
+    is bound later than that.
+
+    Blunt on purpose, like `_mentions`: it asks whether the name appears
+    at all, and being over-careful costs a merge that was safe rather
+    than a program that captures the wrong thing.
+    [Stmt] -> [String] -> Bool"""
+    positions = {}
+    for index, statement in enumerate(stmts):
+        match statement:
+            case SFunctionDef(_, name, _, _, _, _) if name in group:
+                positions.setdefault(name, index)
+    if len(positions) < 2:
+        return True
+    first, last = min(positions.values()), max(positions.values())
+    between = set()
+    for statement in stmts[first + 1:last]:
+        match statement:
+            case SFunctionDef(_, name, _, _, _, _) if name in group:
+                continue
+            case _:
+                between |= _bound_names(statement)
+    if not between:
+        return True
+    return not any(_mentions(stmts[positions[name]].body, bound)
+                   for name in positions for bound in between)
+
+
+def _bound_names(statement):
+    """Every name one statement binds in its own block. Stmt ->
+    {String}"""
+    match statement:
+        case SLet(_, target, _, _, _) | SLetStmt(_, target, _, _, _):
+            return set(_target_names(target))
+        case SVar(_, name, _, _):
+            return {name}
+        case SFunctionDef(_, name, _, _, _, _):
+            return {name}
+    return set()
 
 
 def _reachable(name, calls):

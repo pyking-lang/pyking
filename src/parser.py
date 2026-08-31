@@ -31,7 +31,7 @@ from lexer import (
     TokColon, TokDot, TokIndent, TokDedent, TokEq, TokLParen, TokRParen, TokComma,
     TokLBracket, TokRBracket, TokDotDot,
     TokDef, TokReturn, TokFor, TokIn, TokIf, TokWhile, TokThen, TokElse, TokVar,
-    TokAssign, TokMatch, TokCase, TokArrow, TokPipe,
+    TokAssign, TokMatch, TokCase, TokArrow,
     TokLoop, TokBreak, TokContinue,
     TokTypeInt, TokTypeString, TokTypeBool, TokTrue, TokFalse,
 )
@@ -48,7 +48,7 @@ from syntax import (
     ForIn, WhileTest,
     SLoop, SBreak, SContinue,
     SFunctionDef, SFunctionSig, SMatch,
-    TInt, TString, TBool, TList, TTuple, TOr, TFunction, TVar, TForall, Param,
+    TInt, TString, TBool, TList, TTuple, TFunction, TVar, TForall, Param,
     TargetName, TargetTuple,
 )
 
@@ -391,26 +391,7 @@ def parse_tuple_tail(first, tokens):
 
 
 def parse_type(tokens):
-    """Parses a type, including `|` alternatives (Int | String); `|`
-    binds looser than everything else a type is built from.
-    [Token] -> (Type, [Token])"""
-    first, rest = parse_type_arrow(tokens)
-    alternatives = [first]
-    while True:
-        match rest:
-            case [TokPipe(_), *after]:
-                alternative, rest = parse_type_arrow(after)
-                alternatives.append(alternative)
-            case _:
-                break
-    if len(alternatives) == 1:
-        return first, rest
-    return (TOr(combine_info(first.info, alternatives[-1].info), alternatives),
-            rest)
-
-
-def parse_type_arrow(tokens):
-    """Parses one type with no `|` in it. A single parameter needs no
+    """Parses one type. A single parameter needs no
     parentheses -- `x -> x` is `(x) -> x` -- so any atom followed by
     `->` is a one-parameter function; the parenthesized list form is
     read by parse_type_atom, which is where a list of any other length
@@ -425,8 +406,8 @@ def parse_type_arrow(tokens):
 
 
 def parse_type_atom(tokens):
-    """Parses one type that is not an unparenthesized `->` and has no
-    `|` in it. [Token] -> (Type, [Token])"""
+    """Parses one type that is not an unparenthesized `->`.
+    [Token] -> (Type, [Token])"""
     match tokens:
         case [TokTypeInt(info), *rest]:
             return TInt(info), rest

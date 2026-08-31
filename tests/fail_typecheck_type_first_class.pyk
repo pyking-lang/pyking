@@ -1,0 +1,43 @@
+# A parameter that demands a polymorphic function will not take one that
+# merely works at the type this call happens to need.
+#
+# `both_ways` uses its argument at two types inside one body, which only
+# a function polymorphic in that argument can serve -- so its parameter
+# is written `(all x. (x) -> x)`, and that `all` is a demand, not a
+# description. `bump` is a perfectly good `(Int) -> Int` and would even
+# survive the `f(1)` in the body; it is refused because the *other* use
+# would not, and the body is checked once for every caller rather than
+# once per call.
+#
+# This is the direction that makes the annotation mean something.
+# Passing a polymorphic function where an *instance* of it is wanted is
+# the other direction and is always fine -- every instance exists -- so
+# `identity` is accepted by `apply` below, and by `both_ways` in
+# tests/typecheck_type_first_class.pyk.
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+def identity : (x) -> x
+def identity(v):
+    return v
+
+
+def bump(n:Int) -> Int:
+    return n + 1
+
+
+def apply(f:(Int) -> Int, n:Int) -> Int:
+    return f(n)
+
+
+def both_ways : (all x. (x) -> x) -> String
+def both_ways(f):
+    return f("a") ++ str(f(1))
+
+
+# Fine: a polymorphic function where one of its instances is wanted.
+print(apply(identity, 1), apply(bump, 2))
+
+# Refused: a function at one type where a polymorphic one is demanded.
+print(both_ways(bump))

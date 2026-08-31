@@ -1,0 +1,13 @@
+def identity : (a) -> a
+def identity(x):
+    return x
+def extract : ((all r. ((a) -> r) -> r)) -> a
+def extract(packed):
+    return packed(identity)
+def pack_int : all r. ((Int) -> r) -> r
+def pack_int(k):
+    return k(41)
+def pack_string : all r. ((String) -> r) -> r
+def pack_string(k):
+    return k('hello')
+print(extract(pack_int), extract(pack_string))

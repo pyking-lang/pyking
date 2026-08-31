@@ -1,0 +1,52 @@
+def map_pairs(xs:[(a, b)]) -> [a]:
+    match xs:
+        case []:
+            return []
+        case [(left, right), ..rest]:
+            return [left] ++ map_pairs(rest)
+def take(xs:[a], n:Int) -> [a]:
+    answer: [a] = match xs:
+        case []:
+            []
+        case [first, ..rest]:
+            if n < 1:
+                []
+            else:
+                [first] ++ take(rest, n - 1)
+    return answer
+def drop(xs:[a], n:Int) -> [a]:
+    answer: [a] = match xs:
+        case []:
+            []
+        case [first, ..rest]:
+            if n < 1:
+                xs
+            else:
+                drop(rest, n - 1)
+    return answer
+def join(parts:[String], sep:String) -> String:
+    answer: String = match parts:
+        case []:
+            ''
+        case [only]:
+            only
+        case [first, ..rest]:
+            first ++ sep ++ join(rest, sep)
+    return answer
+def sum_all(xs:[Int]) -> Int:
+    match xs:
+        case []:
+            return 0
+        case [x, ..rest]:
+            return x + sum_all(rest)
+scores: [(Int, String)] = [(90, 'ada'), (72, 'bob'), (85, 'cy'), (61, 'dee')]
+print(map_pairs(scores))
+print(sum_all(map_pairs(scores)))
+print(take(map_pairs(scores), 2), drop(map_pairs(scores), 2))
+names: [String] = [name for (n, name) in scores if n > 70]
+print(names)
+print(join(names, ', '))
+print(join(take(names, 2), ' and '))
+print(take([1, 2, 3], 2))
+print(take(['a', 'b', 'c'], 1))
+print(drop([true, false, true], 1))

@@ -36,7 +36,7 @@ from syntax import (
     ForIn, WhileTest,
     SLoop, SBreak, SContinue,
     SFunctionDef, SMatch,
-    TInt, TString, TBool, TList, TTuple, TOr, TNever,
+    TInt, TString, TBool, TList, TTuple, TVar,
     TargetName, TargetTuple,
 )
 
@@ -1214,7 +1214,11 @@ def _bool_kind(type_):
     match type_:
         case TBool():
             return "bool"
-        case TInt() | TString() | TNever():
+        case TInt() | TString() | TVar(_, _, _, False):
+            # A variable nothing constrained is the element type of a
+            # list with no elements, so no Bool is ever formatted
+            # through it. A *rigid* one is a type the caller chose and
+            # could be anything, which falls through to "unknown".
             return "not-bool"
         case TList(_, element, _):
             return "not-bool" if _bool_kind(element) == "not-bool" else "unknown"
@@ -1222,9 +1226,6 @@ def _bool_kind(type_):
             # `()` is the zero-element tuple, and holds nothing at all.
             kinds = {_bool_kind(e) for e in elements}
             return "not-bool" if kinds <= {"not-bool"} else "unknown"
-        case TOr(_, alternatives, _):
-            kinds = {_bool_kind(a) for a in alternatives}
-            return kinds.pop() if len(kinds) == 1 else "unknown"
     return "unknown"
 
 
@@ -1240,7 +1241,7 @@ def _nests_a_string(type_, inside=False):
             return inside
         case TList(_, element, _):
             return _nests_a_string(element, True)
-        case TTuple(_, elements, _) | TOr(_, elements, _):
+        case TTuple(_, elements, _):
             return any(_nests_a_string(e, True) for e in elements)
     return False
 

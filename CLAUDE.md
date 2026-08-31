@@ -205,12 +205,15 @@ The bootstrap is split into one module per compiler stage:
    `TFunction` carries `tmsym` and `body` for a function whose type was
    not written down (see `typesystem.py` below), and `TUnknown` is a type
    nothing has decided yet. Neither is ever produced by the parser, and
-   neither takes part in comparing two function types. Three variants
-   are unwritable in source and are the checker's alone — `TUnknown`,
-   `TNever` and `TBuiltin` (the type of a host operation, which is what
+   neither takes part in comparing two function types. Two variants
+   are unwritable in source and are the checker's alone — `TUnknown`
+   and `TBuiltin` (the type of a host operation, which is what
    keeps `typesystem.py`'s `Env` a map from a name to a *type*). Of the
-   three only `TBuiltin` never reaches printed output, since nothing
-   records one in `tmap`.
+   two only `TBuiltin` never reaches printed output, since nothing
+   records one in `tmap`. A `TVar` the checker made rather than the
+   source is *flexible* (`rigid=False`) — the element type of `[]`,
+   which nothing has constrained; it is written in the same syntax a
+   rigid one is.
 
    **The AST is documented as algebraic data types** in one block of
    `datatype` comments at the top of the file, listing every group's
@@ -373,8 +376,7 @@ The bootstrap is split into one module per compiler stage:
 6. **`src/typesystem.py`** — the type checker, run for every mode and
    every target, after `symbolize` and before anything else reads the
    program: Pyking is statically typed and there is no flag for it. It
-   runs *instead of* the old name analysis, which no longer exists (see
-   `pyk.py` below).
+   is also the only pass that checks *names* (see `pyk.py` below).
    One entry point, `type_check(stmts) -> tmap`: a whole program in, the
    types it worked out back. Two consumers now define their coverage as
    "whatever this accepts" — `target_ocaml.py` and `interpreter.py` — so
@@ -458,10 +460,11 @@ The bootstrap is split into one module per compiler stage:
    `break` that disagreed. The rule is about the `break`s agreeing with
    each other rather than with the accumulator, so a `loop:` carrying
    nothing is held to it too; a bare `break` joins in by giving the
-   accumulator. `merge` is deliberately not used there -- the C and Java
-   backends already refused a loop whose breaks disagree, and building a
-   `TOr` the checker would then have to honour was the front end
-   describing a program those two would not compile.
+   accumulator. They are held to being *one* type -- `unify`, through
+   `agree` -- rather than being covered by some wider type built for the
+   occasion: the C and Java backends already refuse a loop whose breaks
+   disagree, so a front end that accepted one would be describing a
+   program those two would not compile.
 
    Most statements and every program have type unit; an *expression
    statement* has its expression's type and a *block* its last
@@ -480,16 +483,16 @@ The bootstrap is split into one module per compiler stage:
    one question — what value does it *supply*? — and `return e` answers
    "e's", which is what the tail-position table says of it; so a
    returning branch and a value-ending branch compare without either
-   being a special case. Recursion is refused: the function's own name is
-   left unbound while its body is checked — *removed* from the body's
-   environment rather than merely not added, since a `def`'s name is in
-   scope in its own body and an outer binding of it must not show
-   through.
+   being a special case. Recursion needs nothing special: the name is
+   already bound to the declared type by `declare_functions`, so a
+   recursive call is an ordinary call.
 
    Both forms of `if` are covered -- the statement and the
-   `if c then a else b` *expression* -- and both are places a trace can
-   be abandoned when it meets the recursion it is working out
-   (`try_branch`, `try_expr`). A construct the checker starts accepting
+   `if c then a else b` *expression* -- and both are checked the same
+   way: the condition is demanded to be Bool, and the two branches are
+   held to being one type by `agree`. The `else` is checked against the
+   store the `then` *left*, since what either branch worked out is true
+   whichever way the program goes. A construct the checker starts accepting
    needs the interpreter to run it as well, since the interpreter's
    subset *is* this fragment: the `if` expression needed `KChoose` and a
    case in the call-free fast path, and a construct added without them
@@ -501,57 +504,88 @@ The bootstrap is split into one module per compiler stage:
    mode. Keep that floor explicit rather than silently accepting what it
    has not reasoned about.
 
-   **Inference is the same machinery run later, not a second pass.** A
-   `def` that annotated everything is checked where it is written, as
+   **Inference works a definition out from its body, not from the call.**
+   A `def` that annotated everything is checked where it is written, as
    above. One that did not is *not checked there at all*: `declared_type`
    gives it a `TFunction` with `TUnknown` where the annotations are
    missing, `definition` holding the `def` itself and `tmsym` its symbol
-   -- the name the checker's tables use for it -- and `check_call`
-   checks it the first time something calls it, with the parameters that
-   call passes (`argument_type`, `infer_call`). There is no constraint solver and no unification, which
-   is the whole point: every error stays a sentence about one place, in
-   the words the checker already uses. Four things are easy to break and
-   are why it works:
+   -- the name the checker's tables use for it -- and `infer_definition`
+   works it out the first time something calls it. The call is a
+   *trigger* and a *scope*, and nothing else: every parameter goes in as
+   a metavariable and the body's own demands decide them, so what comes
+   out is the definition's principal type, the same whatever called it
+   and in whatever order. That is Hindley-Milner, and the call that
+   triggered it is then checked against the result like any other call.
+   Six things are easy to break and are why it works:
+   - **A metavariable is `TVar` with `rigid=False`**, named `?n`, and a
+     rigid one is its exact opposite: a metavariable is a type *this
+     check* is still choosing, a rigid variable one the *caller* chose.
+     One class serves both because that is the only difference. Its
+     solution lives in `store.solutions`, never in the node, so a type
+     stays a value like every other type here; `prune` looks through one
+     solution, `zonk` reads a whole type back.
+   - **`unify` is first-order, eager and local.** It is called where a
+     type is *demanded* -- a call's arguments, an operator's operands,
+     two branches, a pattern against its subject -- and answers there.
+     There is no constraint store, no worklist and no solver pass, which
+     is what keeps every error a sentence about one place in the words
+     the checker already uses. Two details are load-bearing: the occurs
+     check, and that when two metavariables meet the *younger* is solved
+     to the older (`meta_age`) -- a variable handed out earlier may
+     belong to an enclosing scope, and losing that is what would let a
+     nested `def` generalise its enclosing function's parameter.
+   - **Every *use* of a scheme is instantiated** (`instantiate`) with
+     fresh metavariables. That is what lets one definition serve two
+     callers at two types, and it is also why **inference never produces
+     a higher rank**: a metavariable is a type, never a scheme, so no
+     `all` can be carried into a parameter the checker is working out.
+     A parameter *written* `(all a. ...)` is the exception, and being
+     written down is the whole of the difference. Do not add rank-2
+     inference: it is undecidable in general, and anything that guesses
+     at it gives up the one guarantee this inference has -- the
+     principal type, whatever called the definition and in whatever
+     order.
+   - **`generalise` binds what the body left unsolved** -- except what
+     the scope the definition was written in already holds
+     (`free_metas`). That side condition is Hindley-Milner's, and it is
+     the one place generalising is *unsound* rather than merely
+     imprecise. A variable it could not generalise goes in
+     `store.captured` and prints as `?`, since Pyking cannot write "the
+     type my enclosing function was called at" and a letter there would
+     read as more general than the truth.
+   - **`verified`** checks the body again against the scheme with the
+     variables **rigid** -- the check an annotated polymorphic function
+     already gets. Unification is sound, so it should never refuse
+     anything, and it earns its keep twice over: it makes "a type this
+     checker reports is one it enforces" true by construction, and its
+     *failure* is how the four overloaded builtins are handled at all.
+     `str`, `len`, `==` and `++` accept several types and no one type, so
+     a body using one on a parameter generalises to a promise it cannot
+     keep; the re-check says so, the definition keeps its monotype, and
+     the first call settles it.
    - **The `Store`** is everything inference has worked out, threaded
      through the pass as a value: `environments` (where each `def` was
      written -- a deferred body is checked in *its own* scope, never the
-     call site's), `instances` (the cache), `checking` (the recursion
-     guard) and `frame` (what this inference has gone through). Nothing
-     in it is written to; `learned(store, inner)` is the one place the
-     difference between knowledge and context is stated. Keep it that
-     way: the mutable records this replaced were reachable from types,
-     and changed under everyone holding them.
-   - **`store.instances`** is the cache, keyed by parameter types.
-     Without it mutual recursion does not terminate. Match a key with
-     **`same_instance`**, never `same_type`: two functions nobody has
-     worked out yet are both `(?) -> ?`, and treating them as one
-     argument returns the first call's answer for the second. Each
-     `Instance` also keeps what the call *reported* -- the arguments
-     narrowed to what this call went through -- separately from the key,
-     because resolving a function argument against every use of it
-     anywhere over-claims in exactly the way the collapse used to. The
-     narrowing counts **uses, not creations** (`noting`, and the frame
-     in the store): a body that
-     calls a function at a shape some earlier call already worked out
-     still went through it, and counting only what was new under-claims
-     just as badly.
-   - **`_Recursive`** is a signal, never a user-facing error. It is
-     caught by the nearest `if` (`try_branch`), by a body that has
-     already collected a `return` (`trace`), or by the inference of the
-     definition it *names* — which is what makes a cycle of three
-     functions work, and what an earlier version got wrong by converting
-     it too early.
-   - **`record`** merges into `tmap` rather than overwriting, since a
-     function checked at two argument types has two true answers for
-     everything inside it, and `merge` builds the `TOr`. Function types
-     are alternatives like anything else: keep each instantiation
-     *whole*. Collapsing them into one function of union parameters --
-     which an earlier version did -- reports a type the checker would
-     refuse to honour, and a reported type must be one the checker
-     enforces (see `docs/type_inference.md`, "The mistake that made this
-     page necessary"). When a type cannot be written in the syntax at
-     hand, print less rather than something stronger: that is why a `def`
-     with several types prints as it was written.
+     call site's), `instances` (one scheme per definition), `solutions`
+     (what each metavariable turned out to be), `captured` (what a
+     definition could *not* generalise), and `checking`, `frame` and
+     `fresh` for the walk itself. Two are *given* rather than worked
+     out: `signatures`, from a `def name : type` line, and `groups`, the
+     block's `def`s, so a group that names itself is done together.
+     Nothing in it is written to; `learned(store, inner)` is the one
+     place the difference between knowledge and context is stated.
+
+   **Recursion is not a special case.** While a body is checked its own
+   name means the *monotype* its parameters were given, so a recursive
+   call is an ordinary call. `inference_group` computes the strongly
+   connected component of the definition in its block's call graph, and
+   those are worked out and generalised together -- Hindley-Milner's
+   `let rec` rule. Only the component: a sibling this body merely calls
+   is worked out and generalised first, on demand, so it is polymorphic
+   by the time this body uses it. That is the difference between
+   `let`-bound and lambda-bound, and it is what lets one caller use
+   `identity` at two types while a *parameter* used at two types is
+   refused.
 
    `docs/type_inference.md` is the long form, including the decisions
    that could have gone the other way; keep it in step with this module.
@@ -562,11 +596,13 @@ The bootstrap is split into one module per compiler stage:
    given a store returns one, because what it worked out is knowledge its
    caller needs. `record` filling in `tmap` is the single exception, and
    it is the pass's *result*. Do not put state back into a record the
-   types point at, however convenient -- that is what this replaced.
-   `docs/type_inference.md` records why, including the bug that only
-   became *visible* once the state was a value: two branches of an `if`
-   were being checked against the store they started from, so what the
-   first worked out was lost (`tests/typecheck_infer_branch_uses.pyk`).
+   types point at, however convenient. `record` also *overwrites* rather
+   than accumulating -- a generalisable body is checked twice, and
+   `verified`'s pass is the one that counts -- and `type_check` reads the
+   whole table back through `zonk` at the end, since a metavariable open
+   where it was recorded may have been solved by something written
+   further down.
+
 7. **`src/runtime_interface.py`** — the boundary between pure Pyking code
    and the outside world, in the spirit of WebAssembly's split between a
    core language that cannot observe anything and a separate host spec.
@@ -807,7 +843,8 @@ The bootstrap is split into one module per compiler stage:
    one written before it. Do not go back to checking the accumulated
    program as one block: that made the checker describe a program the
    machine was not running.
-   `Session(seen, state, types, sources)` holds the two environments --
+   `Session(seen, state, types, store, kinds, sources)` holds the two
+   environments --
    the machine's and the checker's, extended in step -- plus every
    statement the session has seen (which exists only so `symbolize` keeps
    handing out fresh symbols; the machine's call-free table is keyed by
@@ -916,12 +953,12 @@ The bootstrap is split into one module per compiler stage:
 When extending the lexer (new operators, keywords, string escapes, etc.),
 follow the existing pattern: add a `case [...]:` arm in the `match rest:`
 block inside `lexing`, add a corresponding `Tok*` dataclass, and add a
-`case Tok*():` arm to `pprint_token`. `TokPipe` (`|`, the alternative
-type separator) is the most recent one and shows the three edits
-together; it is also a reminder that a token used only in *types* still
-needs all three, and that `tools/emacs/pyking-mode.el` has to be checked
-even when the answer turns out to be "nothing to do" (it highlights no
-operators, so `|` needed none).
+`case Tok*():` arm to `pprint_token`. `TokArrow` (`->`, in a function
+type) shows the three edits together, and is a reminder that a token
+used only in *types* still needs all three, and that
+`tools/emacs/pyking-mode.el` has to be checked even when the answer
+turns out to be "nothing to do" (it highlights no operators, so `->`
+needed none).
 
 ## Running
 
@@ -1087,13 +1124,25 @@ to expect of it:
   `targets = ["pyking"]`: a program written to be refused is not one
   to run.
 
-The `typecheck_infer_*` and `fail_typecheck_infer_*` files are the same
-two conventions applied to inference: programs with no annotations whose
-`.ast.out` pins the types that were *worked out*, and programs whose
-`.ast.out` pins the refusal and its wording. They are the only tests
-where the printed AST differs from the source in the interesting way, so
-regenerate them deliberately rather than by habit when a message
-changes.
+Three families apply those two conventions to **inference**, and they
+are the only tests where the printed AST differs from the source in the
+interesting way — so regenerate them deliberately rather than by habit
+when a message changes.
+
+- **`typecheck_hm_*`** and **`fail_typecheck_hm_*`** are the direct
+  test of `docs/type_inference.md`: programs whose *principal* types are
+  pinned, one per property the inference guarantees (application,
+  composition, `let`-polymorphism, what may not be generalised, mutual
+  recursion, the order of callers not mattering, annotated rank-2), and
+  four that pin what is refused — the occurs check both ways, a
+  parameter used at two types, and an inferred type being enforced like
+  a written one.
+- **`typecheck_infer_*`** and **`fail_typecheck_infer_*`** are the
+  older set covering the same ground more narrowly.
+- **`typecheck_noann_*`** is each annotated `typecheck_*` program with
+  every annotation taken off, sharing its `.out` unchanged — the
+  standing check that an annotation says what a program means to a
+  reader and to the checker, never what it does.
 
 Together they pin down both halves of the checker — what it infers, and
 what it rejects and how it says so — while the backends keep the
@@ -1252,6 +1301,10 @@ rest.
 
 ## Repository housekeeping
 
+- **Never create a git branch.** Work on whatever branch is already
+  checked out, and leave the changes in the working tree; branching and
+  committing are mine to do. This holds however large the change is —
+  a rewrite of a whole module is still a working-tree change.
 - Editor backup files ending in `~` (e.g. `tests/arithmetic.py~`,
   `.gitignore~`) or in `#...#` (Emacs auto-save), and any `__pycache__`
   directory, are untracked scratch content, wherever they turn up (`src/`

@@ -1,0 +1,70 @@
+# Lexical capture, with every annotation taken off.
+#
+# The twin of tests/typecheck_lexical_capture.pyk: the same program, with no parameter
+# type, no return type and no signature line anywhere in it. Its `.out`
+# is that file's `.out`, unchanged -- an annotation says what a program
+# means to a reader and to the checker, never what it does.
+#
+# What this file is really for is its `.ast.out`, which holds the types
+# the checker worked out with nothing to go on but the calls. Read the
+# two side by side: where they differ, inference found something more
+# general than the annotation claimed.
+
+x = 1
+
+def show():
+    x
+
+x = "two"
+
+# So this is fine: the later `x` is a String, and `show` still returns
+# Int.
+label = x ++ "!"
+count = show() + 1
+
+# A forward reference: `f` names `g`, written below, and `g` reads the
+# binding of `y` visible where `g` is -- the second one.
+y = 1
+
+def f():
+    g()
+
+y = 2
+
+def g():
+    y
+
+# Three generations, three functions, three checks against three
+# different bindings of one name.
+gen = 1
+
+def first_gen():
+    gen
+
+gen = "second"
+
+def second_gen():
+    gen
+
+gen = true
+
+def third_gen():
+    gen
+
+one = first_gen()
+two = second_gen()
+three = third_gen()
+
+# A nested `def` may shadow an enclosing binding; inside it, the name
+# means the function.
+outer = 7
+
+def uses_nested():
+    def outer():
+        5
+    outer()
+
+five = uses_nested()
+
+
+print(label, count, one, two, three, five)

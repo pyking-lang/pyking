@@ -1,0 +1,2 @@
+'tests/fail_typecheck_type_first_class.pyk' 43:16-43:20 Type error:
+  argument 1 has type (Int) -> Int, but all x. (x) -> x was expected

@@ -2,9 +2,15 @@
 #
 # An unannotated function passed as an argument is not guessed at: it
 # travels as the incomplete thing it is, and is worked out where it is
-# finally *called*, inside the body that received it. So `apply_twice`
-# below is checked once per shape of use, and `add_one` is checked when
-# `f(f(x))` calls it -- not when it is handed over.
+# finally *called*, inside the body that received it. So `add_one` below
+# is checked when `f(f(x))` calls it -- not when it is handed over.
+#
+# `apply_twice` itself is worked out once, at its first call, and what
+# that call teaches is separated into the part its body depended on and
+# the part it did not. Its body never asks what `x` is: it only hands it
+# to `f` and hands the answer back. So nothing about it is Int, and its
+# type says so with a variable, which is what lets the second call pass
+# strings through the very same definition.
 
 def apply_twice(f, x):
     f(f(x))
@@ -20,13 +26,13 @@ print(apply_twice(repeat, 'ab'))
 
 # A parameter whose function type *is* written down is a claim about
 # what may be passed, and an unannotated function may still satisfy it:
-# whatever both sides know is compared, and what neither knows is left
-# to the call inside the body.
+# it is worked out at the types the annotation names, right there at the
+# call, since the body receiving it is checked once and will not reach
+# it again.
 def apply_once(f:(Int) -> Int, x:Int) -> Int:
     f(x)
 
 print(apply_once(add_one, 10))
 
-# `apply_twice` was used two ways, and its type is both of them -- with
-# each call's function, argument and result kept together.
+# Binding it is how the whole type gets printed.
 applied = apply_twice

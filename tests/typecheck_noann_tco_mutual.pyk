@@ -1,0 +1,50 @@
+# Tco mutual, with every annotation taken off.
+#
+# The twin of tests/typecheck_tco_mutual.pyk: the same program, with no parameter
+# type, no return type and no signature line anywhere in it. Its `.out`
+# is that file's `.out`, unchanged -- an annotation says what a program
+# means to a reader and to the checker, never what it does.
+#
+# What this file is really for is its `.ast.out`, which holds the types
+# the checker worked out with nothing to go on but the calls. Read the
+# two side by side: where they differ, inference found something more
+# general than the annotation claimed.
+
+def is_even(n):
+    if n == 0:
+        true
+    else:
+        is_odd(n - 1)
+
+
+def is_odd(n):
+    if n == 0:
+        false
+    else:
+        is_even(n - 1)
+
+
+print(is_even(10), is_odd(10))
+print(is_even(101), is_odd(101))
+
+
+# A three-way cycle, which needs nothing new: the state simply has three
+# values. `step_two` passes its argument along untouched, so it also
+# shows a body that is nothing but a tail call.
+def step_one(n):
+    if n < 1:
+        "done"
+    else:
+        step_two(n - 1)
+
+
+def step_two(n):
+    step_three(n)
+
+
+def step_three(n):
+    step_one(n)
+
+
+print(step_one(4))
+print(step_two(2))

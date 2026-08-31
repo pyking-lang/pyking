@@ -1,0 +1,38 @@
+# Loops, whose accumulator is worked out the same way everything else is.
+#
+# A `loop`'s accumulator, what its `continue`s carry and what its
+# `break`s give are all one type, which unification settles -- including
+# where the accumulator starts as `[]` and the body is what says what it
+# holds. Nothing here is special-cased: it is the same rule two branches
+# of an `if` obey.
+#
+# `collect` is the one that needed a second pass over the body before:
+# its accumulator starts empty, and only the `continue` says what goes
+# into it. Now the empty list's element is simply a type nothing has
+# decided, and the `continue` decides it.
+
+def collect(lst):
+    loop kept = [] for x in lst result kept:
+        continue kept ++ [x]
+
+def total(lst):
+    loop sum = 0 for n in lst result sum:
+        continue sum + n
+
+def any_of(lst, ok):
+    loop for x in lst result false:
+        if ok(x):
+            break true
+        continue
+
+def big(n): n > 1
+
+def long_word(w): len(w) > 2
+
+print(collect([1, 2, 3]))
+print(collect(['a', 'b']))
+print(total([1, 2, 3]))
+print(any_of([1, 2], big), any_of(['ab'], long_word))
+
+collecting = collect
+anything = any_of

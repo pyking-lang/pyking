@@ -1,0 +1,55 @@
+# Three list functions composed, each pinned to exactly what it looks at.
+#
+# `filter` asks its predicate for a Bool, because an `if` demands one --
+# so the result is Bool while the element stays open. `zip` takes two
+# lists apart and puts a pair together and never asks what is in either,
+# so it keeps two variables. `fold` hands its accumulator back to `f` on
+# every turn, which is what makes the accumulator and `f`'s first
+# parameter one type.
+#
+# Composing them is the real test: what comes out of one goes into the
+# next, so a variable worked out inside one definition has to survive
+# into the call that uses it.
+
+def filter(p, lst):
+    match lst:
+        case [x] ++ xs:
+            if p(x):
+                [x] ++ filter(p, xs)
+            else:
+                filter(p, xs)
+        case []: []
+
+def zip(one, other):
+    match (one, other):
+        case ([x] ++ xs, [y] ++ ys): [(x, y)] ++ zip(xs, ys)
+        case (_, _): []
+
+def fold(f, acc, lst):
+    match lst:
+        case [x] ++ xs: fold(f, f(acc, x), xs)
+        case []: acc
+
+def small(n): n < 4
+
+def short(word): len(word) < 3
+
+def add(total, n): total + n
+
+def join(text, word): text ++ word
+
+def take_first(total, pair):
+    n, s = pair
+    total + n
+
+print(filter(small, [1, 7, 2, 9]))
+print(filter(short, ['ab', 'long', 'c']))
+print(zip([1, 2], ['a', 'b']))
+print(zip([true], [(1, 'x')]))
+print(fold(add, 0, filter(small, [1, 7, 2])))
+print(fold(join, '', filter(short, ['ab', 'long'])))
+print(fold(take_first, 0, zip([1, 2, 3], ['a', 'b', 'c'])))
+
+filtering = filter
+zipping = zip
+folding = fold

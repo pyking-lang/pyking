@@ -1,0 +1,26 @@
+def fst(p:(a, b)) -> a:
+    match p:
+        case (a, b):
+            a
+def snd(p:(a, b)) -> b:
+    match p:
+        case (a, b):
+            b
+def swap(p:(a, b)) -> (b, a):
+    (snd(p), fst(p))
+def uncurry(f:(a, b) -> c, p:(a, b)) -> c:
+    f(fst(p), snd(p))
+def make_pair(x:a, y:b) -> (a, b):
+    (x, y)
+def add(a:Int, b:Int) -> Int:
+    a + b
+def join(a:String, b:String) -> String:
+    a ++ b
+print(swap((1, 'a')))
+print(swap((true, 2)))
+print(fst(swap(('x', 9))))
+print(uncurry(add, (2, 3)))
+print(uncurry(join, ('ab', 'cd')))
+print(uncurry(make_pair, (1, true)))
+swapping: ((a, b)) -> (b, a) = swap
+pairing: (a, b) -> (a, b) = make_pair

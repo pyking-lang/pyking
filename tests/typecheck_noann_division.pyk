@@ -1,0 +1,37 @@
+# Division, with every annotation taken off.
+#
+# The twin of tests/typecheck_division.pyk: the same program, with no parameter
+# type, no return type and no signature line anywhere in it. Its `.out`
+# is that file's `.out`, unchanged -- an annotation says what a program
+# means to a reader and to the checker, never what it does.
+#
+# What this file is really for is its `.ast.out`, which holds the types
+# the checker worked out with nothing to go on but the calls. Read the
+# two side by side: where they differ, inference found something more
+# general than the annotation claimed.
+
+def half(n):
+    return n / 2
+
+
+def average(a, b):
+    return (a + b) / 2
+
+
+# Both operands positive.
+print(7 / 2, 6 / 3, 1 / 2, 0 / 5)
+
+# One operand negative, either way round: the quotient is negative and
+# truncates toward zero, so it is never more negative than the exact
+# answer.
+print((0 - 7) / 2, 7 / (0 - 2))
+print((0 - 6) / 3, 6 / (0 - 3))
+
+# Both negative: the quotient is positive again.
+print((0 - 7) / (0 - 2))
+
+# `/` binds as tightly as `*`, and both bind tighter than `+`.
+print(1 + 6 / 2, (1 + 6) / 2, 2 * 6 / 4, 6 / 2 * 3)
+
+print(half(9), half(0 - 9))
+print(average(3, 4), average(0 - 3, 0 - 4))

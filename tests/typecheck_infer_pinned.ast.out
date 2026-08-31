@@ -1,0 +1,38 @@
+def added(n:Int) -> Int:
+    n + 1
+def held(n:a) -> a:
+    n
+def shown(v:Int) -> String:
+    str(v)
+def kept(v:a) -> a:
+    v
+def chosen(c:Bool, x:a) -> a:
+    if c then x else x
+def paired(c:a, x:b) -> (a, b):
+    (c, x)
+def head(xs:[Int]) -> Int:
+    match xs:
+        case [first, .._]:
+            first
+        case []:
+            0
+def whole(xs:a) -> a:
+    xs
+def wanted(n:Int) -> Int:
+    n * 3
+def forwards(n:Int) -> Int:
+    wanted(n)
+print(added(1), held('anything'))
+print(shown(7), kept(true))
+print(chosen(true, 'yes'), paired(false, 9))
+print(head([5, 6]), whole(['a']))
+print(forwards(4))
+a1: (Int) -> Int = added
+a2: (a) -> a = held
+b1: (Int) -> String = shown
+b2: (a) -> a = kept
+c1: (Bool, a) -> a = chosen
+c2: (a, b) -> (a, b) = paired
+d1: ([Int]) -> Int = head
+d2: (a) -> a = whole
+e1: (Int) -> Int = forwards

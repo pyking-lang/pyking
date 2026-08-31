@@ -1,0 +1,46 @@
+# First-class polymorphism, which is written down rather than inferred.
+#
+# `use` hands its parameter an Int and then a Bool, so `f` has to be a
+# function that works at *any* type -- a rank-2 type, with the `all` on
+# the parameter rather than on `use` itself. Inference will not invent
+# one (see fail_typecheck_hm_rank2.pyk, which is this body with the
+# signature taken off); a signature line says it, and the checker then
+# enforces it exactly as it enforces any other written type.
+#
+# That split is deliberate. Inference has Hindley-Milner's reach and
+# Hindley-Milner's guarantee -- it always answers with the principal
+# type -- and rank-2 inference has neither. Annotation is where the
+# stronger type comes from.
+#
+# `extract` is the harder direction: it *supplies* a polymorphic
+# function rather than consuming one, so `packed` must be a parameter
+# that takes one, and what `extract` gives back follows whatever it
+# gives back.
+
+def identity(x): x
+
+def use : (all a. (a) -> a) -> ()
+def use(f):
+    print(f(1), f(true))
+
+def describe : (all a. (a) -> a) -> ()
+def describe(f):
+    print(f('x'), f(2))
+
+def extract : ((all a. (a) -> a) -> b) -> b
+def extract(packed):
+    packed(identity)
+
+def pack_int : ((all a. (a) -> a)) -> Int
+def pack_int(k):
+    k(41)
+
+def pack_string : ((all a. (a) -> a)) -> String
+def pack_string(k):
+    k('hello')
+
+use(identity)
+describe(identity)
+print(extract(pack_int), extract(pack_string))
+
+same = identity

@@ -1,0 +1,27 @@
+def countdown(n:Int) -> Int:
+    if n < 1:
+        0
+    else:
+        countdown(n - 1) + 1
+def sum_to(n:Int) -> Int:
+    if n < 1:
+        0
+    else:
+        n + sum_to(n - 1)
+def depth(lst:[a]) -> Int:
+    match lst:
+        case [x, ..xs]:
+            1 + depth(xs)
+        case []:
+            0
+def spell(n:Int) -> String:
+    loop n: Int = n:
+        if n == 0:
+            break 'zero'
+        else:
+            continue n - 1
+print(countdown(3))
+print(sum_to(4))
+print(depth([1, 2, 3]))
+print(depth(['a', 'b']))
+print(spell(3))

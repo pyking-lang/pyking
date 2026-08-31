@@ -733,7 +733,9 @@ def submit(session, stmts, report, source=""):
             store=store,
             sources={**session.sources, **defined_sources(stmt, source)},
         )
-        show(interpreter.result(after), supplied)
+        show(interpreter.result(after),
+             None if supplied is None else typesystem.displayed(
+                 typesystem.zonk(supplied, store), store))
     return session, None
 
 
@@ -813,11 +815,15 @@ def type_suffix(type_):
 
 
 def binding_types(session):
-    """name -> Type for what the session has bound, resolved against
-    its store (so a deferred function shows what it turned out to be).
+    """name -> Type for what the session has bound, read back against
+    its store (so a deferred function shows what it turned out to be,
+    and a type still being worked out shows what has been settled).
     Session -> {String: Type}"""
     return {
-        name: typesystem.resolved(type_, session.store)
+        name: typesystem.displayed(
+            typesystem.zonk(typesystem.settled_type(type_, session.store),
+                            session.store),
+            session.store)
         for name, type_ in session.types.items()
         if not isinstance(type_, TBuiltin)
     }
@@ -874,7 +880,9 @@ def meta_type(session, argument, report):
         checked, store = typesystem.check_expr(
             stmts[0].expr, session.types, {}, session.store
         )
-        print(pprint_type(typesystem.resolved(checked, store)))
+        print(pprint_type(typesystem.displayed(
+            typesystem.zonk(typesystem.settled_type(checked, store), store),
+            store)))
     except (AnalysisError, typesystem.TypeError_) as e:
         report(e)
     return session

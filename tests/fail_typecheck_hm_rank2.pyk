@@ -1,0 +1,25 @@
+# A parameter used at two types, which inference will not invent.
+#
+# `f` is a *parameter*, and a parameter has a type rather than a scheme
+# -- that is Hindley-Milner's line, and this checker holds it. Using
+# `f` at Int and then at Bool asks for `f` to be polymorphic, which is a
+# rank-2 type, and nothing infers one: the second use is checked against
+# what the first settled.
+#
+# The program is not wrong, and it is not beyond the checker either --
+# it is beyond *inference*. Writing the type down makes it check, which
+# is what tests/typecheck_hm_annotated_rank2.pyk does with this same
+# body. Inference and annotation deliberately do not have the same
+# reach here: inferring rank-2 types is undecidable in general, and
+# guessing at them is what made this checker's answers depend on the
+# order its calls were written in.
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+def identity(x): x
+
+def use(f):
+    print(f(1), f(true))
+
+use(identity)

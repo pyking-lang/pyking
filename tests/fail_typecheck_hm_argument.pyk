@@ -1,0 +1,19 @@
+# An inferred type is enforced exactly as a written one is.
+#
+# `pair_up`'s body never asks what its arguments are, so it is inferred
+# `(a, b) -> (a, b)` and serves any two types. `strict` is different:
+# `n + 1` asks, so its parameter is Int and nothing else, and the call
+# below is refused in the wording any argument mismatch gets.
+#
+# The point of pairing the two is that inference is not a way of getting
+# out of type checking. What it works out, it then holds a program to.
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+def pair_up(x, y): (x, y)
+
+def strict(n): n + 1
+
+print(pair_up(1, 'a'), pair_up(true, 2))
+print(strict('not an Int'))

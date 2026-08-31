@@ -1,0 +1,30 @@
+# `map`, and the type it has whatever it is first called with.
+#
+# The body takes a list apart and puts one together, and hands each
+# element to `f`. So the element going in and `f`'s parameter are one
+# type, `f`'s result and the element coming out are another, and nothing
+# ties the two -- `((a) -> b, [a]) -> [b]`.
+#
+# The order of the calls below is the point. `identity` is polymorphic
+# and `double` is not; a checker that took `map`'s parameter types from
+# whichever call it saw first would answer differently depending on
+# which line came first. This one does not.
+
+def identity(x): x
+
+def double(n): n * 2
+
+def show(n): 'n=' ++ str(n)
+
+def map(f, lst):
+    match lst:
+        case [x] ++ xs: [f(x)] ++ map(f, xs)
+        case []: []
+
+print(identity(4), identity('hi'))
+print(map(identity, [1, 2, 3]))
+print(map(double, [1, 4, 1]))
+print(map(show, [5, 6]))
+print(map(identity, ['a', 'b']))
+
+mapping = map

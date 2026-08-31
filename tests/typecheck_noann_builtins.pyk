@@ -1,0 +1,45 @@
+# Builtins, with every annotation taken off.
+#
+# The twin of tests/typecheck_builtins.pyk: the same program, with no parameter
+# type, no return type and no signature line anywhere in it. Its `.out`
+# is that file's `.out`, unchanged -- an annotation says what a program
+# means to a reader and to the checker, never what it does.
+#
+# What this file is really for is its `.ast.out`, which holds the types
+# the checker worked out with nothing to go on but the calls. Read the
+# two side by side: where they differ, inference found something more
+# general than the annotation claimed.
+
+print("plain")
+print(1, "two", true)
+print()
+
+# `str` turns a scalar into a String; `len` measures a String or a list;
+# `range` builds a list of Int.
+digits = str(42)
+label = "n = " ++ str(7)
+size = len("hello")
+numbers = range(4)
+counted = len(range(4))
+
+# The results are ordinary values of ordinary types, so they compose with
+# everything else the checker knows.
+total = size + counted
+same = str(1) == "1"
+long_enough = len("abc") > 2
+
+# A builtin call is an argument like any other.
+print(str(size), len("xyz"), range(2))
+
+# And the values a program computes for itself print just as well.
+def describe(n):
+    "value " ++ str(n)
+
+print(describe(total), describe(counted))
+
+# A function returning unit prints as `()`, which is the formatting rule
+# `runtime_interface.py` pins down for every backend.
+def nothing(n):
+    ignored = n
+
+print(nothing(1))

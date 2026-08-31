@@ -1255,9 +1255,12 @@ def _step_stmt(state, stmt):
             if expr is None:
                 # A bare `break` is `break ()`: it leaves without saying
                 # what the loop is worth. A bare `continue` goes round
-                # with the accumulator this turn started with, unchanged.
+                # with the accumulator this turn started with, unchanged
+                # -- through `_begin` like every other way round, since
+                # what comes next may be the end of a `for`'s list
+                # rather than another turn.
                 return (_leave(state, loop, UNIT) if leaving
-                        else _turn(state, loop))
+                        else _begin(state, loop))
             return _go(state, control=CEval(expr), kont=KExit(loop, leaving))
 
         case SReturn(info, expr, _):

@@ -1,0 +1,14 @@
+# A list that would have to hold itself.
+#
+# `[x] ++ x` says `x` is a list of `x`s -- a type with no finite
+# spelling, and the same refusal `f(f)` gets, reached through a
+# constructor rather than an application. Unification notices before
+# building it: a variable may not be solved to a type that mentions it.
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+def swallow(x):
+    [x] ++ x
+
+print(swallow([1]))

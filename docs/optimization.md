@@ -81,13 +81,34 @@ The value is never *read*: the state it belongs to has no such
 parameter. All that is asked of it is that the slot can hold it, which
 is exactly what a type is. So the pass writes a zero of the slot's
 type — `0`, `''`, `false`, `()`, `[]`, a tuple of those — and where the
-type has none (a function, or an alternative), declines the group.
+type has none (a function, or a type variable), declines the group.
 
 **A group has to agree about its slots.** Merging `ping(n: Int)` with
 `pong(mark: String)` would give the shared slot two types, and only the
 checker knows that. Reading it from the `tmap` is the difference between
 declining such a group and emitting one the checker then refuses, with
 an error about an accumulator nobody wrote.
+
+**A group has to be in one scope.** The merged worker stands where the
+*first* member did, so anything the block binds between the members is
+bound later than the worker — and a member whose body reads such a name
+would find it unbound at run time. `_same_scope` declines those, and
+the members' self-calls are still rewritten. The shape is a group with
+a statement written between its `def`s:
+
+```pyking
+def even(k): if k < 1 then n else odd(k - 1)
+step = 1
+def odd(k): even(k - step + 1)          # reads `step`, so no merge
+```
+
+The test is `_mentions`-blunt on purpose — it asks whether the name
+appears at all — because being over-careful costs a merge that would
+have been safe, and being wrong costs a program that captures the wrong
+thing. `tests/lexical_capture_group.pyk` is the case, and it went
+unnoticed while the old inference gave `odd` no type at all: with no
+type in the `tmap` the group was declined for the *slot* reason above,
+and the scope bug was never reached.
 
 ### Why one check is enough
 

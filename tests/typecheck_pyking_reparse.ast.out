@@ -1,5 +1,5 @@
-empty = []
-bare = []
+empty: [Int] = []
+bare: [a] = []
 print(empty, bare, len(empty))
 def keep(xs:[Int]) -> [Int]:
     return xs
@@ -38,8 +38,8 @@ def evens(xs:[Int], acc:[Int]) -> [Int]:
 def odds(xs:[Int], acc:[Int]) -> [Int]:
     tail_group4(1, xs, acc)
 print(evens([1, 2, 3, 4, 5], []))
-def counted(xs, acc):
-    loop (xs, acc): ([Int] | [String], Int) = (xs, acc):
+def counted(xs:[a], acc:Int) -> Int:
+    loop (xs, acc): ([a], Int) = (xs, acc):
         match xs:
             case []:
                 break acc

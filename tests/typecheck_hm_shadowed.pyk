@@ -1,0 +1,31 @@
+# One definition, many instances, and the empty list among them.
+#
+# Every use of a scheme gets its own instance, so the four calls to
+# `singleton` below are four separate instantiations and nothing ties
+# them together. That is what "one definition serves every caller"
+# means, and it is why `head`'s fallback -- an argument nothing decides
+# -- does not fix what `head` is for anyone else.
+#
+# `head([], 0)` is the interesting one: the empty list says nothing
+# about its element, so the *other* argument decides it, and the call
+# after it is unaffected.
+
+def singleton(x): [x]
+
+def head(lst, fallback):
+    match lst:
+        case [x] ++ _: x
+        case []: fallback
+
+print(singleton(1))
+print(singleton('a'))
+print(singleton(true))
+print(singleton(singleton(2)))
+print(head([1, 2], 0))
+print(head([], 0))
+print(head(['a'], 'z'))
+print(head([], true))
+print(head(singleton((1, 'x')), (0, 'y')))
+
+one = singleton
+first = head

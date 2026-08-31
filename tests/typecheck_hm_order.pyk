@@ -1,0 +1,35 @@
+# What a definition is worth does not depend on the order its callers
+# are written in.
+#
+# This is the property the whole design turns on, and the one the old
+# call-based inference could not keep: a definition read its parameter
+# types off whichever call reached it first, so moving a line changed
+# the answer. Now the *body* decides, and a call is checked against
+# that.
+#
+# `first_shape` and `second_shape` are the same function with their two
+# callers in opposite orders. Their printed types are identical, which
+# is the whole test.
+
+def id(x): x
+
+def first_shape(f, lst):
+    match lst:
+        case [x] ++ xs: [f(x)] ++ first_shape(f, xs)
+        case []: []
+
+def second_shape(f, lst):
+    match lst:
+        case [x] ++ xs: [f(x)] ++ second_shape(f, xs)
+        case []: []
+
+def double(n): n * 2
+
+# `first_shape` meets the polymorphic one first, `second_shape` last.
+print(first_shape(id, [1, 2]))
+print(first_shape(double, [3, 4]))
+print(second_shape(double, [3, 4]))
+print(second_shape(id, [1, 2]))
+
+first_type = first_shape
+second_type = second_shape

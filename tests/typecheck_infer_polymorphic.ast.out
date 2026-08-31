@@ -1,0 +1,16 @@
+def map(f:(a) -> b, lst:[a]) -> [b]:
+    match lst:
+        case [x, ..xs]:
+            [f(x)] ++ map(f, xs)
+        case []:
+            []
+def double(n:Int) -> Int:
+    n * 2
+def label(n:Int) -> String:
+    'n=' ++ str(n)
+numbers: [Int] = [1, 4, 6, 9]
+print(map(double, numbers))
+print(map(label, numbers))
+print(map(double, [10, 20]))
+mapping: ((a) -> b, [a]) -> [b] = map
+doubling: (Int) -> Int = double

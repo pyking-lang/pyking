@@ -1,0 +1,29 @@
+def tail_group1(state:Int, n:Int) -> Bool:
+    loop (state, n): (Int, Int) = (state, n):
+        if state == 0:
+            if n == 0:
+                break true
+            else:
+                continue (1, n - 1)
+        else if n == 0:
+            break false
+        else:
+            continue (0, n - 1)
+def walk_even(n:Int) -> Bool:
+    tail_group1(0, n)
+def walk_odd(n:Int) -> Bool:
+    tail_group1(1, n)
+def take(lst:[a], n:Int) -> [a]:
+    if n == 0:
+        []
+    else:
+        match lst:
+            case [x, ..xs]:
+                [x] ++ drop_one(xs, n)
+            case []:
+                []
+def drop_one(lst:[a], n:Int) -> [a]:
+    take(lst, n - 1)
+print(walk_even(4), walk_odd(4))
+print(take([1, 2, 3, 4], 2))
+print(take(['a', 'b', 'c'], 2))

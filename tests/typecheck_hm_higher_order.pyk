@@ -1,0 +1,28 @@
+# A function whose parameter is a function, worked out from the body.
+#
+# `foo`'s body compares `x` with 10, calls itself, and finally hands
+# `a` and `x` to `f`. That is all a checker needs: `x` is Int because
+# `<` says so, `f` takes an `a` and an Int because that is what it is
+# handed, and what `foo` gives back is whatever `f` gives back. Nothing
+# about `a` or about `f`'s result is ever asked, so both are variables.
+#
+# The two calls below pass the *same* `m`, which is itself polymorphic,
+# at two different types for `a`. A checker that read `f`'s type off the
+# first call would have baked `m`'s own shape into `foo` and refused the
+# second.
+
+def foo(f, a, x):
+    if x < 10:
+        foo(f, a, x + 1)
+    else:
+        f(a, x)
+
+def m(x, i): (x, i, x)
+
+def keep(x, i): x
+
+print(foo(m, 7, 0))
+print(foo(m, 'hi', 0))
+print(foo(keep, true, 3))
+
+looping = foo

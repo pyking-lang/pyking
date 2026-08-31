@@ -1,0 +1,11 @@
+def identity(x:a) -> a:
+    x
+def pair_up(n:a, word:b) -> (a, b, Bool):
+    (identity(n), identity(word), identity(true))
+def both_ways(n:a) -> (a, String):
+    first: a = identity(n)
+    second: String = identity('fixed')
+    (first, second)
+print(pair_up(1, 'one'))
+print(both_ways(9))
+print(both_ways('nine'))

@@ -1,0 +1,47 @@
+def map(f:(a) -> b, xs:[a]) -> [b]:
+    match xs:
+        case []:
+            return []
+        case [head, ..rest]:
+            return [f(head)] ++ map(f, rest)
+def fold_left(step:(a, b) -> a, start:a, xs:[b]) -> a:
+    loop (step, start, xs): ((a, b) -> a, a, [b]) = (step, start, xs):
+        match xs:
+            case []:
+                break start
+            case [head, ..rest]:
+                continue (step, step(start, head), rest)
+def filter(keep:(a) -> Bool, xs:[a]) -> [a]:
+    match xs:
+        case []:
+            return []
+        case [head, ..rest]:
+            rest_kept: [a] = filter(keep, rest)
+            if keep(head):
+                return [head] ++ rest_kept
+            else:
+                return rest_kept
+def double(n:Int) -> Int:
+    return n * 2
+def show(n:Int) -> String:
+    return str(n)
+def add(total:Int, n:Int) -> Int:
+    return total + n
+def bigger(best:Int, n:Int) -> Int:
+    return if n > best then n else best
+def join(text:String, piece:String) -> String:
+    return text ++ piece
+def positive(n:Int) -> Bool:
+    return n > 0
+numbers: [Int] = [1, 4, 2, 5]
+print(map(double, numbers))
+print(map(show, numbers))
+print(fold_left(add, 0, numbers))
+print(fold_left(bigger, 0, numbers))
+print(fold_left(join, '', map(show, numbers)))
+print(fold_left(add, 0, filter(positive, map(double, [0 - 1, 3, 0 - 2, 4]))))
+print(map(show, filter(positive, numbers)))
+def take_first(total:Int, pair:(Int, a)) -> Int:
+    (n, s): (Int, a) = pair
+    return total + n
+print(fold_left(take_first, 0, [(1, 'a'), (2, 'b'), (3, 'c')]))

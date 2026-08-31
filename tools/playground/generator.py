@@ -30,6 +30,7 @@ or HTML) -- see the section comments below for which is which.
 
 import argparse
 import functools
+import hashlib
 import http.server
 import json
 import re
@@ -532,8 +533,7 @@ self.onmessage = async (event) => {
   try {
     switch (message.type) {
       case "init":
-        await boot(message);
-        reply(message.id, true);
+        reply(message.id, await boot(message));
         break;
       case "compile":
         // A JSON string, not a PyProxy: it crosses postMessage as-is.
@@ -580,6 +580,9 @@ async function boot({ pyodideIndexURL, pykingURL }) {
   pyodide.runPython(`import sys; sys.path.insert(0, "/pyking")`);
   api = pyodide.pyimport("pyking_web");
   status("ready");
+  // Which compiler this worker is running, so the page can tell when the
+  // one on disk has moved on (PykingRuntime, `_checkStamp`).
+  return { stamp: manifest.stamp ?? null };
 }
 
 async function fetchJSON(url) {
@@ -692,6 +695,9 @@ export class PykingRuntime {
     this.onStatus = () => {};
     this._starting = null;
     this._ready = false;
+    // Which compiler the worker booted from, so a rebuild under an open
+    // tab is noticed rather than silently disagreed with (`_checkStamp`).
+    this.stamp = null;
   }
 
   get isReady() { return this._ready; }
@@ -708,10 +714,11 @@ export class PykingRuntime {
 
   async _boot() {
     this._spawn();
-    await this._send("init", {
+    const booted = await this._send("init", {
       pyodideIndexURL: this.pyodideIndexURL,
       pykingURL: this.pykingURL,
     });
+    this.stamp = booted?.stamp ?? null;
     this._ready = true;
     this._starting = null;
     return this;
@@ -754,7 +761,53 @@ export class PykingRuntime {
    *  refused here whatever target was asked for -- there is no flag. */
   async compile(source, target, name = "playground.pyk") {
     this._require();
+    await this._checkStamp();
     return this._send("compile", { source, target, name });
+  }
+
+  /** Reboot the worker if the compiler on disk is no longer the one it
+   *  loaded.
+   *
+   *  The compiler is fetched once, at boot, and lives in the worker's own
+   *  filesystem from then on -- so a tab left open across a rebuild goes
+   *  on compiling with the compiler it started with. That is invisible:
+   *  the page still answers, and its answer is merely the *previous*
+   *  front end's, which is the one kind of wrong output nobody thinks to
+   *  doubt. So the manifest carries a stamp of the modules it lists, and
+   *  it is re-read here rather than trusted.
+   *
+   *  Anything that goes wrong is ignored: a deployed build whose manifest
+   *  cannot be re-read is not a reason to refuse to compile. */
+  async _checkStamp() {
+    if (this.stamp === null) return;   // nothing was stamped to compare
+    let stamp = null;
+    try {
+      const response = await fetch(this.pykingURL + "manifest.json",
+                                   { cache: "no-store" });
+      if (!response.ok) return;
+      ({ stamp = null } = await response.json());
+    } catch {
+      return;
+    }
+    if (stamp === null || stamp === this.stamp) return;
+    this.onStatus("the compiler changed on disk — reloading it");
+    await this._reload();
+  }
+
+  /** Throw away the worker and boot a fresh one, which re-fetches the
+   *  compiler. Unlike `stop()` this is not an interruption: it waits for
+   *  the replacement to be ready, so whatever asked for it can carry on. */
+  async _reload() {
+    if (this.worker) this.worker.terminate();
+    this.worker = null;
+    this._ready = false;
+    this._starting = null;
+    for (const { reject } of this.pending.values()) {
+      reject(new Error("the compiler was reloaded"));
+    }
+    this.pending.clear();
+    this.onOutput = null;
+    await this.ready(this.onStatus);
   }
 
   /** Execute generated Python. `onOutput` is called with each line as it is
@@ -2180,6 +2233,43 @@ def vendor(cdn=False):
     print(f"vendor: {total / 1048576:.1f} MB cached in {VENDOR.relative_to(HERE)}/")
 
 
+def write_compiler():
+    """Copies src/ into build/pyking/ and writes the manifest listing what
+    is there. Answers the names it had to write, so `serve` can say which
+    modules had gone stale under it; `build` writes them all.
+
+    The manifest carries a *stamp*: a hash of exactly the text that was
+    written. The page reads it back before every compile, which is what
+    stops a tab booted from an earlier build quietly disagreeing with
+    `pyk` (see PYKING_RUNTIME_JS, `_checkStamp`). () -> [String]"""
+    modules = compiler_modules()
+    # UTF-8 named rather than left to the locale: a Python source file is
+    # UTF-8 by definition, and these are copied byte for byte.
+    sources = {name: (SRC_DIR / name).read_text(encoding="utf-8")
+               for name in modules}
+    sources["pyking_web.py"] = PYKING_WEB_PY
+
+    # Made rather than assumed: `build` has just created it, and `serve`
+    # may be looking at a build/ that lost it.
+    (BUILD / "pyking").mkdir(parents=True, exist_ok=True)
+    written = []
+    for name, text in sources.items():
+        path = BUILD / "pyking" / name
+        if not path.exists() or path.read_text(encoding="utf-8") != text:
+            path.write_text(text, encoding="utf-8")
+            written.append(name)
+
+    digest = hashlib.sha256()
+    for name, text in sources.items():
+        digest.update(name.encode() + b"\0" + text.encode() + b"\0")
+    (BUILD / "pyking" / "manifest.json").write_text(json.dumps(
+        {"modules": list(sources),
+         "stamp": digest.hexdigest()[:16],
+         "note": "copied from src/ by tools/playground/generator.py"},
+        indent=2) + "\n")
+    return written
+
+
 def build(cdn=False):
     """Generates build/ from scratch. Bool -> ()"""
     if BUILD.exists():
@@ -2190,14 +2280,7 @@ def build(cdn=False):
     assets.mkdir(parents=True)
 
     # 1. the compiler, verbatim, plus the browser entry point
-    modules = compiler_modules()
-    for name in modules:
-        shutil.copy2(SRC_DIR / name, BUILD / "pyking" / name)
-    (BUILD / "pyking" / "pyking_web.py").write_text(PYKING_WEB_PY)
-    (BUILD / "pyking" / "manifest.json").write_text(json.dumps(
-        {"modules": modules + ["pyking_web.py"],
-         "note": "copied from src/ by tools/playground/generator.py"},
-        indent=2) + "\n")
+    write_compiler()
 
     # 2. the examples, and what each one is known to compile to
     targets = target_order()
@@ -2339,6 +2422,20 @@ def serve(port):
     Int -> ()"""
     if not (BUILD / "index.html").exists():
         raise SystemExit("serve: nothing built yet -- run `make build` first.")
+
+    # build/pyking/ is a *copy* of src/, so editing the compiler and then
+    # serving an existing build would show the page one compiler while
+    # `pyk` runs another -- the one difference nobody would think to
+    # doubt, since both claim to be the front end's own output. The copy
+    # is fifteen small files, so it is refreshed here rather than being
+    # left to a rebuild that also re-fetches 12 MB of vendored assets.
+    # Nothing else in build/ is touched; a change to the page, the
+    # examples or the Ace mode still needs `make build`.
+    refreshed = write_compiler()
+    if refreshed:
+        print(f"serve: refreshed {len(refreshed)} compiler "
+              f"module{'' if len(refreshed) == 1 else 's'} from src/ "
+              f"({', '.join(sorted(refreshed))})")
 
     port = first_free_port(port)
     handler = functools.partial(QuietHandler, directory=str(BUILD))

@@ -1,0 +1,60 @@
+def factorial(n:Int) -> Int:
+    if n < 2:
+        1
+    else:
+        n * factorial(n - 1)
+def spell(n:Int) -> String:
+    if n < 1:
+        ''
+    else:
+        'x' ++ spell(n - 1)
+def tail_group3(state:Int, n:Int) -> Bool:
+    loop (state, n): (Int, Int) = (state, n):
+        if state == 0:
+            if n == 0:
+                break true
+            else:
+                continue (1, n - 1)
+        else if n == 0:
+            break false
+        else:
+            continue (0, n - 1)
+def is_even(n:Int) -> Bool:
+    tail_group3(0, n)
+def is_odd(n:Int) -> Bool:
+    tail_group3(1, n)
+def describe(n:Int) -> String:
+    label(n) ++ '!'
+def label(n:Int) -> String:
+    if n < 0:
+        'negative'
+    else:
+        'positive'
+def parity(limit:Int) -> String:
+    def tail_group1(state:Int, m:Int) -> Bool:
+        loop (state, m): (Int, Int) = (state, m):
+            if state == 0:
+                if m == 0:
+                    break true
+                else:
+                    continue (1, m - 1)
+            else if m == 0:
+                break false
+            else:
+                continue (0, m - 1)
+    def even(m:Int) -> Bool:
+        tail_group1(0, m)
+    def odd(m:Int) -> Bool:
+        tail_group1(1, m)
+    if even(limit):
+        'even'
+    else:
+        'odd'
+alias = factorial
+paired = is_even
+six: Int = factorial(3)
+word: String = spell(3)
+flag: Bool = is_even(4)
+told: String = describe(1)
+kind: String = parity(6)
+print(six, word, flag, told, kind)

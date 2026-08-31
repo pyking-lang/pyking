@@ -1,17 +1,19 @@
-# The alternatives of an inferred function type are not a licence to mix
-# them.
+# A definition is worked out once, and what its body demanded sticks.
 #
-# `combine` below has been used with two Ints and with two Strings, so
-# its type is `((Int, Int) -> Int) | ((String, String) -> String)`. A
-# call that takes one parameter from one alternative and one from the
-# other is not covered by either, and the checker says so where the
-# mismatch actually is -- inside the body, on the `==` that cannot
-# compare a String with an Int.
+# `combine` compares its two parameters with `==`, which asks what they
+# are: `==` relates two Ints, two Strings or two Bools, and nothing in
+# Pyking's syntax says "whichever of those it was given". So the first
+# call pins both parameters to Int, and that is what `combine` means
+# from then on.
 #
-# This is the point of keeping each call's parameters and result
-# together: a type that had merged them into
-# `(Int | String, Int | String) -> Int | String` would have claimed this
-# call was fine.
+# The second call is therefore refused, in the same words any other
+# argument mismatch gets -- there is no separate vocabulary for a type
+# that was inferred rather than written.
+#
+# The limit is deliberate rather than accidental: a body that never asks
+# what its parameter is gets a type variable instead (see
+# typecheck_infer_reuse.pyk), and closing this gap properly needs a way
+# to say "any type that `==` accepts", which Pyking does not have yet.
 #
 # This program is expected to FAIL type checking. Its `.ast.out` holds
 # the error message, not a program's output.
@@ -20,4 +22,3 @@ def combine(x, y): if x == y then x else y
 
 print(combine(1, 3))
 print(combine('hi', 'now'))
-print(combine(12, 'hi'))

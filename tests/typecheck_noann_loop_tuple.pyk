@@ -1,0 +1,34 @@
+# Loop tuple, with every annotation taken off.
+#
+# The twin of tests/typecheck_loop_tuple.pyk: the same program, with no parameter
+# type, no return type and no signature line anywhere in it. Its `.out`
+# is that file's `.out`, unchanged -- an annotation says what a program
+# means to a reader and to the checker, never what it does.
+#
+# What this file is really for is its `.ast.out`, which holds the types
+# the checker worked out with nothing to go on but the calls. Read the
+# two side by side: where they differ, inference found something more
+# general than the annotation claimed.
+
+foo, bar = loop x, y = 0, true:
+    if x <= 10:
+        continue x + 1, y
+    else:
+        break x + 100, false
+
+print(foo, bar)
+
+
+# A running sum and a count, carried together and printed as the tuple
+# they are.
+def summed(limit):
+    loop acc = 0, 1:
+        (total, k) = acc
+        if k > limit:
+            break total, k
+        else:
+            continue total + k, k + 1
+
+
+print(summed(10))
+print(summed(0))

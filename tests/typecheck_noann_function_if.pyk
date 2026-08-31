@@ -1,0 +1,70 @@
+# Function if, with every annotation taken off.
+#
+# The twin of tests/typecheck_function_if.pyk: the same program, with no parameter
+# type, no return type and no signature line anywhere in it. Its `.out`
+# is that file's `.out`, unchanged -- an annotation says what a program
+# means to a reader and to the checker, never what it does.
+#
+# What this file is really for is its `.ast.out`, which holds the types
+# the checker worked out with nothing to go on but the calls. Read the
+# two side by side: where they differ, inference found something more
+# general than the annotation claimed.
+
+def sign(n):
+    if n < 1:
+        return 'small'
+    else if n == 1:
+        return 'one'
+    else:
+        return 'large'
+
+def clamp(n, hi):
+    if n > hi:
+        return hi
+    else:
+        return n
+
+# Statements before the return are ordinary statements; it is the last
+# one that has to return.
+def area(width, height):
+    scaled = width * height
+    return scaled
+
+# A value-form `if` inside a body: `chosen` gets what the branch that
+# runs yields, and the `return` then checks that against the annotation.
+def pick(keep):
+    chosen = if keep:
+        11
+    else:
+        22
+    return chosen
+
+# `return if ...` -- the same value form, returned directly rather than
+# bound first (see PYKING.md, "return of an if").
+def pick_directly(keep):
+    return if keep:
+        'kept'
+    else:
+        'dropped'
+
+# An `if` that yields nothing is an ordinary statement inside a body,
+# and the return after it is what makes the body return.
+def describe(n):
+    if n > 0:
+        positive = true
+    return 'described'
+
+# The parameters of one function are not visible in another, so `n`
+# below is `sign`'s parameter and nothing else -- and the calls compose
+# as any other expression does.
+kind = sign(4)
+bounded = clamp(99, 10)
+size = area(3, 4)
+chosen = pick(true)
+said = pick_directly(false)
+described = describe(size)
+both = kind ++ said
+
+
+print(kind, bounded, size, chosen)
+print(said, described, both)

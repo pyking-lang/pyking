@@ -1,4 +1,4 @@
-def apply_twice(f, x):
+def apply_twice(f:(a) -> a, x:a) -> a:
     f(f(x))
 def add_one(n:Int) -> Int:
     n + 1
@@ -9,4 +9,4 @@ print(apply_twice(repeat, 'ab'))
 def apply_once(f:(Int) -> Int, x:Int) -> Int:
     f(x)
 print(apply_once(add_one, 10))
-applied: (((Int) -> Int, Int) -> Int) | (((String) -> String, String) -> String) = apply_twice
+applied: ((a) -> a, a) -> a = apply_twice

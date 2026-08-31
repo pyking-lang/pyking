@@ -1,0 +1,59 @@
+# Var scope, with every annotation taken off.
+#
+# The twin of tests/typecheck_var_scope.pyk: the same program, with no parameter
+# type, no return type and no signature line anywhere in it. Its `.out`
+# is that file's `.out`, unchanged -- an annotation says what a program
+# means to a reader and to the checker, never what it does.
+#
+# What this file is really for is its `.ast.out`, which holds the types
+# the checker worked out with nothing to go on but the calls. Read the
+# two side by side: where they differ, inference found something more
+# general than the annotation claimed.
+
+var deepest = 0
+for a in range(3):
+    for b in range(3):
+        if a + b > deepest:
+            deepest := a + b
+
+print(deepest, str(deepest))
+
+
+# A function reading a `var` sees what is written to it afterwards.
+var level = 1
+
+
+def report():
+    return level * 100
+
+
+print(report())
+level := 4
+print(report())
+
+
+# One per turn: `here` is declared inside the body, so each turn starts
+# it at zero rather than carrying the last turn's value.
+sums =
+loop acc = [] for row in [[1, 2], [3, 4, 5]]:
+    var here = 0
+    for cell in row:
+        here := here + cell
+    continue acc ++ [here]
+
+print(sums)
+
+
+# A `var` may shadow an immutable binding of the same name; the two are
+# separate, and the outer one is untouched.
+count = 100
+
+
+def tally(items):
+    var count = 0
+    for item in items:
+        count := count + item
+    return count
+
+
+print(tally([1, 2, 3]), count)

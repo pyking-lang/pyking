@@ -1,0 +1,13 @@
+def id(x:a) -> a:
+    x
+def map(f:(a) -> b, lst:[a]) -> [b]:
+    match lst:
+        case [x, ..xs]:
+            [f(x)] ++ map(f, xs)
+        case []:
+            []
+def show(n:Int) -> String:
+    'n=' ++ str(n)
+print(id(4), id('hi'))
+print(map(id, [1, 2, 3]))
+print(map(show, [4, 5]))

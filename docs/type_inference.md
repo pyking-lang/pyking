@@ -1,539 +1,749 @@
 # Type inference
 
-How Pyking gives a type to a function nobody annotated, why it is done
-this way rather than the usual way, and what it costs. The rules a
-program is judged by are in [../PYKING.md](../PYKING.md), "Type
-checking"; this page is about the mechanism, the decisions behind it, and
-the things it deliberately does not do.
+How Pyking works out the type of a function nobody annotated.
 
-## The idea in one paragraph
+The rules a *program* is judged by are in [../PYKING.md](../PYKING.md),
+"Type checking". How the checker is built as a piece of software is in
+[typesystem.md](typesystem.md). This page is the algorithm: what it
+does, how it compares to Hindley-Milner, and how the code implements it.
 
-A function that wrote its type down is checked where it is written. A
-function that did not is **not checked there at all** — it is put aside
-with `TUnknown` where its type should be, and checked the first time
-something *calls* it, with its parameters taken from that call. There is
-no separate inference pass, no constraint store and no unification: the
-same `check_stmt`/`check_expr` that check an annotated function check an
-unannotated one, in the same way, just later and with the parameter types
-supplied by a call site instead of by the source.
+**Part I** is the design — the idea, worked examples, and the
+comparison. **Part II** is the code — the data structures, the key
+functions, and how they fit together. Part I stands on its own; read
+Part II when you are about to change something.
+
+---
+
+# Part I — The design
+
+## 1. The idea
+
+A `def` that wrote its type down is checked where it stands. A `def`
+that did not is worked out **from its body**, the first time something
+calls it.
+
+```
+                    ┌──────────────────────────────────────┐
+   def double(n):   │  nothing happens here                │
+       n * 2        │  (the definition is put aside)       │
+                    └──────────────────────────────────────┘
+                                     │
+                        first call reaches it
+                                     ▼
+   x = double(21)   ┌──────────────────────────────────────┐
+                    │  1. n := ?1        (a metavariable)  │
+                    │  2. check the body: `*` wants Int,   │
+                    │     so ?1 := Int, and the body is Int│
+                    │  3. nothing left open, so the type   │
+                    │     is (Int) -> Int                  │
+                    │  4. check `double(21)` against it    │
+                    └──────────────────────────────────────┘
+```
+
+The call is a **trigger** and a **scope**. It is not a source of
+parameter types. Step 1 does not look at `21`; it invents a variable and
+lets the body decide. That is the whole design, and everything else
+follows from it.
+
+Because the body decides, the answer is the **principal type**: the most
+general type that body has, the one from which every type it can be used
+at follows. It does not depend on which caller arrived first, or on what
+that caller happened to pass.
+
+## 2. A worked example
 
 ```pyking
-def double(n):        # nothing is checked here
-    n * 2
+def apply(f, x):
+    f(x)
 
-x = double(21)        # here: n is Int, so `n * 2` is Int, so double is (Int) -> Int
+print(apply(id, 3))
 ```
 
-## Why not the usual way
+Step by step, with `?n` for metavariables:
 
-Hindley–Milner-style inference solves a system of constraints and reports
-a failure as a clash between two types that were unified — often far from
-where either was written, and phrased in terms of the solver rather than
-the program. That is the thing this design is trying to avoid. Deferring
-instead of solving keeps every error a statement about *one* place:
+| | what happens | what is known |
+|---|---|---|
+| 1 | `apply`'s parameters and result get fresh variables | `f : ?1`, `x : ?2`, result `?3` |
+| 2 | the body is `f(x)`. Calling `?1` says it is a function of one argument | `?1 := (?4) -> ?5` |
+| 3 | the argument `x : ?2` is unified with the parameter `?4` | `?4 := ?2` |
+| 4 | the call is worth `?5`, and that is what the body supplies | `?3 := ?5` |
+| 5 | nothing solved `?2` or `?5`; generalise both | `apply : all a b. ((a) -> b, a) -> b` |
+| 6 | now check `apply(id, 3)` against that scheme | fresh instance per call |
+
+Nothing in step 2–4 looked at `id` or `3`. They are checked in step 6,
+against a type that was already settled — exactly as a call to a fully
+annotated function is checked.
+
+Step 6 in detail: the scheme is **instantiated** with fresh variables,
+giving `((?6) -> ?7, ?6) -> ?7`. Then `id : all c. (c) -> c`
+instantiates to `(?8) -> ?8`, and unifying it with `(?6) -> ?7` gives
+`?6 := ?8` and `?7 := ?8`. Then `3 : Int` unifies with `?6`, so
+everything collapses to `Int` and the call is worth `Int`. A second
+call, `apply(id, 'hi')`, gets its own instantiation and its own
+variables, and comes out `String`.
+
+## 3. Where the demands come from
+
+The body "decides" the parameters by making **demands**, and every
+demand is unification against a type the construct already knows:
 
 ```
-'scale.pyk' 16:12-16:17 Type error: argument 1 has type String, but Int
-  was expected
+   n * 2            `*` takes two Ints        →  unify(?n, Int)
+   if c: ...        a condition is Bool       →  unify(?c, Bool)
+   for x in xs:     a `for` walks a list      →  unify(?xs, [?e])
+   case [h] ++ t:   this pattern matches a list  →  unify(?s, [?e])
+   f(x)             `f` is a function          →  unify(?f, (?a) -> ?b)
+   n, s = pair      `pair` is a 2-tuple        →  unify(?p, (?a, ?b))
+   return e         every path gives one type  →  unify(?r, typeof(e))
+   if c: a else: b  branches are one type      →  unify(typeof(a), typeof(b))
 ```
 
-That message comes out of the ordinary argument check, at the call, with
-the call's own span — the same message a fully annotated function would
-have produced. Nothing about it needed inference-specific wording, which
-is the point: **inference reuses the checking machinery rather than
-adding a layer above it.**
+Each is written where the construct is checked, and each answers there
+and then. There is no phase that gathers demands and solves them later.
 
-The price is generality. This is not principal-type inference: a function
-is checked once per shape of use rather than once for all uses, there are
-no type variables, and a few programs a real inferencer would accept are
-refused here (see "What this does not do").
+## 4. What is left open becomes a variable
 
-## The pieces
+When the body is done, any metavariable still unsolved is one the body
+never had to decide — which is exactly what a type variable means. They
+are bound by one `all` at the top:
 
-Four additions to `src/typesystem.py` and `src/syntax.py` carry the whole
-scheme.
-
-| | |
-|---|---|
-| **`TUnknown`** | a type nothing has decided yet — an unannotated parameter or return type. Never the final answer for anything the checker finished, and not spellable in source. |
-| **`TFunction.tmsym`** | the symbol of the `def` a function type came from, so what is worked out can be recorded against the *definition* rather than against one of its uses. |
-| **`TFunction.definition`** | the `def` whose body is still to be checked. Its presence is what distinguishes "a function type" from "a function type that is still a promise", and its symbol is `tmsym`. |
-| **`TOr`** | `Int \| String`: a value that is one of several types. Written by hand, and produced by the checker to summarise a function used at more than one type. |
-
-Everything the deferral accumulates lives in one immutable value, the
-**store**, threaded through the pass exactly as the environment is:
-
-```python
-Store(environments, instances, checking, frame)
+```
+   after checking the body:   ((?2) -> ?5, ?2) -> ?5
+   generalise:                all a b. ((a) -> b, a) -> b
 ```
 
-- **`environments`** — `tmsym` → the environment that `def` was
-  *written* in, which is where its body is checked from wherever it is
-  called.
-- **`instances`** — `tmsym` → one `Instance` per shape it has already
-  been checked at: the parameters *as passed* (the cache key), the
-  result, the same call with everything it established filled in (what a
-  reader is shown), and the uses it went through.
-- **`checking`** — the definitions whose bodies are being checked right
-  now, which is how a recursive call is recognised as one.
-- **`frame`** — what the innermost inference is gathering: the instances
-  it has gone through, and what its `return`s have supplied.
-
-A definition is named by `tmsym`, the symbol of its `def` — a value, so
-two types built for one definition at different moments are the same
-function without anything being asked about object identity.
-
-**Nothing in the store is ever written to.** An inference gets it with a
-fresh frame and its own definition marked as being checked; when the
-inference ends, `learned(store, inner)` keeps the two tables — knowledge,
-true whoever asked — and returns to the caller's frame and checking set
-simply by using the caller's store again. That one line replaced a
-`try/finally` restoring two mutable flags, and it is the only place the
-difference between *what was found out* and *what was being done* has to
-be stated.
-
-## What happens at a call
-
-`check_call` does one thing for both kinds of function, which is why
-there is no second code path to keep in step:
-
-1. Check the callee and the arguments, exactly as before.
-2. For each parameter, ask `argument_type` what it is *for this call*:
-   - the `def` wrote an annotation → the argument is checked against it
-     and the annotation wins; a mismatch is the ordinary argument error;
-   - the `def` wrote nothing (`TUnknown`) → the argument's own type is
-     what the parameter is;
-   - both sides are functions → whatever *both* of them know is compared
-     (`check_compatible`), and the argument's type is what the body sees.
-     That is what lets an unannotated function be passed to a function
-     whose parameter type *is* written, and be worked out where it is
-     finally called.
-3. If the callee has no `definition`, the call is finished: its type is
-   the declared result, as it always was.
-4. Otherwise `infer_call` takes over: cache lookup, then check the body
-   in the environment the store recorded for that definition, extended
-   with the parameters, then record what came out.
-
-The environment in step 4 is the reason the deferral does not break
-Pyking's lexical scoping. A body checked at a call site is *not* checked
-in the caller's scope:
+**With one exception**, and it is the only place generalising is
+*unsound* rather than merely imprecise:
 
 ```pyking
-def f(n):
-    n + offset        # error: `offset` is not in scope here ...
-
-offset = 10
-print(f(1))           # ... even though it is in scope here
+def hold(n):
+    def wrap(other): (n, other)     # `other` generalises; `n`'s type does not
+    (wrap(1), wrap('two'))
 ```
 
-## Recursion, and why there are two traces
+`wrap` reads `n`, whose type belongs to `hold` — whoever calls `hold`
+chooses it, so `wrap` may not promise to work for every type of `n`.
+The rule is *do not generalise a variable the enclosing environment
+already holds*, and it gives:
 
-A recursive call is the one call a first pass cannot type: what it
-returns is exactly what the pass is working out. So the checker does not
-try. `infer_call` raises `_Recursive` — a signal, not an error — and the
-trace is abandoned at the first place that can carry on without it:
+```
+   hold : all a. (a) -> ((a, Int), (a, String))
+   wrap : all b. (b) -> (a, b)          for hold's own `a`
+```
 
-- the nearest enclosing **`if`** — the statement (`try_branch`) or the
-  expression (`try_expr`) — whose other branch may well say what the
-  function returns. A branch that was abandoned found out nothing, so it
-  is asked for the store it began with; a branch that finished hands
-  what it found out to its sibling, since only one of them runs but both
-  are checked, and what either worked out about a function is true
-  either way (`tests/typecheck_infer_branch_uses.pyk`);
-- failing that, the **body itself**, if some `return` has already been
-  seen (`trace`);
-- failing that, the signal keeps going outwards, because in a cycle of
-  three functions the branch that rescues it may be two calls away.
+Note `wrap`'s type mentions `a` without binding it. Pyking has no syntax
+for "the type my enclosing function was called at", so `-t pyking`
+prints no annotation for `wrap` rather than a letter that would read as
+more general than the truth.
 
-That first trace ends with a *candidate* result. A second trace then
-checks the whole body again with the function's own name bound to
-`(params) -> candidate`, so the recursive call now has a type and every
-path — the recursive one included — is checked for real. **The second
-trace is the one that counts.**
+## 5. Rank one, and why that is the whole story
+
+A metavariable stands for a **type**, never for a scheme. So an `all`
+can never be solved *into* one, and **inference never produces a
+higher-rank type.**
+
+Every *use* of a polymorphic thing is instantiated with fresh variables
+before it is used:
 
 ```pyking
-def fact(n):
+def map(f, lst): ...
+print(map(id, [1, 2, 3]))
+```
+
+`id : all a. (a) -> a` arrives at `map`'s parameter as one of its
+instances, `(?9) -> ?9`, not as the `all` itself. So `map` comes out
+`((a) -> b, [a]) -> [b]` — the same as if `double` had been passed, and
+the same whichever call came first.
+
+The one exception is a parameter whose type is **written** polymorphic.
+Such a parameter demands the scheme itself rather than one of its
+instances, and the two are made one scheme by unifying under the
+quantifier (§12a) — which is what lets a written `all` mention a
+variable from outside it:
+
+```pyking
+def use : (all a. (a) -> a) -> ()
+def use(f):
+    print(f(1), f(true))            # `f` is polymorphic because it says so
+```
+
+There the argument must be that scheme *whole*, and it is compared as a
+scheme rather than instantiated. Being written down is the entire
+difference:
+
+| | inference | annotation |
+|---|---|---|
+| rank | 1 only | any |
+| guarantee | the principal type, always | what you wrote is what is enforced |
+| decidable | yes | not a question — nothing is guessed |
+
+This line is deliberate. Inferring rank-2 types is undecidable in
+general, and anything that guesses at them gives up the guarantee in the
+middle column, which is the one property the whole design exists to
+provide.
+
+## 6. Recursion
+
+While a body is checked, its own name means the **monotype** its
+parameters were given. So a recursive call is an ordinary call to
+something already in scope, and what it returns is one more variable the
+body goes on to solve:
+
+```pyking
+def countdown(n):
     if n < 1:
-        1                     # trace 1 learns: Int
+        0                          # this branch says the result is Int
     else:
-        n * fact(n - 1)       # trace 1 abandons this branch
-                              # trace 2 checks it, with fact : (Int) -> Int
+        countdown(n - 1) + 1       # `+ 1` says the recursive call gave Int
 ```
 
-Both forms of `if` matter, and only one of them was there at first. A
-recursive function written as a one-liner,
+Both branches must be one type, `<` says `n` is Int, and the answer is
+`(Int) -> Int`. Nothing is guessed, and nothing needs a second pass over
+the body. A function with no base case at all types the same way:
 
 ```pyking
-def fact(n): if n <= 1 then 1 else fact(n - 1) * n
+def forever(n):
+    forever(n + 1) + 1             # (Int) -> Int; it simply never returns
 ```
 
-has its recursion in a branch of an *expression*, and a version that
-could only abandon a trace inside an `if` **statement** could not check
-it at all — the signal escaped the body and came back as "cannot work
-out what 'fact' returns" for a function that plainly returns an Int. The
-two forms ask the same question and now get the same answer.
-
-A function whose *return* type was annotated skips all of this: its own
-name means `(params) -> declared` while its body is checked, so the
-recursive call is an ordinary call and one pass is enough.
-
-When nothing can rescue the signal, it becomes an error naming the
-function and what would fix it:
+Functions that name **each other** are worked out as one group:
 
 ```
-Type error: cannot work out what 'forever' returns: every way through
-  its body calls it again. Annotate its return type, or return a value
-  on some path that does not recurse
+    def even(n): ... odd(n - 1) ...
+    def odd(n):  ... even(n - 1) ...
+
+    ┌─ group ──────────────────────────────────────────┐
+    │  even := (?1) -> ?2      odd := (?3) -> ?4       │  monotypes
+    │  check even's body, then odd's, in that scope    │
+    │  generalise both, together                       │  schemes
+    └──────────────────────────────────────────────────┘
 ```
 
-## Caching, and what `tmap` ends up holding
+The group is the **strongly connected component** of the call graph
+among the block's definitions — the ones that really do depend on each
+other. Only those. A sibling this body merely *calls* is worked out and
+generalised first, on demand, so it is already polymorphic by the time
+this body uses it. That distinction is what makes the next section work.
 
-Every inference is remembered in the store as an instance, so a function
-called a hundred times with the same argument types is checked once. Without that, mutual recursion would not terminate and an ordinary
-program would be checked exponentially.
-
-`tmap` — the symbol → type table the whole pass produces — is written
-through `record`, which **merges** rather than overwrites. A deferred
-function checked at two argument types has two answers for everything
-inside it, and both are true:
-
-```pyking
-def echo(x):
-    x
-
-number = echo(1)        # number : Int
-word = echo('two')      # word   : String
-```
-
-Each binding keeps the exact type of its own call, and the function's
-own type is the alternatives it was used at, each one whole:
-
-```
-same = echo        # same : ((Int) -> Int) | ((String) -> String)
-```
-
-A `def` with several types is printed *as it was written* by
-`-t pyking`, because the syntax of a `def` header has one slot
-per parameter and no way to say which result goes with which — see
-"The mistake that made this page necessary".
-
-`record` also *resolves* a function type before storing it: a function
-that had not been called yet was passed around as `(?) -> ?`, and what is
-recorded should be what it turned out to be.
-
-## Hard decisions
-
-These are the places where more than one answer was defensible. Each one
-is written down because the code alone does not show what was rejected.
-
-### 1. Where the definition's environment comes from
-
-A deferred body must be checked in the scope it was *written* in, not the
-one it is called from. The environment therefore has to be stored, and
-the natural place — inside the `TFunction` itself — cannot hold it: the
-environment contains the function, so building one immutably would need
-the other to exist first.
-
-The answer is `store.environments`, written twice for the same
-definition: `declare_functions` records the block-entry environment (so a
-forward call has *some* correct-enough scope), and the `def` statement
-records the environment at its own position over the top of it when the
-block reaches it. Because the key is the definition's *symbol* rather
-than an object, every type naming that definition sees the newer answer
-without anything having been mutated under it.
-
-**What was rejected, and then chosen anyway.** The first version put the
-environment in a mutable record the types pointed at, on the grounds that
-threading a table through every function of the pass would be machinery
-in front of the rules. That was the wrong trade: a record reachable from
-a type, changing under everyone holding it, is exactly the kind of thing
-nobody can reason about by reading. The store is now threaded through
-every function, and the price — one more parameter, one more result —
-turned out to be worth paying.
-
-### 2. `_Recursive` is an exception, not a machine state
-
-Everywhere else this repository avoids control-flow-by-exception. Here it
-is the right tool: the signal has to unwind an arbitrarily deep recursive
-descent to the nearest enclosing `if`, and threading an "unresolved"
-result through every return value would put the recursion case into
-functions that have nothing to do with it. The signal never reaches a
-user: `infer_call` turns it into a sentence, or re-raises it for the
-inference that can.
-
-**The subtlety that cost a rewrite:** the *first* version turned an
-unresolvable trace into an error immediately, inside `trace`. That breaks
-a cycle of three functions — `a → b → c → a`, where only `a` has the
-branch that ends the recursion, so the signal must travel through `b` and
-`c` untouched. The signal therefore carries the definition it is about,
-and only the inference of *that* definition may convert it. It carries
-the store as well, since an exception unwinds past every store its
-callers were about to be handed, and a trace needs one thing out of an
-abandoned attempt: what its `return`s had already supplied.
-
-### 3. `TOr` instead of type variables
-
-`echo` above is polymorphic, and a real inferencer would give it
-`(a) -> a`. Pyking has no type variables, so what is recorded for a
-function used at two types is the two types:
-
-```
-((Int) -> Int) | ((String) -> String)
-```
-
-Each alternative is one whole instantiation — its parameters and its
-result, kept together. That is weaker than `(a) -> a` (it says nothing
-about a use that has not happened yet) but it is *exactly* what the
-checker enforces, which is the property that matters. See the section
-below on the mistake that this replaced.
-
-The alternatives are parenthesised because `->` reaches past `|` in
-Pyking's type grammar: `(Int, Int) -> Int | (String, String) -> String`
-would read as one function returning
-`Int | ((String, String) -> String)`. Printing them parenthesised keeps
-`-t pyking` output re-parsable and keeps an error message
-unambiguous however the reader groups it.
-
-### 4. A mixed body yields an alternative type, not an error
-
-```pyking
-def maybe(n):
-    if n > 0:
-        return 1
-    print('nothing')      # supplies unit
-```
-
-The `return`s and the tail position between them say this returns
-`Int | ()`, and that is what it gets. The annotated checker *refuses* the
-same shape (`-> Int` with a body that can fall off the end), so the two
-differ here.
-
-**Why:** an inference that refuses has to explain a rule the program
-never stated, while an alternative type is a true statement about the
-function, and the mistake — if it is one — then shows up where the value
-is used, in terms of what it is. A written annotation is still enforced
-strictly; nothing about inference loosens it.
-
-### 5. Two `TUnknown`s are the same type — and what that broke
-
-`same_type(TUnknown, TUnknown)` is true, because an incomplete function
-type has to equal itself for the instance cache to find it. That makes
-two *different* unannotated functions compare equal, since both are
-`(?) -> ?`:
-
-```pyking
-def chooser(loud):
-    if loud:
-        shout
-    else:
-        whisper       # same type as `shout`, as far as anything knows
-```
-
-Taking one to stand for both would mean checking `shout`'s body every
-time the value `whisper` returned is called — silently checking the wrong
-function. Rather than leave that hole open, `check_not_conflated` refuses
-the `if` and says why. The program is legal Pyking and runs correctly
-under every backend; only the *checker* declines it, and an annotation on
-either function fixes it.
-
-### 6. An uncalled function gets no type at all
-
-Nothing is inferred for a function nobody calls — there is nothing to
-infer it from. `-t pyking` prints it exactly as written, with no
-annotations. That is honest, and it is also why the `typecheck_infer_*`
-tests all call what they define.
-
-The same is true, more subtly, of a cycle of three or more: while the
-cycle is being resolved every trace through the middle of it is
-abandoned, so only the function the cycle closes on ends up recorded —
-until something outside the cycle calls one of the others (see
-`tests/typecheck_infer_mutual.pyk`, which shows both).
-
-### 7. `?` in printed output does not round-trip
-
-`-t pyking` output is otherwise re-parsable Pyking, and `|` was
-added to the type grammar partly to keep it that way. `?` is the one
-exception: it is printed for a `TUnknown` — a function passed somewhere
-and never called — and there is deliberately no syntax for it, because
-there is nothing a program could mean by writing one.
-
-### 8. The mistake that made this page necessary
-
-The first version of this collapsed two function types **component-wise**
-instead of keeping them side by side. A function called with two Ints and
-then with two Strings was recorded as
-
-```
-(Int | String, Int | String) -> Int | String        # wrong
-```
-
-on the reasoning that this was "a summary of how the definition was
-used", and the loss of correlation was written up right here as an
-acceptable price. It was not acceptable, for a reason the write-up
-missed: **the summary claimed something the checker refuses.** That type
-says an Int and a String may be mixed in one call, and
-
-```pyking
-def combine(x, y): if x == y then x else y
-
-print(combine(1, 3))
-print(combine('hi', 'now'))
-print(combine(12, 'hi'))      # Type error: `==` cannot be applied to
-                              #             Int and String
-```
-
-is exactly the call it licenses and the checker rejects. A reported type
-that disagrees with the checker is worse than no reported type at all —
-in a REPL it is the *only* thing the user has to go on, and it was
-telling them their program was fine when it was not.
-
-Three specific errors, worth separating because they have different
-lessons:
-
-1. **Merging destroyed information that had already been computed.** The
-   two instantiations were sitting in the store, correlated and correct;
-   `merge` threw the correlation away at the last moment,
-   to produce something that fitted in one `TFunction`. The fix is to
-   stop doing that: `merge` keeps function types as alternatives like
-   everything else.
-2. **I let the *printer's* convenience decide the *type*.** The collapse
-   existed because `pprint_program` prints a `def` header with one slot
-   per parameter and one for the result, and a `TOr` does not fit that
-   shape. That is a fact about the syntax, not about the function. Now a
-   function with several types is printed *as it was written*, and its
-   type is read where the function is used — `same = echo` prints
-   `((Int) -> Int) | ((String) -> String)`, and so does `:ls` in the
-   REPL.
-3. **I documented the trade-off instead of testing it.** The old text
-   said the collapse "loses the correlation … which is the price of
-   having no type variables" — plausible-sounding, and it went unchecked
-   because no test compared a *reported* type against a call the checker
-   would refuse. `tests/typecheck_infer_overload.pyk` and
-   `tests/fail_typecheck_infer_mixed.pyk` are that test, as a pair: one
-   pins the type, the other pins the refusal of the call that type must
-   not license.
-
-The rule that came out of it: **a type this checker reports must be one
-it would enforce.** If a type cannot be written down in the syntax
-available, print less, never print something stronger.
-
-### 9. Two functions nobody has worked out yet are not the same argument
-
-The instance cache is keyed on what a call passed, and the first version
-compared those with `same_type`. That is the right relation for checking
-a program and the wrong one for a cache, and the difference is invisible
-until two *deferred* functions are passed to the same function:
-
-```pyking
-def id(x): x
-def extract(packed): packed(id)
-def pack_int(k): k(41)
-def pack_string(k): k('hello')
-
-print(extract(pack_int))       # 41     : Int
-print(extract(pack_string))    # 'hello' : Int   ← reported wrongly
-```
-
-`pack_int` and `pack_string` are both `(?) -> ?` — nothing has decided
-either — so `same_type` calls them equal, the cache hit, and the answer
-worked out for the *first* call came back for the second. The value was
-right (the interpreter does not consult types), the reported type was
-not, and because nothing was re-checked, nothing new was recorded: the
-`|` types the user expected never appeared.
-
-`recall` now compares with **`same_instance`**: `same_type`, except that
-a function still to be worked out is only ever the same as itself, which
-is decided by the symbol of the `def` it came from. A `TUnknown` is the
-*absence* of an answer, and
-two absences are not a shared answer.
-
-This is the third bug in the same family. `TUnknown == TUnknown` is
-needed for a type to equal itself; everywhere it meets two *different*
-deferred functions it has to be corrected — refused outright in an `if`
-(§5), and here distinguished by identity.
-
-### 10. What a call reports about a function it was given
-
-Fixing the cache exposed a second, quieter version of the same mistake,
-and then a third. An instance is recorded as `(params, result)`, and what
-a reader is shown for the function is built from those — so if `params`
-holds a deferred function type, showing it means resolving that
-function, which meant merging *every* use of it anywhere:
-
-```
-pack_string : (((Int) -> Int) | ((String) -> String)) -> String   # wrong
-```
-
-`pack_string` applies its argument to `'hello'`; it does not accept an
-`(Int) -> Int`. The type over-claimed, this time by mixing in what a
-*different* call had taught about `id`.
-
-The first attempt at narrowing was to report what a call *learned*: the
-instances of an argument that appeared while its body was being checked.
-That is wrong in the other direction, and the case that shows it is
-plain:
+## 7. `let`-polymorphism: the line between a `def` and a parameter
 
 ```pyking
 def identity(x): x
 
-def use(f):
-    a = f(42)          # an instance that already existed
-    b = f(true)        # a new one
-    print(a, b)
-
-first = identity(1)    # ← makes (Int) -> Int known before `use` is checked
-use(identity)          # use : ((Bool) -> Bool) -> ()      ← under-claiming
+def pair_up(n, word):
+    (identity(n), identity(word))    # fine: two instances of a scheme
 ```
 
-`use` went through *both* shapes of `identity`; only one of them was new.
-Counting what appeared cannot see the other, because a cache hit creates
-nothing.
+`identity` is a *definition*, so it is generalised before anything that
+names it is checked, and each use gets its own instance. That is
+`let`-polymorphism.
 
-So the pass records **uses**, not creations. Each inference gets a frame
-in the store, and every `infer_call` notes the instance it went through,
-whether it worked it out or found it already worked out. A call that
-*reuses* a remembered answer also inherits what that answer was based on,
-so the narrowing is transitive through a chain of calls. `use` is then
-`(((Int) -> Int) | ((Bool) -> Bool)) -> ()`, `pack_string` is still
-`((String) -> String) -> String`, and each says exactly what its own
-body did.
+```pyking
+def use(f):
+    print(f(1), f(true))             # error: argument 1 has type Bool,
+                                     #        but Int was expected
+```
 
-The one thing left un-narrowed is an argument a body never calls: it
-taught that call nothing, so everything known about it is reported. `?`
-would be the alternative, and it would say less than is known rather
-than more.
+`f` is a *parameter*, so it has a type, not a scheme, and the second use
+is checked against what the first settled. This is precisely
+Hindley-Milner's line, and this checker draws it in the same place.
 
-### 11. A backend bug the tests found
+## 8. Comparison with Hindley-Milner
 
-`str(true)` printed `True` under the Python backend and `true` everywhere
-else. `src/runtime_interface.py` pins Pyking's spelling for booleans, and
-`src/interpreter.py` is the reference, so the backend was wrong: it now
-wraps a `str` argument the same way it already wrapped a printed one.
-Worth recording because it is the pattern to expect — a test written for
-one part of the compiler catching a disagreement in another.
+**What is the same.** The type system is Hindley-Milner's:
+rank-1 polymorphism, generalisation at definitions, instantiation at
+uses, first-order unification with an occurs check, and the "not free in
+the environment" side condition on generalisation. What it accepts and
+what it infers match algorithm W. Where the two would disagree, this one
+is wrong.
 
-## Where the code is
+**What is different, and why.**
 
-| what | where |
+| | textbook algorithm W | here |
+|---|---|---|
+| **when** a definition is worked out | in dependency order, before its uses | on first use — the call is the trigger |
+| a definition nobody uses | still typed | never typed; prints as written |
+| **where** solving happens | a substitution threaded through, or a constraint set solved at the end | eagerly, at each construct that demands a type |
+| what is threaded | a substitution | a `Store` — the substitution plus what has been worked out about definitions |
+| after generalising | done | the body is checked once more with the variables rigid (`verified`) |
+| overloading | not present | four builtins, handled by the re-check (§9) |
+
+The first row is the only structural difference, and it buys three
+things:
+
+1. **No dependency ordering pass.** A definition is worked out when
+   something needs it, which visits the call graph in dependency order
+   by construction. Mutual recursion is handled by the SCC computed at
+   that moment, over the block's definitions only.
+2. **The body is checked in the scope it was written in**, which the
+   store records. That is what keeps deferring sound: a body checked at
+   a call site is *not* checked in the caller's scope.
+
+   ```pyking
+   def f(n):
+       n + offset        # error: `offset` is not in scope here ...
+
+   offset = 10
+   print(f(1))           # ... even though it is in scope here
+   ```
+3. **Errors stay local.** Because solving happens at the demand,
+   a failure is reported at the construct that made it, in the words the
+   checker already uses:
+
+   ```
+   'scale.pyk' 16:12-16:17 Type error: argument 1 has type String, but
+     Int was expected
+   ```
+
+   A constraint solver would report the same program as a clash between
+   two constraints, some distance from either.
+
+**Two implementation details that matter.**
+
+- **The occurs check.** Solving a variable to a type mentioning it
+  builds an infinite type. `f(f)` asks for exactly that, and it is
+  refused rather than looped over.
+- **Which of two variables is solved.** When two metavariables meet, the
+  *younger* is solved to the older. A variable handed out earlier may
+  belong to an enclosing scope, and solving that one to a fresh inner
+  variable would lose the fact that §4's side condition depends on.
+  Variables are named `?0`, `?1`, … in the order handed out, so their
+  names *are* their ages. This is the level discipline of a
+  rank/level-based HM implementation, in one comparison.
+
+## 9. What is left of ad-hoc polymorphism
+
+Hindley-Milner has no overloading. Pyking has four overloaded things —
+`str`, `len`, `==` and `++` — each accepting several unrelated types and
+no single type. A body that uses one on a parameter has made a demand
+unification cannot express.
+
+The rule:
+
+```
+   1. the demand passes against a metavariable
+      (nothing has decided it, and an operator is a reasonable
+       thing to do to an unannotated parameter)
+                              │
+   2. generalisation proposes a scheme  all a. (a) -> String
+                              │
+   3. `verified` re-checks the body with `a` RIGID
+      → `str(a)` is refused, because `a` is not one of the three
+                              │
+   4. the proposal is dropped; the definition keeps its monotype,
+      with the variable still open
+                              │
+   5. the first call solves it, and that is what the definition is
+```
+
+```pyking
+def announce(value):
+    'got ' ++ str(value)     # `str` asks what it was given
+
+print(announce(1))           # announce : (Int) -> String
+# print(announce(true))      # error: argument 1 has type Bool, but Int
+                             #        was expected
+```
+
+So `verified` is not only insurance. Its *failure* is the mechanism by
+which ad-hoc polymorphism is handled at all. The known answer is type
+classes or implicit arguments; `tests/fail_typecheck_infer_pinned.pyk`
+pins the current refusal so whatever fills the gap has something to
+change.
+
+## 10. What the design gives up
+
+- **Rank-2 types are written, not inferred** (§5).
+- **An uncalled definition gets no type.** Nothing triggers it. It
+  prints exactly as written.
+- **Overloaded builtins fix a parameter to its first call's type** (§9).
+- **`?` in printed output does not round-trip.** `-t pyking` output is
+  otherwise re-parsable Pyking; `?` is printed where a type has no
+  spelling — an uncalled function, or a nested definition holding an
+  enclosing scope's variable — and there is deliberately no syntax for
+  it.
+
+---
+
+# Part II — The code
+
+Everything below is `src/typesystem.py` unless said otherwise.
+
+## 11. The two kinds of variable
+
+Both are `syntax.py`'s `TVar`, told apart by one field:
+
+| | `rigid=True` | `rigid=False` |
+|---|---|---|
+| called | a **rigid** variable | a **metavariable** |
+| written | `a`, from source | `?0`, `?1`, … never from source |
+| means | a type the **caller** chose | a type **this check** is still choosing |
+| a body may | assume nothing about it | have it become anything |
+| compared by | `same_type` — equal only to itself | `unify` — solved to whatever it meets |
+
+They are exact opposites, which is why one class serves both: the field
+says who does the choosing. `TUnknown` is a third thing again — not a
+type yet, standing where an annotation was not written.
+
+A metavariable's solution lives in `store.solutions`, never in the node,
+so a type stays an ordinary immutable value.
+
+```
+   fresh_meta(info, store)   →  a new ?n, and the store that handed it out
+   is_meta(type_)            →  is this one?
+   meta_age(name)            →  when it was handed out ("?7" → 7)
+   solving(store, n, t)      →  the store in which ?n is t
+   prune(type_, store)       →  follow solutions at the OUTERMOST level only
+   zonk(type_, store)        →  follow them all the way down, everywhere
+   metas_in(type_, store)    →  which are still unsolved in here
+   occurs(name, type_, store)→  would solving this build an infinite type?
+```
+
+`prune` is the cheap one, used to decide which `case` a type falls into.
+`zonk` is the thorough one, used whenever a type leaves the machinery —
+into a message, into `tmap`, into a comparison that must see through
+everything.
+
+## 12. `unify`
+
+```
+unify : Type -> Type -> Store -> Store?
+```
+
+The store in which two types are one type, or `None` where none is. Its
+cases, in order:
+
+```
+   ?a  vs  ?a        → nothing to do
+   ?a  vs  ?b        → solve the YOUNGER to the older        (§8)
+   ?a  vs  T         → occurs check, then solve ?a := T
+   T   vs  ?a        → the same, the other way round
+   [S] vs  [T]       → unify the elements
+   (S…) vs (T…)      → same length, unify componentwise
+   (S…)->R vs (T…)->Q→ same arity, unify parameters then results
+   all a. S vs all b. T
+                     → same arity, unify UNDER the quantifier (§12a)
+   anything else     → `same_type` decides; nothing to solve
+```
+
+That last line covers two ground types and two rigid variables: either
+they already are one type or no solution makes them one.
+
+### 12a. Unifying under a quantifier
+
+A scheme is not ground. It can hold a metavariable that came from
+instantiating something enclosing it, and that variable still has to be
+solved:
+
+```pyking
+def extract : (all r. ((a) -> r) -> r) -> a
+def pack_int : all r. ((Int) -> r) -> r
+
+print(extract(pack_int))
+```
+
+`extract`'s own `a` is instantiated at the call, so the parameter it
+wants is `all r. ((?2) -> r) -> r`, and the argument is
+`all r. ((Int) -> r) -> r`. Comparing those structurally answers no —
+`?2` is not `Int` — but they are one scheme as soon as `?2 := Int`.
+
+`unify_under` makes them one:
+
+```
+   1. rename BOTH binders to the same fresh rigid variables
+      all r. ((?2) -> r) -> r     →   ((?2) -> !7) -> !7
+      all r. ((Int) -> r) -> r    →   ((Int) -> !7) -> !7
+   2. unify the bodies                    ?2 := Int
+   3. escape check
+```
+
+The variables are named `!0`, `!1`, … from the same counter behind `?n`.
+`!` is unwritable in source, so they collide with nothing a program
+could have named.
+
+**The escape check** is what keeps step 2 sound. Every metavariable free
+in either body *before* step 1 belongs to a scope where `!7` means
+nothing, so one solved to a type naming it would name a type nobody
+there can name:
+
+```
+   all r. (r) -> r    vs   all r. (r) -> ?m      ?m from outside
+   →  ((!7) -> !7)    vs   ((!7) -> ?m)          →  ?m := !7   ✗ refused
+```
+
+`free_vars` answers it directly: a variable bound by the scheme is gone
+by then, so anything named `!n` still free in a solution has escaped.
+
+Schemes binding **different** numbers of variables are not one scheme,
+and fall through to `same_type`, which says no.
+
+This is the only place `unify` looks inside an `all`. `same_type` keeps
+its own quantifier case — comparing up to renaming, deciding nothing —
+for `accepts` and `verified`, the two places where nothing may be
+solved.
+
+Two helpers put a name on the common shape:
+
+```
+   demand(actual, wanted, info, what, store)  →  store, or a TypeError_
+                                                 saying what wanted it
+   demand_list(actual, info, what, store)     →  (element type, store)
+```
+
+`demand` is how a construct asks for a type — `unify` plus one message.
+`demand_list` makes a fresh `?e`, demands `[?e]`, and hands back `?e`.
+
+## 13. The `Store`
+
+One immutable value threaded through the whole pass, like `env`.
+
+| field | holds | written by |
+|---|---|---|
+| `solutions` | `?n` → what it turned out to be | `solving` |
+| `environments` | a definition's symbol → the environment it was **written** in | `with_environment` |
+| `instances` | a definition's symbol → its one `Instance(type)` | `remembering` |
+| `checking` | the definitions being worked out right now | `checking_now` |
+| `captured` | metavariables a definition could **not** generalise | `infer_definition` |
+| `frame` | what the innermost body is gathering: `returns`, `breaks`, `carries` | `returning`, `breaking`, `carrying` |
+| `fresh` | the counter behind `?n` | `fresh_meta` |
+| `signatures` | a definition's symbol → the type a `def name : type` line gave it | `with_signature` |
+| `groups` | a definition's symbol → its block's `def`s | `declare_functions` |
+
+The last two are **given** rather than worked out; the rest accumulate.
+
+**Nothing in it is ever written to.** Every function handed a store
+returns one, because what it worked out is knowledge its caller needs. A
+metavariable is handed out once, so no two checks can disagree about
+one — which is what lets `learned(store, inner)` keep an inner check's
+solutions, instances, environments and counter while going back to the
+caller's own frame and checking set.
+
+## 14. Two ways in, and where they meet
+
+```
+   check_stmt: SFunctionDef
+        │
+        ├── fully annotated? ──yes──►  check_function
+        │                              (checked here, now, with the
+        │                               declared variables RIGID)
+        │
+        └── no ─────────────────────►  declared_type
+                                       (a TFunction with TUnknown where
+                                        the annotation was missing, plus
+                                        `tmsym` and `definition`)
+                                              │
+                                       put aside; the store records the
+                                       environment it was written in
+                                              │
+                        ┌─────────────────────┴─────────────────────┐
+                        │                                           │
+             something CALLS it                     it is PASSED where a
+                        │                            type is written down
+                   infer_call                                │
+                        │                                work_out
+                        └─────────────► infer_definition ◄──────┘
+                                              │
+                                          a scheme in
+                                        `store.instances`
+                                              │
+                                          called_at
+                                       (like any other call)
+```
+
+`check_function` and `infer_definition` produce the same kind of thing —
+a scheme — and from then on nothing downstream can tell which one made
+it. That is why `called_at` has no second code path.
+
+## 15. `infer_definition`, step by step
+
+The heart of the pass. Given a deferred `TFunction`:
+
+```
+ 1  body_env   = environment_of(store, tmsym)     where it was WRITTEN
+ 2  group      = inference_group(node, store)     the SCC (§6)
+ 3  monotypes  = monotypes_for(group, store)      (?a…) -> ?r each
+ 4  mark every member `checking_now`
+
+ 5  for each member:
+        its own written-in environment
+        + every member bound to its monotype       ← recursion works here
+        + its parameters bound to the monotype's
+        body_result(...)                           what the body supplies
+        required(...)                              unify that with ?r
+
+ 6  learned(store, inner)                          keep what was worked out
+
+ 7  for each member:
+        outer  = free_metas(its environment)       §4's side condition
+        store.captured |= outer ∩ metas_in(mono)
+        scheme = generalise(node, mono, outer, store)
+
+ 8  remember EVERY scheme  ──  before verifying any of them
+ 9  for each member:
+        verifying(...)  → the scheme, or the monotype if it does not hold
+        remember it, record it in `tmap`
+
+10  return settled_type(func_type, store)
+```
+
+Step 8 is not optional. `verified` re-checks a body, and a body
+re-checked while a name it calls is still unworked would work that one
+out all over again — which for two functions that call each other never
+ends.
+
+Step 5 binds each member in **its own** written-in environment, not the
+group's or the caller's, because what a body captures is what was bound
+where it stands.
+
+## 16. Generalising
+
+```
+generalise : SFunctionDef -> TFunction -> {String} -> Store -> Type
+```
+
+`zonk` the monotype, take the metavariables still unsolved, drop the
+ones in `outer`, name what is left `a`, `b`, … and wrap the result in
+one `TForall`. `free_metas(env, store)` computes `outer` by walking the
+types the environment binds.
+
+```
+verified : SFunctionDef -> Type -> {Int: Type} -> Store -> {Int: Type}?
+```
+
+Checks the body again with the scheme's variables **rigid** — the same
+check an annotated polymorphic function gets. It answers the `tmap` that
+check filled, so an adopted scheme is what the body's own nodes are
+reported as, or `None`.
+
+```
+verifying : ... -> Type
+```
+
+`generalise` + `verified`, falling back to the zonked monotype. Two
+reasons it exists: it makes "a type this checker reports is one it
+enforces" true by construction, and its fallback is §9's mechanism.
+
+## 17. Calls
+
+```
+check_call ──► settled_type ──┬── still deferred? ──► infer_call
+                              │                       (work it out, then
+                              │                        check this call)
+                              └── otherwise ────────► called_at
+```
+
+`settled_type(type_, store)` prunes first, then replaces a deferred
+`TFunction` with the scheme its definition turned out to have. Pruning
+matters: a definition reached through a metavariable that has since been
+solved to it — a function put in a list and taken out again — must be
+seen for what it is.
+
+```
+called_at(scheme, call, args, env, tmap, store)
+    1. instantiate the scheme          fresh variables, this call's own
+    2. is it still just `?f`?          then BUILD (?a…) -> ?r and unify
+    3. check the arity
+    4. check_arguments: left to right, so the first mistake is reported
+```
+
+Step 2 is the one place a type is *built* by a demand rather than
+compared against one. It is what types `f(x)` inside a body where
+nothing has yet said what `f` is.
+
+```
+fitted(expected, actual, arg, position, tmap, store)
+    work_out(actual, ...)              a deferred argument is worked out
+    settled_type(actual, store)
+    expected is not a written `all`?   then INSTANTIATE the argument
+    unify(expected, actual, store)
+```
+
+The instantiation on the second-to-last line is §5: an argument that is
+itself polymorphic stands wherever one of its instances is wanted. Where
+the parameter *is* written `(all a. …)` the two are compared as schemes
+instead, by `unify`'s last case falling through to `same_type`.
+
+## 18. Reporting
+
+```
+   record(tmap, sym, type_, store)    zonk, then store under the symbol
+   displayed(type_, store)            name leftover metavariables a, b, …
+                                      — except `store.captured` ones,
+                                        which become `?`
+   shown(type_, store)                zonk + displayed + pprint, for a message
+   shown_nested(type_, store)         the same, parenthesised where needed
+```
+
+A metavariable's own name must never reach a message, so every error
+that names a type goes through `shown`. Where two types appear in one
+message they are named **together** — packed into one tuple, displayed,
+unpacked — so a variable standing in both reads as the same letter in
+both.
+
+`type_check` reads the whole `tmap` back through `zonk` and `displayed`
+at the very end, because a variable still open where it was recorded may
+have been solved by something written further down.
+
+## 19. Where everything is
+
+| what | functions |
 |---|---|
-| the types | `TUnknown`, `TOr`, `TFunction.tmsym`/`.definition` in `src/syntax.py` |
-| `\|` in the grammar | `TokPipe` in `src/lexer.py`, `parse_type`/`parse_type_atom` in `src/parser.py` |
-| deferring a definition | `declared_type`, `declare_functions`, the `SFunctionDef` case of `check_stmt` |
-| checking at the call | `check_call`, `argument_type`, `check_compatible`, `infer_call` |
-| the two traces | `infer_body`, `trace`, `try_branch`, `_Recursive` |
-| alternatives | `merge`, `accepts`, `every`, `resolved` |
-| the store | `Store`, `Instance`, `Use`, `Frame`, and the functions that build a new one: `with_environment`, `remembering`, `checking_now`, `noting`, `returning`, `learned` |
-| the cache and the table | `instances_of`, `recall`, `record` |
+| metavariables | `fresh_meta`, `fresh_metas`, `is_meta`, `meta_age`, `solving`, `prune`, `zonk`, `metas_in`, `occurs` |
+| unification | `unify`, `unify_under`, `demand`, `demand_list`, `agree`, `satisfies` |
+| instantiating | `instantiate`, `instantiated`, `substitute`, `generalize`, `canonical` |
+| deferring | `declared_type`, `declare_functions`, `declare_signatures`, `check_stmt`'s `SFunctionDef` case |
+| working out | `infer_call`, `infer_definition`, `work_out`, `inference_group`, `names_used`, `monotypes_for`, `body_result`, `required`, `one_type` |
+| generalising | `generalise`, `free_metas`, `names_in`, `next_name`, `verified`, `verifying` |
+| calls | `check_call`, `settled_type`, `called_at`, `check_arguments`, `fitted` |
+| comparison | `same_type`, `accepts`, `instance_for` |
+| the store | `Store`, `Instance`, `Given`, `Exit`, `Frame`, `with_environment`, `remembering`, `checking_now`, `learned` |
+| reporting | `record`, `displayed`, `shown`, `shown_nested` |
 
-## Testing it
+## 20. Tests
 
-Thirteen `tests/typecheck_infer_*.pyk` programs pin what is inferred —
-each has an `.ast.out` holding the printed AST with the inferred types,
-and an `.out` holding what the program prints, checked on every backend
-that accepts it. Four `tests/fail_typecheck_infer_*.pyk` pin what is
-refused and how it is worded.
+**`tests/typecheck_hm_*.pyk`** are the direct test of this page. Each
+pins a principal type in its `.ast.out` and is run on every backend that
+accepts it, so a type the checker infers is one that demonstrably runs
+and means the same thing everywhere.
 
-The most valuable of these is the plainest: because the `interpret`
-target runs each of them and compares against the same `.out` as the
-compiling targets, a type the checker infers is also a program that
-demonstrably runs and means the same thing everywhere.
+| test | property |
+|---|---|
+| `hm_apply`, `hm_compose` | the basic shapes, and where each variable comes from |
+| `hm_map`, `hm_fold`, `hm_lists`, `hm_pipeline` | list functions, the empty list, composing them |
+| `hm_tuples` | a variable per component |
+| `hm_letpoly` | one caller, two instances (§7) |
+| `hm_generalisation`, `hm_nested` | what may **not** be generalised (§4) |
+| `hm_mutual`, `hm_recursion` | a group, and a recursive call deciding its own result (§6) |
+| `hm_higher_order` | a function parameter worked out from the body, used at two element types |
+| `hm_order` | the same function with its callers in either order, giving one answer |
+| `hm_branch_uses` | what one branch of an `if` works out is true in the other |
+| `hm_shadowed` | many instances of one definition |
+| `hm_annotation_agrees` | each body written twice, annotated and not, reaching one type |
+| `hm_annotated_rank2` | first-class polymorphism, written down (§5) |
+
+**`tests/fail_typecheck_hm_*.pyk`** pin what is refused and how it is
+worded: `hm_occurs` and `hm_infinite` (the occurs check, through an
+application and through a constructor), `hm_rank2` (a parameter used at
+two types), `hm_argument` (an inferred type enforced like a written one).
+
+First-class polymorphism, being written rather than inferred, is pinned
+by three files outside those families:
+
+- `tests/typecheck_type_first_class.pyk` — a parameter demanded at
+  `(all x. (x) -> x)`, used at two types in one body.
+- `tests/typecheck_type_first_class_twice.pyk` — the same, with both
+  uses reaching the *result* type: `(all a. a -> a) -> (Int, Bool)`. The
+  argument is a definition with no annotation, so an inferred scheme is
+  what satisfies a written one.
+- `tests/typecheck_type_first_class_outer.pyk` — the quantified
+  parameter *also mentions a variable from outside it*, so the two
+  schemes are one only after unifying under the quantifier (§12a).
+- `tests/fail_typecheck_type_first_class.pyk` — refuses a `(Int) -> Int`
+  where that `all` is demanded, the direction that makes the annotation
+  mean something. The other direction, a polymorphic argument where an
+  *instance* is wanted, is always fine and is checked in the same file.
+
+**`tests/typecheck_noann_*.pyk`** are twenty of the annotated
+`typecheck_*` programs with every annotation removed, sharing their
+`.out` unchanged — the standing check that an annotation says what a
+program means to a reader and to the checker, never what it does.

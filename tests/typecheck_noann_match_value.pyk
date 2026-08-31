@@ -1,0 +1,37 @@
+# Match value, with every annotation taken off.
+#
+# The twin of tests/typecheck_match_value.pyk: the same program, with no parameter
+# type, no return type and no signature line anywhere in it. Its `.out`
+# is that file's `.out`, unchanged -- an annotation says what a program
+# means to a reader and to the checker, never what it does.
+#
+# What this file is really for is its `.ast.out`, which holds the types
+# the checker worked out with nothing to go on but the calls. Read the
+# two side by side: where they differ, inference found something more
+# general than the annotation claimed.
+
+def flip(b):
+    answer = match b:
+        case true: "yes"
+        case false: "no"
+    return answer
+
+
+def sign(n):
+    return match n:
+        case 0: "zero"
+        case other: if other > 0 then "positive" else "negative"
+
+
+def described(n):
+    # The value form as a function's own last statement, so the `match`
+    # is what the function supplies.
+    match n:
+        case 1: "single"
+        case 2: "double"
+        case _: "several"
+
+
+print(flip(true), flip(false))
+print(sign(0), sign(5), sign(0 - 5))
+print(described(1), described(2), described(9))

@@ -1,0 +1,14 @@
+counted: Int = loop x: Int = 5:
+    if x <= 10:
+        continue x + 1
+    else:
+        break x
+print(counted)
+def multiple_over(start:Int, limit:Int) -> Int:
+    loop n: Int = start:
+        if n > limit:
+            break n
+        else:
+            continue n * 2
+print(multiple_over(1, 100))
+print(multiple_over(3, 3))

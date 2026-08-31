@@ -1,0 +1,37 @@
+def filter(p:(a) -> Bool, lst:[a]) -> [a]:
+    loop (p, lst): ((a) -> Bool, [a]) = (p, lst):
+        match lst:
+            case [x, ..xs]:
+                if p(x):
+                    break [x] ++ filter(p, xs)
+                else:
+                    continue (p, xs)
+            case []:
+                break []
+def zip(one:[a], other:[b]) -> [(a, b)]:
+    match (one, other):
+        case ([x, ..xs], [y, ..ys]):
+            [(x, y)] ++ zip(xs, ys)
+        case (_, _):
+            []
+def fold(f:(a, b) -> a, acc:a, lst:[b]) -> a:
+    loop (f, acc, lst): ((a, b) -> a, a, [b]) = (f, acc, lst):
+        match lst:
+            case [x, ..xs]:
+                continue (f, f(acc, x), xs)
+            case []:
+                break acc
+def small(n:Int) -> Bool:
+    n < 4
+def short(word:String) -> Bool:
+    len(word) < 3
+def add(total:Int, n:Int) -> Int:
+    total + n
+def join(text:String, word:String) -> String:
+    text ++ word
+print(filter(small, [1, 7, 2, 9]))
+print(filter(short, ['ab', 'long', 'c']))
+print(zip([1, 2], ['a', 'b']))
+print(zip([true], [(1, 'x')]))
+print(fold(add, 0, [1, 2, 3]))
+print(fold(join, '', ['a', 'b']))

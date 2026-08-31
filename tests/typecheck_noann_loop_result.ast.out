@@ -1,0 +1,24 @@
+def describe(xs:[Int]) -> String:
+    return for x in xs result 'all fine':
+        if x < 0:
+            break 'negative'
+def count_to(limit:Int) -> String:
+    return loop i: Int = 0 while i < limit result 'reached ' ++ str(i):
+        continue i + 1
+def first_word(words:[String]) -> String:
+    return for w in words result 'none':
+        break w
+def total_or_zero(xs:[Int]) -> Int:
+    return loop acc: Int = 0 for x in xs:
+        if x < 0:
+            break 0
+        else:
+            continue acc + x
+def size_only(xs:[String]) -> Int:
+    return loop (i, seen): (Int, String) = (0, '') for x in xs result i:
+        continue (i + 1, seen ++ x)
+print(describe([1, 2]), describe([1, 0 - 2]))
+print(count_to(3), count_to(0))
+print(first_word(['a', 'b']), first_word([]))
+print(total_or_zero([1, 2, 3]), total_or_zero([1, 0 - 1]))
+print(size_only(['a', 'b', 'c']), size_only([]))

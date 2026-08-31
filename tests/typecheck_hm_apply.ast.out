@@ -1,0 +1,13 @@
+def apply(f:(a) -> b, x:a) -> b:
+    f(x)
+def id(x:a) -> a:
+    x
+def bump(n:Int) -> Int:
+    n + 1
+def show(n:Int) -> String:
+    'n=' ++ str(n)
+print(apply(id, 3))
+print(apply(id, 'hi'))
+print(apply(bump, 1))
+print(apply(show, 7))
+applying: ((a) -> b, a) -> b = apply

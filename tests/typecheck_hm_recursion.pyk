@@ -1,0 +1,42 @@
+# Recursion whose return type is decided by the recursive call itself.
+#
+# `countdown` reaches no value except through the recursive call, so
+# the old trace-based inference had nothing to work from. Under
+# Hindley-Milner the recursive call is an ordinary call to a name
+# already in scope at a monotype: its result is unknown, `+ 1` says the
+# unknown is Int, and that settles the whole function. Nothing is
+# guessed and nothing loops. `def forever(n): forever(n + 1) + 1` is
+# the same shape without a base case, and types the same way -- it
+# simply never returns.
+#
+# `depth` is the rule with a variable left over, and `sum_to` is the
+# ordinary shape it usually takes.
+
+def countdown(n):
+    if n < 1:
+        0
+    else:
+        countdown(n - 1) + 1
+
+def sum_to(n):
+    if n < 1:
+        0
+    else:
+        n + sum_to(n - 1)
+
+def depth(lst):
+    match lst:
+        case [x] ++ xs: 1 + depth(xs)
+        case []: 0
+
+def spell(n):
+    if n == 0:
+        'zero'
+    else:
+        spell(n - 1)
+
+print(countdown(3))
+print(sum_to(4))
+print(depth([1, 2, 3]))
+print(depth(['a', 'b']))
+print(spell(3))

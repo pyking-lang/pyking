@@ -149,16 +149,17 @@ The groups:
   `PTuple`, `PList`, `PText`. `PText` is a string split around a fixed
   beginning and end (`"ab" ++ rest`); the list form of `++` is folded
   into `PList` by the parser, so only the string one is a node.
-- **`Type`** — `TInt`, `TString`, `TBool`, `TList`, `TTuple`, `TOr`,
-  `TUnknown`, `TNever`, `TBuiltin`, `TFunction`, `TVar`, `TForall`.
+- **`Type`** — `TInt`, `TString`, `TBool`, `TList`, `TTuple`,
+  `TUnknown`, `TBuiltin`, `TFunction`, `TVar`, `TForall`.
   `TVar` is a type variable a written annotation names and a caller
   chooses; `TForall` binds them, and the outermost one is implicit --
-  supplied by the checker and never printed. `TTuple` with no
-  elements is the unit type `()`; `TOr` is an alternative type, written
-  `Int | String`; `TUnknown` is a type nothing has decided yet, `TNever`
-  the type of something that never happens, and `TBuiltin` the type of a
-  host operation — none of the three is written in source, and all three
-  are produced only by the checker.
+  supplied by the checker and never printed. A `TVar` the *checker* made
+  rather than the source is *flexible* (`rigid=False`): the element type
+  of `[]`, which nothing has constrained. `TTuple` with no
+  elements is the unit type `()`; `TUnknown` is a type nothing has
+  decided yet, and
+  `TBuiltin` the type of a host operation — neither is written in
+  source, and both are produced only by the checker.
   `TFunction` is both written in source and built by the checker, and
   carries two fields that belong to the checker alone — `definition`, the
   `def` whose body is still to be checked, and `tmsym`, that
@@ -232,9 +233,8 @@ Around them:
   annotations. A parenthesized list followed by `->` is a `TFunction`;
   without the arrow it is a `TTuple`. At one element the comma decides,
   as it does among values: `(Int,)` is a one-tuple and `(Int)` is
-  grouping. `|` binds looser than either, so
-  `parse_type` reads the alternatives and `parse_type_atom` everything
-  else.
+  grouping. `parse_type` reads an arrow and `parse_type_atom`
+  everything else.
 - **`parse_pattern`, `parse_case`, `parse_cases`, `parse_match_stmt`** —
   `match`/`case`, including list patterns with a `..rest` marker.
 - **`parse_loop_stmt(info, tokens)`** — a `loop`, from just after the
@@ -456,10 +456,10 @@ OCaml-style near the top of the file):
   `var` is `Int` or `Bool` (**`check_mutable`**), and a `:=` must give
   the type the declaration fixed. Neither says anything about
   *mutability* — that is `analyses.analyze_mutability`'s.
-- **`loop_value(ways_out, info) -> Type`** — what a plain `loop` is
+- **`loop_value(ways_out, info) -> Type?`** — what a plain `loop` is
   worth: the type its `break`s give, refused where two of them
-  disagree, and `TNever` where there are none (a loop nothing breaks
-  out of never finishes, so nothing can be wrong about its value). A
+  disagree, and `None` where there are none (a loop nothing breaks
+  out of never finishes, so it supplies no value at all). A
   `for`/`while` instead takes its `result` expression, or its
   accumulator, or unit, and every `break` must `agree` with that.
 - **`ends_every_path(stmts)` / `ends_here(statement)`** — whether every
@@ -481,26 +481,46 @@ OCaml-style near the top of the file):
 - **`check_function`, `function_type`, `check_param`** — a `def` that
   wrote its whole type down is checked here, where it is written; its
   type is a `TFunction`.
-- **`declared_type` / `infer_call` / `infer_body` / `trace` /
-  `try_branch` / `try_expr`** — the deferred half. A `def` that did *not* write its
-  type down is put aside with `TUnknown` in place of what it did not say
-  and checked at the first call, with its parameters taken from that
-  call; a recursion is resolved by abandoning the trace that reaches it
-  and checking the body a second time with the candidate result in
-  place. `Store` (above) is what makes this safe to run more than once
-  per program: an immutable value threaded like `env`, recording what
-  has already been worked out so a function called a hundred times with
-  the same argument types is checked once. See
+- **`declared_type` / `infer_call` / `infer_definition` /
+  `inference_group` / `body_result`** — the deferred half. A `def` that
+  did *not* write its type down is put aside with `TUnknown` in place of
+  what it did not say, and worked out the first time something calls it
+  — from its *body*, not from that call: every parameter goes in as a
+  metavariable and the body's own demands solve them. `inference_group`
+  is which definitions are done together (the ones that name each
+  other), and `Store` is what carries the answers: an immutable value
+  threaded like `env`, so a definition is worked out once and every
+  later call uses what came out. See
   [type_inference.md](type_inference.md).
-- **`merge` / `accepts` / `resolved`** — alternatives. `merge` builds the
-  `Int | String` covering several types, keeping each function type
-  *whole* (`((Int) -> Int) | ((String) -> String)`, never one function of
-  union parameters — see
-  [type_inference.md](type_inference.md#8-the-mistake-that-made-this-page-necessary));
-  `accepts` is `same_type` plus the one bit of subtyping alternatives
-  need; and `resolved` replaces a function type that has since been
-  worked out with what it turned out to be, inside a larger type as well
-  as at the top of one.
+- **`unify` / `prune` / `zonk` / `occurs` / `meta_age` / `instantiate`**
+  — the unification. First-order and eager: `unify` is called where a
+  type is *demanded* — a call's arguments, an operator's operands, two
+  branches, a pattern against its subject — and answers there, so there
+  is no constraint store and no solver pass. `store.solutions` holds
+  what has been solved, `zonk` reads it back, `occurs` refuses a type
+  that would contain itself, and `meta_age` decides which of two
+  metavariables is solved to the other — the younger, so a variable
+  belonging to an enclosing scope keeps its identity.
+- **`generalise` / `free_metas` / `verified` / `verifying`** — the type
+  variables. What the body left unsolved is what it never had to decide,
+  so it is bound by one `all` at the top — *except* what the scope the
+  definition was written in already held (`free_metas`), which is
+  Hindley-Milner's side condition and the one place generalising is
+  unsound rather than merely imprecise. `verified` then checks the body
+  again with the variables rigid before the scheme is adopted; where
+  that fails, the definition keeps its monotype, which is how the four
+  overloaded builtins are handled at all. See
+  [type_inference.md](type_inference.md#9-what-is-left-of-ad-hoc-polymorphism).
+- **`one_type` / `agree` / `accepts` / `satisfies`** — agreement.
+  `one_type` is the single type every way out of a body gives, unifying
+  them one by one so a base case returning `[]` settles against a branch
+  returning `[Int]`, and refusing two that cannot be one type at the
+  later one; `agree` is that rule for two branches; `accepts` decides
+  nothing and is for the two places nothing may be solved — a written
+  annotation, and `verified`'s re-check — being `same_type` plus the use
+  of a scheme at an instance of itself (`instance_for`); and `satisfies`
+  is `unify` with `accepts` behind it, for where a declared type meets a
+  supplied one.
 - **`check_call`, `check_builtin_call`** — anything of function type may
   be called; the four builtins are checked at the call site, where their
   signatures live.

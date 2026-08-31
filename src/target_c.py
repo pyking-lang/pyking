@@ -35,7 +35,7 @@ from syntax import (
     SLoop, SBreak, SContinue, SFunctionDef, SMatch,
     PInt, PString, PBool, PWildcard, PCapture, PText,
     TargetName, TargetTuple, TInt, TString, TBool,
-    TList, TTuple, TOr, TFunction, TVar, TForall,
+    TList, TTuple, TFunction, TVar, TForall,
 )
 
 STANDARDS = ("c89", "c23")
@@ -117,7 +117,7 @@ def _mentions_type_variable(annotation):
             return True
         case TList(_, element, _):
             return _mentions_type_variable(element)
-        case TTuple(_, elements, _) | TOr(_, elements, _):
+        case TTuple(_, elements, _):
             return any(_mentions_type_variable(e) for e in elements)
         case TFunction(_, params, result, _, _, _):
             return (any(_mentions_type_variable(p) for p in params)

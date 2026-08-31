@@ -1,14 +1,18 @@
-# One function, two kinds of use.
+# One definition, worked out once, used many ways.
 #
-# A function with no annotations is worked out per call, and a call is
-# the only thing that decides anything -- so the same `def` called with
-# an Int and then with a String is checked twice, once each way, and
-# each *call* has the type its own arguments give it. What is recorded
-# against the definition is the summary: `Int | String`, the "or" type,
-# since there are no type variables to say "whichever it was given".
+# A function with no annotations is worked out at its first call, and
+# what that call teaches is split in two: the part the body actually
+# depended on, and the part it did not. `echo` hands its argument
+# straight back without ever asking what it is, so nothing about it is
+# Int -- and its type says so with a variable, which is what lets the
+# same definition serve the calls below.
 #
-# The bindings below are the interesting half: each one is the exact
-# type of its own call, not the summary.
+# `announce` is the other half of the same rule. `str` asks what it was
+# given, so the parameter is pinned to what the first call passed and
+# the definition means `(Int) -> String` from then on. That is a real
+# limit and not an oversight: `str` accepts Int, String and Bool, and
+# Pyking has no way yet to say "any of those" in a signature. See
+# fail_typecheck_infer_pinned.pyk for the refusal that follows.
 
 def echo(x):
     x
@@ -21,20 +25,15 @@ word = echo('two')
 flag = echo(true)
 
 print(number, word, flag)
-print(announce(1), announce(true), announce('x'))
+print(announce(1), announce(2))
 
-# Calling it a fourth time with a type already seen costs nothing: the
-# answer was remembered the first time, which is what keeps a function
-# from being checked once per call site.
+# Calling it again with a type already seen costs nothing: the
+# definition was worked out once and is not worked out again.
 again = echo(3)
 print(again + number)
 
-# The function's own type is the alternatives it was used at, and each
-# one keeps its own parameters and result together -- `(Int) -> Int` and
-# `(String) -> String`, never a single function that would take an Int
-# and give back a String. Binding it is how that type gets printed: a
-# `def` with several types is printed as it was written, since the
-# syntax has one slot per parameter and no way to say "these go
-# together".
+# The functions' own types, printed. `echo` is one signature covering
+# every call it will ever see; `announce` is the one shape its body
+# allowed.
 same = echo
 told = announce

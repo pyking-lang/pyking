@@ -1,0 +1,40 @@
+# The empty list, and the parameter a call says nothing about.
+#
+# `[]` has no element to say what it holds, so its type is `[a]` for a
+# variable nothing has constrained. That is a type the syntax can write,
+# which is why the printed AST below carries it rather than leaving the
+# annotation off.
+#
+# A call that passes `[]` therefore says nothing about what that
+# parameter is -- so it settles nothing, and the next call that *does*
+# say is worked out again. `first_or` below is called with `[]` before
+# it is called with anything else.
+
+empty = []
+print(empty, len(empty))
+
+# Annotated, and the annotation is checked against `[a]`: every list
+# type accepts a list with nothing in it.
+none_yet: [Int] = []
+print(none_yet)
+
+def keep(xs: [String]) -> [String]:
+    return xs
+
+print(keep([]))
+
+# A list that starts empty and grows: the accumulator starts at `[a]`
+# and the loop widens it to what the body actually carries.
+built = loop acc = [] for n in [1, 2, 3]:
+    continue acc ++ [n * n]
+print(built)
+
+# Nothing here ever looks at an element, so the element type stays open.
+def count_of(xs):
+    match xs:
+        case []: 0
+        case [_, ..rest]: 1 + count_of(rest)
+
+print(count_of([]), count_of([1, 2]), count_of(['a', 'b', 'c']))
+
+sized = count_of

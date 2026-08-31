@@ -1,0 +1,2 @@
+'tests/fail_typecheck_hm_rank2.pyk' 23:18-23:22 Type error: argument 1
+  has type Bool, but Int was expected

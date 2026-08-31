@@ -131,10 +131,6 @@ file = "fail_typecheck_infer_mixed.pyk"
 targets = ["pyking"]
 
 [[cases]]
-file = "fail_typecheck_infer_recursion.pyk"
-targets = ["pyking"]
-
-[[cases]]
 file = "fail_typecheck_int_concat.pyk"
 targets = ["pyking"]
 
@@ -240,10 +236,6 @@ targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_type_mismatch.pyk"
-targets = ["pyking"]
-
-[[cases]]
-file = "fail_typecheck_type_or.pyk"
 targets = ["pyking"]
 
 [[cases]]
@@ -523,16 +515,8 @@ file = "typecheck_infer_basic.pyk"
 targets = ["python", "ocaml", "interpret", "pyking"]
 
 [[cases]]
-file = "typecheck_infer_branch_uses.pyk"
-targets = ["python", "interpret", "pyking"]
-
-[[cases]]
 file = "typecheck_infer_higher_order.pyk"
 targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
-
-[[cases]]
-file = "typecheck_infer_higher_rank.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_infer_if_expr.pyk"
@@ -547,14 +531,6 @@ file = "typecheck_infer_nested_recursion.pyk"
 targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking", "pyking_notail"]
 
 [[cases]]
-file = "typecheck_infer_or.pyk"
-targets = ["python", "interpret", "pyking"]
-
-[[cases]]
-file = "typecheck_infer_overload.pyk"
-targets = ["python", "nodejs", "esm", "html", "interpret", "pyking"]
-
-[[cases]]
 file = "typecheck_infer_partial.pyk"
 targets = ["python", "ocaml", "interpret", "pyking"]
 
@@ -563,16 +539,140 @@ file = "typecheck_infer_recursion.pyk"
 targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking", "pyking_notail"]
 
 [[cases]]
+file = "typecheck_infer_polymorphic.pyk"
+targets = ["python", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_infer_variables.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_infer_pinned.pyk"
+targets = ["python", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_infer_empty.pyk"
+targets = ["python", "interpret", "pyking"]
+
+[[cases]]
+file = "fail_typecheck_infer_pinned.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_infer_returns.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "typecheck_infer_polymorphic_arg.pyk"
+targets = ["python", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_infer_generic_lists.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_infer_pipeline.pyk"
+targets = ["python", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_hm_annotated_rank2.pyk"
+targets = ["python", "nodejs", "esm", "html", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_hm_annotation_agrees.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_hm_apply.pyk"
+targets = ["python", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_hm_branch_uses.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_hm_compose.pyk"
+targets = ["python", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_hm_fold.pyk"
+targets = ["python", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_hm_generalisation.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_hm_higher_order.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_hm_letpoly.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_hm_lists.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_hm_loops.pyk"
+targets = ["python", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_hm_map.pyk"
+targets = ["python", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_hm_mutual.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_hm_nested.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_hm_order.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_hm_pipeline.pyk"
+targets = ["python", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_hm_recursion.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_hm_shadowed.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_hm_tuples.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "fail_typecheck_hm_argument.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_hm_infinite.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_hm_occurs.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_hm_rank2.pyk"
+targets = ["pyking"]
+
+[[cases]]
 file = "typecheck_infer_reuse.pyk"
 targets = ["python", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_infer_tail.pyk"
 targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking"]
-
-[[cases]]
-file = "typecheck_infer_used_twice.pyk"
-targets = ["python", "nodejs", "esm", "html", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_int_string.pyk"
@@ -690,6 +790,18 @@ targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking", "p
 [[cases]]
 file = "typecheck_string_recursion.pyk"
 targets = ["python", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "fail_typecheck_type_first_class.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "typecheck_type_first_class_twice.pyk"
+targets = ["python", "nodejs", "esm", "html", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_type_first_class_outer.pyk"
+targets = ["python", "nodejs", "esm", "html", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_type_first_class.pyk"
@@ -934,3 +1046,88 @@ targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret"]
 [[cases]]
 file = "typecheck_singleton_tuple.pyk"
 targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+
+# The unannotated twins: each is a `typecheck_*` program above with
+# every annotation taken off, so its `.ast.out` pins what inference
+# works out where the original wrote it down. Both share a `.out`.
+
+[[cases]]
+file = "typecheck_noann_builtins.pyk"
+targets = ["python", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_noann_division.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_noann_function_if.pyk"
+targets = ["python", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_noann_lexical_capture.pyk"
+targets = ["python", "nodejs", "esm", "html", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_noann_list_pipeline.pyk"
+targets = ["python", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_noann_lists.pyk"
+targets = ["python", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_noann_loop_basic.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_noann_loop_break.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_noann_loop_iteration.pyk"
+targets = ["python", "nodejs", "esm", "html", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_noann_loop_nested.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_noann_loop_result.pyk"
+targets = ["python", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_noann_loop_tuple.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_noann_map_fold.pyk"
+targets = ["python", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_noann_match_lists.pyk"
+targets = ["python", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_noann_match_scalars.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_noann_match_value.pyk"
+targets = ["python", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_noann_recursion.pyk"
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_noann_string_recursion.pyk"
+targets = ["python", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_noann_tco_mutual.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_noann_var_scope.pyk"
+targets = ["python", "interpret", "pyking"]
+

@@ -1,0 +1,38 @@
+# Lists, with every annotation taken off.
+#
+# The twin of tests/typecheck_lists.pyk: the same program, with no parameter
+# type, no return type and no signature line anywhere in it. Its `.out`
+# is that file's `.out`, unchanged -- an annotation says what a program
+# means to a reader and to the checker, never what it does.
+#
+# What this file is really for is its `.ast.out`, which holds the types
+# the checker worked out with nothing to go on but the calls. Read the
+# two side by side: where they differ, inference found something more
+# general than the annotation claimed.
+
+def count(xs):
+    return len(xs)
+
+
+def label(words):
+    match words:
+        case []:
+            return "none"
+        case [only]:
+            return only
+        case [first, ..rest]:
+            return first ++ "..."
+
+
+print([1, 2, 3])
+print(["a", "b"])
+print([true, false])
+print([[1, 2], [3]])
+print([(1, "a"), (2, "b")])
+
+# The empty list fits both, though it has no element type of its own.
+print(count([]), count([1, 2]))
+print(label([]), label(["x"]), label(["x", "y"]))
+
+nested: [[Int]] = [[1], [2, 3]]
+print(nested)

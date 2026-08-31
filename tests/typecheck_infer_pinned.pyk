@@ -1,0 +1,49 @@
+# What pins a parameter, and what leaves it open.
+#
+# A parameter becomes a variable exactly when the body never asks what
+# it is. Every construct below that *does* ask is a construct that pins
+# it, and each pair here shows the two side by side: the same shape of
+# function, once where the body looks and once where it does not.
+
+# An operator asks. `+` relates two Ints and nothing else.
+def added(n): n + 1
+def held(n): n
+
+# A builtin asks. `str` takes several types but the signature can only
+# name one, so the first call decides it.
+def shown(v): str(v)
+def kept(v): v
+
+# A condition asks: it has to be Bool.
+def chosen(c, x): if c then x else x
+def paired(c, x): (c, x)
+
+# A pattern that looks at the shape asks; one that only binds does not.
+def head(xs):
+    match xs:
+        case [first, .._]: first
+        case []: 0
+def whole(xs): xs
+
+# A parameter passed where a type *is* written down is pinned by that
+# annotation, wherever it came from.
+def wanted(n:Int) -> Int: n * 3
+def forwards(n): wanted(n)
+
+print(added(1), held('anything'))
+print(shown(7), kept(true))
+print(chosen(true, 'yes'), paired(false, 9))
+print(head([5, 6]), whole(['a']))
+print(forwards(4))
+
+# The types, printed. Read them in pairs: the pinned one names a type,
+# the open one names a variable.
+a1 = added
+a2 = held
+b1 = shown
+b2 = kept
+c1 = chosen
+c2 = paired
+d1 = head
+d2 = whole
+e1 = forwards

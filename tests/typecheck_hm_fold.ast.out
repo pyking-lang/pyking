@@ -1,0 +1,17 @@
+def fold_left(f:(a, b) -> a, acc:a, lst:[b]) -> a:
+    loop (f, acc, lst): ((a, b) -> a, a, [b]) = (f, acc, lst):
+        match lst:
+            case [x, ..xs]:
+                continue (f, f(acc, x), xs)
+            case []:
+                break acc
+def add(total:Int, n:Int) -> Int:
+    total + n
+def join(text:String, word:String) -> String:
+    text ++ word
+def count(total:Int, word:String) -> Int:
+    total + len(word)
+print(fold_left(add, 0, [1, 2, 3]))
+print(fold_left(join, '', ['a', 'b', 'c']))
+print(fold_left(count, 0, ['ab', 'cde']))
+folding: ((a, b) -> a, a, [b]) -> a = fold_left

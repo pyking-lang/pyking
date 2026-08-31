@@ -1,0 +1,24 @@
+# `fold_left`, whose accumulator and element are two independent types.
+#
+# The accumulator goes into `f` and comes back out of it, so those three
+# are one type; the element comes off the list and is `f`'s second
+# parameter, so those two are another. Nothing relates the two groups,
+# which is why one definition folds a list of Int into an Int and a list
+# of String into a String.
+
+def fold_left(f, acc, lst):
+    match lst:
+        case [x] ++ xs: fold_left(f, f(acc, x), xs)
+        case []: acc
+
+def add(total, n): total + n
+
+def join(text, word): text ++ word
+
+def count(total, word): total + len(word)
+
+print(fold_left(add, 0, [1, 2, 3]))
+print(fold_left(join, '', ['a', 'b', 'c']))
+print(fold_left(count, 0, ['ab', 'cde']))
+
+folding = fold_left

@@ -5,9 +5,10 @@
 # its output has to be a program this compiler still accepts. Two ways
 # it stopped being one:
 #
-#   - a type the checker can infer but the syntax cannot write. `[]` has
-#     element type `!`, which the lexer does not accept, so an
-#     annotation naming it has to be left off rather than printed.
+#   - a type the checker can infer but the syntax cannot write. `[]`
+#     used to have element type `!`, which the lexer does not accept, so
+#     an annotation naming it had to be left off rather than printed.
+#     Its element is now a type variable, which the syntax does write.
 #   - a one-element tuple, whose type the checker prints as `(Int,)`.
 #     Printing it without the comma would say `Int`, and the printed
 #     program would be one this compiler refuses.

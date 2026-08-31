@@ -61,6 +61,7 @@ help:
 	@echo "make check      compile every example headlessly, no browser needed"
 	@echo "make e2e        browser tests (needs Playwright; skips if absent)"
 	@echo "make serve      serve build/ on http://localhost:\$$(PORT)/"
+	@echo "                (re-copies the compiler from src/ first)"
 	@echo "make clean      remove build/"
 	@echo "make distclean  also remove the vendor/ download cache"
 	@echo

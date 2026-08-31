@@ -1,0 +1,29 @@
+# Both uses of a polymorphic parameter reaching the result type.
+#
+# `use_twice` calls `f` at Int and at Bool, and keeps *both* answers --
+# so the two instantiations are not merely made and discarded, they are
+# what the result is built out of. That is the difference from
+# tests/typecheck_type_first_class.pyk, where the two uses are joined
+# into one String, and from tests/typecheck_hm_annotated_rank2.pyk,
+# where they are printed for effect and the function is worth unit.
+#
+# `id` is written with no annotation at all, so it is *inferred*
+# polymorphic and then passed where a written `all` demands a scheme.
+# An inferred scheme and a written one are the same kind of thing here,
+# which is what makes that work (see docs/type_inference.md, "Rank one,
+# and why that is the whole story").
+#
+# The signature also spells the inner function type without parentheses.
+# `a -> a` and `(a) -> a` are one type (PYKING.md, "Type variables"), so
+# the printed AST below normalises it to the parenthesized form.
+
+def use_twice : (all a. a -> a) -> (Int, Bool)
+def use_twice(f):
+    return (f(42), f(true))
+
+
+def id(x):
+    return x
+
+
+print(use_twice(id))

@@ -65,9 +65,9 @@ chain into one ordinary pattern (`_joined_pattern`). For a list that is
 the existing `PList` with its rest marker, so no stage after the parser
 knows the form exists; only the string case needs a node of its own.
 
-`parse_type` follows the same shape one level down: `parse_type_arrow`
-is where a single parameter needs no parentheses (`x -> x` is
-`(x) -> x`), and the parenthesized branch of `parse_type_atom` reads a
+`parse_type` follows the same shape one level down: it is where a
+single parameter needs no parentheses (`x -> x` is `(x) -> x`), and the
+parenthesized branch of `parse_type_atom` reads a
 list followed by `->` as a parameter list and one without as a tuple.
 At one element the comma decides, exactly as it does among values:
 `parse_type_elements` reports whether one came just before the `)`, so

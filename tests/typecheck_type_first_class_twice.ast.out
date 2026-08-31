@@ -1,0 +1,6 @@
+def use_twice : ((all a. (a) -> a)) -> (Int, Bool)
+def use_twice(f):
+    return (f(42), f(true))
+def id(x:a) -> a:
+    return x
+print(use_twice(id))

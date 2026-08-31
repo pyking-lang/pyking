@@ -1,0 +1,21 @@
+# A body has one return type, on every path through it.
+#
+# `maybe` returns an Int on one path and falls off the end of the other,
+# which supplies unit -- two different answers to the one question "what
+# does this function give?". A `def` that wrote its return type down is
+# already refused for exactly this shape; one that did not is refused
+# here, so the two agree.
+#
+# The refusal points at the path that disagreed rather than at the
+# function, the way a loop whose `break`s disagree points at the
+# `break`.
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+def maybe(n):
+    if n > 0:
+        return 1
+    print('nothing')
+
+print(maybe(5))

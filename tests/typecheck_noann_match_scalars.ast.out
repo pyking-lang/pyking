@@ -1,0 +1,22 @@
+def name(n:Int) -> String:
+    match n:
+        case 0:
+            return 'zero'
+        case 1:
+            return 'one'
+        case other:
+            return 'many'
+def initial(word:String) -> Int:
+    match word:
+        case 'alpha':
+            return 1
+        case 'beta':
+            return 2
+        case _:
+            return 0
+print(name(0), name(1), name(7))
+print(initial('alpha'), initial('beta'), initial('gamma'))
+match 9:
+    case 1:
+        print('never')
+print('done')

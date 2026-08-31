@@ -1,13 +1,13 @@
-def echo(x):
+def echo(x:a) -> a:
     x
-def announce(value):
+def announce(value:Int) -> String:
     'got ' ++ str(value)
 number: Int = echo(1)
 word: String = echo('two')
 flag: Bool = echo(true)
 print(number, word, flag)
-print(announce(1), announce(true), announce('x'))
+print(announce(1), announce(2))
 again: Int = echo(3)
 print(again + number)
-same: ((Int) -> Int) | ((String) -> String) | ((Bool) -> Bool) = echo
-told: ((Int) -> String) | ((Bool) -> String) | ((String) -> String) = announce
+same: (a) -> a = echo
+told: (Int) -> String = announce

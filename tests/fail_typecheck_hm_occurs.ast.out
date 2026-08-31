@@ -1,0 +1,2 @@
+'tests/fail_typecheck_hm_occurs.pyk' 16:6-16:7 Type error: argument 1
+  has type (a) -> b, but a was expected

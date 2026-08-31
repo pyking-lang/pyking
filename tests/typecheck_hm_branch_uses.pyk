@@ -1,0 +1,27 @@
+# What is worked out in one branch of an `if` is true in the other.
+#
+# Only one branch runs, but both are checked, and what either settles
+# about a definition holds whichever way the program goes. So the store
+# a branch hands on is the store its sibling is checked against -- not
+# the one they both started from.
+#
+# `pick` is the shape that catches it: `helper` is worked out in the
+# first branch and *used* in the second, so if the second were checked
+# against the store the first started from, `helper` would be worked out
+# twice and the second answer would win.
+
+def helper(x): x
+
+def pick(first, n, word):
+    if first:
+        helper(n)
+    else:
+        helper(n)
+
+def either(first, n):
+    if first then helper(n) else helper(n) + 1
+
+print(pick(true, 1, 'a'))
+print(pick(false, 2, 'b'))
+print(either(true, 5))
+print(helper('after'))

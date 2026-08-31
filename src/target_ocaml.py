@@ -37,7 +37,7 @@ from syntax import (
     ENeg, EList, EListComp, CompFor, CompIf,
     PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, PText, ListRest,
     TargetName, TargetTuple, TInt, TString, TBool, TList, TTuple,
-    TOr, TFunction, TForall,
+    TFunction, TForall,
 )
 
 TARGET = "ocaml"
@@ -1504,7 +1504,7 @@ def _has_forall(type_):
             return True
         case TList(_, element, _):
             return _has_forall(element)
-        case TTuple(_, elements, _) | TOr(_, elements, _):
+        case TTuple(_, elements, _):
             return any(_has_forall(e) for e in elements)
         case TFunction(_, params, result, _, _, _):
             return any(_has_forall(p) for p in params) or _has_forall(result)

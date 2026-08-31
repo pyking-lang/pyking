@@ -1,0 +1,28 @@
+# Composition: three type variables, and where each one comes from.
+#
+# `compose` hands `x` to `g`, whose answer it hands to `f`. Nothing in
+# the body asks what any of them is, so the principal type has one
+# variable per independent question: what goes in (`c`), what the middle
+# is (`a`), and what comes out (`b`).
+#
+# The two variables that have to be *the same* -- `g`'s result and `f`'s
+# parameter -- are the whole content of what composition means, and are
+# what a checker that guessed from a call site would get wrong the
+# moment the two happened to coincide.
+
+def compose(f, g, x): f(g(x))
+
+def id(x): x
+
+def show(n): 'n=' ++ str(n)
+
+def size(s): len(s)
+
+def bump(n): n + 1
+
+print(compose(show, bump, 4))
+print(compose(size, id, 'abcd'))
+print(compose(bump, size, 'xyz'))
+print(compose(id, id, true))
+
+composing = compose

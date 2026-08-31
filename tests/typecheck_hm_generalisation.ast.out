@@ -1,0 +1,14 @@
+def keep(x:a, y:b) -> a:
+    x
+def tag(x:a, n:Int) -> (a, Int):
+    (x, n + 1)
+def hold(n:a) -> ((a, Int), (a, String)):
+    def wrap(other:a):
+        (n, other)
+    (wrap(1), wrap('two'))
+print(keep(1, 'a'), keep(true, 2))
+print(tag('x', 4), tag(true, 9))
+print(hold(7))
+print(hold('seven'))
+keeping: (a, b) -> a = keep
+tagging: (a, Int) -> (a, Int) = tag

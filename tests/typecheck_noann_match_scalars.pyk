@@ -1,0 +1,41 @@
+# Match scalars, with every annotation taken off.
+#
+# The twin of tests/typecheck_match_scalars.pyk: the same program, with no parameter
+# type, no return type and no signature line anywhere in it. Its `.out`
+# is that file's `.out`, unchanged -- an annotation says what a program
+# means to a reader and to the checker, never what it does.
+#
+# What this file is really for is its `.ast.out`, which holds the types
+# the checker worked out with nothing to go on but the calls. Read the
+# two side by side: where they differ, inference found something more
+# general than the annotation claimed.
+
+def name(n):
+    match n:
+        case 0:
+            return "zero"
+        case 1:
+            return "one"
+        case other:
+            return "many"
+
+
+def initial(word):
+    match word:
+        case "alpha":
+            return 1
+        case "beta":
+            return 2
+        case _:
+            return 0
+
+
+print(name(0), name(1), name(7))
+print(initial("alpha"), initial("beta"), initial("gamma"))
+
+# A `match` that fits no arm does nothing, and is a statement.
+match 9:
+    case 1:
+        print("never")
+
+print("done")

@@ -1,0 +1,29 @@
+# Which variables may be generalised, and which may not.
+#
+# A definition is generalised over what its body never had to decide.
+# `keep` decides nothing about either parameter, so both become
+# variables. `tag` decides its second (it adds 1 to it) and nothing
+# about its first, so only the first does.
+#
+# `hold` is the case that has to *not* generalise: `n` is its own
+# parameter, so the inner `wrap` is written in a scope where `n` already
+# has a type, and `wrap`'s use of it cannot be generalised over -- the
+# caller of `hold` chose it, not `wrap`. That is Hindley-Milner's rule
+# that a variable free in the environment stays free, and getting it
+# wrong is unsound rather than merely imprecise.
+
+def keep(x, y): x
+
+def tag(x, n): (x, n + 1)
+
+def hold(n):
+    def wrap(other): (n, other)
+    (wrap(1), wrap('two'))
+
+print(keep(1, 'a'), keep(true, 2))
+print(tag('x', 4), tag(true, 9))
+print(hold(7))
+print(hold('seven'))
+
+keeping = keep
+tagging = tag

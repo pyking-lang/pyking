@@ -1,0 +1,27 @@
+# Application, and the principal type of the function that does it.
+#
+# `apply` never asks what its arguments are: it hands one to the other
+# and hands back the answer. Hindley-Milner infers `((a) -> b, a) -> b`
+# for that body, and nothing less general will do -- the three calls
+# below use it at three different pairs of types, and one definition has
+# to serve all of them.
+#
+# The second and third calls are the ones that used to fail. `id` is
+# polymorphic, so passing it settles nothing about `a` and `b` beyond
+# their being equal *for that call*; a checker that read `apply`'s
+# parameter types off its first call would have fixed them there.
+
+def apply(f, x): f(x)
+
+def id(x): x
+
+def bump(n): n + 1
+
+def show(n): 'n=' ++ str(n)
+
+print(apply(id, 3))
+print(apply(id, 'hi'))
+print(apply(bump, 1))
+print(apply(show, 7))
+
+applying = apply

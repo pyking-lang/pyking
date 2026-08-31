@@ -1,0 +1,24 @@
+# Two list functions that call each other, used at two element types.
+#
+# `append` walks its first argument and hands the second back untouched,
+# so both are lists of the same something and nothing here says what.
+# `reverse` calls it, and what comes back out of that call is what
+# `reverse` is worth -- so the variable `append` was worked out with has
+# to survive the trip back into the body that asked for it. Without
+# that, `reverse` would be `([Int]) -> [Int]` and the second call below
+# would be refused.
+
+def append(one, other):
+    match one:
+        case [x] ++ xs: [x] ++ append(xs, other)
+        case []: other
+
+def reverse(lst):
+    match lst:
+        case [x] ++ xs: append(reverse(xs), [x])
+        case []: []
+
+print(append([1, 2], [3]))
+print(reverse([1, 2, 3]))
+print(reverse(['a', 'b']))
+print(append(reverse([true]), [false]))

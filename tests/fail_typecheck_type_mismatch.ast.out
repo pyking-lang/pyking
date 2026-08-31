@@ -1,3 +1,2 @@
-'tests/fail_typecheck_type_mismatch.pyk' 18:15-18:20 Type error: 'a'
-  is Int in this call, from an earlier argument, but argument 2 makes
-  it String
+'tests/fail_typecheck_type_mismatch.pyk' 18:15-18:20 Type error:
+  argument 2 has type String, but Int was expected

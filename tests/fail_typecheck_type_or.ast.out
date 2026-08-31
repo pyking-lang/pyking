@@ -1,4 +1,0 @@
-'tests/fail_typecheck_type_or.pyk' 12:0-13:12 Type error: this type
-  has both type variables (a) and a `|` alternative; a signature may
-  use one or the other, since an alternative says what a name was
-  inferred to be and a variable says the caller chooses

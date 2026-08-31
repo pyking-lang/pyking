@@ -159,29 +159,26 @@ checker's answer.
 look up `node.sym` there and print *that*; otherwise fall back to the
 node's own field. `_annotation` and `_function_header`/
 `_return_annotation` all route through it. The interesting corner is a
-`def` the checker gave more than one type — `merge` in `typesystem.py`
-built a `TOr` for it, because it was called at two different argument
-shapes (see [type_inference.md](type_inference.md)) — and there is
-simply no slot in `def name(params) -> result` syntax to write two
-answers at once, one per parameter and one per result, correlated. Given
-that, `_function_header` falls back to printing the `def` exactly as
-written, annotations and all, rather than trying to cram an
-uncorrelated summary into a shape that can't hold it. That is the same
-principle `typesystem.py`'s own design note states about `merge`: when
-a type can't be written down in the syntax available, print less, never
-print something that isn't true.
+*parameter* whose own type is quantified — `f: all a. (a) -> a`, which
+is what a body using its argument at two types infers (see
+[type_inference.md](type_inference.md)). That `all` is not the
+signature's outermost one, so unlike the outermost it has to be printed:
+`f: (a) -> a` in a signature quantified further out is a different and
+weaker claim, and printing it would say something the checker does not
+enforce. `_pprint_param` is where that is decided. The principle is
+`typesystem.py`'s own: when a type can't be written down in the syntax
+available, print less, never print something that isn't true.
 
 `_spellable` applies that same principle one level down, to types rather
-than to whole signatures. `TUnknown` and `TNever` print as `?` and `!`,
-which the lexer does not accept, and `TBuiltin` names an operation
-rather than a value — so an annotation whose type holds one of them
-anywhere is left off entirely. The type of `[]` is `[!]`, which makes
-this an ordinary program's problem rather than a corner of unreachable
-code: `xs = []` would otherwise print as `xs: [!] = []`, and the
-`pyking` target's whole promise is output this compiler can read back.
-Printing no annotation there loses nothing, since the checker infers the
-same type again from the same expression.
-`tests/typecheck_pyking_reparse.pyk` pins it.
+than to whole signatures. `TUnknown` prints as `?`, which the lexer does
+not accept, and `TBuiltin` names an operation rather than a value — so
+an annotation whose type holds one of them anywhere is left off
+entirely. The type of `[]` used to be `[!]`, which made this an ordinary
+program's problem rather than a corner of unreachable code: `xs = []`
+printed as `xs = []` with no annotation at all, because `xs: [!] = []`
+is not something this compiler can read back. Its element type is now a
+flexible type variable, so it prints as `xs: [a] = []` and does read
+back. `tests/typecheck_pyking_reparse.pyk` pins it.
 
 `symbols` and `tmap` are **module-level variables** (`_show_symbols`,
 `_tmap`), not parameters threaded through every one of the dozen

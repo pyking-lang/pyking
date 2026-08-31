@@ -1,0 +1,68 @@
+# Loop iteration, with every annotation taken off.
+#
+# The twin of tests/typecheck_loop_iteration.pyk: the same program, with no parameter
+# type, no return type and no signature line anywhere in it. Its `.out`
+# is that file's `.out`, unchanged -- an annotation says what a program
+# means to a reader and to the checker, never what it does.
+#
+# What this file is really for is its `.ast.out`, which holds the types
+# the checker worked out with nothing to go on but the calls. Read the
+# two side by side: where they differ, inference found something more
+# general than the annotation claimed.
+
+def count_down(from_):
+    # A `while` with no accumulator: nothing is carried, so the
+    # condition can only be about what is already in scope -- which is
+    # why a `while` on its own needs a `break` to end (or a condition
+    # that was false to begin with).
+    while from_ > 0:
+        print(from_)
+        break
+    return "counted"
+
+
+def scan(xs):
+    # `break` with no value leaves at once; the loop is worth unit and
+    # the binding takes that.
+    nothing = for x in xs:
+        if x == 0:
+            break
+        print(x)
+    return "scanned"
+
+
+def skipping(xs):
+    # `continue` with no value starts the next turn.
+    for x in xs:
+        if x < 0:
+            continue
+        print(x)
+    return "filtered"
+
+
+def nested(xss):
+    # A `break` belongs to the innermost loop, so the inner one leaves
+    # without touching the outer.
+    for xs in xss:
+        for x in xs:
+            if x == 0:
+                break
+            print(x)
+    return "nested"
+
+
+def never_runs(xs):
+    # Zero turns is not a special case: the loop is worth unit either
+    # way, and nothing here observes it.
+    for x in xs:
+        print(x)
+    while false:
+        print(0)
+    return 1
+
+
+print(count_down(3), count_down(0))
+print(scan([1, 2, 0, 3]))
+print(skipping([1, 0 - 1, 2]))
+print(nested([[1, 2], [3, 0, 4]]))
+print(never_runs([]))

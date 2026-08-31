@@ -1,4 +1,0 @@
-'tests/fail_typecheck_infer_recursion.pyk' 18:0-19:22 Type error:
-  cannot work out what 'forever' returns: every way through its body
-  calls it again. Annotate its return type, or return a value on some
-  path that does not recurse

@@ -1,0 +1,51 @@
+# Call-based inference, and the type variables it works out.
+#
+# Nothing here is annotated. `map` is worked out the first time
+# something calls it, and the parameter types that call passed are
+# carried through its body -- but *marked*, so that what the body did
+# to each can be told from what it happened to be. What the body never
+# looked at is what a type variable can stand for.
+#
+# `map` is first called with `double` and a list of Ints. Its body pulls
+# the list apart, so it has to be a list; it hands elements to `f` and
+# collects what comes back, and it never asks what either of those is.
+# So `map` is worked out as
+#
+#     ((a) -> b, [a]) -> [b]
+#
+# which is its most general type, and the reason the second call --
+# `label`, which answers with a String -- goes through the same
+# definition without it being checked again.
+#
+# `double` is the other half. Its body multiplies, and `*` asks what its
+# operands are, so nothing about `double` is a variable: it is
+# `(Int) -> Int` and nothing more general would be true.
+#
+# The signature the marks propose is not taken on trust. It is checked
+# against the body again, with its variables rigid -- the same check an
+# annotated polymorphic function gets -- so a proposal the marks got
+# wrong costs generality and never soundness.
+
+def map(f, lst):
+    match lst:
+        case [x, ..xs]:
+            [f(x)] ++ map(f, xs)
+        case []:
+            []
+
+def double(n): n * 2
+
+def label(n): 'n=' ++ str(n)
+
+numbers = [1, 4, 6, 9]
+
+print(map(double, numbers))
+print(map(label, numbers))
+
+# The same definition again, at a third element type -- `map` never asks
+# what it is carrying.
+print(map(double, [10, 20]))
+
+# Bound so the printed AST shows the types themselves.
+mapping = map
+doubling = double

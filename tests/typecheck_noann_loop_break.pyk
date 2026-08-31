@@ -1,0 +1,61 @@
+# Loop break, with every annotation taken off.
+#
+# The twin of tests/typecheck_loop_break.pyk: the same program, with no parameter
+# type, no return type and no signature line anywhere in it. Its `.out`
+# is that file's `.out`, unchanged -- an annotation says what a program
+# means to a reader and to the checker, never what it does.
+#
+# What this file is really for is its `.ast.out`, which holds the types
+# the checker worked out with nothing to go on but the calls. Read the
+# two side by side: where they differ, inference found something more
+# general than the annotation claimed.
+
+def count_to(limit):
+    # The accumulator says what the loop *carries*; the `break` says
+    # what it is *worth*. Here they happen to be the same type.
+    return loop i = 0:
+        if i >= limit:
+            break i
+        else:
+            continue i + 1
+
+
+def name_of(limit):
+    # And here they are not: the loop carries an Int and is worth a
+    # String. Nothing requires them to agree.
+    return loop i = 0:
+        if i >= limit:
+            break "enough"
+        else:
+            continue i + 1
+
+
+def nothing(limit):
+    # A bare `break` is `break ()`, so this loop is worth unit.
+    return loop i = 0:
+        if i >= limit:
+            break
+        else:
+            continue i + 1
+
+
+def spin():
+    # No `break` at all: this never ends, so it is worth `!`, which
+    # satisfies the declared `Int` without ever producing one.
+    loop:
+        continue
+
+
+def carried():
+    # A loop carrying a pair, broken with the pair.
+    return loop n, s = 0, "":
+        if n > 2:
+            break (n, s)
+        else:
+            continue n + 1, s ++ "x"
+
+
+print(count_to(3), count_to(0))
+print(name_of(2))
+print(nothing(2))
+print(carried())

@@ -1,0 +1,46 @@
+# Three generic functions, each pinned down to exactly as much as its
+# body looks at.
+#
+# `filter` asks its predicate for a Bool, because an `if` demands one --
+# so the result is fixed at Bool while the element stays open. `zip`
+# takes two lists apart and puts a pair together, and never asks what is
+# in either, so it keeps two variables and reports the pair. `fold`
+# hands its accumulator back to `f` on every turn, which is what makes
+# the accumulator and `f`'s first parameter one type.
+#
+# Each is worked out once, at its first call, and used again below at
+# other types -- which is what a type variable is for.
+
+def filter(p, lst):
+    match lst:
+        case [x] ++ xs:
+            if p(x):
+                [x] ++ filter(p, xs)
+            else:
+                filter(p, xs)
+        case []: []
+
+def zip(one, other):
+    match (one, other):
+        case ([x] ++ xs, [y] ++ ys): [(x, y)] ++ zip(xs, ys)
+        case (_, _): []
+
+def fold(f, acc, lst):
+    match lst:
+        case [x] ++ xs: fold(f, f(acc, x), xs)
+        case []: acc
+
+def small(n): n < 4
+
+def short(word): len(word) < 3
+
+def add(total, n): total + n
+
+def join(text, word): text ++ word
+
+print(filter(small, [1, 7, 2, 9]))
+print(filter(short, ['ab', 'long', 'c']))
+print(zip([1, 2], ['a', 'b']))
+print(zip([true], [(1, 'x')]))
+print(fold(add, 0, [1, 2, 3]))
+print(fold(join, '', ['a', 'b']))

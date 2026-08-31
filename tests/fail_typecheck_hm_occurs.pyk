@@ -1,0 +1,18 @@
+# The occurs check: a type that would have to contain itself.
+#
+# `f(f)` says `f`'s parameter is `f`'s own type, so whatever `f` is, it
+# is a function taking a value of that same type -- an infinite type,
+# which no finite annotation could write and which unification refuses
+# rather than looping forever building.
+#
+# This is the one refusal Hindley-Milner adds that a simpler checker
+# does not have: it is not a mistake about which type something is, but
+# about there being one at all.
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+def selfish(f):
+    f(f)
+
+print(selfish(1))

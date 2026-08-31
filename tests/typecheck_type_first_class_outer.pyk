@@ -1,0 +1,44 @@
+# A polymorphic parameter that also mentions a variable from outside it.
+#
+# `extract`'s parameter is quantified over `r`, and the type it is
+# quantified *over* mentions `a` -- which belongs to `extract` itself,
+# and so is chosen by whoever calls it. The two quantifiers are nested
+# rather than side by side:
+#
+#     extract : all a. (all r. ((a) -> r) -> r) -> a
+#                       ^ written here          ^ but `a` is out here
+#
+# So checking `extract(pack_int)` cannot compare the two types as they
+# stand: the parameter's `a` is still open at that point, and `Int` is
+# what the argument says it should be. The two schemes are made one by
+# renaming both `r`s to the same fresh variable and unifying underneath,
+# which solves `a := Int` -- see docs/type_inference.md, "Unifying under
+# a quantifier".
+#
+# What the program does is take a value out of a function that will only
+# hand it over through a continuation. `pack_int` never returns its 41;
+# it passes it to whatever it is given, and `extract` gives it
+# `identity`, which hands it straight back. That is why one definition
+# of `extract` serves both packers although they carry different types.
+
+def identity : a -> a
+def identity(x):
+    return x
+
+
+def extract : (all r. ((a) -> r) -> r) -> a
+def extract(packed):
+    return packed(identity)
+
+
+def pack_int : all r. ((Int) -> r) -> r
+def pack_int(k):
+    return k(41)
+
+
+def pack_string : all r. ((String) -> r) -> r
+def pack_string(k):
+    return k('hello')
+
+
+print(extract(pack_int), extract(pack_string))

@@ -1,0 +1,38 @@
+# Tuples, and a variable per component.
+#
+# Nothing here asks what any component is, so each stays its own
+# variable and the shape is the whole of what these functions mean.
+# `swap` is the clearest: `((a, b)) -> (b, a)` says the two come back in
+# the other order and says nothing else.
+#
+# `curry` and `uncurry` are the pair that needs three variables at once,
+# and they are what a checker gets wrong if it collapses two variables
+# that merely happened to be equal at one call.
+
+def fst(p):
+    match p:
+        case (a, b): a
+
+def snd(p):
+    match p:
+        case (a, b): b
+
+def swap(p): (snd(p), fst(p))
+
+def uncurry(f, p): f(fst(p), snd(p))
+
+def make_pair(x, y): (x, y)
+
+def add(a, b): a + b
+
+def join(a, b): a ++ b
+
+print(swap((1, 'a')))
+print(swap((true, 2)))
+print(fst(swap(('x', 9))))
+print(uncurry(add, (2, 3)))
+print(uncurry(join, ('ab', 'cd')))
+print(uncurry(make_pair, (1, true)))
+
+swapping = swap
+pairing = make_pair

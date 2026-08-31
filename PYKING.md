@@ -234,8 +234,7 @@ function_sig = "def" , ident , ":" , type ;
 params       = param , { "," , param } ;
 param        = ident , [ ":" , type ] ;
 
-type         = type_arrow , { "|" , type_arrow } ;
-type_arrow   = type_atom , [ "->" , type ] ;
+type         = type_atom , [ "->" , type ] ;
 type_atom    = "Int" | "String" | "Bool"
              | type_var
              | "all" , type_var , { type_var } , "." , type
@@ -2426,32 +2425,18 @@ always be refused.
 The checker works in the types "Type annotations" lists, and no others:
 `Int`, `String`, `Bool`, list types `[T]`, tuple types `(T1, T2, ...)`
 — with `(T,)` the one-element one and `()`, the zero-element tuple, the
-unit type — function types
-`(T1, T2, ...) -> T`, and *alternative* types `T1 | T2`.
+unit type — function types `(T1, T2, ...) -> T`, and type *variables*
+(see "Type variables" below).
 
-An alternative type is a value that is one of several: `Int | String` is
-satisfied by an integer and by a string, and by nothing else. It is
-written with `|`, which binds looser than everything else a type is
-built from, so a function alternative needs its own parentheses:
-
-```pyking
-first: Int | String = 41
-second: Int | String = 'forty-two'
-
-
-def render(value:Int | String) -> String:
-    str(value)
-
-
-print(render(first), render(second))
-```
-
-A builtin accepts an alternative type when it accepts every one of the
-alternatives — `str` above takes `Int | String` because it takes each of
-them. An operator does not: `+` needs to know which signature it is,
-and `Int | String` is not one of them. There is no narrowing, and there
-are no type variables; alternatives are the whole of what the language
-can say about "one of these".
+There is no "one of these" type. A value is an `Int` or it is a
+`String`; nothing says it may be either, and there is no narrowing that
+would make such a thing usable. A function that has to serve several
+types serves them the way `map` does — with a variable, which says the
+*caller* chooses and the body does not care. Where the body does care
+— `str(value)`, say, which asks what it was given — there is nothing to
+write and nothing to infer, and the definition means the one type it
+was first used at. Closing that gap needs something like type classes,
+which Pyking does not have.
 
 The function type is the one a program rarely writes but the checker
 constantly infers, since it is what a `def`'s *name* means. So it is
@@ -2845,21 +2830,37 @@ def both_ways(f):
 Without the inner `all` the variable would be bound at the top, and `f`
 would be a function at one type for the whole body.
 
-Two limits, both deliberate. Type variables are **written, never
-inferred** — a `def` with no annotations is worked out the way it always
-was, in alternatives (see "Functions without annotations"), and no
-program acquires a variable it did not write. And variables may **not be
-mixed with `|`** in one signature: an alternative says what a name was
-inferred to be, a variable says the caller decides, and no rule relates
-the two.
+**A polymorphic value fits wherever one of its instances does.** Every
+instance of `all a. (a) -> a` exists, so it is a `(Int) -> Int` where
+one is asked for. The inner `all` above is the stronger demand, and only
+a value that really is polymorphic meets that one:
+
+```pyking
+def apply(f:(Int) -> Int, x:Int) -> Int:
+    return f(x)
+
+
+def id(x:a) -> a:
+    return x
+
+
+print(apply(id, 3))                  # 3
+```
+
+Type variables are **written and also inferred**. A `def` with no
+annotations gets one wherever its body never asks what a parameter is
+(see "Functions without annotations"), so the two halves of this
+section describe one kind of type reached two ways — and the inferred
+half is checked against the body exactly as a written one is.
 
 ### Lists and `match`, checked
 
 A list literal's elements agree on one type, the way an `if`'s branches
 do and for the same reason: they are all elements of the same list. The
 empty list is the exception that proves it — with nothing to disagree,
-`[]` is `[!]`, and since a Pyking list is immutable it fits wherever a
-list of anything is wanted:
+`[]` is `[a]` for a type variable nothing has constrained, and since a
+Pyking list is immutable it fits wherever a list of anything is
+wanted:
 
 ```pyking
 def count(xs:[Int]) -> Int:
@@ -2882,7 +2883,7 @@ wins, which is what lets a base case return `[]`:
 def reverse(xs:[Int]) -> [Int]:
     match xs:
         case []:
-            return []                    # [!], and so [Int] here
+            return []                    # [a], and so [Int] here
         case [x, ..rest]:
             return reverse(rest) ++ [x]
 ```
@@ -2928,21 +2929,30 @@ being an error, matching what the construct already means.
 ### Functions without annotations
 
 A `def` that did not write its type down is not checked where it is
-written. It is checked the first time something **calls** it, with its
-parameters taken from that call — so the annotations a program leaves
-out are supplied by its own use of the function, and everything above
-applies unchanged:
+written. It is worked out the first time something **calls** it — but
+not *from* that call. Its parameters start as types nothing has decided,
+and what the **body** does with them is what decides them:
 
 ```pyking
 def double(n):
     n * 2                    # nothing is checked here ...
 
 
-doubled = double(21)         # ... here: n is Int, so double is (Int) -> Int
+doubled = double(21)         # ... here: `*` says n is Int, so double
+                             # is (Int) -> Int
 ```
 
-Three rules follow from "checked at the call", and they are the whole of
-what a program has to know:
+What comes out is the **principal type**: the most general type the body
+has, from which every type it can be used at follows. So a definition is
+worth the same whatever calls it and in whatever order:
+
+```pyking
+def apply(f, x):
+    f(x)                     # apply : ((a) -> b, a) -> b, always
+```
+
+Three rules follow, and they are the whole of what a program has to
+know:
 
 **An annotation that *is* written is still a claim.** A half-annotated
 `def` is checked against what it did say, at every call, exactly as a
@@ -2958,10 +2968,10 @@ print(scale(6, 7))
                              #        Int was expected
 ```
 
-**A body is still checked where it is written.** The call decides what
-the parameters are; it does not decide what else is in scope. A body
-that names something bound *after* the `def` is an error, however late
-the call comes:
+**A body is still checked where it is written.** The call says *when*
+the body is checked; it does not say what is in scope while it is. A
+body that names something bound *after* the `def` is an error, however
+late the call comes:
 
 ```pyking
 def f(n):
@@ -2972,13 +2982,10 @@ offset = 10
 print(f(1))
 ```
 
-**A function used at two types is checked twice**, once each way, and
-each call has the type its own arguments give it. Such a function has
-*two types*, and that is what it is — one alternative per shape of call,
-each keeping its own parameters and result together. Nothing is
-*inferred* with type variables: they are written, never guessed (see
-"Type variables"), so a function with no annotations is described by
-alternatives instead:
+**A definition is worked out once**, at its first call, and every later
+call uses what came out. A parameter the body never asks about becomes a
+**type variable**, which is what lets one definition serve every later
+call, at a different type each time:
 
 ```pyking
 def echo(x):
@@ -2987,38 +2994,110 @@ def echo(x):
 
 number = echo(1)             # number : Int
 word = echo('two')           # word   : String
-same = echo                  # same : ((Int) -> Int) | ((String) -> String)
+same = echo                  # same : (a) -> a
 ```
 
-The alternatives are not interchangeable: `((Int, Int) -> Int) |
-((String, String) -> String)` accepts two Ints or two Strings, and
-refuses one of each — which a single `(Int | String, Int | String) ->
-Int | String` would have allowed. A `def` with several types is printed
-as it was *written* by `-t pyking`, since a `def` header has one
-slot per parameter and no way to say which result goes with which; bind
-it to a name to see the whole type.
-
-**Recursion needs a value on some path.** A recursive call cannot be
-typed while the type it would give is still being worked out, so the
-checker takes the answer from the paths that do *not* recurse and then
-checks the whole body against it. A function whose every path recurses
-has nothing to be worked out from, and is refused:
+A parameter the body asks a question no *one* type answers is the
+exception. `str` accepts an Int, a String and a Bool, and Pyking has no
+way to say "any of those" — so such a parameter cannot become a variable
+and is fixed instead to what the first call passed:
 
 ```pyking
-def fact(n):                 # fine: the first branch says Int
+def announce(value):
+    'got ' ++ str(value)     # `str` asks what it was given
+
+
+print(announce(1))           # announce : (Int) -> String
+# print(announce(true))      # error: argument 1 has type Bool, but Int
+                             #        was expected
+```
+
+That is a real limit rather than an oversight, and a written annotation
+would not help either, because there is none to write.
+
+**A parameter is not generalised.** A parameter used at *two* types
+inside one body would have to be polymorphic itself, and inference does
+not invent that — a `def` gets a type variable, a parameter gets a type:
+
+```pyking
+def use(f):
+    print(f(1), f(true))     # error: argument 1 has type Bool, but Int
+                             #        was expected
+```
+
+Writing the type down is how that program is expressed, and the checker
+then enforces it (see "Type variables" above for the `all`):
+
+```pyking
+def use : (all a. (a) -> a) -> ()
+def use(f):
+    print(f(1), f(true))     # fine: `f` is polymorphic because it says so
+```
+
+That line is deliberate. Inferring such a type is undecidable in
+general, and guessing at it made the checker's answers depend on the
+order a program's calls were written in. Inference has one guarantee —
+the principal type, always — and first-class polymorphism is written
+rather than guessed.
+
+**Handing over a polymorphic function does not narrow what receives
+it.** What a body asks of a parameter is what that parameter is worth,
+and being passed something more general than it asked for changes
+nothing about the body:
+
+```pyking
+def id(x): x
+
+
+def apply(f, x):             # apply : ((a) -> b, a) -> b
+    f(x)
+
+
+def bump(n): n + 1
+
+
+print(apply(id, 'hi'))       # hi
+print(apply(bump, 1))        # 2
+```
+
+The same definition serves both calls, and it would serve them in either
+order: what `apply` is worth does not depend on which caller reached it
+first.
+
+The inferred signature is not taken on trust. The body is checked
+against it a second time with the variables rigid — the same check an
+annotated polymorphic function gets — so what is reported is always
+something the checker enforces.
+
+**Recursion is not a special case.** While a body is checked, its own
+name means a plain type rather than a variable one, so a recursive call
+is an ordinary call and its result is one more thing the body decides:
+
+```pyking
+def fact(n):                 # (Int) -> Int
     if n < 1:
         1
     else:
         n * fact(n - 1)
 
 
-# def forever(n):            # error: cannot work out what 'forever'
-#     forever(n + 1)         #        returns: every way through its
-                             #        body calls it again
+def forever(n):              # (Int) -> Int: `+ 1` says what the
+    forever(n + 1) + 1       # recursive call gave back
 ```
 
-Annotating the return type removes the question entirely, and is the
-answer for a function that genuinely has no non-recursive path.
+Functions that name **each other** are worked out together and get their
+type variables together, so `even` and `odd` below are one question with
+one answer. A function they merely call is worked out first, and is
+polymorphic by the time they use it.
+
+```pyking
+def even(n):
+    if n == 0 then true else odd(n - 1)
+
+
+def odd(n):
+    if n == 0 then false else even(n - 1)
+```
 
 **Two functions of unknown type are indistinguishable**, so an `if` that
 yields one of them is refused: nothing could say which of the two a

@@ -1,0 +1,15 @@
+(foo, bar): (Int, Bool) = loop (x, y): (Int, Bool) = (0, true):
+    if x <= 10:
+        continue (x + 1, y)
+    else:
+        break (x + 100, false)
+print(foo, bar)
+def summed(limit:Int) -> (Int, Int):
+    loop acc: (Int, Int) = (0, 1):
+        (total, k): (Int, Int) = acc
+        if k > limit:
+            break (total, k)
+        else:
+            continue (total + k, k + 1)
+print(summed(10))
+print(summed(0))

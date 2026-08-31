@@ -1,0 +1,35 @@
+# Loop basic, with every annotation taken off.
+#
+# The twin of tests/typecheck_loop_basic.pyk: the same program, with no parameter
+# type, no return type and no signature line anywhere in it. Its `.out`
+# is that file's `.out`, unchanged -- an annotation says what a program
+# means to a reader and to the checker, never what it does.
+#
+# What this file is really for is its `.ast.out`, which holds the types
+# the checker worked out with nothing to go on but the calls. Read the
+# two side by side: where they differ, inference found something more
+# general than the annotation claimed.
+
+counted =
+loop x = 5:
+    if x <= 10:
+        continue x + 1
+    else:
+        break x
+
+print(counted)
+
+
+# A loop is an expression's equal in every position a value-form
+# statement may stand: here it is a function's whole body, so what it
+# stops with is what the function returns.
+def multiple_over(start, limit):
+    loop n = start:
+        if n > limit:
+            break n
+        else:
+            continue n * 2
+
+
+print(multiple_over(1, 100))
+print(multiple_over(3, 3))

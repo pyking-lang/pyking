@@ -1,0 +1,21 @@
+def collect(lst:[a]) -> [a]:
+    loop kept: [Int] = [] for x in lst result kept:
+        continue kept ++ [x]
+def total(lst:[Int]) -> Int:
+    loop sum: Int = 0 for n in lst result sum:
+        continue sum + n
+def any_of(lst:[a], ok:(a) -> Bool) -> Bool:
+    for x in lst result false:
+        if ok(x):
+            break true
+        continue
+def big(n:Int) -> Bool:
+    n > 1
+def long_word(w:String) -> Bool:
+    len(w) > 2
+print(collect([1, 2, 3]))
+print(collect(['a', 'b']))
+print(total([1, 2, 3]))
+print(any_of([1, 2], big), any_of(['ab'], long_word))
+collecting: ([a]) -> [a] = collect
+anything: ([a], (a) -> Bool) -> Bool = any_of

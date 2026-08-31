@@ -78,13 +78,11 @@ from lexer import Info
 #     TBool(info: Info, sym: Int)
 #     TList(info: Info, element: Type, sym: Int)
 #     TTuple(info: Info, elements: [Type], sym: Int)
-#     TOr(info: Info, alternatives: [Type], sym: Int)
 #     TUnknown(info: Info, sym: Int)
-#     TNever(info: Info, sym: Int)
 #     TBuiltin(info: Info, name: String, sym: Int)
 #     TFunction(info: Info, params: [Type], result: Type, sym: Int,
 #               tmsym: Int, definition: SFunctionDef?)
-#     TVar(info: Info, name: String, sym: Int)
+#     TVar(info: Info, name: String, sym: Int, rigid: Bool)
 #     TForall(info: Info, vars: [String], body: Type, sym: Int)
 #
 # datatype Pattern:
@@ -331,35 +329,12 @@ class TTuple(Type):         # (e1, e2, ...); zero elements is the Unit type "()"
 
 
 @dataclass(frozen=True)
-class TOr(Type):            # T1 | T2 | ...
-    info: Info              # A value of this type is one of the alternatives.
-    alternatives: list      # How an *inferred* name that means different
-    sym: int = 0            # things in different places is described:
-                            # `Int | String` (see docs/type_inference.md).
-                            # Unrelated to `TVar`, which is a variable an
-                            # annotation wrote and a caller chooses; the two
-                            # may not be mixed in one signature.
-
-
-@dataclass(frozen=True)
 class TUnknown(Type):       # ?
     info: Info              # A type nothing has decided yet: an unannotated
     sym: int = 0            # parameter or return type, standing in until a
                             # call site says what it is. Never written in
                             # source, and never the final answer for anything
                             # the checker finished checking.
-
-
-@dataclass(frozen=True)
-class TNever(Type):         # !
-    info: Info               # The type of something that never happens:
-    sym: int = 0             # what a loop nothing breaks out of supplies,
-                             # since it has no way to finish. Every type
-                             # accepts it (there is no value to be wrong
-                             # about), which is what lets a function whose
-                             # body is such a loop honour any return type.
-                             # Never written in source and never inferred
-                             # for an expression.
 
 
 @dataclass(frozen=True)
@@ -408,7 +383,19 @@ class TVar(Type):           # a lowercase name: a type the caller chooses
     info: Info               # Bound by the `TForall` around it -- every free
     name: str                # variable of a written annotation is quantified
     sym: int = 0             # at its outermost level, so one never escapes
-                             # (see PYKING.md, "Type variables").
+    rigid: bool = True       # (see PYKING.md, "Type variables").
+                             #
+                             # `rigid` is false for a variable the *checker*
+                             # made rather than the source: the element type
+                             # of `[]`, which nothing has constrained. A
+                             # rigid variable is the caller's choice and is
+                             # `same_type` only with itself; a flexible one
+                             # stands for a type no value of it will ever
+                             # occupy, so every type accepts it and it
+                             # accepts every type. Both print the same, and
+                             # a flexible one read back from printed output
+                             # returns as rigid -- which says the same thing
+                             # about the program.
 
 
 @dataclass(frozen=True)
@@ -530,26 +517,12 @@ def _pprint_type(t):
             # exactly as the singleton *value* `(e,)` does.
             inside = ", ".join(_grouped(e) for e in elements)
             return f"({inside},)" if len(elements) == 1 else f"({inside})"
-        case TOr(_, alternatives):
-            # `|` binds looser than anything else a type can be, so the
-            # alternatives never need parentheses of their own -- except a
-            # function type, whose `->` would otherwise swallow what
-            # follows it.
-            return " | ".join(
-                f"({pprint_type_nested(a)})"
-                if isinstance(a, (TFunction, TForall)) else pprint_type(a)
-                for a in alternatives
-            )
         case TUnknown(_):
             # Only ever printed for something the checker was asked about
             # before anything had decided it -- a parameter of a function
             # nothing calls. It is deliberately not spellable in source:
             # there is nothing a program could mean by it.
             return "?"
-        case TNever(_):
-            # A binding whose value never arrives, which only unreachable
-            # code can have. Not spellable in source either.
-            return "!"
         case TBuiltin(_, name):
             # A host operation, which is not a value and so is never the
             # type of anything printed. Here for the sake of covering the
@@ -580,7 +553,12 @@ def _pprint_param(p):
     type_ = _node_type(p, p.type)
     if type_ is None:
         return p.name
-    return f"{p.name}:{_pprint_annotation_type(type_)}"
+    # A parameter's own `all` is not the signature's outermost one, so
+    # it is printed: `f: all a. (a) -> a` takes a polymorphic function,
+    # while `f: (a) -> a` in a signature quantified further out takes
+    # whatever that signature's caller chose. Dropping it here would
+    # print the second where the first was meant.
+    return f"{p.name}:{_grouped(type_) if isinstance(type_, TForall) else _pprint_annotation_type(type_)}"
 
 
 def _wrap(prec, min_prec, s):
@@ -1191,16 +1169,16 @@ def _pprint_annotation_type(t):
 
 def _spellable(t):
     """Whether a type can be written in Pyking's own syntax. `TUnknown`
-    and `TNever` print as `?` and `!`, which the lexer does not accept,
-    and `TBuiltin` names an operation rather than a value -- so a type
-    holding one of them anywhere is printed as no annotation at all,
-    rather than as text that cannot be read back. Type? -> Bool"""
+    prints as `?`, which the lexer does not accept, and `TBuiltin` names
+    an operation rather than a value -- so a type holding one of them
+    anywhere is printed as no annotation at all, rather than as text
+    that cannot be read back. Type? -> Bool"""
     match t:
-        case TUnknown() | TNever() | TBuiltin():
+        case TUnknown() | TBuiltin():
             return False
         case TList(_, element, _):
             return _spellable(element)
-        case TTuple(_, elements, _) | TOr(_, elements, _):
+        case TTuple(_, elements, _):
             return all(_spellable(e) for e in elements)
         case TFunction(_, params, result, _, _, _):
             return all(_spellable(p) for p in params) and _spellable(result)
@@ -1221,14 +1199,9 @@ def _annotation(node, type_):
 
 def _function_header(node, pad, name, params, return_type):
     """Formats `def name(params) -> result`, from tmap where given.
-    A function with several inferred types (see docs/type_inference.md)
-    prints as written, with no annotations, since the syntax has no way
-    to keep each call's parameters and result together.
     SFunctionDef -> String -> String -> [Param] -> Type? -> String"""
     global _tmap
     saved = _tmap
-    if isinstance(_tmap.get(node.sym) if _tmap is not None else None, TOr):
-        _tmap = None
     if node.sym in _signed:
         # Its type is on a `def name : type` line of its own, and a
         # definition says its type in one place or the other -- printing

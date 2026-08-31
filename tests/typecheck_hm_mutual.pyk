@@ -1,0 +1,37 @@
+# Mutual recursion: one group, one monotype each, generalised together.
+#
+# `walk_even` and `walk_odd` name each other, so neither can be given a
+# scheme until both bodies are checked -- while they are, each name
+# means a plain type, which is Hindley-Milner's rule for a `let rec`
+# group. Only when both are done is each generalised.
+#
+# `first_of` and `rest_of` are the other half of the rule: they name
+# each other too, and they are genuinely polymorphic, so the group's
+# variables survive generalisation rather than being fixed by whichever
+# call came first.
+
+def walk_even(n):
+    if n == 0:
+        true
+    else:
+        walk_odd(n - 1)
+
+def walk_odd(n):
+    if n == 0:
+        false
+    else:
+        walk_even(n - 1)
+
+def take(lst, n):
+    if n == 0:
+        []
+    else:
+        match lst:
+            case [x] ++ xs: [x] ++ drop_one(xs, n)
+            case []: []
+
+def drop_one(lst, n): take(lst, n - 1)
+
+print(walk_even(4), walk_odd(4))
+print(take([1, 2, 3, 4], 2))
+print(take(['a', 'b', 'c'], 2))

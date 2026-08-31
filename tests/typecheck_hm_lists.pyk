@@ -1,0 +1,34 @@
+# Lists, the empty one, and what solves its element type.
+#
+# `[]` has no element to say what it holds, so its element is a type
+# nothing has decided -- and whatever the list is later one type with
+# decides it. `append` shows both halves: the base case returns the
+# other list, and the recursive case builds one.
+#
+# `reverse` is the case that used to fail. What comes out of `append` is
+# what `reverse` is worth, so the variable `append` was worked out with
+# has to survive back into the body that asked for it; without that,
+# `reverse` came out `([Int]) -> [Int]` and the second call was refused.
+
+def append(one, other):
+    match one:
+        case [x] ++ xs: [x] ++ append(xs, other)
+        case []: other
+
+def reverse(lst):
+    match lst:
+        case [x] ++ xs: append(reverse(xs), [x])
+        case []: []
+
+def empty(): []
+
+print(append([1, 2], [3]))
+print(append(['a'], ['b', 'c']))
+print(append([], [true]))
+print(append(empty(), [1]))
+print(reverse([1, 2, 3]))
+print(reverse(['a', 'b']))
+print(reverse(append(reverse([true]), [false])))
+
+appending = append
+reversing = reverse

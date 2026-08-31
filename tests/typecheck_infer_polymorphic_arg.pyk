@@ -1,0 +1,26 @@
+# A polymorphic function handed to a function nobody annotated either.
+#
+# `id` is worked out at its first call and comes out polymorphic: its
+# body never asks what `x` is. Handing it to `map` is handing over a
+# value that is `(Int) -> Int` and `(String) -> String` and every other
+# instance at once, so what `map` is worth must not be narrowed to the
+# one this call happens to want.
+#
+# What `map` asks of `f` is that it be applied to an element, once. That
+# is `(a) -> b`, whatever was passed -- and it is the same `(a) -> b`
+# whether `id` or `show` gets there first, which is the point of the
+# three calls below: a definition is worth what its body asks for, not
+# what the order its callers are written in makes of it.
+
+def id(x): x
+
+def map(f, lst):
+    match lst:
+        case [x] ++ xs: [f(x)] ++ map(f, xs)
+        case []: []
+
+def show(n): 'n=' ++ str(n)
+
+print(id(4), id('hi'))
+print(map(id, [1, 2, 3]))
+print(map(show, [4, 5]))

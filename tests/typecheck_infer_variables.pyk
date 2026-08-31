@@ -1,0 +1,35 @@
+# The functions whose types are variables all the way through.
+#
+# Each of these has a body that never asks what it was given, so each is
+# worked out as the most general thing that is true of it. None of them
+# is annotated, and each is used at more than one type below -- which is
+# the point: one definition, worked out once, serving every call.
+
+def echo(x): x
+
+def apply_twice(f, x): f(f(x))
+
+def swap(pair):
+    match pair:
+        case (left, right): (right, left)
+
+def size(xs):
+    match xs:
+        case []: 0
+        case [_, ..rest]: 1 + size(rest)
+
+def constant(x, y): x
+
+def increment(n): n + 1
+
+print(echo(1), echo('two'), echo(true))
+print(apply_twice(increment, 5))
+print(swap((1, 'one')), swap(('a', true)))
+print(size([1, 2, 3]), size(['a', 'b']), size([]))
+print(constant(1, 'ignored'), constant('kept', 2))
+
+# `size` counts a list without ever looking at an element, so it takes a
+# list of anything; `increment` adds, so it does not.
+counting = size
+adding = increment
+either = constant

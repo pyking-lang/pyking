@@ -1,3 +1,2 @@
-'tests/fail_typecheck_infer_mixed.pyk' 19:22-19:28 Type error: `==`
-  cannot be applied to Int and String; it accepts Int == Int or String
-  == String or Bool == Bool
+'tests/fail_typecheck_infer_mixed.pyk' 24:14-24:18 Type error:
+  argument 1 has type String, but Int was expected

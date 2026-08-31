@@ -1,0 +1,15 @@
+def compose(f:(a) -> b, g:(c) -> a, x:c) -> b:
+    f(g(x))
+def id(x:a) -> a:
+    x
+def show(n:Int) -> String:
+    'n=' ++ str(n)
+def size(s:String) -> Int:
+    len(s)
+def bump(n:Int) -> Int:
+    n + 1
+print(compose(show, bump, 4))
+print(compose(size, id, 'abcd'))
+print(compose(bump, size, 'xyz'))
+print(compose(id, id, true))
+composing: ((a) -> b, (c) -> a, c) -> b = compose

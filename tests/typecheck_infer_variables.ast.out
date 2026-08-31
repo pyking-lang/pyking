@@ -1,0 +1,26 @@
+def echo(x:a) -> a:
+    x
+def apply_twice(f:(a) -> a, x:a) -> a:
+    f(f(x))
+def swap(pair:(a, b)) -> (b, a):
+    match pair:
+        case (left, right):
+            (right, left)
+def size(xs:[a]) -> Int:
+    match xs:
+        case []:
+            0
+        case [_, ..rest]:
+            1 + size(rest)
+def constant(x:a, y:b) -> a:
+    x
+def increment(n:Int) -> Int:
+    n + 1
+print(echo(1), echo('two'), echo(true))
+print(apply_twice(increment, 5))
+print(swap((1, 'one')), swap(('a', true)))
+print(size([1, 2, 3]), size(['a', 'b']), size([]))
+print(constant(1, 'ignored'), constant('kept', 2))
+counting: ([a]) -> Int = size
+adding: (Int) -> Int = increment
+either: (a, b) -> a = constant

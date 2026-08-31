@@ -1,0 +1,31 @@
+def pair_written : (a, b) -> (a, b)
+def pair_written(x, y):
+    (x, y)
+def pair_inferred(x:a, y:b) -> (a, b):
+    (x, y)
+def apply_written : ((a) -> b, a) -> b
+def apply_written(f, x):
+    f(x)
+def apply_inferred(f:(a) -> b, x:a) -> b:
+    f(x)
+def map_written : ((a) -> b, [a]) -> [b]
+def map_written(f, lst):
+    match lst:
+        case [x, ..xs]:
+            [f(x)] ++ map_written(f, xs)
+        case []:
+            []
+def map_inferred(f:(a) -> b, lst:[a]) -> [b]:
+    match lst:
+        case [x, ..xs]:
+            [f(x)] ++ map_inferred(f, xs)
+        case []:
+            []
+def negate(n:Int) -> Int:
+    0 - n
+print(pair_written(1, 'a'), pair_inferred(1, 'a'))
+print(apply_written(negate, 3), apply_inferred(negate, 3))
+print(map_written(negate, [1, 2]), map_inferred(negate, [1, 2]))
+print(map_written(negate, [3]), map_inferred(negate, [3]))
+written: ((a) -> b, [a]) -> [b] = map_written
+inferred: ((a) -> b, [a]) -> [b] = map_inferred

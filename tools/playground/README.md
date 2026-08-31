@@ -39,7 +39,7 @@ none of the three is copied.
 | `make vendor` | download Ace + Pyodide into `vendor/` (cached; skipped if present) |
 | `make check` | compile every example for every target it claims, headlessly |
 | `make e2e` | browser tests — mounting, compiling, running, Stop (needs Playwright) |
-| `make serve` | serve `build/`, print a clickable `http://localhost:8000/` |
+| `make serve` | refresh the compiler from `src/`, serve `build/`, print a clickable `http://localhost:8000/` |
 | `make clean` | remove `build/` |
 | `make distclean` | also remove `vendor/` |
 
@@ -175,6 +175,20 @@ cacheable for a day while everything `make` regenerates stays `no-store`, so
 you can rebuild and reload without ever debugging a stale asset *and* without
 re-fetching Pyodide.
 
+**The compiler cannot go stale under you either**, which needs more than
+cache headers: `build/pyking/` is a *copy* of `src/`, and the page fetches
+it once, at boot, into Pyodide's own filesystem. So there are two ways to
+end up with the page running one compiler while `pyk` runs another, and
+each has its own answer. `make serve` re-copies the compiler modules from
+`src/` before it serves, and says which it refreshed — so editing the
+compiler and re-serving is enough, without the full rebuild that also
+re-fetches 12 MB of vendored assets. And `manifest.json` carries a
+**stamp** of the modules it lists, which the page re-reads before every
+compile: a tab left open across a rebuild reloads its worker rather than
+going on answering with the compiler it started with. Nothing else in
+`build/` is covered — a change to the page itself, the examples or the Ace
+mode still needs `make build`.
+
 > **If it seems to hang at `starting…`** on a build from before this was
 > fixed: the dev server used to be single-threaded. Browsers open several
 > connections at once and speculatively pre-connect ones they never use, and
@@ -297,7 +311,9 @@ build/
   pyking/
     lexer.py parser.py …     copied verbatim from src/ (10 modules)
     pyking_web.py            generated: compile_source() and run_python()
-    manifest.json            what the runtime fetches into Pyodide's filesystem
+    manifest.json            what the runtime fetches into Pyodide's
+                             filesystem, and the stamp saying which
+                             compiler that is
   examples/
     *.pyk                    copied from tests/
 ```
