@@ -63,8 +63,9 @@ let rec check_expr env tmap e =
     env -> tmap -> expr -> (typ, tmap) *)
 and expr_type env tmap e =
   match e with
-  | EInt (i, _, _) -> (TInt (i, 0), tmap)
-  | EVar (i, name, _) -> (
+  | EInt(i, _, _) -> (TInt(i, 0), tmap)
+  | EString(i, _, _) -> (TString(i, 0), tmap)
+  | EVar(i, name, _) -> (
       match Env.find_opt name env with
       | Some t -> (t, tmap)
       | None ->
