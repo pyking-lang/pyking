@@ -5,15 +5,17 @@
 #   make stest      the same suite, one test at a time
 #   make clean      remove what has been generated
 #
-# Run `make help` for the full list. There is no build rule: the compiler
-# is a set of Python scripts run in place (see ./pyk), so nothing here
-# produces the compiler itself.
+# Run `make help` for the full list. The compiler itself has no build
+# rule: it is a set of Python scripts run in place (see ./pyk). The one
+# rule that builds anything is `make ocaml`, for the OCaml translation
+# of the front end in ocaml-src/.
 
-.PHONY: all help test stest test-py2pyk playground clean clean-pycache distclean
+.PHONY: all help test stest test-ocaml test-py2pyk ocaml playground clean \
+	clean-pycache clean-ocaml distclean
 
-# A bare `make` prints the help rather than building anything. There is
-# nothing to build, so someone typing `make` is almost always asking what
-# they *can* do -- which is exactly what `help` answers.
+# A bare `make` prints the help rather than building anything. The
+# compiler is not built, so someone typing `make` is almost always
+# asking what they *can* do -- which is exactly what `help` answers.
 all: help
 
 # Kept in the same shape as `make -C tools/playground help`, so the two
@@ -25,11 +27,16 @@ help:
 	@echo "                  target tests/test_cases.toml lists it for, run in"
 	@echo "                  parallel (JOBS=n to say how parallel)"
 	@echo "make stest        the same suite, one test at a time"
+	@echo "make test-ocaml   the ocaml-src/ bootstrap against src/: every"
+	@echo "                  tests/*.pyk pretty-printed by both with type"
+	@echo "                  checking off, and the two outputs compared"
 	@echo "make test-py2pyk  the tools/py2pyk suite: each .py translated to Pyking,"
 	@echo "                  compiled back, run and diffed"
+	@echo "make ocaml        build the ocaml-src/ bootstrap and put its"
+	@echo "                  executable in this directory as ./main"
 	@echo "make playground   build and serve the web playground, then print a link"
-	@echo "make clean        remove generated files: __pycache__/ and the"
-	@echo "                  playground's build/"
+	@echo "make clean        remove generated files: __pycache__/, ./main,"
+	@echo "                  ocaml-src/_build/ and the playground's build/"
 	@echo "make distclean    also remove the playground's vendor/ download cache"
 	@echo "                  (~13 MB; refetching it needs the network)"
 	@echo
@@ -49,6 +56,24 @@ test:
 # itself in question.
 stest:
 	python3 tests/test_script.py --jobs 1
+
+# The OCaml bootstrap in ocaml-src/ is a translation of the front end in
+# src/, so the two must print the same program for the same input. This
+# builds it and compares them over every tests/*.pyk, with type checking
+# off on both sides -- see tests/test_ocaml_script.py.
+test-ocaml:
+	python3 tests/test_ocaml_script.py $(if $(JOBS),--jobs $(JOBS))
+
+# The one rule here that builds anything. dune writes the executable
+# into ocaml-src/_build, where nobody would think to run it from, so it
+# is copied out to ./main -- `./main hello.pyk` beside `./pyk hello.pyk`.
+# `cp -f` rather than `cp`: dune leaves what it builds read-only, and so
+# is the copy, which a second `make ocaml` would otherwise fail to
+# overwrite.
+ocaml:
+	dune build --root ocaml-src
+	@cp -f ocaml-src/_build/default/main.exe main
+	@echo "ocaml: built ./main"
 
 # Delegates entirely to tools/py2pyk's own Makefile; see that file for
 # what "test" means there (translating tools/py2pyk/tests/*.py to Pyking
@@ -73,15 +98,25 @@ playground:
 # target language -- hello.py, hello.js, Hello.java -- so a rule that
 # guessed at them from the filesystem would sooner or later delete a file
 # nobody generated. Removing those is the caller's business, since only
-# the caller knows which ones they are.
-clean: clean-pycache
+# the caller knows which ones they are. ./main is the exception that
+# shows the rule: `make ocaml` chose that name itself, so this knows it.
+clean: clean-pycache clean-ocaml
 	@$(MAKE) --no-print-directory -C tools/playground clean
 
 # `distclean` depends on this rather than on `clean`, so that the
 # playground's own `distclean` -- which already runs its `clean` first --
 # is invoked exactly once and reports each removal exactly once.
-distclean: clean-pycache
+distclean: clean-pycache clean-ocaml
 	@$(MAKE) --no-print-directory -C tools/playground distclean
+
+# What `dune build --root ocaml-src` wrote, and the copy of its
+# executable that `make ocaml` puts here. Both are this Makefile's own
+# output, under names it chose itself -- which is exactly what a
+# *compiled program* is not (see the note on `clean` above).
+clean-ocaml:
+	@rm -rf ocaml-src/_build
+	@rm -f main
+	@echo "clean: removed ocaml-src/_build and ./main"
 
 # .venv/ and .git/ are pruned rather than filtered: their caches belong to
 # installed packages and to git, not to anything this repository builds,

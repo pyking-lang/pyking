@@ -96,21 +96,31 @@ long ago. `:help` lists the rest.
 
 ## Make targets
 
-There is nothing to build — the compiler is a set of Python scripts run
-in place — so a bare `make` prints this list rather than building
-anything:
+The compiler itself is not built — it is a set of Python scripts run in
+place — so a bare `make` prints this list rather than building anything
+(`make ocaml` is the one rule that does build something):
 
 | command | what it does |
 |---|---|
 | `make`, `make help` | the list below |
 | `make test` | the compiler's own suite: every program in `tests/` on every target it supports, comparing each against one shared `.out` file — run in parallel, one job per usable CPU (`JOBS=n` to say how many) |
 | `make stest` | the same suite, one test at a time |
+| `make test-ocaml` | the [OCaml bootstrap](docs/ocaml_bootstrap.md) against the Python one: every program in `tests/` pretty-printed by both, with type checking off on both sides, and the two compared |
 | `make test-py2pyk` | the [py2pyk](tools/py2pyk/) suite: each `.py` translated to Pyking, compiled back to Python, and both run and diffed |
+| `make ocaml` | build the [OCaml bootstrap](docs/ocaml_bootstrap.md) and copy its executable here as `./main` |
 | `make playground` | build and serve the [web playground](tools/playground/), then print a link to open |
-| `make clean` | remove what has been generated: `__pycache__/` directories and the playground's `build/` |
+| `make clean` | remove what has been generated: `__pycache__/` directories, `ocaml-src/_build/`, `./main`, and the playground's `build/` |
 | `make distclean` | that, plus the playground's `vendor/` download cache |
 
-`make clean` leaves *compiled programs* alone. `pyk` writes its output
+`make ocaml` builds `ocaml-src/` with dune and copies the executable to
+`./main`, so it can be run beside `./pyk`:
+
+```sh
+./main hello.pyk               # the same program, printed by the OCaml front end
+```
+
+`make clean` leaves *compiled programs* alone (`./main` excepted, since
+`make ocaml` chose that name itself). `pyk` writes its output
 wherever you point it, under names that are ordinary source names in the
 target language (`hello.py`, `Hello.java`), so nothing can tell those
 apart from files you wrote yourself — deleting them stays your call.
@@ -147,6 +157,10 @@ clean` but the cache itself only goes on `make distclean`.
 - **[docs/source.md](docs/source.md)** — every file in `src/`: what it
   is, its data structures, and its main functions, each linking to a
   dedicated page working through that module's own design in depth.
+- **[docs/ocaml_bootstrap.md](docs/ocaml_bootstrap.md)** — the front end
+  translated into OCaml in `ocaml-src/`: what is there, how to build and
+  run it, what differs from the Python and why, and the suite that keeps
+  the two printing the same thing.
 - **[docs/optimization.md](docs/optimization.md)** — tail calls, and the
   loops they become: what counts as one, what a mutually recursive group
   is merged into, what the pass deliberately leaves alone, and the one
@@ -164,6 +178,7 @@ clean` but the cache itself only goes on `make distclean`.
 |---|---|
 | `pyk` | the command-line front end (see above) |
 | `src/` | the bootstrap compiler, one module per stage (see [CLAUDE.md](CLAUDE.md)) |
+| `ocaml-src/` | the front end again, in OCaml (see [docs/ocaml_bootstrap.md](docs/ocaml_bootstrap.md)) |
 | `tests/` | Pyking programs, their expected output, and the test runner |
 | `docs/` | design and architecture notes |
 | `tools/emacs/` | a major mode for editing `.pyk` files |

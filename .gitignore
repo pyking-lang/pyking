@@ -7,3 +7,5 @@ __pycache__
 \#*
 \.\#*
 temp/
+_build/
+/main

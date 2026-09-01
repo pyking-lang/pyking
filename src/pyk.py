@@ -131,6 +131,15 @@ Options:
 _MORE_OPTIONS = """More options:
   --symbols             with -t pyking, also print each node's symbol
   --tokens              print the token stream first
+  --no-typechecking     skip the type checker, and with it the
+                        mutability analysis and the tail-call pass,
+                        which both need what it works out. Only
+                        `compile -t pyking` accepts it: every other
+                        target and the interpreter need the types.
+                        What it prints is then the program as written,
+                        with the source's own annotations -- which is
+                        what the OCaml bootstrap in ocaml-src/ prints,
+                        and what `make test-ocaml` compares.
   --no-tail-call-opt    leave tail calls as calls. A function that calls
                         itself in tail position is otherwise rewritten
                         into a `loop` carrying its parameters, and a
@@ -202,7 +211,7 @@ class Options:
     """argv parsed into one value. Flags are shared by every command.
     Fields: command: String, filename: String?, target: String,
     output: String?, stdout: Bool, run: Bool, symbols: Bool,
-    tokens: Bool, tail_calls: Bool."""
+    tokens: Bool, tail_calls: Bool, typecheck: Bool."""
     command: str
     filename: str = None
     target: str = "python"
@@ -212,6 +221,7 @@ class Options:
     symbols: bool = False
     tokens: bool = False
     tail_calls: bool = True
+    typecheck: bool = True
 
 
 def compiling_natively(options):
@@ -253,6 +263,8 @@ def parse_args(argv):
                 flags["symbols"] = True
             case "--no-tail-call-opt":
                 flags["tail_calls"] = False
+            case "--no-typechecking":
+                flags["typecheck"] = False
             case "--stdout":
                 flags["stdout"] = True
             case "--target" | "-t":
@@ -273,6 +285,20 @@ def parse_args(argv):
 
     if flags.get("run") and flags.get("stdout"):
         usage_error("--run needs a file to run, so it cannot be used with --stdout")
+    if not flags.get("typecheck", True) and (
+        command != "compile" or flags.get("target") != execution.PYKING_TARGET
+    ):
+        # Every backend but this one reads the types, and so does the
+        # interpreter: the Python one to know what to format, the OCaml
+        # one for every type it emits, and the rest through the
+        # tail-call pass, which the checker's table is what makes
+        # decidable. `-t pyking` is the one that can print a program
+        # nothing has checked, since it prints the program itself.
+        usage_error(
+            "--no-typechecking only applies to 'pyk compile -t "
+            f"{execution.PYKING_TARGET}': every other target, and the "
+            "interpreter, need the types the checker works out"
+        )
     if command == "repl":
         if positional:
             usage_error("'pyk repl' takes no filename")
@@ -333,8 +359,10 @@ def fail_unsupported(target, error):
 def front_end(options):
     """Every stage before a backend, in the order they run: lexing,
     parsing, symbolizing, type checking, the mutability analysis, and
-    the tail-call pass. Exits via fail() on the first error.
-    Options -> ([Stmt], {Int: Type})"""
+    the tail-call pass. Under `--no-typechecking` it stops after
+    symbolizing, and the table is None. Exits via fail() on the first
+    error.
+    Options -> ([Stmt], {Int: Type}?)"""
     with open(options.filename, "r") as f:
         data = f.read()
 
@@ -356,6 +384,15 @@ def front_end(options):
     # `--symbols` prints them, `tmap` is keyed by them, and so is the
     # interpreter's call-free table.
     program = symbolize(program)
+
+    # `--no-typechecking` stops here, and it is the one flag that can:
+    # nothing after this point runs without the types, and `-t pyking`
+    # -- the only target that accepts the flag (see `parse_args`) --
+    # prints the program the parser built, with the source's own
+    # annotations. It is what the OCaml bootstrap in ocaml-src/ prints
+    # too, which is what makes the two comparable.
+    if not options.typecheck:
+        return program, None
 
     # Pyking is statically typed, so this is not a mode: a program that
     # does not check is refused, whatever was asked for. The checker

@@ -106,6 +106,18 @@ flag that turns a stage *off* rather than asking for output, which is
 why it is documented under `--help` rather than in the usage every
 mistyped command prints.
 
+`--no-typechecking` is the second flag that turns a stage off, and it
+turns off three: the checker, the mutability analysis and the tail-call
+pass, since neither of the last two runs without what the checker works
+out. `front_end` then returns after `symbolize` with no table at all,
+and `parse_args` refuses the flag anywhere but `compile -t pyking` --
+every other target reads the types, the Python backend to know what to
+format and the OCaml one for every type it emits, and so does the
+interpreter. What `-t pyking` prints under it is the program as
+written, with the source's own annotations, which is what the OCaml
+bootstrap in `ocaml-src/` prints and what `make test-ocaml` compares
+(see [ocaml_bootstrap.md](ocaml_bootstrap.md)).
+
 `compiling_natively(options)` is the other half of that wiring: a target
 whose host eliminates tail calls itself gets the program as written,
 since the pass would only be undone there. Which targets those are is
@@ -119,7 +131,8 @@ stage to run.
 `_SYNOPSIS` is what someone who typed `pyk` by itself needs: the shape
 of the command, and the flags that change what it *produces*.
 `USAGE_FULL`, printed for `--help`, adds `_MORE_OPTIONS` — `--symbols`,
-`--tokens`, `--no-tail-call-opt` — plus the target table, the commands
+`--tokens`, `--no-tail-call-opt`, `--no-typechecking` — plus the target
+table, the commands
 `--run` uses for each target, and the paragraphs about what each command
 does. The split is by *who is
 asking*: the short form answers "how do I run this", and the three flags

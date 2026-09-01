@@ -19,6 +19,14 @@ Concretely:
   eventual self-hosted rewrite — the compiler written in Pyking itself —
   is meant to replace these modules in place, here, rather than live in a
   second, separate directory; there is no other reserved location for it.
+- `ocaml-src/` holds the same front end again, in OCaml: `lexer.ml`,
+  `syntax.ml`, `analyses.ml` (`symbolize` only), `parser.ml`, a
+  `typesystem.ml` that is still a stub, and a `main.ml` that is a
+  fraction of `pyk.py`. It is a *translation*, not a second design --
+  the same stages, the same functions, the same error messages, the same
+  printed output -- and `make test-ocaml` is what keeps it one (see "The
+  OCaml bootstrap" below). It is not the self-hosted rewrite, which is
+  still meant to replace `src/` in place.
 - `tests/` contains sample Pyking source programs (`.pyk`, not a pytest
   suite), each with a sibling `.out` file holding its expected stdout,
   plus `tests/test_cases.toml` (which program runs on which target) and
@@ -160,6 +168,12 @@ last ones are the ones that get forgotten:
    line over a correctly-indented `tests/*.pyk` file and report any line
    it disagrees with, and `-f batch-byte-compile` must stay
    warning-free.
+
+A sixth place is not on this list because nothing forgets it: a change
+to the *front end* -- `lexer.py`, `parser.py`, `syntax.py` -- has a
+counterpart in `ocaml-src/`, and `make test-ocaml` fails until it is
+made (see "The OCaml bootstrap" below). Nothing later in the pipeline
+reaches that far yet.
 
 ## Architecture of `src/`
 
@@ -960,6 +974,54 @@ used only in *types* still needs all three, and that
 turns out to be "nothing to do" (it highlights no operators, so `->`
 needed none).
 
+## The OCaml bootstrap
+
+`ocaml-src/` is `src/`'s front end translated into OCaml: `lexer.ml`,
+`syntax.ml` (the AST and its pretty printer), `analyses.ml`
+(`symbolize`, and nothing else from `analyses.py` yet), `parser.ml`,
+`typesystem.ml` and `main.ml`. `docs/ocaml_bootstrap.md` is the long
+form -- what each module holds, what differs from the Python and why.
+
+```
+make ocaml                       build it, and copy the executable to ./main
+./main [--typecheck] [--symbols] <file.pyk>
+make test-ocaml                  hold it to what src/ prints
+```
+
+Three things to keep in mind when changing it:
+
+- **It is a translation, so it is held to the byte.**
+  `make test-ocaml` runs `tests/test_ocaml_script.py`, which prints
+  every `tests/*.pyk` with both implementations -- `pyk compile -t
+  pyking --stdout --no-typechecking` against `./main` -- and compares
+  standard output, standard error *and* the exit status, then does it
+  again with `--symbols` on both sides. A program the parser *refuses*
+  is compared too, which is what pins the translated parser's error
+  positions and wording: `main.ml` carries its own `format_error` and
+  `wrap` for exactly that. A change to `src/lexer.py`, `src/parser.py`
+  or `src/syntax.py` that is not made here as well is a failing test,
+  which is the point.
+- **It is functional throughout**: no mutation, no objects. Where the
+  Python keeps state in a module-level variable, this passes a value --
+  `parser.py`'s `_eof_info` is an `eof` parameter, and `syntax.py`'s
+  three display flags are a `config` record threaded through the
+  printers. Keep new code that way.
+- **`symbolize` is the one part nothing generic covers.**
+  `analyses.py` walks the dataclasses, so a node added to `syntax.py`
+  is numbered for free; `analyses.ml` has a case per constructor, in
+  the order `syntax.py` declares that node's fields, numbering the node
+  after its children. A node added to `syntax.ml` needs a case there or
+  it keeps symbol 0 -- and only the `--symbols` half of the suite
+  catches it.
+
+`typesystem.ml` is a stub: integer literals, variables, `+`, and the
+`x = e` and expression statements those need. Everything else raises
+`Construct is not supported`, in `src/typesystem.py`'s own words, and
+an unbound name raises `Analysis_error` so it is reported as a
+`Name error` exactly as there. Its shape is the one to keep as it grows
+-- one function per AST datatype, an `env` used immutably, and one
+symbol -> type table returned as the pass's result.
+
 ## Running
 
 ```
@@ -967,16 +1029,17 @@ pyk [options] <filename>          run it with the interpreter
 pyk repl                          start the REPL
 pyk compile [options] <filename>  compile it (alias: pyk c)
 
-options: [--tokens] [--symbols] [--no-tail-call-opt] [--run]
+options: [--tokens] [--symbols] [--no-tail-call-opt]
+         [--no-typechecking] [--run]
          [--target|-t <target>]
          [--stdout | --output|-o <file>]
 ```
 
 `pyk --help` prints the long help: the short one that a bare `pyk`
 prints stops at the flags that change what is *produced*, and
-`--symbols`, `--tokens` and `--no-tail-call-opt` are documented only in
-the long form, since none of them is needed to use the compiler. Keep
-that split when adding a flag.
+`--symbols`, `--tokens`, `--no-tail-call-opt` and `--no-typechecking`
+are documented only in the long form, since none of them is needed to
+use the compiler. Keep that split when adding a flag.
 
 (`pyk` is the wrapper script at the repository root, and it is now two
 lines: it runs `src/pyk.py` with `src/` on Python's path and passes every
@@ -995,6 +1058,18 @@ backend is the bug.
 
 **Pyking is statically typed**: every program is type-checked, whatever
 is then done with it, and there is no flag for it.
+
+`--no-typechecking` is not one either, and is not for compiling with:
+it exists so the front end can be compared against the OCaml one, which
+has no checker to speak of yet. It stops `front_end` after `symbolize`
+-- no checker, and so no mutability analysis and no tail-call pass,
+since neither runs without what the checker works out -- and `tmap` is
+then `None`, so `-t pyking` prints the program as *written*, with the
+source's own annotations. `parse_args` refuses it anywhere but
+`compile -t pyking`: every other target reads the types (the Python
+backend to know what to format, the OCaml one for every type it emits)
+and so does the interpreter, so allowing it there would produce
+nonsense rather than a comparison.
 
 Flags are accepted by every command rather than being per-command, so
 `--tokens` and `--symbols` mean the same thing wherever they are
@@ -1051,16 +1126,21 @@ reason a program with `for`, `while`, `match`, lists or an unannotated
 tuple, a `var` and a `:=` are all inside that fragment.
 
 Plain `make` with no target prints the help: the `Makefile`'s first rule,
-`all`, is `help`, since nothing here is built and someone typing `make`
-is asking what they can run. That help list is hand-written, as is the
+`all`, is `help`, since the compiler itself is not built and someone
+typing `make` is asking what they can run. That help list is hand-written, as is the
 one in `tools/playground/Makefile` it is modelled on — add a target and
-you have to add its line too. `make clean` removes `__pycache__`
-directories and delegates the playground's `build/` to that directory's
-own Makefile; `make distclean` also drops its `vendor/` download cache.
+you have to add its line too. `make ocaml` is the one rule that builds
+anything: `dune build --root ocaml-src`, and then a copy of the
+executable to `./main`, so it can be run beside `./pyk`. `make clean`
+removes `__pycache__` directories, `ocaml-src/_build/` and that `./main`,
+and delegates the playground's `build/` to that directory's own
+Makefile; `make distclean` also drops its `vendor/` download cache.
 Neither touches *compiled programs*: `pyk` writes them wherever the
 caller asked, under names indistinguishable from hand-written source in
 every target language, so a clean rule that guessed at them would
-eventually delete someone's own file. Keep it that way.
+eventually delete someone's own file. Keep it that way. `./main` is the
+exception that shows the rule -- `make ocaml` chose that name itself,
+which is the whole of why removing it is safe.
 
 `make test` runs `tests/test_script.py`. It
 reads `tests/test_cases.toml`, and for every (program, target) pair the
@@ -1087,6 +1167,13 @@ results are held back and reported in the order the manifest lists them
 whatever order they finished in, so a parallel run stays diffable
 against a serial one. Keep it that way — a new runner belongs in
 `RUNNERS` like the others, writing only into the `workdir` it is handed.
+
+`make test-ocaml` is a second suite over the same programs, and a
+different question: not what a program *does* but what the front end
+*prints* for it, in both implementations (see "The OCaml bootstrap"
+above). `tests/test_ocaml_script.py` is its runner, and it imports
+`test_script.py` for the job plumbing and the timeout rather than
+restating them.
 
 **Four kinds of expected output**, two of them about the tail-call
 pass. `<name>.notail.ast.out` is what `-t pyking --no-tail-call-opt`

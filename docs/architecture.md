@@ -572,6 +572,16 @@ written. `--target`/`-t`, `--output`/`-o`, `--stdout` and `--run` only
 affect `pyk compile`, which with none of them writes a file the compiler
 names (see "Naming the output" above).
 
+`--no-typechecking` is the one flag only a single target accepts. It stops
+the front end after `symbolize` — no checker, and so no mutability
+analysis and no tail-call pass, neither of which runs without what the
+checker works out — and is accepted only by `compile -t pyking`, since
+every other target and the interpreter read the types. What that prints
+is the program as written, with the source's own annotations, which is
+what the OCaml bootstrap in `ocaml-src/` prints; comparing the two is
+what it is for (see
+[ocaml_bootstrap.md](ocaml_bootstrap.md)).
+
 A file that fails to lex, parse, resolve its names, or type-check, that
 uses a construct the chosen target does not support, or that fails while
 being interpreted, reports
@@ -729,3 +739,13 @@ dependency and still not a browser. The stub was chosen because the
 generated page's only contact with the outside world is the element it
 prints into, so stubbing that one thing covers everything the compiler is
 responsible for.
+
+### Comparing the OCaml bootstrap
+
+`make test-ocaml` is a second suite, and a different kind of comparison:
+`ocaml-src/` holds the front end translated into OCaml, and every
+program in `tests/` is pretty-printed by both implementations with type
+checking off on both sides, then diffed — standard output, standard
+error and the exit status, so a program the parser *refuses* is compared
+too. `tests/test_ocaml_script.py` is the runner, and
+[ocaml_bootstrap.md](ocaml_bootstrap.md) is what it is holding honest.

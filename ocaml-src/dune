@@ -1,0 +1,7 @@
+; The OCaml bootstrap: one executable built from every module in this
+; directory, so a new stage needs no line here. Warnings are on but
+; never fatal, so a build fails only on a real error.
+(executable
+ (name main)
+ (flags
+  (:standard -warn-error -a)))
