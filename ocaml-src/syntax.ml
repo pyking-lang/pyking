@@ -50,6 +50,10 @@ type expr =
   | EList of info * expr list * int (* [elements...] *)
   | ETuple of info * expr list * int (* (e1, e2, ...); () is Unit *)
   | EIf of info * expr * expr * expr * int (* if cond then a else b *)
+  | EQualified of info * string * string * int
+      (* module.name -- a public name of an imported module, reached
+         through the name that module was imported under (its own, or an
+         `as` alias). *)
   | EListComp of info * expr * comp_clause list * int
       (* [expr for pattern in seq {for ... | if ...}] *)
 
@@ -109,11 +113,12 @@ and loop_iter =
 and match_case = MatchCase of info * pattern * stmt list * int
 
 and stmt =
-  | SLet of info * assign_target * expr * typ option * int
+  | SLet of info * assign_target * expr * typ option * int * bool
       (* target[: type] = expr. The type is the binding's as the
          *source* wrote it; the checker records what it inferred in its
-         own table instead. *)
-  | SLetStmt of info * assign_target * stmt * typ option * int
+         own table instead. The flag is `public`: the module exports
+         this name. *)
+  | SLetStmt of info * assign_target * stmt * typ option * int * bool
       (* target = <if/match statement in value form> *)
   | SVar of info * string * expr * int (* var name = expr *)
   | SMutate of info * string * expr * int (* name := expr *)
@@ -137,12 +142,19 @@ and stmt =
   | SContinue of info * expr option * int (* continue [expr] *)
   | SIf of info * expr * stmt list * stmt list option * int
       (* if cond: then_body [else: else_body] *)
-  | SFunctionDef of info * string * param list * stmt list * typ option * int
-      (* def name(params...) [-> return_type]: body *)
-  | SFunctionSig of info * string * typ * int
-      (* def name : type -- a def's type written on a line of its own *)
+  | SFunctionDef of
+      info * string * param list * stmt list * typ option * int * bool
+      (* [public] def name(params...) [-> return_type]: body *)
+  | SFunctionSig of info * string * typ * int * bool
+      (* [public] def name : type -- a def's type on a line of its own *)
   | SMatch of info * expr * match_case list * int
       (* match subject: case pattern: body ... *)
+  | SImport of info * string * string * bool * (string * string) list * int
+      (* import module [as name] / from module import field [as name].
+         The fields are the module's own name for each thing taken and
+         the name it is known by here; for the plain form the list is
+         what a qualified name reaches, filled in by the module
+         system. *)
 
 (* --- the span and the symbol each node carries --- *)
 
@@ -169,6 +181,7 @@ let expr_info e =
   | ETuple (i, _, _) -> i
   | EIf (i, _, _, _, _) -> i
   | EListComp (i, _, _, _) -> i
+  | EQualified (i, _, _, _) -> i
 
 (** The symbol of one expression. expr -> int *)
 let expr_sym e =
@@ -193,6 +206,7 @@ let expr_sym e =
   | ETuple (_, _, s) -> s
   | EIf (_, _, _, _, s) -> s
   | EListComp (_, _, _, s) -> s
+  | EQualified (_, _, _, s) -> s
 
 (** The source span of one type. typ -> info *)
 let type_info t =
@@ -291,8 +305,8 @@ let case_body (MatchCase (_, _, b, _)) = b
 (** The source span of one statement. stmt -> info *)
 let stmt_info s =
   match s with
-  | SLet (i, _, _, _, _) -> i
-  | SLetStmt (i, _, _, _, _) -> i
+  | SLet (i, _, _, _, _, _) -> i
+  | SLetStmt (i, _, _, _, _, _) -> i
   | SVar (i, _, _, _) -> i
   | SMutate (i, _, _, _) -> i
   | SReturn (i, _, _) -> i
@@ -302,15 +316,16 @@ let stmt_info s =
   | SBreak (i, _, _) -> i
   | SContinue (i, _, _) -> i
   | SIf (i, _, _, _, _) -> i
-  | SFunctionDef (i, _, _, _, _, _) -> i
-  | SFunctionSig (i, _, _, _) -> i
+  | SFunctionDef (i, _, _, _, _, _, _) -> i
+  | SFunctionSig (i, _, _, _, _) -> i
   | SMatch (i, _, _, _) -> i
+  | SImport (i, _, _, _, _, _) -> i
 
 (** The symbol of one statement. stmt -> int *)
 let stmt_sym s =
   match s with
-  | SLet (_, _, _, _, s) -> s
-  | SLetStmt (_, _, _, _, s) -> s
+  | SLet (_, _, _, _, s, _) -> s
+  | SLetStmt (_, _, _, _, s, _) -> s
   | SVar (_, _, _, s) -> s
   | SMutate (_, _, _, s) -> s
   | SReturn (_, _, s) -> s
@@ -320,9 +335,10 @@ let stmt_sym s =
   | SBreak (_, _, s) -> s
   | SContinue (_, _, s) -> s
   | SIf (_, _, _, _, s) -> s
-  | SFunctionDef (_, _, _, _, _, s) -> s
-  | SFunctionSig (_, _, _, s) -> s
+  | SFunctionDef (_, _, _, _, _, s, _) -> s
+  | SFunctionSig (_, _, _, s, _) -> s
   | SMatch (_, _, _, s) -> s
+  | SImport (_, _, _, _, _, s) -> s
 
 (* --- one node with its span replaced ---
    What `dataclasses.replace(node, info=...)` does in src/: a
@@ -352,6 +368,7 @@ let set_expr_info i e =
   | ETuple (_, es, s) -> ETuple (i, es, s)
   | EIf (_, c, t, e2, s) -> EIf (i, c, t, e2, s)
   | EListComp (_, e2, cs, s) -> EListComp (i, e2, cs, s)
+  | EQualified (_, m, n, s) -> EQualified (i, m, n, s)
 
 (** One type with its span replaced. info -> typ -> typ *)
 let set_type_info i t =
@@ -424,7 +441,8 @@ let with_sym cfg sym self_delimited text =
 
 let expr_self_delimited e =
   match e with
-  | EInt _ | EString _ | EBool _ | EVar _ | EList _ | ETuple _ | EListComp _ ->
+  | EInt _ | EString _ | EBool _ | EVar _ | EQualified _ | EList _ | ETuple _
+  | EListComp _ ->
       true
   | _ -> false
 
@@ -577,6 +595,7 @@ and pprint_expr_body cfg e min_prec =
   | EString (_, s, _) -> quote_string s
   | EBool (_, v, _) -> if v then "true" else "false"
   | EVar (_, name, _) -> name
+  | EQualified (_, module_name, name, _) -> module_name ^ "." ^ name
   | EAdd (_, l, r, _) ->
       wrap_prec 2 min_prec
         (pprint_expr cfg l 2 ^ " + " ^ pprint_expr cfg r 3)
@@ -737,14 +756,19 @@ let return_annotation cfg sym return_type =
   | None -> ""
   | Some t -> if spellable t then " -> " ^ pprint_annotation_type cfg t else ""
 
+(** The `public ` prefix a statement that exports its name carries, or
+    "". bool -> string *)
+let public_prefix public = if public then "public " else ""
+
 (** Formats `def name(params) -> result`, from tmap where given.
-    config -> string -> int -> string -> [param] -> typ option -> string *)
-let function_header cfg pad sym name params return_type =
+    config -> string -> int -> string -> [param] -> typ option -> bool
+    -> string *)
+let function_header cfg pad sym name params return_type public =
   (* A definition whose type is on a `def name : type` line of its own
      says its type in one place or the other: printing both would give a
      program the checker refuses. *)
   let cfg = if IntSet.mem sym cfg.signed then { cfg with tmap = None } else cfg in
-  Printf.sprintf "%sdef %s(%s)%s" pad name
+  Printf.sprintf "%s%sdef %s(%s)%s" pad (public_prefix public) name
     (String.concat ", " (List.map (pprint_param cfg) params))
     (return_annotation cfg sym return_type)
 
@@ -777,16 +801,17 @@ let rec pprint_stmt cfg s level =
 and pprint_stmt_body cfg s level =
   let pad = String.concat "" (List.init level (fun _ -> "    ")) in
   match s with
-  | SLet (_, target, expr, type_, sym) ->
-      Printf.sprintf "%s%s%s = %s" pad (pprint_target cfg target)
-        (annotation cfg sym type_) (pprint_expr cfg expr 0)
-  | SLetStmt (_, target, stmt, type_, sym) ->
+  | SLet (_, target, expr, type_, sym, public) ->
+      Printf.sprintf "%s%s%s%s = %s" pad (public_prefix public)
+        (pprint_target cfg target) (annotation cfg sym type_)
+        (pprint_expr cfg expr 0)
+  | SLetStmt (_, target, stmt, type_, sym, public) ->
       (* The bound statement prints exactly as it would on its own; only
          its header line gains the `target = ` prefix. *)
       let head, rest = head_and_rest (pprint_stmt cfg stmt level) in
       let prefix =
-        Printf.sprintf "%s%s%s = " pad (pprint_target cfg target)
-          (annotation cfg sym type_)
+        Printf.sprintf "%s%s%s%s = " pad (public_prefix public)
+          (pprint_target cfg target) (annotation cfg sym type_)
       in
       String.concat "\n" ((prefix ^ strip head) :: rest)
   | SVar (_, name, expr, _) ->
@@ -864,10 +889,13 @@ and pprint_stmt_body cfg s level =
                :: List.map (fun st -> pprint_stmt cfg st (level + 1)) body)
       in
       String.concat "\n" (ladder lines else_body)
-  | SFunctionSig (_, name, type_, _) ->
-      Printf.sprintf "%sdef %s : %s" pad name (pprint_type_nested cfg type_)
-  | SFunctionDef (_, name, params, body, return_type, sym) ->
-      let header = function_header cfg pad sym name params return_type in
+  | SFunctionSig (_, name, type_, _, public) ->
+      Printf.sprintf "%s%sdef %s : %s" pad (public_prefix public) name
+        (pprint_type_nested cfg type_)
+  | SFunctionDef (_, name, params, body, return_type, sym, public) ->
+      let header =
+        function_header cfg pad sym name params return_type public
+      in
       String.concat "\n"
         ((header ^ ":")
         :: List.map (fun st -> pprint_stmt cfg st (level + 1)) body)
@@ -878,6 +906,18 @@ and pprint_stmt_body cfg s level =
         :: List.map (fun st -> pprint_stmt cfg st (level + 2)) body
       in
       String.concat "\n" (lines @ List.concat_map case_lines cases)
+  | SImport (_, module_name, name, selected, fields, _) ->
+      if selected then
+        let taken =
+          String.concat ", "
+            (List.map
+               (fun (field, local) ->
+                 if field = local then field else field ^ " as " ^ local)
+               fields)
+        in
+        Printf.sprintf "%sfrom %s import %s" pad module_name taken
+      else if name = module_name then Printf.sprintf "%simport %s" pad module_name
+      else Printf.sprintf "%simport %s as %s" pad module_name name
 
 (** The symbols of definitions that a signature line in their own block
     describes. Those print no annotations, since writing both is a
@@ -888,7 +928,7 @@ let signed_defs stmts =
       List.fold_left
         (fun acc s ->
           match s with
-          | SFunctionSig (_, name, _, _) -> StringSet.add name acc
+          | SFunctionSig (_, name, _, _, _) -> StringSet.add name acc
           | _ -> acc)
         StringSet.empty stmts
     in
@@ -896,7 +936,8 @@ let signed_defs stmts =
       List.fold_left
         (fun acc s ->
           match s with
-          | SFunctionDef (_, name, _, _, _, sym) when StringSet.mem name names ->
+          | SFunctionDef (_, name, _, _, _, sym, _)
+            when StringSet.mem name names ->
               IntSet.add sym acc
           | _ -> acc)
         IntSet.empty stmts
@@ -908,12 +949,12 @@ let signed_defs stmts =
     | SIf (_, _, then_body, else_body, _) ->
         IntSet.union (block then_body)
           (match else_body with None -> IntSet.empty | Some b -> block b)
-    | SFunctionDef (_, _, _, body, _, _) -> block body
+    | SFunctionDef (_, _, _, body, _, _, _) -> block body
     | SMatch (_, _, cases, _) ->
         List.fold_left
           (fun acc c -> IntSet.union acc (block (case_body c)))
           IntSet.empty cases
-    | SLetStmt (_, _, inner, _, _) -> inside inner
+    | SLetStmt (_, _, inner, _, _, _) -> inside inner
     | SReturnStmt (_, inner, _) -> inside inner
     | _ -> IntSet.empty
   in

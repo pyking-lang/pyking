@@ -588,6 +588,117 @@ was. `tests/evaluation_order.pyk` pins the straight-line cases down and
 `tests/evaluation_order_branches.pyk` the two conditional ones; one
 `.out` serves every target.
 
+## Modules
+
+C has one namespace for a whole program and no import at all, so a
+Pyking module becomes two files -- a translation unit and the header
+another unit includes it through -- and the module's own name becomes
+part of every name it exports.
+
+```pyking
+# helper2.pyk
+def scale(n:Int) -> Int:
+    return n * 2
+
+
+public def inc(x:Int) -> Int:
+    return scale(x) + 1
+
+
+public greeting = "hi"
+```
+
+```c
+/* helper2.h */
+#ifndef PYK_HELPER2_H
+#define PYK_HELPER2_H
+
+extern const char *helper2_greeting;
+
+int helper2_inc(int x);
+
+/* Runs the module's own top level; the program calls it once, before any module that imports this one. */
+void helper2_init(void);
+
+#endif  /* PYK_HELPER2_H */
+```
+
+```c
+/* helper2.c */
+#include "helper2.h"
+
+/* What this module exports as a value; its own top level below is what fills each of them in. */
+const char *helper2_greeting;
+
+/* Declared ahead of their definitions: a Pyking function may be called before it is written. */
+static int scale(int n);
+int helper2_inc(int x);
+
+static int scale(int n)
+{
+    return n * 2;
+}
+
+int helper2_inc(int x)
+{
+    return scale(x) + 1;
+}
+
+void helper2_init(void)
+{
+    const char *greeting;
+
+    greeting = "hi";
+    helper2_greeting = greeting;
+}
+```
+
+```c
+/* program.c */
+#include <stdio.h>
+
+#include "helper2.h"
+
+int main(void)
+{
+    helper2_init();
+    printf("%d\n", helper2_inc(1));
+    printf("%s\n", helper2_greeting);
+
+    return 0;
+}
+```
+
+Four things are worth reading off that.
+
+**A public name carries its module's.** `inc` becomes `helper2_inc`,
+because two modules may each define an `inc` and C would see one name.
+A private name keeps its own spelling -- two modules' `static scale` are
+two functions.
+
+**`static` is the privacy.** Anything the module does not export is
+`static`, in every module of a program of several -- including the
+program's own. A program of *one* module emits no `static` at all, which
+is what keeps a single-file program's output what it always was.
+
+**A public value is a variable, filled in by `init`.** The binding is
+translated like any other, and `<module>_init` ends by handing what it
+worked out to the file-scope variable the header declares.
+
+**Order is explicit.** C runs no code before `main`, so every module's
+top level is a `void <module>_init(void)` and `main` calls them in
+dependency order before its own body. Those calls are *statements of
+`main`*, not lines the printer adds around it, which is what puts them
+after the declarations `c89` hoists to the top of a block -- a
+declaration may not follow a statement there. The program's own module therefore
+includes the header of *every* module of the program, not only the ones
+it imports directly: it is where those calls are written, and C has to
+be told a function exists before a call names it.
+
+Building it is `cc -o prog helper2.c program.c` -- the modules first,
+the program's own unit last -- which is what `--run` and the test
+harness both do.
+
 ## Where the output is not optimal
 
 - **Concatenation leaks.** `pyk_concat` allocates and never frees, so a

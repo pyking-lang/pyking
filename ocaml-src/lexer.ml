@@ -78,6 +78,10 @@ type token =
   | TokThen of info (* 'then' (if expression: `if e then e else e`) *)
   | TokElse of info (* 'else' *)
   | TokVar of info (* 'var' *)
+  | TokPublic of info (* 'public' (module export marker) *)
+  | TokImport of info (* 'import' *)
+  | TokFrom of info (* 'from' (`from module import name`) *)
+  | TokAs of info (* 'as' (renaming an import) *)
   | TokMatch of info (* 'match' *)
   | TokCase of info (* 'case' *)
   | TokAssign of info (* ':=' (mutation of a `var`) *)
@@ -127,6 +131,10 @@ let token_info tok =
   | TokThen i -> i
   | TokElse i -> i
   | TokVar i -> i
+  | TokPublic i -> i
+  | TokImport i -> i
+  | TokFrom i -> i
+  | TokAs i -> i
   | TokMatch i -> i
   | TokCase i -> i
   | TokAssign i -> i
@@ -176,6 +184,10 @@ let pprint_token tok =
   | TokThen _ -> "TokThen"
   | TokElse _ -> "TokElse"
   | TokVar _ -> "TokVar"
+  | TokPublic _ -> "TokPublic"
+  | TokImport _ -> "TokImport"
+  | TokFrom _ -> "TokFrom"
+  | TokAs _ -> "TokAs"
   | TokMatch _ -> "TokMatch"
   | TokCase _ -> "TokCase"
   | TokAssign _ -> "TokAssign"
@@ -201,8 +213,8 @@ let is_digit_letter x = is_digit x || is_letter x
 let keywords =
   [
     "for"; "in"; "if"; "while"; "loop"; "break"; "continue"; "then";
-    "else"; "var"; "def"; "return"; "match"; "case"; "Int"; "String";
-    "Bool"; "true"; "false";
+    "else"; "var"; "def"; "return"; "match"; "case"; "public"; "import";
+    "from"; "as"; "Int"; "String"; "Bool"; "true"; "false";
   ]
 
 (** The keyword token `name` denotes, or None where it names no keyword.
@@ -223,6 +235,10 @@ let keyword_token name i =
   | "return" -> Some (TokReturn i)
   | "match" -> Some (TokMatch i)
   | "case" -> Some (TokCase i)
+  | "public" -> Some (TokPublic i)
+  | "import" -> Some (TokImport i)
+  | "from" -> Some (TokFrom i)
+  | "as" -> Some (TokAs i)
   | "Int" -> Some (TokTypeInt i)
   | "String" -> Some (TokTypeString i)
   | "Bool" -> Some (TokTypeBool i)

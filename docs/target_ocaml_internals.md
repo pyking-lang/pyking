@@ -186,3 +186,15 @@ later one shadows is dead, unless something between the two reads it
 first), so `_rename_dead` walks each binding against the items that
 follow it, not the ones before — the only direction in which
 "liveness" is actually a well-defined question at all.
+
+A module the program imports changes what "unread" means, and
+`_polish_items` takes two more arguments for it. `keep` names what the
+module exports: those are read by whoever imports it, so they are never
+dead however little this file does with them. `interfaced` says there is
+an `.mli` beside the file, and it flips the *default* the other way — a
+binding neither exported nor read anywhere is now genuinely dead and
+gets its `_name`, where without an interface every top-level binding is
+exported and none of them is. The one it leaves alone anyway is a `let
+rec` whose only reader is itself: renaming it would leave the call
+inside it naming nothing, which is what `_rest` separates from the
+ordinary "something later reads this" question.

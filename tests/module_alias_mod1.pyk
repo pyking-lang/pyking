@@ -1,0 +1,9 @@
+# A module with a long name, so that the program importing it has a
+# reason to give it a short one.
+
+public def add(a:Int, b:Int) -> Int:
+    return a + b
+
+
+public def sub(a:Int, b:Int) -> Int:
+    return a - b

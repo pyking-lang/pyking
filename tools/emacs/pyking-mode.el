@@ -88,7 +88,7 @@ be changed, but is exposed as a customizable option the same way
 
 (defconst pyking-mode-keywords
   '("for" "in" "if" "while" "loop" "break" "continue" "then" "else" "var"
-    "def" "return" "match" "case")
+    "def" "return" "match" "case" "public" "import" "from" "as")
   "Reserved keywords in Pyking.
 Mirrors the `keywords' list in src/lexer.py, minus the names broken out
 into `pyking-mode-types' and `pyking-mode-constants' below (each gets its
@@ -96,7 +96,9 @@ own face, the way other language modes distinguish literals and type
 names from control-flow/declaration keywords). Unlike Python, `match' and
 `case' are always reserved here, not context-sensitive (\"soft\")
 keywords; `then' -- Pyking's `if cond then a else b' expression keyword --
-has no Python counterpart at all.")
+has no Python counterpart at all. The last four are the module system's
+\(see \"Modules\" in PYKING.md): `public' marks what a module exports,
+and `import'/`from'/`as' are how another module reaches it.")
 
 (defconst pyking-mode-keywords-regexp
   (regexp-opt pyking-mode-keywords 'symbols)
@@ -208,7 +210,9 @@ place it highlights a name."
    ;; begin a `type' (see the grammar in PYKING.md): requiring that is
    ;; what stops a bare `else:' -- a word, a colon, and nothing more --
    ;; from being mistaken for a declaration of a variable called `else'.
-   '("^[ \t]*\\(\\sw+\\)[ \t]*:[ \t]*\\(?:Int\\|String\\|Bool\\|[][(]\\)"
+   ;; A `public' in front of it declares the same name, so it is
+   ;; skipped rather than mistaken for the name being declared.
+   '("^[ \t]*\\(?:public[ \t]+\\)?\\(\\sw+\\)[ \t]*:[ \t]*\\(?:Int\\|String\\|Bool\\|[][(]\\)"
      1 font-lock-variable-name-face)
    ;; mutation = ident , ":=" , expr -- Pyking's one deliberate departure
    ;; from plain Python assignment (see PYKING.md), worth calling out.

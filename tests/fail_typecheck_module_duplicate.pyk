@@ -1,0 +1,7 @@
+# One name exported twice. A module exports one thing under one name.
+
+public width = 3
+
+public width = 4
+
+print(width)

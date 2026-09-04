@@ -18,7 +18,7 @@ Functions:
     translate_stmt(s, scope) -- translates one statement; returns
         (JsStmt, Scope).
     pprint_js_program(stmts, runtime) -- [JsStmt] to JavaScript source
-        text; runtime maps each runtime operation to its call spelling.
+        text; runtime is the JsHost the packager supplies.
 """
 
 from dataclasses import dataclass, fields, is_dataclass
@@ -26,14 +26,14 @@ from dataclasses import dataclass, fields, is_dataclass
 from lexer import Info
 import runtime_interface
 from syntax import (
-    EInt, EString, EBool, EVar,
+    EInt, EString, EBool, EVar, EQualified,
     EAdd, EConcat, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EIf, ETuple,
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SIf,
     ForIn, WhileTest,
     SMatch, EList, EListComp, CompFor, CompIf,
     PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, PText, ListRest,
-    SLoop, SBreak, SContinue, SFunctionDef,
+    SLoop, SBreak, SContinue, SFunctionDef, SImport,
     TargetName, TargetTuple,
 )
 
@@ -180,6 +180,19 @@ class JsRuntimeCall(JsExpr):
     args: list
 
 
+@dataclass(frozen=True)
+class JsHost:
+    """Everything the packager decides and the core only names: how each
+    runtime operation is called, and how what crosses a module boundary
+    is written. One value rather than two parameters, since it is
+    threaded through every printer here. Fields:
+    operations: {String: String} (a runtime operation -> the JavaScript
+    that performs it), importing: (JsImport -> String)? (the line one
+    import becomes; None where the packaging has no modules)."""
+    operations: dict
+    importing: object = None
+
+
 class JsTarget:
     """Base class for what a declaration or assignment binds: a name,
     or an array pattern taking a tuple apart."""
@@ -262,6 +275,20 @@ class JsContinue(JsStmt):   # continue;
 
 
 @dataclass(frozen=True)
+class JsImport(JsStmt):
+    """What an import brings in, named rather than spelled: the three
+    packagings write it three ways -- `require`, an ES `import`, or a
+    reference to the module already built above it on the page -- so the
+    line itself comes from the packager (JsHost.importing), exactly as a
+    JsRuntimeCall's spelling does. Fields mirror syntax.py's SImport."""
+    info: Info
+    module: str
+    name: str
+    selected: bool
+    fields: list            # list[(str, str)] -- exported name, local name
+
+
+@dataclass(frozen=True)
 class JsFunc(JsStmt):       # function name(params) { ... }
     info: Info
     name: str
@@ -319,6 +346,7 @@ with yield arguments eval undefined NaN Infinity console String
 Array document
 """.split()) | frozenset("""
 print pykConcat pykFormat pykList pykOutput pykQuote pykWrite
+require exports run runtime init
 """.split())
 # `Array` and `document` are there with `console` and `String`: globals
 # the prelude itself calls (`Array.isArray`, `document.getElementById`),
@@ -480,6 +508,11 @@ def translate_expr(e, scope):
             # A tuple is a JavaScript array: it is built, taken apart
             # and printed as one (docs/target_js.md, "Tuples").
             return JsArray(info, [translate_expr(el, scope) for el in elements])
+        case EQualified(info, module_name, name):
+            # `m.f` is a property of the object the module was brought in
+            # as, whichever way the packager brought it in.
+            return JsMember(info, JsVar(info, _lookup(module_name, scope)), name)
+
         case ECall(info, EVar(_, name), args) if runtime_interface.lookup(name):
             # A call that leaves the program: see runtime_interface.py.
             return JsRuntimeCall(
@@ -848,6 +881,15 @@ def translate_stmt(s, scope):
                 js_else, _ = translate_stmts(else_body, _block_scope(scope))
             return JsIf(info, translate_expr(cond, scope), js_then, js_else), scope
 
+        case SImport(info, module_name, local, selected, fields):
+            # Named, not spelled: what a `require`, an ES `import` or a
+            # reference to a module already built on the page reads like
+            # is the packager's (see JsImport). The names were bound by
+            # `declare_functions`, so a renamed one is read back here.
+            return JsImport(info, module_name, _lookup(local, scope), selected, [
+                (exported, _lookup(name, scope)) for exported, name in fields
+            ]), scope
+
         case SFunctionDef(info, name, params, body, _return_type):
             # The name was bound by declare_functions; read it back
             # rather than binding again, which would rename it twice.
@@ -1162,13 +1204,28 @@ def _as_stmts(translated):
 
 
 def declare_functions(stmts, scope):
-    """Binds every def in this block before any of it is translated
-    (docs/target_js.md, "Functions used before they are written").
-    [Stmt] -> Scope -> Scope"""
+    """Binds every def in this block, and everything an import brings
+    into it, before any of it is translated (docs/target_js.md,
+    "Functions used before they are written"). Both are visible
+    throughout the block they are written in, so both are bound ahead of
+    it. [Stmt] -> Scope -> Scope"""
     for s in stmts:
         if isinstance(s, SFunctionDef) and s.name not in scope.block:
             _, scope = _bind(s.name, scope)
+        elif isinstance(s, SImport):
+            for name in _import_names(s):
+                if name not in scope.block:
+                    _, scope = _bind(name, scope)
     return scope
+
+
+def _import_names(statement):
+    """The names one import binds where it is written: each selected
+    name under the name it is known by here, or the module's own local
+    name. SImport -> [String]"""
+    if statement.selected:
+        return [local for _, local in statement.fields or ()]
+    return [statement.name]
 
 
 def translate_stmts(stmts, scope):
@@ -1181,12 +1238,18 @@ def translate_stmts(stmts, scope):
     return translated, scope
 
 
-def translate_program(stmts):
-    """A whole Pyking program as JavaScript statements, ready for a
-    packager to wrap. [Stmt] -> [JsStmt]"""
+def translate_program(stmts, taken=()):
+    """A whole Pyking module as JavaScript statements, ready for a
+    packager to wrap. `taken` names JavaScript the packager will write
+    around it -- the one it calls a module's `init` by -- so a Pyking
+    binding of that name is renamed rather than shadowing it, exactly as
+    RESERVED does for the names written here.
+    [Stmt] -> {String} -> [JsStmt]"""
     global _loop_accumulators
     _loop_accumulators = []
-    translated, _ = translate_stmts(stmts, Scope({}, frozenset()))
+    translated, _ = translate_stmts(
+        stmts, Scope({}, frozenset(), frozenset(taken))
+    )
     return translated
 
 
@@ -1223,9 +1286,9 @@ def _wrap(prec, min_prec, text):
 
 
 def pprint_js_expr(e, runtime, min_prec=0):
-    """e as JavaScript source text. runtime maps each runtime operation
-    to the JavaScript expression that performs it. JsExpr -> {String:
-    String} -> Int -> String"""
+    """e as JavaScript source text. `runtime` is what the packager
+    decides: the spelling of each runtime operation, and of an import.
+    JsExpr -> JsHost -> Int -> String"""
     match e:
         case JsNum(_, v):
             return str(v)
@@ -1285,7 +1348,7 @@ def pprint_js_expr(e, runtime, min_prec=0):
             return f"{pprint_js_expr(func, runtime, _CALL_PRECEDENCE)}({args_text})"
         case JsRuntimeCall(_, operation, args):
             args_text = ", ".join(pprint_js_expr(a, runtime) for a in args)
-            return f"{runtime[operation]}({args_text})"
+            return f"{runtime.operations[operation]}({args_text})"
         case _:
             raise NotImplementedError(f"no printer for JavaScript expression {e!r}")
 
@@ -1316,10 +1379,12 @@ def _join_stmts(stmts, runtime, level):
 
 
 def pprint_js_stmt(s, runtime, level=0):
-    """s as JavaScript source text, indented to level. JsStmt -> {String:
-    String} -> Int -> String"""
+    """s as JavaScript source text, indented to level.
+    JsStmt -> JsHost -> Int -> String"""
     pad = "  " * level
     match s:
+        case JsImport():
+            return pad + runtime.importing(s)
         case JsConst(_, target, expr):
             return f"{pad}const {pprint_js_target(target)} = {pprint_js_expr(expr, runtime)};"
         case JsLet(_, target, expr):
@@ -1393,11 +1458,21 @@ _LIST_HELPER = "\n".join([
 ])
 
 
-def pprint_js_program(stmts, runtime, level=0):
+def pprint_js_program(stmts, runtime, level=0, helpers=True):
     """stmts as JavaScript source text, with the list helper ahead of
-    them where the program builds a list. [JsStmt] -> {String: String} ->
-    Int -> String"""
+    them where the program builds a list. `helpers` is False where a
+    caller emits them itself -- the html packaging, which puts several
+    modules on one page and so needs one copy of each rather than one
+    per module. [JsStmt] -> JsHost -> Int -> Bool -> String"""
     body = _join_stmts(stmts, runtime, level)
+    wanted = js_helpers(stmts, level) if helpers else ""
+    return wanted + "\n\n" + body if wanted else body
+
+
+def js_helpers(stmts, level=0):
+    """The generated program's own runtime helpers, for whichever of
+    them these statements use, indented to level -- or "" where they use
+    none. [JsStmt] -> Int -> String"""
     pad = "  " * level
     wanted = []
     # `pykConcat` builds a list, so it needs `pykList` beside it.
@@ -1405,13 +1480,10 @@ def pprint_js_program(stmts, runtime, level=0):
         wanted.append(_LIST_HELPER)
     if _uses(stmts, JsConcat):
         wanted.append(_CONCAT_HELPER)
-    if not wanted:
-        return body
-    helpers = "\n\n".join(
+    return "\n\n".join(
         "\n".join(pad + line if line else line for line in helper.split("\n"))
         for helper in wanted
     )
-    return helpers + "\n\n" + body
 
 
 def _uses(node, kind):

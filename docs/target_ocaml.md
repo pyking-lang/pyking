@@ -470,6 +470,81 @@ The same goes for a top-level binding a later one rebinds: it is neither
 read nor exported, which is the one case OCaml complains about at the
 top level.
 
+## Modules
+
+OCaml names a module after its file and capitalises it, which is Pyking's
+own rule with one letter changed, so most of this target needs nothing:
+`helper.pyk` is `helper.ml` is the module `Helper`, and `helper.inc`
+is `Helper.inc`.
+
+```pyking
+# helper.pyk
+priv = 3
+
+public def inc(x:Int) -> Int:
+    return x + priv
+
+
+public greeting = "hi"
+```
+
+```ocaml
+(* helper.ml *)
+let priv = 3
+
+let inc x = x + priv
+
+let greeting = "hi"
+```
+
+```ocaml
+(* helper.mli *)
+val inc : int -> int
+
+val greeting : string
+```
+
+```ocaml
+(* program.ml *)
+let () =
+  print_endline (string_of_int (Helper.inc 1));
+  print_endline Helper.greeting
+```
+
+**The `.mli` is the privacy**, and it is the whole of it: a name not
+listed there cannot be reached from outside the file, which is exactly
+what "not `public`" means. It is also the one place this backend writes
+a type at all -- everywhere else it emits none, since OCaml infers them.
+`_interface_type` is what turns the checker's `Type` into OCaml's, and a
+type it cannot write is refused rather than guessed at.
+
+**A public name is spelled by a pure function of itself.** Everywhere
+else, this backend picks OCaml names for a whole module at once
+(`_plan_names`), so that no two land on the same one. That cannot work
+across a boundary: the module doing the importing has not seen the
+module it imports. So an exported name goes through `_public_name`,
+which looks only at the name, and `_plan_names` moves everything else
+out of *its* way. Two exported names that would land on one OCaml name
+are refused.
+
+**A `from` line writes nothing.** `from helper import inc as bump`
+binds no new name here: `bump` simply *means* `Helper.inc`, which is one
+fewer binding than the source has and reads better than a `let bump =
+Helper.inc` nothing would use twice.
+
+**Order is the link order.** OCaml runs a module's top level when the
+program is linked, in the order the files are given, so
+`ocamlopt helper.mli helper.ml program.ml` is both the build and the
+run order. Nothing is emitted for it.
+
+**A private binding nothing reads is dead**, which it was not before:
+without an `.mli`, every top-level binding is exported and none of them
+is unused. With one, an unexported binding that nothing in the module
+reads would draw warning 32 under `-w +a`, so it gets the `_name` this
+backend already gives an unread local. The one binding that keeps its
+name anyway is a `let rec` whose only reader is itself: renaming it
+would leave the call inside it naming nothing.
+
 ## Where the output is not optimal
 
 - **`range` builds a list.** `List.init n Fun.id` allocates `n` cells so

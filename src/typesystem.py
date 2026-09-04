@@ -45,12 +45,12 @@ from analyses import walk as analyses_walk
 from lexer import Info
 from syntax import (
     pprint_type, pprint_type_nested,
-    EInt, EString, EBool, EVar, EAdd, EConcat, ESub, EMul, EDiv, ECall, EIf,
-    ETuple,
+    EInt, EString, EBool, EVar, EQualified, EAdd, EConcat, ESub, EMul, EDiv,
+    ECall, EIf, ETuple,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq,
     SLet, SLetStmt, SVar, SMutate, SExprStmt, SIf, SReturn, SReturnStmt,
     SFunctionDef,
-    SFunctionSig, SMatch,
+    SFunctionSig, SMatch, SImport,
     ENeg, EList, EListComp, CompFor, CompIf,
     PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, PText, ListRest,
     SLoop, SBreak, SContinue, ForIn, WhileTest,
@@ -72,6 +72,8 @@ from syntax import (
 #                                 a name not in it is not in scope
 #     Store                       everything inference has worked out --
 #                                 see the class below
+#     SigMap = {String: Type}     what one module exports, and at what
+#                                 type -- all of it another module sees
 #     TMap  = {Int: Type}         symbol -> inferred type; the result,
 #                                 and the one thing here that is filled
 #                                 in rather than rebuilt
@@ -92,7 +94,7 @@ from syntax import (
 # (src/parser.py enforces that, so this is only saying the same thing
 # again where it would matter).
 #
-#     val type_check         : [Stmt] -> TMap
+#     val type_check         : [Stmt] -> [(String, SigMap)] -> TMap
 #     val check_stmts        : [Stmt] -> Env -> TMap -> Type? -> Type?
 #                              -> Store -> (Type?, Store)
 #     val check_stmt         : Stmt -> Env -> TMap -> Type? -> Type?
@@ -115,6 +117,8 @@ from syntax import (
 #     val function_type      : SFunctionDef -> TFunction
 #     val same_type          : Type -> Type -> Bool
 #     val bind               : Env -> String -> Type -> Env
+#     val import_env         : [Stmt] -> Env -> Store -> Env
+#     val check_exports      : [Stmt] -> TMap -> ()
 #     val unit               : Info -> Type
 #
 # and, for a function whose type was not written down (see "Functions,
@@ -248,6 +252,11 @@ class Store:
       definition was written in, keyed by its symbol. They may name each
       other, so they are worked out together and generalised together
       (see infer_call). Given rather than worked out, like signatures.
+    modules: {String: {String: Type}}. The signature of every module
+      this one imports: each module's name paired with what it exports
+      and at what type (src/module.py's `sigmap`). Given rather than
+      worked out, like signatures and groups, and the whole of what one
+      module can see of another.
     captured: {String}. Metavariables a definition could not generalise
       because the scope it was written in already held them -- an
       enclosing function's parameter, reached from a `def` inside it.
@@ -264,11 +273,14 @@ class Store:
     solutions: dict = None
     groups: dict = None
     captured: frozenset = frozenset()
+    modules: dict = None
 
 
-def empty_store():
-    """The store a program starts checking in. () -> Store"""
-    return Store({}, {}, frozenset(), Frame(), {}, solutions={}, groups={})
+def empty_store(sigmaps=()):
+    """The store a program starts checking in, holding the signature of
+    every module it imports. [(String, {String: Type})] -> Store"""
+    return Store({}, {}, frozenset(), Frame(), {}, solutions={}, groups={},
+                 modules=dict(sigmaps))
 
 
 # The names a generalised variable is given, in order: a, b, ... z, a1, ...
@@ -615,13 +627,19 @@ def unsupported(node):
 # --- the program -----------------------------------------------------
 
 
-def type_check(stmts):
-    """Type-checks a whole program. Raises TypeError_ for the first
-    thing that does not check out. [Stmt] -> {Int: Type}"""
+def type_check(stmts, sigmaps=()):
+    """Type-checks one module -- or a whole one-file program, which is
+    the same thing. `sigmaps` pairs the name of every module this one
+    imports with what that module exports and at what type, which is all
+    of it this check can see (src/module.py). Raises TypeError_ for the
+    first thing that does not check out.
+    [Stmt] -> [(String, {String: Type})] -> {Int: Type}"""
     tmap = {}
+    store = empty_store(sigmaps)
     _, store = check_stmts(
-        stmts, builtin_env(), tmap, None, None, empty_store()
+        stmts, import_env(stmts, builtin_env(), store), tmap, None, None, store
     )
+    check_exports(stmts, tmap)
     # Every type is read back once the whole program has been checked,
     # because a metavariable open where it was recorded may have been
     # solved by something written further down -- a definition worked
@@ -638,6 +656,65 @@ def builtin_env():
     src/repl.py can reuse it when checking a session one entry at a
     time. () -> Env"""
     return {name: TBuiltin(BUILTIN_INFO, name) for name in BUILTINS}
+
+
+def check_exports(stmts, tmap):
+    """Refuses a module that exports a definition it has no type for.
+
+    A `def` that writes no annotations is worked out from a call
+    (`infer_definition`), so one nothing in the module calls has no type
+    -- and there is nothing to work it out *from*, since inference reads
+    a definition off the uses its own module makes of it. A module says
+    what it exports here, in the file that exports it, rather than
+    leaving the module that imports it to find out.
+    [Stmt] -> {Int: Type} -> ()"""
+    for statement in stmts:
+        match statement:
+            case SFunctionDef(info, name) if (
+                statement.public and statement.sym not in tmap
+            ):
+                raise TypeError_(
+                    info,
+                    f"'{name}' is exported, but this module never says what "
+                    f"it is: a 'def' that writes no annotations is worked out "
+                    f"from a call, and nothing here calls '{name}'. Annotate "
+                    f"its parameters and return type, or call it in this "
+                    f"module.",
+                )
+
+
+def available(module, info, store):
+    """What a module exports, or a refusal saying it cannot be reached
+    from here at all -- which is what a file checked on its own gets,
+    since no module system ran to find it. String -> Info -> Store ->
+    {String: Type}"""
+    sigmap = (store.modules or {}).get(module)
+    if sigmap is None:
+        raise AnalysisError(
+            info,
+            f"module '{module}' cannot be imported here: an import needs "
+            "the whole program, and this is one file on its own",
+        )
+    return sigmap
+
+
+def import_env(stmts, env, store):
+    """env extended with everything a module's imports bring into scope:
+    a selected name under the name it is known by here, and a field of a
+    plain import under `alias.field`, which is the spelling `EQualified`
+    looks up. An import is a declaration of the module rather than a
+    statement in its sequence -- like a `def`, all of them are in scope
+    throughout it, which is what lets a definition written above an
+    import still name what it brings in.
+    [Stmt] -> Env -> Store -> Env"""
+    for statement in stmts:
+        match statement:
+            case SImport(info, module, name, selected, fields, _):
+                sigmap = available(module, info, store)
+                for exported, local in fields or ():
+                    bound = local if selected else f"{name}.{exported}"
+                    env = bind(env, bound, sigmap[exported])
+    return env
 
 
 # --- [Stmt] ----------------------------------------------------------
@@ -947,6 +1024,15 @@ def check_stmt(statement, env, tmap, return_type, acc_type, store):
             bound_type = zonk(bound_type, store)
             record(tmap, sym, bound_type, store)
             env, store = check_target(target, bound_type, env, tmap, store)
+            return unit(info), env, store
+
+        case SImport(info, module, _, _, _, _):
+            # What an import brings in was settled before the first
+            # statement was checked (see `import_env`), so there is
+            # nothing left to do here and nothing it is worth. Asking
+            # again is how a caller that checks statements one at a time
+            # -- the REPL -- is told there is no module system running.
+            available(module, info, store)
             return unit(info), env, store
 
         case SVar(info, name, expr, sym):
@@ -1478,6 +1564,16 @@ def expr_type(expr, env, tmap, store):
                     # already worked out means the scheme it turned out
                     # to be, not the promise it was declared as.
                     return settled_type(type_, store), store
+
+        case EQualified(info, module, name, _):
+            # A public name of an imported module. `import_env` put it
+            # in the environment under this very spelling, so the lookup
+            # is `EVar`'s -- and the type is the one the module's own
+            # check worked out, read out of its sigmap.
+            qualified = f"{module}.{name}"
+            if qualified not in env:
+                raise AnalysisError(info, unreachable_name(module, name, env))
+            return settled_type(env[qualified], store), store
 
         case EIf(info, cond, then_expr, else_expr, _):
             # The `if` *expression*, whose `else` is mandatory -- so
@@ -2127,6 +2223,18 @@ def instance_for(general, wanted, quantified, chosen):
                     return None
             return instance_for(my_result, their_result, quantified, chosen)
     return chosen if accepts(general, wanted) else None
+
+
+def unreachable_name(module, name, env):
+    """Why `module.name` names nothing: either no module is in scope
+    under that name, or the one that is does not export it.
+    String -> String -> Env -> String"""
+    if not any(bound.startswith(f"{module}.") for bound in env):
+        return (
+            f"unbound name '{module}.{name}': no module is imported under "
+            f"the name '{module}'"
+        )
+    return f"module '{module}' does not export '{name}'"
 
 
 def check_call(call, env, tmap, store):

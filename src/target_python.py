@@ -26,8 +26,9 @@ from dataclasses import dataclass, field, fields, is_dataclass, replace
 
 import runtime_interface
 from lexer import Info
+from analyses import walk
 from syntax import (
-    EInt, EString, EBool, EVar,
+    EInt, EString, EBool, EVar, EQualified,
     EAdd, EConcat, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList, ETuple,
     EIf, EListComp, CompFor, CompIf,
@@ -35,7 +36,7 @@ from syntax import (
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SIf,
     ForIn, WhileTest,
     SLoop, SBreak, SContinue,
-    SFunctionDef, SMatch,
+    SFunctionDef, SMatch, SImport,
     TInt, TString, TBool, TList, TTuple, TVar,
     TargetName, TargetTuple,
 )
@@ -349,6 +350,20 @@ class PyExprStmt(PyStmt):   # expr used as a statement, e.g. print(x)
 
 
 @dataclass(frozen=True)
+class PyImport(PyStmt):     # import module [as alias]
+    info: Info
+    module: str
+    alias: str = None       # None where the module keeps its own name
+
+
+@dataclass(frozen=True)
+class PyFromImport(PyStmt):  # from module import name [as alias], ...
+    info: Info
+    module: str
+    fields: list            # list[(str, str)] -- exported name, local name
+
+
+@dataclass(frozen=True)
 class PyGlobal(PyStmt):     # global a, b
     info: Info
     names: list
@@ -450,6 +465,22 @@ _tmap = {}
 _format_helper_name_value = None
 _format_helper_def = None
 _divide_helper_def = None
+
+
+def _import_identifiers(stmts):
+    """Every identifier an import puts in play that the generic walk
+    below does not see: a module's own name, which is not held in a
+    field named `name`, and the local names of a `from` line, which are
+    the second half of a pair. [Stmt] -> {String}"""
+    found = set()
+    for statement in walk(stmts):
+        match statement:
+            case SImport(_, module_name, _, _, fields):
+                found.add(module_name)
+                found.update(local for _, local in fields or ())
+            case EQualified(_, module_name, _):
+                found.add(module_name)
+    return found
 
 
 def _collect_identifiers(node, acc=None):
@@ -761,6 +792,11 @@ def _free_in_expr(e, bound, free):
         case EVar(_, name):
             if name not in bound:
                 free.add(name)
+        case EQualified(_, module_name, _):
+            # What the name reaches is another module's; what is free
+            # here is the module itself, which the top level bound.
+            if module_name not in bound:
+                free.add(module_name)
         case EInt() | EString() | EBool():
             pass
         case ENeg(_, operand):
@@ -1273,6 +1309,10 @@ def translate_expr(e, scope):
             return PyBool(info, v)
         case EVar(info, name):
             return PyVar(info, _lookup(name, scope))
+        case EQualified(info, module_name, name):
+            # `m.f` is Python's own attribute access on the imported
+            # module, which is what an `import m` above binds.
+            return PyAttr(info, PyVar(info, _lookup(module_name, scope)), name)
         case EAdd(info, l, r):
             return PyAdd(info, translate_expr(l, scope), translate_expr(r, scope))
         case EConcat(info, l, r):
@@ -1977,6 +2017,22 @@ def translate_stmt(s, scope):
             py_target, scope = translate_target(target, scope, rebinding=True)
             return _translate_value_stmt(stmt, py_target, scope), scope
 
+        case SImport(info, module_name, local, selected, fields):
+            # Python's own import is Pyking's, name for name: a module
+            # is a file, and a public name is a name the module binds.
+            # There is no privacy to express -- Python has none -- so the
+            # `public` marks leave no trace in the output. The names were
+            # bound by `_declare_functions`; where one had to be renamed,
+            # Python's own `as` says so.
+            if selected:
+                return PyFromImport(info, module_name, [
+                    (exported, _lookup(local_name, scope))
+                    for exported, local_name in fields
+                ]), scope
+            py_name = _lookup(local, scope)
+            alias = None if py_name == module_name else py_name
+            return PyImport(info, module_name, alias), scope
+
         case SVar(info, name, expr):
             py_expr = translate_expr(expr, scope)
             # A `var` is a mutable location: `:=` updates the one
@@ -2088,13 +2144,27 @@ def translate_stmt(s, scope):
 
 
 def _declare_functions(stmts, scope):
-    """Binds every def in this block before any of it is translated
-    (docs/target_python.md, "Functions used before they are written").
-    [Stmt] -> Scope -> Scope"""
+    """Binds every def in this block, and everything an import brings
+    into it, before any of it is translated (docs/target_python.md,
+    "Functions used before they are written"). Both are visible
+    throughout the block they are written in, so both are bound ahead of
+    it. [Stmt] -> Scope -> Scope"""
     for s in stmts:
         if isinstance(s, SFunctionDef):
             _, scope = _bind(s.name, scope)
+        elif isinstance(s, SImport):
+            for name in _import_names(s):
+                _, scope = _bind(name, scope)
     return scope
+
+
+def _import_names(statement):
+    """The names one import binds where it is written: each selected
+    name under the name it is known by here, or the module's own local
+    name. SImport -> [String]"""
+    if statement.selected:
+        return [local for _, local in statement.fields or ()]
+    return [statement.name]
 
 
 def _loop_captures(s, loop_names):
@@ -2335,7 +2405,7 @@ def translate_program(stmts, tmap):
     _format_helper_name_value = None
     _format_helper_def = None
     _divide_helper_def = None
-    _used_identifiers = _collect_identifiers(stmts)
+    _used_identifiers = _collect_identifiers(stmts) | _import_identifiers(stmts)
     translated, _ = _translate_stmts(
         stmts,
         Scope({}, {}, frozenset(), frozenset(), _captured_names(stmts, set())),
@@ -2548,6 +2618,15 @@ def pprint_py_stmt(s, level=0):
             return f"{pad}return {pprint_py_expr(expr)}"
         case PyExprStmt(_, expr):
             return f"{pad}{pprint_py_expr(expr)}"
+        case PyImport(_, module, alias):
+            return (f"{pad}import {module}" if alias is None
+                    else f"{pad}import {module} as {alias}")
+        case PyFromImport(_, module, fields):
+            taken = ", ".join(
+                name if name == local else f"{name} as {local}"
+                for name, local in fields
+            )
+            return f"{pad}from {module} import {taken}"
         case PyGlobal(_, names):
             return f"{pad}global {', '.join(names)}"
         case PyNonlocal(_, names):

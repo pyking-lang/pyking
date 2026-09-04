@@ -132,6 +132,15 @@ case [TokLParen(lp_info), *rest]:
         case [TokRParen(rp_info), *rest]:                   # (e)  just grouping
 ```
 
+One case sits ahead of the plain name and decides in the opposite
+direction: `ident . ident` is a qualified name — a public name of an
+imported module — rather than the name on its own. The `.` must start on
+the row the module name ended on, for the same reason `parse_call_tail`
+requires it of a `(`: without that, a bare name at the end of a line
+would reach down and take the next line's first token. There is no
+clash with the `.` in `all a. …`, which is read by `parse_type_vars` in
+a position no expression can reach.
+
 `(e)` and `(e,)` are one token of lookahead apart, and the parser reads
 that one token — is the next thing `,` or `)` — only *after* it already
 has `first` in hand, rather than trying to guess up front. This is the
@@ -245,7 +254,7 @@ narrowed back down to "must have been a plain expression."
 
 ## Checks that live here because nowhere else can do them cheaply
 
-Five rules are enforced by this module even though they are, in a
+Six rules are enforced by this module even though they are, in a
 sense, "not parsing":
 
 - **`_check_no_duplicate_captures`** — a pattern may not bind the same
@@ -276,6 +285,13 @@ sense, "not parsing":
   statement's own. Deliberately *not* extended to `return`: statements
   after one are ordinary Pyking, and a branch that returns early is a
   normal way to write a body.
+- **`parse_top_statement`** — an import and a `public` belong to a
+  module's top level. There is no flag threaded through the parser for
+  that and no "am I at the top?" test: the three forms are parsed
+  *only* by `parse_top_statement`, which `parse` calls and nothing else
+  does, and `parse_statement` — which every block goes through — refuses
+  their keywords outright. Where a rule can be enforced by which
+  function is reachable, that is cheaper than a check.
 - **`_check_own_line`** — see below.
 - **`_on_header_line` / `_check_inline_value` / `_check_ends_line` /
   `_check_nothing_indented`** — the other half of the same
@@ -293,6 +309,17 @@ sense, "not parsing":
   indented block under one, which would belong to nothing. A second
   statement on the line is left to `_check_own_line`, which already
   covers it. See PYKING.md, "A block on its header's own line".
+
+## One line, several statements: `import a, b`
+
+`parse_statement` answers with one statement, and every caller had one
+line in mind for it — until `import a, b`, which is one line standing
+for two `SImport`s. Rather than making every caller cope with a list,
+`parse_top_statement` is the one function that answers with a *group*,
+and `parse` extends its list with it. The one rule that has to know is
+`_check_own_line`, which compares the previous statement with the
+**first** of the group: the members of a group share a line by
+construction, and the group as a whole is what has to start a new one.
 
 ## `_check_own_line`: reconstructing a fact the lexer didn't record
 

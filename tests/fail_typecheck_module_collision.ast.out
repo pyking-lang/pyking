@@ -1,0 +1,5 @@
+'tests/fail_typecheck_module_collision.pyk' 9:0-9:54 Module error:
+  this import brings in 'total', which module
+  'fail_typecheck_module_collision' cannot use for it: it is already
+  bound on line 5. Rename one of them, with 'as' on the import if that
+  is the one to move

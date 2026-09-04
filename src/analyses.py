@@ -40,12 +40,12 @@ from dataclasses import dataclass, fields, is_dataclass, replace
 from lexer import Info
 import runtime_interface
 from syntax import (
-    EVar, ECall,
+    EVar, EQualified, ECall,
     PCapture, PTuple, PList, PText,
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SIf,
     ForIn,
     SLoop, SBreak, SContinue,
-    SFunctionDef, SFunctionSig, SMatch,
+    SFunctionDef, SFunctionSig, SMatch, SImport,
     TFunction, TForall,
     TargetName, TargetTuple,
 )
@@ -70,6 +70,7 @@ LOOP_VAR = "loop variable"        # for name in ... / loop name = ...
 PATTERN_VAR = "pattern variable"  # case ...name...:
 FUNCTION = "function"             # def name(...)
 BUILTIN = "builtin"               # see `BUILTINS`
+IMPORTED = "imported name"        # import m / from m import name
 
 # Names that are not bound in a Pyking program but that the generated
 # Python calls directly. Extend when a program starts using another one.
@@ -171,6 +172,13 @@ def bound_names(stmt):
         case SLet(_, target, _) | SLetStmt(_, target, _):
             return target_names(target)
         case SVar(info, name, _):
+            return [(name, info)]
+        case SImport(info, _, name, selected, fields):
+            # The plain form binds the module's own local name; the
+            # `from` form binds each field under the name it is known by
+            # here. Both are top-level bindings like any other.
+            if selected:
+                return [(local, info) for _, local in fields]
             return [(name, info)]
         case _:
             return []
@@ -277,6 +285,14 @@ def analyze_stmt(s, env):
         case SVar(info, name, _):
             return bind(env, name, MUTABLE, info)
 
+        case SImport():
+            # An import binds names like anything else, so the
+            # no-shadowing-a-`var` rule reaches it too. There is nothing
+            # inside one to walk.
+            for name, info in bound_names(s):
+                env = bind(env, name, IMPORTED, info)
+            return env
+
         case SMutate(info, name, _):
             existing = env.get(name)
             if existing is not None and existing.kind == MUTABLE:
@@ -362,25 +378,29 @@ def analyze_mutability(stmts):
 # --- symbolize ---
 
 
-def _highest_sym(node):
-    """The largest sym anywhere in node, or 0 if none is symbolized.
+def highest_sym(node):
+    """The largest sym anywhere in node, or 0 if none is symbolized --
+    which is where the next module's `symbolize` continues from.
     a -> Int"""
     if is_dataclass(node) and hasattr(node, "sym"):
         return max(
             [node.sym]
-            + [_highest_sym(getattr(node, f.name)) for f in fields(node)]
+            + [highest_sym(getattr(node, f.name)) for f in fields(node)]
         )
     if isinstance(node, (list, tuple)):
-        return max([0] + [_highest_sym(element) for element in node])
+        return max([0] + [highest_sym(element) for element in node])
     return 0
 
 
-def symbolize(stmts):
+def symbolize(stmts, start=0):
     """Rebuilds stmts so every node has a unique sym, numbered
-    post-order starting at 1 (0 means "not symbolized"). A node that
-    already has a symbol keeps it; safe to run more than once.
-    [Stmt] -> [Stmt]"""
-    counter = itertools.count(_highest_sym(stmts) + 1)
+    post-order starting after `start` (0 means "not symbolized"). A node
+    that already has a symbol keeps it; safe to run more than once. A
+    program of several modules passes each module the highest symbol the
+    one before it reached, so no two nodes in it share a symbol -- which
+    is what lets one call-free table and one type table span the whole
+    program. [Stmt] -> Int -> [Stmt]"""
+    counter = itertools.count(max(highest_sym(stmts), start) + 1)
 
     def renumber(node):
         if is_dataclass(node) and hasattr(node, "sym"):
@@ -433,14 +453,19 @@ def apply_signatures(stmts):
 
     def apply(node):
         if isinstance(node, list):
-            signatures = {s.name: s.type for s in node
+            signatures = {s.name: s for s in node
                           if isinstance(s, SFunctionSig)}
             out = []
             for item in node:
                 if isinstance(item, SFunctionSig):
                     continue
                 if isinstance(item, SFunctionDef) and item.name in signatures:
-                    item = annotated(item, signatures[item.name])
+                    signature = signatures[item.name]
+                    item = annotated(item, signature.type)
+                    # `public` on either line exports the definition, so
+                    # the one on the signature comes with the types.
+                    if signature.public and not item.public:
+                        item = replace(item, public=True)
                 out.append(apply(item))
             return out
         if isinstance(node, tuple):
@@ -489,7 +514,8 @@ def all_functions(stmts):
 class Effects:
     """Which calls in a program can end up printing, by a fixed-point
     walk of the call graph. A call whose target is not a known def is
-    treated as printing if any function in the program does."""
+    treated as printing if any function in the program does, and a call
+    into another module always is: this walk sees one module."""
 
     def __init__(self, stmts):
         """Computes self.printing (function names that print) and
@@ -528,6 +554,11 @@ class Effects:
                     return False
                 if name in self.functions:
                     return name in self.printing
+            case EQualified():
+                # Another module's, and this walk sees only this one --
+                # so the conservative answer, which is what the whole
+                # class gives where it cannot see a body.
+                return True
         return self.unknown_prints
 
     def may_print(self, expr):

@@ -1,0 +1,14 @@
+# Importing a whole module: its public names are reached through the
+# name it was imported under, and nothing else in it can be reached
+# at all.
+
+import module_qualified_mod1
+
+print(module_qualified_mod1.twice(21))
+print(module_qualified_mod1.origin)
+print(module_qualified_mod1.twice(module_qualified_mod1.origin))
+
+# Both operands print, so the two lines above the sum arrive in the
+# order they are written -- left to right, across the module boundary.
+total = module_qualified_mod1.first(1) + module_qualified_mod1.second(2)
+print(total)

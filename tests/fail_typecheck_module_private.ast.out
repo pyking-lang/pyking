@@ -1,0 +1,5 @@
+'tests/fail_typecheck_module_private.pyk' 3:0-3:53 Module error:
+  module 'fail_typecheck_module_private_mod1' does not export
+  'helper': it is defined in
+  'tests/fail_typecheck_module_private_mod1.pyk' but not marked
+  'public', and a module exports nothing by default

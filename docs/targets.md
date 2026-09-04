@@ -213,6 +213,15 @@ testing — could be built end to end before the language surface grew:
 | `str`, `len`, `range` | ✅ | ❌ (refused at compile time) | ❌ | ❌ | ✅ (`range` takes one argument) |
 | nested `def` | ✅ | ✅ | ❌ | ❌ | ✅ |
 | function must provably return on every path | n/a | n/a | n/a | ✅ (`javac` requires it; refused at compile time otherwise) | n/a |
+| modules: `import`, `from`, `public` | ✅ (Python's own `import`) | ✅ (`require` for `nodejs`, `init(runtime)` for `esm`, one block per module on the page for `html`) | ✅ (one translation unit and a header each) | ✅ (one class each) | ✅ (one module and a `.mli` each) |
+| … privacy enforced in the output | ❌ (Python has none) | ❌ (a module exports what it exports) | ✅ (`static`) | ✅ (`private static`) | ✅ (the `.mli` is the export list) |
+| … a module's top level runs before its importers' | ✅ (import does it) | ✅ (`require`/`init`/block order) | ✅ (a generated `<name>_init()`) | ✅ (a generated `Module.init()`) | ✅ (link order) |
+
+Every target supports modules, and every one of them compiles a module
+to a file of its own beside the program's output rather than inlining it
+— except `html`, where a page *is* one file, so each module becomes a
+block of that page instead. [modules.md](modules.md) has the shape each
+of them uses; the family pages have the generated code.
 
 The `ocaml` column is the type checker's coverage, not a list this
 backend maintains: it compiles what `src/typesystem.py` accepts, so the

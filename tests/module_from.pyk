@@ -1,0 +1,9 @@
+# `from ... import ...`: the names are bound in this module's own top
+# level, and the module they came from is not.
+
+from module_from_mod1 import greet, shout
+from module_from_mod1 import banner as title
+
+print(greet("world"))
+print(shout(greet(title)))
+print(title)

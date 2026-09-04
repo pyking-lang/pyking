@@ -1,0 +1,2 @@
+public def two() -> Int:
+    return 2

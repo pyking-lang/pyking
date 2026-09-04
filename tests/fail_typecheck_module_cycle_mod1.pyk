@@ -1,0 +1,4 @@
+import fail_typecheck_module_cycle_mod2
+
+public def one() -> Int:
+    return fail_typecheck_module_cycle_mod2.two()

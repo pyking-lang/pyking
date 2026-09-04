@@ -1,0 +1,8 @@
+# `import ... as ...`: the module is reached under a name of this
+# program's choosing, and its own name is not in scope at all.
+
+import module_alias_mod1 as nm
+
+print(nm.add(2, 3))
+print(nm.sub(10, 4))
+print(nm.add(nm.sub(9, 4), 1))

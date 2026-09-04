@@ -1,0 +1,9 @@
+# An import written inside a block. What a module imports is a fact
+# about the module, so it belongs to its top level.
+
+def wrapper() -> Int:
+    import fail_typecheck_module_nested_mod1
+    return fail_typecheck_module_nested_mod1.helper()
+
+
+print(wrapper())

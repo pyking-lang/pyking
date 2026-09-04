@@ -222,6 +222,7 @@ import target_js_core
 import target_js_packaging
 import target_ocaml
 import typesystem
+import module
 from target_python import translate_program, pprint_py_program
 
 
@@ -257,6 +258,11 @@ def compile_source(text, target="python", name="playground.pyk"):
     in `src/pyk.py`: a program the checker refuses is refused, whatever
     target was asked for.
 
+    One file, always: the page has no filesystem, so there is no module
+    for an `import` to reach and a program that writes one is refused by
+    the checker. What a module exports is still checked, since that
+    needs only the file itself (see docs/modules.md).
+
     The `pyking` target is the one that compiles nothing: it yields the
     pretty-printed Pyking AST, with the types the checker inferred. What
     the CLI prints to stdout becomes a file here, since the page shows
@@ -272,6 +278,15 @@ def compile_source(text, target="python", name="playground.pyk"):
         return _fail(e, "Parsing error")
 
     program = symbolize(program)
+
+    # The half of the module system that needs only this file: what it
+    # exports, and that it exports one thing under one name. The other
+    # half reads files the page does not have, and an `import` is
+    # refused by the checker below for exactly that reason.
+    try:
+        module.check_publics(program)
+    except module.ModuleError as e:
+        return _fail(e, "Module error")
 
     # Pyking is statically typed: this is not a mode. The checker carries
     # a name environment of its own, so an unbound name is reported here
@@ -324,7 +339,11 @@ def compile_source(text, target="python", name="playground.pyk"):
         if target in target_js_packaging.TARGETS:
             js = target_js_core.translate_program(program)
             out = stem + target_js_packaging.PRIMARY_EXTENSIONS[target]
-            return done(target_js_packaging.package(target, js, name, out))
+            unit = module.Module(name=stem, path=name, tokens=[], stmts=program)
+            files, _ = target_js_packaging.package_program(
+                target, [(unit, js)], out, stdout=False
+            )
+            return done(files)
 
         if target in target_c.STANDARDS:
             c = target_c.translate_program(program)
@@ -2347,10 +2366,21 @@ def build_examples(code_targets):
     """Copies tests/*.pyk and records which targets each is known to
     accept, straight out of tests/test_cases.toml (README.md, "Three
     things read out of the repository") -- so the playground cannot
-    claim support the test suite does not. [String] -> [{...}]"""
+    claim support the test suite does not. A program of several modules
+    is left out entirely: the page compiles one file.
+    [String] -> [{...}]"""
     with open(TESTS_DIR / "test_cases.toml", "rb") as f:
         cases = tomllib.load(f)["cases"]
-    known = {case["file"]: case["targets"] for case in cases}
+    # A program that imports is not one this page can compile: it has
+    # one file and no filesystem, so there is no module for an `import`
+    # to reach (see docs/modules.md). Both halves are left out -- the
+    # program that imports, and the modules it imports, which are not
+    # programs of their own.
+    with_modules = {case["file"] for case in cases if case.get("modules")}
+    imported = {name for case in cases for name in case.get("modules", [])}
+    skipped = with_modules | imported
+    known = {case["file"]: case["targets"] for case in cases
+             if case["file"] not in skipped}
     declared = {t for targets in known.values() for t in targets}
     every = sorted(declared & set(code_targets))
     other = sorted(declared - set(code_targets))
@@ -2360,6 +2390,8 @@ def build_examples(code_targets):
 
     entries = []
     for path in sorted(TESTS_DIR.glob("*.pyk")):
+        if path.name in skipped:
+            continue
         shutil.copy2(path, BUILD / "examples" / path.name)
         targets = [t for t in known.get(path.name, ["python"]) if t in code_targets]
         entries.append({

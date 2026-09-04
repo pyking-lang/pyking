@@ -1,0 +1,8 @@
+# The middle of the chain: it imports mod1, so it runs after it.
+
+import module_chain_mod1
+
+print("mod2 starting")
+
+public def middle() -> Int:
+    return module_chain_mod1.base() + 10

@@ -135,6 +135,9 @@ let rec sym_expr counter e =
       let clauses, counter = map_fold sym_comp_clause counter clauses in
       let s, counter = assign s counter in
       (EListComp (i, e2, clauses, s), counter)
+  | EQualified (i, module_name, name, s) ->
+      let s, counter = assign s counter in
+      (EQualified (i, module_name, name, s), counter)
 
 and sym_type counter t =
   match t with
@@ -256,18 +259,18 @@ and sym_case counter (MatchCase (i, pattern, body, s)) =
 
 and sym_stmt counter st =
   match st with
-  | SLet (i, target, expr, type_, s) ->
+  | SLet (i, target, expr, type_, s, public) ->
       let target, counter = sym_target counter target in
       let expr, counter = sym_expr counter expr in
       let type_, counter = map_option sym_type counter type_ in
       let s, counter = assign s counter in
-      (SLet (i, target, expr, type_, s), counter)
-  | SLetStmt (i, target, stmt, type_, s) ->
+      (SLet (i, target, expr, type_, s, public), counter)
+  | SLetStmt (i, target, stmt, type_, s, public) ->
       let target, counter = sym_target counter target in
       let stmt, counter = sym_stmt counter stmt in
       let type_, counter = map_option sym_type counter type_ in
       let s, counter = assign s counter in
-      (SLetStmt (i, target, stmt, type_, s), counter)
+      (SLetStmt (i, target, stmt, type_, s, public), counter)
   | SVar (i, name, expr, s) ->
       let expr, counter = sym_expr counter expr in
       let s, counter = assign s counter in
@@ -314,21 +317,26 @@ and sym_stmt counter st =
       in
       let s, counter = assign s counter in
       (SIf (i, cond, then_body, else_body, s), counter)
-  | SFunctionDef (i, name, params, body, return_type, s) ->
+  | SFunctionDef (i, name, params, body, return_type, s, public) ->
       let params, counter = map_fold sym_param counter params in
       let body, counter = map_fold sym_stmt counter body in
       let return_type, counter = map_option sym_type counter return_type in
       let s, counter = assign s counter in
-      (SFunctionDef (i, name, params, body, return_type, s), counter)
-  | SFunctionSig (i, name, type_, s) ->
+      (SFunctionDef (i, name, params, body, return_type, s, public), counter)
+  | SFunctionSig (i, name, type_, s, public) ->
       let type_, counter = sym_type counter type_ in
       let s, counter = assign s counter in
-      (SFunctionSig (i, name, type_, s), counter)
+      (SFunctionSig (i, name, type_, s, public), counter)
   | SMatch (i, subject, cases, s) ->
       let subject, counter = sym_expr counter subject in
       let cases, counter = map_fold sym_case counter cases in
       let s, counter = assign s counter in
       (SMatch (i, subject, cases, s), counter)
+  | SImport (i, module_name, name, selected, fields, s) ->
+      (* The strings an import holds are not nodes, so the statement's
+         own symbol is all it has. *)
+      let s, counter = assign s counter in
+      (SImport (i, module_name, name, selected, fields, s), counter)
 
 (* --- the largest symbol already handed out ---
    A tree that has been symbolized once keeps the numbers it has, and
@@ -342,7 +350,7 @@ let high_option f item = match item with None -> 0 | Some x -> f x
 let rec high_expr e =
   let children =
     match e with
-    | EInt _ | EString _ | EBool _ | EVar _ -> 0
+    | EInt _ | EString _ | EBool _ | EVar _ | EQualified _ -> 0
     | EAdd (_, l, r, _)
     | ESub (_, l, r, _)
     | EMul (_, l, r, _)
@@ -420,11 +428,11 @@ and high_case (MatchCase (_, pattern, body, s)) =
 and high_stmt st =
   let children =
     match st with
-    | SLet (_, target, expr, type_, _) ->
+    | SLet (_, target, expr, type_, _, _) ->
         max
           (max (high_target target) (high_expr expr))
           (high_option high_type type_)
-    | SLetStmt (_, target, stmt, type_, _) ->
+    | SLetStmt (_, target, stmt, type_, _, _) ->
         max
           (max (high_target target) (high_stmt stmt))
           (high_option high_type type_)
@@ -450,16 +458,17 @@ and high_stmt st =
             high_list high_stmt then_body;
             high_option (high_list high_stmt) else_body;
           ]
-    | SFunctionDef (_, _, params, body, return_type, _) ->
+    | SFunctionDef (_, _, params, body, return_type, _, _) ->
         List.fold_left max 0
           [
             high_list high_param params;
             high_list high_stmt body;
             high_option high_type return_type;
           ]
-    | SFunctionSig (_, _, type_, _) -> high_type type_
+    | SFunctionSig (_, _, type_, _, _) -> high_type type_
     | SMatch (_, subject, cases, _) ->
         max (high_expr subject) (high_list high_case cases)
+    | SImport _ -> 0
   in
   max (stmt_sym st) children
 

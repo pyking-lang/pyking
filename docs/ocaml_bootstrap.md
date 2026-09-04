@@ -23,6 +23,14 @@ bytes for 275 programs does not.
 | `typesystem.ml` | the type checker, at its beginning: integer literals, variables and `+`. |
 | `main.ml` | the driver: read a file, lex, parse, symbolize, optionally type-check, print. A fraction of `src/pyk.py`. |
 
+`src/module.py` is deliberately not on that list. A module system reads
+files the compiler was not given, and `./main` is a program that reads
+the one it was; what is translated is the *syntax* the module system
+rests on — the four keywords, `SImport` and `EQualified`, where an
+import and a `public` may be written, and how each of them prints. The
+suite below turns the module system off on the Python side too, which is
+what makes the two comparable.
+
 ## Building and running
 
 ```sh
@@ -94,6 +102,17 @@ about almost every program — not about the front end, but about the
 types printed into it. With checking off, `-t pyking` prints the program
 the parser built with the source's own annotations, which is exactly
 what the OCaml side prints.
+
+The **module system** is off on both sides for the same reason, and by
+the same flag. `ocaml-src/` reads the one file it is given and has no
+module system at all, so under `--no-typechecking` `src/` reads one file
+too (`module.read_file`): nothing a program imports is opened, no cycle
+is looked for, and no name is checked against another module's. What is
+compared is what both sides do have — the tokens, the parse, the
+symbols, and the printed form of an `import`, a `from` line and a
+`public`. The module *files* under `tests/` are compared as programs in
+their own right here, since this suite runs over every `tests/*.pyk`
+rather than over the manifest's cases.
 
 Thirteen of the `fail_typecheck_*` programs are refused by the *parser*
 rather than the checker, so they are compared too: those are the cases

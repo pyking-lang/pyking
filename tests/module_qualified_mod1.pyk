@@ -1,0 +1,28 @@
+# A module reached through its own name. Nothing is exported unless it
+# says so: `scale` is this module's business, and the rest is what
+# another module may use.
+
+def scale(n:Int) -> Int:
+    return n * 2
+
+
+public def twice(n:Int) -> Int:
+    return scale(n)
+
+
+public origin = 100
+
+
+# Two functions that print as well as answering, so that a program using
+# both as operands of one expression pins the order they run in -- which
+# the C and OCaml backends have to arrange for themselves, and cannot
+# see into this module to decide (see docs/target_c.md, "Evaluation
+# order").
+public def first(n:Int) -> Int:
+    print("first")
+    return n
+
+
+public def second(n:Int) -> Int:
+    print("second")
+    return n

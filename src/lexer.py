@@ -251,6 +251,26 @@ class TokCase(Token):       # 'case'
 
 
 @dataclass(frozen=True)
+class TokPublic(Token):     # 'public' (module export marker)
+    info: Info
+
+
+@dataclass(frozen=True)
+class TokImport(Token):     # 'import'
+    info: Info
+
+
+@dataclass(frozen=True)
+class TokFrom(Token):       # 'from' (`from module import name`)
+    info: Info
+
+
+@dataclass(frozen=True)
+class TokAs(Token):         # 'as' (renaming an import)
+    info: Info
+
+
+@dataclass(frozen=True)
 class TokAssign(Token):     # ':=' (mutation of a `var`)
     info: Info
 
@@ -361,6 +381,14 @@ def pprint_token(tok):
             return "TokElse"
         case TokVar():
             return "TokVar"
+        case TokPublic():
+            return "TokPublic"
+        case TokImport():
+            return "TokImport"
+        case TokFrom():
+            return "TokFrom"
+        case TokAs():
+            return "TokAs"
         case TokMatch():
             return "TokMatch"
         case TokCase():
@@ -400,8 +428,8 @@ def is_digit_letter(x):
 
 keywords = [
     "for", "in", "if", "while", "loop", "break", "continue", "then",
-    "else", "var", "def", "return", "match", "case", "Int", "String",
-    "Bool", "true", "false",
+    "else", "var", "def", "return", "match", "case", "public", "import",
+    "from", "as", "Int", "String", "Bool", "true", "false",
 ]
 
 
@@ -436,6 +464,14 @@ def keyword_token(name, info):
             return TokMatch(info)
         case "case":
             return TokCase(info)
+        case "public":
+            return TokPublic(info)
+        case "import":
+            return TokImport(info)
+        case "from":
+            return TokFrom(info)
+        case "as":
+            return TokAs(info)
         case "Int":
             return TokTypeInt(info)
         case "String":

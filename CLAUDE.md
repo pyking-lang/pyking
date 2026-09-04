@@ -32,7 +32,8 @@ Concretely:
   plus `tests/test_cases.toml` (which program runs on which target) and
   `tests/test_script.py` (see "Running" below for how it uses both).
 - `docs/` holds design notes; `docs/architecture.md` is the compiler-side
-  counterpart to PYKING.md, and `docs/source.md` describes every module
+  counterpart to PYKING.md, `docs/modules.md` covers the module system,
+  and `docs/source.md` describes every module
   in `src/` — what it is, its data structures, its main functions. A new
   module in `src/`, or a change to what one of them holds, belongs there
   as well as in `architecture.md`'s stage table.
@@ -81,8 +82,10 @@ these is updated in the same change — none of them is optional, and the
 last ones are the ones that get forgotten:
 
 1. **`src/`** — the stage(s) implementing it (lexer → parser → syntax →
-   `analyses.py`'s `symbolize` → `typesystem.py` → `analyses.py`'s
-   `analyze_mutability` → `optimization.py` → each backend).
+   `module.py` → `analyses.py`'s `symbolize` → `typesystem.py` →
+   `analyses.py`'s `analyze_mutability` → `optimization.py` → each
+   backend). `module.py` needs nothing for an ordinary construct: it
+   reads statements only to find imports and `public`s.
    `optimization.py` usually needs nothing: it rewrites tail calls and
    passes everything else through. A construct that can *hold* a tail
    position -- a new branching statement, say -- does need a case there,
@@ -119,7 +122,11 @@ last ones are the ones that get forgotten:
    with its `.out` captured from an actual run, **and an entry in
    `tests/test_cases.toml`** listing the targets it works on. The harness
    warns about a `.pyk` missing from the manifest, but a wrong target list
-   just silently under-tests. If the checker accepts the construct, that
+   just silently under-tests. A program that *imports* also lists the
+   modules it imports under `modules`, in dependency order -- the
+   compiler writes them beside the program's own output, and the C, Java
+   and OCaml runners have to name them in that order to build the
+   program at all. A module listed there is not a case of its own. If the checker accepts the construct, that
    list includes `interpret`: the interpreter is the reference for what
    the program *means*, and the harness warns about a `typecheck_*` case
    that leaves it out. If most of an existing test would work on
@@ -134,6 +141,7 @@ last ones are the ones that get forgotten:
 4. **`docs/`** — anything about *compiling* or *running*.
    `architecture.md` for the pipeline itself (a new stage or module, a
    change to how the driver works, the interpreter's machine);
+   `modules.md` for anything about the module system;
    `source.md` for what the module in question now holds;
    `type_inference.md` for anything about how a type is *worked out*
    rather than what the rules are; `analyses.md` for the mutability
@@ -288,7 +296,19 @@ The bootstrap is split into one module per compiler stage:
    ended) and `_check_nothing_indented` (nor may an indented block
    follow). A second statement on the line is already `_check_own_line`'s.
    `parse_cases` has no inline form at all: a `match` opens a list of
-   clauses, and a `case` is not an expression. An inline block is
+   clauses, and a `case` is not an expression.
+   The module system's two forms belong to the top level, and that is
+   enforced by which function is reachable rather than by a check:
+   `parse_top_statement` is the only thing that parses an import or a
+   `public`, `parse` is the only thing that calls it, and
+   `parse_statement` -- which every block goes through -- refuses their
+   keywords outright. It is also the one function that answers with
+   *several* statements, since `import a, b` is one line standing for
+   two `SImport`s; `_check_own_line` is then applied to the first of the
+   group, the rest sharing its line by construction. A qualified name
+   (`m.f`) is read in `parse_atom` and requires the `.` to start on the
+   row the module name ended on, for the reason `call_tail` requires it
+   of a `(`. An inline block is
    otherwise nothing special -- it builds the same one-statement block
    the indented form does, so no later stage knows which was written. Two more
    belong to the `loop` construct and are here for the same reason --
@@ -299,7 +319,39 @@ The bootstrap is split into one module per compiler stage:
    after one in the same block). The operand of a `break`/`continue` is
    taken only from the keyword's own line (`parse_exit_operand`), by the
    same row check `call_tail` uses and for the same reason.
-4. **`src/analyses.py`** — static analyses over the parsed AST, run
+4. **`src/module.py`** — the module system: one file is one module, and
+   a program is the acyclic graph of the modules its main file reaches.
+   `load(path)` reads and parses all of them (resolving each import
+   **in the importing file's own directory** -- there is no search
+   path), refuses a cycle, and answers with them in dependency order,
+   symbolized with **one numbering across the whole program**
+   (`analyses.symbolize(stmts, start)`), which is what lets a single
+   `tmap` and a single call-free table span them. Errors raise
+   `ModuleError(info, message)`, reported as `Module error`.
+   `check_publics` settles what a module exports and refuses a name
+   exported twice or an exported name bound twice; `resolve_imports`
+   fills in a plain import's `fields` from the imported module's public
+   names, refuses a `from` line naming something not exported, and
+   refuses a name that collides with anything the importing module
+   already uses. `make_sigmap(stmts, tmap)` turns a checked module into
+   the `{name: Type}` the next one is checked against -- made from the
+   program the *checker* saw, before the tail-call pass, since that pass
+   can change how a module computes what it exports and never what it
+   exports. `Context` is what a backend is told about the module it is
+   compiling beyond its statements (its name, whether it is the
+   program's own, whether the program has more than one module at all,
+   the modules to start first, every module's sigmap); a program of one
+   module gets a `Context` saying so, which is what keeps a single-file
+   program's output byte-for-byte what it was. `read_file` is the one
+   entry that reads a single file and checks nothing, which is where
+   `--no-typechecking` stops -- the OCaml bootstrap has no module system,
+   so under that flag neither does this one. The two front ends that
+   compile a file with no program around it -- the REPL and the browser
+   playground -- run `check_publics` (it needs only the file) and let
+   `typesystem.available` refuse an import (it needs the program); the
+   playground additionally offers neither a program that imports nor a
+   module it imports as an example. See `docs/modules.md`.
+5. **`src/analyses.py`** — static analyses over the parsed AST, run
    between the parser and any backend; errors raise
    `AnalysisError(info, message)`. The one the driver runs is
    *mutability*, and it runs **after** `typesystem.py`, which owns names
@@ -335,7 +387,11 @@ The bootstrap is split into one module per compiler stage:
    both rather than restating them; keep it that way.
 
    Also here: **`symbolize`**, which gives every AST node a unique
-   integer `sym` (post-order from 1; `0` means "not symbolized yet").
+   integer `sym` (post-order from `start`, which defaults to 0; `0`
+   means "not symbolized yet"). `start` is what makes one numbering span
+   a program of several modules -- `module.py` hands each module the
+   highest the one before it reached -- and that is what lets one `tmap`
+   and one call-free table cover all of them.
    Unlike `analyze_mutability` it *rewrites* — nodes are frozen, so it
    rebuilds the tree with `replace`. Its walk is generic over dataclass
    fields rather than one case per node type, so a node added to
@@ -357,7 +413,7 @@ The bootstrap is split into one module per compiler stage:
    in the wrong order — and a call to something that is not a `def` is
    assumed to print if anything in the program does. `walk` and
    `all_functions` are here for it.
-5. **`src/optimization.py`** — tail calls into loops, one pass from the
+6. **`src/optimization.py`** — tail calls into loops, one pass from the
    Pyking AST to the Pyking AST, run *after* the type checker and only
    over a program it accepted, unless `--no-tail-call-opt` says
    otherwise. The types are what make it decidable, which is why it runs
@@ -387,12 +443,26 @@ The bootstrap is split into one module per compiler stage:
    *types*, which only the checker can see; `docs/optimization.md` is
    the long form, including that case and the `fail_tco_*` tests that
    pin it.
-6. **`src/typesystem.py`** — the type checker, run for every mode and
+7. **`src/typesystem.py`** — the type checker, run for every mode and
    every target, after `symbolize` and before anything else reads the
    program: Pyking is statically typed and there is no flag for it. It
    is also the only pass that checks *names* (see `pyk.py` below).
-   One entry point, `type_check(stmts) -> tmap`: a whole program in, the
-   types it worked out back. Two consumers now define their coverage as
+   One entry point, `type_check(stmts, sigmaps) -> tmap`: one module in
+   -- or a whole one-file program, which is the same thing -- and the
+   types it worked out back. `sigmaps` pairs the name of every module
+   this one imports with what that module exports and at what type
+   (`module.make_sigmap`), and is all of another module this check can
+   see; `import_env` puts what they bring in into the environment
+   *before* the first statement is checked, since an import is a
+   declaration of the module rather than a statement in its sequence --
+   and it has to be that way round, because a deferred body is checked
+   in the environment recorded where it was written. The other
+   direction is `check_exports`, run at the end: a `def` that annotated
+   nothing has no type until something calls it, and inference reads it
+   off its *own* module's use of it -- so exporting one this module
+   never calls is **refused**, not inferred from nothing. An exported
+   `def` is fully annotated or called in its own module; see PYKING.md,
+   "What a module may export". Two consumers now define their coverage as
    "whatever this accepts" — `target_ocaml.py` and `interpreter.py` — so
    widening the checker widens both, and each needs the corresponding
    `case` or an explicit refusal.
@@ -617,7 +687,7 @@ The bootstrap is split into one module per compiler stage:
    where it was recorded may have been solved by something written
    further down.
 
-7. **`src/runtime_interface.py`** — the boundary between pure Pyking code
+8. **`src/runtime_interface.py`** — the boundary between pure Pyking code
    and the outside world, in the spirit of WebAssembly's split between a
    core language that cannot observe anything and a separate host spec.
    Backend-agnostic by construction: it holds no Python and no JavaScript,
@@ -625,7 +695,7 @@ The bootstrap is split into one module per compiler stage:
    *including* the value-formatting rules, since every backend has to
    agree on those for one program to print the same characters
    everywhere. Add an operation here first; the backends then bind it.
-8. **`src/target_js_core.py`** — the JavaScript backend's language half:
+9. **`src/target_js_core.py`** — the JavaScript backend's language half:
    a `Js*` AST, translation from `syntax.py`, and a printer. Knows nothing
    about packaging. Calls that cross the runtime interface become
    `JsRuntimeCall`, whose spelling is supplied by the packager, so the
@@ -644,14 +714,14 @@ The bootstrap is split into one module per compiler stage:
    what each function closes over. A loop with no function in its body
    keeps the plain `let`, so ordinary output stays ordinary. See
    `tests/loop_def_capture.pyk` and `docs/target_js.md`.
-9. **`src/target_js_packaging.py`** — the JavaScript backend's packaging
+10. **`src/target_js_packaging.py`** — the JavaScript backend's packaging
    half: wraps core output into `nodejs` (one self-contained script),
    `html` (one self-contained page printing into a visible box), and `esm`
    (a module exporting `run(runtime)`, plus a node driver and an HTML
    wrapper derived from the `--output` path). It owns the JavaScript side
    of the runtime interface — each host's `print` and the shared
    `pykFormat` — which is exactly what differs between the three.
-10. **`src/target_c.py`** — the C backend, serving both the `c89` and
+11. **`src/target_c.py`** — the C backend, serving both the `c89` and
    `c23` targets: a `C*` AST, translation, and a printer taking a
    `standard` parameter. One backend rather than two because the
    standards disagree about *printing*, not meaning — comments, whether
@@ -673,7 +743,7 @@ The bootstrap is split into one module per compiler stage:
    what a `while` condition and an `if` expression's branches need.
    `target_ocaml.py` does the same with `let` for the same reason; keep
    both reading `Effects` rather than deciding for themselves.
-11. **`src/target_java.py`** — the Java backend, serving `java8`,
+12. **`src/target_java.py`** — the Java backend, serving `java8`,
    `java17` and `java21`: a `J*` AST, translation, and a printer taking a
    `version` parameter, the same shape `target_c.py` uses for `standard`
    — one backend because the three versions disagree only in whether a
@@ -690,7 +760,7 @@ The bootstrap is split into one module per compiler stage:
    style rather than the source's, since Java requires the two to match
    (`default_class_name`; see `pyk.py` below for where the exception
    is applied).
-12. **`src/target_ocaml.py`** — the OCaml backend, serving the `ocaml`
+13. **`src/target_ocaml.py`** — the OCaml backend, serving the `ocaml`
    target: an `O*` AST, translation, and a printer. The only backend
    that infers nothing — it *runs* `typesystem.type_check` and reads the
    types back out of `tmap` (which is why `check_expr` records an entry
@@ -708,7 +778,7 @@ The bootstrap is split into one module per compiler stage:
    not promise to (`_Effects`, `in_order`). The test harness builds its
    output with `-w +a`, so a compiler warning about generated code is a
    failing test.
-13. **`src/target_python.py`** — the Python code-generation backend: its
+14. **`src/target_python.py`** — the Python code-generation backend: its
    own `Py*` AST (`PyInt`, `PyAssign`, `PyFor`, ... — structurally the same
    shape as `src/syntax.py`'s `E*`/`S*`, except Pyking's `SLet`/`SVar`/
    `SMutate` all collapse into one `PyAssign`, since Python has no
@@ -780,7 +850,7 @@ The bootstrap is split into one module per compiler stage:
    `__pyk_str` walker only for one that can hold one. That is what keeps
    an ordinary program's output free of a prelude it has no use for; do
    not go back to guessing from the AST's shape.
-14. **`src/interpreter.py`** — the interpreter: a *resumable machine*
+15. **`src/interpreter.py`** — the interpreter: a *resumable machine*
    that runs the AST directly instead of translating it, and the
    reference for what a program means at run time (where a backend
    disagrees with it, the backend is wrong). It runs exactly the fragment
@@ -843,7 +913,7 @@ The bootstrap is split into one module per compiler stage:
    is the one optimisation — an expression with no call in it can neither
    suspend nor print, so `_evaluate` computes it in one go, off a set
    worked out once before the program runs.
-15. **`src/repl.py`** — `pyk repl`, and the editor it is typed into. A
+16. **`src/repl.py`** — `pyk repl`, and the editor it is typed into. A
    session is *a program written one entry at a time*, and the rule that
    settles everything is that **an entry is checked the way it is run**:
    each entry is a group whose `def`s are declared together
@@ -857,6 +927,10 @@ The bootstrap is split into one module per compiler stage:
    one written before it. Do not go back to checking the accumulated
    program as one block: that made the checker describe a program the
    machine was not running.
+   An **import is refused at the prompt**, and by the checker rather
+   than by anything here: an import needs the module system, and a
+   session is one file on its own. `typesystem.available` is where that
+   is said, so the REPL and the playground get the same words.
    `Session(seen, state, types, store, kinds, sources)` holds the two
    environments --
    the machine's and the checker's, extended in step -- plus every
@@ -905,7 +979,7 @@ The bootstrap is split into one module per compiler stage:
    and the terminal in the class: that split is what makes the editing
    testable without a tty.
 
-16. **`src/execution.py`** — what `--run` runs: one table saying which
+17. **`src/execution.py`** — what `--run` runs: one table saying which
    commands each target's host uses to build and run what `pyk compile`
    wrote (`node prog.js`; `cc -std=c89 -o prog prog.c` and then `prog`;
    `xdg-open` for `html`, which is a page; this compiler again for
@@ -917,12 +991,15 @@ The bootstrap is split into one module per compiler stage:
    variables the test harness reads. Adding a target means adding its
    row here as well as its extension in `pyk.py`.
 
-17. **`src/pyk.py`** — the entry point (formerly `pykboot.py`): parses a
+18. **`src/pyk.py`** — the entry point (formerly `pykboot.py`): parses a
    command and the flags `--tokens`/`--symbols`/`--run`/
    `--stdout`/`--output|-o <file>`/`--target|-t <target>` from argv into
    an `Options` value, runs `lexer.lexing`, `parser.parse`,
    `analyses.symbolize`, `typesystem.type_check` and
-   `analyses.analyze_mutability`, and then dispatches. Three commands:
+   `analyses.analyze_mutability`, and then dispatches. A program of
+   several modules runs the middle of that once per module, in the order
+   `module.load` gives: check against the signatures of the ones it
+   imports, then take its own signature for the next one. Three commands:
    `pyk <file>` interprets it; `pyk repl` starts the REPL; `pyk compile`
    (alias `pyk c`) compiles, which is what every flag above is for.
    Flags are shared by all three rather than per-command, so `--tokens`
@@ -930,14 +1007,16 @@ The bootstrap is split into one module per compiler stage:
    Errors: `ERROR_KINDS` pairs each front-end exception with its label,
    and `format_error` turns any of them into one
    `'file' row:col-row:col Kind: message` line (`Lexing error` /
-   `Parsing error` / `Name error` / `Type error` / `Runtime error`);
+   `Parsing error` / `Module error` / `Name error` / `Type error` /
+   `Runtime error`);
    a backend's `UnsupportedError` is reported separately, since its
    message names the target that refused it. `repl.py` is handed
    `format_error` itself, which is why `command_repl` imports it lazily —
    at the top it would be an import cycle. Every message goes through
-   `wrap`, which reflows to 70 columns. There is no branch in
-   `front_end`: every program is lexed, parsed, symbolized, type-checked
-   and mutability-checked, and a refusal at any step is an error. The
+   `wrap`, which reflows to 70 columns. There is one branch in
+   `front_end`, and it is `--no-typechecking`'s: otherwise every module
+   of the program is lexed, parsed, symbolized, type-checked and
+   mutability-checked, and a refusal at any step is an error. The
    checker is the only pass that checks names — its environment *is* a
    scope, so it raises `analyses.AnalysisError` for one it cannot find,
    and the driver prints `Name error` for it. `analyze_mutability` runs
@@ -953,16 +1032,24 @@ The bootstrap is split into one module per compiler stage:
    targets, where the driver instead calls
    `target_java.default_class_name(stem)`, since Java requires the file
    and its public class to match and the source's own spelling usually
-   isn't a legal, correctly-cased class name. `-t pyking` prints the
+   isn't a legal, correctly-cased class name. A module the program
+   imports is written *beside* the program's own output under its own
+   name and the target's extension, by the same rule -- which is also
+   the name the generated import in that output uses, so the two agree
+   by construction. `-t pyking` prints the
    *Pyking* AST via `syntax.pprint_program`, before `apply_signatures`
    folds a `def name : type` line onto its header, since that AST is what
    every backend and the interpreter share. `--run` hands the compiled
    output to `src/execution.py`, which owns each target's build and run
-   commands. Keep the driver thin: it sequences stages and reports errors, and each backend
+   commands, and the ordered list of the program's other files, which
+   the targets that *link* a program need. Keep the driver thin: it
+   sequences stages and reports errors, and each backend
    owns its own translation, packaging, and file naming (`esm` writing
-   three files is `target_js_packaging.package`'s business, not the
+   three files is `target_js_packaging`'s business, not the
    driver's; deriving a Java class name from an explicit `--output` is
-   `target_java.py`'s, by the same principle).
+   `target_java.py`'s, by the same principle). What a backend needs to
+   know about the module it is compiling *as part of a program* arrives
+   as one `module.Context`, not as a growing list of parameters.
 
 When extending the lexer (new operators, keywords, string escapes, etc.),
 follow the existing pattern: add a `case [...]:` arm in the `match rest:`
@@ -979,7 +1066,14 @@ needed none).
 `ocaml-src/` is `src/`'s front end translated into OCaml: `lexer.ml`,
 `syntax.ml` (the AST and its pretty printer), `analyses.ml`
 (`symbolize`, and nothing else from `analyses.py` yet), `parser.ml`,
-`typesystem.ml` and `main.ml`. `docs/ocaml_bootstrap.md` is the long
+`typesystem.ml` and `main.ml`. There is no counterpart to
+`src/module.py` and there will not be one: a module system reads files
+the compiler was not given, and `./main` is a program that reads the one
+it was. What *is* translated is the syntax the module system rests on --
+the four keywords, `SImport` and `EQualified`, where an import and a
+`public` may be written, and how each of them prints -- and
+`--no-typechecking` turns the module system off on the Python side so
+the two stay comparable. `docs/ocaml_bootstrap.md` is the long
 form -- what each module holds, what differs from the Python and why.
 
 ```
@@ -1061,11 +1155,15 @@ is then done with it, and there is no flag for it.
 
 `--no-typechecking` is not one either, and is not for compiling with:
 it exists so the front end can be compared against the OCaml one, which
-has no checker to speak of yet. It stops `front_end` after `symbolize`
+has no checker to speak of yet and no module system at all. It stops
+`front_end` after `symbolize`
 -- no checker, and so no mutability analysis and no tail-call pass,
 since neither runs without what the checker works out -- and `tmap` is
 then `None`, so `-t pyking` prints the program as *written*, with the
-source's own annotations. `parse_args` refuses it anywhere but
+source's own annotations. It stops *before* the module system too, and
+for the same reason: the file named is the only one read
+(`module.read_file`), so nothing it imports is opened and nothing about
+what it exports is checked. `parse_args` refuses it anywhere but
 `compile -t pyking`: every other target reads the types (the Python
 backend to know what to format, the OCaml one for every type it emits)
 and so does the interpreter, so allowing it there would produce
@@ -1090,6 +1188,12 @@ suffix to what `-t pyking` prints. The other three select what
   `out/prog.html`, and `out/package.json` (`{"type": "module"}`, which is
   what lets the first two be plain `.js`). An existing `package.json` is
   never overwritten — it belongs to the surrounding project.
+- A module the program imports is written beside the program's own
+  output, under its own name and the target's extension -- which is also
+  what the generated import in that output names it by. C and OCaml
+  write a companion beside each (`helper.h`, `helper.mli`); `html` is
+  the exception and writes none, since a page is one file and every
+  module becomes a block of it.
 - With neither of the two above, the compiler names the file: the source's own stem
   plus the target's extension (`EXTENSIONS` in `pyk.py`, fed by each
   backend), in the *current* directory — `-t nodejs tests/hello.pyk`
@@ -1157,6 +1261,14 @@ of the language's semantics held to the files the nine backends are held
 to. It warns about any `.pyk` missing from the manifest and prints a
 per-target summary.
 
+A program that imports lists the modules it imports under `modules`, in
+dependency order. The compiler writes them into the same temp directory,
+beside the program's own output; the C, Java and OCaml runners then have
+to name them in that order to build the program at all, which is what
+the manifest's order is for. A module listed there is not a case of its
+own -- it is not a program -- but it is still accounted for, so the
+"not listed in the manifest" warning stays honest.
+
 Those (program, target) pairs are independent — each compiles into a
 temporary directory of its own, and nothing is written back into the
 repository — so `make test` runs them in a thread pool, one job per
@@ -1206,8 +1318,9 @@ to expect of it:
   nothing. The harness warns if such a file lists no backend, because a
   type nobody executes is a type nobody has tested.
 - **`fail_typecheck_*.pyk`** must **not** type-check, and its
-  `.ast.out` holds the *error message* — a `Type error` or, for the two
-  mutability rules, a `Name error`. It lists exactly
+  `.ast.out` holds the *error message* — a `Type error`, a `Name error`
+  for the two mutability rules, or a `Module error` or `Parsing error`
+  for the module system's own refusals. It lists exactly
   `targets = ["pyking"]`: a program written to be refused is not one
   to run.
 
@@ -1230,6 +1343,15 @@ when a message changes.
   every annotation taken off, sharing its `.out` unchanged — the
   standing check that an annotation says what a program means to a
   reader and to the checker, never what it does.
+
+A fourth family covers the **module system**: `module_*` for what each
+import form and each `public` does, one file per form plus the modules
+it imports (`module_qualified.pyk` and `module_qualified_mod1.pyk`), and
+`fail_typecheck_module_*` for what is refused — a cycle, a private name,
+a collision, an import inside a block, a `public var`, a name exported
+twice, and an unannotated export nothing in its module calls. `typecheck_module_public.pyk` is the one that pins the
+printed AST, since it is the only place `import`, `from`, `as` and
+`public` are printed back out at all.
 
 Together they pin down both halves of the checker — what it infers, and
 what it rejects and how it says so — while the backends keep the

@@ -1,0 +1,8 @@
+# Values, not just functions, cross a module boundary -- and the private
+# bindings they were worked out from do not.
+
+import module_values_mod1 as m
+
+print(m.area)
+print(m.label)
+print(m.describe("cells"))

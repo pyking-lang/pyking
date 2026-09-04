@@ -141,9 +141,16 @@ case) checks the complementary direction: `:=` targeting a name that
 message naming what it actually is, since `:=` only ever means "update
 this `var`."
 
+An import binds names too, and goes through `bind` like everything
+else, which is the whole of what the mutability rule needs to know about
+the module system: a name an import brings in cannot shadow a `var`,
+because nothing can. They are bound alongside the block's `def`s rather
+than at their own line, for the same reason the `def`s are -- both are
+declarations of the module rather than statements in its sequence.
+
 `Binding(kind, info)` records not just *that* a name is bound but
 *what kind* of thing bound it (`MUTABLE`, `BINDING`, `PARAMETER`,
-`LOOP_VAR`, `PATTERN_VAR`, `FUNCTION`, `BUILTIN`) — which is what lets
+`LOOP_VAR`, `PATTERN_VAR`, `FUNCTION`, `BUILTIN`, `IMPORTED`) — which is what lets
 every one of these error messages say something specific ("cannot
 update `x` with `:=`: it is a parameter, not a mutable variable")
 instead of a generic "cannot do that here." `where_bound` turns the
@@ -152,7 +159,7 @@ has none, since it was never written in this source file at all.
 
 ## Symbols: a generic walk, so a new AST node needs no code here
 
-`symbolize(stmts)` is unlike everything above it in this file: it
+`symbolize(stmts, start)` is unlike everything above it in this file: it
 **rewrites** the tree rather than only reading it. Every node is a
 frozen dataclass, so "rewrite" means "build a new tree with
 `dataclasses.replace`," bottom-up — `renumber(node)` recurses into every
@@ -178,9 +185,14 @@ every node kind, unlike name analysis or type checking, where each
 kind means something different and *has* to be handled on its own
 terms.
 
-`_highest_sym` walks the same way, read-only, to find where numbering
+`highest_sym` walks the same way, read-only, to find where numbering
 should *resume*: `symbolize` starts its counter one past the largest
-symbol already present, rather than always starting at 1. Combined
+symbol already present, or past `start`, whichever is higher, rather
+than always starting at 1. `start` is what makes one numbering span a
+program of several modules: `src/module.py` hands each module the
+highest the one before it reached, so no two nodes in a program share a
+symbol -- which is what lets one type table, and one call-free table,
+cover all of them (see [modules.md](modules.md)). Combined
 with "replace `sym` only if it was 0," this is what makes the function
 **idempotent under extension** — running it twice on an already-fully
 symbolized tree changes nothing (nothing has `sym == 0` left to

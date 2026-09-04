@@ -1,0 +1,2 @@
+public def helper() -> Int:
+    return 1

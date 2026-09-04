@@ -335,7 +335,10 @@ anything the compiler already knows:
    hence the rule.)
 3. **The examples and their target support** come from `tests/*.pyk` and
    `tests/test_cases.toml` — the same manifest `make test` runs from, so the
-   page cannot claim support the test suite does not.
+   page cannot claim support the test suite does not. A program of several
+   modules is the one thing left out, along with the modules it imports:
+   the page compiles one file and has no filesystem, so there is nothing
+   for an `import` to reach (see `docs/modules.md`).
 
 The **target list itself** is imported from the backends
 (`target_js_packaging.TARGETS`, `target_c.STANDARDS`,
@@ -457,7 +460,9 @@ make e2e                         # the same page, in a real browser
 `pyking` target as well as for every target it claims, and the
 type-checker fixtures under `tests/` are held to the rule their names
 state — `typecheck_*` must check, `fail_typecheck_*` must
-not. A `fail_typecheck_*` fixture is held to *only* that rule: some of them
+not. That rule is why the shim runs `module.check_publics`: what a module
+exports is a property of the one file, so a program the compiler refuses
+for exporting one name twice has to be refused here too. A `fail_typecheck_*` fixture is held to *only* that rule: some of them
 are not valid programs at all (one names something unbound), so expecting
 them to compile any other way would be expecting the front end to miss what
 they exist to catch. What those programs *infer* is `tests/test_script.py`'s

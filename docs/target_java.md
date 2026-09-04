@@ -540,6 +540,74 @@ the generated file (they are in different methods). `tests/subset_values.pyk`'s
 because Java would object to `outer`, but because this backend's scope
 mechanism does not know method bodies don't share a namespace with `main`.
 
+## Modules
+
+Java has classes and no free functions, so a Pyking module becomes a
+class -- named the way this backend names the program's own class, since
+Java requires the file and its public class to match -- and its exports
+become that class's public members.
+
+```java
+// Helper2.java
+public final class Helper2 {
+
+    // What this module exports as a value; `init` below is what fills each of them in.
+    public static String greeting;
+
+    private static int scale(final int n) {
+        return n * 2;
+    }
+
+    public static int inc(final int x) {
+        return scale(x) + 1;
+    }
+
+    public static void init() {
+        final var greeting = "hi";
+        Helper2.greeting = greeting;
+    }
+}
+```
+
+```java
+// Program.java
+public final class Program {
+
+    public static void main(String[] args) {
+        // Every module of the program, in the order they must run.
+        Helper2.init();
+
+        System.out.println(Helper2.inc(1));
+        System.out.println(Helper2.greeting);
+    }
+}
+```
+
+**`private`/`public` is the privacy**, and Java gives it for free: a
+method the module does not export is `private static`, as every method
+of a single-module program already was. A public value is a
+`public static` field.
+
+**A qualified name is Java's own.** `helper2.inc(1)` is `Helper2.inc(1)`
+and `helper2.greeting` is `Helper2.greeting`, so nothing has to be
+mangled: the class name *is* the namespace. A name a `from` line took
+resolves to the same thing -- `bump` written in the source is
+`Helper2.inc` in the output.
+
+**`init` writes its own field by name.** The local that worked the value
+out may have the same name as the field, so the assignment says
+`Helper2.greeting` rather than `greeting`, which would be the local's
+own.
+
+**Order is explicit**, as it is in C: `main` calls `Module.init()` for
+every module of the program in dependency order before its own body,
+rather than leaving it to Java's class initialization, which runs when a
+class is first touched and not before.
+
+All the classes are compiled together (`javac -d . Helper2.java
+Program.java`) and live in the default package, which is how they see
+one another.
+
 ## Where the output is not optimal
 
 - **Over-eager renaming**, as above -- inherited from the same

@@ -195,6 +195,39 @@ rules. The interpreter doesn't approximate Pyking's scoping; it *is*
 Pyking's scoping, directly, which is exactly what makes it the
 reference implementation the compiled backends are checked against.
 
+## A program of several modules: one machine, several top levels
+
+`run_modules(units, host)` runs a program whose modules were put in
+dependency order by `src/module.py`. Each module runs in a top level of
+its own, and what it exports is what the ones after it are given:
+`module_env` builds a module's starting environment from the exports
+collected so far — a selected name under the name it is known by here,
+and a field of a plain import under `alias.field`, exactly the spelling
+`typesystem.import_env` uses for the same statements — and
+`exported_values` reads its public names back out of the environment it
+left behind.
+
+Two details are load-bearing.
+
+**A module's top level is not a block.** `run_entry` runs its statements
+one at a time in the state's own environment, the way the REPL runs an
+entry, rather than `enter_block`. A block puts the enclosing scope back
+when it ends (that is what `KSeq`'s `exit_env` is for), and a module's
+top level has no enclosing scope to go back to: what it bound *is* what
+it exports, so it has to survive.
+
+**There is one call-free table for the whole program**, not one per
+module. A closure a module exports is called from the module that
+imported it, and the table `_step_eval` reads it against is the calling
+machine's, so a per-module table would leave the callee's body outside
+the fragment the fast path knows about. Symbols are unique across a
+program (`analyses.symbolize` continues its numbering from module to
+module), so the union of the modules' tables is exactly right.
+
+An import itself is a no-op at run time -- its names were bound when the
+module's environment was built -- and `EQualified` is one `lookup` of a
+dotted name, so neither adds a value kind or a continuation.
+
 ## `declare`/`define`: the one mutation, and why it exists
 
 Every other binding in this module is built by `extend`, immutably. `def`

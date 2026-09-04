@@ -1,0 +1,5 @@
+'tests/fail_typecheck_module_cycle_mod2.pyk' 1:0-1:39 Module error:
+  these modules import one another: fail_typecheck_module_cycle_mod1
+  -> fail_typecheck_module_cycle_mod2 ->
+  fail_typecheck_module_cycle_mod1. Pyking has no circular imports: a
+  module is compiled, and run, after everything it imports

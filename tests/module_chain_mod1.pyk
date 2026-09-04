@@ -1,0 +1,6 @@
+# The bottom of the chain: it imports nothing, so it runs first.
+
+print("mod1 starting")
+
+public def base() -> Int:
+    return 1

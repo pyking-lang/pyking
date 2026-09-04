@@ -12,8 +12,10 @@ Data structures:
     Plan -- the commands one target needs, and where to run them.
 
 Functions:
-    plan_for(target, path) -- the commands that build and run path.
-    execute(target, path) -- runs them; returns the program's status.
+    plan_for(target, path, modules) -- the commands that build and run
+        path, given the program's other files in dependency order.
+    execute(target, path, modules) -- runs them; returns the program's
+        status.
 """
 
 import os
@@ -60,14 +62,18 @@ class Plan:
     directory: str
 
 
-def plan_for(target, path):
+def plan_for(target, path, modules=()):
     """The commands that build and run what was compiled to path.
-    String -> String -> Plan"""
+    `modules` names the other files the program was compiled to, in the
+    order they must be built and run -- dependencies first -- which is
+    what the targets that link a program rather than importing at run
+    time need. String -> String -> [String] -> Plan"""
     # Everything is made absolute, since the commands run in the output
     # file's own directory rather than the one `pyk` was called from.
     path = os.path.abspath(path)
     directory = os.path.dirname(path)
     binary, _ = os.path.splitext(path)
+    others = [os.path.abspath(other) for other in modules]
 
     if target == "python":
         return Plan([], [sys.executable, path], directory)
@@ -82,8 +88,10 @@ def plan_for(target, path):
     if target == "html":
         return Plan([], [BROWSER, path], directory)
     if target in target_c.STANDARDS:
+        # Every translation unit of the program, the modules first: each
+        # is a file of its own, and `main` is in the last.
         return Plan(
-            [[C_COMPILER, f"-std={target}", "-o", binary, path]],
+            [[C_COMPILER, f"-std={target}", "-o", binary] + others + [path]],
             [binary],
             directory,
         )
@@ -93,24 +101,36 @@ def plan_for(target, path):
         class_name = os.path.splitext(os.path.basename(path))[0]
         return Plan(
             [[JAVA_COMPILER, "--release", target.removeprefix("java"),
-              "-d", directory, path]],
+              "-d", directory] + others + [path]],
             [JAVA_RUNTIME, "-cp", directory, class_name],
             directory,
         )
     if target == target_ocaml.TARGET:
+        # OCaml links in the order given, and runs each module's top
+        # level in that order, which is why the modules come first: a
+        # module runs after everything it imports. An interface is
+        # named ahead of the implementation it describes.
+        sources = []
+        for other in others:
+            interface = os.path.splitext(other)[0] + target_ocaml.INTERFACE_EXTENSION
+            if os.path.exists(interface):
+                sources.append(interface)
+            sources.append(other)
         return Plan(
-            [OCAML_COMPILER + ["-I", directory, "-o", binary, path]],
+            [OCAML_COMPILER + ["-I", directory, "-o", binary] + sources + [path]],
             [binary],
             directory,
         )
     raise KeyError(target)
 
 
-def execute(target, path):
+def execute(target, path, modules=()):
     """Builds and runs what was compiled to path, printing each command
-    before it runs. Returns the program's exit status, or that of the
-    build step that failed. String -> String -> Int"""
-    plan = plan_for(target, path)
+    before it runs. `modules` names the program's other files, in the
+    order they must be built. Returns the program's exit status, or that
+    of the build step that failed.
+    String -> String -> [String] -> Int"""
+    plan = plan_for(target, path, modules)
     for command in plan.build:
         status = _run(command, plan.directory)
         if status != 0:

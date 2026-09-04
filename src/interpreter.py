@@ -18,6 +18,8 @@ Functions:
     initial_state(stmts, host) -- a machine about to run stmts.
     step(state) -- one small step.
     run(state, steps) -- steps until the machine stops or steps run out.
+    run_modules(units, host) -- runs a program of several modules, each
+        in a top level of its own, in dependency order.
     eval_statement(state, stmt) -- runs one statement in an existing
         machine's environment (for the REPL).
     format_value(value) / display_value(value) -- formats a value as
@@ -29,16 +31,17 @@ import sys
 
 from analyses import BUILTINS, block_functions
 from lexer import Info
+import module
 import runtime_interface
 import typesystem
 from syntax import (
     Expr, Stmt,
-    EInt, EString, EBool, EVar, EAdd, EConcat, ESub, EMul, EDiv, ECall, EIf,
-    ETuple,
+    EInt, EString, EBool, EVar, EQualified, EAdd, EConcat, ESub, EMul, EDiv,
+    ECall, EIf, ETuple,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq,
     SLet, SLetStmt, SVar, SMutate, SExprStmt, SIf, SReturn, SReturnStmt,
     SFunctionDef,
-    SFunctionSig, SMatch,
+    SFunctionSig, SMatch, SImport,
     ENeg, EList, EListComp, CompFor, CompIf,
     PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, PText, ListRest,
     SLoop, SBreak, SContinue, ForIn, WhileTest,
@@ -863,6 +866,17 @@ def _evaluate(expr, env):
             return VString(value)
         case EBool(_, value, _):
             return boolean(value)
+        case EQualified(info, module, name, _):
+            # A public name of an imported module, bound under its
+            # qualified spelling when this module's environment was
+            # built, so the lookup is the one below.
+            value = lookup(env, f"{module}.{name}")
+            if value is None:
+                raise _Trap(RuntimeError_(
+                    info, f"unbound name '{module}.{name}'"
+                ))
+            return value
+
         case EVar(info, name, _):
             match lookup(env, name):
                 case None:
@@ -1281,6 +1295,12 @@ def _step_stmt(state, stmt):
                 control=CEval(subject),
                 kont=KScrutinee(stmt, state.env, state.kont),
             )
+
+        case SImport():
+            # What an import brings in was bound before the module's
+            # first statement ran (see `run_modules`), so there is
+            # nothing to do here. It supplies unit.
+            return _go(state, control=CApply(UNIT))
 
         case SFunctionSig():
             # A signature says what a `def` in this block is. The checker
@@ -1908,6 +1928,82 @@ def run_program(stmts, host=None, max_depth=MAX_CALL_DEPTH):
     """Runs a whole (already checked and symbolized) program to
     completion. [Stmt] -> Host? -> Int -> State"""
     return run(initial_state(stmts, host or ConsoleHost(), max_depth=max_depth))
+
+
+def run_modules(units, host=None, max_depth=MAX_CALL_DEPTH):
+    """Runs a program of several modules, each in a top level of its
+    own, in the order given -- which is dependency order, so a module
+    runs after everything it imports (docs/modules.md, "Running a
+    program of several modules"). The state returned is the last
+    module's, so `failure` and `stack_trace` report a failure in
+    whichever module hit it and the run stops there.
+    [(String, [Stmt])] -> Host? -> Int -> State"""
+    host = host or ConsoleHost()
+    # One call-free table for the whole program, not one per module: a
+    # closure a module exports is called from the module that imported
+    # it, and the table it is read against is the calling machine's.
+    # Symbols are unique across a program (analyses.symbolize), so the
+    # union is exactly right.
+    simple = frozenset().union(*(call_free_symbols(s) for _, s in units))
+    runtime = Runtime(host, simple, max_depth)
+    exports = {}
+    state = None
+    for name, stmts in units:
+        env = module_env(stmts, exports)
+        state = run_entry(
+            State(CApply(UNIT), env, None, None, runtime), stmts
+        )
+        if failure(state) is not None:
+            return state
+        exports[name] = exported_values(stmts, state)
+    return state
+
+
+def run_entry(state, stmts):
+    """Runs a group of statements in state's environment and keeps what
+    they bind, which `enter_block` does not: a block puts the enclosing
+    scope back when it ends, and a module's top level has no enclosing
+    scope to go back to -- what it bound is what it exports. The same
+    thing the REPL does with one entry.
+    State -> [Stmt] -> State"""
+    state = declare_entry(state, stmts)
+    for statement in stmts:
+        state = eval_in(state, statement)
+        if failure(state) is not None:
+            return state
+    return state
+
+
+def module_env(stmts, exports):
+    """The top level a module runs in: the builtins, and everything its
+    imports bring in -- each selected name under the name it is known by
+    here, and each field of a plain import under `alias.field`, which is
+    the spelling `EQualified` looks up. The same environment the checker
+    builds for the same statements (typesystem.import_env).
+    [Stmt] -> {String: {String: Value}} -> Env"""
+    brought = {}
+    for statement in stmts:
+        match statement:
+            case SImport(_, module, name, selected, fields, _):
+                for exported, local in fields or ():
+                    bound = local if selected else f"{name}.{exported}"
+                    brought[bound] = exports[module][exported]
+    if not brought:
+        return top_level_env()
+    return Env(brought, top_level_env())
+
+
+def exported_values(stmts, state):
+    """What a module leaves for the modules that import it: the value
+    each of its public names ended up with. Read from the environment
+    the module's top level left behind, so a `def` gives its closure and
+    a binding its value. [Stmt] -> State -> {String: Value}"""
+    visible = bindings_in_scope(state.env)
+    return {
+        name: visible[name]
+        for name, _ in module.public_names(stmts)
+        if name in visible
+    }
 
 
 def declare_entry(state, stmts):

@@ -1,0 +1,11 @@
+# A module whose public functions annotate nothing. What crosses the
+# boundary is the type the checker worked out, quantifier and all, so
+# `identity` is used here at two different types.
+
+import module_inferred_mod1 as m
+
+print(m.bump(m.start))
+print(m.identity(1), m.identity("two"))
+print(m.swap(1, true))
+print(m.quadruple(3))
+print(m.even(4), m.odd(4))

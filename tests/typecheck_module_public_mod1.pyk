@@ -1,0 +1,10 @@
+public def flip(b:Bool) -> Bool:
+    return if b then false else true
+
+
+public def name : () -> String
+def name():
+    return "mod1"
+
+
+public marker = 5

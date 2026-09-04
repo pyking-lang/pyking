@@ -1,14 +1,17 @@
 """Recursive-descent parser: tokens (from lexer.py) to the AST defined
 in syntax.py. Also enforces the handful of grammar rules that cannot be
 expressed in EBNF -- duplicate pattern captures, value-form if/match
-branches, one statement per line, and where a 'break'/'continue' may
-stand. See PYKING.md for the grammar and docs/source.md ("parser.py").
+branches, one statement per line, where a 'break'/'continue' may stand,
+and that an import and a 'public' belong to a module's top level. See
+PYKING.md for the grammar and docs/source.md ("parser.py").
 
 Data structures:
     ParseError -- a parse failure, with the source position.
 
 Functions:
     parse(tokens) -- parses a full token stream into a list of statements.
+    parse_top_statement(tokens) -- parses one top-level statement, or the
+        several an `import a, b` line stands for.
     parse_statement(tokens) -- parses one statement.
     parse_expr(tokens) -- parses one expression.
     parse_block(tokens, header_info) -- parses one block: indented, or
@@ -33,10 +36,11 @@ from lexer import (
     TokDef, TokReturn, TokFor, TokIn, TokIf, TokWhile, TokThen, TokElse, TokVar,
     TokAssign, TokMatch, TokCase, TokArrow,
     TokLoop, TokBreak, TokContinue,
+    TokPublic, TokImport, TokFrom, TokAs,
     TokTypeInt, TokTypeString, TokTypeBool, TokTrue, TokFalse,
 )
 from syntax import (
-    EInt, EString, EBool, EVar,
+    EInt, EString, EBool, EVar, EQualified,
     EAdd, EConcat, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EList, ETuple,
     EIf, EListComp, CompFor, CompIf,
@@ -47,7 +51,7 @@ from syntax import (
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SIf,
     ForIn, WhileTest,
     SLoop, SBreak, SContinue,
-    SFunctionDef, SFunctionSig, SMatch,
+    SFunctionDef, SFunctionSig, SMatch, SImport,
     TInt, TString, TBool, TList, TTuple, TFunction, TVar, TForall, Param,
     TargetName, TargetTuple,
 )
@@ -91,6 +95,14 @@ def parse_atom(tokens):
             return parse_call_tail(EBool(info, True), rest)
         case [TokFalse(info), *rest]:
             return parse_call_tail(EBool(info, False), rest)
+        case [TokIdent(info, module), TokDot(dot_info),
+              TokIdent(name_info, name), *rest] if dot_info.row1 == info.row2:
+            # `module.name`: a public name of an imported module. The dot
+            # must be on the module name's own row, for the reason
+            # `parse_call_tail` requires it of a '(' -- otherwise a name
+            # ending one line would reach down and take the next.
+            qualified = EQualified(combine_info(info, name_info), module, name)
+            return parse_call_tail(qualified, rest)
         case [TokIdent(info, name), *rest]:
             return parse_call_tail(EVar(info, name), rest)
         case [TokLParen(lp_info), TokRParen(rp_info), *rest]:
@@ -1371,9 +1383,155 @@ def _expect_expr_value(value, what):
             return value
 
 
+def parse_top_statement(tokens):
+    """Parses one top-level statement, or the several an `import a, b`
+    line stands for. The two forms a module is written with -- an import
+    and a `public` -- are parsed only here, which is what makes them
+    top-level: `parse_statement`, which every block goes through,
+    refuses both. [Token] -> ([Stmt], [Token])"""
+    match tokens:
+        case [TokImport(info), *rest]:
+            return parse_import(info, rest)
+        case [TokFrom(info), *rest]:
+            return parse_from_import(info, rest)
+        case [TokPublic(info), *rest]:
+            stmt, rest = parse_public(info, rest)
+            return [stmt], rest
+        case _:
+            stmt, rest = parse_statement(tokens)
+            return [stmt], rest
+
+
+def parse_import(import_info, tokens):
+    """Parses the modules of an `import a, b as c` line, one SImport
+    each. `fields` is left empty: what a qualified name reaches is the
+    module's public names, which only src/module.py knows.
+    Info -> [Token] -> ([Stmt], [Token])"""
+    stmts = []
+    while True:
+        match tokens:
+            case [TokIdent(_, module), TokAs(_), TokIdent(end, alias), *rest]:
+                stmts.append(SImport(
+                    combine_info(import_info, end), module, alias, False, []
+                ))
+                tokens = rest
+            case [TokIdent(end, module), *rest]:
+                stmts.append(SImport(
+                    combine_info(import_info, end), module, module, False, []
+                ))
+                tokens = rest
+            case [TokMul(info), *_]:
+                raise ParseError(info, _NO_STAR)
+            case _:
+                raise ParseError(_here(tokens), "expected a module name after 'import'")
+        match tokens:
+            case [TokComma(_), *rest]:
+                tokens = rest
+            case _:
+                return stmts, tokens
+
+
+def parse_from_import(from_info, tokens):
+    """Parses `from module import name, other as alias`, as one SImport
+    naming the module and the fields taken from it.
+    Info -> [Token] -> ([Stmt], [Token])"""
+    match tokens:
+        case [TokIdent(_, module), TokImport(_), *rest]:
+            fields, end, rest = parse_import_fields(rest)
+            info = combine_info(from_info, end)
+            return [SImport(info, module, module, True, fields)], rest
+        case [TokIdent(_, _), *rest]:
+            raise ParseError(
+                _here(rest), "expected 'import' after the module name"
+            )
+        case _:
+            raise ParseError(_here(tokens), "expected a module name after 'from'")
+
+
+def parse_import_fields(tokens):
+    """Parses the names a `from` line takes, each paired with the name it
+    is known by here. [Token] -> ([(String, String)], Info, [Token])"""
+    fields = []
+    while True:
+        match tokens:
+            case [TokIdent(_, field), TokAs(_), TokIdent(end, local), *rest]:
+                fields.append((field, local))
+                tokens = rest
+            case [TokIdent(end, field), *rest]:
+                fields.append((field, field))
+                tokens = rest
+            case [TokMul(info), *_]:
+                raise ParseError(info, _NO_STAR)
+            case _:
+                raise ParseError(_here(tokens), "expected a name after 'import'")
+        match tokens:
+            case [TokComma(_), *rest]:
+                tokens = rest
+            case _:
+                return fields, end, tokens
+
+
+# Pyking has no import-all form: a name a module reaches is written
+# down, so reading the file says where every name comes from.
+_NO_STAR = (
+    "there is no '*' import in Pyking; name the values and functions to "
+    "import, or import the module itself and reach them through it"
+)
+
+
+def parse_public(public_info, tokens):
+    """Parses what a `public` exports: a `def`, a `def name : type`
+    signature line, or an `=` binding of one name.
+    Info -> [Token] -> (Stmt, [Token])"""
+    match tokens:
+        case [TokVar(info), *_]:
+            raise ParseError(
+                combine_info(public_info, info),
+                "a 'var' cannot be public: a module exports values and "
+                "functions, not variables another module could write to",
+            )
+        case []:
+            raise ParseError(
+                _here(tokens), "expected a definition or a binding after 'public'"
+            )
+    stmt, rest = parse_statement(tokens)
+    match stmt:
+        case SFunctionDef() | SFunctionSig() | SLet(_, TargetName()) | \
+                SLetStmt(_, TargetName()):
+            return replace(
+                stmt, info=combine_info(public_info, stmt.info), public=True
+            ), rest
+        case SLet() | SLetStmt():
+            raise ParseError(
+                stmt.info,
+                "a public binding names one value, so it cannot take a "
+                "tuple apart; bind the parts first and make each public",
+            )
+        case _:
+            raise ParseError(
+                combine_info(public_info, stmt.info),
+                f"'public' says what a module exports, so it goes in front of "
+                f"a 'def', a 'def' signature line, or an '=' binding, not "
+                f"'{_shorten(pprint_stmt(stmt))}'",
+            )
+
+
 def parse_statement(tokens):
     """Parses one statement. [Token] -> (Stmt, [Token])"""
     match tokens:
+        case [TokImport(info), *_] | [TokFrom(info), *_]:
+            raise ParseError(
+                info,
+                "an import belongs to the top level of a module, so it "
+                "cannot be written inside a block",
+            )
+        case [TokPublic(info), *_]:
+            raise ParseError(
+                info,
+                "only the top level of a module has names to export, so "
+                "'public' cannot be written inside a block",
+            )
+
         case [TokDef(info), TokIdent(_, name), TokColon(_), *rest]:
             # `def name : type` -- a signature on a line of its own, for
             # the `def name(...)` in this same block.
@@ -1497,10 +1655,12 @@ def parse(tokens):
     stmts = []
     rest = tokens
     while rest:
-        stmt, rest = parse_statement(rest)
+        # A group, because `import a, b` is one line standing for two
+        # statements; every other line gives a group of one.
+        group, rest = parse_top_statement(rest)
         if stmts:
-            _check_own_line(stmts[-1], stmt, "statement", _statement_text)
-            _check_reachable(stmts[-1], stmt)
-        stmts.append(stmt)
+            _check_own_line(stmts[-1], group[0], "statement", _statement_text)
+            _check_reachable(stmts[-1], group[0])
+        stmts.extend(group)
     _check_loop_context(stmts, None)
     return stmts

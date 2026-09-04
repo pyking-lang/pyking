@@ -230,6 +230,34 @@ The order also settles the wording. By the time the mutability walk
 runs, every name is known to be bound, so a name it cannot find is never
 "unbound" — it is "not a mutable variable".
 
+**An import is part of the scope too.** `type_check` takes the signature
+of every module this one imports (`sigmaps`, from `src/module.py`), and
+`import_env` puts what they bring in into the environment before the
+first statement is checked: a selected name under the name it is known
+by here, and a field of a plain import under `alias.field`, which is the
+spelling an `EQualified` looks up. So a qualified name is an ordinary
+`Env` lookup, and nothing else in this module knows there is a module
+boundary at all.
+
+They go in *up front* rather than as the walk reaches them because an
+import is a declaration of the module, like a `def`, not a statement in
+its sequence — and it has to be that way round: a definition whose type
+was never written down is checked at the call, in the environment
+recorded where it was written, which is the environment at the start of
+the block. An import bound halfway down would not be in it.
+
+An imported name arrives with the type the checker gave it where it was
+written, `all` and all, so a polymorphic function stays polymorphic
+across the boundary and instantiates at the call like any other. See
+[modules.md](modules.md).
+
+The other direction is `check_exports`, which `type_check` runs after
+the walk: a definition that annotated nothing has no type until
+something calls it, and inference reads that definition off its *own*
+module's use of it — so exporting one this module never calls is
+refused here rather than inferred from nothing, or left for whoever
+imports it to trip over.
+
 ## Annotations are checked, never replaced
 
 `check_annotation(annotation, actual, store)` carries a large idea in a

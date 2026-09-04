@@ -1,0 +1,7 @@
+# Two modules that import each other. Pyking has no circular imports:
+# a module is compiled, and run, after everything it imports, and there
+# is no such order here.
+
+import fail_typecheck_module_cycle_mod1
+
+print(fail_typecheck_module_cycle_mod1.one())

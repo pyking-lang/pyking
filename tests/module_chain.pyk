@@ -1,0 +1,9 @@
+# A chain of three modules. Each one's top level runs before the top
+# level of anything that imports it, so the three lines below arrive in
+# dependency order whatever the target -- and this program's own top
+# level runs last.
+
+import module_chain_mod2
+
+print("program starting")
+print(module_chain_mod2.middle())

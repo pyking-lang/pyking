@@ -74,6 +74,32 @@ classes rather than one parameterized by a callback that also happens
 to format — formatting and delivering are the same operation, performed
 by whoever owns the sink.
 
+## Modules: three ways to cross a boundary
+
+`package_program` is where a program of several modules is put together,
+and the three targets diverge more here than anywhere else -- see
+[target_js.md](target_js.md), "Modules", for the generated code.
+
+The shape they share is that the *body* of a module is the same text in
+all three: `target_js_core.py` translates it once, and only the import
+lines and the export line differ. `_nodejs_import`, `_esm_import` and
+`_page_import` are those three spellings, handed to the core inside a
+`JsHost` exactly as the `print` spelling is.
+
+Two things are this module's alone. **The runtime module.** A `nodejs`
+program of several files would otherwise carry a copy of `pykFormat` and
+`print` in each one, so they move into `pyk-runtime.js`, required by
+every module that prints. The hyphen in the name is the point: a Pyking
+module is imported by name, so its file's stem is an identifier, and no
+Pyking module can ever be called that. **The page's helpers.** A page is
+one scope, so `pykList` and `pykConcat` are emitted once for the whole
+program rather than once per module -- which is what
+`pprint_js_program`'s `helpers=False` and `js_helpers` are for.
+
+A program of *one* module goes down the path it always did, in all three
+targets: a self-contained script, a self-contained page, and a module
+with its wrappers.
+
 ## `esm`: four files from one stem
 
 Every other target writes exactly the path it's given. `esm` can't,

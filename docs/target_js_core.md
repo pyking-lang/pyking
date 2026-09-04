@@ -89,6 +89,18 @@ targets — only what gets substituted in for `print` when the string is
 finally rendered. See [target_js_packaging.md](target_js_packaging.md)
 for how each of the three builds that dictionary.
 
+`JsImport` works exactly the same way, for exactly the same reason. The
+core says *what* an import brings in -- the module, the name it is known
+by here, and the fields it takes -- and the packager says how that is
+written: `require` for `nodejs`, a call to the module's `init(runtime)`
+for `esm`, and a reference to a module already built above it on the
+page for `html`. Exports need no node at all: the packager knows a
+module's public names and writes the one line that hands them out.
+
+`runtime` is therefore not a bare dict any more but a `JsHost`, holding
+the operation spellings *and* how an import is written. One value rather
+than two parameters, since it is threaded through every printer here.
+
 ## One statement-shaped AST, but operators collapse into a table
 
 `JsExpr`/`JsStmt` mirror `syntax.py`'s one-class-per-variant style for
@@ -141,9 +153,9 @@ explicit argument, rather than a module-level flag the way
 call (see `docs/syntax.md`). The difference is deliberate: `syntax.py`'s
 flags are genuinely global to one print — everything in a single
 `pyking` target shares the same `symbols`/`tmap` setting — while
-`runtime` varies *per target*, and `target_js_packaging.py` calls this
-printer three separate times in the course of building one `esm`
-output (once for the module itself, differently for each of its
+the `JsHost` varies *per target*, and `target_js_packaging.py` calls
+this printer once per module of the program on top of that -- three
+separate times in the course of building one `esm` output (once for the module itself, differently for each of its
 generated wrappers' inlined copies, where applicable) with a different
 mapping each time. A parameter, not a global, is what makes those calls
 independent of each other and safe to make in any order or even

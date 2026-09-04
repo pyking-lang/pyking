@@ -1,0 +1,8 @@
+secret = 42
+
+def helper(n:Int) -> Int:
+    return n
+
+
+public def visible() -> Int:
+    return helper(secret)

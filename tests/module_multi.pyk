@@ -1,0 +1,9 @@
+# Two modules imported on one line, and a third name taken out of one
+# of them by a `from` line. `import a, b` is two imports written once.
+
+import module_multi_mod1, module_multi_mod2
+from module_multi_mod2 import two as pair
+
+print(module_multi_mod1.one())
+print(module_multi_mod2.two())
+print(module_multi_mod1.one() + pair())

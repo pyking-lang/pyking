@@ -135,6 +135,23 @@ the concrete mechanism behind PYKING.md's promise that mutual recursion
 works at the REPL prompt the same way it works in a file — the *first*
 half of it is never treated as a mistake, only as incomplete.
 
+## Imports are refused, and not by this module
+
+A session is one file on its own: there is no program around it, and
+nothing for `import list` to reach. That refusal is the *checker's*
+(`typesystem.available`), not something this module tests for, and for
+the same reason `undefined_name` reads `analyses.py`'s wording rather
+than restating it -- the browser playground compiles one file too, and
+the two should not be able to say it differently.
+
+The playground goes one step further and runs `module.check_publics` as
+well; a session does not, and the difference is the model rather than an
+oversight. The playground compiles **a file**, and what a file exports is
+a property of it. A session is a sequence of *groups*, where redefining
+a name is ordinary shadowing and the whole point -- so "one thing under
+one name" has nothing to protect here, and a `public` at the prompt
+exports to nobody in any case.
+
 ## The Buffer/Editor split: what's pure, and what has to be stateful
 
 `Buffer(lines, row, col)` is a frozen value, and every operation on it

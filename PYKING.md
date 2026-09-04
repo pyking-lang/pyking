@@ -57,6 +57,15 @@ restriction of it, but these are genuinely new.
   tell which was written. That is what makes a definition short enough
   to read at a glance stay on one line, and lets several such
   definitions follow one another with nothing in between.
+- **Modules that export nothing by default**: a file is a module, and a
+  name in it is private until `public` is written in front of it —
+  the opposite of Python, where every top-level name of an imported
+  module is reachable. The import forms look like Python's
+  (`import m`, `import m as n`, `from m import a, b as c`), with no
+  `import *`: every name a module reaches is written down. Circular
+  imports are a compile-time error rather than a run-time surprise, so
+  the modules of a program run in one order, each after everything it
+  imports. See "Modules".
 - **Lowercase `true`/`false` boolean literals**: Python spells its two
   boolean values `True`/`False`; Pyking spells them lowercase, `true` and
   `false`, matching most other languages' convention rather than
@@ -133,6 +142,9 @@ Expressions:
   first-class polymorphism — Pyking extension; a `def`'s type may also
   be written on a line of its own (`def id : (a) -> a`)
 - Function calls
+- Qualified names (`m.f`) — Pyking extension; a public name of an
+  imported module, reached through the name that module was imported
+  under (see "Modules")
 - List literals (`[e1, e2, ...]`)
 - List comprehensions (`[expr for pattern in seq if cond ...]`), with
   Python-like support for multiple/nested `for`s and `if`s — but unlike
@@ -180,6 +192,10 @@ Statements:
 - A block written on its header's own line (`def f(x): x * x`,
   `if c: print(1)`, `case 0: "zero"`) — one expression, meaning exactly
   what the indented form means
+- Imports (`import m`, `import m as n`, `from m import a, b as c`) and
+  exports (`public` in front of a `def`, a `def` signature line, or an
+  `=` binding) — Pyking extension; both belong to a module's top level,
+  and there is no `import *` (see "Modules")
 
 Structure:
 
@@ -198,6 +214,10 @@ Structure:
   scoping")
 - Statically typed: every program is type-checked, whatever is then done
   with it, and a type error stops the compile (see "Type checking")
+- One file is one module, exporting only what it marks `public`, and a
+  program is the acyclic graph of the modules its main file reaches —
+  each running its own top level before anything that imports it (see
+  "Modules")
 
 ## Grammar
 
@@ -207,7 +227,19 @@ lexer from 4-space indentation changes (see "Indentation-based blocks"
 below). Comments are stripped by the lexer and don't appear here.
 
 ```ebnf
-program     = { statement } ;
+(* An import and a `public` belong to a module's top level, so they are
+   here rather than in `statement`, which is what a block holds. *)
+program     = { top_statement } ;
+top_statement = import_stmt
+            | from_stmt
+            | public_stmt
+            | statement ;
+
+import_stmt = "import" , module_item , { "," , module_item } ;
+module_item = ident , [ "as" , ident ] ;
+from_stmt   = "from" , ident , "import" , field_item , { "," , field_item } ;
+field_item  = ident , [ "as" , ident ] ;
+public_stmt = "public" , ( function_def | function_sig | assignment ) ;
 
 (* A block is indented under its header, or is the single expression
    written on the header's own line -- which the EBNF cannot say, since
@@ -3135,3 +3167,239 @@ builtin, or a function's own name inside its own body. Using one is
 refused as `Construct is not supported` rather than as an unbound name,
 since the name is perfectly well bound; it is the *type* that is
 missing.
+
+## Modules
+
+**One file is one module.** A file called `list.pyk` is the module
+`list`, and a program is that file together with every module it
+reaches. There is no declaration to write and no directory layout to
+follow: the file's own name is the module's name.
+
+### Nothing is exported by default
+
+A name at the top of a module is the module's own until `public` is
+written in front of it. `public` goes before a `def`, before a `def`'s
+signature line, or before an `=` binding:
+
+```pyking
+# list.pyk
+
+step = 1
+
+public def next(n:Int) -> Int:
+    return n + step
+
+
+public def previous : (Int) -> Int
+def previous(n):
+    return n - step
+
+
+public first = 0
+```
+
+`next`, `previous` and `first` are what another module can reach.
+`step` is not, even though `first` and both functions are worked out
+from it: what a module exports is a name, not the things that name was
+built from.
+
+A definition says its type in one place or the other (see "Type
+variables"), and `public` follows the same rule loosely: writing it on
+either the signature line or the definition exports the definition, and
+writing it on both is allowed and means the same thing.
+
+Two restrictions hold:
+
+- **A `var` cannot be public.** A module exports values and functions,
+  not variables another module could write to.
+- **An exported name is bound once.** A module exports one thing under
+  one name, so a name marked `public` is not also bound a second time at
+  the top level, and two `public`s of one name are refused.
+
+### What a module may export
+
+**A module says what it exports, in the file that exports it.** A `def`
+that writes no annotations has no type of its own until something calls
+it — inference reads a definition off its own module's use of it (see
+"Functions without annotations") — so an exported one has to be *either*
+fully annotated *or* called somewhere in the module that exports it:
+
+```pyking
+# Both of these are exported with a type this module worked out.
+
+public def next(n:Int) -> Int:
+    return n + 1
+
+
+public def double(n): n * 2
+
+print(double(21))
+```
+
+```pyking
+public def triple(n): n * 3
+```
+
+```
+'list.pyk' 1:0-1:27 Type error: 'triple' is exported, but this module
+  never says what it is: a 'def' that writes no annotations is worked
+  out from a call, and nothing here calls 'triple'. Annotate its
+  parameters and return type, or call it in this module.
+```
+
+The call is a *trigger*, not a definition: what crosses the boundary is
+still the principal type read off the body, so a function called at one
+type inside its own module is exported at every type it really has.
+`double` above is `(Int) -> Int` because its body multiplies, and a
+`public def identity(x): x` exercised by `identity(1)` is still exported
+as `(a) -> a`.
+
+### Importing a whole module
+
+`import` brings a module in under a name, and its public names are
+reached through that name and a dot:
+
+```pyking
+import list
+import web
+
+print(list.next(7))
+```
+
+Several modules may be named on one line, which means exactly what the
+separate lines mean:
+
+```pyking
+import list, web
+```
+
+A module may be brought in under a name of the program's choosing, which
+is then the only name it has here:
+
+```pyking
+import numerical as nm
+
+print(nm.sum(3))
+```
+
+### Importing names
+
+`from` takes named things out of a module and binds them in this
+module's own top level, so they are written without a qualifier. Each
+may be renamed:
+
+```pyking
+from list import next, first
+from list import previous as back
+
+print(next(first))
+print(back(2))
+```
+
+The module itself is *not* in scope after a `from` line: `list.next` is
+an error there unless `import list` is also written.
+
+**There is no `import *`.** Every name a module reaches is written down,
+so reading the top of a file says where each of them comes from.
+
+### What an import may name
+
+A `from` line may only name something the module exports. A name the
+module has but did not mark `public` is refused, and so is a name it
+does not have at all.
+
+Every name an import brings in must be free: a collision with anything
+the importing module binds at its top level, with a builtin, or with
+another import, is refused rather than settled by one of them winning.
+`as` is how a collision is resolved.
+
+An import belongs to a module's **top level** — it says what the module
+is built from, so it cannot be written inside a `def`, a loop or a
+branch. Like a `def`, an import is visible throughout the module rather
+than from its line down, so where it is written among the other
+top-level statements does not matter.
+
+### No circular imports
+
+A module is compiled, and run, after everything it imports. Two modules
+that import each other — directly, or round a longer ring — have no such
+order, so a cycle is a compile-time error naming the ring it found:
+
+```
+'b.pyk' 1:0-1:8 Module error: these modules import one another: a -> b
+  -> a. Pyking has no circular imports: a module is compiled, and run,
+  after everything it imports
+```
+
+### When a module runs
+
+A module's top level is ordinary code, and it runs **once**, before the
+top level of anything that imports it. The order is the one the imports
+themselves give, and the program's own module is last:
+
+```pyking
+# base.pyk
+print("base")
+
+public def one() -> Int:
+    return 1
+```
+
+```pyking
+# middle.pyk
+import base
+
+print("middle")
+
+public def two() -> Int:
+    return base.one() + 1
+```
+
+```pyking
+# main.pyk
+import middle
+
+print("main")
+print(middle.two())
+```
+
+```
+base
+middle
+main
+2
+```
+
+`base` runs before `middle` because `middle` imports it, and both run
+before `main`. Nothing else about the order is promised, and nothing
+needs to be: a program's modules form an acyclic graph, and every module
+sees a fully-run version of everything it imports.
+
+### Finding a module
+
+`import list` in `dir/main.pyk` reads `dir/list.pyk` — a module is
+looked for beside the file that imports it, whatever directory the
+compiler was run from. There is no search path and no way to reach
+another directory.
+
+### Modules and types
+
+An imported name has the type the checker gave it where it was written.
+Nothing is inferred a second time and nothing crosses the boundary but
+the exported names and their types, so a mistake about one is reported
+where it is made:
+
+```pyking
+from list import next
+
+print(next("seven"))
+```
+
+```
+'main.pyk' 3:11-3:18 Type error: argument 1 has type String, but Int
+  was expected
+```
+
+A public function whose type was never written down has the type the
+checker worked out for it, including its type variables, so a
+polymorphic function stays polymorphic across the boundary.

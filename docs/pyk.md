@@ -66,9 +66,10 @@ documentation.
 ## `front_end`: the stages every command shares, with one branch
 
 `front_end(options)` runs every stage before a backend, in the order
-they run: lexing, parsing, symbolizing, type checking, the mutability
-analysis and the tail-call pass, returning `(program, tmap)`. That the
-order lives here and nowhere else is deliberate — no stage reaches for
+they run: loading the modules the program is made of, and then, once per
+module, type checking, the mutability analysis and the tail-call pass.
+It answers with each module paired with the types worked out for it.
+That the order lives here and nowhere else is deliberate — no stage reaches for
 another one on its own, which is why `interpreter.check` no longer
 exists and why `target_ocaml.translate_program` takes the table rather
 than filling it. Every command needs this much; nothing past it is
@@ -92,7 +93,21 @@ name the mutability walk cannot find is never "unbound" — it is
 "not a mutable variable", which is the message worth printing.
 
 Symbolizing runs before either of them, because both `--symbols` output
-and `tmap` need every node keyed by a stable symbol.
+and `tmap` need every node keyed by a stable symbol. It happens in
+`module.load`, which is also what makes the numbering span the whole
+program rather than restarting per module -- a single table for the
+types and a single one for the interpreter's call-free expressions both
+depend on that (see [modules.md](modules.md)).
+
+**A program of several modules runs the middle of the pipeline once per
+module.** `module.load` answers with them in dependency order, and the
+loop that follows is the second and third of the three steps the module
+system takes: check this module against the signatures of the ones it
+imports, then take its own signature from the result for the next one.
+The tail-call pass runs per module too, and the symbols it hands out
+continue past the highest anywhere in the program, which is why
+`optimize_module` takes and returns that number rather than asking each
+module's own tree.
 
 The tail-call pass (`src/optimization.py`) sits between symbolizing and
 type checking, and that position is the whole of its wiring: it rewrites
@@ -107,9 +122,13 @@ why it is documented under `--help` rather than in the usage every
 mistyped command prints.
 
 `--no-typechecking` is the second flag that turns a stage off, and it
-turns off three: the checker, the mutability analysis and the tail-call
-pass, since neither of the last two runs without what the checker works
-out. `front_end` then returns after `symbolize` with no table at all,
+turns off four: the module system, the checker, the mutability analysis
+and the tail-call pass -- the last two because neither runs without what
+the checker works out, and the module system because comparing this
+front end against the OCaml one is the whole reason the flag exists, and
+that one reads a single file. So it reads a single file too
+(`module.read_file`), and nothing the program imports is opened at all.
+`front_end` then returns after `symbolize` with no table at all,
 and `parse_args` refuses the flag anywhere but `compile -t pyking` --
 every other target reads the types, the Python backend to know what to
 format and the OCaml one for every type it emits, and so does the
@@ -140,12 +159,13 @@ in the long form are ones nobody needs to know about to use the
 compiler at all. `usage_error` prints the short form, since a mistyped
 command is not a request for a manual.
 
-## One table, one function, five kinds of error
+## One table, one function, six kinds of error
 
 ```python
 ERROR_KINDS = (
     (LexError, "Lexing error"),
     (ParseError, "Parsing error"),
+    (module.ModuleError, "Module error"),
     (AnalysisError, "Name error"),
     (typesystem.TypeError_, "Type error"),
     (interpreter.RuntimeError_, "Runtime error"),
@@ -154,31 +174,42 @@ ERROR_KINDS = (
 
 Every stage that can refuse a program raises its own exception type,
 and every one of them carries an `Info`. `format_error` doesn't need
-five different formatting functions because of that uniformity — it's
+six different formatting functions because of that uniformity — it's
 one loop over `ERROR_KINDS` checking `isinstance`, and the *only* thing
 that differs between a lexical failure and a runtime one is which label
 gets printed. This is the same table `src/repl.py` is handed (`start`
 takes `format_error` as a parameter specifically so a mistake made at
 the REPL prompt is reported in the exact words a file would get — see
-that module's own page), and it's why adding a sixth kind of front-end
+that module's own page), and it's why adding a seventh kind of front-end
 error later would mean adding one tuple here, not writing a new
-formatting function.
+formatting function -- which is exactly what `Module error` was.
 
 `fail_unsupported` is kept separate from `format_error`'s table on
 purpose: an `UnsupportedError` needs to name *which target* refused the
 construct (`"Unsupported by target 'nodejs': ..."`), a piece of context
-none of the five `ERROR_KINDS` need, since they're refused by the front
+none of the six `ERROR_KINDS` need, since they're refused by the front
 end itself rather than by one particular backend's subset.
 
 ## `command_compile`: one function, one `write` closure reused everywhere
 
-`command_compile` is the longest function in the module, and it reads
-long mostly because it's flat rather than because it's doing anything
-elaborate: pick the output path (or paths, for `esm`) if `--output`
-wasn't given, dispatch on `target` to the right backend's translate/print
-calls, and write or print the result. Two small closures capture the
-two safety rules every write has to obey, defined once and reused
-across every target's branch rather than repeated:
+`command_compile` picks the output path (or paths, for `esm`) if
+`--output` wasn't given, asks `compile_program` for every file the whole
+program becomes, and writes them -- or prints the one `--stdout` asks
+for, which is the program's own module, since the modules it imports are
+files and `--stdout` writes none.
+
+`compile_program` is a loop over the program's modules: each one's file
+goes beside the program's own output under its own name, and
+`compile_unit` dispatches on `target` to the right backend's
+translate/print calls for one module. Two targets do not fit that loop
+and say so where they are: the JavaScript ones package a whole program
+at once (a page holds every module; the other two share one runtime
+module), and C and OCaml answer with a companion file -- a header, an
+interface -- beside the module's own.
+
+Two small closures capture the two safety rules every write has to obey,
+defined once and reused across every target's branch rather than
+repeated:
 
 - **`write(path, contents)`** refuses to write over the *input* file
   (comparing absolute paths, so `hello.pyk` compiled to `-o hello.pyk`
@@ -195,10 +226,10 @@ across every target's branch rather than repeated:
   changing (or silently *not* changing, without saying so) a file this
   driver didn't create.
 
-The per-target branches themselves are mostly symmetric — translate,
-catch that backend's own `UnsupportedError` and hand it to
-`fail_unsupported`, print or write — with two real asymmetries worth
-noting: the C branch passes `target` itself as the `standard` parameter
+The per-target branches in `compile_unit` are mostly symmetric —
+translate, catch that backend's own `UnsupportedError` and hand it to
+`fail_unsupported`, answer with the text — with two real asymmetries
+worth noting: the C branch passes `target` itself as the `standard` parameter
 (`target_c.py` serves both `c89` and `c23` from one function, gated by
 exactly that string — see that backend's internals page), and the Java
 branch has to work out the class name *before* it can print anything,
@@ -207,6 +238,13 @@ explicit `--output`'s own stem, or `target_java.default_class_name`'s
 Java-cased default) — a dependency none of the other targets have,
 because none of them require the file and the code inside it to agree
 on a name.
+
+Every backend that needs to know anything about the module *as part of a
+program* -- its name, whether it is the program's own, what the modules
+it imports export -- is handed one value for all of it,
+`module.Context`, rather than a growing list of parameters. A program of
+one module gets a `Context` saying so, which is what keeps a single-file
+program's output byte-for-byte what it was before there were modules.
 
 ## Running what was compiled: `--run` and `src/execution.py`
 
@@ -219,12 +257,16 @@ here. The driver's whole part is one line at the end of
 
 ```python
 if options.run:
-    return execution.execute(target, output_path)
+    return execution.execute(target, output_path, module_outputs)
 ```
 
-`plan_for(target, path)` answers with a `Plan`: the build commands (each
-of which must succeed), the command that is the program itself, and the
-directory to run them in. Everything in it is made absolute, since the
+`plan_for(target, path, modules)` answers with a `Plan`: the build
+commands (each of which must succeed), the command that is the program
+itself, and the directory to run them in. `modules` names the files the
+program's other modules were compiled to, in dependency order --
+which C, Java and OCaml need, since those three *link* a program rather
+than importing at run time, and for OCaml that order is also the order
+the modules' top levels run in. Everything in it is made absolute, since the
 commands run in the *output file's* directory rather than the one `pyk`
 was called from — which is what makes `esm`'s generated `package.json`
 and Java's `-cp` find what they expect. `_shown` puts them back for the

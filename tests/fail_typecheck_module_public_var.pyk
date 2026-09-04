@@ -1,0 +1,6 @@
+# A `var` cannot be public: a module exports values and functions, not
+# variables another module could write to.
+
+public var count = 0
+
+print(count)

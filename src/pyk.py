@@ -1,9 +1,12 @@
 """The driver: what `pyk` on the command line runs. Parses argv,
 sequences the front-end stages, and dispatches to one of three commands
 (`pyk <file>`, `repl`, `compile`). Every program is type-checked, so a
-program that does not check is refused whatever was asked for. Each
+program that does not check is refused whatever was asked for. A program
+of several modules runs the middle of that sequence once per module, in
+the order src/module.py puts them in. Each
 backend owns its own translation, packaging and file naming. See
-docs/architecture.md ("Command line") and docs/source.md ("pyk.py").
+docs/architecture.md ("Command line"), docs/modules.md and
+docs/source.md ("pyk.py").
 
 Data structures:
     Options -- argv parsed into one value: command, filename, flags.
@@ -11,24 +14,30 @@ Data structures:
 Functions:
     main(argv) -- argv in, exit status out.
     parse_args(argv) -- argv, as an Options.
-    front_end(options) -- runs lexing/parsing/symbolizing/typing/analyses.
+    front_end(options) -- loads the program's modules, then checks and
+        analyses each of them.
     format_error(error) -- formats any front-end error as one line.
-    command_interpret(program) -- `pyk <file>`.
+    command_interpret(checked) -- `pyk <file>`.
     command_repl() -- `pyk repl`.
-    command_compile(program, tmap, options) -- `pyk compile`.
+    command_compile(checked, options) -- `pyk compile`.
+    compile_program(checked, target, output_path, options) -- every file
+        the program compiles to, and the one --stdout prints.
     wrap(text) -- reflows text to the driver's line width.
 """
 
 import os
 import sys
 import textwrap
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from analyses import analyze_mutability, apply_signatures, symbolize, AnalysisError
+from analyses import (
+    analyze_mutability, apply_signatures, highest_sym, symbolize, AnalysisError,
+)
 import execution
 import optimization
-from lexer import lexing, pprint_info, pprint_token, LexError
-from parser import parse, ParseError
+from lexer import pprint_info, pprint_token, LexError
+import module
+from parser import ParseError
 from syntax import pprint_program
 import interpreter
 import target_c
@@ -318,6 +327,7 @@ def parse_args(argv):
 ERROR_KINDS = (
     (LexError, "Lexing error"),
     (ParseError, "Parsing error"),
+    (module.ModuleError, "Module error"),
     (AnalysisError, "Name error"),
     (typesystem.TypeError_, "Type error"),
     (interpreter.RuntimeError_, "Runtime error"),
@@ -357,70 +367,107 @@ def fail_unsupported(target, error):
 
 
 def front_end(options):
-    """Every stage before a backend, in the order they run: lexing,
-    parsing, symbolizing, type checking, the mutability analysis, and
-    the tail-call pass. Under `--no-typechecking` it stops after
-    symbolizing, and the table is None. Exits via fail() on the first
-    error.
-    Options -> ([Stmt], {Int: Type}?)"""
-    with open(options.filename, "r") as f:
-        data = f.read()
-
+    """Every stage before a backend, over every module the program
+    reaches: loading (which lexes, parses, symbolizes and orders them),
+    type checking, the mutability analysis, and the tail-call pass, each
+    module in the order it is loaded in -- so a module is checked after
+    everything it imports, against what those export. Under
+    `--no-typechecking` it stops after loading, and every table is None.
+    Exits via fail() on the first error.
+    Options -> [(Module, {Int: Type}?)]"""
+    # `--no-typechecking` is the one flag that stops the front end early,
+    # and comparing this front end against the OCaml one in ocaml-src/
+    # is the only reason it exists. That one reads a single file and has
+    # no module system at all, so neither does this: the file named is
+    # lexed, parsed and symbolized, nothing it imports is read, and
+    # `-t pyking` -- the only target that accepts the flag (see
+    # `parse_args`) -- prints the program the parser built, with the
+    # source's own annotations.
     try:
-        tokens = lexing(options.filename, list(data))
-    except LexError as e:
+        if not options.typecheck:
+            unit = module.read_file(options.filename)
+            report_tokens([unit], options)
+            return [(replace(unit, stmts=symbolize(unit.stmts)), None)]
+        modules = module.load(options.filename)
+    except (LexError, ParseError, AnalysisError, module.ModuleError) as e:
         fail(e)
 
-    if options.tokens:
-        print("\n".join(f"{pprint_info(t.info)} {pprint_token(t)}" for t in tokens))
+    report_tokens(modules, options)
+
+    # Every module is checked against what the ones it imports export,
+    # which is why they are checked in this order -- and `make_sigmap`
+    # is what turns each result into the next module's input. It is made
+    # from the program the *checker* saw, since the tail-call pass below
+    # can only change how a module computes what it exports, never what
+    # it exports or at what type.
+    checked, sigmaps = [], {}
+    # The tail-call pass builds nodes and so hands out more symbols;
+    # they continue past the highest in the whole program, since one
+    # numbering spans every module of it (see analyses.symbolize).
+    highest = max([highest_sym(unit.stmts) for unit in modules], default=0)
+    for unit in modules:
+        tmap = check_module(unit, module.sigmaps_for(unit, sigmaps))
+        sigmap = module.make_sigmap(unit.stmts, tmap)
+        sigmaps[unit.name] = sigmap
+        stmts, tmap, highest = optimize_module(
+            unit.stmts, tmap, highest, options
+        )
+        checked.append((replace(unit, stmts=stmts, sigmap=sigmap), tmap))
+    return checked
+
+
+def report_tokens(modules, options):
+    """Prints the token stream of every module of the program under
+    `--tokens`, in the order they are compiled; for a one-file program
+    that is the one file. [Module] -> Options -> ()"""
+    if not options.tokens:
+        return
+    for unit in modules:
+        print("\n".join(
+            f"{pprint_info(t.info)} {pprint_token(t)}" for t in unit.tokens
+        ))
         print("")
 
-    try:
-        program = parse(tokens)
-    except ParseError as e:
-        fail(e)
 
-    # Every node gets a unique symbol before anything reasons about it:
-    # `--symbols` prints them, `tmap` is keyed by them, and so is the
-    # interpreter's call-free table.
-    program = symbolize(program)
-
-    # `--no-typechecking` stops here, and it is the one flag that can:
-    # nothing after this point runs without the types, and `-t pyking`
-    # -- the only target that accepts the flag (see `parse_args`) --
-    # prints the program the parser built, with the source's own
-    # annotations. It is what the OCaml bootstrap in ocaml-src/ prints
-    # too, which is what makes the two comparable.
-    if not options.typecheck:
-        return program, None
-
+def check_module(unit, sigmaps):
+    """One module through the type checker and the mutability analysis,
+    returning the types it worked out. Exits via fail() on the first
+    error. Module -> [(String, {String: Type})] -> {Int: Type}"""
     # Pyking is statically typed, so this is not a mode: a program that
     # does not check is refused, whatever was asked for. The checker
     # carries a scope of its own, so it reports an unbound name too, in
     # analyses.py's words.
     try:
-        tmap = typesystem.type_check(program)
+        tmap = typesystem.type_check(unit.stmts, sigmaps)
     except (AnalysisError, typesystem.TypeError_) as e:
         fail(e)
 
     # The one rule types do not state: only a `var` may be written to
     # with `:=`, and nothing may shadow one.
     try:
-        analyze_mutability(program)
+        analyze_mutability(unit.stmts)
     except AnalysisError as e:
         fail(e)
+    return tmap
 
-    # Tail calls become loops before anything reads the program, so what
-    # the `pyking` target prints and what every backend compiles are the
-    # same program. The pass builds nodes, so symbols are handed out again --
-    # `symbolize` keeps the ones already given and continues past the
-    # highest -- and it extends `tmap` for what it built, since the
-    # checker will not run again to say what those nodes are.
-    if options.tail_calls and not compiling_natively(options):
-        program, tmap = optimization.optimize(program, tmap)
-        program = symbolize(program)
 
-    return program, tmap
+def optimize_module(program, tmap, highest, options):
+    """One module through the tail-call pass, with the symbols it hands
+    out continuing past `highest` -- the highest anywhere in the program
+    so far, which is what the next module continues past in turn.
+    Tail calls become loops before anything reads the program, so what
+    the `pyking` target prints and what every backend compiles are the
+    same program.
+    [Stmt] -> {Int: Type} -> Int -> Options -> ([Stmt], {Int: Type}, Int)"""
+    if not (options.tail_calls and not compiling_natively(options)):
+        return program, tmap, highest
+    # The pass builds nodes, so symbols are handed out again --
+    # `symbolize` keeps the ones already given -- and it extends `tmap`
+    # for what it built, since the checker will not run again to say
+    # what those nodes are.
+    program, tmap = optimization.optimize(program, tmap)
+    program = symbolize(program, highest)
+    return program, tmap, max(highest, highest_sym(program))
 
 
 # --- the commands ----------------------------------------------------
@@ -439,10 +486,13 @@ def command_repl():
 TRACE_LIMIT = 10
 
 
-def command_interpret(program):
+def command_interpret(checked):
     """Runs `pyk <file>` with the interpreter; prints a runtime error
-    (with a truncated stack trace) if one occurs. [Stmt] -> Int"""
-    state = interpreter.run_program(program, interpreter.ConsoleHost())
+    (with a truncated stack trace) if one occurs. Every module of the
+    program runs, in the order it was checked in, each in a top level of
+    its own. [(Module, {Int: Type})] -> Int"""
+    units = [(unit.name, apply_signatures(unit.stmts)) for unit, _ in checked]
+    state = interpreter.run_modules(units, interpreter.ConsoleHost())
     error = interpreter.failure(state)
     if error is None:
         return 0
@@ -455,12 +505,161 @@ def command_interpret(program):
     return 1
 
 
-def command_compile(program, tmap, options):
-    """Runs `pyk compile <file>`: translates the program for
-    options.target and writes, or prints (--stdout), the result. tmap is
-    the checker's table, which only the OCaml backend reads.
-    [Stmt] -> {Int: Type}? -> Options -> Int"""
+def compile_program(checked, target, output_path, options):
+    """Every file the program compiles to, as {path: contents}, and the
+    text of the one `--stdout` prints -- the program's own module, since
+    a module it imports is a file and `--stdout` writes none. A module
+    is written beside the program's output under its own name, which is
+    also what the generated import in that output names it by.
+    [(Module, {Int: Type}?)] -> String -> String? -> Options
+    -> ({String: String}, String)"""
+    main_unit, _ = checked[-1]
+    directory = os.path.dirname(output_path or "")
+
+    if target in target_js_packaging.TARGETS:
+        # The JavaScript targets package a whole program at once: `html`
+        # has one file to put every module in, and the other two share
+        # one runtime module between them.
+        taken = target_js_packaging.reserved_names(
+            [unit.name for unit, _ in checked]
+        )
+        return target_js_packaging.package_program(
+            target,
+            [(unit, translate_js(unit, target, taken)) for unit, _ in checked],
+            output_path, options.stdout,
+        )
+
+    files, primary = {}, None
+    for unit, tmap in checked:
+        path = (output_path if unit is main_unit
+                else os.path.join(directory, default_name(target, unit.name)))
+        contents, companions = compile_unit(
+            unit, tmap, target, checked, path, options
+        )
+        if unit is main_unit:
+            primary = contents
+        if path is not None:
+            files[path] = contents
+            files.update(companions)
+    return files, primary
+
+
+def translate_js(unit, target, taken):
+    """One module through the JavaScript backend's language half.
+    `taken` names the JavaScript the packager writes around it.
+    Module -> String -> {String} -> [JsStmt]"""
+    try:
+        return target_js_core.translate_program(
+            apply_signatures(unit.stmts), taken
+        )
+    except target_js_core.UnsupportedError as e:
+        fail_unsupported(target, e)
+
+
+def compile_unit(unit, tmap, target, checked, path, options):
+    """One module compiled for one target: the text of its own file, and
+    the companion files that go beside it -- a C header, an OCaml
+    interface -- keyed by path. `checked` is the whole program, in the
+    order its modules must run, which the program's own module needs to
+    start them. Nothing is written here; a companion is left out
+    entirely where there is no path to put it beside (`--stdout`).
+    Module -> {Int: Type}? -> String -> [(Module, {Int: Type}?)] ->
+    String? -> Options -> (String, {String: String})"""
+    context = module.context(checked, unit)
+    main, source = context.main, os.path.basename(unit.path)
+
+    if target == execution.PYKING_TARGET:
+        # Pyking back out again: the program as the front end worked it
+        # out, with the checker's types and the tail-call pass's loops.
+        # It is printed *before* `apply_signatures`, so a `def name :
+        # type` line stays the line the source wrote rather than being
+        # folded onto its header.
+        return pprint_program(
+            unit.stmts, symbols=options.symbols, tmap=tmap
+        ) + "\n", {}
+
+    program = apply_signatures(unit.stmts)
+
+    if target == "python":
+        return pprint_py_program(translate_program(program, tmap)) + "\n", {}
+
+    if target in target_c.STANDARDS:
+        # One backend, two standards: the difference is in how the C is
+        # printed, not in what it means.
+        try:
+            c_program = target_c.translate_program(program, context)
+        except target_c.UnsupportedError as e:
+            fail_unsupported(target, e)
+        text = target_c.pprint_c_program(c_program, target, source)
+        if main or path is None:
+            # The program's own module declares nothing for anyone else
+            # to include, so it has no header.
+            return text, {}
+        header = os.path.join(
+            os.path.dirname(path), unit.name + target_c.HEADER_EXTENSION
+        )
+        return text, {
+            header: target_c.pprint_c_header(c_program, target, source)
+        }
+
+    if target in target_java.VERSIONS:
+        # Java requires the public class to share its file's name
+        # exactly. An explicit `--output` is trusted as-is: the class is
+        # named after whatever file the caller chose. With none, `path`
+        # was already picked in Java's own casing above, and the class
+        # matches it too.
+        class_name = (
+            os.path.splitext(os.path.basename(path))[0] if path is not None
+            else target_java.default_class_name(unit.name)
+        )
+        try:
+            java_program = target_java.translate_program(program, context)
+        except target_java.UnsupportedError as e:
+            fail_unsupported(target, e)
+        return target_java.pprint_java_program(
+            java_program, target, class_name, source
+        ), {}
+
+    # The one backend that infers nothing: it reads the types back out
+    # of the table `front_end` filled, which is why this target
+    # type-checks whether or not `--typecheck` was passed, and why a
+    # program that does not check has already been refused.
+    try:
+        ocaml_program = target_ocaml.translate_program(program, tmap, context)
+    except target_ocaml.UnsupportedError as e:
+        fail_unsupported(target, e)
+    text = target_ocaml.pprint_ocaml_program(ocaml_program, source)
+    if main or path is None:
+        # Nothing imports the program's own module, so it needs no
+        # interface saying what it exports.
+        return text, {}
+    interface = os.path.splitext(path)[0] + target_ocaml.INTERFACE_EXTENSION
+    return text, {
+        interface: target_ocaml.pprint_ocaml_interface(ocaml_program, source)
+    }
+
+
+def default_name(target, stem):
+    """What a file compiled from `stem` is called when nothing says.
+    The source's own name with the target's extension -- except for the
+    Java targets, which require the public class to share its file's
+    name exactly, so the name is Java-cased rather than the source's own
+    spelling: `foo_bar.pyk` writes `FooBar.java`.
+    String -> String -> String"""
+    if target in target_java.VERSIONS:
+        return target_java.default_class_name(stem) + ".java"
+    return stem + EXTENSIONS[target]
+
+
+def command_compile(checked, options):
+    """Runs `pyk compile <file>`: translates every module of the program
+    for options.target and writes the files, or prints the program's own
+    module (--stdout). A module the program imports is written beside the
+    program's own output, under its own name.
+    [(Module, {Int: Type}?)] -> Options -> Int"""
     target, filename = options.target, options.filename
+    main_unit, main_tmap = checked[-1]
+    program, tmap = main_unit.stmts, main_tmap
     stem = os.path.splitext(os.path.basename(filename))[0]
     output_path = options.output
 
@@ -469,22 +668,27 @@ def command_compile(program, tmap, options):
         # with the target's extension, in the directory the command was
         # run from -- `pyk compile -t nodejs tests/hello.pyk` writes
         # `./hello.js`. For `esm` this is a stem, and the three files are
-        # named from it. Java is the exception: it requires the public
-        # class to share its file's name exactly, so the default name is
-        # Java-cased rather than the source's own spelling -- `foo_bar.pyk`
-        # writes `FooBar.java`, not `foo_bar.java`.
-        if target in target_java.VERSIONS:
-            output_path = target_java.default_class_name(stem) + ".java"
-        else:
-            output_path = stem + EXTENSIONS[target]
+        # named from it.
+        output_path = default_name(target, stem)
+
+    # Every file the program was read from: the program's own, and every
+    # module it imports. `-t pyking` writes `.pyk` files, and a module
+    # is written under its own name, so without this a program compiled
+    # into its own directory would overwrite the module beside it.
+    sources = {os.path.abspath(unit.path) for unit, _ in checked}
 
     def write(path, contents):
-        """Writes one output file; usage_error if it would overwrite
-        the source or its directory does not exist.
+        """Writes one output file; usage_error if it would overwrite a
+        file the program was read from, or its directory does not exist.
         String -> String -> ()"""
-        if os.path.abspath(path) == os.path.abspath(filename):
+        if os.path.abspath(path) in sources:
+            what = (
+                "the input file"
+                if os.path.abspath(path) == os.path.abspath(filename)
+                else f"'{os.path.basename(path)}', a module this program imports"
+            )
             usage_error(
-                f"writing '{path}' would overwrite the input file; choose a "
+                f"writing '{path}' would overwrite {what}; choose a "
                 "different output path."
             )
         directory = os.path.dirname(path)
@@ -515,106 +719,29 @@ def command_compile(program, tmap, options):
                 file=sys.stderr,
             )
 
-    if target == execution.PYKING_TARGET:
-        # Pyking back out again: the program as the front end worked it
-        # out, with the checker's types and the tail-call pass's loops.
-        # It is printed *before* `apply_signatures`, so a `def name :
-        # type` line stays the line the source wrote rather than being
-        # folded onto its header.
-        pyking_source = pprint_program(program, symbols=options.symbols, tmap=tmap)
-        if options.stdout:
-            print(pyking_source)
-        else:
-            write(output_path, pyking_source + "\n")
-    elif target == "python":
-        program = apply_signatures(program)
-        py_source = pprint_py_program(translate_program(program, tmap))
-        if options.stdout:
-            print(py_source)
-        else:
-            write(output_path, py_source + "\n")
-    elif target in target_c.STANDARDS:
-        # One backend, two standards: the difference is in how the C is
-        # printed, not in what it means.
-        program = apply_signatures(program)
-        try:
-            c_program = target_c.translate_program(program)
-        except target_c.UnsupportedError as e:
-            fail_unsupported(target, e)
-        c_source = target_c.pprint_c_program(
-            c_program, target, os.path.basename(filename)
-        )
-        if options.stdout:
-            print(c_source, end="")
-        else:
-            write(output_path, c_source)
-    elif target in target_java.VERSIONS:
-        program = apply_signatures(program)
-        try:
-            java_program = target_java.translate_program(program)
-        except target_java.UnsupportedError as e:
-            fail_unsupported(target, e)
-        # Java requires the public class to share its file's name exactly.
-        # An explicit `--output` is trusted as-is: the class is named
-        # after whatever file the caller chose. With none, `output_path`
-        # was already picked in Java's own casing above, and the class
-        # matches it too.
-        class_name = (
-            os.path.splitext(os.path.basename(output_path))[0]
-            if output_path is not None
-            else target_java.default_class_name(stem)
-        )
-        java_source = target_java.pprint_java_program(
-            java_program, target, class_name, os.path.basename(filename)
-        )
-        if options.stdout:
-            print(java_source, end="")
-        else:
-            write(output_path, java_source)
-    elif target == target_ocaml.TARGET:
-        # The one backend that infers nothing: it reads the types back
-        # out of the table `front_end` filled, which is why this target
-        # type-checks whether or not `--typecheck` was passed (see
-        # `required` there), and why a program that does not check has
-        # already been refused before this point.
-        program = apply_signatures(program)
-        try:
-            ocaml_program = target_ocaml.translate_program(program, tmap)
-        except target_ocaml.UnsupportedError as e:
-            fail_unsupported(target, e)
-        ocaml_source = target_ocaml.pprint_ocaml_program(
-            ocaml_program, os.path.basename(filename)
-        )
-        if options.stdout:
-            print(ocaml_source, end="")
-        else:
-            write(output_path, ocaml_source)
-    else:
-        # The JavaScript backends support a subset of Pyking so far;
-        # anything outside it is reported here rather than emitting
-        # broken JavaScript.
-        program = apply_signatures(program)
-        try:
-            js_program = target_js_core.translate_program(program)
-        except target_js_core.UnsupportedError as e:
-            fail_unsupported(target, e)
+    directory = os.path.dirname(output_path or "")
+    files, primary = compile_program(checked, target, output_path, options)
 
-        source_name = os.path.basename(filename)
-        if options.stdout:
-            print(target_js_packaging.primary_source(target, js_program, source_name))
+    if options.stdout:
+        print(primary, end="")
+        return 0
+
+    for path, contents in files.items():
+        if os.path.basename(path) == target_js_packaging.MODULE_MANIFEST:
+            write_manifest(path, contents)
         else:
-            for path, contents in target_js_packaging.package(
-                target, js_program, source_name, output_path
-            ).items():
-                if os.path.basename(path) == target_js_packaging.MODULE_MANIFEST:
-                    write_manifest(path, contents)
-                else:
-                    write(path, contents)
+            write(path, contents)
 
     if options.run:
         # `--stdout` wrote no file, and parse_args already refused the
-        # combination, so there is always something here to run.
-        return execution.execute(target, output_path)
+        # combination, so there is always something here to run. The
+        # modules the program imports are named in the order they must
+        # be built and run, which is the order they were compiled in.
+        return execution.execute(
+            target, output_path,
+            [os.path.join(directory, default_name(target, unit.name))
+             for unit, _ in checked[:-1]],
+        )
     return 0
 
 
@@ -624,7 +751,7 @@ def main(argv):
     if options.command == "repl":
         return command_repl()
 
-    program, tmap = front_end(options)
+    checked = front_end(options)
 
     # A `def name : type` line is another spelling of the annotations a
     # header could carry, so it is folded onto the header before a
@@ -633,8 +760,8 @@ def main(argv):
     # still sees the type it must refuse. The `pyking` target is the
     # exception, and folds nothing -- it prints the program as it stands.
     if options.command == "compile":
-        return command_compile(program, tmap, options)
-    return command_interpret(apply_signatures(program))
+        return command_compile(checked, options)
+    return command_interpret(checked)
 
 
 if __name__ == "__main__":

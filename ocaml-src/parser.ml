@@ -71,6 +71,15 @@ let rec parse_atom eof tokens =
   | TokString (i, s) :: rest -> parse_call_tail eof (EString (i, s, 0)) rest
   | TokTrue i :: rest -> parse_call_tail eof (EBool (i, true, 0)) rest
   | TokFalse i :: rest -> parse_call_tail eof (EBool (i, false, 0)) rest
+  | TokIdent (i, module_name) :: TokDot dot :: TokIdent (name_info, name) :: rest
+    when dot.row1 = i.row2 ->
+      (* `module.name`: a public name of an imported module. The dot must
+         be on the module name's own row, for the reason parse_call_tail
+         requires it of a '(' -- otherwise a name ending one line would
+         reach down and take the next. *)
+      parse_call_tail eof
+        (EQualified (combine_info i name_info, module_name, name, 0))
+        rest
   | TokIdent (i, name) :: rest -> parse_call_tail eof (EVar (i, name, 0)) rest
   | TokLParen lp :: TokRParen rp :: rest ->
       (* (): the empty tuple, i.e. Unit. *)
@@ -961,11 +970,23 @@ and parse_bound_value eof tokens =
 (** Parses one statement. info -> [token] -> (stmt, [token]) *)
 and parse_statement eof tokens =
   match tokens with
+  | (TokImport i | TokFrom i) :: _ ->
+      raise
+        (Parse_error
+           ( i,
+             "an import belongs to the top level of a module, so it cannot \
+              be written inside a block" ))
+  | TokPublic i :: _ ->
+      raise
+        (Parse_error
+           ( i,
+             "only the top level of a module has names to export, so \
+              'public' cannot be written inside a block" ))
   | TokDef i :: TokIdent (_, name) :: TokColon _ :: rest ->
       (* `def name : type` -- a signature on a line of its own, for the
          `def name(...)` in this same block. *)
       let type_, rest = parse_type eof rest in
-      (SFunctionSig (combine_info i (type_info type_), name, type_, 0), rest)
+      (SFunctionSig (combine_info i (type_info type_), name, type_, 0, false), rest)
   | TokDef i :: TokIdent (_, name) :: TokLParen _ :: rest -> (
       let params, rest = parse_params eof rest in
       let return_type, rest =
@@ -979,7 +1000,8 @@ and parse_statement eof tokens =
       | TokColon colon_info :: rest ->
           let body, rest = parse_block eof rest colon_info in
           let def_info = combine_info i (block_end_info i body) in
-          (SFunctionDef (def_info, name, params, body, return_type, 0), rest)
+          ( SFunctionDef (def_info, name, params, body, return_type, 0, false),
+            rest )
       | _ -> raise (Parse_error (here eof rest, "expected ':' after def header")))
   | TokReturn i :: rest -> (
       (* `return` takes a bound value, not just an expression: the
@@ -1045,10 +1067,10 @@ and parse_statement eof tokens =
               let let_info =
                 combine_info (target_info target) (stmt_info stmt)
               in
-              (SLetStmt (let_info, target, stmt, annotation, 0), rest)
+              (SLetStmt (let_info, target, stmt, annotation, 0, false), rest)
           | BExpr e ->
               let let_info = combine_info (target_info target) (expr_info e) in
-              (SLet (let_info, target, e, annotation, 0), rest))
+              (SLet (let_info, target, e, annotation, 0, false), rest))
       | None -> parse_expr_statement eof tokens)
   | _ -> parse_expr_statement eof tokens
 
@@ -1248,7 +1270,7 @@ and check_loop_context stmts held crossed =
       | SBreak (i, _, _) | SContinue (i, _, _) ->
           if not held then no_loop_here stmt i crossed
       | SLoop (_, _, _, _, _, _, body, _) -> check_loop_context body true None
-      | SFunctionDef (_, _, _, body, _, _) ->
+      | SFunctionDef (_, _, _, body, _, _, _) ->
           check_loop_context body false (if held then Some "def" else crossed)
       | SIf (_, _, then_body, else_body, _) ->
           check_loop_context then_body held crossed;
@@ -1259,7 +1281,7 @@ and check_loop_context stmts held crossed =
           List.iter
             (fun c -> check_loop_context (case_body c) held crossed)
             cases
-      | SLetStmt (_, _, inner, _, _) | SReturnStmt (_, inner, _) ->
+      | SLetStmt (_, _, inner, _, _, _) | SReturnStmt (_, inner, _) ->
           check_loop_context [ inner ] held crossed
       | _ -> ())
     stmts
@@ -1396,6 +1418,131 @@ and expr_starter tok =
       true
   | _ -> false
 
+(* Pyking has no import-all form: a name a module reaches is written
+   down, so reading the file says where every name comes from. *)
+let no_star =
+  "there is no '*' import in Pyking; name the values and functions to \
+   import, or import the module itself and reach them through it"
+
+(** Parses the modules of an `import a, b as c` line, one SImport each.
+    The fields are left empty: what a qualified name reaches is the
+    module's public names, which only the module system knows.
+    info -> info -> [token] -> ([stmt], [token]) *)
+let rec parse_import eof import_info tokens =
+  let stmt, tokens =
+    match tokens with
+    | TokIdent (_, module_name) :: TokAs _ :: TokIdent (last, alias) :: rest ->
+        (SImport (combine_info import_info last, module_name, alias, false, [], 0), rest)
+    | TokIdent (last, module_name) :: rest ->
+        ( SImport
+            (combine_info import_info last, module_name, module_name, false, [], 0),
+          rest )
+    | TokMul i :: _ -> raise (Parse_error (i, no_star))
+    | _ ->
+        raise (Parse_error (here eof tokens, "expected a module name after 'import'"))
+  in
+  match tokens with
+  | TokComma _ :: rest ->
+      let rest_stmts, rest = parse_import eof import_info rest in
+      (stmt :: rest_stmts, rest)
+  | _ -> ([ stmt ], tokens)
+
+(** Parses the names a `from` line takes, each paired with the name it is
+    known by here. info -> [token] -> ((string * string) list, info, [token]) *)
+let rec parse_import_fields eof tokens =
+  let field, last, tokens =
+    match tokens with
+    | TokIdent (_, field) :: TokAs _ :: TokIdent (last, local) :: rest ->
+        ((field, local), last, rest)
+    | TokIdent (last, field) :: rest -> ((field, field), last, rest)
+    | TokMul i :: _ -> raise (Parse_error (i, no_star))
+    | _ -> raise (Parse_error (here eof tokens, "expected a name after 'import'"))
+  in
+  match tokens with
+  | TokComma _ :: rest ->
+      let fields, last, rest = parse_import_fields eof rest in
+      (field :: fields, last, rest)
+  | _ -> ([ field ], last, tokens)
+
+(** Parses `from module import name, other as alias`, as one SImport
+    naming the module and the fields taken from it.
+    info -> info -> [token] -> ([stmt], [token]) *)
+let parse_from_import eof from_info tokens =
+  match tokens with
+  | TokIdent (_, module_name) :: TokImport _ :: rest ->
+      let fields, last, rest = parse_import_fields eof rest in
+      let i = combine_info from_info last in
+      ([ SImport (i, module_name, module_name, true, fields, 0) ], rest)
+  | TokIdent (_, _) :: rest ->
+      raise
+        (Parse_error (here eof rest, "expected 'import' after the module name"))
+  | _ ->
+      raise (Parse_error (here eof tokens, "expected a module name after 'from'"))
+
+(** One statement with `public` written in front of it. stmt -> info ->
+    stmt *)
+let made_public stmt public_info =
+  let i = combine_info public_info (stmt_info stmt) in
+  match stmt with
+  | SFunctionDef (_, name, params, body, return_type, sym, _) ->
+      SFunctionDef (i, name, params, body, return_type, sym, true)
+  | SFunctionSig (_, name, type_, sym, _) ->
+      SFunctionSig (i, name, type_, sym, true)
+  | SLet (_, (TargetName _ as target), e, annotation, sym, _) ->
+      SLet (i, target, e, annotation, sym, true)
+  | SLetStmt (_, (TargetName _ as target), inner, annotation, sym, _) ->
+      SLetStmt (i, target, inner, annotation, sym, true)
+  | SLet (_, _, _, _, _, _) | SLetStmt (_, _, _, _, _, _) ->
+      raise
+        (Parse_error
+           ( stmt_info stmt,
+             "a public binding names one value, so it cannot take a tuple \
+              apart; bind the parts first and make each public" ))
+  | _ ->
+      raise
+        (Parse_error
+           ( i,
+             Printf.sprintf
+               "'public' says what a module exports, so it goes in front of a \
+                'def', a 'def' signature line, or an '=' binding, not '%s'"
+               (shorten (statement_text stmt)) ))
+
+(** Parses what a `public` exports: a `def`, a `def name : type`
+    signature line, or an `=` binding of one name.
+    info -> info -> [token] -> (stmt, [token]) *)
+let parse_public eof public_info tokens =
+  (match tokens with
+  | TokVar i :: _ ->
+      raise
+        (Parse_error
+           ( combine_info public_info i,
+             "a 'var' cannot be public: a module exports values and \
+              functions, not variables another module could write to" ))
+  | [] ->
+      raise
+        (Parse_error
+           ( here eof tokens,
+             "expected a definition or a binding after 'public'" ))
+  | _ -> ());
+  let stmt, rest = parse_statement eof tokens in
+  (made_public stmt public_info, rest)
+
+(** Parses one top-level statement, or the several an `import a, b` line
+    stands for. The two forms a module is written with -- an import and a
+    `public` -- are parsed only here, which is what makes them top
+    level: parse_statement, which every block goes through, refuses both.
+    info -> [token] -> ([stmt], [token]) *)
+let parse_top_statement eof tokens =
+  match tokens with
+  | TokImport i :: rest -> parse_import eof i rest
+  | TokFrom i :: rest -> parse_from_import eof i rest
+  | TokPublic i :: rest ->
+      let stmt, rest = parse_public eof i rest in
+      ([ stmt ], rest)
+  | _ ->
+      let stmt, rest = parse_statement eof tokens in
+      ([ stmt ], rest)
+
 (** Parses a full token stream into a list of top-level statements.
     [token] -> [stmt] *)
 let parse tokens =
@@ -1408,15 +1555,17 @@ let parse tokens =
     match rest with
     | [] -> List.rev collected
     | _ ->
-        let stmt, rest = parse_statement eof rest in
-        (match collected with
-        | previous :: _ ->
-            check_own_line (stmt_info previous) (stmt_info stmt) "statement"
+        (* A group, because `import a, b` is one line standing for two
+           statements; every other line gives a group of one. *)
+        let group, rest = parse_top_statement eof rest in
+        (match (collected, group) with
+        | previous :: _, first :: _ ->
+            check_own_line (stmt_info previous) (stmt_info first) "statement"
               (fun () -> statement_text previous)
-              (fun () -> statement_text stmt);
-            check_reachable previous stmt
-        | [] -> ());
-        statements rest (stmt :: collected)
+              (fun () -> statement_text first);
+            check_reachable previous first
+        | _ -> ());
+        statements rest (List.rev_append group collected)
   in
   let stmts = statements tokens [] in
   check_loop_context stmts false None;

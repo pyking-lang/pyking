@@ -663,6 +663,68 @@ holds. The `else` assigns the `result` expression when one is written,
 the accumulator when one is, and `()` otherwise -- the rule PYKING.md
 states under "What a loop is worth".
 
+## Modules
+
+Python's own module system is Pyking's, name for name, so this is the
+one target where nothing has to be arranged: a module is a file, an
+import is an `import`, and a public name is a name the module binds.
+
+```pyking
+# helper.pyk
+priv = 3
+
+public def inc(x:Int) -> Int:
+    return x + priv
+
+
+public greeting = "hi"
+```
+
+```pyking
+# main.pyk
+import helper
+from helper import inc as bump
+
+print(helper.inc(1))
+print(bump(10))
+print(helper.greeting)
+```
+
+```python
+# helper.py
+priv = 3
+
+def inc(x):
+    return x + priv
+
+greeting = 'hi'
+```
+
+```python
+# main.py (or whatever --output named it)
+import helper
+from helper import inc as bump
+print(helper.inc(1))
+print(bump(10))
+print(helper.greeting)
+```
+
+**Privacy leaves no trace.** Python has none to express: `priv` is a
+module-level name like any other, and nothing stops a hand-written
+`helper.priv`. The rule is the front end's, and it has already refused
+every Pyking program that would need one.
+
+**Order needs nothing either.** A module's top level runs when Python
+first imports it, which is before the importing module's own top level
+gets any further — exactly Pyking's rule, for exactly the same reason.
+
+**Renaming composes.** An import binds a name in the module scope like a
+`def` does, so it goes through `_bind` with everything else. Where the
+Pyking name would land on a Python name already in use, the generated
+import says so in Python's own words — `import helper as helper2`,
+`from helper import inc as bump2` — and the qualified references follow
+it.
+
 ## Where the output is not optimal
 
 - **Renamed shadows.** Correct, but the generated names drift from the

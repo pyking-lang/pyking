@@ -24,6 +24,7 @@ module system to express a directory hierarchy with.
 | [`lexer.py`](#lexerpy) | ~650 | Characters → tokens. Also defines `Info`, the source span every later node carries. |
 | [`syntax.py`](#syntaxpy) | ~1100 | The AST: one frozen dataclass per variant, documented as algebraic data types, plus the pretty printer that prints Pyking back out. |
 | [`parser.py`](#parserpy) | ~1280 | Recursive descent, tokens → AST, and the few rules the grammar cannot state. |
+| [`module.py`](#modulepy) | ~420 | The module system: which modules a program is made of, in what order, what each exports, and what each import means. |
 | [`analyses.py`](#analysespy) | ~500 | Static analyses over the AST: mutability (`analyze_mutability`), `symbolize`, which numbers every node, and `Effects`, which says what can print. |
 | [`typesystem.py`](#typesystempy) | ~1390 | The type checker: one function per AST datatype, producing `tmap` (symbol → type). Also the type *inference*, which is the same machinery run at a call site rather than at a definition. Its fragment is the interpreter's and the OCaml backend's. |
 | [`optimization.py`](#optimizationpy) | ~770 | Tail calls into loops: one AST-to-AST pass over a program the checker accepted, so every backend and the interpreter get tail recursion at once. |
@@ -40,7 +41,7 @@ module system to express a directory hierarchy with.
 | [`pyk.py`](#pykpy) | ~610 | The driver: argv, stage sequencing, error reporting, the three commands. |
 
 Two shapes recur everywhere and are worth reading once rather than
-seventeen times:
+eighteen times:
 
 **One dataclass per variant, plus `match`.** Every tree in the
 repository — tokens, the AST, types, values, each backend's own AST — is
@@ -277,6 +278,58 @@ what a name means — which is why they are here and not in
 
 ---
 
+## `module.py`
+
+**The module system.** One file is one module; a program is the acyclic
+graph of the modules its main file reaches. This reads and parses all of
+them, refuses a cycle, puts them in dependency order, settles what each
+one exports and what each import means, and turns a checked module into
+the signature the next one is checked against. Errors are
+`ModuleError(info, message)`, reported as `Module error`.
+
+**Design, in depth:** [modules.md](modules.md).
+
+### Data structures
+
+- **`Module`** — one file: `name` (its stem, which is what another
+  module imports it by), `path`, `tokens` (kept for `--tokens`, which
+  prints every module of the program), `stmts`, `imports` (the modules
+  it imports, in source order), `publics` (each exported name and where
+  it was made public), and `sigmap` (each exported name and its type,
+  filled in after the module is checked).
+- **`Context`** — what a backend is told about the module it is
+  compiling beyond its statements: `name`, `main` (whether it is the
+  program's own module), `separate` (whether the program has more than
+  one module at all), `starts` (the modules the program's own module
+  runs before its own top level), and `sigmaps` (every module's exports
+  and their types). A program of one module gets a `Context` saying so,
+  and every backend then emits exactly what it emitted before there were
+  modules.
+
+### Main functions
+
+- **`load(path) -> [Module]`** — every module the program needs,
+  dependencies first and the program itself last, parsed, symbolized
+  with one numbering across the whole program, and with every import
+  resolved. Raises `ModuleError` for a missing module or a cycle.
+- **`read_file(path) -> Module`** — one file, lexed and parsed, and
+  nothing else: what `--no-typechecking` stops at, so this front end and
+  the OCaml one in `ocaml-src/` can be compared over one file.
+- **`check_publics(stmts) -> {name: info}`** — what a module exports,
+  refusing a name exported twice and an exported name bound twice.
+- **`resolve_imports(module, loaded) -> Module`** — each plain import's
+  `fields` filled in from the imported module's public names, each
+  selected name checked to be exported, and every name an import brings
+  in checked for a collision with the module's own or with a builtin.
+- **`make_sigmap(stmts, tmap) -> {name: Type}`** — a checked module's
+  exports and their types: the input the next module is checked against.
+- **`context(units, unit) -> Context`** — one module's `Context`.
+- **`module_name(path)` / `module_path(directory, name)`** — the file a
+  module name means, and back. A module is looked for beside the file
+  that imports it.
+
+---
+
 ## `analyses.py`
 
 **Static analyses over the parsed AST**, run between the parser and
@@ -346,13 +399,16 @@ leaves evaluation order unspecified.
   and has to gain each step it gains. Only well-formed
   pairings are folded — a signature naming no definition is left for
   `typesystem.py` to refuse in its own words.
-- **`symbolize(stmts) -> [Stmt]`** — gives every node a unique integer
-  `sym`, post-order from 1 (`0` means "not symbolized"). Unlike the
+- **`symbolize(stmts, start=0) -> [Stmt]`** — gives every node a unique
+  integer `sym`, post-order from `start` + 1 (`0` means "not
+  symbolized"). Unlike the
   analysis it *rewrites*: nodes are frozen, so it rebuilds the tree with
   `replace`. Its walk is generic over dataclass fields, so a node added
   to `syntax.py` gets a symbol without touching this file. Existing
   symbols are kept and new ones continue past the highest, which makes it
-  safe to run twice.
+  safe to run twice. `start` is what makes one numbering span a program
+  of several modules; `highest_sym(node)` is what the next module
+  continues past.
 - **`walk(node)`** and **`all_functions(stmts)`** — a generic walk over
   dataclass fields, and every `def` in a program by name. Both exist for
   `Effects`; the backends use `walk` for their own whole-program
@@ -441,7 +497,19 @@ One function per AST datatype, each taking a node of exactly that type
 and returning exactly one kind of answer (the signatures are written out
 OCaml-style near the top of the file):
 
-- **`type_check(stmts) -> tmap`** — the entry point.
+- **`type_check(stmts, sigmaps=()) -> tmap`** — the entry point. One
+  module in, the types it worked out back; `sigmaps` pairs the name of
+  every module this one imports with what that module exports and at
+  what type, which is all of it this check can see.
+- **`import_env(stmts, env, store) -> Env`** — what a module's imports
+  bring into scope, put there before the first statement is checked
+  since an import is a declaration of the module rather than a statement
+  in its sequence. **`available(module, info, store)`** is the refusal a
+  file checked on its own gets.
+- **`check_exports(stmts, tmap)`** — the other direction: a module that
+  exports a `def` it worked out no type for is refused. An exported
+  `def` is fully annotated or called in its own module, since inference
+  reads a definition off that module's own use of it.
 - **`check_stmts(stmts, env, tmap, return_type, acc_type, store) -> (Type,
   Store)`** — a block's type: its last statement's (`env` is not
   returned; a block is a scope). Calls `declare_functions` first.
@@ -714,6 +782,13 @@ three are design rather than accident:
   this usable from somewhere that must not block.
 - **`run_program(stmts, host) -> state`**, **`finished`**, **`result`**,
   **`failure`**, **`unwrap`**, **`stack_trace`** — the embedding API.
+- **`run_modules(units, host) -> state`** — a program of several
+  modules: each runs in a top level of its own, in dependency order, and
+  what it exports is what the ones after it are given. **`module_env`**
+  builds a module's starting environment from those exports and
+  **`exported_values`** reads its own back out; **`run_entry`** is what
+  runs a module's top level without putting an enclosing scope back
+  afterwards, since there is none to go back to.
 - **`declare_entry(state, stmts)` / `eval_in(state, stmt) -> state` /
   `eval_statement(state, stmt)`** — running statements in an existing
   machine's environment, which is what a prompt does. `declare_entry` is
@@ -988,7 +1063,8 @@ all three JS targets).
   JavaScript's `const`/`let` are Pyking's `=`/`var` and `{ }` blocks are
   scopes, so it renames only where JavaScript forces it (`const`
   redeclaration, and the temporal dead zone), not on every shadow.
-- **`translate_program` / `translate_stmts` / `translate_stmt` /
+- **`translate_program(stmts, taken=())` / `translate_stmts` /
+  `translate_stmt` /
   `translate_expr`**, plus `translate_tail_stmts` for tail position,
   `_translate_loop` and friends for a `loop` (a `while (true)` over a
   `let` -- or, where the body defines a function, over a carrier holding
@@ -1000,7 +1076,12 @@ all three JS targets).
 - **`translate_target`** — a binding target: a name, or the array
   pattern that takes a tuple apart, tuples being arrays here.
 - **`pprint_js_program` / `pprint_js_stmt` / `pprint_js_expr`** — the
-  printer takes the `runtime` spelling to substitute into runtime calls.
+  printer takes a **`JsHost`**: the spelling to substitute into each
+  runtime call, and how an import is written. `js_helpers` is the
+  generated runtime the program uses, split out so a page holding
+  several modules emits one copy rather than one per module.
+- **`JsImport`** — what an import brings in, named rather than spelled,
+  exactly as `JsRuntimeCall` is.
 - **`UnsupportedError(info, message)`** — anything outside the subset,
   with a position.
 
@@ -1017,11 +1098,18 @@ which is exactly what differs between the three targets.
 - **`TARGETS`** = `("nodejs", "html", "esm")`, **`PRIMARY_EXTENSIONS`**.
 - **`package_nodejs` / `package_html` / `package_esm_module` /
   `package_esm_node_driver` / `package_esm_html`** — one self-contained
-  script, one self-contained page, and the module plus its two wrappers.
-- **`package(target, js_program, source, output_path) -> {path:
-  contents}`** — everything a target writes, so that `esm` writing four
-  files is this module's business and not the driver's.
-- **`primary_source(target, …)`** — what `--stdout` prints.
+  script, one self-contained page, and the module plus its two wrappers:
+  what a program of one module becomes, unchanged.
+- **`package_program(target, units, output_path, stdout) -> ({path:
+  contents}, String)`** — everything a whole program writes, and the
+  text `--stdout` prints, so that `esm` writing four files, `nodejs`
+  writing a shared runtime module, and `html` putting every module on
+  one page are all this module's business and not the driver's.
+- **`_nodejs_import` / `_esm_import` / `_page_import`** — the three
+  spellings of an import, handed to the core inside a `JsHost`.
+  **`RUNTIME_MODULE`** is where a multi-file `nodejs` program's `print`
+  lives; **`reserved_names`** is what the packager tells the core it has
+  taken.
 - **`esm_paths` / `output_stem` / `manifest_declares_module`** — how an
   `--output` path becomes the four `esm` files, and why an existing
   `package.json` is never overwritten.
@@ -1041,7 +1129,8 @@ meaning, so `standard` reaches only the printer.
 
 - **The `C*` AST**, and the type vocabulary `INT`/`BOOL`/`STRING`/`UNIT`
   with `_C_TYPES` and `_FORMATS` (the `printf` conversion per type).
-- **`translate_program(stmts)`** — the translation, whose real work is
+- **`translate_program(stmts, context=None)`** — the translation, whose
+  real work is
   the type inference C forces and Pyking never needed: every expression
   node carries a type, bindings take their initializer's, parameters
   their annotation (when C can represent it) or a guess from the body,
@@ -1064,6 +1153,9 @@ meaning, so `standard` reaches only the printer.
   assignments before itself instead.
 - **`pprint_c_program(program, standard, source)`** and its statement and
   expression printers — the only place `standard` is consulted.
+  **`pprint_c_header`** is the `.h` a module the program imports is
+  included through: its public names, and the `<name>_init()` that runs
+  its top level.
 - Prototypes are emitted ahead of the definitions, so a call may name a
   function written further down.
 
@@ -1085,7 +1177,8 @@ that page focuses on the differences); [target_java.md](target_java.md)
 - **The `J*` AST** — `JInt`, `JStr`, `JBool`, `JVar`, `JBinary`,
   `JCall`, `JCond`, **`JEquals`** (`.equals()`, since Java's `==` on
   strings compares references), and the statement variants.
-- **`translate_program(stmts)`** — infers types the way `target_c.py`
+- **`translate_program(stmts, context=None)`** — infers types the way
+  `target_c.py`
   does, including the `while (true)` a `loop` becomes, and additionally
   proves two things `javac` insists on: **`_definitely_returns`** (every
   path of a value-returning function returns — counting a loop nothing
@@ -1114,8 +1207,9 @@ translation, evaluation-order fixing, mutual-recursion grouping);
 [target_ocaml.md](target_ocaml.md) (what compiles to what, and what's
 refused).
 
-- **`TARGET`** = `"ocaml"`, **`EXTENSION`** = `".ml"`, and the `O*` AST.
-- **`translate_program(stmts, tmap)`** — the table comes from
+- **`TARGET`** = `"ocaml"`, **`EXTENSION`** = `".ml"`,
+  **`INTERFACE_EXTENSION`** = `".mli"`, and the `O*` AST.
+- **`translate_program(stmts, tmap, context=None)`** — the table comes from
   `src/pyk.py`, which type-checks every program; this module fills none
   of its own. Most of
   the translation is direct
@@ -1132,7 +1226,12 @@ refused).
   tail call, `break` is the value it returns. `rec` is computed from the
   translated body, never assumed, since a needless one is a warning and
   the harness treats warnings as errors.
-- **`pprint_ocaml_program(program, source)`**.
+- **`pprint_ocaml_program(program, source)`**, and
+  **`pprint_ocaml_interface(program, source)`** — the `.mli` a module
+  the program imports is seen through, which is the whole of privacy on
+  this target. **`_public_name`** spells an exported name from the name
+  alone, since the module importing it has not seen the module it comes
+  from.
 
 The test harness builds this target's output with `-w +a`, so a compiler
 warning about generated code is a failing test.
@@ -1157,14 +1256,17 @@ the driver. One table, so `pyk.py` stays a sequencer.
 
 ### Main functions
 
-- **`plan_for(target, path) -> Plan`** — the commands for one target.
-  `python3 prog.py`; `node prog.js`; `node prog.node.js` for `esm`, whose
-  generated driver is the file a user would run; `xdg-open` (`open` on
-  macOS) for `html`, which is a page; `cc`/`javac`/`ocamlopt`
+- **`plan_for(target, path, modules) -> Plan`** — the commands for one
+  target. `python3 prog.py`; `node prog.js`; `node prog.node.js` for
+  `esm`, whose generated driver is the file a user would run; `xdg-open`
+  (`open` on macOS) for `html`, which is a page; `cc`/`javac`/`ocamlopt`
   and then the result for the compiled ones; and, for `pyking`, this
-  compiler again — what runs Pyking is the interpreter.
-- **`execute(target, path) -> status`** — runs them, printing each
-  first, prefixed `$ `, on **stderr** so the program's own output on
+  compiler again — what runs Pyking is the interpreter. `modules` names
+  the program's other files in dependency order, which the three that
+  *link* a program rather than importing at run time need — and which,
+  for OCaml, is also the order the modules' top levels run in.
+- **`execute(target, path, modules) -> status`** — runs them, printing
+  each first, prefixed `$ `, on **stderr** so the program's own output on
   stdout stays its own.
 - **`C_COMPILER` / `JAVA_COMPILER` / `JAVA_RUNTIME` / `OCAML_COMPILER`**
   — `$CC`, `$JAVAC`, `$JAVA`, `$OCAMLOPT`, the same variables

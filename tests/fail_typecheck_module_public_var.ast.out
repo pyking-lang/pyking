@@ -1,0 +1,3 @@
+'tests/fail_typecheck_module_public_var.pyk' 4:0-4:10 Parsing error: a
+  'var' cannot be public: a module exports values and functions, not
+  variables another module could write to

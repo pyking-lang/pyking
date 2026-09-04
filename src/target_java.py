@@ -28,14 +28,15 @@ from dataclasses import dataclass, fields
 
 from lexer import Info
 import runtime_interface
+import module
 from syntax import (
     pprint_expr,
-    Expr, EInt, EString, EBool, EVar,
+    Expr, EInt, EString, EBool, EVar, EQualified,
     EAdd, EConcat, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EIf, ETuple,
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SIf,
     ForIn, WhileTest,
-    SLoop, SBreak, SContinue, SFunctionDef, SMatch,
+    SLoop, SBreak, SContinue, SFunctionDef, SMatch, SImport,
     PInt, PString, PBool, PWildcard, PCapture, PText,
     TargetName, TargetTuple, TInt, TString, TBool,
     TList, TTuple, TFunction, TVar, TForall,
@@ -298,14 +299,35 @@ class JFunc:                # <ret> name(params) { body }
     params: list             # list of (jtype, name)
     body: list
     ret_type: str = INT
+    public: bool = False     # `public static` rather than `private
+                             # static`: another class of the program
+                             # calls it
+
+
+@dataclass(frozen=True)
+class JGlobal:              # a public value: a field of the class,
+    info: Info              # which `init` gives its value
+    jtype: str
+    name: str
+    from_: str              # the local `init` worked it out in
 
 
 @dataclass(frozen=True)
 class JProgram:
-    """A translated program. Fields: functions, [JFunc]; main_body,
-    [JStmt]."""
+    """A translated module. Fields: functions, [JFunc]; main_body,
+    [JStmt] (the module's top level -- the body of `main` for the
+    program's own module, and of `init` for one it imports); name,
+    String (the module's own name); main/separate, Bool (see
+    module.Context); starts, [String] (the classes `main` initialises
+    before its own body, in order); globals, [JGlobal] (what this module
+    exports as a value)."""
     functions: list
     main_body: list
+    name: str = ""
+    main: bool = True
+    separate: bool = False
+    starts: tuple = ()
+    globals: tuple = ()
 
 
 # --- scope ---
@@ -403,6 +425,24 @@ def _fresh_java_name(name, scope):
     return f"{name}{n}"
 
 
+def _bind_exact(name, java_name, jtype, scope):
+    """Binds a Pyking name to a Java name chosen elsewhere: an imported
+    name is a member of the class that exports it, and keeps that
+    spelling. String -> String -> String -> Scope -> Scope"""
+    return Scope(
+        scope.outside,
+        {**scope.names, name: (java_name, jtype)},
+        scope.block | {name},
+        scope.taken | {java_name},
+    )
+
+
+def _reached(alias, field):
+    """The key an imported name is registered under: what the source
+    wrote to reach it. String -> String -> String"""
+    return f"{alias}.{field}"
+
+
 def _bind(name, jtype, scope):
     """Binds a Pyking name at jtype, returning (java_name,
     extended_scope). String -> String -> Scope -> (String, Scope)"""
@@ -439,7 +479,8 @@ class _Translator:
     whose body has been translated); called_early, {String} (functions
     called before that)."""
 
-    def __init__(self):
+    def __init__(self, context=None):
+        self.context = context or module.Context("", True, False, [], {})
         self.signatures = {}
         self.declared = {}
         self.defined = set()
@@ -531,24 +572,16 @@ class _Translator:
                 _unsupported(
                     e, f"`{name}` may only be used as a statement, not as a value"
                 )
+            case EQualified(info, alias, field):
+                # A public name of another module: `declare_imports`
+                # bound it under the class name that holds it.
+                java_name, jtype = _lookup(_reached(alias, field), scope, info)
+                return JVar(info, java_name, jtype)
+            case ECall(info, EQualified(_, alias, field), args):
+                return self.call(e, _reached(alias, field), args, scope,
+                                 allow_unit, info)
             case ECall(info, EVar(_, name), args):
-                if name not in self.signatures:
-                    _unsupported(e, f"call to unknown function `{name}`")
-                if name not in self.defined:
-                    self.called_early.add(name)
-                java_name, param_types, ret = self.signatures[name]
-                if len(args) != len(param_types):
-                    _unsupported(e, f"`{name}` takes {len(param_types)} argument(s)")
-                if ret == UNIT and not allow_unit:
-                    _unsupported(
-                        e,
-                        f"`{name}` produces no value (it returns unit), so it "
-                        "cannot be used as one; call it as a statement of "
-                        "its own",
-                    )
-                return JCall(
-                    info, java_name, [self.expr(a, scope) for a in args], ret
-                )
+                return self.call(e, name, args, scope, allow_unit, info)
             case ECall(info, _, _):
                 _unsupported(e, "calling anything but a named function")
             case _ if type(e) in _BINARY_OPS:
@@ -560,6 +593,28 @@ class _Translator:
                 return JBinary(e.info, op, left, right, ctype)
             case _:
                 _unsupported(e, type(e).__name__)
+
+    def call(self, e, name, args, scope, allow_unit, info):
+        """Translates a call to a named function -- one written here, or
+        one another module exports. `name` is the key its signature is
+        registered under. Expr -> String -> [Expr] -> Scope -> Bool ->
+        Info -> JExpr"""
+        if name not in self.signatures:
+            _unsupported(e, f"call to unknown function `{name}`")
+        if name not in self.defined:
+            self.called_early.add(name)
+        java_name, param_types, ret = self.signatures[name]
+        if len(args) != len(param_types):
+            _unsupported(e, f"`{name}` takes {len(param_types)} argument(s)")
+        if ret == UNIT and not allow_unit:
+            _unsupported(
+                e,
+                f"`{name}` produces no value (it returns unit), so it "
+                "cannot be used as one; call it as a statement of its own",
+            )
+        return JCall(
+            info, java_name, [self.expr(a, scope) for a in args], ret
+        )
 
     def _require(self, node, ctype, what):
         """Raises UnsupportedError if node's ctype is not ctype. JExpr ->
@@ -1026,6 +1081,58 @@ class _Translator:
                 return JEquals(info, subject, JStr(info, value)), [], scope
         _unsupported(pattern, "this pattern")
 
+    # -- modules --
+
+    def declare_imports(self, stmts, scope):
+        """Binds everything this module's imports bring in, under the
+        Java name the class that holds it gives it -- `Helper.inc` for
+        `inc` out of `helper`, whether it is reached as `helper.inc` or
+        under a name a `from` line gave it. A method goes in
+        `signatures` as well, since that is where a call finds its
+        parameter and return types. [Stmt] -> Scope -> Scope"""
+        for statement in stmts:
+            if not isinstance(statement, SImport):
+                continue
+            sigmap = self.context.sigmaps.get(statement.module, {})
+            held = default_class_name(statement.module)
+            for exported, local in statement.fields or ():
+                key = local if statement.selected else f"{statement.name}.{exported}"
+                java_name = f"{held}.{exported}"
+                type_ = sigmap.get(exported)
+                if isinstance(type_, TFunction):
+                    params = [_annotated_type(p) for p in type_.params]
+                    result = _annotated_type(type_.result) or UNIT
+                    if all(params):
+                        self.signatures[key] = (java_name, params, result)
+                        self.declared[key] = java_name
+                    continue
+                jtype = _annotated_type(type_)
+                if jtype is not None:
+                    scope = _bind_exact(key, java_name, jtype, scope)
+        return scope
+
+    def exported_values(self, stmts, scope):
+        """This module's public bindings as the fields another class
+        reads them through -- nothing for the program's own module,
+        which nothing imports. [Stmt] -> Scope -> [JGlobal]"""
+        if self.context.main:
+            return []
+        exported = []
+        for statement in stmts:
+            match statement:
+                case SLet(info, TargetName(_, name)) | \
+                        SLetStmt(info, TargetName(_, name)) if statement.public:
+                    held, jtype = _lookup(name, scope, info)
+                    exported.append(JGlobal(info, jtype, name, held))
+        return exported
+
+    def field_name(self, name):
+        """How this class's own `init` writes one of its fields. The
+        local that worked the value out may have the same name, and a
+        bare assignment would then be the local's own.
+        String -> String"""
+        return f"{default_class_name(self.context.name)}.{name}"
+
     def declare_functions(self, stmts, scope):
         """Registers every top-level def's signature (return type
         provisional: its annotation, or Int) before any body is
@@ -1097,7 +1204,10 @@ class _Translator:
                 "branch ends in `return`",
             )
 
-        return JFunc(func.info, java_name, params, body, actual), scope
+        return JFunc(
+            func.info, java_name, params, body, actual,
+            public=func.public and not self.context.main,
+        ), scope
 
 
 def _contains_call(e):
@@ -1369,10 +1479,16 @@ def _build_print_expr(args):
     return result
 
 
-def translate_program(stmts):
-    """A whole Pyking program as a JProgram. [Stmt] -> JProgram"""
-    translator = _Translator()
+def translate_program(stmts, context=None):
+    """One module of a program as a JProgram. `context` says what is
+    true of it only as part of a program -- its name, whether it is the
+    program's own module, and what the modules it imports export; None
+    is a one-file program, which compiles exactly as it did before there
+    were modules. [Stmt] -> Context? -> JProgram"""
+    context = context or module.Context("", True, False, [], {})
+    translator = _Translator(context)
     scope = Scope(frozenset(), {}, frozenset())
+    scope = translator.declare_imports(stmts, scope)
     scope = translator.declare_functions(stmts, scope)
     functions = []
     main_body = []
@@ -1380,11 +1496,33 @@ def translate_program(stmts):
         if isinstance(s, SFunctionDef):
             func, scope = translator.function(s, scope)
             functions.append(func)
+        elif isinstance(s, SImport):
+            # What it brings in is another class of the program, reached
+            # by that class's name; there is nothing to emit for it.
+            continue
         else:
             translated, scope = translator.stmt(s, scope)
             main_body.extend(_as_stmts(translated))
+
+    # A public value is a field of this class, and the module's own top
+    # level is where it gets its value: the binding is translated as any
+    # other, and `init` ends by handing what it worked out to the field.
+    globals_ = translator.exported_values(stmts, scope)
+    main_body += [
+        JAssign(g.info, translator.field_name(g.name),
+                JVar(g.info, g.from_, g.jtype))
+        for g in globals_
+    ]
     _check_reachable(main_body)
-    return JProgram(functions, main_body)
+    return JProgram(
+        functions,
+        main_body,
+        name=context.name,
+        main=context.main,
+        separate=context.separate,
+        starts=tuple(default_class_name(name) for name in context.starts),
+        globals=tuple(globals_),
+    )
 
 
 # --- naming the class/file ---
@@ -1553,29 +1691,48 @@ def _emit_block(stmts, version, level):
 
 
 def _pprint_method(func, version, level=1):
-    """func as a private static method. JFunc -> String -> Int ->
-    String"""
+    """func as a static method, public where another class of the
+    program calls it and private otherwise.
+    JFunc -> String -> Int -> String"""
     pad = "    " * level
     ret = _JAVA_TYPES[func.ret_type]
     params = ", ".join(
         f"final {_JAVA_TYPES[jtype]} {name}" for jtype, name in func.params
     )
+    visibility = "public" if func.public else "private"
     return "\n".join([
-        f"{pad}private static {ret} {func.name}({params}) {{",
+        f"{pad}{visibility} static {ret} {func.name}({params}) {{",
         _emit_block(func.body, version, level + 1),
         f"{pad}}}",
     ])
 
 
-def _pprint_main(main_body, version, level=1):
-    """main_body as the public static void main method. [JStmt] ->
-    String -> Int -> String"""
+def _pprint_main(program, version, level=1):
+    """The module's top level as a method: `main` for the program's own
+    module, which starts every other module before its own body runs,
+    and `init` for a module the program imports, which is what starts
+    it. JProgram -> String -> Int -> String"""
     pad = "    " * level
-    return "\n".join([
-        f"{pad}public static void main(String[] args) {{",
-        _emit_block(main_body, version, level + 1),
+    header = (
+        "public static void main(String[] args)" if program.main
+        else "public static void init()"
+    )
+    lines = [f"{pad}{header} {{"]
+    if program.starts:
+        # Every module runs its own top level before the program's does,
+        # in the order they must: a module runs after everything it
+        # imports (docs/modules.md).
+        lines += [
+            f"{pad}    // Every module of the program, in the order they "
+            "must run.",
+            *[f"{pad}    {name}.init();" for name in program.starts],
+            "",
+        ]
+    lines += [
+        _emit_block(program.main_body, version, level + 1),
         f"{pad}}}",
-    ])
+    ]
+    return "\n".join(lines)
 
 
 def pprint_java_program(program, version, class_name, source="a Pyking program"):
@@ -1588,14 +1745,29 @@ def pprint_java_program(program, version, class_name, source="a Pyking program")
 
     parts = [
         f"// Generated from {source} by the Pyking compiler. Do not edit.",
-        f"// Target: {version}. Compile with:  javac --release {release} "
-        f"{class_name}.java",
-        f"//         then run with:            java {class_name}",
-        "",
-        f"public final class {class_name} {{",
     ]
+    if program.main:
+        parts += [
+            f"// Target: {version}. Compile with:  javac --release {release} "
+            f"{class_name}.java",
+            f"//         then run with:            java {class_name}",
+        ]
+    else:
+        parts.append(
+            f"// Target: {version}. The module '{program.name}' of the "
+            f"program; compile it with the others."
+        )
+    parts += ["", f"public final class {class_name} {{"]
+    if program.globals:
+        parts += [
+            "",
+            "    // What this module exports as a value; `init` below is "
+            "what fills each of them in.",
+            *[f"    public static {_JAVA_TYPES[g.jtype]} {g.name};"
+              for g in program.globals],
+        ]
     for func in program.functions:
         parts += ["", _pprint_method(func, version)]
-    parts += ["", _pprint_main(program.main_body, version)]
+    parts += ["", _pprint_main(program, version)]
     parts += ["}", ""]
     return "\n".join(parts)

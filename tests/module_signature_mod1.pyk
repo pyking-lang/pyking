@@ -1,0 +1,16 @@
+# `public` on a signature line exports the definition it names, so it
+# need not be written twice. `helper` has no `public` anywhere, so it
+# is this module's own.
+
+public def apply_twice : ((Int) -> Int, Int) -> Int
+def apply_twice(f, x):
+    return f(f(x))
+
+
+def helper(n:Int) -> Int:
+    return n + 3
+
+
+public def bump : (Int) -> Int
+public def bump(n):
+    return helper(n)

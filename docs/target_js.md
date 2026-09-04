@@ -457,6 +457,138 @@ built for: output that reads like the source. See
 [targets.md](targets.md) for the same difference measured across all the
 backends.
 
+## Modules
+
+A Pyking module is a JavaScript module, except on the page, where there
+is only one file to put them in. What differs between the three targets
+is how a module is brought in and how its public names are handed out;
+the compiled body is the same text in all of them, which is what
+`JsHost` is for — the packager supplies the spelling of an import
+exactly as it supplies the spelling of `print`.
+
+### `nodejs`: CommonJS
+
+A one-module program is the single self-contained script it has always
+been. A program of several is several files, each `require`ing the ones
+it imports:
+
+```javascript
+// helper.js
+const priv = 3;
+
+function inc(x) {
+  return x + priv;
+}
+
+const greeting = 'hi';
+
+module.exports = { inc, greeting };
+```
+
+```javascript
+// program.js
+const { print } = require('./pyk-runtime.js');
+
+const helper = require('./helper.js');
+const { inc: bump } = require('./helper.js');
+print(helper.inc(1));
+print(bump(10));
+print(helper.greeting);
+```
+
+The host half — `print` and the formatting `src/runtime_interface.py`
+lays down for it — moves into a module of its own rather than being
+copied into every file. Its name is `pyk-runtime.js`, with a hyphen: a
+Pyking module is imported by name, so its file's stem is an identifier,
+and no Pyking module can ever be called that. A module that never
+prints does not require it.
+
+Requiring one module twice, as `program.js` does above, is one module:
+node caches it, and the two lines are the two import statements the
+source wrote.
+
+### `esm`: one `init(runtime)` per module
+
+The `esm` contract is that the program is pure and the host is handed
+in, and that has to hold for every module of it, not just the program's
+own. So a module the program imports exports an `init(runtime)` that
+runs its top level and answers with what it exports:
+
+```javascript
+// helper.js
+let pykExports;
+
+export function init(runtime) {
+  if (pykExports !== undefined) return pykExports;
+  const priv = 3;
+
+  function inc(x) {
+    return x + priv;
+  }
+
+  const greeting = 'hi';
+  pykExports = { inc, greeting };
+  return pykExports;
+}
+```
+
+```javascript
+// program.js
+import { init as pykInit_helper } from './helper.js';
+
+export function run(runtime) {
+  const helper = pykInit_helper(runtime);
+  const { inc: bump } = pykInit_helper(runtime);
+  runtime.print(helper.inc(1));
+  ...
+}
+```
+
+The memoization is what makes a module run **once** however many other
+modules import it — which is also what lets each import statement call
+`init` where it stands, rather than the program having to wire the whole
+graph up front. `pykInit_<module>` is spoken for in
+`target_js_core.RESERVED`'s manner: the packager tells
+`translate_program` those names are taken, so a Pyking binding of one is
+renamed rather than shadowing it.
+
+### `html`: every module on one page
+
+A page is one file, so a module becomes a block of it — built in the
+order the modules must run, and reached afterwards by its own name:
+
+```javascript
+// The module 'helper', from helper.pyk.
+const helper = (() => {
+  const priv = 3;
+
+  function inc(x) {
+    return x + priv;
+  }
+
+  const greeting = 'hi';
+  return { inc, greeting };
+})();
+
+const { inc: bump } = helper;
+print(helper.inc(1));
+```
+
+Each module's body is inside a function scope of its own, so two modules
+binding the same name do not collide; only the module names themselves
+are on the page. An `import` of a module already built above it under
+its own name writes nothing at all — the `const` is already there under
+that name — which is why the page has no line for `import helper`.
+
+The generated runtime helpers (`pykList`, `pykConcat`) are emitted once
+for the whole page rather than once per module, since a page is one
+scope and a second `function pykList` in it is a syntax error.
+
+**Privacy leaves no trace** on any of the three: JavaScript's own
+privacy is what a module exports, so `priv` above is unreachable from
+outside `helper.js` on `nodejs` and `esm` — and on the page it is inside
+the block. Nothing needs saying in the output.
+
 ## Where the output is not optimal
 
 - **No 32-bit wrapping**, as above.

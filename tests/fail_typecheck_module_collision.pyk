@@ -1,0 +1,11 @@
+# A name this program already uses and an imported one with the same
+# spelling. Every name in a module means one thing, so the collision is
+# reported rather than resolved by one of them winning.
+
+def total(n:Int) -> Int:
+    return n + 1
+
+
+from fail_typecheck_module_collision_mod1 import total
+
+print(total(1))

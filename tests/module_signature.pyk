@@ -1,0 +1,11 @@
+# A module whose exports are declared on signature lines rather than on
+# the definitions themselves.
+
+from module_signature_mod1 import apply_twice, bump
+
+def double(n:Int) -> Int:
+    return n * 2
+
+
+print(bump(1))
+print(apply_twice(double, 5))

@@ -21,6 +21,11 @@ AST variant, and `match`/`case` over them rather than method dispatch.
                           foo.pyk
                              │
                     ┌────────▼────────┐
+                    │ src/module.py  │   the modules foo.pyk reaches,
+                    │      load       │   dependencies first (each of
+                    └────────┬────────┘   them through the stages below)
+                             │
+                    ┌────────▼────────┐
                     │  src/lexer.py  │   characters → tokens
                     └────────┬────────┘
                     ┌────────▼────────┐
@@ -66,6 +71,12 @@ AST variant, and `match`/`case` over them rather than method dispatch.
         reference: what a program may observe of the outside world
 ```
 
+A program of several modules runs the middle of that pipeline once per
+module, in the order `src/module.py` puts them in, each checked against
+what the ones it imports export; then every module goes through the
+backend, and a module the program imports is written beside the
+program's own output. See [modules.md](modules.md).
+
 Everything above the split is target-independent, and every backend —
 and the interpreter — starts from the same checked AST. The `pyking`
 target is that AST printed back out, which is why it is a target with
@@ -84,8 +95,9 @@ repl`) rather than a `--target`.
 | `src/lexer.py` | Characters → tokens. `Info` (file, row/column span) is attached to every token and rides along on every later node, so any stage can report an error against the source. |
 | `src/parser.py` | Recursive descent, tokens → the AST in `syntax.py`. Also enforces the few rules the grammar cannot state (duplicate pattern bindings, "every branch of a bound `if` yields a value", one statement per line, what a block written on its header's own line may hold, and where a `break`/`continue` may stand). |
 | `src/syntax.py` | The AST itself — one dataclass per variant — plus a pretty printer that prints Pyking back out. |
+| `src/module.py` | The module system: which modules a program is made of, in what order, what each exports, and what each import means. Runs first — it is what reads the files at all — and again between checks, since a module is checked against the signature `make_sigmap` took from the last one. |
 | `src/analyses.py` | Static passes over the AST. `symbolize` gives every node a unique integer `sym`, rebuilding the tree (nodes are frozen), and runs before anything reasons about the program. `analyze_mutability` runs *after* the checker and applies the one rule a type cannot state: `:=` may only name a `var`, and nothing may shadow one. It only rejects, never rewrites. `Effects` is a third pass the driver never runs: the C and OCaml backends ask it which expressions can print, since their host languages leave evaluation order unspecified. |
-| `src/typesystem.py` | The type checker, and the only pass that checks *names*: its environment is a scope, so an unbound name is refused here, as an `analyses.AnalysisError`. It runs for every mode and every target, since Pyking is statically typed — there is no flag and no way round it. It covers only part of the language; it leaves the AST alone and reports what it inferred in `tmap`, a symbol → type table, which is what `-t pyking` then prints from. |
+| `src/typesystem.py` | The type checker, and the only pass that checks *names*: its environment is a scope, so an unbound name is refused here, as an `analyses.AnalysisError`. It runs for every mode and every target, since Pyking is statically typed — there is no flag and no way round it. It covers only part of the language; it leaves the AST alone and reports what it inferred in `tmap`, a symbol → type table, which is what `-t pyking` then prints from. It is given the signature of every module this one imports, and all it sees of another module is that. |
 | `src/execution.py` | What `--run` runs: the commands each target's host uses to build and run what was compiled. One table, so the driver stays a sequencer. |
 | `src/optimization.py` | Tail calls into loops: a function that calls itself in tail position becomes a `loop` carrying its parameters, and a group that tail-calls each other becomes one loop they share. AST in, AST out, after the checker and only for a program it accepted — the types decide which groups can share a loop, and what a slot a narrower member does not fill is entered with. `--no-tail-call-opt` turns it off. |
 | `src/target_python.py` | Python backend: its own `Py*` AST, translation, printer. |
@@ -576,26 +588,30 @@ names (see "Naming the output" above).
 the front end after `symbolize` — no checker, and so no mutability
 analysis and no tail-call pass, neither of which runs without what the
 checker works out — and is accepted only by `compile -t pyking`, since
-every other target and the interpreter read the types. What that prints
-is the program as written, with the source's own annotations, which is
-what the OCaml bootstrap in `ocaml-src/` prints; comparing the two is
-what it is for (see
+every other target and the interpreter read the types. It also stops
+*before* the module system: the file named is the only one read, since
+comparing the two front ends is what the flag is for and the OCaml one
+has no module system. What that prints is the program as written, with
+the source's own annotations, which is what the OCaml bootstrap in
+`ocaml-src/` prints; comparing the two is what it is for (see
 [ocaml_bootstrap.md](ocaml_bootstrap.md)).
 
-A file that fails to lex, parse, resolve its names, or type-check, that
+A file that fails to lex, parse, find or agree with a module it imports,
+resolve its names, or type-check, that
 uses a construct the chosen target does not support, or that fails while
 being interpreted, reports
 
 ```
 'file' row:col-row:col Lexing error: ...
 'file' row:col-row:col Parsing error: ...
+'file' row:col-row:col Module error: ...
 'file' row:col-row:col Name error: ...
 'file' row:col-row:col Type error: ...
 'file' row:col-row:col Runtime error: ...
 'file' row:col-row:col Unsupported by target 'nodejs': ...
 ```
 
-to stderr and produces no output. The first five all come from one
+to stderr and produces no output. The first six all come from one
 function — `format_error` in `src/pyk.py` — because every error type in
 the front end carries an `Info` and differs only in its label; `pyk repl`
 is handed that same function, so a mistake made at the prompt is
@@ -620,6 +636,8 @@ own page:
 - **[targets.md](targets.md)** — every target at a glance, the shared
   subset as a table, and the differences that survive it — including
   what an `Int` is on each of them.
+- **[modules.md](modules.md)** — the module system: the graph, the
+  order, what each module exports, and what each target does with it.
 - **[source.md](source.md)** — every module in `src/`, its data
   structures and its main functions.
 - **[optimization.md](optimization.md)** — the tail-call pass every
@@ -666,6 +684,23 @@ expected to work on:
 file = "while_simple.pyk"
 targets = ["python", "nodejs", "esm", "html"]
 ```
+
+A program that imports lists the modules it imports as well, in
+dependency order — which the compiler writes beside the program's own
+output, and which the C, Java and OCaml runners have to name in that
+order to build the program at all:
+
+```toml
+[[cases]]
+file = "module_chain.pyk"
+modules = ["module_chain_mod1.pyk", "module_chain_mod2.pyk"]
+targets = ["python", "nodejs", "interpret"]
+```
+
+A module listed there is not a case of its own — it is not a program,
+and it is compiled and run only as part of the one that imports it — but
+it is still accounted for, so the "not listed in the manifest" warning
+stays honest.
 
 `make test` runs `tests/test_script.py`, which walks that manifest,
 compiles and runs each program on each of its targets, and compares the

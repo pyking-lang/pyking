@@ -1,0 +1,5 @@
+# A name a module has but does not export. Nothing is public by default.
+
+from fail_typecheck_module_private_mod1 import helper
+
+print(helper(1))

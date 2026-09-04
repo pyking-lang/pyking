@@ -1131,3 +1131,80 @@ targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "
 file = "typecheck_noann_var_scope.pyk"
 targets = ["python", "interpret", "pyking"]
 
+
+[[cases]]
+file = "module_qualified.pyk"
+modules = ["module_qualified_mod1.pyk"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
+
+[[cases]]
+file = "module_alias.pyk"
+modules = ["module_alias_mod1.pyk"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
+
+[[cases]]
+file = "module_from.pyk"
+modules = ["module_from_mod1.pyk"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
+
+[[cases]]
+file = "module_multi.pyk"
+modules = ["module_multi_mod1.pyk", "module_multi_mod2.pyk"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
+
+[[cases]]
+file = "module_chain.pyk"
+modules = ["module_chain_mod1.pyk", "module_chain_mod2.pyk"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
+
+[[cases]]
+file = "module_values.pyk"
+modules = ["module_values_mod1.pyk"]
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret"]
+
+[[cases]]
+file = "module_signature.pyk"
+modules = ["module_signature_mod1.pyk"]
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret"]
+
+[[cases]]
+file = "module_inferred.pyk"
+modules = ["module_inferred_mod1.pyk"]
+targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret"]
+
+[[cases]]
+file = "typecheck_module_public.pyk"
+modules = ["typecheck_module_public_mod1.pyk"]
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking"]
+
+[[cases]]
+file = "fail_typecheck_module_cycle.pyk"
+modules = ["fail_typecheck_module_cycle_mod1.pyk", "fail_typecheck_module_cycle_mod2.pyk"]
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_module_private.pyk"
+modules = ["fail_typecheck_module_private_mod1.pyk"]
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_module_collision.pyk"
+modules = ["fail_typecheck_module_collision_mod1.pyk"]
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_module_nested.pyk"
+modules = ["fail_typecheck_module_nested_mod1.pyk"]
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_module_public_var.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_module_duplicate.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_module_unannotated.pyk"
+targets = ["pyking"]

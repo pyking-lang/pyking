@@ -18,22 +18,27 @@ Functions:
     translate_expr(node, env, tmap) -- translates one Pyking expression
         block to one OExpr.
     pprint_program(items) -- [OItem] to OCaml source text.
+    pprint_ocaml_interface(program, source) -- the `.mli` a module the
+        program imports is seen through.
 """
 
 from dataclasses import dataclass, fields, is_dataclass
 
 from analyses import Effects, walk
+from lexer import Info
 import runtime_interface
 import typesystem
+import module
 from syntax import (
     pprint_type,
-    EInt, EString, EBool, EVar,
+    EInt, EString, EBool, EVar, EQualified,
     EAdd, EConcat, ESub, EMul, EDiv,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq,
     ECall, EIf, ETuple,
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SIf,
     SFunctionDef,
-    SLoop, SBreak, SContinue, SMatch,
+    SLoop, SBreak, SContinue, SMatch, SImport,
+    TVar,
     ENeg, EList, EListComp, CompFor, CompIf,
     PInt, PString, PBool, PWildcard, PCapture, PTuple, PList, PText, ListRest,
     TargetName, TargetTuple, TInt, TString, TBool, TList, TTuple,
@@ -42,6 +47,11 @@ from syntax import (
 
 TARGET = "ocaml"
 EXTENSION = ".ml"
+
+# What a module the program imports says it exports, beside its own
+# implementation. It is the whole of privacy on this target: a name not
+# named here cannot be reached from outside the file.
+INTERFACE_EXTENSION = ".mli"
 
 
 class UnsupportedError(Exception):
@@ -231,12 +241,18 @@ class OItemUnit:
 
 @dataclass(frozen=True)
 class OProgram:
-    """A translated program. Fields: items, [OItem]; needs_list_printer
+    """A translated module. Fields: items, [OItem]; needs_list_printer
     / needs_quote, Bool (which of the generated prelude's printers the
-    program uses)."""
+    program uses); name, String (the module's own name); main, Bool
+    (whether it is the program's own module, which nothing imports and
+    so which has no interface); interface, [(String, String)] (each
+    exported OCaml name and its type, as the `.mli` writes them)."""
     items: list
     needs_list_printer: bool = False
     needs_quote: bool = False
+    name: str = ""
+    main: bool = True
+    interface: tuple = ()
 
 
 # --- names ---
@@ -278,21 +294,35 @@ def _mangle_base(name):
     return name
 
 
-def _plan_names(stmts):
+def _plan_names(stmts, exported=()):
     """Chooses one OCaml name per Pyking name in stmts, so that no two
     of them land on the same one. A name OCaml already accepts keeps its
     own spelling; the rest take the first free `base`, `base2`, ...
-    [Stmt] -> {String: String}"""
+    An exported name is settled first and by `_public_name` alone, since
+    the module that imports it spells it without seeing this one.
+    [Stmt] -> [String] -> {String: String}"""
     used = _collect_identifiers(stmts)
     plan = {}
-    # A name that needs no change is settled first, so that the ones that
+    taken = set()
+    marked = dict(module.public_names(stmts))
+    for name in exported:
+        settled = _public_name(name)
+        if settled in taken:
+            raise UnsupportedError(
+                marked[name].info,
+                f"'{name}' and another name this module exports are both "
+                f"'{settled}' in OCaml; give one of them another name",
+            )
+        plan[name] = settled
+        taken.add(settled)
+    # A name that needs no change is settled next, so that the ones that
     # do are what move out of the way -- keeping generated OCaml as close
     # to the source's own spelling as it can be.
-    unchanged = {n for n in used if _mangle_base(n) == n}
-    taken = set(unchanged)
+    unchanged = {n for n in used - set(plan) if _mangle_base(n) == n} - taken
+    taken |= unchanged
     for name in unchanged:
         plan[name] = name
-    for name in sorted(used - unchanged):
+    for name in sorted(used - set(plan)):
         candidate = _mangle_base(name)
         suffix = 1
         while candidate in taken or candidate in RESERVED:
@@ -346,16 +376,75 @@ def _unused_prefix(stmts):
 # --- translation ---
 
 
-def translate_program(stmts, tmap):
-    """Translates stmts to an OProgram, reading the types the checker
-    worked out rather than inferring any. src/pyk.py runs the checker
-    and hands the table here, so a program that does not check has been
-    refused before this is called. [Stmt] -> {Int: Type} -> OProgram"""
+def translate_program(stmts, tmap, context=None):
+    """Translates one module of a program to an OProgram, reading the
+    types the checker worked out rather than inferring any. src/pyk.py
+    runs the checker and hands the table here, so a program that does
+    not check has been refused before this is called. `context` says
+    what is true of the module only as part of a program; None is a
+    one-file program, which compiles exactly as it did before there were
+    modules. [Stmt] -> {Int: Type} -> Context? -> OProgram"""
     global _names
-    _names = _plan_names(stmts)
+    context = context or module.Context("", True, False, [], {})
+    exported = [] if context.main else list(
+        context.sigmaps.get(context.name) or {}
+    )
+    _names = _plan_names(stmts, exported)
+    _names.update(_imported_names(stmts))
     translator = _Translator(tmap, stmts)
-    items = _polish_items(translator.items(stmts))
-    return OProgram(items, translator.needs_list_printer, translator.needs_quote)
+    items = _polish_items(
+        translator.items(stmts),
+        {_public_name(name) for name in exported},
+        interfaced=not context.main and context.separate,
+    )
+    return OProgram(
+        items,
+        translator.needs_list_printer,
+        translator.needs_quote,
+        name=context.name,
+        main=context.main,
+        interface=tuple(
+            (_public_name(name), _interface_type(
+                (context.sigmaps.get(context.name) or {})[name], name
+            ))
+            for name in exported
+        ),
+    )
+
+
+def _imported_names(stmts):
+    """Every name a `from` line brings in, mapped to the OCaml name it
+    reads as: a value of the module that exports it, reached through
+    that module. Nothing is bound here for it -- the name simply means
+    the other module's. [Stmt] -> {String: String}"""
+    brought = {}
+    for statement in stmts:
+        match statement:
+            case SImport(_, name, _, True, fields):
+                for exported, local in fields or ():
+                    brought[local] = _reached(name, exported)
+    return brought
+
+
+def _ocaml_module(name):
+    """The OCaml module a Pyking module is compiled to: OCaml names a
+    module after its file, capitalised. String -> String"""
+    return name[:1].upper() + name[1:]
+
+
+def _reached(module_name, field):
+    """How a public name of another module is written here.
+    String -> String -> String"""
+    return f"{_ocaml_module(module_name)}.{_public_name(field)}"
+
+
+def _public_name(name):
+    """The OCaml name a module's public `name` is compiled under. A
+    pure function of the name alone, unlike `_plan_names`: the module
+    that imports it must spell it the same without having seen the
+    module it comes from. String -> String"""
+    base = _mangle_base(name)
+    return f"{base}2" if base in RESERVED else base
 
 
 @dataclass(frozen=True)
@@ -403,6 +492,13 @@ class _Translator:
         # shadow a `var`, so a name in here means the same cell
         # wherever it is read (src/analyses.py).
         self.refs = set()
+        # What each name a module was imported under actually names, so
+        # that `nm.sum` finds the module `numerical`.
+        self.modules = {
+            statement.name: statement.module
+            for statement in stmts
+            if isinstance(statement, SImport) and not statement.selected
+        }
 
     # -- top level --
 
@@ -441,10 +537,18 @@ class _Translator:
                 items.append(OItemLet([self.binding(statement)]))
                 index += 1
                 continue
+            if isinstance(statement, SImport):
+                # Nothing is emitted: a qualified name is written
+                # `Module.name` where it is used, and a name a `from`
+                # line brought in reads as that same thing (see
+                # `_imported_names`). What makes the module's own top
+                # level run first is the order the files are linked in.
+                index += 1
+                continue
             # A run of statements with nothing to bind: one `let () =`.
             run = []
             while index < len(stmts) and not isinstance(
-                stmts[index], (SLet, SLetStmt, SVar, SFunctionDef)
+                stmts[index], (SLet, SLetStmt, SVar, SFunctionDef, SImport)
             ):
                 run.append(stmts[index])
                 index += 1
@@ -951,6 +1055,10 @@ class _Translator:
                 if name in self.refs:
                     return ODeref(_mangle(name))
                 return OVar(_mangle(name))
+            case EQualified(_, alias, field, _):
+                # A public name of another module, which OCaml reaches
+                # the same way: through the module that holds it.
+                return OVar(_reached(self.modules[alias], field))
             case EIf(_, cond, then_expr, else_expr, _):
                 return OIf(self.expr(cond), self.expr(then_expr), self.expr(else_expr))
             case ETuple(_, [], _):
@@ -1344,15 +1452,26 @@ def _pattern_polished(pattern, used):
 # on. See docs/target_ocaml.md, "What the compiler would have said".
 
 
-def _polish_items(items):
+def _polish_items(items, keep=frozenset(), interfaced=False):
     """The top level, polished, read back to front since a binding's
-    liveness depends only on what comes after it. [OItem] -> [OItem]"""
+    liveness depends only on what comes after it. `keep` names the
+    bindings the module exports, which are read by whoever imports it
+    and so are never dead. `interfaced` says the module has an `.mli`
+    beside it, which makes a binding this module neither exports nor
+    reads dead rather than merely quiet -- without one, every top-level
+    binding is exported and none of them is.
+    [OItem] -> {String} -> Bool -> [OItem]"""
     polished = []
     for index, item in enumerate(items):
         match item:
             case OItemLet(bindings, recursive):
                 bindings = [
-                    _rename_dead(b, items[index + 1:]) for b in bindings
+                    b if set(_pattern_names(b.name)) & keep
+                    else _rename_dead(
+                        b, _rest(item, b, recursive), items[index + 1:],
+                        interfaced,
+                    )
+                    for b in bindings
                 ]
                 polished.append(OItemLet(bindings, recursive))
             case OItemUnit(expr):
@@ -1362,21 +1481,42 @@ def _polish_items(items):
     return polished
 
 
-def _rename_dead(binding, later):
+def _rest(item, binding, recursive):
+    """What else in a binding's own group could read it: its siblings,
+    and its own value where the group is recursive -- a `let rec f`
+    whose only reader is itself keeps its name, since renaming it would
+    leave the call inside it naming nothing. Not recursive as an item,
+    so that a name bound here shows as read rather than as bound.
+    OItem -> OBinding -> Bool -> [OItem]"""
+    others = item.bindings if recursive else [
+        b for b in item.bindings if b is not binding
+    ]
+    return [OItemLet(others, False)] if others else []
+
+
+def _rename_dead(binding, reads, later, dead_if_unread=False):
     """binding, renamed _name if no item in later reads it before one
-    rebinds it. OBinding -> [OItem] -> OBinding"""
+    rebinds it -- and, where the module has an interface saying it is
+    not exported either, if nothing reads it at all. `reads` are items
+    whose reads keep the binding alive but whose bindings are not a
+    rebinding of it: its own group.
+    OBinding -> [OItem] -> [OItem] -> Bool -> OBinding"""
     binding = _polish_binding(binding)
     names = set(_pattern_names(binding.name))
+    renamed = OBinding(
+        _pattern_polished(binding.name, frozenset()),
+        binding.params,
+        binding.value,
+    )
+    for item in reads:
+        if names & _free_in_item(item):
+            return binding
     for item in later:
         if names & _free_in_item(item):
             return binding
         if names & _item_names(item):
-            return OBinding(
-                _pattern_polished(binding.name, frozenset()),
-                binding.params,
-                binding.value,
-            )
-    return binding
+            return renamed
+    return renamed if dead_if_unread else binding
 
 
 def _free_in_item(item):
@@ -1554,14 +1694,88 @@ _OP_LEVEL = {
 }
 
 
+def _interface_type(type_, name):
+    """A public name's type, as a `.mli` writes it. The whole of what
+    OCaml is told about a module from outside, so a type OCaml cannot be
+    given here is refused rather than guessed at.
+    Type -> String -> String"""
+    text = _type_text(type_, name, top=True)
+    return text
+
+
+def _type_text(type_, name, top=False):
+    """One type as OCaml source text. `name` is what a refusal names.
+    A function type is curried, which is how this backend compiles a
+    Pyking function of several parameters.
+    Type -> String -> Bool -> String"""
+    match type_:
+        case TInt():
+            return "int"
+        case TString():
+            return "string"
+        case TBool():
+            return "bool"
+        case TList(_, element):
+            return f"{_type_text(element, name)} list"
+        case TTuple(_, []):
+            return "unit"
+        case TTuple(_, elements):
+            inner = " * ".join(_type_text(e, name) for e in elements)
+            return inner if top else f"({inner})"
+        case TFunction(_, params, result):
+            arrow = " -> ".join(
+                [_type_text(p, name) for p in params or [TTuple(None, [])]]
+                + [_type_text(result, name, top=True)]
+            )
+            return arrow if top else f"({arrow})"
+        case TForall(_, _, body):
+            # OCaml generalises a `val` of its own accord, so the
+            # quantifier is left off and the variables written as they
+            # are.
+            return _type_text(body, name, top)
+        case TVar(_, variable, _, _):
+            return f"\'{variable}"
+    raise UnsupportedError(
+        _BUILTIN_INFO,
+        f"'{name}' is exported at a type this backend cannot write in an "
+        f"OCaml interface: {pprint_type(type_)}",
+    )
+
+
+# Where a refusal that belongs to no node in the source points.
+_BUILTIN_INFO = Info("<ocaml>", 1, 0, 1, 0)
+
+
+def pprint_ocaml_interface(program, source="a Pyking program"):
+    """The interface a module the program imports is seen through: one
+    `val` per name it exports, and nothing else, which is what makes
+    everything else in the file private. OProgram -> String -> String"""
+    parts = [
+        f"(* Generated from {source} by the Pyking compiler. Do not edit. *)",
+        f"(* What the module '{program.name}' exports; everything else in",
+        "   the file beside this one is private to it. *)",
+    ]
+    for name, type_text in program.interface:
+        parts += ["", f"val {name} : {type_text}"]
+    return "\n".join(parts) + "\n"
+
+
 def pprint_ocaml_program(program, source="a Pyking program"):
     """The whole module: a header, the prelude if needed, and the
     top-level items. OProgram -> String -> String"""
     parts = [
         f"(* Generated from {source} by the Pyking compiler. Do not edit. *)",
-        "(* Target: ocaml. Compile with:  ocamlopt <this file>",
-        "   or run it directly with:      ocaml <this file> *)",
     ]
+    if program.main:
+        parts += [
+            "(* Target: ocaml. Compile with:  ocamlopt <this file>",
+            "   or run it directly with:      ocaml <this file> *)",
+        ]
+    else:
+        parts.append(
+            f"(* Target: ocaml. The module '{program.name}' of the program; "
+            f"compile it\n   before the ones that import it. *)"
+        )
     if program.needs_list_printer:
         parts += ["", _LIST_PRINTER_DEF]
     if program.needs_quote:

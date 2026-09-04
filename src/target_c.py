@@ -26,19 +26,24 @@ from dataclasses import dataclass
 from analyses import Effects, walk
 from lexer import Info
 import runtime_interface
+import module
 from syntax import (
-    EInt, EString, EBool, EVar,
+    EInt, EString, EBool, EVar, EQualified,
     EAdd, EConcat, ESub, EMul, EDiv, ENeg,
     ELessThan, ELessThanEq, EGreatThan, EGreatThanEq, EEq, ECall, EIf, ETuple,
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt, SIf,
     ForIn, WhileTest,
-    SLoop, SBreak, SContinue, SFunctionDef, SMatch,
+    SLoop, SBreak, SContinue, SFunctionDef, SMatch, SImport,
     PInt, PString, PBool, PWildcard, PCapture, PText,
     TargetName, TargetTuple, TInt, TString, TBool,
     TList, TTuple, TFunction, TVar, TForall,
 )
 
 STANDARDS = ("c89", "c23")
+
+# What a module the program imports declares itself in, beside its own
+# translation unit.
+HEADER_EXTENSION = ".h"
 
 
 class UnsupportedError(Exception):
@@ -313,18 +318,43 @@ class CFunc:                # <ret> name(params) { body }
     params: list            # list of (ctype, name)
     body: list
     ret_type: str = INT
+    public: bool = False    # declared in this module's header; anything
+                            # else is `static` where the program has
+                            # more than one translation unit
+
+
+@dataclass(frozen=True)
+class CGlobal:              # a public value: file scope here, extern in
+    info: Info              # the header, assigned by <module>_init
+    ctype: str
+    name: str               # the C name, already module-prefixed
+    from_: str              # the C name of the local `<module>_init`
+                            # worked it out in
 
 
 @dataclass(frozen=True)
 class CProgram:
-    """A translated program. Fields: functions, [CFunc]; main_body,
-    [CStmt]; uses_print/uses_concat/uses_strcmp, Bool (which runtime
-    helpers are used, and so which headers the file needs)."""
+    """A translated module. Fields: functions, [CFunc]; main_body,
+    [CStmt] (the module's top level -- the body of `main` for the
+    program's own module, and of `<name>_init` for one it imports);
+    uses_print/uses_concat/uses_strcmp, Bool (which runtime helpers are
+    used, and so which headers the file needs); name, String (the
+    module's own name); main/separate, Bool (see module.Context);
+    includes, [String] (the modules whose headers this one includes, in
+    source order); starts, [String] (the modules `main` runs before its
+    own body); globals, [CGlobal] (what this module exports as a
+    value)."""
     functions: list
     main_body: list
     uses_print: bool = False
     uses_concat: bool = False
     uses_strcmp: bool = False
+    name: str = ""
+    main: bool = True
+    separate: bool = False
+    includes: tuple = ()
+    starts: tuple = ()
+    globals: tuple = ()
 
 
 # --- scope ---
@@ -361,6 +391,39 @@ def _reserve(names, scope):
     loop does with its accumulator, which is declared in this block and
     in scope only in the loop's own body. [String] -> Scope -> Scope"""
     return Scope(scope.outside, scope.names, scope.block, scope.taken | set(names))
+
+
+def _bind_exact(name, c_name, ctype, scope):
+    """Binds a Pyking name to a C name chosen elsewhere: an imported
+    name keeps the spelling the module that exports it gave it, and a
+    public one is spelled so that two modules' `inc` are two names.
+    String -> String -> String -> Scope -> Scope"""
+    return Scope(
+        scope.outside,
+        {**scope.names, name: (c_name, ctype)},
+        scope.block | {name},
+        scope.taken | {c_name},
+    )
+
+
+def _start_info(stmts):
+    """Where a generated `<module>_init()` call points: the program's
+    first statement, which is what it runs before.
+    [Stmt] -> Info"""
+    return stmts[0].info if stmts else Info("<program>", 1, 0, 1, 0)
+
+
+def _reached(alias, field):
+    """The key an imported name is registered under: what the source
+    wrote to reach it. String -> String -> String"""
+    return f"{alias}.{field}"
+
+
+def _module_name(module_name, name):
+    """The C name a module's public `name` is compiled under. C has one
+    namespace for the whole program, so the module's own name is part of
+    it. String -> String -> String"""
+    return f"{module_name}_{name}"
 
 
 def _lookup(name, scope, info):
@@ -472,7 +535,8 @@ class _Translator:
     evaluation-order temporaries the function being translated needs, as
     ctype, C name and where they came from)."""
 
-    def __init__(self, stmts):
+    def __init__(self, stmts, context=None):
+        self.context = context or module.Context("", True, False, [], {})
         self.signatures = {}
         self.declared = {}
         self.defined = set()
@@ -620,23 +684,16 @@ class _Translator:
                 _unsupported(
                     e, f"`{name}` may only be used as a statement, not as a value"
                 )
+            case EQualified(info, alias, field):
+                # A public name of another module: `declare_imports`
+                # bound it under the C name that module gives it.
+                c_name, ctype = _lookup(_reached(alias, field), scope, info)
+                return CVar(info, c_name, ctype)
+            case ECall(info, EQualified(_, alias, field), args):
+                return self.call(e, _reached(alias, field), args, scope,
+                                 allow_unit, info)
             case ECall(info, EVar(_, name), args):
-                if name not in self.signatures:
-                    _unsupported(e, f"call to unknown function `{name}`")
-                if name not in self.defined:
-                    self.called_early.add(name)
-                c_name, param_types, ret = self.signatures[name]
-                if len(args) != len(param_types):
-                    _unsupported(e, f"`{name}` takes {len(param_types)} argument(s)")
-                if ret == UNIT and not allow_unit:
-                    _unsupported(
-                        e,
-                        f"`{name}` produces no value (it returns unit), so it "
-                        "cannot be used as one; call it as a statement of "
-                        "its own",
-                    )
-                ordered, steps = self.in_order(list(args), scope)
-                return self.sequenced(steps, CCall(info, c_name, ordered, ret))
+                return self.call(e, name, args, scope, allow_unit, info)
             case ECall(info, _, _):
                 _unsupported(e, "calling anything but a named function")
             case _ if type(e) in _BINARY_OPS:
@@ -650,6 +707,27 @@ class _Translator:
                 )
             case _:
                 _unsupported(e, type(e).__name__)
+
+    def call(self, e, name, args, scope, allow_unit, info):
+        """Translates a call to a named function -- one written here, or
+        one another module exports. `name` is the key its signature is
+        registered under. Expr -> String -> [Expr] -> Scope -> Bool ->
+        Info -> CExpr"""
+        if name not in self.signatures:
+            _unsupported(e, f"call to unknown function `{name}`")
+        if name not in self.defined:
+            self.called_early.add(name)
+        c_name, param_types, ret = self.signatures[name]
+        if len(args) != len(param_types):
+            _unsupported(e, f"`{name}` takes {len(param_types)} argument(s)")
+        if ret == UNIT and not allow_unit:
+            _unsupported(
+                e,
+                f"`{name}` produces no value (it returns unit), so it "
+                "cannot be used as one; call it as a statement of its own",
+            )
+        ordered, steps = self.in_order(list(args), scope)
+        return self.sequenced(steps, CCall(info, c_name, ordered, ret))
 
     def _require(self, node, ctype, what):
         """Raises UnsupportedError if node's ctype is not ctype. CExpr ->
@@ -1106,6 +1184,77 @@ class _Translator:
                 return CStrEq(info, subject, CStr(info, value)), [], scope
         _unsupported(pattern, "this pattern")
 
+    # -- modules --
+
+    def declare_imports(self, stmts, scope):
+        """Binds everything this module's imports bring in, under the
+        C name the module that exports it gives it -- `helper_inc` for
+        `inc` out of `helper`, whether it is reached as `helper.inc` or
+        under a name a `from` line gave it. A function goes in
+        `signatures` as well, since that is where a call finds its
+        parameter and return types. [Stmt] -> Scope -> Scope"""
+        for statement in stmts:
+            if not isinstance(statement, SImport):
+                continue
+            sigmap = self.context.sigmaps.get(statement.module, {})
+            for exported, local in statement.fields or ():
+                key = local if statement.selected else f"{statement.name}.{exported}"
+                c_name = _module_name(statement.module, exported)
+                type_ = sigmap.get(exported)
+                if isinstance(type_, TFunction):
+                    params = [_annotated_type(p) for p in type_.params]
+                    result = _annotated_type(type_.result) or UNIT
+                    if all(params):
+                        self.signatures[key] = (c_name, params, result)
+                        self.declared[key] = c_name
+                    continue
+                ctype = _annotated_type(type_)
+                if ctype is not None:
+                    scope = _bind_exact(key, c_name, ctype, scope)
+        return scope
+
+    def includes(self, stmts):
+        """The modules whose headers this one includes: the ones it
+        imports, in source order and without repeats -- and, for the
+        program's own module, every module of the program, since that
+        is where each one's `<name>_init` is called from and C has to
+        be told a function exists before a call names it.
+        [Stmt] -> [String]"""
+        names = list(self.context.starts) if self.context.main else []
+        for statement in stmts:
+            match statement:
+                case SImport(_, name, _, _, _) if name not in names:
+                    names.append(name)
+        return names
+
+    def exported_values(self, stmts, scope):
+        """This module's public bindings as the file-scope variables
+        another module reads them through -- nothing for the program's
+        own module, which nothing imports.
+        [Stmt] -> Scope -> [CGlobal]"""
+        if self.context.main:
+            return []
+        exported = []
+        for statement in stmts:
+            match statement:
+                case SLet(info, TargetName(_, name)) | \
+                        SLetStmt(info, TargetName(_, name)) if statement.public:
+                    held, ctype = _lookup(name, scope, info)
+                    exported.append(CGlobal(
+                        info, ctype, _module_name(self.context.name, name), held
+                    ))
+        return exported
+
+    def public_name(self, node, scope):
+        """The C name a `def` is compiled under: its own, or the
+        module's name and its own where another module can call it --
+        two modules may each define an `inc`, and C has one namespace.
+        SFunctionDef -> Scope -> (String, Scope)"""
+        if node.public and not self.context.main:
+            c_name = _module_name(self.context.name, node.name)
+            return c_name, _bind_exact(node.name, c_name, INT, scope)
+        return _bind(node.name, INT, scope)
+
     def declare_functions(self, stmts, scope):
         """Registers every top-level def's signature (return type
         provisional: its annotation, or Int) before any body is
@@ -1115,7 +1264,7 @@ class _Translator:
         for s in stmts:
             if isinstance(s, SFunctionDef):
                 _reject_type_variables(s)
-                c_name, scope = _bind(s.name, INT, scope)
+                c_name, scope = self.public_name(s, scope)
                 self.signatures[s.name] = (
                     c_name,
                     [_param_type(s, p) for p in s.params],
@@ -1183,7 +1332,8 @@ class _Translator:
             )
 
         return CFunc(
-            func.info, c_name, params, temporaries + body, actual
+            func.info, c_name, params, temporaries + body, actual,
+            public=func.public and not self.context.main,
         ), scope
 
 
@@ -1404,10 +1554,16 @@ def _calls(body, c_name):
     )
 
 
-def translate_program(stmts):
-    """A whole Pyking program as a CProgram. [Stmt] -> CProgram"""
-    translator = _Translator(stmts)
+def translate_program(stmts, context=None):
+    """One module of a program as a CProgram. `context` says what is
+    true of it only as part of a program -- its name, whether it is the
+    program's own module, and what the modules it imports export; None
+    is a one-file program, which compiles exactly as it did before there
+    were modules. [Stmt] -> Context? -> CProgram"""
+    context = context or module.Context("", True, False, [], {})
+    translator = _Translator(stmts, context)
     scope = Scope(frozenset(), {}, frozenset())
+    scope = translator.declare_imports(stmts, scope)
     scope = translator.declare_functions(stmts, scope)
     functions = []
     main_body = []
@@ -1415,15 +1571,49 @@ def translate_program(stmts):
         if isinstance(s, SFunctionDef):
             func, scope = translator.function(s, scope)
             functions.append(func)
+        elif isinstance(s, SImport):
+            # Its names were bound by `declare_imports`, and what it
+            # brings in is another translation unit's; the `#include`
+            # naming that unit is the whole of what it leaves here.
+            continue
         else:
             translated, scope = translator.stmt(s, scope)
             main_body.extend(_as_stmts(translated))
+
+    # A public value is a file-scope variable the header declares, and
+    # the module's own top level is where it gets its value: the binding
+    # is translated as any other, and `<module>_init` ends by handing
+    # what it worked out to the variable another module can see.
+    globals_ = translator.exported_values(stmts, scope)
+    main_body += [
+        CAssign(g.info, g.name, CVar(g.info, g.from_, g.ctype)) for g in globals_
+    ]
+
+    # Every module runs its own top level before the program's does, in
+    # the order they must (docs/modules.md). They are statements of
+    # `main` rather than lines the printer adds, so that under c89 --
+    # where a declaration may not follow a statement -- they land after
+    # the declarations `_emit_block` hoists, which is where C says they
+    # belong.
+    starts = [
+        CExprStmt(_start_info(stmts), CCall(
+            _start_info(stmts), _init_name(name), [], UNIT
+        ))
+        for name in context.starts
+    ]
+    main_body = starts + main_body
     return CProgram(
         functions,
         translator.declarations() + main_body,
         translator.uses_print,
         translator.uses_concat,
         translator.uses_strcmp,
+        name=context.name,
+        main=context.main,
+        separate=context.separate,
+        includes=tuple(translator.includes(stmts)),
+        starts=tuple(context.starts),
+        globals=tuple(globals_),
     )
 
 
@@ -1661,21 +1851,104 @@ def _headers(program, standard):
     return [f"#include <{header}>" for header in dict.fromkeys(needed)]
 
 
+def _signature(func, standard):
+    """One function's declarator: what both its prototype and its
+    definition open with. CFunc -> String -> String"""
+    params = (
+        ", ".join(_declaration(ctype, name, standard)
+                  for ctype, name in func.params)
+        or "void"
+    )
+    return f"{_declaration(func.ret_type, func.name, standard)}({params})"
+
+
+def _visibility(func, program):
+    """`static ` where nothing outside this file may call a function.
+    A program of one translation unit says nothing, keeping the output
+    of a one-module program what it has always been.
+    CFunc -> CProgram -> String"""
+    return "" if func.public or not program.separate else "static "
+
+
+def _init_name(name):
+    """What a module's own top level is called once it is a function:
+    every module of a C program is started by name, in the order the
+    program's own module starts them. String -> String"""
+    return _module_name(name, "init")
+
+
+def _guard(name):
+    """The macro an include guard is written with. String -> String"""
+    return f"PYK_{name.upper()}_H"
+
+
+def pprint_c_header(program, standard, source="a Pyking program"):
+    """The header a module the program imports is included through:
+    what it exports, and the function that runs its top level.
+    CProgram -> String -> String -> String"""
+    if standard not in STANDARDS:
+        raise NotImplementedError(f"unknown C standard {standard!r}")
+    guard = _guard(program.name)
+    parts = [
+        _comment(f"Generated from {source} by the Pyking compiler. Do not edit.",
+                 standard),
+        _comment(f"What the module '{program.name}' exports.", standard),
+        "",
+        f"#ifndef {guard}",
+        f"#define {guard}",
+    ]
+    exported = [
+        f"extern {_declaration(g.ctype, g.name, standard)};"
+        for g in program.globals
+    ]
+    if exported:
+        parts += ["", *exported]
+    prototypes = [
+        f"{_signature(func, standard)};"
+        for func in program.functions if func.public
+    ]
+    if prototypes:
+        parts += ["", *prototypes]
+    parts += [
+        "",
+        _comment("Runs the module's own top level; the program calls it "
+                 "once, before any module that imports this one.", standard),
+        f"void {_init_name(program.name)}(void);",
+        "",
+        f"#endif  " + _comment(guard, standard),
+        "",
+    ]
+    return "\n".join(parts)
+
+
 def pprint_c_program(program, standard, source="a Pyking program"):
     """The whole translation unit: headers, the string helper if used,
-    the functions, and main. CProgram -> String -> String -> String"""
+    the functions, and main -- or, for a module the program imports, the
+    function that runs its top level.
+    CProgram -> String -> String -> String"""
     if standard not in STANDARDS:
         raise NotImplementedError(f"unknown C standard {standard!r}")
 
     parts = [
         _comment(f"Generated from {source} by the Pyking compiler. Do not edit.",
                  standard),
-        _comment(f"Target: {standard}. Compile with:  "
-                 f"cc -std={standard} <this file>", standard),
+        _comment(
+            f"Target: {standard}. Compile with:  cc -std={standard} <this file>"
+            if program.main and not program.separate else
+            f"Target: {standard}. One translation unit of the program; "
+            f"compile it with the others.",
+            standard),
     ]
     headers = _headers(program, standard)
     if headers:
         parts += ["", *headers]
+    included = [f'#include "{name}.h"' for name in program.includes]
+    if not program.main:
+        # A module includes its own header, so the compiler checks the
+        # definitions here against what the header promises.
+        included = [f'#include "{program.name}.h"'] + included
+    if included:
+        parts += ["", *included]
 
     if program.uses_concat:
         parts += [
@@ -1687,12 +1960,16 @@ def pprint_c_program(program, standard, source="a Pyking program"):
         ]
 
     def signature(func):
-        params = (
-            ", ".join(_declaration(ctype, name, standard)
-                      for ctype, name in func.params)
-            or "void"
-        )
-        return f"{_declaration(func.ret_type, func.name, standard)}({params})"
+        return _visibility(func, program) + _signature(func, standard)
+
+    if program.globals:
+        parts += [
+            "",
+            _comment("What this module exports as a value; its own top "
+                     "level below is what fills each of them in.", standard),
+            *[f"{_declaration(g.ctype, g.name, standard)};"
+              for g in program.globals],
+        ]
 
     if program.functions:
         # Prototypes for all of them, ahead of every definition. Pyking
@@ -1719,11 +1996,25 @@ def pprint_c_program(program, standard, source="a Pyking program"):
             "}",
         ]
 
+    if not program.main:
+        # A module the program imports has no `main`: its top level is a
+        # function of its own, which the program calls before it uses
+        # anything the module exports.
+        parts += [
+            "",
+            f"void {_init_name(program.name)}(void)",
+            "{",
+            _emit_block(program.main_body, standard, 1),
+            "}",
+            "",
+        ]
+        return "\n".join(parts)
+
     parts += [
         "",
         "int main(void)",
         "{",
-        _emit_block(program.main_body, standard, 1),
     ]
+    parts.append(_emit_block(program.main_body, standard, 1))
     parts += ["", "    return 0;", "}", ""]
     return "\n".join(parts)

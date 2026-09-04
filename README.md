@@ -13,6 +13,11 @@ counting something up needs no mutable variable at all — and a function
 that calls itself in tail position is compiled into exactly such a loop,
 so it runs in constant space on every target.
 
+A file is a module, exporting only what it marks `public`, and a program
+is the acyclic graph of the modules its main file reaches — compiled to
+one file per module on every target, and run in an order each module
+sees a finished version of everything it imports.
+
 Pyking is statically typed: every program is type-checked, whatever is
 then done with it. A program can be compiled for any of eleven targets,
 or run directly by the interpreter. The `pyk` script at the repository
@@ -61,13 +66,18 @@ node with the unique number the `symbolize` pass gave it:
 ./pyk c -t nodejs --run hello.pyk                # $ node hello.js
 ```
 
-The type checker is opt-in for compiling because it covers only part of
-the language so far — see
+A program that imports something compiles to more than one file: each
+module lands beside the program's own output under its own name, and the
+generated import names it by that name. See
+[docs/modules.md](docs/modules.md).
+
+The type checker runs for every program, whatever is then done with it —
+see
 [docs/architecture.md](docs/architecture.md#symbols-and-types); `./pyk
-run` and `./pyk repl` always run it, since it is what decides what they
-can run. Every flag is passed straight through to the compiler
-(`src/pyk.py`), so running `./pyk` with no arguments prints the full
-usage.
+<file>` and `./pyk repl` run exactly the fragment it accepts, since it is
+what decides what they can run. Every flag is passed straight through to
+the compiler (`src/pyk.py`), so running `./pyk` with no arguments prints
+the full usage.
 
 The REPL is a session read as a program written one entry at a time: each
 entry is checked against what the entries before it left behind, and then
@@ -150,6 +160,10 @@ clean` but the cache itself only goes on `make distclean`.
 - **[docs/gap.md](docs/gap.md)** — how a `def` written inside a loop
   keeps its own turn's bindings: the mechanism, the shape that used to
   defeat it, and what it still costs in generated code.
+- **[docs/modules.md](docs/modules.md)** — the module system: how a file
+  becomes a module and a program becomes a graph of them, what each one
+  exports, in what order they are compiled and run, and what each target
+  makes of that.
 - **[docs/architecture.md](docs/architecture.md)** — the compiler itself:
   pipeline diagram, the stages, the interpreter's machine, the runtime
   interface that separates a program from the world it prints into, and

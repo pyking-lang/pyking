@@ -38,6 +38,7 @@ from lexer import Info
 #     [T]                 a list of T (the annotation only says `list`,
 #                         so the element type is recorded here)
 #     T?                  may be absent -- the field defaults to None
+#     (A, B)              a pair
 #
 # The order here is the six alternatives-types first, then the three
 # single-constructor ones (a one-variant datatype being exactly a
@@ -71,6 +72,7 @@ from lexer import Info
 #     ETuple(info: Info, elements: [Expr], sym: Int)
 #     EIf(info: Info, cond: Expr, then_expr: Expr, else_expr: Expr, sym: Int)
 #     EListComp(info: Info, expr: Expr, clauses: [CompClause], sym: Int)
+#     EQualified(info: Info, module: String, name: String, sym: Int)
 #
 # datatype Type:
 #     TInt(info: Info, sym: Int)
@@ -105,9 +107,10 @@ from lexer import Info
 #     TargetTuple(info: Info, elements: [AssignTarget], sym: Int)
 #
 # datatype Stmt:
-#     SLet(info: Info, target: AssignTarget, expr: Expr, type: Type?, sym: Int)
+#     SLet(info: Info, target: AssignTarget, expr: Expr, type: Type?,
+#          sym: Int, public: Bool)
 #     SLetStmt(info: Info, target: AssignTarget, stmt: Stmt, type: Type?,
-#              sym: Int)
+#              sym: Int, public: Bool)
 #     SVar(info: Info, name: String, expr: Expr, sym: Int)
 #     SMutate(info: Info, name: String, expr: Expr, sym: Int)
 #     SReturn(info: Info, expr: Expr, sym: Int)
@@ -120,9 +123,12 @@ from lexer import Info
 #     SIf(info: Info, cond: Expr, then_body: [Stmt], else_body: [Stmt]?,
 #         sym: Int)
 #     SFunctionDef(info: Info, name: String, params: [Param],
-#                  body: [Stmt], return_type: Type?, sym: Int)
-#     SFunctionSig(info: Info, name: String, type: Type, sym: Int)
+#                  body: [Stmt], return_type: Type?, sym: Int, public: Bool)
+#     SFunctionSig(info: Info, name: String, type: Type, sym: Int,
+#                  public: Bool)
 #     SMatch(info: Info, subject: Expr, cases: [MatchCase], sym: Int)
+#     SImport(info: Info, module: String, name: String, selected: Bool,
+#             fields: [(String, String)], sym: Int)
 #
 # datatype Param:
 #     Param(info: Info, name: String, type: Type?, sym: Int)
@@ -288,6 +294,15 @@ class EIf(Expr):            # if cond then then_expr else else_expr
     then_expr: Expr         # has exactly one possible owner -- see the
     else_expr: Expr         # "if expressions" notes in PYKING.md)
     sym: int = 0
+
+
+@dataclass(frozen=True)
+class EQualified(Expr):     # module.name -- a public name of an imported
+    info: Info              # module, reached through the name that module
+    module: str             # was imported under (its own, or an `as`
+    name: str               # alias). `module` is that local name, not
+    sym: int = 0            # necessarily the file's; src/module.py maps
+                            # one to the other. See docs/modules.md.
 
 
 # --- type AST (for optional parameter/return type annotations) ---
@@ -595,6 +610,8 @@ def _pprint_expr(e, min_prec=0):
             return "true" if v else "false"
         case EVar(_, name):
             return name
+        case EQualified(_, module, name):
+            return f"{module}.{name}"
         case EAdd(_, l, r):
             return _wrap(2, min_prec, f"{pprint_expr(l, 2)} + {pprint_expr(r, 3)}")
         case ESub(_, l, r):
@@ -880,6 +897,11 @@ class SLet(Stmt):           # target[: type] = expr (immutable binding;
     # otherwise.
     type: Type = None
     sym: int = 0
+    # Whether the source wrote `public` in front of this binding, which
+    # exports the name from its module (see docs/modules.md). Only a
+    # top-level binding of a single name can carry it; the parser
+    # refuses it anywhere else.
+    public: bool = False
 
 
 @dataclass(frozen=True)
@@ -894,6 +916,7 @@ class SLetStmt(Stmt):       # target = <if/match statement in value form>,
     type: Type = None        # as `SLet.type`; both come from the single
                              # `assignment` grammar rule.
     sym: int = 0
+    public: bool = False     # as `SLet.public`.
 
 
 @dataclass(frozen=True)
@@ -1014,24 +1037,28 @@ class SIf(Stmt):            # if cond: then_body [else: else_body]
 
 
 @dataclass(frozen=True)
-class SFunctionDef(Stmt):   # def name(params...) [-> return_type]: body
+class SFunctionDef(Stmt):   # [public] def name(params...) [-> return_type]:
     info: Info
     name: str
     params: list         # list[Param]
     body: list = None    # list[Stmt]
     return_type: Type = None
     sym: int = 0
+    public: bool = False  # as SLet.public; `analyses.apply_signatures`
+                          # also carries it here off a signature line.
 
 
 @dataclass(frozen=True)
-class SFunctionSig(Stmt):   # def name : type -- Pyking extension
+class SFunctionSig(Stmt):   # [public] def name : type -- Pyking extension
     info: Info               # A `def`'s type written on a line of its own,
     name: str                # instead of a piece at a time on the header.
     type: Type = None        # It names a `def` in the same block, which then
     sym: int = 0             # writes no annotations of its own (see
-                             # PYKING.md, "Type variables"). Carries no body:
+    public: bool = False     # PYKING.md, "Type variables"). Carries no body:
                              # it says what a definition elsewhere is, and
-                             # produces nothing by itself.
+                             # produces nothing by itself. `public` here
+                             # exports the definition it names, so writing
+                             # it on either line is enough.
 
 
 @dataclass(frozen=True)
@@ -1042,19 +1069,41 @@ class SMatch(Stmt):         # match subject: case pattern: body ...
     sym: int = 0
 
 
+@dataclass(frozen=True)
+class SImport(Stmt):        # import module [as name]
+    info: Info              # from module import field [as name], ...
+    module: str          # the module's own name -- the file's stem
+    name: str            # the name it is reached under here: `module`
+                         # itself, or the `as` alias. Meaningless when
+                         # `selected`, where it repeats `module`.
+    selected: bool = False   # True for the `from` form, where the fields
+                             # are bound directly and the module name is
+                             # not in scope at all.
+    fields: list = None  # list[(str, str)] -- each public name taken
+                         # from the module, paired with the name it is
+                         # known by here (the same, unless renamed with
+                         # `as`). Written by the source for the `from`
+                         # form; filled in by src/module.py from the
+                         # module's public names for the plain form,
+                         # where it lists what the qualified name
+                         # reaches.
+    sym: int = 0
+
+
 def _pprint_stmt(s, level=0):
     pad = "    " * level
     match s:
         case SLet(_, target, expr, type_):
             return (
-                f"{pad}{pprint_target(target)}{_annotation(s, type_)} "
+                f"{pad}{_public(s)}{pprint_target(target)}{_annotation(s, type_)} "
                 f"= {pprint_expr(expr)}"
             )
         case SLetStmt(_, target, stmt, type_):
             # The bound statement prints exactly as it would on its own;
             # only its header line gains the `target = ` prefix.
             head, *rest = pprint_stmt(stmt, level).split("\n")
-            prefix = f"{pad}{pprint_target(target)}{_annotation(s, type_)} = "
+            prefix = (f"{pad}{_public(s)}{pprint_target(target)}"
+                      f"{_annotation(s, type_)} = ")
             return "\n".join([prefix + head.strip()] + rest)
         case SVar(_, name, expr):
             return f"{pad}var {name} = {pprint_expr(expr)}"
@@ -1118,7 +1167,7 @@ def _pprint_stmt(s, level=0):
                         break
             return "\n".join(lines)
         case SFunctionSig(_, name, type_):
-            return f"{pad}def {name} : {pprint_type_nested(type_)}"
+            return f"{pad}{_public(s)}def {name} : {pprint_type_nested(type_)}"
         case SFunctionDef(_, name, params, body, return_type):
             header = _function_header(s, pad, name, params, return_type)
             lines = [header + ":"]
@@ -1130,6 +1179,16 @@ def _pprint_stmt(s, level=0):
                 lines.append(f"{pad}    case {pprint_pattern(c.pattern)}:")
                 lines += [pprint_stmt(st, level + 2) for st in c.body]
             return "\n".join(lines)
+        case SImport(_, module, name, selected, fields):
+            if selected:
+                taken = ", ".join(
+                    field if field == local else f"{field} as {local}"
+                    for field, local in fields
+                )
+                return f"{pad}from {module} import {taken}"
+            if name == module:
+                return f"{pad}import {module}"
+            return f"{pad}import {module} as {name}"
 
 
 # Nodes whose printed form is already a single token or already
@@ -1137,7 +1196,7 @@ def _pprint_stmt(s, level=0):
 # is parenthesized first: without that, `1 + 2` would print as
 # `1@1 + 2@2@3`, where the last `@3` looks like it belongs to the `2`.
 _SELF_DELIMITED = (
-    EInt, EString, EBool, EVar, EList, ETuple, EListComp,
+    EInt, EString, EBool, EVar, EQualified, EList, ETuple, EListComp,
     TInt, TString, TBool, TList, TTuple,
     PInt, PString, PBool, PWildcard, PCapture, PTuple, PList,
     TargetName, TargetTuple,
@@ -1188,6 +1247,12 @@ def _spellable(t):
             return True
 
 
+def _public(node):
+    """The `public ` prefix a statement that exports its name carries,
+    or "". Stmt -> String"""
+    return "public " if node.public else ""
+
+
 def _annotation(node, type_):
     """Formats `: Type` for a node whose type is known and writable, ""
     otherwise. Node -> Type? -> String"""
@@ -1208,7 +1273,8 @@ def _function_header(node, pad, name, params, return_type):
         # both would give a program this checker refuses.
         _tmap = None
     try:
-        return (f"{pad}def {name}({', '.join(pprint_param(p) for p in params)})"
+        return (f"{pad}{_public(node)}def "
+                f"{name}({', '.join(pprint_param(p) for p in params)})"
                 + _return_annotation(node, return_type))
     finally:
         _tmap = saved

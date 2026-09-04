@@ -1,0 +1,9 @@
+# An exported `def` that writes no annotations and that nothing in this
+# module calls. There is nothing to work its type out from -- inference
+# reads a definition off its own module's use of it -- so the module has
+# no type to offer whoever imports it, and exporting it is refused here
+# rather than where it is imported.
+
+helper = 1
+
+public def scale(n): n * helper
