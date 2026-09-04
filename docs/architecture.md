@@ -414,7 +414,7 @@ State = (control, env, kont, stack, runtime, loops)
 control   CEval(expr) | CStmt(stmt) | CApply(value) | CDone(v) | CFailed(e)
 kont      a linked chain of continuations: KSeq, KBind, KBinaryLeft,
           KBinaryRight, KCallee, KArgument, KElement, KBranch, KChoose,
-          KDiscard, KStartLoop, KIterate, KExit, KReturnTo
+          KDiscard, KStartLoop, KSequence, KTest, KIterate, KReturnTo
 stack     Pyking's own call stack: Frame(name, info, kont, env, parent,
           depth, loops)
 loops     the `loop`s in progress, which is to `break` what `stack` is to

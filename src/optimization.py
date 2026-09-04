@@ -27,11 +27,11 @@ Functions:
 
 from dataclasses import dataclass, fields, is_dataclass, replace
 
-from typesystem import same_type
+from typesystem import covers, same_type
 from syntax import (
     EInt, EString, EBool, EVar, EEq, ECall, EIf, EList, ETuple,
     SLet, SLetStmt, SVar, SMutate, SReturn, SReturnStmt, SExprStmt,
-    SLoop, SBreak, SContinue, SIf, SFunctionDef, SMatch, ForIn,
+    SLoop, SContinue, SIf, SFunctionDef, SMatch, ForIn,
     Param, TInt, TString, TBool, TList, TTuple, TFunction, TUnknown, TForall,
     TVar, TargetName, TargetTuple,
 )
@@ -227,95 +227,189 @@ def _falls_through_signature(signature):
             return True
 
 
-def _rewrite_block(stmts, context, jumping):
+class _Decline(Exception):
+    """Raised where a tail call cannot be turned into going round, so
+    the function or group it is in is left as the recursion it was."""
+
+
+def _rewrite_block(stmts, context):
     """A block whose last statement is what the loop does next, and
-    whose `return`s are likewise wherever they are. `jumping` says the
-    block is not the loop body's own tail, so going round has to be said
-    out loud with `continue` rather than left to falling off the end.
-    [Stmt] -> Context -> Bool -> [Stmt]"""
+    whose `return`s are likewise wherever they are. A statement before
+    the last with a call the loop stands for inside it is restructured
+    first (`_hoist`), since going round is said by ending in the next
+    accumulator and only the block's last statement can do that.
+    [Stmt] -> Context -> [Stmt]"""
     if not stmts:
         return stmts
-    out = []
-    for statement in stmts[:-1]:
-        out.extend(_rewrite_inner(statement, context))
-    return out + _rewrite_tail(stmts[-1], context, jumping)
+    head, rest = stmts[0], list(stmts[1:])
+    if not rest:
+        return _rewrite_tail(head, context)
+    if _goes_round(head, context, tail=False):
+        return _rewrite_block(_hoist(head, rest), context)
+    return _rewrite_inner(head, context) + _rewrite_block(rest, context)
 
 
-def _rewrite_tail(statement, context, jumping):
+def _hoist(head, rest):
+    """The block `[head] + rest` written so that head's own tails are
+    the block's: a statement that always leaves the block takes what
+    follows it into the branch that does not. Declines where it cannot,
+    rather than moving statements into a block that binds names of its
+    own -- what `rest` reads would change meaning.
+    Stmt -> [Stmt] -> [Stmt]"""
+    match head:
+        case SReturn() | SReturnStmt():
+            # Nothing written after a `return` runs.
+            return [head]
+        case SIf(info, cond, then_body, else_body, sym):
+            if else_body is None and _always_returns(then_body):
+                return [SIf(info, cond, then_body, rest, sym)]
+            if else_body is not None and _always_returns(then_body) \
+                    and _always_returns(else_body):
+                return [head]
+    raise _Decline()
+
+
+def _always_returns(stmts):
+    """Whether every path through this block leaves the function. A
+    `break`/`continue` cannot appear here -- one written inside a loop
+    of the program's own is that loop's, and this walk does not enter
+    one -- so a `return` is the only way out. [Stmt] -> Bool"""
+    match list(stmts):
+        case [*_, last]:
+            match last:
+                case SReturn() | SReturnStmt():
+                    return True
+                case SIf(_, _, then_body, else_body, _):
+                    return (else_body is not None
+                            and _always_returns(then_body)
+                            and _always_returns(else_body))
+    return False
+
+
+def _goes_round(statement, context, tail):
+    """Whether a call the loop stands for is written in a tail position
+    of this statement -- the calls `_going_on` would turn into another
+    turn. `tail` says the statement's own value is the body's.
+    Stmt -> Context -> Bool -> Bool"""
+    match statement:
+        case SReturn(_, expr, _):
+            return _is_going_round(expr, context)
+        case SExprStmt(_, expr, _):
+            return tail and _is_going_round(expr, context)
+        case SReturnStmt(_, inner, _):
+            return _goes_round(inner, context, tail=True)
+        case SIf(_, _, then_body, else_body, _):
+            return (_goes_round_in(then_body, context, tail)
+                    or (else_body is not None
+                        and _goes_round_in(else_body, context, tail)))
+        case SMatch(_, _, cases, _):
+            return any(
+                _goes_round_in(c.body, context, tail) for c in cases
+            )
+    return False
+
+
+def _goes_round_in(stmts, context, tail):
+    """The same question asked of a block: only its last statement is in
+    tail position. [Stmt] -> Context -> Bool -> Bool"""
+    return any(
+        _goes_round(statement, context, tail and index == len(stmts) - 1)
+        for index, statement in enumerate(stmts)
+    )
+
+
+def _is_going_round(expr, context):
+    """Whether this value is another turn rather than an answer: a call
+    the loop stands for, or an `if` expression choosing one.
+    Expr -> Context -> Bool"""
+    match expr:
+        case ECall(_, EVar(_, name, _), args, _) if (
+            name in context.names and len(args) == context.names[name].arity
+        ):
+            return True
+        case EIf():
+            return _chooses_call(expr, context)
+    return False
+
+
+def _rewrite_tail(statement, context):
     """The last statement of a block, as the statements saying what the
-    loop does next. Stmt -> Context -> Bool -> [Stmt]"""
+    loop does next. Stmt -> Context -> [Stmt]"""
     match statement:
         case SExprStmt(info, expr, _) | SReturn(info, expr, _):
-            return _going_on(info, expr, context, jumping)
+            return _going_on(info, expr, context)
 
         case SReturnStmt(_, inner, _):
             # `return if c: ...` -- the branches are the tails, and the
             # `return` itself has nothing left to say.
-            return _rewrite_tail(inner, context, jumping)
+            return _rewrite_tail(inner, context)
 
         case SIf(info, cond, then_body, else_body, _):
             # A path that runs no branch supplies unit, and that is what
             # the function would have returned -- where such a path
             # exists at all (`_falls_through`).
+            then_rewritten = _rewrite_block(then_body, context)
             if else_body is not None:
-                otherwise = _rewrite_block(else_body, context, jumping)
+                otherwise = _rewrite_block(else_body, context)
             elif context.falls_through:
-                otherwise = [SBreak(info, ETuple(info, []))]
-            else:
+                otherwise = [SReturn(info, ETuple(info, []))]
+            elif _always_returns(then_rewritten):
                 # No such path, so the `if` keeps the one branch it was
                 # written with rather than growing an empty `else`.
                 otherwise = None
-            return [SIf(info, cond, _rewrite_block(then_body, context, jumping),
-                        otherwise)]
+            else:
+                raise _Decline()
+            return [SIf(info, cond, then_rewritten, otherwise)]
 
         case SMatch(info, subject, cases, _):
             # A subject matching no arm falls out of the function as
-            # unit, which the `break` after the match is. That `break`
-            # is also why every arm has to *jump*: an arm that merely
-            # ended in the next accumulator would fall out of the match
-            # and reach it.
+            # unit, which the `return` after the match is. A match that
+            # covers every value cannot do that, and needs none.
             rewritten = SMatch(
-                info, subject,
-                [_rewrite_case(c, context, jumping=True) for c in cases],
+                info, subject, [_rewrite_case(c, context) for c in cases],
             )
-            if not context.falls_through:
+            if not context.falls_through or covers([c.pattern for c in cases]):
                 return [rewritten]
-            return [rewritten, SBreak(info, ETuple(info, []))]
+            # An arm that went round would reach that `return` instead
+            # of taking another turn, so a match that needs one is
+            # declined.
+            if not all(_always_returns(c.body) for c in rewritten.cases):
+                raise _Decline()
+            return [rewritten, SReturn(info, ETuple(info, []))]
 
-        case SLoop(info, _, _, _, _, _, _, _):
+        case SLoop(info, _, _, _, _, _, _):
             # A loop of the program's own in tail position is what the
-            # function is worth, so it is bound and then broken with.
+            # function is worth, so it is bound and then returned.
             name = _fresh(context.reserved, "answer")
             return [
                 SLetStmt(info, TargetName(info, name), statement),
-                SBreak(info, EVar(info, name)),
+                SReturn(info, EVar(info, name)),
             ]
 
         case _:
             # Anything else supplies unit (PYKING.md, "Tail position").
             info = statement.info
-            return [statement, SBreak(info, ETuple(info, []))]
+            return [statement, SReturn(info, ETuple(info, []))]
 
 
-def _rewrite_case(case_clause, context, jumping):
+def _rewrite_case(case_clause, context):
     """One arm of a `match` in tail position: its block, rewritten like
-    any other. MatchCase -> Context -> Bool -> MatchCase"""
-    return replace(
-        case_clause, body=_rewrite_block(case_clause.body, context, jumping)
-    )
+    any other. MatchCase -> Context -> MatchCase"""
+    return replace(case_clause, body=_rewrite_block(case_clause.body, context))
 
 
 def _rewrite_inner(statement, context):
     """A statement that is not the block's last: only the `return`s
     inside it change, since each one leaves the function and so is a
-    tail position of its own -- and one written here has to jump.
+    tail position of its own. None of them goes round -- a block whose
+    head does has been restructured already (`_hoist`).
     Stmt -> Context -> [Stmt]"""
     match statement:
         case SReturn(info, expr, _):
-            return _going_on(info, expr, context, jumping=True)
+            return _going_on(info, expr, context)
 
         case SReturnStmt(_, inner, _):
-            return _rewrite_tail(inner, context, jumping=True)
+            return _rewrite_tail(inner, context)
 
         case SIf(info, cond, then_body, else_body, sym):
             return [SIf(
@@ -349,10 +443,10 @@ def _rewrite_inners(stmts, context):
     return [out for s in stmts for out in _rewrite_inner(s, context)]
 
 
-def _going_on(info, expr, context, jumping):
+def _going_on(info, expr, context):
     """What the loop does with this value: go round again when it is a
     call the loop stands for, and stop with it otherwise.
-    Info -> Expr -> Context -> Bool -> [Stmt]"""
+    Info -> Expr -> Context -> [Stmt]"""
     match expr:
         case EIf(if_info, cond, then_expr, else_expr, _) if _chooses_call(
             expr, context
@@ -363,8 +457,8 @@ def _going_on(info, expr, context, jumping):
             return [SIf(
                 if_info,
                 cond,
-                _going_on(if_info, then_expr, context, jumping),
-                _going_on(if_info, else_expr, context, jumping),
+                _going_on(if_info, then_expr, context),
+                _going_on(if_info, else_expr, context),
             )]
         case ECall(call_info, EVar(_, name, _), args, _) if (
             name in context.names and len(args) == context.names[name].arity
@@ -373,12 +467,11 @@ def _going_on(info, expr, context, jumping):
             if state is None:
                 # A loop carrying nothing: there is no next value to
                 # give it, only another turn.
-                return [SContinue(info, None)]
-            # Always explicit: an accumulator loop says what the next
-            # turn carries with `continue`, and there is no implicit tail
-            # any more (PYKING.md, "Going round").
-            return [SContinue(info, state)]
-    return [SBreak(info, expr)]
+                return [SContinue(info)]
+            # The next turn carries what the body ends in, so saying it
+            # is leaving it there (PYKING.md, "`loop` loops").
+            return [SExprStmt(info, state)]
+    return [SReturn(info, expr)]
 
 
 def _chooses_call(expr, context):
@@ -425,7 +518,7 @@ def _rewrite_self(func, work):
         func,
         body=[_loop_over(
             func.info, slots,
-            _rewrite_block(body, context, jumping=False),
+            _rewrite_block(body, context),
             carried, work,
         )],
     )
@@ -438,7 +531,7 @@ def _loop_over(info, names, body, carried, work):
     type into the table.
     Info -> [String] -> [Stmt] -> [Type?] -> Pass -> SLoop"""
     if not names:
-        return SLoop(info, None, None, None, None, None, body)
+        return SLoop(info, None, None, None, None, body)
     target = (
         TargetName(info, names[0]) if len(names) == 1
         else TargetTuple(info, [TargetName(info, name) for name in names])
@@ -447,7 +540,7 @@ def _loop_over(info, names, body, carried, work):
         EVar(info, names[0]) if len(names) == 1
         else ETuple(info, [EVar(info, name) for name in names])
     )
-    loop = SLoop(info, target, init, None, None, None, body)
+    loop = SLoop(info, target, init, None, None, body)
     if any(type_ is None for type_ in carried):
         return loop
     accumulator = carried[0] if len(carried) == 1 else TTuple(info, list(carried))
@@ -593,7 +686,7 @@ def _branch(func, slots, slot_types, context, work):
         for param, slot, type_ in zip(func.params, slots, slot_types)
         if param.name != slot
     ]
-    return rebindings + _rewrite_block(body, context, jumping=False)
+    return rebindings + _rewrite_block(body, context)
 
 
 def _dispatch(info, state, tags, group, branches):
@@ -678,7 +771,7 @@ def _block(stmts, work):
         if len(group) == 1:
             func = functions[group[0]]
             if group[0] in tail_calls(func, {group[0]}) and _rewritable(func):
-                rewritten[group[0]] = _rewrite_self(func, work)
+                _rewrite_one(func, work, rewritten)
             continue
         members = [functions[name] for name in group]
         if not all(_rewritable(func) for func in members):
@@ -689,17 +782,17 @@ def _block(stmts, work):
             # that name would not be bound yet -- see
             # tests/lexical_capture_group.pyk, whose `odd` reads a `step`
             # written between it and `even`.
-            for func in members:
-                if func.name in tail_calls(func, {func.name}):
-                    rewritten[func.name] = _rewrite_self(func, work)
+            _rewrite_selves(members, work, rewritten)
             continue
-        merged = _merge(members, work, index)
+        try:
+            merged = _merge(members, work, index)
+        except _Decline:
+            merged = None
         if merged is None:
-            # A group the checker's types say cannot share one loop may
-            # still have self-calls worth rewriting.
-            for func in members:
-                if func.name in tail_calls(func, {func.name}):
-                    rewritten[func.name] = _rewrite_self(func, work)
+            # A group the checker's types say cannot share one loop, or
+            # one holding a tail call that cannot be said as another
+            # turn, may still have self-calls worth rewriting.
+            _rewrite_selves(members, work, rewritten)
             continue
         replacements[group[0]] = merged
         for name in group[1:]:
@@ -719,13 +812,31 @@ def _block(stmts, work):
     return out
 
 
+def _rewrite_one(func, work, rewritten):
+    """Records func's rewritten form, or leaves it alone where the
+    rewrite declined. SFunctionDef -> Pass -> {String: SFunctionDef} -> ()"""
+    try:
+        rewritten[func.name] = _rewrite_self(func, work)
+    except _Decline:
+        pass
+
+
+def _rewrite_selves(members, work, rewritten):
+    """The members of a group that could not be merged, each rewritten
+    on its own where it calls itself.
+    [SFunctionDef] -> Pass -> {String: SFunctionDef} -> ()"""
+    for func in members:
+        if func.name in tail_calls(func, {func.name}):
+            _rewrite_one(func, work, rewritten)
+
+
 def _walk(statement, work):
     """statement with every block inside it optimized.
     Stmt -> Pass -> Stmt"""
     match statement:
         case SFunctionDef(_, _, _, body, _, _) if body is not None:
             return replace(statement, body=_block(body, work))
-        case SLoop(_, _, _, _, _, _, body, _):
+        case SLoop(_, _, _, _, _, body, _):
             return replace(statement, body=_block(body, work))
         case SIf(_, _, then_body, else_body, _):
             return replace(
@@ -870,7 +981,7 @@ def _binds(node, names):
             case SVar(_, name, _, _):
                 if name in names:
                     found[0] = True
-            case SLoop(_, target, _, _, iterate, _, _, _):
+            case SLoop(_, target, _, _, iterate, _, _):
                 if target is not None and names & set(_target_names(target)):
                     found[0] = True
                 # A `for` binds its element name each turn, so it is a

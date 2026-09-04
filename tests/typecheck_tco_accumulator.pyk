@@ -2,10 +2,11 @@
 # shape there is -- and the one that decides how a loop is typed.
 #
 # The loop carries both parameters, as one accumulator of two values,
-# and is worth just the running total: what a loop *carries* and what it
-# is *worth* are different questions (PYKING.md, "loop loops"). Without
-# that, every accumulator-passing function would have to return a tuple
-# it never wanted.
+# and every way out of it is a `return` giving the running total -- the
+# loop is the whole body of the function, so leaving the loop and
+# leaving the function are one act (docs/optimization.md). Without that,
+# an accumulator-passing function would have to answer with the tuple
+# the loop carries.
 
 def factorial(n: Int, acc: Int) -> Int:
     if n == 0:
@@ -18,8 +19,9 @@ print(factorial(10, 1))
 print(factorial(0, 1))
 
 
-# Three values carried at once, and a result of a different type again:
-# the loop carries (Int, Int, String) and is worth a String.
+# Three values carried at once, and a `return` of a different type
+# again: the loop carries (Int, Int, String) and each of its exits
+# returns a String.
 def marked(n: Int, step: Int, marks: String) -> String:
     if n <= 0:
         marks

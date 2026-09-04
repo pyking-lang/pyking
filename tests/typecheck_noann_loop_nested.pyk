@@ -13,14 +13,14 @@
 total =
 loop row = 0:
     if row > 3:
-        break row
+        break
     inner = loop column = 0:
         if column > row:
-            break column
+            break
         else:
-            continue column + 1
+            column + 1
     print(row, inner)
-    continue row + 1
+    row + 1
 
 print(total)
 
@@ -30,13 +30,13 @@ print(total)
 def stepped(limit):
     loop n = 0:
         if n >= limit:
-            break n
+            break
         step = loop k = 1:
             if k >= n:
-                break k
+                break
             else:
-                continue k + k
-        continue n + step + 1
+                k + k
+        n + step + 1
 
 
 print(stepped(10))

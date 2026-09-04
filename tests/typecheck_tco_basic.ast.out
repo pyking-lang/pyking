@@ -1,16 +1,16 @@
 def climb(x:Int) -> Int:
     loop x: Int = x:
         if x >= 300:
-            break 1000 + x
+            return 1000 + x
         else:
-            continue x + 1
+            x + 1
 print(climb(0))
 def first_over(limit:Int) -> Int:
     loop limit: Int = limit:
         if limit == 0:
-            break 0
+            return 0
         if limit > 100:
-            break limit
-        continue limit * 2 + 1
+            return limit
+        limit * 2 + 1
 print(first_over(3))
 print(first_over(0))

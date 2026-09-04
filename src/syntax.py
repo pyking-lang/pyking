@@ -117,9 +117,9 @@ from lexer import Info
 #     SReturnStmt(info: Info, stmt: Stmt, sym: Int)
 #     SExprStmt(info: Info, expr: Expr, sym: Int)
 #     SLoop(info: Info, target: AssignTarget?, init: Expr?, type: Type?,
-#           iterate: LoopIter?, result: Expr?, body: [Stmt], sym: Int)
-#     SBreak(info: Info, expr: Expr?, sym: Int)
-#     SContinue(info: Info, expr: Expr?, sym: Int)
+#           iterate: LoopIter?, body: [Stmt], sym: Int)
+#     SBreak(info: Info, sym: Int)
+#     SContinue(info: Info, sym: Int)
 #     SIf(info: Info, cond: Expr, then_body: [Stmt], else_body: [Stmt]?,
 #         sym: Int)
 #     SFunctionDef(info: Info, name: String, params: [Param],
@@ -983,7 +983,7 @@ class WhileTest(LoopIter):  # while condition
 
 @dataclass(frozen=True)
 class SLoop(Stmt):          # [loop target[: type] = init] [for n in e |
-    info: Info               #  while c] : body [then: after]
+    info: Info               #  while c] : body
     target: AssignTarget      # Pyking extension, and every loop in the
     init: Expr                # language: `for`, `while` and the accumulator
                               # loop are this one node with different halves
@@ -996,35 +996,26 @@ class SLoop(Stmt):          # [loop target[: type] = init] [for n in e |
                               # `iterate` is None for the bare `loop:`, which
                               # takes another turn unconditionally.
                               #
-                              # What the loop is *worth*: a plain `loop:` can
-                              # only end by breaking, so its `break`s say it.
-                              # One that iterates ends on its own as well, and
-                              # then the answer is `result` where one is
-                              # written, the accumulator where one is, and
-                              # unit otherwise -- and every `break` gives that.
+                              # What the loop is *worth* is the accumulator it
+                              # stopped with -- unit where it carries none.
     type: Type = None         # as `SLet.type`: what the source annotated,
                               # never written back by the type checker.
     iterate: LoopIter = None
-    result: Expr = None       # `for x in xs result e:` -- what the loop is
-                              # worth when it ends without breaking. Only the
-                              # accumulator is in scope in it: not the loop
-                              # variable, and nothing the body bound.
     body: list = None
     sym: int = 0
 
 
 @dataclass(frozen=True)
-class SBreak(Stmt):         # break [expr]
-    info: Info               # Ends the innermost enclosing `loop`. With no
-    expr: Expr = None        # operand the loop yields the accumulator it
-    sym: int = 0             # has; with one, that operand.
+class SBreak(Stmt):         # break
+    info: Info               # Ends the innermost enclosing `loop`, which is
+    sym: int = 0             # then worth the accumulator this turn started
+                             # with.
 
 
 @dataclass(frozen=True)
-class SContinue(Stmt):      # continue [expr]
+class SContinue(Stmt):      # continue
     info: Info               # Starts the innermost enclosing loop's next
-    expr: Expr = None        # turn, with the same accumulator or with the
-    sym: int = 0             # operand as the new one.
+    sym: int = 0             # turn, with the same accumulator.
 
 
 @dataclass(frozen=True)
@@ -1119,7 +1110,7 @@ def _pprint_stmt(s, level=0):
             return "\n".join([f"{pad}return {head.strip()}"] + rest)
         case SExprStmt(_, expr):
             return f"{pad}{pprint_expr(expr)}"
-        case SLoop(_, target, init, type_, iterate, result, body):
+        case SLoop(_, target, init, type_, iterate, body):
             # Printed in the form it was written: the accumulator half
             # where one was written -- annotation and all, so a
             # `--typecheck --ast` run's header re-parses -- and then the
@@ -1135,16 +1126,14 @@ def _pprint_stmt(s, level=0):
                     turn = f"while {pprint_expr(condition)}"
                 case _:
                     turn = "" if head else "loop"
-            worth = "" if result is None else f"result {pprint_expr(result)}"
-            header = " ".join(p for p in (head, turn, worth) if p)
+            header = " ".join(p for p in (head, turn) if p)
             lines = [f"{pad}{header}:"]
             lines += [pprint_stmt(st, level + 1) for st in body]
             return "\n".join(lines)
-        case SBreak(_, expr):
-            return f"{pad}break" if expr is None else f"{pad}break {pprint_expr(expr)}"
-        case SContinue(_, expr):
-            return (f"{pad}continue" if expr is None
-                    else f"{pad}continue {pprint_expr(expr)}")
+        case SBreak():
+            return f"{pad}break"
+        case SContinue():
+            return f"{pad}continue"
         case SIf(_, cond, then_body, else_body):
             lines = [f"{pad}if {pprint_expr(cond)}:"]
             lines += [pprint_stmt(st, level + 1) for st in then_body]

@@ -142,59 +142,30 @@ the thing to revisit when lists arrive: the two will need telling apart.
 
 A `loop` is `while (true)` over a `let` holding the accumulator: the
 initializer gives it its first value, every tail of the body assigns the
-next one, and `break`/`continue` are JavaScript's own — with the
-operand, where one is written, assigned first.
+next one, and `break`/`continue` are JavaScript's own, operand and all
+— they have none.
 
 ```pyking                          // generated JavaScript
 res = loop x = 5:                  let x = 5;
     if x <= 10:                    while (true) {
-        continue x + 1               if (x <= 10) {
+        x + 1                        if (x <= 10) {
     else:                              x = x + 1;
-        break                          continue;
-                                     } else {
+        break                        } else {
                                        break;
                                      }
                                    }
                                    const res = x;
 ```
 
-The loop's own value is what it `break`s with, so binding one is that
-`const` after the loop, and a loop in tail position is `return x`. A
-tuple accumulator is an array, assigned as a whole
+The loop's own value is the accumulator's `let`, so binding one is that
+`const` after the loop, and a loop in tail position is `return x`. That
+works because a `break` is JavaScript's own: it leaves the `let` holding
+what this turn started with, which is exactly what the loop is worth,
+and a `for`/`while` that runs out of turns leaves the same thing there.
+A tuple accumulator is an array, assigned as a whole
 (`[x, y] = [x + 1, y]`), so the next turn's values are computed before
-any of them is stored -- and where such a loop breaks with something
-that is *not* that array (`break acc` in a loop carrying two values,
-which is what the tail-call pass builds), the answer gets a `let` of its
-own rather than being squeezed into the accumulator. A `loop:` carrying
-nothing needs the same `let` for the same reason, since it has no
-accumulator to squeeze anything into: `n = loop: break 7` binds `7`,
-not `[]`. A bare `break` in such a loop leaves unit there, which is the
-accumulator it was going round with.
-
-That `let` is only half the answer, because a `for`/`while` has a second
-way to stop: **running out**. The loop is then worth its accumulator
-rather than whatever a `break` would have left (PYKING.md, "What a loop
-is worth"), and JavaScript has no loop `else` to say so in — so a
-second `let` carries the flag one would have been, set to `true` and
-cleared by every `break`:
-
-```pyking                          // generated JavaScript
-loop acc = 0 for x in xs:          let acc = 0;
-    if acc > limit:                let tmp1 = [];
-        break acc                  let tmp2 = true;
-    else:                          for (const x of xs) {
-        continue acc + x             if (acc > limit) {
-                                       tmp1 = acc; tmp2 = false; break;
-                                     } else { acc = acc + x; continue; }
-                                   }
-                                   if (tmp2) { tmp1 = acc; }
-```
-
-The flag is built only where both ways out exist: a plain `loop:` can
-end only by breaking, and a loop carrying nothing is worth the unit its
-`let` already holds. `tests/loop_worth_ran_out.pyk` is the case, and the
-C and Java backends answer the same question at their own generated
-exhaustion test (`docs/target_c.md`).
+any of them is stored. A `loop:` carrying nothing has no `let` at all
+and is worth `[]`, JavaScript's spelling of unit.
 
 The accumulator's `let` stands in the block *around* the loop, since
 that is where it has to be declared, but the name is in scope only in
@@ -217,11 +188,11 @@ each function closes over:
 fns =                              let tmp1 = [0, pykList([])];
 loop i, made = 0, []:              while (true) {
     def show(): i * 10               const [i, made] = tmp1;
-    if i >= 3:                       function show() { return i * 10; }
-        break made ++ [show]         ...
+    if i > 3:                        function show() { return i * 10; }
+        break                        if (i > 3) { break; }
     else:                            tmp1 = [i + 1, pykConcat(made, pykList([show]))];
-        continue i + 1,              continue;
-                made ++ [show]     }
+        (i + 1,                    }
+         made ++ [show])
 ```
 
 A loop with no function in its body keeps the plain `let`, so ordinary

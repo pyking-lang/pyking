@@ -107,9 +107,7 @@ from syntax import (
 #     KStartLoop(loop: Loop)
 #     KSequence(loop: Loop)                  a `for`'s sequence
 #     KTest(loop: Loop)                      a `while`'s condition
-#     KEnding(loop: Loop)                    the `result` expression
 #     KIterate(loop: Loop)
-#     KExit(loop: Loop, leaving: Bool)       break (leaving) / continue
 #     KReturnTo(frame: Frame)
 #
 # datatype Frame:                            one Pyking call
@@ -710,20 +708,6 @@ class KTest(Kont):
 
 
 @dataclass(frozen=True)
-class KEnding(Kont):
-    """A loop's `result` expression has produced the loop's own value."""
-    loop: Loop
-
-
-@dataclass(frozen=True)
-class KExit(Kont):
-    """A `break`/`continue` operand has arrived: leaving means the
-    loop ends with it, otherwise the next turn starts with it."""
-    loop: "Loop"
-    leaving: bool
-
-
-@dataclass(frozen=True)
 class KReturnTo(Kont):
     """Leave the current call: the incoming value is the function's
     result, and the frame says where to put it."""
@@ -749,10 +733,10 @@ class Frame:
 class Loop:
     """One `loop` in progress: what a `break`/`continue` in its body
     needs in order to leave it or go round again. `accumulator` is what
-    the current turn started with (a bare `break` yields exactly that),
-    `env` the environment the loop is written in -- where each turn
-    binds the accumulator afresh -- and `kont` where the loop's own
-    value goes when it ends."""
+    the current turn started with (a `break` yields exactly that), `env`
+    the environment the loop is written in -- where each turn binds the
+    accumulator afresh -- and `kont` where the loop's own value goes
+    when it ends."""
     node: SLoop
     accumulator: Value
     env: Env
@@ -1250,7 +1234,7 @@ def _step_stmt(state, stmt):
                 kont=KBranch(stmt, state.env, state.kont),
             )
 
-        case SLoop(_, target, init, _, _, _, _, _):
+        case SLoop(_, target, init, _, _, _, _):
             loop = Loop(stmt, UNIT, state.env, state.kont, state.loops)
             if target is None:
                 # No accumulator to work out: go straight on to whatever
@@ -1258,24 +1242,21 @@ def _step_stmt(state, stmt):
                 return _start(state, loop)
             return _go(state, control=CEval(init), kont=KStartLoop(loop))
 
-        case SBreak(info, expr, _) | SContinue(info, expr, _):
+        case SBreak(info, _) | SContinue(info, _):
             loop = state.loops
             if loop is None:
                 keyword = "break" if isinstance(stmt, SBreak) else "continue"
                 return failed(
                     state, RuntimeError_(info, f"'{keyword}' outside a loop")
                 )
-            leaving = isinstance(stmt, SBreak)
-            if expr is None:
-                # A bare `break` is `break ()`: it leaves without saying
-                # what the loop is worth. A bare `continue` goes round
-                # with the accumulator this turn started with, unchanged
-                # -- through `_begin` like every other way round, since
-                # what comes next may be the end of a `for`'s list
-                # rather than another turn.
-                return (_leave(state, loop, UNIT) if leaving
-                        else _begin(state, loop))
-            return _go(state, control=CEval(expr), kont=KExit(loop, leaving))
+            # A `break` leaves with the accumulator this turn started
+            # with, which is what the loop is worth. A `continue` goes
+            # round with that same accumulator -- through `_begin` like
+            # every other way round, since what comes next may be the
+            # end of a `for`'s list rather than another turn.
+            if isinstance(stmt, SBreak):
+                return _leave(state, loop, loop.accumulator)
+            return _begin(state, loop)
 
         case SReturn(info, expr, _):
             frame = state.stack
@@ -1449,21 +1430,12 @@ def _step_apply(state, value):
                 f"{describe(value)}",
             ))
 
-        case KEnding(loop):
-            # The `result` expression's value is the loop's own.
-            return _leave(state, loop, value)
-
         case KIterate(loop):
             # What the body produced is the next turn's accumulator --
             # unless the loop carries none, in which case it is thrown
             # away and every turn starts from unit again.
             if loop.node.target is None:
                 return _begin(state, loop)
-            return _begin(state, replace(loop, accumulator=value))
-
-        case KExit(loop, leaving):
-            if leaving:
-                return _leave(state, loop, value)
             return _begin(state, replace(loop, accumulator=value))
 
         case KNegate(node, env, rest):
@@ -1752,21 +1724,9 @@ def _start(state, loop):
 
 
 def _finish(state, loop):
-    """The loop has run out of turns. Its `result` expression, if it has
-    one, says what it is worth; otherwise it is worth the accumulator it
+    """The loop has run out of turns, so it is worth the accumulator it
     stopped with. State -> Loop -> State"""
-    if loop.node.result is None:
-        return _leave(state, loop, loop.accumulator)
-    env = loop.env
-    if loop.node.target is not None:
-        try:
-            env = bind_target(env, loop.node.target, loop.accumulator)
-        except _Trap as trap:
-            return failed(state, trap.error)
-    return _go(
-        state, control=CEval(loop.node.result), env=env,
-        kont=KEnding(loop), loops=loop.parent,
-    )
+    return _leave(state, loop, loop.accumulator)
 
 
 def _turn(state, loop):

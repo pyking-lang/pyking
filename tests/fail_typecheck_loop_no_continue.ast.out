@@ -1,4 +1,0 @@
-'tests/fail_typecheck_loop_no_continue.pyk' 15:8-15:15 Type error:
-  this loop carries an accumulator, so every path through its body
-  must say what the next turn carries -- end each one in 'continue',
-  'break' or 'return'

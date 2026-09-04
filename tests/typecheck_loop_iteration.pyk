@@ -1,9 +1,8 @@
 # Case 3 -- `for` and `while` without an accumulator.
 #
 # These end on their own: a `for` when the list runs out, a `while` when
-# its condition stops holding. With no accumulator and no `result` such
-# a loop is worth unit, so `break` and `continue` take no value there --
-# a `break "x"` is refused (see fail_typecheck_for_no_value.pyk).
+# its condition stops holding. With no accumulator such a loop is worth
+# unit, whichever way it ends.
 #
 # The body is unconstrained, since nothing is carried from turn to turn.
 

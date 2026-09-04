@@ -1,9 +1,9 @@
 def foo(f:(a, Int) -> b, a:a, x:Int) -> b:
     loop (f, a, x): ((a, Int) -> b, a, Int) = (f, a, x):
         if x < 10:
-            continue (f, a, x + 1)
+            (f, a, x + 1)
         else:
-            break f(a, x)
+            return f(a, x)
 def m(x:a, i:b) -> (a, b, a):
     (x, i, x)
 def keep(x:a, i:b) -> a:

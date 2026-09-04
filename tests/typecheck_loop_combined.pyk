@@ -2,47 +2,51 @@
 #
 # `loop`, `for` and `while` are one construct with different halves
 # written, so they combine: `loop acc = 0 for x in xs:` carries an
-# accumulator *and* walks a list, and every `break`, `continue` and
-# `result` works the same in each combination.
+# accumulator *and* walks a list, and `break` and `continue` mean the
+# same thing in each combination.
 
 def total(xs:[Int]) -> Int:
     return loop acc = 0 for x in xs:
-        continue acc + x
+        acc + x
 
 
 def joined(words:[String], sep:String) -> String:
     return loop text = "" for w in words:
         if text == "":
-            continue w
+            w
         else:
-            continue text ++ sep ++ w
+            text ++ sep ++ w
 
 
 def countdown(from_:Int) -> Int:
     # `while` with an accumulator: the condition asks about what the
     # loop carries, which is why it is tested where that is in scope.
     return loop i = from_ while i > 0:
-        continue i - 1
+        i - 1
 
 
-def first_over(xs:[Int], limit:Int) -> Int:
-    # An accumulator, an iteration clause and a `break` at once.
+def looked_at(xs:[Int], limit:Int) -> Int:
+    # An accumulator, an iteration clause and a `break` at once. The
+    # loop counts what it has looked at and is worth that count both
+    # ways it can stop: on the `break`, and on running out of turns.
     return loop seen = 0 for x in xs:
         if x > limit:
-            break x
+            break
         else:
-            continue seen + 1
+            seen + 1
 
 
 def indexed(xs:[String]) -> [(Int, String)]:
-    # Two accumulators, and a `result` that picks one of them out --
-    # without it the loop would be worth the pair.
-    return loop i, acc = 0, [] for x in xs result acc:
-        continue i + 1, [(i, x)] ++ acc
+    # Two accumulators, so the loop carries -- and is worth -- the pair
+    # of them; the binding takes it apart and keeps the half that was
+    # wanted.
+    (count, acc) = loop i, acc = 0, [] for x in xs:
+        (i + 1, [(i, x)] ++ acc)
+    return acc
 
 
 print(total([1, 2, 3, 4]), total([]))
 print(joined(["a", "b", "c"], "-"), joined([], "-"))
 print(countdown(3))
-print(first_over([1, 5, 9], 4), first_over([1, 2], 4))
+print(looked_at([1, 5, 9], 4), looked_at([1, 2], 4))
 print(indexed(["a", "b", "c"]))

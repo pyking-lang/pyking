@@ -504,7 +504,7 @@ One immutable value threaded through the whole pass, like `env`.
 | `instances` | a definition's symbol → its one `Instance(type)` | `remembering` |
 | `checking` | the definitions being worked out right now | `checking_now` |
 | `captured` | metavariables a definition could **not** generalise | `infer_definition` |
-| `frame` | what the innermost body is gathering: `returns`, `breaks`, `carries` | `returning`, `breaking`, `carrying` |
+| `frame` | what the innermost body is gathering: `returns` | `returning` |
 | `fresh` | the counter behind `?n` | `fresh_meta` |
 | `signatures` | a definition's symbol → the type a `def name : type` line gave it | `with_signature` |
 | `groups` | a definition's symbol → its block's `def`s | `declare_functions` |

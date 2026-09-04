@@ -1,14 +1,23 @@
 def first_big(xs:[Int]) -> Int:
-    return for x in xs result 0 - 1:
-        if x > 10:
-            break x
+    return loop found: Int = 0 - 1 for x in xs:
+        if found > 0:
+            break
+        else if x > 10:
+            x
+        else:
+            found
 def any_of(xs:[Int]) -> Bool:
-    return for x in xs result false:
+    return loop seen: Bool = false for x in xs:
         if x == 3:
-            break true
+            true
+        else:
+            seen
 def label(words:[String]) -> String:
-    return for w in words result 'none':
-        break w
+    return loop first: String = 'none' for w in words:
+        if first == 'none':
+            w
+        else:
+            break
 def shout(xs:[Int]) -> String:
     nothing: () = for x in xs:
         if x < 0:

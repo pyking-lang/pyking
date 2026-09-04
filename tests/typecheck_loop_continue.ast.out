@@ -1,27 +1,32 @@
 def total(xs:[Int]) -> Int:
-    return loop acc: Int = 0 for x in xs result acc:
-        continue acc + x
+    return loop acc: Int = 0 for x in xs:
+        acc + x
 def branches(n:Int) -> Int:
     return loop acc: Int = 0:
         if acc > n:
-            break acc
+            break
         else if acc == 3:
-            continue acc + 10
+            acc + 10
         else:
-            continue acc + 1
+            acc + 1
 def over_match(xs:[String]) -> Int:
-    return loop acc: Int = 0 for x in xs result acc:
+    return loop acc: Int = 0 for x in xs:
         match x:
             case 'double':
-                continue acc + 2
+                acc + 2
             case _:
-                continue acc + 1
+                acc + 1
 def early(xs:[Int]) -> Int:
-    loop acc: Int = 0 for x in xs result acc:
+    loop acc: Int = 0 for x in xs:
         if x < 0:
             return 0 - 1
         else:
-            continue acc + x
+            acc + x
+def skipping(xs:[Int]) -> Int:
+    return loop acc: Int = 0 for x in xs:
+        if x < 0:
+            continue
+        acc + x
 def loose(xs:[Int]) -> String:
     for x in xs:
         if x < 0:
@@ -32,4 +37,5 @@ print(total([1, 2, 3]), total([]))
 print(branches(5), branches(0))
 print(over_match(['double', 'x', 'double']))
 print(early([1, 2]), early([1, 0 - 1]))
+print(skipping([1, 0 - 1, 2]))
 print(loose([1, 0 - 1, 2]))

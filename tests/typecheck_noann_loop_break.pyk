@@ -11,48 +11,50 @@
 # general than the annotation claimed.
 
 def count_to(limit):
-    # The accumulator says what the loop *carries*; the `break` says
-    # what it is *worth*. Here they happen to be the same type.
-    return loop i = 0:
-        if i >= limit:
-            break i
-        else:
-            continue i + 1
-
-
-def name_of(limit):
-    # And here they are not: the loop carries an Int and is worth a
-    # String. Nothing requires them to agree.
-    return loop i = 0:
-        if i >= limit:
-            break "enough"
-        else:
-            continue i + 1
-
-
-def nothing(limit):
-    # A bare `break` is `break ()`, so this loop is worth unit.
+    # The accumulator is both what the loop carries and what it is
+    # worth, so this answers with the count it stopped on.
     return loop i = 0:
         if i >= limit:
             break
         else:
-            continue i + 1
+            i + 1
+
+
+def name_of(limit):
+    # A loop carrying a String is worth a String. The counting is done
+    # by a `var` beside it, since only one thing is carried here.
+    var i = 0
+    return loop said = "waiting":
+        if i >= limit:
+            break
+        i := i + 1
+        "enough"
+
+
+def nothing(limit):
+    # A loop with no accumulator carries nothing and is worth unit,
+    # whatever its body ends in.
+    var i = 0
+    loop:
+        if i >= limit:
+            break
+        i := i + 1
 
 
 def spin():
-    # No `break` at all: this never ends, so it is worth `!`, which
-    # satisfies the declared `Int` without ever producing one.
-    loop:
-        continue
+    # No `break` at all: this never ends, so nothing ever asks what it
+    # is worth.
+    loop n = 0:
+        n + 1
 
 
-def carried():
-    # A loop carrying a pair, broken with the pair.
+def carried() -> (Int, String):
+    # A loop carrying a pair is worth the pair.
     return loop n, s = 0, "":
         if n > 2:
-            break (n, s)
+            break
         else:
-            continue n + 1, s ++ "x"
+            (n + 1, s ++ "x")
 
 
 print(count_to(3), count_to(0))

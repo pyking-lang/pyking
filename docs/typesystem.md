@@ -137,8 +137,7 @@ and the answers compose with no special cases.
 | `SExprStmt` | its expression's type |
 | `SReturn e` | `e`'s type |
 | `SBreak` / `SContinue` | **nothing** (`None`) — it never falls through |
-| a `loop` | what it **breaks with**, not what it carries |
-| a loop with no `break` | **nothing** — it never finishes |
+| a `loop` | the accumulator it carries — unit where it carries none |
 | `SIf` / `SMatch` | whichever branch's type, once the branches agree |
 | `SLet`, `SVar`, `SMutate`, … | `unit` — run for effect |
 
@@ -425,28 +424,28 @@ three. Four things it decides:
 element over the body; a `while` demands `Bool`, asked where the
 accumulator is in scope so it can ask about it.
 
-**What the loop is worth**: the `result` expression if one is written,
-else the accumulator if one is, else unit. Every `break` must `agree`
-with that. `result` is checked in the accumulator's scope, not the
-element's — there may have been no turns, and nothing the body bound is
-in scope.
+**What the loop is worth**: the accumulator, and nothing else. However
+a loop stops — a `break`, or a `for`/`while` running out of turns — the
+answer is the same, so there is one type to work out rather than two to
+reconcile. A loop with no accumulator is worth unit.
 
-**A plain `loop:`** is the exception: it ends only by breaking, so
-`loop_value` decides it from the `break`s alone. They are collected in
-the store's frame as `Exit(info, type)` — in a frame of the loop's own,
-so a nested loop's ways out are not mistaken for this one's — and each
-`Exit`'s `info` is what lets a refusal point at the `break` that
-disagreed rather than at the loop. A loop with no `break` never
-finishes, so it supplies `None`.
+**What the body ends in is the next turn's accumulator**, so
+`check_turn`'s answer is held to the accumulator's type (`carry_error`
+is the refusal). A body all of whose paths jump supplies `None` and is
+asked nothing: `break`, `continue` and `return` never reach the end of
+the body, which is what lets a branch that breaks sit beside one that
+ends in the next accumulator. A loop carrying nothing asks nothing of
+its body at all.
 
-**Every path must say what the next turn carries**, which
-`ends_every_path`/`ends_here` check structurally: each path ends in a
-`continue`, a `break` or a `return`, or in an `if`/`match` whose
-branches all do. A loop carrying nothing is asked none of this.
+**A `return` in the body is the enclosing function's**, so it is
+checked and gathered exactly as one written outside the loop is —
+`check_turn` hands the frame back as it came, which is what lets an
+unannotated function's return type be decided by a `return` written
+inside a loop (`tests/typecheck_infer_loop_return.pyk`).
 
 **The accumulator needs no special case to widen.** `loop kept = []`
-starts as `[?e]`, and the `continue` that carries `kept ++ [x]` solves
-`?e` by ordinary unification — the same rule as everywhere else.
+starts as `[?e]`, and a body ending in `kept ++ [x]` solves `?e` by
+ordinary unification — the same rule as everywhere else.
 
 ## `+` and `++`: naming the operator that would have worked
 

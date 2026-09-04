@@ -14,7 +14,7 @@ sums: [Int] = loop acc: [Int] = [] for row in [[1, 2], [3, 4, 5]]:
     var here = 0
     for cell in row:
         here := here + cell
-    continue acc ++ [here]
+    acc ++ [here]
 print(sums)
 count: Int = 100
 def tally(items:[Int]) -> Int:

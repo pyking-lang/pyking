@@ -12,9 +12,11 @@
 
 foo, bar = loop x, y = 0, true:
     if x <= 10:
-        continue x + 1, y
+        (x + 1, y)
+    else if y:
+        (x + 100, false)
     else:
-        break x + 100, false
+        break
 
 print(foo, bar)
 
@@ -25,9 +27,9 @@ def summed(limit):
     loop acc = 0, 1:
         (total, k) = acc
         if k > limit:
-            break total, k
+            break
         else:
-            continue total + k, k + 1
+            (total + k, k + 1)
 
 
 print(summed(10))

@@ -316,9 +316,9 @@ The bootstrap is split into one module per compiler stage:
    here they hold whatever else runs: `_check_loop_context` (a `break`/`continue` belongs to the
    innermost `loop`, and may not reach out of a `for`, a `while` or a
    `def` to find one) and `_check_reachable` (nothing may be written
-   after one in the same block). The operand of a `break`/`continue` is
-   taken only from the keyword's own line (`parse_exit_operand`), by the
-   same row check `call_tail` uses and for the same reason.
+   after one in the same block). Neither keyword takes an operand: a
+   loop is worth the accumulator it stopped with, so there is nothing
+   for either of them to say.
 4. **`src/module.py`** — the module system: one file is one module, and
    a program is the acyclic graph of the modules its main file reaches.
    `load(path)` reads and parses all of them (resolving each import
@@ -427,9 +427,16 @@ The bootstrap is split into one module per compiler stage:
    each other becomes one `tail_groupN` worker carrying a `state` tag,
    as wide as the group's widest member, with each original left as a
    one-line wrapper. It rewrites and never rejects: a group whose types
-   do not fit one loop is left as the recursion it was. Tail position is PYKING.md's own, and the walk stops at a
+   do not fit one loop is left as the recursion it was, and so is a
+   function holding a tail call it cannot say as another turn. Going
+   round is *ending a block* in the next accumulator, since `continue`
+   carries nothing, and stopping is a `return` -- the loop is the whole
+   body of its function, so leaving the two is one act. A tail call
+   that is not a block's last statement is restructured first
+   (`_hoist`: a guard whose every path returns takes what follows it
+   into its `else`), and declined where that cannot be done. Tail position is PYKING.md's own, and the walk stops at a
    nested `def` (whose tails are its own) and at a `for`/`while`/`loop`
-   (where a `break` would belong to that loop instead). Because the
+   (where a block belongs to that loop instead). Because the
    output is ordinary Pyking, every backend and the interpreter get tail
    recursion without knowing this pass exists -- so *do not* add
    per-backend tail-call handling. The one exception runs the other way:
@@ -536,19 +543,21 @@ The bootstrap is split into one module per compiler stage:
    `==`: `T*` nodes are dataclasses, so `==` compares `info` and `sym`
    too.
 
-   A loop is worth what its `break`s give, and they must agree on one
-   type -- the same rule the two branches of an `if` obey, since one
-   value leaves a loop however many ways out it has. `loop_value` is
-   where that is decided, over the `Exit(info, type)` values the store's
-   frame collects, and the `info` is what lets the refusal point at the
-   `break` that disagreed. The rule is about the `break`s agreeing with
-   each other rather than with the accumulator, so a `loop:` carrying
-   nothing is held to it too; a bare `break` joins in by giving the
-   accumulator. They are held to being *one* type -- `unify`, through
-   `agree` -- rather than being covered by some wider type built for the
-   occasion: the C and Java backends already refuse a loop whose breaks
-   disagree, so a front end that accepted one would be describing a
-   program those two would not compile.
+   A loop has one type and it is the accumulator's: what the body ends
+   in is the next turn's accumulator, held to that type by `agree`
+   (`carry_error` is the refusal), and the loop is worth that same
+   accumulator however it stops -- a `break`, or a `for`/`while`
+   running out of turns. `check_turn` is where the body is checked, in
+   a frame of the loop's own; it answers `None` for a body all of whose
+   paths jump, and that asks nothing, which is what lets a branch that
+   breaks sit beside one that ends in the next accumulator. A `loop:`
+   carrying nothing carries and is worth unit, and asks nothing of its
+   body at all. `break` and `continue` take no operand and supply
+   nothing, so neither needs a rule of its own. A `return` written in a
+   loop body belongs to the enclosing *function*, so `check_turn` hands
+   the frame back as it came rather than restoring the one it was given
+   -- that is what lets an unannotated function's return type be decided
+   by a `return` inside a loop.
 
    Most statements and every program have type unit; an *expression
    statement* has its expression's type and a *block* its last

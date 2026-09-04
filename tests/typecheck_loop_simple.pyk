@@ -1,0 +1,48 @@
+# The whole of the loop construct, in the four shapes it is written in.
+#
+# One rule holds all of them together: a loop is worth the accumulator
+# it stopped with, or unit where it carries none, and what the body ends
+# in is what the next turn carries. `break` and `continue` take no
+# operand -- there is nothing left for either of them to say.
+
+# 1. An accumulator and nothing else: `break` stops it, and the loop is
+# worth the accumulator the turn it stopped on started with.
+k = loop x = 0:
+    if x == 10:
+        break
+    x + 1
+
+print(k)
+
+
+# 2. No accumulator: the loop is worth unit, and its body may end in
+# any type at all -- here in a call answering with an Int.
+def foo(x: Int) -> Int: x + 1
+
+
+var counter = 5
+
+kk = loop:
+    if counter == 10:
+        break
+    counter := counter + 1
+    foo(7)
+
+print(kk, counter)
+
+
+# 3. An accumulator and a `while` clause.
+last = loop x = 0 while x < 10:
+    print(x)
+    x + 1
+
+print(last)
+
+
+# 4. An accumulator and a `for` clause: the fold every program writes.
+def total(lst: [Int]) -> Int:
+    loop acc = 0 for x in lst:
+        acc + x
+
+
+print(total([1, 10, 3]))

@@ -29,15 +29,15 @@ print(three_deep(40))
 # that turn's `i` -- and every copy writes the same one location.
 var counted = 0
 
-fns =
+(stopped, fns) =
 loop i, made = 0, []:
     def add_turn() -> ():
         counted := counted + i
 
-    if i >= 3:
-        break made ++ [add_turn]
+    if i > 3:
+        break
     else:
-        continue i + 1, made ++ [add_turn]
+        (i + 1, made ++ [add_turn])
 
 
 def run_all(fs: [() -> ()]) -> ():

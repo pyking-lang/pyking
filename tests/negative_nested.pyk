@@ -55,13 +55,13 @@ print(from_return(), from_tail())
 print(negate(- -2))
 print(if true then - -3 else - -4)
 
-# Inside a loop's accumulator, its `continue` and its `break`.
+# Inside a loop's accumulator and what its turns end in.
 def counted() -> Int:
     loop acc = - -1:
         if acc < 5:
-            continue acc + - -1
+            acc + - -1
         else:
-            break - -acc
+            break
 
 
 print(counted())

@@ -10,22 +10,21 @@ def three_deep(start:Int) -> Int:
 print(three_deep(0))
 print(three_deep(40))
 var counted = 0
-fns: [() -> ()] = loop (i, made): (Int, [() -> ()]) = (0, []):
+(stopped, fns): (Int, [() -> ()]) = loop (i, made): (Int, [() -> ()]) = (0, []):
     def add_turn() -> ():
         counted := counted + i
-    if i >= 3:
-        break made ++ [add_turn]
+    if i > 3:
+        break
     else:
-        continue (i + 1, made ++ [add_turn])
+        (i + 1, made ++ [add_turn])
 def run_all(fs:[() -> ()]) -> ():
     loop fs: [() -> ()] = fs:
         match fs:
             case []:
-                break ()
+                return ()
             case [f, ..rest]:
                 f()
-                continue rest
-        break ()
+                rest
 run_all(fns)
 print(counted)
 def biggest(xs:[Int]) -> Int:
@@ -34,12 +33,11 @@ def biggest(xs:[Int]) -> Int:
         loop rest: [Int] = rest:
             match rest:
                 case []:
-                    break ()
+                    return ()
                 case [value, ..more]:
                     if value > best:
                         best := value
-                    continue more
-            break ()
+                    more
     scan(xs)
     return best
 print(biggest([3, 9, 2]))

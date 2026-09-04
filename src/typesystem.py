@@ -33,7 +33,6 @@ Data structures:
     Instance / Given / Frame / Store -- inference's working state (see
         docs/type_inference.md).
     Inferring -- marks a return type being worked out.
-    Exit -- one way out of the loop being checked: a break and its type.
 
 See the Signatures block below for every function's type.
 """
@@ -203,24 +202,12 @@ class Given:
 
 
 @dataclass(frozen=True)
-class Exit:
-    """One way out of the loop being checked. Fields: info: Info (where
-    the `break` is written), type: Type (what it gives)."""
-    info: Info
-    type: Type
-
-
-@dataclass(frozen=True)
 class Frame:
-    """What the current inference has gathered, and what the innermost
-    loop has been broken with. Fields: returns: (Given,),
-    breaks: (Exit,), carries: (Type,) -- what its `continue`s give,
-    which is how an accumulator that starts narrow is widened.
+    """What the current inference has gathered. Fields: returns:
+    (Given,).
       TODO: explain better how Frame is used.
     """
     returns: tuple = ()
-    breaks: tuple = ()
-    carries: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -237,7 +224,7 @@ class Store:
     checking: {Int} A set of symbols that are being checked right now.
        Avoids goint into an infinite loop.
     frame: Frame. Contains information about the inner frame, including
-      information about returns and breaks.
+      information about returns.
     signatures: {Int: Type}. A `def`'s type where the source wrote it on
       a line of its own (`def foo : (a) -> a`) instead of on the header.
       Keyed by the definition's symbol, filled by declare_functions from
@@ -573,24 +560,6 @@ def returning(store, info, type_):
     Store -> Info -> Type -> Store"""
     return with_frame(
         store, replace(store.frame, returns=store.frame.returns + (Given(info, type_),))
-    )
-
-
-def breaking(store, info, type_):
-    """store whose frame has seen a `break` at info giving type_ -- what
-    the loop being checked is worth, one way out at a time.
-    Store -> Info -> Type -> Store"""
-    return with_frame(
-        store, replace(store.frame, breaks=store.frame.breaks + (Exit(info, type_),))
-    )
-
-
-def carrying(store, type_):
-    """store whose frame has seen a `continue` giving type_ -- what the
-    loop being checked carries into its next turn.
-    Store -> Type -> Store"""
-    return with_frame(
-        store, replace(store.frame, carries=store.frame.carries + (type_,))
     )
 
 
@@ -1140,10 +1109,11 @@ def check_stmt(statement, env, tmap, return_type, acc_type, store):
             )
             return actual, env, check_return(actual, return_type, info, store)
 
-        case SLoop(info, target, init, annotation, iterate, result, body, sym):
+        case SLoop(info, target, init, annotation, iterate, body, sym):
             # The accumulator is what the initializer turned out to be,
-            # and the loop carries exactly that from turn to turn. A loop
-            # with none written carries unit.
+            # and the loop carries exactly that from turn to turn -- and
+            # is worth exactly that when it stops, however it stops. A
+            # loop with none written carries unit and is worth unit.
             if target is None:
                 accumulator = unit(info)
                 body_env = env
@@ -1153,91 +1123,47 @@ def check_stmt(statement, env, tmap, return_type, acc_type, store):
                 accumulator = zonk(accumulator, store)
                 body_env, store = check_target(
                     target, accumulator, env, tmap, store)
-                # Every path has to say what the next turn carries. There
-                # is no implicit tail: the value a body happens to end in
-                # is not the accumulator (PYKING.md, "Going round").
-                if not ends_every_path(body):
-                    raise TypeError_(
-                        body[-1].info if body else info,
-                        "this loop carries an accumulator, so every path "
-                        "through its body must say what the next turn "
-                        "carries -- end each one in 'continue', 'break' or "
-                        "'return'",
-                    )
-            # An accumulator that starts as `[]` starts as `[?e]`, and
-            # what the body carries into the next turn solves it -- so
-            # the widening the old probe pass existed for is now just
-            # unification, done where each `continue` is checked.
-            outer = store.frame
             record(tmap, sym, accumulator, store)
             turn_env, store = check_iteration(
                 iterate, env, body_env, tmap, store
             )
-            _, ways_out, _, store = check_turn(
-                body, turn_env, tmap, return_type, accumulator, store, outer
+            supplied, store = check_turn(
+                body, turn_env, tmap, return_type, accumulator, store
             )
-            # A plain `loop:` can only end by breaking, so its `break`s
-            # say what it is worth, and one with none never ends at all.
-            if iterate is None:
-                worth, store = loop_value(ways_out, info, store)
-                return worth, env, store
-            # One that iterates ends on its own too, so something has to
-            # say what it is worth then: the `result` expression, the
-            # accumulator, or unit. Every `break` has to give that.
-            if result is not None:
-                worth, store = check_expr(result, body_env, tmap, store)
-            else:
-                worth = accumulator
-            for way in ways_out:
-                both, store = agree(worth, way.type, store)
+            # What the body ends in is what the next turn carries, so it
+            # is held to the accumulator's type -- unless the body always
+            # jumps, and then nothing arrives at the end of it to be held
+            # to anything. A loop carrying nothing asks nothing of its
+            # body: there is no next accumulator for it to give.
+            # An accumulator that starts as `[]` starts as `[?e]`, and
+            # what the body ends in is what solves it.
+            if target is not None and supplied is not None:
+                require_total(body[-1], "what the next turn carries")
+                both, store = agree(accumulator, supplied, store)
                 if both is None:
-                    raise TypeError_(way.info, break_error(
-                        zonk(worth, store), zonk(way.type, store),
-                        target, result, store
-                    ))
-            return zonk(worth, store), env, store
+                    raise TypeError_(body[-1].info, carry_error(
+                        zonk(accumulator, store), zonk(supplied, store), store))
+            return zonk(accumulator, store), env, store
 
-        case SBreak(info, expr, _):
-            # A `break` says what the loop is *worth*, which is a
-            # different question from what it carries: the operand is
-            # collected rather than checked against the accumulator.
-            # The statement supplies *nothing* -- it never falls
+        case SBreak(info, _):
+            # A `break` ends the loop, which is then worth the
+            # accumulator this turn started with -- so there is nothing
+            # to check. The statement supplies *nothing*: it never falls
             # through, so no value arrives after it. That is `None`
             # rather than a type, and it is what lets a branch that
-            # breaks sit beside one that ends in the next accumulator,
-            # whatever the loop carries: `agree` keeps the other
-            # branch's answer.
+            # breaks sit beside one that ends in the next accumulator:
+            # `agree` keeps the other branch's answer.
             if acc_type is None:
                 raise TypeError_(info, "'break' outside a loop")
-            if expr is None:
-                # A bare `break` is `break ()`: it leaves without saying
-                # what the loop is worth, and unit is what that means
-                # (PYKING.md, "Leaving a loop").
-                return None, env, breaking(store, info, unit(info))
-            actual, store = check_expr(expr, env, tmap, store)
-            return None, env, breaking(store, info, actual)
+            return None, env, store
 
-        case SContinue(info, expr, _):
-            # `continue` is the other half: it says what the next turn
-            # carries, so its operand *is* the accumulator. A bare one
-            # goes round with the accumulator unchanged, which is that
-            # type whatever it is and so needs no check.
+        case SContinue(info, _):
+            # `continue` starts the next turn with the accumulator
+            # unchanged, which is that type whatever it is. Nothing
+            # arrives after it either, so it supplies nothing too.
             if acc_type is None:
                 raise TypeError_(info, "'continue' outside a loop")
-            if expr is None:
-                return None, env, store
-            actual, store = check_expr(expr, env, tmap, store)
-            # The accumulator and what a `continue` carries are one
-            # type; where the accumulator started as `[]` this is what
-            # solves its element.
-            both, store = agree(acc_type, actual, store)
-            if both is None:
-                raise TypeError_(expr.info, continue_error(
-                    zonk(acc_type, store), zonk(actual, store), store))
-            # Nothing arrives after a `continue`, so the statement
-            # supplies nothing -- the same answer `break` gives, and for
-            # the same reason.
-            return None, env, carrying(store, actual)
+            return None, env, store
 
         case SMatch(info, subject, cases, _):
             # Every arm is a branch, and they must agree on one type the
@@ -1342,17 +1268,13 @@ def check_not_conflated(then_type, else_type, info):
             )
 
 
-def continue_error(acc_type, actual, store):
-    """The message for a `continue` whose operand is not the
-    accumulator. A loop carrying unit is one written with no
-    accumulator, so the message says that rather than naming `()`.
-    Type -> Type -> String"""
-    if is_unit(acc_type):
-        return "this loop carries no accumulator, so its 'continue' takes no value"
+def carry_error(acc_type, actual, store):
+    """The message for a loop body that does not end in the accumulator
+    the next turn carries. Type -> Type -> Store -> String"""
     together = displayed(TTuple(BUILTIN_INFO, [acc_type, actual]), store)
     mine, theirs = together.elements
-    return (f"this loop carries {pprint_type(mine)}, but this 'continue' "
-            f"gives {pprint_type(theirs)}")
+    return (f"this loop carries {pprint_type(mine)}, but its body ends in "
+            f"{pprint_type(theirs)}")
 
 
 def ends_every_path(stmts):
@@ -1382,37 +1304,16 @@ def ends_here(statement):
     return False
 
 
-def break_error(worth, given, target, result, store):
-    """The message for a `break` that does not give what its loop is
-    worth. Where nothing said what that is, the loop is worth unit by
-    default and the fix is to say so -- which is the common mistake, so
-    the message names it.
-    Type -> Type -> AssignTarget? -> Expr? -> Store -> String"""
-    together = displayed(TTuple(BUILTIN_INFO, [worth, given]), store)
-    mine, theirs = together.elements
-    if target is None and result is None:
-        return (
-            f"this loop is worth {pprint_type(mine)}, but this 'break' "
-            f"gives {pprint_type(theirs)}: nothing says what the loop is "
-            f"worth when it ends without breaking. Add 'result "
-            f"<expression>' to its header, or give it an accumulator"
-        )
-    return (f"this loop is worth {pprint_type(mine)}, but this 'break' "
-            f"gives {pprint_type(theirs)}")
-
-
-def check_turn(body, turn_env, tmap, return_type, accumulator, store, outer):
-    """One pass over a loop body: what it supplies, the ways out its
-    `break`s give, and the store. The breaks are gathered in a frame of
-    the loop's own, so a nested loop's are not mistaken for these.
-    [Stmt] -> Env -> {Int: Type} -> Type? -> Type -> Store -> Frame
-    -> (Type, (Exit,), (Type,), Store)"""
-    supplied, store = check_stmts(
-        body, turn_env, tmap, return_type, accumulator,
-        with_frame(store, replace(outer, breaks=(), carries=())),
+def check_turn(body, turn_env, tmap, return_type, accumulator, store):
+    """One pass over a loop body: what it supplies -- the accumulator the
+    next turn carries -- and the store. A `return` written in the body
+    leaves the enclosing *function*, so what it gives stays in the frame,
+    exactly as one written outside the loop would.
+    [Stmt] -> Env -> {Int: Type} -> Type? -> Type -> Store
+    -> (Type?, Store)"""
+    return check_stmts(
+        body, turn_env, tmap, return_type, accumulator, store
     )
-    return (supplied, store.frame.breaks, store.frame.carries,
-            with_frame(store, outer))
 
 
 def check_iteration(iterate, env, body_env, tmap, store):
@@ -1432,34 +1333,6 @@ def check_iteration(iterate, env, body_env, tmap, store):
             store = demand(condition_type, TBool(info), info,
                            "the condition of a 'while'", store)
     return body_env, store
-
-
-def loop_value(ways_out, info, store):
-    """What a loop is worth, and the store that makes its `break`s
-    agree: one value leaves a loop however many ways out it has, so they
-    are one type. A loop with no `break` never finishes, so it is worth
-    nothing at all. (Exit,) -> Info -> Store -> (Type?, Store)"""
-    match list(ways_out):
-        case []:
-            return None, store
-        case [first, *rest]:
-            worth = first.type
-            for other in rest:
-                both, store = agree(worth, other.type, store)
-                if both is None:
-                    together = displayed(
-                        TTuple(info, [zonk(worth, store),
-                                      zonk(other.type, store)]), store)
-                    mine, theirs = together.elements
-                    raise TypeError_(
-                        other.info,
-                        f"this loop is worth {pprint_type(mine)}, from "
-                        f"an earlier 'break', but this 'break' gives "
-                        f"{pprint_type(theirs)}",
-                    )
-                check_not_conflated(worth, other.type, other.info)
-                worth = both
-            return zonk(worth, store), store
 
 
 def check_target(target, type_, env, tmap, store):
@@ -2715,31 +2588,6 @@ def irrefutable(pattern):
     return False
 
 
-def breaks_anywhere(stmts):
-    """Whether a `break` belonging to *this* loop is written in it. The
-    walk stops at a nested loop, whose breaks are its own, and at a
-    `def`, whose body is another function's. [Stmt] -> Bool"""
-    for statement in stmts:
-        match statement:
-            case SBreak():
-                return True
-            case SLoop() | SFunctionDef():
-                continue
-            case SIf(_, _, then_body, else_body, _):
-                if breaks_anywhere(then_body):
-                    return True
-                if else_body is not None and breaks_anywhere(else_body):
-                    return True
-            case SMatch(_, _, cases, _):
-                for case_clause in cases:
-                    if case_clause.body and breaks_anywhere(case_clause.body):
-                        return True
-            case SLetStmt(_, _, inner, _, _) | SReturnStmt(_, inner, _):
-                if breaks_anywhere([inner]):
-                    return True
-    return False
-
-
 def covers(patterns):
     """Whether these patterns between them match every value they could
     be matched against. One irrefutable pattern is enough on its own.
@@ -2806,21 +2654,6 @@ def require_total(stmt, what):
     otherwise the type reported for the binding names a value that need
     never exist. Stmt -> String -> ()"""
     match stmt:
-        case SLoop(info, target, _, _, iterate, body, after, _):
-            # A `for`/`while` ends when it runs out of turns, and one
-            # with no accumulator, no `then:` and no `break` has nothing
-            # to show for itself when it does -- so its value cannot be
-            # taken. A bare `loop:` is not this: it never ends, so
-            # supplying nothing at all is an honest answer for it.
-            if iterate is not None and target is None and after is None \
-                    and not breaks_anywhere(body):
-                raise TypeError_(
-                    info,
-                    f"this loop is {what}, but it has no value to give: it "
-                    f"ends when it runs out of turns, and there is no "
-                    f"accumulator, no 'then:' block and no 'break' to say "
-                    f"what it is worth then",
-                )
         case SMatch(info, _, cases, _):
             if not covers([c.pattern for c in cases]):
                 raise TypeError_(

@@ -15,7 +15,7 @@ def stepped(limit:Int) -> Int:
         if i >= limit:
             break
         seen := seen + i
-        continue i + 1
+        i + 1
     return seen
 print(stepped(5))
 print(stepped(0))

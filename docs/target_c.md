@@ -44,8 +44,7 @@ rules, one printer with four `if standard ==` branches in it.
 `print`; `def` with parameters, `return` and recursion, its body
 written under the header or on the header's own line (`def f(x): e`);
 `if` / `else if` / `else`;
-`while`; `loop` with `break` and `continue`, where the loop carries an
-accumulator; `=`, `var`, `:=`; `if … then … else …` expressions;
+`while`; `loop` with `break` and `continue`; `=`, `var`, `:=`; `if … then … else …` expressions;
 integers, strings and booleans; `+ - *`, unary minus, comparisons, and
 calls. Tail position, `return if c:`, and unit-returning (`void`)
 functions are supported too — see below.
@@ -63,15 +62,20 @@ to give. All are refused at compile time with a source position.
 ### A `loop` C cannot give a value
 
 ```
-Unsupported by target 'c23': a `loop` with no accumulator -- C has no
-value to give it, so write `loop x = 0:` and break with what you want
+Unsupported by target 'c23': a loop worth `()` -- a loop with no
+accumulator is worth unit, and C has no value for one; carry the value
+the loop is for, or run the loop for what it does rather than what it
+is worth
 ```
 
-Three shapes are refused, all for the same reason: C has no unit value
-to fall back on. A bare `loop:` carries nothing, so there is no variable
-to declare and nothing for the loop to be worth. An `if` with no `else`
-as the *last* statement of a loop body leaves a turn with nothing to
-hand on. And a loop body ending in something that produces no value —
+A loop with no accumulator *runs* here perfectly well -- it is a
+`while (1)` or a `while (c)` like any other -- but it is worth unit, and
+C has no value for one, so only a program that wants its *value* is
+refused. Two more shapes are refused for the same want of a value: a
+loop carrying several slots, whose value would be the tuple of them, and
+an `if` with no `else` as the *last* statement of a loop body, which
+leaves a turn with nothing to hand on. And a loop body ending in
+something that produces no value —
 a binding, a `while` — says nothing about the next turn either. Each is
 a case Pyking answers with `()`; here it is refused instead, with the
 position of the statement that produced nothing.
@@ -403,16 +407,15 @@ emitted as C that will not compile.
 A `loop` is `while (1)` over one mutable variable holding the
 accumulator. The initializer declares it — and its C type is the
 initializer's, by the ordinary inference rule — every tail of the body
-assigns the next turn's value, and `break`/`continue` are C's own, with
-the operand assigned first where one is written:
+assigns the next turn's value, and `break`/`continue` are C's own,
+operand and all: they have none.
 
 ```pyking                          /* generated C */
 res = loop x = 5:                  int x = 5;
     if x <= 10:                    while (1) {
-        continue x + 1                 if (x <= 10) {
+        x + 1                          if (x <= 10) {
     else:                                  x = x + 1;
-        break                              continue;
-                                       } else {
+        break                          } else {
                                            break;
                                        }
                                    }
@@ -429,37 +432,25 @@ sees the turn it is still on:
 ```pyking                          /* generated C */
 loop n, acc = n, acc:              int n = ...; int acc = ...;
     if n == 0:                     while (1) {
-        break acc                      if (n == 0) { n_result = acc; break; }
+        break                          if (n == 0) { break; }
     else:                              { int n_next1 = n - 1;
-        n - 1, n * acc                   int acc_next1 = n * acc;
+        (n - 1, n * acc)                 int acc_next1 = n * acc;
                                          n = n_next1; acc = acc_next1; }
                                    }
 ```
 
-That is also where the `n_result` above comes from. A loop is worth what
-it `break`s with, which need not be shaped like what it carries — the
-shape every accumulator-passing function has after the tail-call pass
-(docs/optimization.md) — so a `break` with an operand gets a variable of
-its own, typed from what the breaks give. A loop whose breaks disagree
-about that type is refused here too, though the type checker now refuses it
-first and in the language's own words (PYKING.md, "Type checking"); this
-backend keeps its own check because it compiles whether the checker ran
-or not. A *bare* `break` in a multi-slot loop is refused for a reason of
-C's alone: its answer would be all the slots at once, and C has no tuple
-to hold them. Since a turn may only carry one C type per slot, a `continue`
-whose operand has a different type is refused rather than silently
-converted.
+Such a loop is worth all its slots at once, and C has no tuple to hold
+that — so a program that wants its *value* is refused, while one that
+runs it for what it does (the shape every accumulator-passing function
+has after the tail-call pass, whose every exit is a `return`) compiles
+here. Since a turn may only carry one C type per slot, a next-turn value
+of a different type is refused rather than silently converted.
 
 A `while c` has a second way to stop — **running out** — and the loop is
-worth its accumulator then, not whatever a `break` left in the result
-variable (PYKING.md, "What a loop is worth"). C has no loop `else`, but
-it needs no flag either: the exhaustion test is one this backend writes
-itself, `if (!c) break;` at the top of a `while (1)`, so the accumulator
-is assigned to the result variable right there, where the loop is
-actually left. A multi-slot loop has no answer C could hold and is
-already refused. `tests/loop_worth_ran_out_subset.pyk` is the case;
-`src/target_java.py` does the same at the same place, and the JavaScript
-backends, whose `for`/`while` ends by itself, need the flag instead.
+worth its accumulator then, exactly as it is when it breaks: the slots
+already hold it, so nothing has to be put anywhere. C has no loop
+`else`, and this backend needs none: the exhaustion test is one it
+writes itself, `if (!c) break;` at the top of a `while (1)`.
 
 A `while (1)` no `break` leaves is a loop that never finishes, so
 `_falls_through` (see "A function that produces a value on some paths

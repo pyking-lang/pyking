@@ -2,12 +2,10 @@
 #
 # `loop:` on its own is a loop over unit. It runs its body for what the
 # body does, throws that value away, and goes round again -- so the
-# only way out is `break`. Every `break` below is a bare one, which
-# leaves the accumulator, so each of these loops is worth unit; a
-# `break` may carry a value instead, which is a separate question and
-# `typecheck_loop_unit_value.pyk` covers it. `loop:` with no `break` at
-# all is a perfectly good program, and never finishes; every loop below
-# has one.
+# only way out is `break`, and the loop is worth unit whichever `break`
+# it leaves by (`typecheck_loop_unit_value.pyk` covers that side of it).
+# `loop:` with no `break` at all is a perfectly good program, and never
+# finishes; every loop below has one.
 #
 # Whatever such a loop needs to carry has to be a `var`, which is the
 # comparison worth having: the accumulator loops elsewhere in this

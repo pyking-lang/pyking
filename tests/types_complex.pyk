@@ -6,7 +6,7 @@ def classify(n:Int) -> String:
 
 def make_pairs(xs:[Int]) -> [(Int, Int)]:
     return loop out = [] for x in xs:
-        continue out ++ [(x, x * 10)]
+        out ++ [(x, x * 10)]
 
 
 def summarize(matrix:[[Int]], label:String) -> (String, Int):

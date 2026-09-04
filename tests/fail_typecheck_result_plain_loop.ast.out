@@ -1,4 +1,0 @@
-'tests/fail_typecheck_result_plain_loop.pyk' 14:23-14:29 Parsing
-  error: 'result' says what a loop is worth when it ends without
-  breaking, and a plain 'loop' can only end by breaking; write
-  'for'/'while', or say it on the 'break'

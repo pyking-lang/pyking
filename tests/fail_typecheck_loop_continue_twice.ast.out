@@ -1,4 +1,0 @@
-'tests/fail_typecheck_loop_continue_twice.pyk' 15:4-15:18 Parsing
-  error: this statement cannot be reached: 'continue x + 1' has
-  already left the loop, so nothing written after it in the same block
-  runs

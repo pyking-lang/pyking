@@ -1,4 +1,0 @@
-'tests/fail_typecheck_for_no_value.pyk' 17:12-17:28 Type error: this
-  loop is worth (), but this 'break' gives String: nothing says what
-  the loop is worth when it ends without breaking. Add 'result
-  <expression>' to its header, or give it an accumulator

@@ -692,9 +692,10 @@ class _Translator:
     def loop(self, s, scope):
         """Translates a loop into `while (true)` over one local per
         accumulator slot (docs/target_java.md, "loop"): the initializer
-        declares them, every tail of the body assigns the next turn's
-        values, and a `break`/`continue` with an operand assigns before
-        it jumps. Returns the statements, the expression holding the
+        declares them and every tail of the body assigns the next turn's
+        values, so they hold what the loop is worth however it stops --
+        a `break` is Java's own, and leaves this turn's values where they
+        are. Returns the statements, the expression holding the
         loop's value afterwards, and the scope: the accumulators are in
         scope only in the loop's own body, but their declarations stand
         in the block around it, so those Java names stay spoken for
@@ -707,16 +708,11 @@ class _Translator:
                     "a `for` loop -- it walks a list, and this backend has "
                     "no value model for one",
                 )
-        if s.target is None and s.iterate is not None:
-            # `while c:` on its own: no accumulator, so nothing to carry
-            # and nothing to be worth. Run for what it does.
-            return self.plain_while(s, scope)
         if s.target is None:
-            _unsupported(
-                s,
-                "a `loop` with no accumulator -- Java has no value to give "
-                "it, so write `loop x = 0:` and break with what you want",
-            )
+            # `loop:` or `while c:` on its own: no accumulator, so
+            # nothing to carry and nothing to be worth but unit. Run for
+            # what it does.
+            return self.plain_loop(s, scope)
         names = _slot_names(s.target)
         if names is None:
             _unsupported(s, "a loop accumulator that is not one name per slot")
@@ -732,78 +728,44 @@ class _Translator:
             for (java_name, _), value in zip(slots, values)
         ]
 
-        # A loop is worth what it breaks with, which is not always what
-        # it carries -- so a `break` with an operand needs a local of
-        # its own to leave the answer in.
-        result = None
-        first_value = _first_break_value(s.body)
-        if first_value is not None:
-            result_type = self.expr(first_value, body_scope).ctype
-            result_name, _ = _bind(
-                _result_name(s.target), result_type, _block_scope(scope)
-            )
-            result = (result_name, result_type)
-            setup.append(
-                JDecl(info, result_type, result_name, _zero(info, result_type), False)
-            )
-
-        self.loops.append(_Loop(slots, result))
+        self.loops.append(_Loop(slots))
         try:
             body = self.loop_block(s.body, body_scope)
         finally:
             self.loops.pop()
-        taken = [java_name for java_name, _ in slots] + (
-            [result[0]] if result else []
-        )
-        value = (
-            JVar(info, result[0], result[1]) if result
-            else JVar(info, slots[0][0], slots[0][1])
-        )
-        if _breaks_bare(s.body) or (result is None and len(slots) > 1):
-            # Either the loop is worth `()` -- a bare `break` gives unit,
-            # which Java has no value for -- or the answer would be the
-            # tuple of its slots. Nothing may read the value.
+        taken = [java_name for java_name, _ in slots]
+        value = JVar(info, slots[0][0], slots[0][1])
+        if len(slots) > 1:
+            # The answer would be the tuple of its slots, which Java has
+            # no room for. Nothing may read the value.
             value = None
-        # `while c` becomes the loop's own test; `then:` would need a
-        # flag, which is not built here.
+        # `while c` becomes the loop's own test, built as the first
+        # thing the body does: the locals already hold what the loop is
+        # worth when it runs out, so there is nothing to put in place
+        # where it is left.
         match s.iterate:
             case WhileTest(_, condition, _):
                 test = self.expr(condition, body_scope)
                 self._require(test, BOOL, "a `while` condition")
-                # Running out is this loop's other way to stop, and it is
-                # worth its accumulator then rather than whatever a
-                # `break` left behind (PYKING.md, "What a loop is
-                # worth"). The exhaustion test is built right here, so
-                # the answer is put in place where the loop is left.
-                # Several slots have no answer Java can hold, and `value`
-                # is already None for them.
-                leaving = []
-                if result is not None and len(slots) == 1:
-                    leaving.append(JAssign(
-                        info, result[0], JVar(info, slots[0][0], slots[0][1])
-                    ))
                 body = [JIf(info, JUnary(info, "!", test, BOOL),
-                            leaving + [JBreak(info)], None)] + body
-        if s.result is not None:
-            _unsupported(
-                s, "a `result` expression on a loop -- Java has no loop `else`, "
-                "and the flag it would need is not built yet"
-            )
+                            [JBreak(info)], None)] + body
         return setup + [JLoop(info, body)], value, _reserve(taken, scope)
 
-    def plain_while(self, s, scope):
-        """`while c:` with no accumulator: nothing to carry, nothing to
-        be worth. SLoop -> Scope -> ([JStmt], JExpr?, Scope)"""
-        if s.result is not None:
-            _unsupported(s, "a `result` expression on a loop")
-        condition = self.expr(s.iterate.condition, scope)
-        self._require(condition, BOOL, "a `while` condition")
-        self.loops.append(_Loop([], None))
+    def plain_loop(self, s, scope):
+        """`loop:` or `while c:` with no accumulator: nothing to carry,
+        and worth unit, which Java has no value for.
+        SLoop -> Scope -> ([JStmt], JExpr?, Scope)"""
+        self.loops.append(_Loop([]))
         try:
             body = self.block(s.body, _block_scope(scope))
         finally:
             self.loops.pop()
-        return [JWhile(s.info, condition, body)], None, scope
+        match s.iterate:
+            case WhileTest(_, condition, _):
+                test = self.expr(condition, scope)
+                self._require(test, BOOL, "a `while` condition")
+                return [JWhile(s.info, test, body)], None, scope
+        return [JLoop(s.info, body)], None, scope
 
     def accumulate(self, expr, scope, node):
         """The statements that give the innermost loop its next values.
@@ -834,26 +796,6 @@ class _Translator:
             JAssign(node.info, java_name, JVar(node.info, name, jtype))
             for (java_name, _), (name, jtype) in zip(loop.slots, temporaries)
         ]
-
-    def leave(self, expr, scope, node):
-        """The statements that give the innermost loop its value and
-        leave it. Expr? -> Scope -> Stmt -> [JStmt]"""
-        loop = self.loops[-1]
-        if expr is None or loop.result is None:
-            # A bare `break` gives unit, which Java has no value for, and
-            # `loop` has already refused anything that reads it. With no
-            # result local the accumulator is the answer, and there is
-            # nothing to assign either way.
-            return [JBreak(node.info)]
-        name, jtype = loop.result
-        value = self.expr(expr, scope)
-        if value.ctype != jtype:
-            _unsupported(
-                node,
-                f"this loop leaves {jtype} one way and {value.ctype} "
-                f"another; Java needs one type for the answer",
-            )
-        return [JAssign(node.info, name, value), JBreak(node.info)]
 
     def loop_block(self, stmts, scope):
         """Translates a loop body: whatever a path ends in is the next
@@ -982,17 +924,13 @@ class _Translator:
                 java_stmts, _, scope = self.loop(s, scope)
                 return java_stmts, scope
 
-            case SBreak(_, expr):
-                if not self.loops:
-                    _unsupported(s, "a `break` outside a loop")
-                return self.leave(expr, scope, s), scope
+            case SBreak(info):
+                # Java's own: the locals are left holding what this turn
+                # started with, which is what the loop is worth.
+                return JBreak(info), scope
 
-            case SContinue(info, expr):
-                if expr is None:
-                    return JContinue(info), scope
-                if not self.loops:
-                    _unsupported(s, "a `continue` outside a loop")
-                return self.accumulate(expr, scope, s) + [JContinue(info)], scope
+            case SContinue(info):
+                return JContinue(info), scope
 
             case SMatch():
                 return self.match_chain(
@@ -1332,11 +1270,8 @@ def _breaks_out(body):
 @dataclass(frozen=True)
 class _Loop:
     """One `loop` being translated. Fields: slots, [(String, String)]
-    (one Java local and its type per accumulator slot); result,
-    (String, String)? (the local a `break` with an operand leaves the
-    loop's value in, absent when no `break` carries one)."""
+    (one Java local and its type per accumulator slot)."""
     slots: list
-    result: tuple
 
 
 def _slot_names(target):
@@ -1372,73 +1307,23 @@ def _slot_values(expr, slots, node):
     )
 
 
-def _first_break_value(body):
-    """The operand of the first `break` belonging to this body's own
-    loop, or None. [Stmt] -> Expr?"""
-    for s in body:
-        match s:
-            case SBreak(_, expr) if expr is not None:
-                return expr
-            case SIf(_, _, then_body, else_body):
-                found = _first_break_value(then_body) or _first_break_value(
-                    else_body or []
-                )
-                if found is not None:
-                    return found
-            case _:
-                pass
-    return None
-
-
-def _breaks_bare(body):
-    """Whether any `break` belonging to this body's own loop carries no
-    operand. [Stmt] -> Bool"""
-    for s in body:
-        match s:
-            case SBreak(_, None):
-                return True
-            case SIf(_, _, then_body, else_body):
-                if _breaks_bare(then_body) or _breaks_bare(else_body or []):
-                    return True
-            case _:
-                pass
-    return False
-
-
 def _breakable(node):
     """Refuses a loop whose value Java has no room for: one worth `()`,
-    which is what a bare `break` gives, or one carrying several slots
-    that no `break` picks one of. Stmt -> ()"""
-    if _breaks_bare(node.body):
+    which is what a loop carrying no accumulator is, or one carrying
+    several slots, whose value is the tuple of them. Stmt -> ()"""
+    if node.target is None:
         _unsupported(
             node,
-            "a loop worth `()` -- a bare `break` gives unit, and Java has no "
-            "value for one; `break` with the value the loop is for, or run "
-            "the loop for what it does rather than what it is worth",
+            "a loop worth `()` -- a loop with no accumulator is worth unit, "
+            "and Java has no value for one; carry the value the loop is for, "
+            "or run the loop for what it does rather than what it is worth",
         )
     _unsupported(
         node,
         "a loop that carries several values and is worth all of them -- "
-        "Java has no tuple to hold that; `break` with the one value the "
-        "loop is for",
+        "Java has no tuple to hold that; carry the one value the loop "
+        "is for",
     )
-
-
-def _result_name(target):
-    """The name to build the result local's from: the first slot's.
-    AssignTarget -> String"""
-    names = _slot_names(target)
-    return f"{names[0]}_result" if names else "result"
-
-
-def _zero(info, jtype):
-    """A value of jtype to declare the result local with, since javac
-    refuses to read one that might be unassigned. String -> JExpr"""
-    if jtype == STRING:
-        return JStr(info, "")
-    if jtype == BOOL:
-        return JBool(info, False)
-    return JInt(info, 0)
 
 
 def _as_stmts(translated):

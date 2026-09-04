@@ -156,43 +156,6 @@ builtin.")
   (regexp-opt pyking-mode-builtins 'symbols)
   "Regexp matching any name in `pyking-mode-builtins' as a whole symbol.")
 
-(defun pyking--match-loop-result (limit)
-  "Font-lock matcher for the loop-header keyword `result\='.
-Moves point and leaves the match data around the word, whose group 1 the
-font-lock entry highlights, the same as the regexp entries beside it.
-
-`result\=' is a keyword only between a loop\='s iteration clause and the
-`:\=' that opens its block, and an ordinary name everywhere else, so the
-shape is what has to be recognized rather than the word. Three things
-say it is the keyword: it follows the `in\=' of a `for\=' or the `while\=' of
-a `while\='; it is not the first thing after either, which would make it
-the sequence or the condition; and an expression follows it before the
-`:\=' ends the line. `while i > result + 1:\=' is the shape this cannot
-tell from the keyword without parsing the condition, and is the one
-place it highlights a name."
-  (let ((found nil))
-    (while (and (not found)
-                (re-search-forward "\\_<\\(result\\)\\_>" limit t))
-      (let ((start (match-beginning 1))
-            (end (match-end 1))
-            (data (match-data)))
-        (when (and (save-excursion
-                     (goto-char start)
-                     (let ((bol (line-beginning-position)))
-                       (and (re-search-backward "\\_<\\(?:in\\|while\\)\\_>" bol t)
-                            ;; A token of iteration clause in between.
-                            (string-match-p
-                             "[^ \t]" (buffer-substring (match-end 0) start))
-                            ;; And that `in\=' is a `for\='s.
-                            (or (string= (match-string 0) "while")
-                                (re-search-backward "\\_<for\\_>" bol t)))))
-                   (save-excursion
-                     (goto-char end)
-                     (looking-at "[ \t]+[^\n]*[^ \t:][ \t]*:[ \t]*$")))
-          (set-match-data data)
-          (setq found t))))
-    found))
-
 (defconst pyking-mode-font-lock-keywords
   (list
    ;; function_def = "def" , ident , "(" ... -- the declared function name.
@@ -231,14 +194,6 @@ place it highlights a name."
    ;; and only the word itself is highlighted.
    '("\\_<\\(all\\)\\_>\\(?:[ \t]+[a-z]\\sw*\\)+[ \t]*\\."
      1 font-lock-keyword-face)
-   ;; `for x in xs result e:' -- what a loop is worth when it ends
-   ;; without breaking (see PYKING.md, "What a loop is worth"). Not in
-   ;; `pyking-mode-keywords' for the same reason `all' is not: it is
-   ;; recognized only in a loop header (see `parse_loop_result' in
-   ;; src/parser.py), so `result' stays usable as an ordinary name.
-   ;; Where `all' can be matched by a regexp, this one needs the shape
-   ;; of the whole header, so a function does the matching.
-   '(pyking--match-loop-result 1 font-lock-keyword-face)
    ;; rest_marker = ".." , [ ident ] -- the list-pattern "rest" marker
    ;; (`..`/`..name`), Pyking's spelling of Python's `*_'/`*name' star
    ;; sub-pattern. Matched before any single-`.' rule could apply (there
@@ -662,8 +617,8 @@ block opener that list holds a single forced column (see
 
 Provides syntax highlighting for Pyking's keywords (`for', `in', `if',
 `while', `loop', `break', `continue', `then', `else', `var', `def',
-`return', `match', `case'), the two keywords recognized only where
-they are one (`all' in a type, `result' in a loop header), the
+`return', `match', `case'), the one keyword recognized only where it
+is one (`all' in a type), the
 `:=' mutation operator, the `..'/`..name' list-pattern rest marker,
 string literals (with backslash escapes), `#' comments, the name an
 annotated binding declares (`x: Int = 1'), integer and

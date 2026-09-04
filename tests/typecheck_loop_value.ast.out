@@ -1,23 +1,24 @@
-verdict: String = loop tries: Int = 1:
-    if tries > 3:
-        break 'gave up'
-    else:
-        continue tries + 1
-print(verdict)
-def factorial(n:Int, acc:Int) -> Int:
-    loop (n, acc): (Int, Int) = (n, acc):
-        if n == 0:
-            break acc
+def capped(limit:Int) -> Int:
+    loop acc: Int = 0:
+        if acc > limit:
+            break
         else:
-            continue (n - 1, n * acc)
-print(factorial(10, 1))
-print(factorial(0, 1))
+            acc + 3
 def counted(limit:Int) -> Int:
     loop n: Int = 0:
         if n == limit:
-            break n
+            break
         else if n > 10:
-            break 100
+            break
         else:
-            continue n + 1
+            n + 1
+def marked(width:Int) -> String:
+    var made = 0
+    loop text: String = '':
+        if made == width:
+            break
+        made := made + 1
+        text ++ '*'
+print(capped(10), capped(0))
 print(counted(3), counted(50))
+print(marked(5), marked(0))

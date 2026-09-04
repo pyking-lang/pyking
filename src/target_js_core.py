@@ -396,10 +396,6 @@ def _reserve(names, scope):
     return Scope(scope.names, scope.block, scope.taken | set(names))
 
 
-# The enclosing `loop`s, innermost last (see `_Loop`): what a
-# `break`/`continue` with an operand assigns before it jumps.
-_loop_accumulators = []
-
 
 # Builtins this backend has no translation for yet (docs/target_js.md,
 # "str, range and len").
@@ -839,40 +835,14 @@ def translate_stmt(s, scope):
             js_stmts, _, scope = _translate_loop(s, scope)
             return js_stmts, scope
 
-        case SBreak(info, expr):
-            loop = _loop_accumulators[-1] if _loop_accumulators else None
-            if loop is not None and loop.result is not None:
-                # The loop's value lives in a variable of its own; a
-                # bare `break` leaves the accumulator there, which for a
-                # `loop:` carrying nothing is unit.
-                answer = _break_answer(info, loop, expr, scope)
-                leaving = [JsAssign(info, loop.result, answer)]
-                if loop.finished is not None:
-                    # This loop could also have ended by running out, and
-                    # is worth its accumulator when it does; saying here
-                    # that it did not is what tells the two apart.
-                    leaving.append(
-                        JsAssign(info, loop.finished, JsBool(info, False))
-                    )
-                return leaving + [JsBreak(info)], scope
-            if expr is None:
-                return JsBreak(info), scope
-            js_expr = translate_expr(expr, scope)
-            if loop is None or loop.accumulator is None:
-                # Outside a loop, which the parser refuses; there is no
-                # accumulator and no result variable to assign to, and
-                # the operand is still an expression, so it still runs.
-                return [JsExprStmt(info, js_expr), JsBreak(info)], scope
-            return [JsAssign(info, loop.accumulator, js_expr), JsBreak(info)], scope
+        case SBreak(info):
+            # JavaScript's own: the variable the loop carries is left
+            # holding what this turn started with, which is what the
+            # loop is worth.
+            return JsBreak(info), scope
 
-        case SContinue(info, expr):
-            if expr is None:
-                return JsContinue(info), scope
-            js_expr = translate_expr(expr, scope)
-            loop = _loop_accumulators[-1] if _loop_accumulators else None
-            if loop is None or loop.accumulator is None:
-                return [JsExprStmt(info, js_expr), JsContinue(info)], scope
-            return [JsAssign(info, loop.accumulator, js_expr), JsContinue(info)], scope
+        case SContinue(info):
+            return JsContinue(info), scope
 
         case SIf(info, cond, then_body, else_body):
             js_then, _ = translate_stmts(then_body, _block_scope(scope))
@@ -922,20 +892,6 @@ def translate_target(target, scope):
             return JsTargetArray(info, js_elements), scope
 
 
-@dataclass(frozen=True)
-class _Loop:
-    """One `loop` being translated. Fields: accumulator, JsTarget? (what
-    the loop carries, absent for a `loop:` carrying nothing); result,
-    JsTarget? (where the loop's value is left, present only when a
-    `break` gives something the accumulator has no room for); finished,
-    JsTarget? (the "ran to the end" flag a `break` clears, present only
-    when the loop could have ended either way -- see
-    `_translate_loop`)."""
-    accumulator: JsTarget
-    result: JsTarget
-    finished: JsTarget = None
-
-
 def _defines_function(stmts):
     """Whether a `def` is written anywhere in these statements, at any
     depth. A loop whose body defines one has to give every turn its own
@@ -971,47 +927,6 @@ def _fresh_result_name(scope):
     return f"tmp{n}"
 
 
-def _breaks_anywhere(body):
-    """Whether any `break` belonging to this body's own loop is written
-    in it -- a nested loop's breaks belong to that loop.
-    [Stmt] -> Bool"""
-    for s in body:
-        match s:
-            case SBreak():
-                return True
-            case SLoop() | SFunctionDef():
-                continue
-            case SIf(_, _, then_body, else_body):
-                if _breaks_anywhere(then_body) or _breaks_anywhere(else_body or []):
-                    return True
-            case SMatch(_, _, cases):
-                for c in cases:
-                    if c.body and _breaks_anywhere(c.body):
-                        return True
-            case SLetStmt(_, _, inner) | SReturnStmt(_, inner):
-                if _breaks_anywhere([inner]):
-                    return True
-    return False
-
-
-def _breaks_with_value(body):
-    """Whether any `break` belonging to this body's own loop carries an
-    operand -- a nested loop's breaks belong to that loop.
-    [Stmt] -> Bool"""
-    for s in body:
-        match s:
-            case SBreak(_, expr) if expr is not None:
-                return True
-            case SIf(_, _, then_body, else_body):
-                if _breaks_with_value(then_body) or _breaks_with_value(
-                    else_body or []
-                ):
-                    return True
-            case _:
-                pass
-    return False
-
-
 def _target_names(target):
     """Every JavaScript name a target declares. JsTarget -> [String]"""
     match target:
@@ -1019,15 +934,6 @@ def _target_names(target):
             return [name]
         case JsTargetArray(_, elements):
             return [name for e in elements for name in _target_names(e)]
-
-
-def _break_answer(info, loop, expr, scope):
-    """What a `break` leaves in its loop's result variable: its operand,
-    or unit -- a bare `break` is `break ()` (PYKING.md, "Leaving a
-    loop"). Info -> _Loop -> Expr? -> Scope -> JsExpr"""
-    if expr is not None:
-        return translate_expr(expr, scope)
-    return JsArray(info, [])
 
 
 def _target_as_expr(target):
@@ -1043,8 +949,9 @@ def _target_as_expr(target):
 def _translate_loop(s, scope):
     """Translates a loop into `while (true)` over a `let` accumulator
     (docs/target_js.md, "loop"): the initializer is the accumulator's
-    first value, every tail of the body assigns the next one, and a
-    `break`/`continue` with an operand assigns it before it jumps.
+    first value and every tail of the body assigns the next one, so the
+    variable holds what the loop is worth however it stops -- a `break`
+    is JavaScript's own, and leaves this turn's value where it is.
     Returns the statements, the expression holding the loop's value
     afterwards, and the scope: the accumulator is in scope only in the
     loop's own body, but its `let` is declared in the block around it,
@@ -1087,38 +994,6 @@ def _translate_loop(s, scope):
             setup = [JsLet(info, carried, js_init)]
             per_turn = [JsConst(info, js_target, JsVar(info, carried.name))]
             value = JsVar(info, carried.name)
-    # A loop is worth what it breaks with, which need not be shaped like
-    # what it carries: `break acc` in a loop carrying two values has
-    # nowhere in the accumulator to go, so it gets a variable of its own.
-    # A `loop:` carrying nothing has no accumulator variable at all, so
-    # a `break` with an operand there needs the same.
-    result = None
-    finished = None
-    if _breaks_anywhere(s.body):
-        # What the loop is worth when it ends *without* breaking: the
-        # accumulator, if it carries one, else unit (PYKING.md, "What a
-        # loop is worth"). `value` still holds that, since nothing has
-        # overwritten it yet.
-        ran_out = value
-        result = JsTargetName(info, _fresh_result_name(scope))
-        scope = _reserve([result.name], scope)
-        # And in the body too, so a loop nested there picks a different
-        # name rather than shadowing this one before it is assigned.
-        body_scope = _reserve([result.name], body_scope)
-        setup.append(JsLet(info, result, JsArray(info, [])))
-        value = JsVar(info, result.name)
-        # A `for`/`while` can stop because it ran out rather than because
-        # it broke, and then the loop is worth `ran_out` instead of
-        # whatever a `break` would have left. JavaScript has no loop
-        # `else` to say that in, so a flag does. A plain `loop:` needs
-        # none: breaking is its only way out. Nor does a loop with
-        # nothing to carry, whose `ran_out` is the unit `result` already
-        # starts as.
-        if s.iterate is not None and s.target is not None:
-            finished = JsTargetName(info, _fresh_result_name(scope))
-            scope = _reserve([finished.name], scope)
-            body_scope = _reserve([finished.name], body_scope)
-            setup.append(JsLet(info, finished, JsBool(info, True)))
     # A `for` binds its element in the body's scope; a `while` becomes
     # the loop's own test.
     js_name = None
@@ -1126,19 +1001,7 @@ def _translate_loop(s, scope):
         case ForIn(_, name, sequence, _):
             js_sequence = translate_expr(sequence, scope)
             js_name, body_scope = _bind(name, body_scope)
-    _loop_accumulators.append(_Loop(carried, result, finished))
-    try:
-        js_body = per_turn + _translate_loop_block(s.body, carried, body_scope)
-    finally:
-        _loop_accumulators.pop()
-    if s.result is not None:
-        _unsupported_because(
-            s,
-            "a `result` expression on a loop is not supported by the "
-            "JavaScript backends yet -- JavaScript has no loop `else` to "
-            "say it in, and the flag that stands in for one is only built "
-            "for a loop that carries an accumulator",
-        )
+    js_body = per_turn + _translate_loop_block(s.body, carried, body_scope)
     match s.iterate:
         case ForIn():
             loop = JsForOf(info, js_name, js_sequence, js_body)
@@ -1146,11 +1009,7 @@ def _translate_loop(s, scope):
             loop = JsWhile(info, translate_expr(condition, body_scope), js_body)
         case _:
             loop = JsWhile(info, JsBool(info, True), js_body)
-    after = []
-    if finished is not None:
-        after = [JsIf(info, JsVar(info, finished.name),
-                      [JsAssign(info, result, ran_out)], None)]
-    return setup + [loop] + after, value, scope
+    return setup + [loop], value, scope
 
 
 def _translate_loop_block(stmts, js_target, scope):
@@ -1186,6 +1045,15 @@ def _translate_loop_tail(s, js_target, scope):
                     else_body, js_target, _block_scope(scope)
                 )
             return [JsIf(info, translate_expr(cond, scope), js_then, js_else)]
+        case SMatch():
+            # Every arm ends the turn, so each one's value is the next
+            # accumulator -- without this the arms would be plain
+            # expression statements and the turn would carry nothing.
+            built, _ = _translate_match(
+                s, scope,
+                lambda body, inner: _translate_loop_block(body, js_target, inner),
+            )
+            return built
         case SBreak() | SContinue() | SReturn() | SReturnStmt():
             # Each of these says by itself what happens next: two leave
             # the loop, one leaves the whole function.
@@ -1245,8 +1113,6 @@ def translate_program(stmts, taken=()):
     binding of that name is renamed rather than shadowing it, exactly as
     RESERVED does for the names written here.
     [Stmt] -> {String} -> [JsStmt]"""
-    global _loop_accumulators
-    _loop_accumulators = []
     translated, _ = translate_stmts(
         stmts, Scope({}, frozenset(), frozenset(taken))
     )

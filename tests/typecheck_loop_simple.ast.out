@@ -1,0 +1,22 @@
+k: Int = loop x: Int = 0:
+    if x == 10:
+        break
+    x + 1
+print(k)
+def foo(x:Int) -> Int:
+    x + 1
+var counter = 5
+kk: () = loop:
+    if counter == 10:
+        break
+    counter := counter + 1
+    foo(7)
+print(kk, counter)
+last: Int = loop x: Int = 0 while x < 10:
+    print(x)
+    x + 1
+print(last)
+def total(lst:[Int]) -> Int:
+    loop acc: Int = 0 for x in lst:
+        acc + x
+print(total([1, 10, 3]))

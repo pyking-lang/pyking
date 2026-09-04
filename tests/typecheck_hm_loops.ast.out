@@ -1,14 +1,15 @@
 def collect(lst:[a]) -> [a]:
-    loop kept: [Int] = [] for x in lst result kept:
-        continue kept ++ [x]
+    loop kept: [Int] = [] for x in lst:
+        kept ++ [x]
 def total(lst:[Int]) -> Int:
-    loop sum: Int = 0 for n in lst result sum:
-        continue sum + n
+    loop sum: Int = 0 for n in lst:
+        sum + n
 def any_of(lst:[a], ok:(a) -> Bool) -> Bool:
-    for x in lst result false:
+    loop found: Bool = false for x in lst:
         if ok(x):
-            break true
-        continue
+            true
+        else:
+            found
 def big(n:Int) -> Bool:
     n > 1
 def long_word(w:String) -> Bool:

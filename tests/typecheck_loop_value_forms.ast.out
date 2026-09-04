@@ -1,27 +1,27 @@
 doubled: Int = loop n: Int = 1:
     if n < 50:
-        continue n * 2
+        n * 2
     else:
-        break n
+        break
 print(doubled)
 def below(limit:Int) -> Int:
     return loop n: Int = 1:
         if n < limit:
-            continue n * 2
+            n * 2
         else:
-            break n
+            break
 print(below(20))
 def shrunk(start:Int) -> Int:
     loop n: Int = start:
         if n > 1:
-            continue n - 10
+            n - 10
         else:
-            break n
+            break
 print(shrunk(64))
 loop countdown: Int = 3:
     if countdown == 0:
         break
     else:
         print(countdown)
-        continue countdown - 1
+        countdown - 1
 print('lift off')

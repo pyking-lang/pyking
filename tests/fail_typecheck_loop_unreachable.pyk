@@ -9,5 +9,5 @@
 # message, not a program's output.
 
 counted = loop x = 1:
-    continue x + 1
+    continue
     print("never")

@@ -28,7 +28,7 @@ the language itself:
 def climb(x):                   def climb(x):
     if x >= 20000:                  loop x = x:
         1000 + x                        if x >= 20000:
-    else:                                   break 1000 + x
+    else:                                   return 1000 + x
         climb(x + 1)                    else:
                                             x + 1
 ```
@@ -55,9 +55,9 @@ The walk stops in three places, each for a reason:
 - **at a nested `def`** — a tail call written there is *that* function's
   tail call, not this one's;
 - **at a `for`, a `while` or a `loop`** — the rewrite says "go round
-  again" with `continue` and "stop" with `break`, and inside one of
-  those a `break` would belong to it instead. A `return` written there
-  stays a `return`;
+  again" by ending a block in the next accumulator, and inside one of
+  those that block belongs to the inner loop instead. A `return`
+  written there stays a `return`;
 - **at anything still waiting for the answer**. `n * factorial(n - 1)`
   is not a tail call, and a function whose only recursion looks like
   that is left exactly as written.
@@ -119,15 +119,16 @@ piece:
 - **Self-recursion.** The accumulator's type is the parameter tuple's. A
   tail call `f(a1..an)` type-checked in the original, so `(a1..an)` has
   exactly that type, which is what the body must produce. Every other
-  tail becomes `break e`, and `e` was the function's value on that path,
-  so the loop is worth the function's return type. A tail `if` with no
-  `else` gains `else: break ()`, and in a program that checks, such an
-  `if` already means the function returns unit.
+  tail becomes `return e`, and `e` was the function's value on that
+  path, so it gives the declared return type. A tail `if` with no `else`
+  gains `else: return ()`, and in a program that checks, such an `if`
+  already means the function returns unit. A branch that returns
+  supplies nothing, so it constrains the accumulator not at all.
 - **Merging.** Each slot's type is the one its members share (the gate);
   a branch's `param = slot` rebinding is that type; a tail call to
   member *j* puts member *j*'s argument types into those slots; a padded
   slot gets its own current value or a zero of its type; and every
-  `break` gives the group's shared return type.
+  `return` gives the group's shared return type.
 - **The worker is emitted fully annotated**, from the `tmap`, even for a
   group nobody annotated. That is what makes the argument *local*: the
   worker would be checked where it is written, by the ordinary annotated
@@ -149,31 +150,35 @@ Inside, each tail position becomes what the loop needs:
 
 | tail position | becomes |
 |---|---|
-| a call to the function itself | the next accumulator — its arguments, as the body's last expression |
-| the same, but reached through a `return` before the end | `continue` with those arguments |
-| any other expression, or `return e` | `break e` |
+| a call to the function itself | the next accumulator — its arguments, as the block's last expression |
+| any other expression, or `return e` | `return e` |
 | an `if` / `match` | the same statement, with every branch rewritten |
-| an `if` with no `else` | an `else` that `break`s with `()` — the path that ran no branch is the one the function returned nothing from |
-| a `loop` of the program's own | bound to a name, then broken with |
-| anything else (`=`, `var`, `for`, `while`) | kept, then `break ()` |
+| an `if` with no `else` | an `else` that `return`s `()` — the path that ran no branch is the one the function returned nothing from |
+| a `loop` of the program's own | bound to a name, then returned |
+| anything else (`=`, `var`, `for`, `while`) | kept, then `return ()` |
 
-A `match` in tail position is the one place every arm has to *jump*
-rather than fall out of the match: a subject matching no arm falls out
-of the function as unit, so a `break ()` follows the match, and an arm
-that merely ended in the next accumulator would reach it.
+**Leaving the loop is leaving the function**, which is why "stop" is a
+`return` rather than a `break`: the loop *is* the whole body of the
+function it was built for, so the two are the same act — and a `break`
+could not say what to stop *with*, since a loop is worth the
+accumulator it carries.
 
-**Only a function worth unit gets those `break ()`s**, and that is what
-keeps the rewrite typed (`_falls_through`). Every other body was already
-asked by the checker to return on every path or end in a value of its
-type, so there is no path for one to stand for: adding it anyway builds
-a loop whose `break`s disagree about what the loop is worth — `break
-acc` giving `Int` beside a `break ()` giving unit — which still *runs*,
-the extra exit being unreachable, but is no longer a program the checker
-would accept. That matters because nothing checks the pass's output
-("Why one check is enough" below), and because the `pyking` target
-prints it: `tests/typecheck_pyking_reparse.pyk` is a program whose
-printed form would not compile if the rule were dropped. A unit-returning function
-keeps its fallthrough, since for that one the path is real.
+**Going round is ending a block**, and only a block's last statement can
+do that. A tail call written anywhere else — a `return f(x)` before the
+end of a body — is restructured first (`_hoist`): a guard whose every
+path returns takes the rest of the block into its `else`, which puts
+the call in a tail position without changing what the program means.
+Where that cannot be done the pass **declines** and leaves the function
+as the recursion it was, exactly as it does for a group whose types do
+not fit one loop.
+
+A `match` in tail position is the one place an arm may still have to
+jump: where the function can fall through, a subject matching no arm
+falls out of it as unit, so a `return ()` follows the match — and an arm
+that merely ended in the next accumulator would reach it. Such a match
+is declined rather than mistranslated. Where the function cannot fall
+through (`_falls_through`), nothing follows the match and its arms may
+end in the next accumulator like any other block.
 
 The pass declines a function whose parameters are not distinct names it
 leaves alone — one that rebinds its own parameter, or its own name, in
@@ -194,11 +199,11 @@ def is_even(n):                 def tail_group1(state, n):
     if n == 0:                      loop state, n = state, n:
         true                            if state == 0:
     else:                                   if n == 0:
-        is_odd(n - 1)                           break true
+        is_odd(n - 1)                           return true
                                             else:
 def is_odd(n):                                  1, n - 1
     if n == 0:                          else if n == 0:
-        false                               break false
+        false                               return false
     else:                               else:
         is_even(n - 1)                      0, n - 1
 
@@ -236,11 +241,11 @@ def ping(n):                    def tail_group1(state, n, step):
     if n == 0:                      loop state, n, step = state, n, step:
         0                               if state == 0:
     else:                                   if n == 0:
-        pong(n - 1, 2)                          break 0
+        pong(n - 1, 2)                          return 0
                                             else:
 def pong(n, step):                              1, n - 1, 2
     if n == 0:                          else if n == 0:
-        1                                   break 1
+        1                                   return 1
     else:                               else:
         ping(n - step)                      0, n - step, step
 

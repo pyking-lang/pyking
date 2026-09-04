@@ -17,9 +17,9 @@ def depth(lst:[a]) -> Int:
 def spell(n:Int) -> String:
     loop n: Int = n:
         if n == 0:
-            break 'zero'
+            return 'zero'
         else:
-            continue n - 1
+            n - 1
 print(countdown(3))
 print(sum_to(4))
 print(depth([1, 2, 3]))

@@ -1,31 +1,40 @@
 # `for` as a loop that is worth something.
 #
 # A `for` is a loop with no accumulator written, so it takes the same
-# `break`, `continue` and `result` every loop does. What it is worth
-# follows the one rule: the `result` expression if there is one, else
-# the accumulator if there is one, else unit -- and a `for` with no
-# accumulator has none, which is why one that breaks with a value needs
-# a `result` (see fail_typecheck_for_no_value.pyk).
+# `break` and `continue` every loop does and is worth unit. Write an
+# accumulator on it -- `loop found = 0 for x in xs:` -- and it is worth
+# that instead: what the body ends in on the turn it stops on.
 
 def first_big(xs:[Int]) -> Int:
-    return for x in xs result 0 - 1:
-        if x > 10:
-            break x
+    # The answer is carried, so the loop keeps the first one it found
+    # and stops on the turn after it.
+    return loop found = 0 - 1 for x in xs:
+        if found > 0:
+            break
+        else if x > 10:
+            x
+        else:
+            found
 
 
 def any_of(xs:[Int]) -> Bool:
-    return for x in xs result false:
+    return loop seen = false for x in xs:
         if x == 3:
-            break true
+            true
+        else:
+            seen
 
 
 def label(words:[String]) -> String:
-    return for w in words result "none":
-        break w
+    return loop first = "none" for w in words:
+        if first == "none":
+            w
+        else:
+            break
 
 
-# Without a `result` a `for` is worth unit, so a bare `break` fits and
-# the body is free to end in anything at all.
+# With no accumulator a `for` is worth unit, so its body is free to end
+# in anything at all.
 def shout(xs:[Int]) -> String:
     nothing = for x in xs:
         if x < 0:

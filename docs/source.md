@@ -176,10 +176,9 @@ The groups:
   `SMutate` (`:=`), `SReturn`, `SReturnStmt`, `SExprStmt`, `SFor`,
   `SWhile`, `SLoop` (`loop x = e:`), `SBreak`, `SContinue`, `SIf`,
   `SFunctionDef`, `SMatch`. `SLoop` carries its accumulator as a
-  `target`/`init` pair, both absent for the bare `loop:`, and a
-  `result` expression saying what the loop is worth when it ends
-  without breaking; `SBreak` and `SContinue` carry an optional
-  operand.
+  `target`/`init` pair, both absent for the bare `loop:`; `SBreak` and
+  `SContinue` carry nothing but their span, since a loop is worth the
+  accumulator it stopped with.
 - **Single-constructor records** — `Param`, `ListRest`, `MatchCase`.
 
 Every node carries `info` (its span) and `sym` (its symbol, `0` until
@@ -242,13 +241,6 @@ Around them:
   keyword: the optional accumulator (a target, an optional annotation,
   `=`, an expression) and the body. A loop is also a *bound* value, so
   `parse_bound_value` reaches it too.
-- **`parse_loop_result(tokens, iterate)`** — the optional `result`
-  expression between a loop's header and its `:`. `result` is a keyword
-  only there, so it stays an ordinary name everywhere else; a plain
-  `loop` is refused one, since it can end only by breaking.
-- **`parse_exit_operand(info, tokens)`** — the optional operand of a
-  `break`/`continue`, taken only when one begins on the keyword's own
-  line.
 - **`parse_target`** and `_try_parse_assignment_target` — assignment
   targets, including tuple destructuring.
 - **`parse(tokens) -> [Stmt]`** — the whole program.
@@ -453,16 +445,11 @@ scheme specifically).
 - **`Inferring`** — stands in for a declared return type while one is
   being worked out; a `return` checked against it contributes its type to
   the store's frame instead of being compared with one.
-- **`Exit(info, type)`** — one way out of the loop being checked: where
-  the `break` is written and what it gives (unit for a bare `break`).
-  The store's frame collects them in `breaks`, and the `info` is what
-  lets a refusal point at the `break` that disagreed. `Frame.carries`
-  collects the `continue` operands the same way, which is what the
-  accumulator widening reads.
-- **`acc_type`** — what the loop a `break`/`continue` in the statement
-  being checked belongs to carries, threaded beside the declared return
-  type and `None` where there is no such loop. A bare `loop:` carries
-  nothing, so `None` and `()` are different answers.
+- **`acc_type`** — what the loop the statement being checked belongs to
+  carries, threaded beside the declared return type and `None` where
+  there is no such loop. A bare `loop:` carries unit, so `None` and
+  `()` are different answers: the first says there is no loop at all,
+  which is what refuses a `break` outside one.
 - **`env`** — name → `Type`, and nothing else: a name it does not hold
   is a name not in scope. Used immutably: a binding hands what follows
   it an extended copy. The four host operations are in it at their
@@ -519,28 +506,26 @@ OCaml-style near the top of the file):
   That single question — what value does this supply? — is why a branch
   that `return`s, a branch that `break`s and a branch that ends in an
   expression compare without any of them being a special case: a
-  `return` supplies the function's type, a `break`/`continue` the
-  enclosing loop's accumulator. `SVar` and `SMutate` supply unit: a
+  `return` supplies the function's type, and a `break`/`continue`
+  supplies nothing at all, since neither reaches the end of its block.
+  `SVar` and `SMutate` supply unit: a
   `var` is `Int` or `Bool` (**`check_mutable`**), and a `:=` must give
   the type the declaration fixed. Neither says anything about
   *mutability* — that is `analyses.analyze_mutability`'s.
-- **`loop_value(ways_out, info) -> Type?`** — what a plain `loop` is
-  worth: the type its `break`s give, refused where two of them
-  disagree, and `None` where there are none (a loop nothing breaks
-  out of never finishes, so it supplies no value at all). A
-  `for`/`while` instead takes its `result` expression, or its
-  accumulator, or unit, and every `break` must `agree` with that.
+- **`check_turn(body, turn_env, tmap, return_type, accumulator, store)
+  -> (Type?, Store)`** — one pass over a loop body: what it supplies is
+  what the next turn carries, and `None` where every path through it
+  jumps. A loop with an accumulator holds that answer to the
+  accumulator's type (**`carry_error`** is the refusal); one with none
+  asks nothing of it. Either way the loop's own type is the
+  accumulator, which is what it is worth however it stops. A `return`
+  written in the body leaves the enclosing function, so the frame comes
+  back as it went in.
 - **`ends_every_path(stmts)` / `ends_here(statement)`** — whether every
-  path through a loop body ends in a `continue`, a `break` or a
-  `return`, structurally: an `if` or a `match` counts when all its
-  branches do, and a `match` has to cover its subject as well. Asked
-  only of a loop with an accumulator, which is the one that has
-  something to say about the next turn.
-- **`break_error(worth, given, target, result)` / `carrying(store,
-  type_)`** — the refusal a disagreeing `break` gets, worded from what
-  said the loop's worth (a loop with neither an accumulator nor a
-  `result` is told to add one); and the record of a `continue`'s
-  operand in the frame.
+  path through a block jumps (`continue`, `break`, `return`),
+  structurally: an `if` or a `match` counts when all its branches do,
+  and a `match` has to cover its subject as well. `check_stmts` uses it
+  to know that what follows is unreachable.
 - **`check_target(target, type_, env, tmap, store) -> Env`** — a binding
   target, one name or a tuple taken apart; a destructuring target
   requires a tuple type of the same length.
@@ -635,9 +620,17 @@ backend compiles are then the same program.
   position. Tail position is PYKING.md's own, and the walk stops at a
   nested `def` (whose tails are its own) and at a `for`/`while`/`loop`
   (where a `break` would belong to that loop instead).
-- **`_rewrite_tail` / `_rewrite_inner` / `_going_on`** — the rewrite: a
-  recursive call becomes the next accumulator (or a `continue` where it
-  has to jump), anything else becomes a `break`.
+- **`_rewrite_block` / `_rewrite_tail` / `_rewrite_inner` /
+  `_going_on`** — the rewrite: a recursive call becomes what the block
+  ends in, which is what the next turn carries, and anything else
+  becomes a `return` (leaving the loop and leaving the function are one
+  thing here, since the loop *is* the function's body).
+- **`_hoist` / `_goes_round` / `_always_returns` / `_Decline`** — going
+  round can only be said by ending a block, so a call in a statement
+  that is not the block's last is restructured first: a guard that
+  always returns takes what follows it into its `else`. Where that
+  cannot be done the rewrite declines and the function is left as the
+  recursion it was.
 - **`_rewrite_self`** — a function that calls itself, as a loop carrying
   its own parameters under their own names.
 - **`_merge`** — a mutually recursive group, as one `tail_groupN` worker
@@ -740,8 +733,8 @@ three are design rather than accident:
   `KBinaryLeft`, `KBinaryRight`, `KCallee`,
   `KArgument`, `KElement` (one element of a tuple), `KBranch` (an `if`
   statement), `KChoose` (an `if` expression), `KDiscard`, `KStartLoop`,
-  `KIterate`, `KExit` (a `break`/`continue` with an operand),
-  `KEnding` (a loop's `result` expression), `KReturnTo`. Each holds `rest`, so
+  `KSequence` (a `for`'s list), `KTest` (a `while`'s condition),
+  `KIterate`, `KReturnTo`. Each holds `rest`, so
   the chain is a linked list — pushing and popping cost one allocation
   and no copying, and two states can share a tail, which is what makes a
   paused state cheap to keep. Most also hold the `env` their remaining
@@ -802,9 +795,10 @@ three are design rather than accident:
   and enters the body with `KIterate` waiting for its value, which comes
   back here — so a turn costs no continuation chain however many turns
   there are, and a loop that never ends never grows. `_leave` delivers
-  the loop's value where the loop statement stood. `_finish` is the
-  other end: a loop that ran out of turns evaluates its `result`
-  expression under `KEnding`, or is worth its accumulator, or unit.
+  the loop's value where the loop statement stood -- the accumulator
+  this turn started with, which is what a `break` leaves with too.
+  `_finish` is the other end: a loop that ran out of turns is worth
+  that same accumulator.
 - **`bind_target(env, target, value)`** — binds one name, or takes a
   tuple apart; used by both `KBind` and each turn of a loop.
 - **`declare(stmts, env)` / `define(env, node)`** — the two halves of
@@ -1137,11 +1131,13 @@ meaning, so `standard` reaches only the printer.
   and a function's return type is read off its translated body. Where
   inference cannot answer, it raises `UnsupportedError` rather than
   emitting C that will not compile.
-- **`_Translator.loop` / `loop_block` / `loop_tail`** — a `loop` as
-  `while (1)` over one mutable variable, whose C type is the
-  initializer's. Every tail of the body assigns the next turn's value,
-  and the shapes C has no unit for (a bare `loop:`, an `if` with no
-  `else` at the end of a body) are refused rather than approximated.
+- **`_Translator.loop` / `plain_loop` / `loop_block` / `loop_tail`** —
+  a `loop` as `while (1)` over one mutable variable per slot, whose C
+  type is the initializer's. Every tail of the body assigns the next
+  turn's value, a `break` is C's own (the variables are left holding
+  what the loop is worth), and the shapes C has no value for -- a loop
+  worth unit or worth a tuple, whose value something wants -- are
+  refused rather than approximated.
 - **`_Translator.in_order` / `sequenced`** — C leaves the order of an
   operator's operands and a call's arguments unspecified, so operands
   that `analyses.Effects` says can print are pulled into temporaries and

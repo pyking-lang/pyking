@@ -1,0 +1,15 @@
+# `break` with an operand.
+#
+# A loop is worth the accumulator it stopped with, so there is nothing
+# for a `break` to say and it takes no operand. What follows one here is
+# read as a statement of its own, and a statement starts a line of its
+# own -- which is what the parser says.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+counted = loop x = 1:
+    if x > 3:
+        break x * 10
+    else:
+        x + 1

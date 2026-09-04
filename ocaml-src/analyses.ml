@@ -291,23 +291,20 @@ and sym_stmt counter st =
       let expr, counter = sym_expr counter expr in
       let s, counter = assign s counter in
       (SExprStmt (i, expr, s), counter)
-  | SLoop (i, target, init, type_, iterate, result, body, s) ->
+  | SLoop (i, target, init, type_, iterate, body, s) ->
       let target, counter = map_option sym_target counter target in
       let init, counter = map_option sym_expr counter init in
       let type_, counter = map_option sym_type counter type_ in
       let iterate, counter = map_option sym_loop_iter counter iterate in
-      let result, counter = map_option sym_expr counter result in
       let body, counter = map_fold sym_stmt counter body in
       let s, counter = assign s counter in
-      (SLoop (i, target, init, type_, iterate, result, body, s), counter)
-  | SBreak (i, expr, s) ->
-      let expr, counter = map_option sym_expr counter expr in
+      (SLoop (i, target, init, type_, iterate, body, s), counter)
+  | SBreak (i, s) ->
       let s, counter = assign s counter in
-      (SBreak (i, expr, s), counter)
-  | SContinue (i, expr, s) ->
-      let expr, counter = map_option sym_expr counter expr in
+      (SBreak (i, s), counter)
+  | SContinue (i, s) ->
       let s, counter = assign s counter in
-      (SContinue (i, expr, s), counter)
+      (SContinue (i, s), counter)
   | SIf (i, cond, then_body, else_body, s) ->
       let cond, counter = sym_expr counter cond in
       let then_body, counter = map_fold sym_stmt counter then_body in
@@ -440,17 +437,16 @@ and high_stmt st =
     | SExprStmt (_, expr, _) ->
         high_expr expr
     | SReturnStmt (_, stmt, _) -> high_stmt stmt
-    | SLoop (_, target, init, type_, iterate, result, body, _) ->
+    | SLoop (_, target, init, type_, iterate, body, _) ->
         List.fold_left max 0
           [
             high_option high_target target;
             high_option high_expr init;
             high_option high_type type_;
             high_option high_loop_iter iterate;
-            high_option high_expr result;
             high_list high_stmt body;
           ]
-    | SBreak (_, expr, _) | SContinue (_, expr, _) -> high_option high_expr expr
+    | SBreak (_, _) | SContinue (_, _) -> 0
     | SIf (_, cond, then_body, else_body, _) ->
         List.fold_left max 0
           [

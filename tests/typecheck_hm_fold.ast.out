@@ -2,9 +2,9 @@ def fold_left(f:(a, b) -> a, acc:a, lst:[b]) -> a:
     loop (f, acc, lst): ((a, b) -> a, a, [b]) = (f, acc, lst):
         match lst:
             case [x, ..xs]:
-                continue (f, f(acc, x), xs)
+                (f, f(acc, x), xs)
             case []:
-                break acc
+                return acc
 def add(total:Int, n:Int) -> Int:
     total + n
 def join(text:String, word:String) -> String:

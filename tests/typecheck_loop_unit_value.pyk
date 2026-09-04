@@ -1,39 +1,35 @@
 # What a `loop:` carrying nothing is worth.
 #
-# A bare `loop:` writes no accumulator down, so unit is what it carries
-# from turn to turn. Two things follow, and this file pins both.
+# A bare `loop:` writes no accumulator down, so it carries nothing from
+# turn to turn and is worth unit -- however it stops, and whatever its
+# body ends in. Two things follow, and this file pins both.
 #
-# `continue ()` gives that accumulator, and is the only operand such a
-# `continue` may have -- `continue 4` is a type error, which
-# `fail_typecheck_loop_unit_continue.pyk` covers.
-#
-# A `break`, meanwhile, says what the loop is *worth*, which is a
-# different question from what it carries. It may hand back anything at
-# all, and every target has to agree about that: the value has nowhere
-# in the accumulator to go, since there is no accumulator.
+# `continue` and `break` take no operand: there is no accumulator for
+# either of them to say anything about.
 
 answer = loop:
     if true:
-        break 7
-    continue ()
+        break
+    7
 
 print(answer)
 
 
-# A bare `break` leaves the accumulator, which here is unit.
+# The same loop written with nothing after the `break` at all.
 nothing = loop:
     break
 
 print(nothing)
 
 
-# The value need not be an Int, and where a loop has two `break`s they
-# have to agree on one type -- these both give String.
-def pick(flag:Bool) -> String:
-    loop:
-        if flag:
-            break "yes"
-        else:
-            break "no"
+# The body's last statement may be of any type, since nothing carries
+# it into the next turn.
+var seen = 0
 
-print(pick(true), pick(false))
+loop:
+    if seen == 3:
+        break
+    seen := seen + 1
+    "a String nobody wants"
+
+print(seen)

@@ -57,8 +57,7 @@ rules, one printer with a single `if version` branch in it.
 `print`; `def` with parameters, `return` and recursion, its body
 written under the header or on the header's own line (`def f(x): e`);
 `if` / `else if` / `else`;
-`while`; `loop` with `break` and `continue`, where the loop carries an
-accumulator; `=`, `var`, `:=`; `if … then … else …` expressions;
+`while`; `loop` with `break` and `continue`; `=`, `var`, `:=`; `if … then … else …` expressions;
 integers, strings and booleans; `+ - *`, unary minus, comparisons, and
 calls. Tail position, `return if c:`, and unit-returning (`void`)
 methods are supported too -- see below.
@@ -153,15 +152,18 @@ following one that definitely returns) and refuses it first.
 ### A `loop` Java cannot give a value
 
 ```
-Unsupported by target 'java21': a `loop` with no accumulator -- Java has
-no value to give it, so write `loop x = 0:` and break with what you want
+Unsupported by target 'java21': a loop worth `()` -- a loop with no
+accumulator is worth unit, and Java has no value for one; carry the
+value the loop is for, or run the loop for what it does rather than
+what it is worth
 ```
 
-The same three shapes the C backend refuses, for the same reason: a bare
-`loop:`, an `if` with no `else` as the last statement of a loop body,
-and a body ending in something with no value. Each is a case Pyking
-answers with unit, which Java has nothing to hold. A tuple accumulator
-is refused too, this backend having no tuples.
+The same shapes the C backend refuses, for the same reason: a loop with
+no accumulator (worth unit) or with several slots (worth the tuple of
+them) *whose value something wants*, an `if` with no `else` as the last
+statement of a loop body, and a body ending in something with no value.
+Each is a case Pyking answers with unit or a tuple, which Java has
+nothing to hold. Running such a loop for what it does is fine.
 
 ### `:=` that changes a variable's type
 
@@ -406,15 +408,14 @@ A `loop` is `while (true)` over one non-`final` local holding the
 accumulator. The initializer declares it -- and its Java type is the
 initializer's, by the ordinary inference rule -- every tail of the body
 assigns the next turn's value, and `break`/`continue` are Java's own,
-with the operand assigned first where one is written:
+operand and all: they have none.
 
 ```pyking                          // generated Java
 res = loop x = 5:                  var x = 5;
     if x <= 10:                    while (true) {
-        continue x + 1                 if (x <= 10) {
+        x + 1                          if (x <= 10) {
     else:                                  x = x + 1;
-        break                              continue;
-                                       } else {
+        break                          } else {
                                            break;
                                        }
                                    }
@@ -428,26 +429,19 @@ several values gets one local per slot, with the next turn's values
 computed into `final` locals first so that a slot reading another sees
 the turn it is still on.
 
-A loop is worth what it `break`s with, which need not be shaped like
-what it carries -- the shape every accumulator-passing function has
-after the tail-call pass (docs/optimization.md) -- so a `break` with an
-operand gets a local of its own, typed from what the breaks give and
-initialised because javac refuses to read a local that might be
-unassigned. A loop whose breaks disagree about that type is refused here
-too, though the type checker now refuses it first and in the language's own
-words (PYKING.md, "Type checking"); this backend keeps its own check
-because it compiles whether the checker ran or not. A *bare* `break` in
-a multi-slot loop is refused for a reason of Java's alone: its answer
-would be all the slots at once, and Java has no tuple to hold them.
+A loop is worth the accumulator it stopped with, so the locals already
+hold the answer: a `break` is Java's own and leaves them holding what
+this turn started with. A loop of several slots is worth all of them at
+once, which Java has no tuple for -- so one whose value something wants
+is refused, while one run for what it does (the shape every
+accumulator-passing function has after the tail-call pass, whose every
+exit is a `return`) compiles here.
 
-A `while c` can also stop by **running out**, and the loop is worth its
-accumulator then rather than whatever a `break` left in that local
-(PYKING.md, "What a loop is worth"). Java has no loop `else`, and needs
-no flag for one: the exhaustion test is written by this backend itself,
-`if (!c) break;` at the top of a `while (true)`, so the accumulator is
-assigned to the result local right there.
-`tests/loop_worth_ran_out_subset.pyk` is the case;
-[target_c.md](target_c.md) says the same of C.
+A `while c` can also stop by **running out**, and the loop is worth the
+same accumulator then. Java has no loop `else`, and needs none: the
+exhaustion test is written by this backend itself, `if (!c) break;` at
+the top of a `while (true)`. [target_c.md](target_c.md) says the same
+of C.
 
 Binding a loop is that `final` declaration after it, and a loop in tail
 position is `return x` -- unless nothing breaks out of the loop, in

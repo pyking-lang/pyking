@@ -13,9 +13,9 @@
 counted =
 loop x = 5:
     if x <= 10:
-        continue x + 1
+        x + 1
     else:
-        break x
+        break
 
 print(counted)
 
@@ -26,9 +26,9 @@ print(counted)
 def multiple_over(start, limit):
     loop n = start:
         if n > limit:
-            break n
+            break
         else:
-            continue n * 2
+            n * 2
 
 
 print(multiple_over(1, 100))

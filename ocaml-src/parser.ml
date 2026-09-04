@@ -22,8 +22,6 @@
       parse_block eof tokens header_info -- parses one block: indented,
         or the single statement on its header's own line.
       parse_loop_stmt eof info tokens -- parses a loop after its 'loop'.
-      parse_exit_operand eof info tokens -- the optional operand of a
-        'break'/'continue', taken only from the keyword's own line.
       parse_type eof tokens -- parses one type annotation.
       parse_pattern eof tokens -- parses one match/case pattern.
       combine_info start end_ -- spans an Info from two nodes' Infos. *)
@@ -851,13 +849,12 @@ and parse_loop_stmt eof loop_info tokens =
           parse_loop_tail eof loop_info (Some target) annotation (Some init) rest)
 
 (** Parses what follows a loop's accumulator: an optional `for`/`while`
-    clause, an optional `result` expression, then the `:` and body.
-    Every loop in the language comes through here.
+    clause, then the `:` and body. Every loop in the language comes
+    through here.
     info -> info -> assign_target option -> typ option -> expr option ->
     [token] -> (stmt, [token]) *)
 and parse_loop_tail eof loop_info target annotation init tokens =
   let iterate, rest = parse_loop_iter eof tokens in
-  let result, rest = parse_loop_result eof rest iterate in
   match rest with
   | TokColon colon_info :: rest ->
       let body, rest = parse_block eof rest colon_info in
@@ -867,30 +864,10 @@ and parse_loop_tail eof loop_info target annotation init tokens =
             init,
             annotation,
             iterate,
-            result,
             body,
             0 ),
         rest )
   | _ -> raise (Parse_error (here eof rest, "expected ':' after loop header"))
-
-(** Parses a loop's `result` expression, or answers None where none was
-    written. `result` is a keyword only here -- between the loop's
-    header and its `:`.
-    info -> [token] -> loop_iter option -> (expr option, [token]) *)
-and parse_loop_result eof tokens iterate =
-  match tokens with
-  | TokIdent (i, "result") :: rest ->
-      if iterate = None then
-        raise
-          (Parse_error
-             ( i,
-               "'result' says what a loop is worth when it ends without \
-                breaking, and a plain 'loop' can only end by breaking; write \
-                'for'/'while', or say it on the 'break'" ))
-      else
-        let e, rest = parse_expr eof rest in
-        (Some e, rest)
-  | _ -> (None, tokens)
 
 (** Parses a loop's iteration clause, or answers None where the loop
     takes another turn unconditionally.
@@ -906,17 +883,6 @@ and parse_loop_iter eof tokens =
       let condition, rest = parse_expr eof rest in
       ( Some (WhileTest (combine_info i (expr_info condition), condition, 0)),
         rest )
-  | _ -> (None, tokens)
-
-(** Parses the optional operand of a 'break'/'continue': one is present
-    only if it starts on the keyword's own line.
-    info -> info -> [token] -> (expr option, [token]) *)
-and parse_exit_operand eof keyword_info tokens =
-  match tokens with
-  | first :: _
-    when expr_starter first && (token_info first).row1 = keyword_info.row2 ->
-      let e, rest = parse_tuple_or_expr eof tokens in
-      (Some e, rest)
   | _ -> (None, tokens)
 
 (** Parses the right-hand side of a binding's '=': an expression, or a
@@ -1018,14 +984,8 @@ and parse_statement eof tokens =
          same node, and so the same `break`/`continue`. *)
       parse_loop_tail eof i None None None tokens
   | TokLoop i :: rest -> parse_loop_stmt eof i rest
-  | TokBreak i :: rest ->
-      let operand, rest = parse_exit_operand eof i rest in
-      let end_ = match operand with None -> i | Some e -> expr_info e in
-      (SBreak (combine_info i end_, operand, 0), rest)
-  | TokContinue i :: rest ->
-      let operand, rest = parse_exit_operand eof i rest in
-      let end_ = match operand with None -> i | Some e -> expr_info e in
-      (SContinue (combine_info i end_, operand, 0), rest)
+  | TokBreak i :: rest -> (SBreak (i, 0), rest)
+  | TokContinue i :: rest -> (SContinue (i, 0), rest)
   | TokMatch i :: rest -> parse_match_stmt eof i rest
   (* A statement starting with `if` is either an if *statement*
      (`if cond: block`) or an if *expression* used as an expression
@@ -1267,9 +1227,9 @@ and check_loop_context stmts held crossed =
   List.iter
     (fun stmt ->
       match stmt with
-      | SBreak (i, _, _) | SContinue (i, _, _) ->
+      | SBreak (i, _) | SContinue (i, _) ->
           if not held then no_loop_here stmt i crossed
-      | SLoop (_, _, _, _, _, _, body, _) -> check_loop_context body true None
+      | SLoop (_, _, _, _, _, body, _) -> check_loop_context body true None
       | SFunctionDef (_, _, _, body, _, _, _) ->
           check_loop_context body false (if held then Some "def" else crossed)
       | SIf (_, _, then_body, else_body, _) ->
@@ -1407,16 +1367,6 @@ and shorten text =
     their own tokens). string -> bool *)
 and is_type_var name =
   String.length name > 0 && name.[0] >= 'a' && name.[0] <= 'z'
-
-(** The tokens an expression can begin with. `break`/`continue` take an
-    operand only when one follows on the same line, and this is how
-    "something follows" is decided. token -> bool *)
-and expr_starter tok =
-  match tok with
-  | TokInt _ | TokString _ | TokIdent _ | TokTrue _ | TokFalse _ | TokSub _
-  | TokLParen _ | TokLBracket _ | TokIf _ ->
-      true
-  | _ -> false
 
 (* Pyking has no import-all form: a name a module reaches is written
    down, so reading the file says where every name comes from. *)

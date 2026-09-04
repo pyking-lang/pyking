@@ -176,12 +176,11 @@ testing — could be built end to end before the language surface grew:
 | `return if c:` / `return match e:` | ✅ | ✅ (`if` only) | ✅ (`if` only) | ✅ (`if` only) | ✅ (`if` only) |
 | unit-returning functions (`void`) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `if` / `else if` / `else`, `while` | ✅ | ✅ | ✅ | ✅ | ✅ (`if` only) |
-| `loop`, `break`, `continue` | ✅ | ✅ | ✅ (an accumulator is required) | ✅ (same) | ✅ (a local `let rec`, applied at once) |
+| `loop`, `break`, `continue` | ✅ | ✅ | ✅ | ✅ | ✅ (a local `let rec`, applied at once) |
 | `for x in e:` | ✅ | ✅ (`for…of`) | ❌ (needs lists) | ❌ (same) | ❌ (not built yet) |
 | `while c:` | ✅ | ✅ | ✅ | ✅ | ❌ |
 | … with an accumulator (`loop a = 0 while c:`) | ✅ | ✅ | ✅ | ✅ | ❌ |
-| `result` on a loop | ✅ (Python's loop `else`) | ❌ | ❌ | ❌ | ❌ |
-| a loop worth `()` (a bare `break`) | ✅ | ✅ | ❌ (no unit value) | ❌ (same) | ✅ |
+| a loop whose *value* is taken and is `()` or a tuple | ✅ | ✅ | ❌ (no value for either) | ❌ (same) | ✅ (unit only) |
 | tail calls run in constant space | ✅ | ✅ | ✅ | ✅ | ✅ (natively; the pass is skipped) |
 | … for a program the type checker accepts | always: every program is checked | same | same | same | n/a |
 | `=`, `var`, `:=` | ✅ | ✅ | ✅ | ✅ | ✅ (`var` is a `ref`) |

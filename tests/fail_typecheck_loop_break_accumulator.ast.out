@@ -1,3 +1,0 @@
-'tests/fail_typecheck_loop_break_accumulator.pyk' 20:8-20:17 Type
-  error: this loop is worth (), from an earlier 'break', but this
-  'break' gives String

@@ -8,9 +8,9 @@ def fold_left(step:(a, b) -> a, start:a, xs:[b]) -> a:
     loop (step, start, xs): ((a, b) -> a, a, [b]) = (step, start, xs):
         match xs:
             case []:
-                break start
+                return start
             case [head, ..rest]:
-                continue (step, step(start, head), rest)
+                (step, step(start, head), rest)
 def filter(keep:(a) -> Bool, xs:[a]) -> [a]:
     match xs:
         case []:

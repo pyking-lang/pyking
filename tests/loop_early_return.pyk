@@ -12,10 +12,10 @@ def described(n: Int) -> String:
     reached =
     loop k = n:
         if k > 100:
-            break k
+            break
         if k == 13:
             return "unlucky"
-        continue k * 3
+        k * 3
     "reached " ++ str(reached)
 
 
@@ -31,8 +31,8 @@ def twice_over(start: Int) -> String:
         if n == 0:
             return "zero all the way"
         if n > 40:
-            break n
-        continue n + n
+            break
+        n + n
     str(stopped) ++ " from " ++ str(start)
 
 

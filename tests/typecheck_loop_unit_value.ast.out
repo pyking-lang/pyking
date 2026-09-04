@@ -1,15 +1,15 @@
-answer: Int = loop:
+answer: () = loop:
     if true:
-        break 7
-    continue ()
+        break
+    7
 print(answer)
 nothing: () = loop:
     break
 print(nothing)
-def pick(flag:Bool) -> String:
-    loop:
-        if flag:
-            break 'yes'
-        else:
-            break 'no'
-print(pick(true), pick(false))
+var seen = 0
+loop:
+    if seen == 3:
+        break
+    seen := seen + 1
+    'a String nobody wants'
+print(seen)

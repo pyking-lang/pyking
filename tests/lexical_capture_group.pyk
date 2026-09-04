@@ -11,7 +11,7 @@ loop made = [] for i in range(3):
     def outer_call(): inner()
     marker = "unrelated"
     def inner(): i
-    continue made ++ [outer_call]
+    made ++ [outer_call]
 
 for f in fns:
     print(f())
@@ -25,7 +25,7 @@ loop seen = [] for n in range(3):
     def even(k): if k < 1 then n else odd(k - 1)
     step = 1
     def odd(k): even(k - step + 1)
-    continue seen ++ [even]
+    seen ++ [even]
 
 for g in pairs:
     print(g(2))
@@ -41,7 +41,7 @@ loop linked = [] for m in range(3):
     def second(): third()
     right = "b"
     def third(): m * 100
-    continue linked ++ [first]
+    linked ++ [first]
 
 for h in chains:
     print(h())
@@ -54,7 +54,7 @@ plain =
 loop simple = [] for p in range(2):
     def constant(): 7
     def doubled_constant(): constant() * 2
-    continue simple ++ [doubled_constant]
+    simple ++ [doubled_constant]
 
 for q in plain:
     print(q())
@@ -68,7 +68,7 @@ loop reading = [] for r in range(2):
     var acc = 0
     def read_acc(): acc
     acc := acc + 10
-    continue reading ++ [read_acc]
+    reading ++ [read_acc]
 
 for s in readers:
     print(s())
@@ -84,7 +84,7 @@ loop later = [] for t in range(2):
     def before(): outside ++ "/before"
     outside = "inner"
     def after(): outside ++ "/after"
-    continue later ++ [before] ++ [after]
+    later ++ [before] ++ [after]
 
 for u in readers2:
     print(u())
@@ -103,7 +103,7 @@ loop noted = [] for v in range(1):
     stays = noisy("first")
     held_value = noisy("second") + v
     def held(): held_value
-    continue noted ++ [uses]
+    noted ++ [uses]
 
 for w in noisy_fns:
     print(w())
@@ -120,7 +120,7 @@ def guarded(n:Int) -> Int:
             return 0
         held = y + 5
         def inner_use(): held
-        continue keeping ++ [outer_use]
+        keeping ++ [outer_use]
     for z in kept:
         print(z())
     n

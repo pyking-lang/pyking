@@ -447,13 +447,6 @@ _pending_comp_helpers = []
 # collide with one.
 _used_identifiers = set()
 
-# The enclosing `loop`s, innermost last (see `_Loop`): what a
-# `break`/`continue` with an operand assigns before it jumps.
-_loop_accumulators = []
-
-# How many loop-result variables have been named in this program.
-_result_counter = 0
-
 # The type checker's symbol -> type table, set by `translate_program`.
 # What a `print` argument is worth knowing about is its type, and this
 # is where that is read from.
@@ -674,7 +667,7 @@ def _captured_in_block(stmts, bound, captured):
                 # A function nested inside this one is part of the same
                 # question one level down, and is reached when that body
                 # is translated.
-            case SLoop(_, target, _, _, iterate, result, body):
+            case SLoop(_, target, _, _, iterate, body):
                 inner = set(bound)
                 if target is not None:
                     inner |= set(_target_names(target))
@@ -748,7 +741,7 @@ def _free_in_stmt(s, bound, free):
             _free_in_expr(expr, bound, free)
         case SReturnStmt(_, stmt):
             _free_in_stmt(stmt, bound, free)
-        case SLoop(_, target, init, _, iterate, result, body):
+        case SLoop(_, target, init, _, iterate, body):
             # The initializer is read outside the loop; the accumulator
             # is bound in the body and nowhere else.
             inner = set(bound)
@@ -764,11 +757,8 @@ def _free_in_stmt(s, bound, free):
                     _free_in_nested(body, inner, free)
                 case _:
                     _free_in_nested(body, inner, free)
-            if result is not None:
-                _free_in_expr(result, inner, free)
-        case SBreak(_, expr) | SContinue(_, expr):
-            if expr is not None:
-                _free_in_expr(expr, bound, free)
+        case SBreak() | SContinue():
+            pass
         case SIf(_, cond, then_body, else_body):
             _free_in_expr(cond, bound, free)
             _free_in_nested(then_body, bound, free)
@@ -873,7 +863,7 @@ def _mutated_in_block(stmts, written, declared):
                 _mutated_in_block(then_body, written, declared)
                 if else_body is not None:
                     _mutated_in_block(else_body, written, declared)
-            case SLoop(_, _, _, _, _, _, body):
+            case SLoop(_, _, _, _, _, body):
                 _mutated_in_block(body, written, declared)
             case SMatch(_, _, cases):
                 for arm in cases:
@@ -1736,11 +1726,12 @@ def _translate_value_block(stmts, py_target, scope):
 
 
 def _translate_loop(s, scope):
-    """Translates a loop into Python's own `while True` over a mutable
-    accumulator variable (docs/target_python.md, "loop"): the
-    initializer becomes the variable's first value, every tail of the
-    body assigns the next one, and a `break`/`continue` with an operand
-    assigns before it jumps. Returns the statements, the expression
+    """Translates a loop into Python's own `while True`/`for` over a
+    mutable accumulator variable (docs/target_python.md, "loop"): the
+    initializer becomes the variable's first value and every tail of the
+    body assigns the next one, so the variable holds what the loop is
+    worth however it stops -- a `break` is Python's own, and leaves this
+    turn's value where it is. Returns the statements, the expression
     holding the loop's value afterwards, and the scope -- which is the
     caller's, since the accumulator belongs to the body.
     SLoop -> Scope -> ([PyStmt], PyExpr, Scope)"""
@@ -1757,15 +1748,6 @@ def _translate_loop(s, scope):
         py_target, body_scope = translate_target(s.target, body_scope, rebinding=True)
         setup.append(PyAssign(info, py_target, py_init))
         value = _target_as_expr(py_target)
-    # A loop is worth what it breaks with, which need not be shaped like
-    # what it carries -- `break acc` in a loop carrying two values has
-    # nowhere in the accumulator to go, and a bare `break` is `break ()`
-    # whatever the loop carries. So a loop with any `break` at all keeps
-    # its value in a variable of its own, and every way out writes there.
-    result = None
-    if _breaks_anywhere(s.body):
-        result = PyTargetName(info, _fresh_result_name())
-        value = PyVar(info, result.name)
     # The iteration clause decides which Python loop this is. A `for`
     # binds its element in the body's scope, where Python's own `for`
     # target lives too, so it renames like anything else when it shadows.
@@ -1783,122 +1765,17 @@ def _translate_loop(s, scope):
             )
             py_name, body_scope = _bind(name, body_scope)
 
-    _loop_accumulators.append(_Loop(py_target, result))
-    try:
-        py_body = _translate_loop_block(s.body, py_target, body_scope)
-        # `then:` is Python's own loop `else`, which runs exactly when no
-        # `break` fired -- the rule Pyking's `then:` states. Its tail is
-        # the loop's value, so it assigns wherever a `break` would.
-        # Python's loop `else` runs exactly when no `break` fired, which
-        # is when a Pyking loop ends by running out of turns -- so that
-        # is where what it is worth *then* is written.
-        py_after = None
-        if s.result is not None or result is not None:
-            if result is None:
-                result = PyTargetName(info, _fresh_result_name())
-                value = PyVar(info, result.name)
-                _loop_accumulators[-1] = _Loop(py_target, result)
-            # The accumulator is in scope in `result`, the element name
-            # is not: there may have been no turns at all.
-            after_scope = _loop_scope(scope)
-            if s.target is not None:
-                _, after_scope = translate_target(
-                    s.target, after_scope, rebinding=True
-                )
-            ending = (
-                translate_expr(s.result, after_scope) if s.result is not None
-                else _target_as_expr(py_target) if py_target is not None
-                else PyTuple(info, [])
-            )
-            py_after = [PyAssign(info, result, ending)]
-    finally:
-        _loop_accumulators.pop()
+    py_body = _translate_loop_block(s.body, py_target, body_scope)
 
     match s.iterate:
         case ForIn():
-            loop = PyFor(info, py_name, py_sequence, py_body, py_after)
+            loop = PyFor(info, py_name, py_sequence, py_body, None)
         case WhileTest(_, condition, _):
             loop = PyWhile(info, translate_expr(condition, body_scope),
-                           py_body, py_after)
+                           py_body, None)
         case _:
-            loop = PyWhile(info, PyBool(info, True), py_body, py_after)
+            loop = PyWhile(info, PyBool(info, True), py_body, None)
     return setup + [loop], value, scope
-
-
-@dataclass(frozen=True)
-class _Loop:
-    """One `loop` being translated. Fields: accumulator, PyTarget? (the
-    variable the loop carries, absent for a `loop:` carrying nothing);
-    result, PyTarget? (the variable the loop's value is left in, present
-    only when a `break` gives something the accumulator has no room
-    for)."""
-    accumulator: PyTarget
-    result: PyTarget
-
-
-def _fresh_result_name():
-    """A name for a loop-result variable that no identifier in the
-    source uses. () -> String"""
-    global _result_counter
-    while True:
-        _result_counter += 1
-        candidate = f"tmp{_result_counter}"
-        if candidate not in _used_identifiers:
-            return candidate
-
-
-def _breaks_anywhere(body):
-    """Whether any `break` belonging to this body's own loop is written
-    in it -- a nested loop's breaks belong to that loop.
-    [Stmt] -> Bool"""
-    for s in body:
-        match s:
-            case SBreak():
-                return True
-            case SLoop() | SFunctionDef():
-                continue
-            case SIf(_, _, then_body, else_body):
-                if _breaks_anywhere(then_body) or _breaks_anywhere(else_body or []):
-                    return True
-            case SMatch(_, _, cases):
-                for c in cases:
-                    if c.body and _breaks_anywhere(c.body):
-                        return True
-            case SLetStmt(_, _, inner) | SReturnStmt(_, inner):
-                if _breaks_anywhere([inner]):
-                    return True
-    return False
-
-
-def _breaks_with_value(body):
-    """Whether any `break` belonging to this body's own loop carries an
-    operand -- a nested loop's breaks belong to that loop.
-    [Stmt] -> Bool"""
-    for s in body:
-        match s:
-            case SBreak(_, expr) if expr is not None:
-                return True
-            case SIf(_, _, then_body, else_body):
-                if _breaks_with_value(then_body) or _breaks_with_value(
-                    else_body or []
-                ):
-                    return True
-            case SMatch(_, _, cases):
-                for c in cases:
-                    if c.body is not None and _breaks_with_value(c.body):
-                        return True
-            case _:
-                pass
-    return False
-
-
-def _break_answer(info, loop, expr, scope):
-    """What a `break` leaves in its loop's result variable: its operand,
-    or unit -- a bare `break` is `break ()` (PYKING.md, "Leaving a
-    loop"). Info -> _Loop -> Expr? -> Scope -> PyExpr"""
-    if expr is not None:
-        return translate_expr(expr, scope)
-    return PyTuple(info, [])
 
 
 def _target_as_expr(target):
@@ -2068,32 +1945,14 @@ def translate_stmt(s, scope):
             py_stmts, _, scope = _translate_loop(s, scope)
             return py_stmts, scope
 
-        case SBreak(info, expr):
-            loop = _loop_accumulators[-1] if _loop_accumulators else None
-            if loop is not None and loop.result is not None:
-                # The loop's value lives in a variable of its own; a
-                # bare `break` leaves the accumulator there, which for a
-                # `loop:` carrying nothing is unit.
-                answer = _break_answer(info, loop, expr, scope)
-                return [PyAssign(info, loop.result, answer), PyBreak(info)], scope
-            if expr is None:
-                return PyBreak(info), scope
-            py_expr = translate_expr(expr, scope)
-            if loop is None or loop.accumulator is None:
-                # Outside a loop, which the parser refuses; there is no
-                # accumulator and no result variable to assign to, and
-                # the operand is still an expression, so it still runs.
-                return [PyExprStmt(info, py_expr), PyBreak(info)], scope
-            return [PyAssign(info, loop.accumulator, py_expr), PyBreak(info)], scope
+        case SBreak(info):
+            # Python's own: the accumulator variable is left holding
+            # what this turn started with, which is what the loop is
+            # worth.
+            return PyBreak(info), scope
 
-        case SContinue(info, expr):
-            if expr is None:
-                return PyContinue(info), scope
-            py_expr = translate_expr(expr, scope)
-            loop = _loop_accumulators[-1] if _loop_accumulators else None
-            if loop is None or loop.accumulator is None:
-                return [PyExprStmt(info, py_expr), PyContinue(info)], scope
-            return [PyAssign(info, loop.accumulator, py_expr), PyContinue(info)], scope
+        case SContinue(info):
+            return PyContinue(info), scope
 
         case SIf(info, cond, then_body, else_body):
             py_then, _ = _translate_stmts(then_body, _block_scope(scope))
@@ -2291,7 +2150,7 @@ def _movable(s, in_loop=False):
                 else_body is None
                 or all(_movable(st, in_loop) for st in else_body)
             )
-        case SLoop(_, _, _, _, _, _, body):
+        case SLoop(_, _, _, _, _, body):
             # A loop takes its own break/continue with it, wherever it
             # is moved to.
             return all(_movable(st, True) for st in body)
@@ -2392,14 +2251,11 @@ def translate_program(stmts, tmap):
     what decides how a `print` argument is formatted.
     [Stmt] -> {Int: Type} -> PyProgram"""
     global _comp_counter, _pending_comp_helpers, _used_identifiers, _turn_counter
-    global _format_helper_name_value, _format_helper_def, _loop_accumulators
+    global _format_helper_name_value, _format_helper_def
     global _divide_helper_def
-    global _result_counter
     global _tmap
     _tmap = tmap
     _comp_counter = 0
-    _loop_accumulators = []
-    _result_counter = 0
     _turn_counter = 0
     _pending_comp_helpers = []
     _format_helper_name_value = None

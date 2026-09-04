@@ -8,9 +8,9 @@
 # 1. Bound with `=`.
 doubled = loop n = 1:
     if n < 50:
-        continue n * 2
+        n * 2
     else:
-        break n
+        break
 
 print(doubled)
 
@@ -19,9 +19,9 @@ print(doubled)
 def below(limit: Int) -> Int:
     return loop n = 1:
         if n < limit:
-            continue n * 2
+            n * 2
         else:
-            break n
+            break
 
 
 print(below(20))
@@ -31,9 +31,9 @@ print(below(20))
 def shrunk(start: Int) -> Int:
     loop n = start:
         if n > 1:
-            continue n - 10
+            n - 10
         else:
-            break n
+            break
 
 
 print(shrunk(64))
@@ -46,6 +46,6 @@ loop countdown = 3:
         break
     else:
         print(countdown)
-        continue countdown - 1
+        countdown - 1
 
 print("lift off")

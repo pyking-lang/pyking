@@ -6,7 +6,7 @@ def keep(xs:[String]) -> [String]:
     return xs
 print(keep([]))
 built: [Int] = loop acc: [Int] = [] for n in [1, 2, 3]:
-    continue acc ++ [n * n]
+    acc ++ [n * n]
 print(built)
 def count_of(xs:[a]) -> Int:
     match xs:

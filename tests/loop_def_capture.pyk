@@ -8,14 +8,14 @@
 # blocks are not scopes, so each turn's functions are built by a
 # per-turn factory.
 
-makers =
+(stopped, makers) =
 loop i, made = 0, []:
     def show(): i
 
-    if i > 1:
-        break made ++ [show]
+    if i > 2:
+        break
     else:
-        continue i + 1, made ++ [show]
+        (i + 1, made ++ [show])
 
 for f in makers:
     print(f())
@@ -23,16 +23,16 @@ for f in makers:
 
 # Two functions written on the same turn that name each other find that
 # turn's copies, wherever in the body they are written.
-pairs =
+(final, pairs) =
 loop n, seen = 10, []:
     def left(): right() + n
 
     def right(): n * 2
 
-    if n >= 30:
-        break seen ++ [left]
+    if n > 30:
+        break
     else:
-        continue n + 10, seen ++ [left]
+        (n + 10, seen ++ [left])
 
 for f in pairs:
     print(f())

@@ -1,50 +1,43 @@
-# What a loop is worth, and what it carries.
+# What a loop is worth.
 #
-# The two are different questions. The accumulator is what a loop hands
-# from turn to turn: the initializer's type, what the body must end in,
-# and what a `continue` has to give. What the loop is *worth* is what it
-# `break`s with -- which may be something else entirely.
-#
-# Here the loop carries an Int and is worth a String.
+# One rule, the same for every loop: the accumulator it stopped with,
+# or unit where it carries none. What the body ends in is what the next
+# turn carries, so "what does this loop carry" and "what is it worth"
+# have one answer rather than two.
 
-verdict = loop tries = 1:
-    if tries > 3:
-        break "gave up"
-    else:
-        continue tries + 1
-
-print(verdict)
-
-
-# The shape this is really for: a loop carrying two values and worth
-# just one of them. Without it, every accumulator-passing function --
-# the commonest tail-recursive kind there is -- would have to return a
-# tuple it did not want.
-def factorial(n: Int, acc: Int) -> Int:
-    loop n, acc = n, acc:
-        if n == 0:
-            break acc
+def capped(limit: Int) -> Int:
+    # Climbs by threes and stops on the first turn past the limit, so
+    # it is worth the value it stopped on.
+    loop acc = 0:
+        if acc > limit:
+            break
         else:
-            continue n - 1, n * acc
+            acc + 3
 
 
-print(factorial(10, 1))
-print(factorial(0, 1))
-
-
-# A bare `break` still gives the accumulator, so a loop may be worth
-# what it carries. Where a loop has several `break`s they must agree on
-# one type, exactly as the two branches of an `if` must -- one value
-# leaves the loop, so there is one type for it. Here the bare `break`
-# gives the Int accumulator and the other gives an Int too.
 def counted(limit: Int) -> Int:
+    # Two `break`s, both leaving with the accumulator: one value comes
+    # out of a loop however many ways out it has.
     loop n = 0:
         if n == limit:
-            break n
+            break
         else if n > 10:
-            break 100
+            break
         else:
-            continue n + 1
+            n + 1
 
 
+def marked(width: Int) -> String:
+    # Nothing about the rule is about numbers: a loop carrying a String
+    # is worth a String.
+    var made = 0
+    loop text = "":
+        if made == width:
+            break
+        made := made + 1
+        text ++ "*"
+
+
+print(capped(10), capped(0))
 print(counted(3), counted(50))
+print(marked(5), marked(0))

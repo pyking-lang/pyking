@@ -12,10 +12,10 @@
 #   - a one-element tuple, whose type the checker prints as `(Int,)`.
 #     Printing it without the comma would say `Int`, and the printed
 #     program would be one this compiler refuses.
-#   - a loop the tail-call pass built with a `break ()` after a `match`
-#     that already answers on every arm. The `break`s then disagree
-#     about what the loop is worth, and the printed program no longer
-#     type-checks even though the compiled one runs.
+#   - a loop the tail-call pass built with a `return ()` after a
+#     `match` that already answers on every arm. What an arm ends in is
+#     then read as the next accumulator, and the printed program no
+#     longer type-checks even though the compiled one runs.
 #
 # The `pyking` target's own `.ast.out` is what pins both: the harness
 # compares the printed program against it, and this file is here to be

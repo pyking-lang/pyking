@@ -1,54 +1,63 @@
 # Case 2 -- going round.
 #
-# A loop that carries an accumulator says what the next turn carries,
-# on every path, with `continue`. There is no implicit tail: the value a
-# body happens to end in is not taken as the accumulator (see
-# fail_typecheck_loop_no_continue.pyk). "Every path" means the last
-# statement of the body, and recursively each branch of a trailing `if`
-# or `match` -- a `break` or a `return` ends a path too.
+# A loop that carries an accumulator carries what its body ends in: the
+# body's last statement is the next turn's accumulator, and recursively
+# each branch of a trailing `if` or `match`. A `break` or a `return`
+# ends a path without saying anything, since neither reaches the next
+# turn.
 #
-# A loop with no accumulator carries unit, so its body may end in
-# anything at all and `continue` takes no value.
+# `continue` is the other way round: it starts the next turn at once,
+# with the accumulator this turn began with, unchanged.
 
 def total(xs:[Int]) -> Int:
-    return loop acc = 0 for x in xs result acc:
-        continue acc + x
+    return loop acc = 0 for x in xs:
+        acc + x
 
 
 def branches(n:Int) -> Int:
-    # Each branch of the trailing `if` ends a path of its own.
+    # Each branch of the trailing `if` is a path of its own.
     return loop acc = 0:
         if acc > n:
-            break acc
+            break
         else:
             if acc == 3:
-                continue acc + 10
+                acc + 10
             else:
-                continue acc + 1
+                acc + 1
 
 
 def over_match(xs:[String]) -> Int:
-    # A `match` counts too, when its cases cover.
-    return loop acc = 0 for x in xs result acc:
+    # A `match` says it as well, one arm at a time.
+    return loop acc = 0 for x in xs:
         match x:
             case "double":
-                continue acc + 2
+                acc + 2
             case _:
-                continue acc + 1
+                acc + 1
 
 
 def early(xs:[Int]) -> Int:
-    # A `return` ends a path as surely as a `continue` does.
-    loop acc = 0 for x in xs result acc:
+    # A `return` ends a path as surely as ending in the next
+    # accumulator does.
+    loop acc = 0 for x in xs:
         if x < 0:
             return 0 - 1
         else:
-            continue acc + x
+            acc + x
+
+
+def skipping(xs:[Int]) -> Int:
+    # `continue` goes round with the accumulator unchanged, so a
+    # negative element here adds nothing.
+    return loop acc = 0 for x in xs:
+        if x < 0:
+            continue
+        acc + x
 
 
 def loose(xs:[Int]) -> String:
     # No accumulator: the body's last statement is not the next turn's
-    # anything, so it may be any type, and `continue` takes no value.
+    # anything, so it may be any type.
     for x in xs:
         if x < 0:
             continue
@@ -60,4 +69,5 @@ print(total([1, 2, 3]), total([]))
 print(branches(5), branches(0))
 print(over_match(["double", "x", "double"]))
 print(early([1, 2]), early([1, 0 - 1]))
+print(skipping([1, 0 - 1, 2]))
 print(loose([1, 0 - 1, 2]))

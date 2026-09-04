@@ -15,24 +15,24 @@ def total(xs:[Int], acc:Int) -> Int:
     loop (xs, acc): ([Int], Int) = (xs, acc):
         match xs:
             case []:
-                break acc
+                return acc
             case [x, ..rest]:
-                continue (rest, acc + x)
+                (rest, acc + x)
 print(total([1, 2, 3, 4, 5], 0))
 def tail_group4(state:Int, xs:[Int], acc:[Int]) -> [Int]:
     loop (state, xs, acc): (Int, [Int], [Int]) = (state, xs, acc):
         if state == 0:
             match xs:
                 case []:
-                    break acc
+                    return acc
                 case [x, ..rest]:
-                    continue (1, rest, acc ++ [x])
+                    (1, rest, acc ++ [x])
         else:
             match xs:
                 case []:
-                    break acc
+                    return acc
                 case [x, ..rest]:
-                    continue (0, rest, acc)
+                    (0, rest, acc)
 def evens(xs:[Int], acc:[Int]) -> [Int]:
     tail_group4(0, xs, acc)
 def odds(xs:[Int], acc:[Int]) -> [Int]:
@@ -42,9 +42,9 @@ def counted(xs:[a], acc:Int) -> Int:
     loop (xs, acc): ([a], Int) = (xs, acc):
         match xs:
             case []:
-                break acc
+                return acc
             case [x, ..rest]:
-                continue (rest, acc + 1)
+                (rest, acc + 1)
 print(counted([1, 2, 3], 0), counted(['a'], 0))
 def announce(n:Int) -> ():
     match n:

@@ -26,7 +26,7 @@ print(keep([]))
 # A list that starts empty and grows: the accumulator starts at `[a]`
 # and the loop widens it to what the body actually carries.
 built = loop acc = [] for n in [1, 2, 3]:
-    continue acc ++ [n * n]
+    acc ++ [n * n]
 print(built)
 
 # Nothing here ever looks at an element, so the element type stays open.

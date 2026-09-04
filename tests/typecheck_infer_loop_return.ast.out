@@ -1,0 +1,12 @@
+def first_over(limit:Int) -> Int:
+    loop n: Int = 1:
+        if n > limit:
+            return n * 100
+        n * 2
+print(first_over(10))
+def counted(limit:Int) -> Int:
+    loop n: Int = 0:
+        if n >= limit:
+            break
+        n + 1
+print(counted(4))

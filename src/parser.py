@@ -17,8 +17,6 @@ Functions:
     parse_block(tokens, header_info) -- parses one block: indented, or
         the single statement on its header's own line.
     parse_loop_stmt(info, tokens) -- parses a loop after its 'loop'.
-    parse_exit_operand(info, tokens) -- the optional operand of a
-        'break'/'continue', taken only from the keyword's own line.
     parse_type(tokens) -- parses one type annotation.
     parse_pattern(tokens) -- parses one match/case pattern.
     combine_info(start, end) -- spans an Info from two nodes' Infos.
@@ -693,8 +691,8 @@ def _on_header_line(header_info, tokens):
     is what makes it the one-statement inline block rather than an
     indented one (PYKING.md, "A block on its header's own line").
     The lexer emits no token for a line ending, so this is read off the
-    rows the tokens carry -- the same way `call_tail` and
-    `parse_exit_operand` decide what belongs to a line.
+    rows the tokens carry -- the same way `call_tail` decides what
+    belongs to a line.
     Info -> [Token] -> Bool"""
     match tokens:
         case [first, *_]:
@@ -1186,7 +1184,7 @@ def _check_loop_context(stmts, held, crossed=None):
             case SBreak(info) | SContinue(info):
                 if held is None:
                     _no_loop_here(stmt, info, crossed)
-            case SLoop(_, _, _, _, _, _, body):
+            case SLoop(_, _, _, _, _, body):
                 _check_loop_context(body, stmt)
             case SFunctionDef(_, _, _, body):
                 if body is not None:
@@ -1240,12 +1238,10 @@ def parse_loop_stmt(loop_info, tokens):
 
 def parse_loop_tail(loop_info, target, annotation, init, tokens):
     """Parses what follows a loop's accumulator: an optional `for`/`while`
-    clause, an optional `result` expression, then the `:` and body. Every
-    loop in the language comes through here, `for x in e:` and `while c:`
-    included.
+    clause, then the `:` and body. Every loop in the language comes
+    through here, `for x in e:` and `while c:` included.
     Info -> AssignTarget? -> Type? -> Expr? -> [Token] -> (SLoop, [Token])"""
     iterate, rest = parse_loop_iter(tokens)
-    result, rest = parse_loop_result(rest, iterate)
     match rest:
         case [TokColon(colon_info), *rest]:
             pass
@@ -1254,27 +1250,8 @@ def parse_loop_tail(loop_info, target, annotation, init, tokens):
     body, rest = parse_block(rest, colon_info)
     return SLoop(
         combine_info(loop_info, _block_end_info(loop_info, body)),
-        target, init, annotation, iterate, result, body,
+        target, init, annotation, iterate, body,
     ), rest
-
-
-def parse_loop_result(tokens, iterate):
-    """Parses a loop's `result` expression, or answers None where none
-    was written. `result` is a keyword only here -- between the loop's
-    header and its `:` -- so it stays an ordinary name everywhere else,
-    the way `all` does in type position.
-    [Token] -> LoopIter? -> (Expr?, [Token])"""
-    match tokens:
-        case [TokIdent(info, "result"), *rest]:
-            if iterate is None:
-                raise ParseError(
-                    info,
-                    "'result' says what a loop is worth when it ends "
-                    "without breaking, and a plain 'loop' can only end by "
-                    "breaking; write 'for'/'while', or say it on the 'break'",
-                )
-            return parse_expr(rest)
-    return None, tokens
 
 
 def parse_loop_iter(tokens):
@@ -1290,31 +1267,6 @@ def parse_loop_iter(tokens):
             condition, rest = parse_expr(rest)
             return WhileTest(combine_info(info, condition.info), condition), rest
     return None, tokens
-
-
-# The tokens an expression can begin with. `break`/`continue` take an
-# operand only when one follows on the same line (see
-# `parse_exit_operand`), and this is how "something follows" is decided:
-# a `break` at the end of a line otherwise swallows the statement below
-# it, which is the same trap `call_tail` and `_check_own_line` exist for.
-_EXPR_STARTERS = (
-    TokInt, TokString, TokIdent, TokTrue, TokFalse, TokSub, TokLParen,
-    TokLBracket, TokIf,
-)
-
-
-def parse_exit_operand(keyword_info, tokens):
-    """Parses the optional operand of a 'break'/'continue': one is
-    present only if it starts on the keyword's own line.
-    Info -> [Token] -> (Expr?, [Token])"""
-    match tokens:
-        case [first, *_] if (
-            isinstance(first, _EXPR_STARTERS)
-            and first.info.row1 == keyword_info.row2
-        ):
-            return parse_tuple_or_expr(tokens)
-        case _:
-            return None, tokens
 
 
 def parse_bound_value(tokens):
@@ -1571,21 +1523,17 @@ def parse_statement(tokens):
 
         case [TokFor(info), *_] | [TokWhile(info), *_]:
             # A `for` or a `while` is a loop with no accumulator written:
-            # the same node, and so the same `break`/`continue`/`then:`.
+            # the same node, and so the same `break`/`continue`.
             return parse_loop_tail(info, None, None, None, tokens)
 
         case [TokLoop(info), *rest]:
             return parse_loop_stmt(info, rest)
 
         case [TokBreak(info), *rest]:
-            operand, rest = parse_exit_operand(info, rest)
-            end = info if operand is None else operand.info
-            return SBreak(combine_info(info, end), operand), rest
+            return SBreak(info), rest
 
         case [TokContinue(info), *rest]:
-            operand, rest = parse_exit_operand(info, rest)
-            end = info if operand is None else operand.info
-            return SContinue(combine_info(info, end), operand), rest
+            return SContinue(info), rest
 
         case [TokMatch(info), *rest]:
             return parse_match_stmt(info, rest)

@@ -134,9 +134,9 @@ print(call_held(held, 5))
 def counted(limit: Int) -> (Int,):
     loop acc = (0,):
         if unwrap(acc) < limit:
-            continue (unwrap(acc) + 1,)
+            (unwrap(acc) + 1,)
         else:
-            break acc
+            break
 
 
 print(counted(0), counted(4))

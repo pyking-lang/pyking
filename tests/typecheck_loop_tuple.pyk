@@ -1,19 +1,20 @@
 # A loop carrying more than one value.
 #
 # The accumulator is one value, so several names are one tuple: the
-# header takes them apart on every turn, and everything that says what
-# the next turn carries -- the body's last expression, a `break`, a
-# `continue` -- has to give the whole tuple back. The loop's own value
-# is that tuple, which is why the binding outside destructures it.
+# header takes them apart on every turn, and what the body ends in has
+# to give the whole tuple back. The loop's own value is that tuple,
+# which is why the binding outside destructures it.
 #
 # The `.ast.out` pins both halves: `(Int, Bool)` on the header and on
 # the binding.
 
 foo, bar = loop x, y = 0, true:
     if x <= 10:
-        continue x + 1, y
+        (x + 1, y)
+    else if y:
+        (x + 100, false)
     else:
-        break x + 100, false
+        break
 
 print(foo, bar)
 
@@ -24,9 +25,9 @@ def summed(limit: Int) -> (Int, Int):
     loop acc = 0, 1:
         (total, k) = acc
         if k > limit:
-            break total, k
+            break
         else:
-            continue total + k, k + 1
+            (total + k, k + 1)
 
 
 print(summed(10))

@@ -309,7 +309,7 @@ def analyze_stmt(s, env):
                 "with 'var' to make it one)",
             )
 
-        case SReturn(_, _) | SExprStmt(_, _) | SBreak(_, _) | SContinue(_, _):
+        case SReturn(_, _) | SExprStmt(_, _) | SBreak(_) | SContinue(_):
             return env
 
         case SReturnStmt(_, stmt):
@@ -319,7 +319,7 @@ def analyze_stmt(s, env):
             analyze_value_stmt(stmt, env)
             return env
 
-        case SLoop(_, target, _, _, iterate, _, body):
+        case SLoop(_, target, _, _, iterate, body):
             # The accumulator is bound for the body only, exactly as an
             # `=` binding's target is bound for what follows it.
             inner = env

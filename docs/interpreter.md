@@ -282,9 +282,10 @@ A `break` has to find the loop it belongs to, exactly as a `return` has
 to find the call it leaves. `return` has `Frame`, so `loop` has `Loop`:
 a persistent stack in `State.loops`, each entry holding the accumulator
 this turn started with, the environment the loop is written in, and the
-continuation the loop's own value goes to. A bare `break` delivers the
-accumulator there; `break e` evaluates `e` first (`KExit`); `continue`
-starts the next turn instead.
+continuation the loop's own value goes to. A `break` delivers that
+accumulator there -- which is what the loop is worth, and what a
+`for`/`while` running out of turns delivers too (`_finish`); `continue`
+starts the next turn with it instead.
 
 The turn itself is where the shape matters. `_turn` binds the
 accumulator afresh in the loop's own environment and enters the body

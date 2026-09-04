@@ -7,33 +7,33 @@ print(factorial(6))
 def gcd(a:Int, b:Int) -> Int:
     loop (a, b): (Int, Int) = (a, b):
         if b == 0:
-            break a
+            return a
         else if a > b:
-            continue (a - b, b)
+            (a - b, b)
         else:
-            continue (a, b - a)
+            (a, b - a)
 print(gcd(12, 18))
 print(gcd(7, 1))
 def countdown(n:Int) -> Int:
     loop n: Int = n:
         if n == 0:
-            break 0
+            return 0
         else:
-            continue n - 1
+            n - 1
 print(countdown(500))
 def outer(n:Int) -> Int:
     def inner(k:Int) -> Int:
         loop k: Int = k:
             if k > 20:
-                break k
+                return k
             else:
-                continue k + k + 1
+                k + k + 1
     inner(n) + 1
 print(outer(1))
 def only_two(a:Int, b:Int) -> Int:
     loop (a, b): (Int, Int) = (a, b):
         if a == 0:
-            break b
+            return b
         else:
-            continue (a - 1, b + a)
+            (a - 1, b + a)
 print(only_two(4, 0))

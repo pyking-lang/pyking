@@ -143,15 +143,7 @@ file = "fail_typecheck_int_string2.pyk"
 targets = ["pyking"]
 
 [[cases]]
-file = "fail_typecheck_for_no_value.pyk"
-targets = ["pyking"]
-
-[[cases]]
 file = "fail_typecheck_loop_annotation.pyk"
-targets = ["pyking"]
-
-[[cases]]
-file = "fail_typecheck_loop_unit_continue.pyk"
 targets = ["pyking"]
 
 [[cases]]
@@ -159,35 +151,23 @@ file = "fail_typecheck_loop_body.pyk"
 targets = ["pyking"]
 
 [[cases]]
-file = "fail_typecheck_loop_break_accumulator.pyk"
-targets = ["pyking"]
-
-[[cases]]
-file = "fail_typecheck_loop_break_types.pyk"
-targets = ["pyking"]
-
-[[cases]]
-file = "fail_typecheck_loop_continue.pyk"
-targets = ["pyking"]
-
-[[cases]]
-file = "fail_typecheck_loop_continue_twice.pyk"
-targets = ["pyking"]
-
-[[cases]]
 file = "fail_typecheck_loop_crossing.pyk"
 targets = ["pyking"]
 
 [[cases]]
-file = "fail_typecheck_loop_no_continue.pyk"
-targets = ["pyking"]
-
-[[cases]]
-file = "fail_typecheck_result_plain_loop.pyk"
-targets = ["pyking"]
-
-[[cases]]
 file = "fail_typecheck_loop_outside.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_infer_loop_return.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_loop_tail_type.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_loop_break_operand.pyk"
 targets = ["pyking"]
 
 [[cases]]
@@ -691,12 +671,12 @@ file = "typecheck_loop_iteration.pyk"
 targets = ["python", "nodejs", "esm", "html", "interpret", "pyking"]
 
 [[cases]]
-file = "typecheck_loop_worth.pyk"
-targets = ["python", "interpret", "pyking"]
+file = "typecheck_infer_loop_return.pyk"
+targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking"]
 
 [[cases]]
-file = "typecheck_loop_result.pyk"
-targets = ["python", "interpret", "pyking"]
+file = "typecheck_loop_simple.pyk"
+targets = ["python", "nodejs", "esm", "html", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_loop_basic.pyk"
@@ -1020,14 +1000,6 @@ file = "shadowing_depth_loops.pyk"
 targets = ["python", "interpret"]
 
 [[cases]]
-file = "loop_worth_ran_out.pyk"
-targets = ["python", "nodejs", "esm", "html", "interpret"]
-
-[[cases]]
-file = "loop_worth_ran_out_subset.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "interpret"]
-
-[[cases]]
 file = "printing_quotes.pyk"
 targets = ["python", "nodejs", "esm", "html", "interpret"]
 
@@ -1090,10 +1062,6 @@ targets = ["python", "nodejs", "esm", "html", "interpret", "pyking"]
 [[cases]]
 file = "typecheck_noann_loop_nested.pyk"
 targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking"]
-
-[[cases]]
-file = "typecheck_noann_loop_result.pyk"
-targets = ["python", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_loop_tuple.pyk"

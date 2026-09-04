@@ -132,14 +132,13 @@ and stmt =
       * expr option
       * typ option
       * loop_iter option
-      * expr option
       * stmt list
       * int
-      (* [loop target[: type] = init] [for n in e | while c] [result e]
-         : body. Every loop in the language is this one node with
-         different halves written. *)
-  | SBreak of info * expr option * int (* break [expr] *)
-  | SContinue of info * expr option * int (* continue [expr] *)
+      (* [loop target[: type] = init] [for n in e | while c] : body.
+         Every loop in the language is this one node with different
+         halves written. *)
+  | SBreak of info * int (* break *)
+  | SContinue of info * int (* continue *)
   | SIf of info * expr * stmt list * stmt list option * int
       (* if cond: then_body [else: else_body] *)
   | SFunctionDef of
@@ -312,9 +311,9 @@ let stmt_info s =
   | SReturn (i, _, _) -> i
   | SReturnStmt (i, _, _) -> i
   | SExprStmt (i, _, _) -> i
-  | SLoop (i, _, _, _, _, _, _, _) -> i
-  | SBreak (i, _, _) -> i
-  | SContinue (i, _, _) -> i
+  | SLoop (i, _, _, _, _, _, _) -> i
+  | SBreak (i, _) -> i
+  | SContinue (i, _) -> i
   | SIf (i, _, _, _, _) -> i
   | SFunctionDef (i, _, _, _, _, _, _) -> i
   | SFunctionSig (i, _, _, _, _) -> i
@@ -331,9 +330,9 @@ let stmt_sym s =
   | SReturn (_, _, s) -> s
   | SReturnStmt (_, _, s) -> s
   | SExprStmt (_, _, s) -> s
-  | SLoop (_, _, _, _, _, _, _, s) -> s
-  | SBreak (_, _, s) -> s
-  | SContinue (_, _, s) -> s
+  | SLoop (_, _, _, _, _, _, s) -> s
+  | SBreak (_, s) -> s
+  | SContinue (_, s) -> s
   | SIf (_, _, _, _, s) -> s
   | SFunctionDef (_, _, _, _, _, s, _) -> s
   | SFunctionSig (_, _, _, s, _) -> s
@@ -824,7 +823,7 @@ and pprint_stmt_body cfg s level =
       let head, rest = head_and_rest (pprint_stmt cfg stmt level) in
       String.concat "\n" ((pad ^ "return " ^ strip head) :: rest)
   | SExprStmt (_, expr, _) -> pad ^ pprint_expr cfg expr 0
-  | SLoop (_, target, init, type_, iterate, result, body, sym) ->
+  | SLoop (_, target, init, type_, iterate, body, sym) ->
       (* Printed in the form it was written: the accumulator half where
          one was written -- annotation and all -- and then the iteration
          half, if any. *)
@@ -846,25 +845,14 @@ and pprint_stmt_body cfg s level =
             "while " ^ pprint_expr cfg condition 0
         | None -> if head <> "" then "" else "loop"
       in
-      let worth =
-        match result with
-        | None -> ""
-        | Some e -> "result " ^ pprint_expr cfg e 0
-      in
       let header =
-        String.concat " " (List.filter (fun p -> p <> "") [ head; turn; worth ])
+        String.concat " " (List.filter (fun p -> p <> "") [ head; turn ])
       in
       String.concat "\n"
         ((pad ^ header ^ ":")
         :: List.map (fun st -> pprint_stmt cfg st (level + 1)) body)
-  | SBreak (_, expr, _) -> (
-      match expr with
-      | None -> pad ^ "break"
-      | Some e -> pad ^ "break " ^ pprint_expr cfg e 0)
-  | SContinue (_, expr, _) -> (
-      match expr with
-      | None -> pad ^ "continue"
-      | Some e -> pad ^ "continue " ^ pprint_expr cfg e 0)
+  | SBreak (_, _) -> pad ^ "break"
+  | SContinue (_, _) -> pad ^ "continue"
   | SIf (_, cond, then_body, else_body, _) ->
       let lines =
         (pad ^ "if " ^ pprint_expr cfg cond 0 ^ ":")
@@ -945,7 +933,7 @@ let signed_defs stmts =
     List.fold_left (fun acc s -> IntSet.union acc (inside s)) here stmts
   and inside s =
     match s with
-    | SLoop (_, _, _, _, _, _, body, _) -> block body
+    | SLoop (_, _, _, _, _, body, _) -> block body
     | SIf (_, _, then_body, else_body, _) ->
         IntSet.union (block then_body)
           (match else_body with None -> IntSet.empty | Some b -> block b)

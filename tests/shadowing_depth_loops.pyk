@@ -26,9 +26,15 @@ def carried() -> Int:
             w = 3
             inner = loop deeper = 0:
                 w = 4
-                break w
+                if deeper > 3:
+                    break
+                else:
+                    deeper + 1
 
-            break acc + inner
+            if acc > 0:
+                break
+            else:
+                acc + inner
 
         print(w, answer)
         return w

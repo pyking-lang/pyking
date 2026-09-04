@@ -292,7 +292,7 @@ constant space here.
 ```pyking
 res = loop x = 5:
     if x <= 10:
-        continue x + 1
+        x + 1
     else:
         break
 ```
@@ -303,12 +303,12 @@ let res =
   _pyk1 5
 ```
 
-The four ways a body can say what happens next map one to one: the
-body's last expression and `continue e` both become `_pyk1 e`, a bare
-`continue` becomes `_pyk1 x`, `break e` becomes `e`, and a bare `break`
-becomes `x`. A loop carrying several values takes a tuple pattern
-parameter, `let rec _pyk1 (x, y) = …`, and a `loop:` carrying nothing
-takes a unit one.
+The three ways a body can say what happens next map one to one: the
+body's last expression becomes `_pyk1 e`, `continue` becomes `_pyk1 x`,
+and `break` becomes `x` -- the accumulator this turn was called with,
+which is what the loop is worth. A loop carrying several values takes a
+tuple pattern parameter, `let rec _pyk1 (x, y) = …`, and a `loop:`
+carrying nothing takes a unit one.
 
 Because a loop is an expression, it needs nothing said about it in any
 of the positions a value can stand: bound with `=`, returned, or as a

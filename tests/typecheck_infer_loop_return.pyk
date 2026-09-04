@@ -1,0 +1,29 @@
+# A `return` written inside a loop body decides an unannotated
+# function's return type.
+#
+# `return` leaves the function, loop and all, so what it gives is one of
+# the answers the body has to agree on -- exactly as a `return` written
+# outside the loop is. The `.ast.out` pins that: `first_over` is
+# inferred from its `return`, not from what its loop carries.
+#
+# `fail_typecheck_infer_loop_return.pyk` is the other side of it.
+
+def first_over(limit):
+    loop n = 1:
+        if n > limit:
+            return n * 100
+        n * 2
+
+
+print(first_over(10))
+
+
+# No `return` at all, so the loop's accumulator is the answer.
+def counted(limit):
+    loop n = 0:
+        if n >= limit:
+            break
+        n + 1
+
+
+print(counted(4))

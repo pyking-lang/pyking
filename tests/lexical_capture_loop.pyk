@@ -10,7 +10,7 @@
 fns =
 loop made = [] for i in range(4):
     def show(): i * 10
-    continue made ++ [show]
+    made ++ [show]
 
 for f in fns:
     print(f())
@@ -23,7 +23,7 @@ loop seen = [] for n in range(3):
     def down(k): if k < 1 then n else up(k - 1)
     def up(k): down(k)
     def alone(k): if k < 1 then n * 100 else alone(k - 1)
-    continue seen ++ [down] ++ [alone]
+    seen ++ [down] ++ [alone]
 
 for g in pairs:
     print(g(3))
@@ -35,7 +35,7 @@ doubled =
 loop kept = [] for m in range(3):
     twice = m + m
     def report(): twice
-    continue kept ++ [report]
+    kept ++ [report]
 
 for h in doubled:
     print(h())

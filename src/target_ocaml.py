@@ -450,7 +450,7 @@ def _public_name(name):
 @dataclass(frozen=True)
 class _Loop:
     """One `loop` being translated. Fields: name, String (the local
-    function that is the loop); accumulator, OExpr (what a bare
+    function that is the loop); accumulator, OExpr (what a
     `break`/`continue` uses); carries, Bool (whether the loop was
     written with an accumulator at all)."""
     name: str
@@ -885,17 +885,17 @@ class _Translator:
         is the value the call returns. OCaml optimises the tail call,
         so this runs in constant space -- which is why this backend
         needs no imperative loop at all. SLoop -> OExpr"""
-        if s.iterate is not None or s.result is not None:
+        if s.iterate is not None:
             _unsupported(
                 s,
-                "a `for`/`while` clause or a `result` expression on a loop -- this "
-                "backend compiles a loop to a local recursive function, and "
-                "the recursion over the sequence is not built yet",
+                "a `for`/`while` clause on a loop -- this backend compiles a "
+                "loop to a local recursive function, and the recursion over "
+                "the sequence is not built yet",
             )
         name = self.fresh_name()
         if s.target is None:
             # Nothing is carried, so the parameter is unit and the
-            # accumulator every `break` yields is unit too.
+            # accumulator a `break` yields is unit too.
             parameter = self.fresh_name()
             accumulator = OUnit()
             init = OUnit()
@@ -948,16 +948,13 @@ class _Translator:
                 # A loop as the last statement of a loop body: its value
                 # is what the turn outside goes round with.
                 return self.again(loop, self.loop(statement))
-            case SBreak(_, expr, _):
-                # A bare `break` is `break ()` -- it leaves without
-                # saying what the loop is worth (PYKING.md, "Leaving a
-                # loop"), which is a different question from what the
-                # loop carries.
-                return OUnit() if expr is None else self.expr(expr)
-            case SContinue(_, expr, _):
-                return self.again(
-                    loop, loop.accumulator if expr is None else self.expr(expr)
-                )
+            case SBreak(_, _):
+                # A `break` leaves with the accumulator this turn
+                # started with, which is what the loop is worth
+                # (PYKING.md, "Leaving a loop").
+                return loop.accumulator
+            case SContinue(_, _):
+                return self.again(loop, loop.accumulator)
             case SIf(_, cond, then_body, else_body, _):
                 if else_body is not None:
                     return OIf(

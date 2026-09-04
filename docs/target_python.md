@@ -298,34 +298,29 @@ print(x, show())                   print(x2, show())      → two 1
 
 A `loop` is Python's `while True` over one variable holding the
 accumulator: the initializer gives it its first value, every tail of the
-body assigns the next one, and `break`/`continue` are Python's own —
-with the operand, where one is written, assigned first.
+body assigns the next one, and `break`/`continue` are Python's own,
+operand and all -- they have none.
 
 ```pyking                          # generated Python
 res = loop x = 5:                  x = 5
     if x <= 10:                    while True:
-        continue x + 1                 if x <= 10:
-    if x < 30:                             x = x + 1
-        x + 2                              continue
-    else:                              if x < 30:
-        break                              x = x + 2
-                                       else:
+        continue                       if x <= 10:
+    if x < 30:                             continue
+        x + 2                          if x < 30:
+    else:                                  x = x + 2
+        break                          else:
                                            break
                                    res = x
 ```
 
-The loop's own value is what it `break`s with, so binding one is that
-assignment after the loop, and a loop in tail position is `return x`. A
-tuple accumulator is a Python tuple, assigned as a whole
+The loop's own value is the accumulator variable, so binding one is that
+assignment after the loop, and a loop in tail position is `return x`.
+That works because a `break` is Python's own: it leaves the variable
+holding what this turn started with, which is exactly what the loop is
+worth. A tuple accumulator is a Python tuple, assigned as a whole
 (`x, y = x + 1, y`), so the next turn's values are computed before any
-of them is stored -- and where such a loop breaks with something that is
-*not* that tuple (`break acc` in a loop carrying two values, which is
-what the tail-call pass builds), the answer gets a variable of its own
-rather than being squeezed into the accumulator. A `loop:` carrying
-nothing needs the same variable for the same reason, since it has no
-accumulator to squeeze anything into: `n = loop: break 7` binds `7`,
-not `()`. A bare `break` in such a loop leaves unit there, which is the
-accumulator it was going round with.
+of them is stored. A `loop:` carrying nothing has no variable at all and
+is worth `()`, which is what a binding of one gets.
 
 The one place this differs from what the source says is a body path with
 no value at all — an `if` with no `else` as the body's last statement.
@@ -643,25 +638,20 @@ Division by zero falls through it to Python's own `ZeroDivisionError`,
 which is what this target is documented as doing (see
 [targets.md](targets.md)).
 
-## A loop's value is Python's loop `else`
+## A loop's value needs no loop `else`
 
 Python's `for`/`while` take an `else` clause that runs exactly when the
-loop finished without a `break` -- which is where what a Pyking loop is
-worth ends up, so the two map onto each other directly:
+loop finished without a `break`, and this backend needs none of it: a
+Pyking loop is worth its accumulator both ways it can stop, so the
+accumulator variable already holds the answer whether the loop ran out
+of turns or broke out of them.
 
 ```pyking                                    # generated Python
-loop i, acc = 0, [] for x in xs result acc:  i, acc = 0, []
-    continue i + 1, [(i, x)] ++ acc          for x in xs:
-                                                 i, acc = i + 1, [(i, x)] + acc
-                                             else:
-                                                 __result = acc
+answer =                                     i, acc = 0, []
+loop i, acc = 0, [] for x in xs:             for x in xs:
+    (i + 1, [(i, x)] ++ acc)                     i, acc = i + 1, [(i, x)] + acc
+                                             answer = (i, acc)
 ```
-
-The loop's value lives in a variable of its own whenever anything
-`break`s at all, since a `break` need not give what the accumulator
-holds. The `else` assigns the `result` expression when one is written,
-the accumulator when one is, and `()` otherwise -- the rule PYKING.md
-states under "What a loop is worth".
 
 ## Modules
 

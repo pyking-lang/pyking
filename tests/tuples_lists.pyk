@@ -10,7 +10,7 @@ print(total)
 def first_elements(ps) -> [Int]:
     return loop out = [] for p in ps:
         (first, _) = p
-        continue out ++ [first]
+        out ++ [first]
 
 
 print(first_elements(pairs))

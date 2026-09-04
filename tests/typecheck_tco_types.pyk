@@ -1,8 +1,8 @@
 # A tail-recursive function whose answer is not the type of its
 # arguments -- which is the case the loop's typing rule exists for.
 #
-# The loop carries what the parameters carry, and is worth what it
-# `break`s with. Here it carries an Int and is worth a String, so a
+# The loop carries what the parameters carry, and every way out of it
+# is a `return`. Here it carries an Int and returns a String, so a
 # rewritten function is no more constrained than the recursion it
 # replaced.
 

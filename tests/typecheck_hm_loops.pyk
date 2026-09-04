@@ -1,29 +1,29 @@
 # Loops, whose accumulator is worked out the same way everything else is.
 #
-# A `loop`'s accumulator, what its `continue`s carry and what its
-# `break`s give are all one type, which unification settles -- including
-# where the accumulator starts as `[]` and the body is what says what it
-# holds. Nothing here is special-cased: it is the same rule two branches
-# of an `if` obey.
+# A `loop`'s accumulator and what its body ends in are one type, which
+# unification settles -- including where the accumulator starts as `[]`
+# and the body is what says what it holds. Nothing here is
+# special-cased: it is the same rule two branches of an `if` obey.
 #
 # `collect` is the one that needed a second pass over the body before:
-# its accumulator starts empty, and only the `continue` says what goes
-# into it. Now the empty list's element is simply a type nothing has
-# decided, and the `continue` decides it.
+# its accumulator starts empty, and only the body says what goes into
+# it. Now the empty list's element is simply a type nothing has
+# decided, and the body decides it.
 
 def collect(lst):
-    loop kept = [] for x in lst result kept:
-        continue kept ++ [x]
+    loop kept = [] for x in lst:
+        kept ++ [x]
 
 def total(lst):
-    loop sum = 0 for n in lst result sum:
-        continue sum + n
+    loop sum = 0 for n in lst:
+        sum + n
 
 def any_of(lst, ok):
-    loop for x in lst result false:
+    loop found = false for x in lst:
         if ok(x):
-            break true
-        continue
+            true
+        else:
+            found
 
 def big(n): n > 1
 
