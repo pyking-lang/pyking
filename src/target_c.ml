@@ -69,6 +69,13 @@ let unsupported info message =
 
 type ctype = Int | Bool | String | Unit
 
+(** What a module implemented in C exports, as this translation unit has
+    to declare it: a function with its parameter and return types, or a
+    file-scope value. *)
+type cextern =
+  | CExternFunc of string * ctype list * ctype
+  | CExternValue of string * ctype
+
 let ctype_name t =
   match t with Int -> "Int" | Bool -> "Bool" | String -> "String" | Unit -> "Unit"
 
@@ -194,6 +201,10 @@ type cprogram = {
   main : bool;
   separate : bool;
   includes : string list;
+  (* An external module is implemented in C rather than compiled from
+     Pyking, so there is no generated header to include: its exports are
+     declared here instead, from the signatures it wrote. *)
+  external_decls : cextern list;
   starts : string list;
   globals : cglobal list;
 }
@@ -1316,10 +1327,53 @@ let includes state stmts =
   List.fold_left
     (fun names statement ->
       match statement with
-      | SImport (_, name, _, _, _, _) when not (List.mem name names) ->
+      | SImport (_, name, _, _, _, _)
+        when (not (List.mem name names))
+             && not (List.mem name state.context.externals) ->
           names @ [ name ]
       | _ -> names)
     names stmts
+
+(** The C a module implemented in C is reached through: one declaration
+    per name it exports, taken from its signatures, so this translation
+    unit is told they exist without a header to include. A type C cannot
+    represent is refused here rather than emitted.
+    state -> [stmt] -> [cextern] *)
+let external_declarations state stmts =
+  List.concat_map
+    (fun statement ->
+      match statement with
+      | SImport (info, name, _, _, _, _)
+        when List.mem name state.context.externals ->
+          let signatures =
+            try List.assoc name state.context.sigmaps with Not_found -> []
+          in
+          List.map
+            (fun (field, type_) ->
+              let qualified = name ^ "_" ^ field in
+              let ctype_of t what =
+                match t with
+                | TTuple (_, [], _) -> Unit
+                | t -> (
+                    match annotated_type (Some t) with
+                    | Some ctype -> ctype
+                    | None ->
+                        unsupported info
+                          (Printf.sprintf
+                             "the external module '%s' declares '%s' with %s \
+                              this target has no C type for"
+                             name field what))
+              in
+              match type_ with
+              | TFunction (_, params, result, _, _, _) ->
+                  CExternFunc
+                    ( qualified,
+                      List.map (fun t -> ctype_of t "a parameter") params,
+                      ctype_of result "a return type" )
+              | t -> CExternValue (qualified, ctype_of t "a type"))
+            signatures
+      | _ -> [])
+    stmts
 
 (** This module's public bindings as the file-scope variables another
     module reads them through -- nothing for the program's own module,
@@ -1509,6 +1563,10 @@ let translate_program stmts context =
   let scope = empty_scope in
   let scope, state = declare_imports state stmts scope in
   let scope, state = declare_functions state stmts scope in
+  (* What an external module offers is checked before anything is
+     translated, so a type C cannot carry is refused where it was
+     declared rather than at the first call that trips over it. *)
+  let external_decls = external_declarations state stmts in
   let functions, main_body, scope, state =
     List.fold_left
       (fun (functions, main_body, scope, state) s ->
@@ -1565,6 +1623,7 @@ let translate_program stmts context =
     main = context.main;
     separate = context.separate;
     includes = includes state stmts;
+    external_decls;
     starts = context.starts;
     globals;
   }
@@ -1902,6 +1961,35 @@ let pprint_c_program (program : cprogram) standard source =
       Printf.sprintf "#include \"%s.h\"" program.program_name :: included
   in
   let parts = parts @ if included = [] then [] else "" :: included in
+  (* A module implemented in C has no generated header, so what it
+     exports is declared here (docs/modules.md, "External modules"). *)
+  let declared =
+    List.map
+      (fun ext ->
+        match ext with
+        | CExternFunc (name, params, result) ->
+            let params =
+              match params with
+              | [] -> "void"
+              | params ->
+                  String.concat ", "
+                    (List.map (fun t -> c_type_text standard t) params)
+            in
+            Printf.sprintf "%s(%s);" (declaration result name standard) params
+        | CExternValue (name, ctype) ->
+            Printf.sprintf "extern %s;" (declaration ctype name standard))
+      program.external_decls
+  in
+  let parts =
+    parts
+    @
+    if declared = [] then []
+    else
+      ""
+      :: comment "What the external modules this one imports implement."
+           standard
+      :: declared
+  in
   let parts =
     parts
     @

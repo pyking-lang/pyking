@@ -1,0 +1,9 @@
+# A declaration file holds signatures and nothing else. A Pyking body
+# here would have to be compiled into the very file the target's own
+# implementation already occupies -- one name, two files -- so it is
+# refused rather than given a second spelling.
+
+public def shout : (String) -> String
+
+public def twice(n:Int) -> Int:
+    n * 2

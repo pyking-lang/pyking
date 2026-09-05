@@ -479,19 +479,28 @@ let front_end options =
     let _, _, checked =
       List.fold_left
         (fun (sigmaps, highest, checked) (unit : Module.t) ->
-          let tmap =
-            check_module unit
-              (Module.sigmaps_for unit sigmaps)
-              options.type_experiment
-          in
-          let sigmap = Module.make_sigmap unit.stmts tmap in
-          let stmts, tmap, highest =
-            optimize_module unit.stmts tmap highest options
-          in
-          ( sigmaps @ [ (unit.name, sigmap) ],
-            highest,
-            checked
-            @ [ ({ unit with stmts; sigmap = Some sigmap }, Some tmap) ] ))
+          if unit.is_external then
+            (* A declaration file holds signatures and nothing else, so
+               there is no body to check, nothing to infer and no tail
+               call to rewrite. What it exports is what it wrote down. *)
+            let sigmap = Module.external_sigmap unit.stmts in
+            ( sigmaps @ [ (unit.name, sigmap) ],
+              highest,
+              checked @ [ ({ unit with sigmap = Some sigmap }, None) ] )
+          else
+            let tmap =
+              check_module unit
+                (Module.sigmaps_for unit sigmaps)
+                options.type_experiment
+            in
+            let sigmap = Module.make_sigmap unit.stmts tmap in
+            let stmts, tmap, highest =
+              optimize_module unit.stmts tmap highest options
+            in
+            ( sigmaps @ [ (unit.name, sigmap) ],
+              highest,
+              checked
+              @ [ ({ unit with stmts; sigmap = Some sigmap }, Some tmap) ] ))
         ([], highest, []) units
     in
     checked
@@ -507,6 +516,30 @@ let trace_limit = 10
     runs, in the order it was checked in, each in a top level of its
     own. [(Module.t, typ IntMap.t option)] -> int *)
 let command_interpret checked =
+  (* The interpreter runs the AST, and an external module has none: what
+     it exports is written in a target language, which only a compiled
+     program can reach. *)
+  List.iter
+    (fun ((unit : Module.t), _) ->
+      List.iter
+        (fun statement ->
+          match statement with
+          | Syntax.SImport (info, name, _, _, _, _)
+            when List.exists
+                   (fun ((other : Module.t), _) ->
+                     other.name = name && other.is_external)
+                   checked ->
+              fail
+                (Module.Module_error
+                   ( info,
+                     Printf.sprintf
+                       "'%s' is an external module, implemented in a target \
+                        language; a program that imports one has to be \
+                        compiled, not interpreted"
+                       name ))
+          | _ -> ())
+        unit.stmts)
+    checked;
   let units =
     List.map
       (fun ((unit : Module.t), _) ->
@@ -646,6 +679,33 @@ let compile_unit (unit : Module.t) tmap target path options checked =
 let compile_program checked target output_path options =
   let main_unit = fst (List.nth checked (List.length checked - 1)) in
   let directory = dirname (Option.value output_path ~default:"") in
+  (* Every module the program reaches must have an implementation for
+     the target chosen, and a missing one is the module system's error
+     rather than a backend's: nothing has been translated yet. *)
+  let external_implementation (unit : Module.t) target =
+    try
+      Module.implementation_path (dirname unit.path) unit.name target
+        { Lexer.file = unit.path; row1 = 1; col1 = 0; row2 = 1; col2 = 0 }
+    with Module.Module_error _ as e -> fail e
+  in
+  (* Every external module's implementation, as a file to write beside
+     the program's output. Nothing is generated for one, and a copy onto
+     itself -- compiling beside the implementation -- is skipped rather
+     than truncating it. *)
+  let external_copies () =
+    List.filter_map
+      (fun ((unit : Module.t), _) ->
+        if not unit.is_external then None
+        else
+          let source = external_implementation unit target in
+          let destination =
+            join directory
+              (Option.get (Module.implementation_name unit.name target))
+          in
+          if absolute source = absolute destination then None
+          else Some (destination, Module.read_whole_file source))
+      checked
+  in
   if List.mem target Target_js_packaging.targets then
     (* The JavaScript targets package a whole program at once: `html`
        has one file to put every module in, and the other two share one
@@ -654,36 +714,55 @@ let compile_program checked target output_path options =
       Target_js_packaging.reserved_names
         (List.map (fun ((unit : Module.t), _) -> unit.name) checked)
     in
-    Target_js_packaging.package_program target
-      (List.map
-         (fun ((unit : Module.t), _) ->
-           ( unit,
-             try
-               Target_js_core.translate_program ~taken
-                 (Analyses.apply_signatures unit.stmts)
-             with Target_js_core.Unsupported (info, message) ->
-               fail_unsupported target info message ))
-         checked)
-      output_path options.stdout
+    try
+      let files, primary =
+        Target_js_packaging.package_program target
+          (List.map
+           (fun ((unit : Module.t), _) ->
+             ( unit,
+               try
+                 Target_js_core.translate_program ~taken
+                   (Analyses.apply_signatures unit.stmts)
+               with Target_js_core.Unsupported (info, message) ->
+                   fail_unsupported target info message ))
+             checked)
+          output_path options.stdout
+      in
+      ((files @ if options.stdout then [] else external_copies ()), primary)
+    with Target_js_core.Unsupported (info, message) ->
+      (* Packaging refuses what only a whole program can be refused for:
+         an external module on `html`, where a page has nothing to load
+         an implementation from. *)
+      fail_unsupported target info message
   else
   let files, primary =
     List.fold_left
       (fun (files, primary) ((unit : Module.t), tmap) ->
         let is_main = unit.name = main_unit.Module.name in
-        let path =
-          if is_main then output_path
-          else Some (join directory (default_name target unit.name))
-        in
-        let contents, companions =
-          compile_unit unit tmap target path options checked
-        in
-        let primary = if is_main then contents else primary in
-        match path with
-        | None -> (files, primary)
-        | Some path -> (files @ [ (path, contents) ] @ companions, primary))
+        if unit.is_external && target <> pyking_target then
+          (* Nothing is generated for an external module: its
+             implementation is the target's own source, copied below
+             under the name the host resolves the module by. `-t pyking`
+             is the exception, since there the declaration *is* the
+             output. *)
+          (files, primary)
+        else
+          let path =
+            if is_main then output_path
+            else if unit.is_external then
+              Some (join directory (unit.name ^ Module.external_extension))
+            else Some (join directory (default_name target unit.name))
+          in
+          let contents, companions =
+            compile_unit unit tmap target path options checked
+          in
+          let primary = if is_main then contents else primary in
+          match path with
+          | None -> (files, primary)
+          | Some path -> (files @ [ (path, contents) ] @ companions, primary))
       ([], "") checked
   in
-  (files, primary)
+  ((files @ if options.stdout then [] else external_copies ()), primary)
 
 (** Runs `pyk compile <file>`: translates every module of the program
     for options.target and writes the files, or prints the program's own
@@ -765,7 +844,13 @@ let command_compile checked options =
         (Option.get output_path)
         (List.filteri (fun i _ -> i < List.length checked - 1) checked
         |> List.map (fun ((unit : Module.t), _) ->
-               join directory (default_name target unit.name)))
+               match
+                 if unit.is_external then
+                   Module.implementation_name unit.name target
+                 else None
+               with
+               | Some file -> join directory file
+               | None -> join directory (default_name target unit.name)))
     else 0)
 
 (** Runs pyk. [string] -> int *)

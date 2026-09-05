@@ -1,0 +1,18 @@
+# An external module: what it offers and at what type, and nothing else.
+# Every name here is implemented once per target, in a file of that
+# target's own (external_all_mod1.py, .js, .c, .java, .ml) -- see
+# docs/modules.md, "External modules".
+#
+# A declaration file holds signatures and nothing else. There is no
+# Pyking body for any of these, and none is possible: the file's whole
+# purpose is to say what the target's own source provides.
+
+public def shout : (String) -> String
+
+public def twice : (Int) -> Int
+
+public def flip : (Bool) -> Bool
+
+public def origin : Int
+
+public def greeting : String

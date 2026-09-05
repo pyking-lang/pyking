@@ -189,6 +189,141 @@ exactly what it emitted before there were modules -- which is what keeps
 the module system from showing up in the output of a program that has no
 modules.
 
+## External modules
+
+A module can be implemented in the target's own language instead of in
+Pyking. `sys.external.pyk` declares what it offers and at what type;
+`sys.py`, `sys.js`, `sys.c`, `Sys.java` and `sys.ml` implement it, one
+per target family.
+
+```
+public def loadfile : (String) -> String
+public def start    : Int
+```
+
+That is the whole of the declaration file. `import sys` reaches it
+exactly as it reaches an ordinary module -- a qualified name is an
+environment lookup, the checker holds every call to the type written
+here, and nothing about the call site says which kind of module it is.
+
+**`sys.external.pyk` is read; the implementation is not.** The compiler
+lexes and parses the declaration and nothing else. It never reads,
+rewrites or renames the implementation: it copies the one file for the
+target being compiled beside the program's own output, under the name
+the host itself resolves the module by, and leaves the rest to the host
+toolchain. Compiling in the directory the implementation already sits in
+copies nothing, so a hand-written file cannot be truncated by its own
+copy.
+
+Nothing is *generated* for an external module -- not even the header or
+interface the other targets get. C is told what the module offers by
+declarations emitted into the file that imports it, and OCaml infers
+module `Sys`'s interface from `sys.ml`.
+
+### Finding it
+
+`import sys` looks for `sys.external.pyk` first and `sys.pyk` second, in
+the directory of the importing file. A name with **both** files is
+refused: a module is one thing, and which of the two was meant would be
+a guess.
+
+Only the declaration carries the marker. The implementation files are
+named the way their host requires, because that is what the generated
+code refers to:
+
+| target | implementation | what the generated program does |
+|---|---|---|
+| `python` | `sys.py` | `import sys` |
+| `nodejs`, `esm` | `sys.js` | `import * as sys from './sys.js'` |
+| `c89`, `c23` | `sys.c` | declares `sys_loadfile` and calls it |
+| `java8`/`17`/`21` | `Sys.java` | `Sys.loadfile(...)` |
+| `ocaml` | `sys.ml` | `Sys.loadfile ...` |
+| `html` | -- | refused: a page is one file |
+
+Java's is capitalised where the others are not, because javac requires
+the file name and the public class to match and the generated program
+calls `Sys.loadfile`. A module's name becomes a name in the host's own
+namespace, so a module called `sys` collides with Python's builtin `sys`
+and will not be found -- name an external module something the host does
+not already use.
+
+A target with no implementation file is refused before anything is
+translated, naming the module and the file it looked for.
+
+### Why a declaration file holds nothing else
+
+A `.external.pyk` may contain signatures, and nothing but signatures --
+no bodies, no top-level bindings, and every one of them `public`.
+
+It is not a restriction for its own sake. If the file implemented `a` in
+Pyking and declared `b` externally, the compiler would have to generate
+`sys.py` for `a` while `sys.py` is already the hand-written file
+providing `b`: one name, two files. A private signature is refused for a
+different reason -- an external module is reached only through what it
+exports, so a signature nothing can import names nothing.
+
+The file is a header, in the sense C and OCaml already have one.
+
+### What may cross the boundary
+
+The types a declaration may name are the ones the target can carry, and
+they are not the same everywhere:
+
+| Pyking | python | nodejs, esm | c89, c23 | java | ocaml |
+|---|---|---|---|---|---|
+| `Int` | `int` | `number` | `int` | `int` | `int` |
+| `String` | `str` | `string` | `const char *` | `String` | `string` |
+| `Bool` | `bool` | `boolean` | `bool` / `int` | `boolean` | `bool` |
+| `()` | `()` | `undefined` | `void` | `void` | `unit` |
+| `(A, B)` | `tuple` | `Array` | refused | refused | tuple |
+| `[A]` | `list` | `Array` + marker | refused | refused | `list` |
+
+Two of these need care from whoever writes the implementation.
+
+**An `Int` is 32 bits and wraps** (PYKING.md, "Integer and string
+literals"). Python's `int` is unbounded and JavaScript's `number` is a
+double, so on those two hosts the implementation is what keeps the
+promise: return a value already reduced to the signed 32-bit range
+(`(n + 2**31) % 2**32 - 2**31` in Python, `n | 0` in JavaScript). C,
+Java and OCaml wrap on their own.
+
+**A JavaScript list must say it is one.** A Pyking list and a Pyking
+tuple are both arrays there, and the value formatter walks values rather
+than reading types, so a list carries `pykList === true` and a tuple
+does not. An implementation returning a plain array for a `[Int]` will
+have it printed as a tuple. `tests/external_shapes_mod1.js` is the
+worked example.
+
+**A C `Bool` is spelled differently by the two standards.** `c89`
+declares it `int` and `c23` declares it `bool`, because that is what
+each standard has, and the declaration the importing file carries says
+so. One `sys.c` serving both targets has to agree with whichever it is
+compiled under -- the usual `#if __STDC_VERSION__ >= 199901L` around
+`<stdbool.h>`, with a `typedef int bool` otherwise.
+`tests/external_all_mod1.c` is the worked example. Getting this wrong
+links and appears to work on most ABIs, which is exactly why it is
+worth saying: the declaration and the definition are in different
+translation units, so no compiler sees both.
+
+**A function may not cross at all.** Handing a Pyking closure to a host
+would need a calling convention on the other side, and there is none
+yet, so a declaration naming a function type anywhere inside itself is
+refused. A type variable is refused for a related reason: one
+implementation cannot be polymorphic.
+
+### Running one
+
+It cannot be interpreted. `pyk prog.pyk` and `pyk repl` run the AST, and
+what an external module exports has none -- it is written in a target
+language. Importing one is refused there, and a program that uses one
+has to be compiled. This is why such a program lists no `interpret`
+target in `tests/test_cases.toml`, and why the harness does not warn
+about its absence.
+
+An external module has no Pyking top level either, so nothing runs
+before the program's own: it is not among the modules a backend starts,
+and C and Java emit no `<module>_init()` call for it.
+
 ## Where the files go
 
 A module is compiled to a file beside the program's own output, named

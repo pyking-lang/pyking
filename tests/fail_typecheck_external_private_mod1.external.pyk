@@ -1,0 +1,6 @@
+# A declaration file is reached only through what it exports, so a
+# signature that is not `public` names something nothing can call -- and
+# nothing here could implement it either, since the implementation is in
+# a target language and this file has no bodies at all.
+
+def hidden : (Int) -> Int

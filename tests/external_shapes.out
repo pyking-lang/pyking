@@ -1,0 +1,7 @@
+('on', true)
+('x', false)
+('', false)
+('a longer one', true)
+[3, 4]
+[0, 1]
+[-2, -1]

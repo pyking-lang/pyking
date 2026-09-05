@@ -218,30 +218,9 @@ let jexpr_info e =
    class". *)
 
 (** The Java class (and file) name picked when nothing else says one,
-    e.g. foo_bar -> FooBar. string -> string *)
-let default_class_name stem =
-  let is_word c =
-    (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
-  in
-  let words, current =
-    String.fold_left
-      (fun (words, current) c ->
-        if is_word c then (words, current ^ String.make 1 c)
-        else if current = "" then (words, "")
-        else (words @ [ current ], ""))
-      ([], "") stem
-  in
-  let words = if current = "" then words else words @ [ current ] in
-  let name =
-    String.concat ""
-      (List.map
-         (fun word ->
-           String.make 1 (Char.uppercase_ascii word.[0])
-           ^ String.sub word 1 (String.length word - 1))
-         words)
-  in
-  let name = if name = "" then "Program" else name in
-  if name.[0] >= '0' && name.[0] <= '9' then "_" ^ name else name
+    e.g. foo_bar -> FooBar. The rule lives in module.ml, which owns what
+    a module's file is called on each target. string -> string *)
+let default_class_name = Module.class_name
 
 (* --- scope ---
 
@@ -1394,11 +1373,47 @@ let function_of state func scope =
         scope,
         state )
 
+(** Refuses an external module whose declaration names a type Java has
+    no representation for. Java calls the implementation directly, so
+    there is nothing to declare here -- but the type still has to be one
+    this subset can carry, and saying so where it was declared beats
+    failing at the first call. [stmt] -> Module.context -> () *)
+let check_externals stmts (context : Module.context) =
+  List.iter
+    (fun statement ->
+      match statement with
+      | SImport (info, name, _, _, _, _) when List.mem name context.externals ->
+          let signatures =
+            try List.assoc name context.sigmaps with Not_found -> []
+          in
+          List.iter
+            (fun (field, type_) ->
+              let check t what =
+                match t with
+                | TTuple (_, [], _) -> ()
+                | t ->
+                    if annotated_type (Some t) = None then
+                      unsupported info
+                        (Printf.sprintf
+                           "the external module '%s' declares '%s' with %s \
+                            this target has no Java type for"
+                           name field what)
+              in
+              match type_ with
+              | TFunction (_, params, result, _, _, _) ->
+                  List.iter (fun t -> check t "a parameter") params;
+                  check result "a return type"
+              | t -> check t "a type")
+            signatures
+      | _ -> ())
+    stmts
+
 (** One module of a program as a jprogram. `context` says what is true of
     it only as part of a program -- its name, whether it is the program's
     own module, and what the modules it imports export.
     [stmt] -> Module.context -> jprogram *)
 let translate_program stmts context =
+  check_externals stmts context;
   let state =
     {
       context;

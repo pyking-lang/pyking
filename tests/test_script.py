@@ -100,6 +100,12 @@ PYKING_TARGET = "pyking"
 # subset is the type checker's (see `interpreter.check`), and every
 # program is type-checked, so every program that runs at all lists it.
 INTERPRET_TARGET = "interpret"
+
+# An external module is declared in `<name>.external.pyk` and implemented
+# in the target's own language. A program that imports one has to be
+# compiled: the interpreter runs the AST, and there is none for what the
+# implementation provides (see docs/modules.md, "External modules").
+EXTERNAL_SUFFIX = ".external.pyk"
 # A `typecheck_*` program must type-check, and its `.ast.out` holds the
 # printed AST; it lists real backends too, so the program it describes is
 # one that actually runs. A `fail_typecheck_*` one must *not* check, and
@@ -234,7 +240,7 @@ def compile_to(source, target, output, flags=()):
 # a loop must never produce one.
 FACTORY_MARKER = "__pyk_turn"
 
-# src/optimization.py names the worker it builds for a mutually recursive
+# src/optimization.ml names the worker it builds for a mutually recursive
 # group `tail_group1`, `tail_group2`, ... The OCaml target is compiled
 # from the program as written, since OCaml eliminates tail calls itself
 # (see docs/optimization.md), so one of these appearing in generated
@@ -362,7 +368,7 @@ def run_java(source, workdir, modules, version):
     """Compiles to Java, builds it with `javac --release <version>`, runs
     the class with `java`. The class is named `Program` here rather than
     whatever the backend would pick by default -- `--output` always names
-    it explicitly (see `src/target_java.py`), so the test harness's own
+    it explicitly (see `src/target_java.ml`), so the test harness's own
     naming choice never has to match the source file's."""
     generated = os.path.join(workdir, "Program.java")
     compiled = compile_to(source, version, generated)
@@ -407,7 +413,11 @@ def run_ocaml(source, workdir, modules):
     # modules' top levels run in.
     sources = []
     for name in modules:
-        sources.append(os.path.join(workdir, name + ".mli"))
+        # An external module is copied rather than generated, so it has
+        # no interface beside it: OCaml infers one from the source.
+        interface = os.path.join(workdir, name + ".mli")
+        if os.path.exists(interface):
+            sources.append(interface)
         sources.append(os.path.join(workdir, name + ".ml"))
     built = run(
         OCAML_COMPILER + ["-w", "+a-70", "-I", workdir, "-o", binary]
@@ -571,6 +581,10 @@ def load_cases():
         checks = name.startswith(TYPECHECK_PREFIX)
         fails = name.startswith(FAIL_TYPECHECK_PREFIX)
         uses_pyking = PYKING_TARGET in targets
+        # A program importing an external module cannot be interpreted:
+        # what that module exports is written in a target language.
+        external = any(module.endswith(EXTERNAL_SUFFIX)
+                       for module in case.get("modules", []))
 
         if (checks or fails) and not uses_pyking:
             print(
@@ -605,7 +619,7 @@ def load_cases():
         # The interpreter runs the checker's fragment, so a program whose
         # types are pinned is one it can run -- and the cheapest check
         # that the two agree is to actually run it.
-        if checks and INTERPRET_TARGET not in targets:
+        if checks and INTERPRET_TARGET not in targets and not external:
             print(
                 f"WARNING: {name} pins its types but does not list "
                 f'"{INTERPRET_TARGET}"; the interpreter runs exactly the '
@@ -613,7 +627,10 @@ def load_cases():
             )
         # Every program is type-checked, and the interpreter runs what
         # the checker accepts, so a program that runs at all runs there.
-        if not fails and INTERPRET_TARGET not in targets:
+        # The exception is a program importing an external module: what
+        # that exports is written in a target language, and only a
+        # compiled program can reach it (see docs/modules.md).
+        if not fails and INTERPRET_TARGET not in targets and not external:
             print(
                 f'WARNING: {name} does not list "{INTERPRET_TARGET}"; every '
                 f"program that runs at all runs under the interpreter"
@@ -662,11 +679,15 @@ def module_names(case):
     """The modules one program imports, as module names, dependencies
     first -- the order the manifest lists them in, which is the order
     they must be built and run in. Case -> [String]"""
-    return [os.path.splitext(name)[0] for name in case.get("modules", [])]
+    # `sys.external.pyk` is module `sys`: the marker is part of the file
+    # name, not of the name another module imports it by.
+    return [os.path.splitext(os.path.splitext(name)[0])[0]
+            if name.endswith(".external.pyk") else os.path.splitext(name)[0]
+            for name in case.get("modules", [])]
 
 
 def java_class_name(module_name):
-    """What src/target_java.py calls the file it compiles a module to;
+    """What src/target_java.ml calls the file it compiles a module to;
     Java requires the class and its file to share a name.
     String -> String"""
     return "".join(

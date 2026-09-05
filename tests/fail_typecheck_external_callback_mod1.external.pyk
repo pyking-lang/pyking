@@ -1,0 +1,5 @@
+# A function cannot cross the boundary: handing a Pyking closure to a
+# host would need a calling convention on the other side, and there is
+# none yet. See docs/modules.md, "What may cross the boundary".
+
+public def apply : ((Int) -> Int, Int) -> Int

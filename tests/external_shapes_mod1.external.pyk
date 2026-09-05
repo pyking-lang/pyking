@@ -1,0 +1,8 @@
+# An external module whose boundary uses a tuple and a list, which not
+# every target can carry: C and Java have no Pyking tuple, so a program
+# importing this one compiles for python, nodejs, esm and ocaml only.
+# See docs/modules.md, "What may cross the boundary".
+
+public def split : (String) -> (String, Bool)
+
+public def counts : (Int) -> [Int]

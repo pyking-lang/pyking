@@ -714,3 +714,38 @@ harness both do.
 - **No optimisation.** The backend is a printer: no constant folding, no
   dead-code elimination, no tail calls. The C compiler does that work
   afterwards, which is a large part of why targeting C is attractive.
+
+## External modules
+
+A module implemented in C (`sys.c`, declared in `sys.external.pyk` --
+see [modules.md](modules.md)) is reached with **no header**. The
+compiler generates nothing for it, so instead of `#include "sys.h"` the
+file that imports it carries the declarations, taken from the
+signatures:
+
+```c
+// What the external modules this one imports implement.
+const char *sys_loadfile(const char *);
+extern int sys_start;
+```
+
+A name is `<module>_<field>`, which is the convention a compiled Pyking
+module already uses, so an implementation reads the same whether it was
+written by hand or generated. `sys.c` is copied beside the program's
+output and handed to the compiler with it.
+
+An external module has no Pyking top level, so no `sys_init()` is
+declared and none is called.
+
+The boundary carries what this backend carries: `Int`, `String`, `Bool`
+and unit. A declaration naming a tuple or a list is refused where it is
+written, before anything is translated -- C has neither.
+
+`Bool` is the one type the two targets spell differently: the
+declaration says `int` under `c89` and `bool` under `c23`, following
+each standard. An implementation file serving both has to agree with
+whichever it is compiled under, so it needs the usual
+`#if __STDC_VERSION__ >= 199901L` around `<stdbool.h>`. A mismatch here
+links quietly and works on most ABIs -- the declaration and the
+definition are in different translation units, so nothing sees both --
+which is why it is worth getting right rather than discovering.

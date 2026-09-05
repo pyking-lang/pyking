@@ -567,3 +567,20 @@ would leave the call inside it naming nothing.
   would translate comfortably into OCaml, in some cases more directly
   than into any other target here. It is the front end that has not
   reached them, not this backend.
+
+## External modules
+
+A module implemented in OCaml (`sys.ml`, declared in `sys.external.pyk`
+-- see [modules.md](modules.md)) needs **no `.mli`**. The compiler
+generates nothing for it, and `ocamlopt` infers module `Sys`'s interface
+from `sys.ml` itself; the file is copied beside the program's output and
+named ahead of it on the command line, as a compiled module would be.
+
+OCaml's own module name comes from the file name, which is exactly what
+the generated `Sys.loadfile` refers to -- so nothing is renamed.
+
+An external module has no Pyking top level, so nothing of it runs before
+the program's own.
+
+The boundary carries everything this backend does: `Int`, `String`,
+`Bool`, unit, tuples and lists, each as OCaml's own.

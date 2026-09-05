@@ -1,0 +1,19 @@
+# A program whose external module needs shapes only some targets have.
+# The declaration is the same on every target; what differs is which
+# hosts can represent what it says, and a target that cannot refuses at
+# compile time rather than emitting code that will not build.
+#
+# Each function is called several times, with different arguments and
+# with one the program computes, so an implementation returning a
+# constant fails here rather than passing by coincidence.
+
+import external_shapes_mod1 as shapes
+
+print(shapes.split("on"))
+print(shapes.split("x"))
+print(shapes.split(""))
+print(shapes.split("a longer one"))
+
+print(shapes.counts(3))
+print(shapes.counts(0))
+print(shapes.counts(-2))

@@ -574,3 +574,29 @@ the block. Nothing needs saying in the output.
   looks like.
 - **No optimisation.** The backend is a printer: no constant folding, no
   dead-code elimination, no tail calls.
+
+## External modules
+
+A module implemented in JavaScript (`sys.js`, declared in
+`sys.external.pyk` -- see [modules.md](modules.md)) is an **ES module**:
+it uses `export`, and the compiler emits `import * as sys from
+'./sys.js'` to reach it.
+
+That is why a program importing one is emitted as ES modules on the
+`nodejs` target too, where an ordinary program is CommonJS: `require`
+cannot load an ES module. The switch is narrow -- it happens only when
+an external module is actually imported -- and carries the same
+`package.json` (`{"type": "module"}`) the `esm` target already writes,
+which is what makes plain `.js` mean ES module to node. Ordinary nodejs
+output is untouched.
+
+`html` refuses an external module, with a source position. A page is one
+file: every module of a program becomes a block of it, and there is
+nothing for a block to load an implementation from.
+
+One thing an implementation has to know: **a Pyking list and a Pyking
+tuple are both JavaScript arrays**, and the formatter walks values
+rather than reading types, so a list carries `pykList === true` and a
+tuple does not. Returning a plain array where the declaration says
+`[Int]` prints it as a tuple. `tests/external_shapes_mod1.js` is the
+worked example.

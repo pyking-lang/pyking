@@ -1,0 +1,8 @@
+# A declaration file that also implements something in Pyking.
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+import fail_typecheck_external_bodies_mod1 as m
+
+print(m.shout("a"))

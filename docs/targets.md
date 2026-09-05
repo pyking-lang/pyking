@@ -214,6 +214,7 @@ testing — could be built end to end before the language surface grew:
 | function must provably return on every path | n/a | n/a | n/a | ✅ (`javac` requires it; refused at compile time otherwise) | n/a |
 | modules: `import`, `from`, `public` | ✅ (Python's own `import`) | ✅ (`require` for `nodejs`, `init(runtime)` for `esm`, one block per module on the page for `html`) | ✅ (one translation unit and a header each) | ✅ (one class each) | ✅ (one module and a `.mli` each) |
 | … privacy enforced in the output | ❌ (Python has none) | ❌ (a module exports what it exports) | ✅ (`static`) | ✅ (`private static`) | ✅ (the `.mli` is the export list) |
+| … a module implemented in the target's own language | ✅ (`sys.py`) | ✅ (`sys.js`, an ES module) | ✅ (`sys.c`, declared inline) | ✅ (`Sys.java`) | ✅ (`sys.ml`) |
 | … a module's top level runs before its importers' | ✅ (import does it) | ✅ (`require`/`init`/block order) | ✅ (a generated `<name>_init()`) | ✅ (a generated `Module.init()`) | ✅ (link order) |
 
 Every target supports modules, and every one of them compiles a module

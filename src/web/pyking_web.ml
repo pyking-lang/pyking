@@ -138,7 +138,14 @@ let front_end source name natively =
     modules. string -> Module.context *)
 let lone_context () =
   Module.
-    { context_name = ""; main = true; separate = false; starts = []; sigmaps = [] }
+    {
+      context_name = "";
+      main = true;
+      separate = false;
+      starts = [];
+      sigmaps = [];
+      externals = [];
+    }
 
 (** Compile `source` for `target`.
     Answers `{"ok":true,"files":{label:source},"views":[label,...]}` --
@@ -203,6 +210,7 @@ let compile_source source target name =
                   imports = [];
                   publics = [];
                   sigmap = None;
+                  is_external = false;
                 }
             in
             let files, _ =

@@ -18,6 +18,13 @@
       context -- what a backend is told about the module it is compiling
         beyond its statements.
 
+    An *external* module is declared in `sys.external.pyk` and
+    implemented in the target's own language (`sys.py`, `sys.js`,
+    `Sys.java`, ...). The declaration file holds signatures and nothing
+    else; the implementation is read by the host toolchain, never by
+    this compiler, and is copied beside the program's output so the
+    host finds it where it expects to.
+
     Functions:
       load path -- every module the program at path needs, dependencies
         first, parsed, symbolized and with every import resolved.
@@ -31,6 +38,17 @@
         settled.
       module_name path -- the module name a file has.
       module_path directory name -- the file a module name means.
+      module_file directory name -- that file and whether it is a
+        declaration of an external module, refusing a name with both.
+      class_name stem -- the Java class (and file) name for a stem.
+      implementation_name name target -- what an external module's
+        implementation file is called on that target.
+      implementation_path directory name target info -- that file, checked
+        to exist.
+      external_signatures stmts -- an external module's declared names
+        and their types.
+      check_declaration stmts path -- refuses anything but a public
+        signature in a declaration file.
       dirname path / join a b / absolute path -- the path helpers the
         compiler needs, in the shapes Python's os.path gives them.
       sigmaps_for module sigmaps -- the signatures one module needs. *)
@@ -42,6 +60,12 @@ open Syntax
    has no search path (see docs/modules.md, "Finding a module"). *)
 let extension = ".pyk"
 
+(* An external module's declaration file. `sys.external.pyk` says what
+   `sys` offers and at what type; `sys.py`, `sys.js`, `Sys.java` and
+   the rest implement it, one per target. Only the declaration is
+   Pyking, and only the declaration is read here. *)
+let external_extension = ".external.pyk"
+
 (** A module-level failure -- a missing module, a cycle, a collision, a
     name that is not exported -- with the source position. *)
 exception Module_error of Lexer.info * string
@@ -52,7 +76,9 @@ exception Module_error of Lexer.info * string
     statements; the modules it imports, in source order and without
     repeats; the names it exports, and where each was made public; and
     each of those names with the type the checker gave it -- filled in
-    after the module is checked, and None until then. *)
+    after the module is checked, and None until then; and whether it is
+    an external module, declared here and implemented in the target's
+    own language. *)
 type t = {
   name : string;
   path : string;
@@ -61,6 +87,7 @@ type t = {
   imports : string list;
   publics : (string * Lexer.info) list;
   sigmap : (string * typ) list option;
+  is_external : bool;
 }
 
 (** What a backend needs to know about the module it is compiling beyond
@@ -72,13 +99,16 @@ type t = {
     the program's own module must run before its own top level, in
     order; and what every module of the program exports and at what
     type, which is how a backend that must know a type for an imported
-    name finds one. *)
+    name finds one; and which of them are external, since a backend
+    reaches one through the host's own source rather than through a file
+    this compiler wrote. *)
 type context = {
   context_name : string;
   main : bool;
   separate : bool;
   starts : string list;
   sigmaps : (string * (string * typ) list) list;
+  externals : string list;
 }
 
 (* --- ordered tables ---
@@ -133,11 +163,52 @@ let absolute path =
   "/" ^ String.concat "/" (collapse [] (String.split_on_char '/' path))
 
 (** The module name a file has: its stem. string -> string *)
-let module_name path = Filename.remove_extension (Filename.basename path)
+let module_name path =
+  let stem = Filename.remove_extension (Filename.basename path) in
+  (* `sys.external.pyk` is module `sys`: the marker is part of the file
+     name, not of the name another module imports it by. *)
+  if Filename.extension stem = ".external" then Filename.remove_extension stem
+  else stem
 
 (** The file a module name means, in the directory of the file that
     imported it. string -> string -> string *)
 let module_path directory name = join directory (name ^ extension)
+
+(** An external module's declaration file, in the same directory.
+    string -> string -> string *)
+let external_module_path directory name =
+  join directory (name ^ external_extension)
+
+(** Whether a path names an external module's declaration.
+    string -> bool *)
+let is_external_path path =
+  Filename.check_suffix path external_extension
+
+(** The file a module name means and whether it declares an external
+    module. A name with both files is refused: a module is one thing,
+    and which of the two was meant would be a guess.
+    string -> string -> info option -> (string, bool) *)
+let module_file directory name info =
+  let plain = module_path directory name in
+  let declared = external_module_path directory name in
+  match (Sys.file_exists declared, Sys.file_exists plain) with
+  | true, true ->
+      let where =
+        match info with
+        | Some i -> i
+        (* The program's own file: no import asked for it, so the
+           collision is reported against the file itself. *)
+        | None ->
+            { Lexer.file = declared; row1 = 1; col1 = 0; row2 = 1; col2 = 0 }
+      in
+      raise
+        (Module_error
+           ( where,
+             Printf.sprintf
+               "module '%s' is declared twice: '%s' and '%s'. A module is                 either written in Pyking or implemented for a target, not                 both"
+               name declared plain ))
+  | true, false -> (declared, true)
+  | false, _ -> (plain, false)
 
 (* --- reading one module --- *)
 
@@ -178,6 +249,7 @@ let read_file path info =
     imports = [];
     publics = [];
     sigmap = None;
+    is_external = is_external_path path;
   }
 
 (** The modules a program imports, in source order and without repeats
@@ -284,6 +356,143 @@ let check_publics stmts =
          | _ -> assoc_set name (stmt_info statement) bindings)
        [] (bound_at_top_level stmts));
   publics
+
+(* --- external modules ---
+
+   A declaration file holds signatures and nothing else, so everything
+   it exports comes from the implementation and there is no Pyking body
+   for this compiler to generate. Mixing the two would need one file to
+   be both hand-written and generated (see docs/modules.md, "Why a
+   declaration file holds nothing else"). *)
+
+(** An external module's declared names and their types, in source
+    order. [stmt] -> [(string, typ)] *)
+let external_signatures stmts =
+  List.filter_map
+    (function
+      | SFunctionSig (_, name, type_, _, _) -> Some (name, type_) | _ -> None)
+    stmts
+
+(** Refuses a type that cannot cross the boundary between Pyking and a
+    target language: a type variable, because a host function is one
+    implementation and cannot be polymorphic, and a function anywhere
+    inside the signature, because passing a Pyking closure to a host
+    would need a calling convention there is none of yet (see
+    docs/modules.md, "What may cross the boundary").
+    typ -> string -> info -> () *)
+let check_boundary_type type_ name info =
+  let refuse what =
+    raise
+      (Module_error
+         ( info,
+           Printf.sprintf
+             "'%s' cannot be declared with %s: an external module is \
+              implemented in a target language, and %s does not cross that \
+              boundary"
+             name what what ))
+  in
+  let rec walk nested type_ =
+    match type_ with
+    | TVar _ -> refuse "a type variable"
+    | TForall _ -> refuse "a polymorphic type"
+    | TFunction (_, params, result, _, _, _) ->
+        if nested then refuse "a function type";
+        List.iter (walk true) params;
+        walk true result
+    | TList (_, element, _) -> walk nested element
+    | TTuple (_, elements, _) -> List.iter (walk nested) elements
+    | _ -> ()
+  in
+  walk false type_
+
+(** Refuses anything but a public signature in a declaration file: a
+    body there would have to be compiled into the very file the target's
+    own implementation already occupies, and a private signature names
+    something nothing could reach. [stmt] -> string -> () *)
+let check_declaration stmts path =
+  List.iter
+    (fun statement ->
+      match statement with
+      | SFunctionSig (info, name, type_, _, true) ->
+          check_boundary_type type_ name info
+      | SFunctionSig (info, name, _, _, false) ->
+          raise
+            (Module_error
+               ( info,
+                 Printf.sprintf
+                   "'%s' is declared in '%s' but not marked 'public'. An                     external module is reached only through what it exports,                     so a signature that is not public names nothing"
+                   name path ))
+      | statement ->
+          raise
+            (Module_error
+               ( stmt_info statement,
+                 Printf.sprintf
+                   "'%s' declares an external module, so it holds signatures                     and nothing else: what it exports is implemented for each                     target, not here"
+                   path )))
+    stmts
+
+(** The Java class (and file) name for a stem, e.g. foo_bar -> FooBar.
+    Java requires the two to match, so naming the file is naming the
+    class. string -> string *)
+let class_name stem =
+  let is_word c =
+    (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+  in
+  let words, current =
+    String.fold_left
+      (fun (words, current) c ->
+        if is_word c then (words, current ^ String.make 1 c)
+        else if current = "" then (words, "")
+        else (words @ [ current ], ""))
+      ([], "") stem
+  in
+  let words = if current = "" then words else words @ [ current ] in
+  let name =
+    String.concat ""
+      (List.map
+         (fun word ->
+           String.make 1 (Char.uppercase_ascii word.[0])
+           ^ String.sub word 1 (String.length word - 1))
+         words)
+  in
+  let name = if name = "" then "Program" else name in
+  if name.[0] >= '0' && name.[0] <= '9' then "_" ^ name else name
+
+(** What an external module's implementation file is called on a target:
+    the name the host itself resolves the module by, which is why
+    nothing is renamed. None for a target that cannot reach one.
+    string -> string -> string option *)
+let implementation_name name target =
+  match target with
+  | "python" -> Some (name ^ ".py")
+  | "nodejs" | "esm" -> Some (name ^ ".js")
+  | "c89" | "c23" -> Some (name ^ ".c")
+  | "java8" | "java17" | "java21" -> Some (class_name name ^ ".java")
+  | "ocaml" -> Some (name ^ ".ml")
+  | _ -> None
+
+(** An external module's implementation for a target, checked to exist.
+    Raises Module_error naming both the module and the file it looked
+    for. string -> string -> string -> info -> string *)
+let implementation_path directory name target info =
+  match implementation_name name target with
+  | None ->
+      raise
+        (Module_error
+           ( info,
+             Printf.sprintf
+               "target '%s' cannot use the external module '%s': it has no                 file of its own for a module to be implemented in"
+               target name ))
+  | Some file ->
+      let path = join directory file in
+      if Sys.file_exists path then path
+      else
+        raise
+          (Module_error
+             ( info,
+               Printf.sprintf
+                 "the external module '%s' has no implementation for target                   '%s': there is no file '%s'"
+                 name target path ))
 
 (* --- resolving what an import means --- *)
 
@@ -425,6 +634,7 @@ let rec visit name path info parsed order stack =
   else if List.mem_assoc name parsed then (parsed, order)
   else
     let module_ = read_file path info in
+    if module_.is_external then check_declaration module_.stmts module_.path;
     let module_ =
       {
         module_ with
@@ -443,9 +653,10 @@ let rec visit name path info parsed order stack =
         (fun (parsed, order) statement ->
           match statement with
           | SImport (import_info, imported_name, _, _, _, _) ->
-              visit imported_name
-                (module_path directory imported_name)
-                (Some import_info) parsed order
+              let imported_path, _ =
+                module_file directory imported_name (Some import_info)
+              in
+              visit imported_name imported_path (Some import_info) parsed order
                 (stack @ [ (name, info) ])
           | _ -> (parsed, order))
         (parsed, order) module_.stmts
@@ -457,6 +668,13 @@ let rec visit name path info parsed order stack =
     across the whole program, and with every import resolved. Raises
     Module_error for a missing module or a cycle. string -> [t] *)
 let load path =
+  (* The program's own file is named on the command line rather than
+     resolved, but a name with both files is still a name meaning two
+     things, so it is refused here too. *)
+  let path, _ = 
+    if is_external_path path then (path, true)
+    else module_file (dirname path) (module_name path) None
+  in
   let parsed, order = visit (module_name path) path None [] [] [] in
   let _, _, modules =
     List.fold_left
@@ -488,11 +706,20 @@ let context units unit =
       (if main then
          List.filteri
            (fun i _ -> i < List.length units - 1)
-           (List.map (fun (other, _) -> other.name) units)
+           (List.map (fun (other, _) -> other) units)
+         (* An external module has no Pyking top level, so there is
+            nothing to run before the program's own: what it exports is
+            already there when the host loads its implementation. *)
+         |> List.filter (fun (other : t) -> not other.is_external)
+         |> List.map (fun (other : t) -> other.name)
        else []);
     sigmaps =
       List.map
         (fun (other, _) -> (other.name, Option.value other.sigmap ~default:[]))
+        units;
+    externals =
+      List.filter_map
+        (fun ((other : t), _) -> if other.is_external then Some other.name else None)
         units;
   }
 
@@ -510,6 +737,11 @@ let make_sigmap stmts tmap =
         Some (name, IntMap.find (stmt_sym statement) tmap)
       else None)
     (bound_at_top_level stmts)
+
+(** An external module's exported names and their types, which are the
+    ones its declaration wrote: nothing was checked, because there is no
+    body here to check. [stmt] -> [(string, typ)] *)
+let external_sigmap stmts = external_signatures stmts
 
 (** The signatures needed to check one module: its own imports', out of
     every module checked so far.

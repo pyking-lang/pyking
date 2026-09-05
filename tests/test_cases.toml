@@ -1176,3 +1176,33 @@ targets = ["pyking"]
 [[cases]]
 file = "fail_typecheck_module_unannotated.pyk"
 targets = ["pyking"]
+
+[[cases]]
+file = "external_all.pyk"
+modules = ["external_all_mod1.external.pyk"]
+targets = ["python", "nodejs", "esm", "c89", "c23", "java8", "java17", "java21", "ocaml"]
+
+[[cases]]
+file = "external_shapes.pyk"
+modules = ["external_shapes_mod1.external.pyk"]
+targets = ["python", "nodejs", "esm", "ocaml"]
+
+[[cases]]
+file = "fail_typecheck_external_body.pyk"
+modules = ["fail_typecheck_external_body_mod1.pyk"]
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_external_private.pyk"
+modules = ["fail_typecheck_external_private_mod1.external.pyk"]
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_external_bodies.pyk"
+modules = ["fail_typecheck_external_bodies_mod1.external.pyk"]
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_external_callback.pyk"
+modules = ["fail_typecheck_external_callback_mod1.external.pyk"]
+targets = ["pyking"]

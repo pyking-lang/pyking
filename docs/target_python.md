@@ -738,3 +738,22 @@ it.
 - **No optimisation of any kind.** The backend is a printer: no constant
   folding, no dead-code elimination, no tail calls. `1 + 2` compiles to
   `1 + 2`.
+
+## External modules
+
+A module implemented in Python (`sys.py`, declared in
+`sys.external.pyk` -- see [modules.md](modules.md)) is an ordinary
+module: the generated program writes `import sys` and reaches it as
+`sys.loadfile(...)`, exactly as it would a compiled one. The file is
+copied beside the program's output, where `import` finds it.
+
+Two things an implementation has to keep, because Python will not:
+
+- **An `Int` is 32 bits and wraps.** Python's `int` is unbounded, so a
+  function returning one has to reduce it itself:
+  `(n + 2**31) % 2**32 - 2**31`.
+- **A module's name is a name in Python's own namespace.** A Pyking
+  module called `sys` or `os` will not be found -- the builtin wins.
+
+The boundary carries `Int`, `String`, `Bool`, unit, tuples and lists,
+each as Python's own.

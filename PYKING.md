@@ -3329,6 +3329,48 @@ looked for beside the file that imports it, whatever directory the
 compiler was run from. There is no search path and no way to reach
 another directory.
 
+### A module implemented elsewhere
+
+A module can be implemented in a target language rather than in Pyking.
+A file called `sys.external.pyk` is still the module `sys`, but it holds
+*signatures only* — every name it exports is written down with its type
+and left without a body:
+
+```pyking
+public def loadfile : (String) -> String
+
+public def start : Int
+```
+
+Importing it is no different from importing any other module, and a call
+is checked against the type written here:
+
+```pyking
+import sys
+
+print(sys.loadfile("notes.txt"))
+print(sys.start)
+```
+
+Three rules hold of such a file, and each is refused where it is broken:
+
+- **Signatures and nothing else.** No bodies, no top-level bindings. The
+  file says what the module offers; something else provides it.
+- **Every signature is `public`.** A module is reached only through what
+  it exports, so a signature nothing can import names nothing.
+- **No functions and no type variables in a signature.** A function
+  cannot cross the boundary, and one implementation cannot be
+  polymorphic.
+
+A plain `sys.pyk` is unaffected: a signature there still has to describe
+a `def` in the same file, exactly as before.
+
+Everything else about such a module — which file implements it for which
+target, what each Pyking type becomes on the other side, and why a
+program that imports one cannot be interpreted — is about *compiling*
+rather than about the language, and lives in
+[docs/modules.md](docs/modules.md).
+
 ### Modules and types
 
 An imported name has the type the checker gave it where it was written.

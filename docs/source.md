@@ -317,6 +317,22 @@ the signature the next one is checked against. Errors are
 - **`read_file(path) -> Module`** — one file, lexed and parsed, and
   nothing else: what `--no-typechecking` stops at, which is why nothing
   a program imports is opened under that flag.
+- **`module_file directory name info`** — the file a module name means
+  and whether it declares an **external** module: `sys.external.pyk`
+  before `sys.pyk`, refusing a name that has both.
+- **`check_declaration stmts path`** / **`check_boundary_type`** — a
+  declaration file holds public signatures and nothing else, and a
+  signature may not name a function type or a type variable.
+- **`implementation_name name target`** / **`implementation_path`** —
+  what an external module's implementation is called on a target
+  (`sys.py`, `sys.js`, `sys.c`, `Sys.java`, `sys.ml`), and that file,
+  checked to exist.
+- **`external_sigmap stmts`** — an external module's exports, taken from
+  what it declared: there is no body for the checker to work them out
+  from, so nothing is checked and nothing is inferred.
+- **`class_name stem`** — the Java class (and file) name for a stem,
+  `foo_bar` → `FooBar`. Naming a module's file is this module's
+  business; `target_java.default_class_name` is this.
 - **`check_publics(stmts) -> {name: info}`** — what a module exports,
   refusing a name exported twice and an exported name bound twice.
 - **`resolve_imports(module, loaded) -> Module`** — each plain import's

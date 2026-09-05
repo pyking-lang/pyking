@@ -1,0 +1,36 @@
+# Reaching a module implemented in a target language.
+#
+# The declaration beside this file says what `external_all_mod1` offers;
+# the implementation is whichever of its target files this program is
+# compiled to. Nothing about the call is special -- a qualified name is
+# an ordinary environment lookup, and the checker holds the call to the
+# type the declaration wrote.
+#
+# Every function is called several times, with different arguments and
+# with arguments the program computes rather than writes down, so that
+# an implementation returning a constant fails here rather than passing
+# by coincidence. `twice` is called at the edge of the range as well,
+# since an Int is 32 bits and wraps and it is the implementation that
+# has to keep that promise (see docs/modules.md).
+
+import external_all_mod1 as host
+
+print(host.shout("hi"))
+print(host.shout("again"))
+print(host.shout(""))
+print(host.shout(host.shout("twice over")))
+print(host.shout(host.greeting))
+
+print(host.twice(21))
+print(host.twice(0))
+print(host.twice(-13))
+print(host.twice(host.twice(5)))
+print(host.twice(1073741824))
+
+print(host.flip(true))
+print(host.flip(false))
+print(host.flip(host.flip(true)))
+
+print(host.origin)
+print(host.greeting)
+print(host.shout(host.greeting) ++ "/" ++ host.greeting)

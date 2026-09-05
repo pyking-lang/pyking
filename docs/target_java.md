@@ -615,3 +615,21 @@ one another.
   the C targets.
 - **No optimisation.** The backend is a printer: no constant folding, no
   dead-code elimination. `javac` and the JIT do that work afterwards.
+
+## External modules
+
+A module implemented in Java (declared in `sys.external.pyk` -- see
+[modules.md](modules.md)) lives in **`Sys.java`**, capitalised where the
+other targets' implementation files are not: javac requires the file
+name and the public class to match, and the generated program calls
+`Sys.loadfile(...)`. `Module.class_name` is the rule, the same one that
+names a compiled module's file.
+
+Nothing is generated for it and nothing is declared: Java resolves the
+class by name, so the file is copied beside the program's output and
+handed to javac with it. An external module has no Pyking top level, so
+no `Sys.init()` is emitted or called.
+
+The boundary carries `Int`, `String`, `Bool` and unit. A declaration
+naming a tuple or a list is refused where it is written, before anything
+is translated -- this backend has neither.

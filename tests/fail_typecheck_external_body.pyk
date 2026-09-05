@@ -1,0 +1,12 @@
+# A signature with no body, in a module that is not a declaration file.
+#
+# `.external.pyk` is what says "implemented for a target"; a plain
+# `.pyk` promises Pyking all the way down, so a signature there still
+# has to describe a `def` in the same block.
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+import fail_typecheck_external_body_mod1 as m
+
+print(m.loadfile("a"))

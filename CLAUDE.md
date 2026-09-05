@@ -330,7 +330,22 @@ The bootstrap is split into one module per compiler stage:
    entry that reads a single file and checks nothing, which is where
    `--no-typechecking` stops -- the flag halts the front end after
    `symbolize`, and reading a module the program imports is something
-   only the stages after that need. The two front ends that
+   only the stages after that need.
+
+   **External modules** are here too. A module declared in
+   `sys.external.pyk` is implemented in the target's own language, and
+   this module owns everything about that: `module_file` resolves
+   `.external.pyk` before `.pyk` and refuses a name with both;
+   `check_declaration` refuses anything but a public signature in a
+   declaration file, and `check_boundary_type` refuses a function type
+   or a type variable in one; `implementation_name` says what the
+   implementation file is called on each target (`sys.py`, `Sys.java`,
+   ...) and `implementation_path` checks it exists; `external_sigmap`
+   takes the module's exports from what it declared, since there is no
+   body for the checker to work them out from. Nothing is *generated*
+   for such a module -- `pyk.ml` copies the one implementation file
+   beside the program's output, skipping a copy onto itself. See
+   `docs/modules.md`, "External modules". The two front ends that
    compile a file with no program around it -- the REPL and the browser
    playground -- run `check_publics` (it needs only the file) and let
    `typesystem.available` refuse an import (it needs the program); the
@@ -1222,6 +1237,12 @@ whose subset is not a list it maintains: it is whatever
 `src/typesystem.ml` accepts, checked by running it. See
 `docs/architecture.md` for the subsets and the target table.
 
+A program that imports an **external module** cannot be interpreted at
+all: what such a module exports is written in a target language, so
+`pyk <file>` and `pyk repl` refuse it and it has to be compiled. Such a
+program lists no `interpret` target in the manifest, and the harness
+does not warn about its absence.
+
 `pyk <file>` and `pyk repl` take no target: the interpreter emits
 nothing to name. What they accept is `src/typesystem.ml`'s fragment,
 checked by running it — the same arrangement `ocaml` uses, and the
@@ -1297,6 +1318,19 @@ as, what each meta-command answers -- and not the keystroke handling;
 history, cursor movement and Escape are still untested. Add a case here
 when changing anything about what the prompt prints. It takes
 `--compiler CMD` like the other one.
+
+A fifth family covers **external modules**: `external_*` for a module
+implemented in a target language -- `external_all` on every host, and
+`external_shapes` on the four whose boundary can carry a tuple and a
+list -- and `fail_typecheck_external_*` for what is refused: a bodiless
+signature in a plain `.pyk`, one that is not `public`, a declaration
+file that also holds a body, and a declaration naming a function type.
+A `.external.pyk` is listed under the importing program's `modules`
+like any other, and the harness knows not to expect `interpret` from a
+program that imports one. The one rule the suite does *not* pin is a
+missing implementation file: that refusal is per-target, and the
+`fail_typecheck_*` convention runs on `-t pyking`, which needs no
+implementation.
 
 **Four kinds of expected output**, two of them about the tail-call
 pass. `<name>.notail.ast.out` is what `-t pyking --no-tail-call-opt`
