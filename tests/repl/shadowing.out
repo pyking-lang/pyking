@@ -2,5 +2,5 @@ Pyking REPL.  :help for commands, :quit to leave.
 > > 1 : Int
 > > 'two' : String
 > > x = 'two' : String
-f = <function> : not worked out yet -- call it to settle its type
+f = <function> : () -> ?
 > 

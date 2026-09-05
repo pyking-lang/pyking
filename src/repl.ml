@@ -759,20 +759,16 @@ let value_text value =
   | Interpreter.VClosure _ | Interpreter.VBuiltin _ -> "<function>"
   | value -> Interpreter.display_value value
 
-(** What a type this session has not worked out is called at the
-    prompt. An unannotated `def` has no type until something calls it
-    (see docs/type_inference.md), and `displayed` renders what is still
-    open as `?`, which is not a type the source could write. Saying so
-    is the honest answer; printing `(?) -> ?` reads as a type the
-    checker settled on. *)
-let unsettled = "not worked out yet -- call it to settle its type"
-
-(** ` : Type`, or "" if there is no type, or the unsettled note for one
-    that cannot be written down. typ option -> string *)
+(** ` : Type`, or "" if there is no type. A type the checker has not
+    settled prints with `?` where it is still open -- an unannotated
+    `def` has none until something calls it (see
+    docs/type_inference.md), and `?` is what `displayed` renders that
+    as. The prompt is the one place it is shown rather than suppressed:
+    a session is a conversation about what is known so far, so "not
+    known yet" is worth seeing. typ option -> string *)
 let type_suffix type_ =
   match type_ with
   | None -> ""
-  | Some type_ when not (spellable type_) -> " : " ^ unsettled
   | Some type_ -> " : " ^ pprint_type default_config type_
 
 (** Prints value as `value : Type`, or nothing for unit.
@@ -977,14 +973,11 @@ let meta_type session argument report =
     | [ SExprStmt (_, e, _) ] -> (
         match Typesystem.check_expr e session.types session.store with
         | checked, store ->
-            let type_ =
-              Typesystem.displayed
-                (Typesystem.zonk (Typesystem.settled_type checked store) store)
-                store
-            in
             print_endline
-              (if spellable type_ then pprint_type default_config type_
-               else unsettled);
+              (pprint_type default_config
+                 (Typesystem.displayed
+                    (Typesystem.zonk (Typesystem.settled_type checked store) store)
+                    store));
             plain session
         | exception (Analyses.Analysis_error _ as e) ->
             report e;

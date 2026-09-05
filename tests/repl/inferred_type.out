@@ -1,6 +1,6 @@
 Pyking REPL.  :help for commands, :quit to leave.
-> > id = <function> : not worked out yet -- call it to settle its type
-> not worked out yet -- call it to settle its type
+> > id = <function> : (?) -> ?
+> (?) -> ?
 > 5 : Int
 > id = <function> : (a) -> a
 > (a) -> a
