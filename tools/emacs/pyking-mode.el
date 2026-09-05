@@ -6,7 +6,7 @@
 
 ;; A syntax-highlighting major mode for Pyking, the small Python-like
 ;; language defined by this repository. The keyword list and grammar
-;; used below are taken directly from `src/lexer.py' / `src/parser.py'
+;; used below are taken directly from `src/lexer.ml' / `src/parser.ml'
 ;; and documented in `PYKING.md' at the repository root; keep the two in
 ;; sync if the grammar changes.
 ;;
@@ -90,7 +90,7 @@ be changed, but is exposed as a customizable option the same way
   '("for" "in" "if" "while" "loop" "break" "continue" "then" "else" "var"
     "def" "return" "match" "case" "public" "import" "from" "as")
   "Reserved keywords in Pyking.
-Mirrors the `keywords' list in src/lexer.py, minus the names broken out
+Mirrors the `keywords' list in src/lexer.ml, minus the names broken out
 into `pyking-mode-types' and `pyking-mode-constants' below (each gets its
 own face, the way other language modes distinguish literals and type
 names from control-flow/declaration keywords). Unlike Python, `match' and
@@ -110,7 +110,7 @@ and `import'/`from'/`as' are how another module reaches it.")
 Annotations appear on a parameter, on a `def' return value, and on an
 immutable binding (`x: Int = 1' -- see `assignment' in PYKING.md's
 grammar), which is the form the type checker fills in and prints back.
-Mirrors the `keywords' list in src/lexer.py: like `match'/`case', these
+Mirrors the `keywords' list in src/lexer.ml: like `match'/`case', these
 are always-reserved keywords, not identifiers the parser special-cases
 only in type position -- see PYKING.md's \"Type annotations\" section.
 Kept as a separate list (rather than folded into
@@ -125,7 +125,7 @@ type names from control-flow/declaration keywords.")
 (defconst pyking-mode-constants
   '("true" "false")
   "Reserved literal keywords in Pyking, for values rather than control
-flow or types. Mirrors the `keywords' list in src/lexer.py: `true' and
+flow or types. Mirrors the `keywords' list in src/lexer.ml: `true' and
 `false' are Pyking's own lowercase spelling of the two boolean values,
 not Python's capitalised `True'/`False' (which are therefore *not* in
 this list -- they are ordinary, unbound identifiers in Pyking, not
@@ -186,9 +186,9 @@ builtin.")
    ;; a bare "++" would be a regexp repeat and match a single `+' too.
    '("\\+\\+" . font-lock-keyword-face)
    ;; `all a b.' -- the quantifier that binds type variables. Not in
-   ;; `pyking-mode-keywords' because it is not in src/lexer.py's
+   ;; `pyking-mode-keywords' because it is not in src/lexer.ml's
    ;; `keywords' either: it is recognized only in type position (see
-   ;; `parse_type_atom' in src/parser.py), so `all' stays usable as an
+   ;; `parse_type_atom' in src/parser.ml), so `all' stays usable as an
    ;; ordinary name everywhere else. Matched by its shape instead -- the
    ;; word, one or more lowercase variables, and the `.' that ends it --
    ;; and only the word itself is highlighted.
@@ -347,7 +347,7 @@ necessarily one level below the previous line the way `else' always is."
   "Return non-nil if the current line is known to end its own block.
 A `return_stmt' always ends the statement sequence it's part of, and so
 do `break' and `continue': each leaves the block it stands in, and
-src/parser.py refuses a statement written after one of the latter two at
+src/parser.ml refuses a statement written after one of the latter two at
 all (\"this statement cannot be reached\"). So the line after any of
 the three dedents a `pyking-indent-offset'. Mirrors `python-mode's own
 `python-indent-dedenters', and like it dedents exactly one level, not
@@ -580,7 +580,7 @@ block opener that list holds a single forced column (see
 (defvar pyking-mode-syntax-table
   (let ((table (make-syntax-table)))
     ;; ident = letter , { letter | digit } ; where `letter' includes `_'
-    ;; (see `is_letter' in src/lexer.py) -- `_' is part of the word,
+    ;; (see `is_letter' in src/lexer.ml) -- `_' is part of the word,
     ;; not a symbol separator.
     (modify-syntax-entry ?_ "w" table)
     ;; Comments: "#" runs to end of line.
@@ -588,7 +588,7 @@ block opener that list holds a single forced column (see
     (modify-syntax-entry ?\n ">" table)
     ;; string = "'" , { string_char } , "'" | '"' , { string_char } , '"' ;
     ;; both quote characters delimit strings, and "\\" is the escape
-    ;; character for both (see `scan_string'/`_ESCAPES' in src/lexer.py).
+    ;; character for both (see `scan_string'/`_ESCAPES' in src/lexer.ml).
     (modify-syntax-entry ?\" "\"" table)
     (modify-syntax-entry ?\' "\"" table)
     (modify-syntax-entry ?\\ "\\" table)
@@ -626,8 +626,8 @@ boolean literals (`true'/`false', see `pyking-mode-constants', coloured
 the same as an integer literal, not as a keyword), type annotation names
 (`Int', `String', `Bool', see `pyking-mode-types'), and well-known
 builtins (see `pyking-mode-builtins'), consistent with the grammar
-documented in PYKING.md and implemented in src/lexer.py and
-src/parser.py.
+documented in PYKING.md and implemented in src/lexer.ml and
+src/parser.ml.
 
 Also provides `python-mode'-style 4-space (`pyking-indent-offset')
 indentation via `pyking-indent-line', including TAB-again cycling

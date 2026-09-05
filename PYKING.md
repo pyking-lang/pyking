@@ -220,7 +220,7 @@ Structure:
 
 ## Grammar
 
-EBNF for the subset currently accepted by `parse()` in `src/parser.py`.
+EBNF for the subset currently accepted by `parse()` in `src/parser.ml`.
 `INDENT`/`DEDENT` are not literal characters — they are synthesized by the
 lexer from 4-space indentation changes (see "Indentation-based blocks"
 below). Comments are stripped by the lexer and don't appear here.
@@ -406,7 +406,7 @@ Notes that don't fall out of the grammar alone:
   (`x = if c:`), and a statement may still span as many lines as its
   blocks need. What one line may not hold is *two* statements.
 - Two rules about `break`/`continue` cannot be stated in the grammar and
-  are checked in `src/parser.py` beside the others, so they hold in
+  are checked in `src/parser.ml` beside the others, so they hold in
   every mode and are reported as a `Parsing error`. First, each may only
   appear in the body of a `loop`, and may not reach out of a `for`, a
   `while` or a `def` to find one:
@@ -442,7 +442,7 @@ Notes that don't fall out of the grammar alone:
   *statement* form, i.e. end in `:`; `else if c then a else b` is an
   error, since an `if_expr` may not start an `else` tail. This makes
   `else if` exactly equivalent to an `else` block holding one nested
-  `if_stmt`, and that is how it is parsed: `src/parser.py` builds no
+  `if_stmt`, and that is how it is parsed: `src/parser.ml` builds no
   ladder node, just an `SIf` whose `else_body` is a one-element list
   holding the next `SIf`. Both pretty-printers undo the nesting when
   printing (as `else if` in Pyking's own syntax), so
@@ -483,7 +483,7 @@ Notes that don't fall out of the grammar alone:
   lies: it may be an `if_stmt` or an `expr_stmt` holding an `if_expr`,
   and the two share the entire `"if" , expr` prefix. Since that `expr`
   can be arbitrarily long, no bounded lookahead separates them — the
-  grammar is not LL(1) at `statement`. `src/parser.py` handles this
+  grammar is not LL(1) at `statement`. `src/parser.ml` handles this
   without backtracking by parsing the shared prefix once and then
   dispatching on the single token that follows it: `:` means `if_stmt`,
   `then` means `if_expr`. (An `if_stmt` whose *condition* is an `if_expr`
@@ -552,7 +552,7 @@ Notes that don't fall out of the grammar alone:
   as the atom it follows — a `(` that starts a new row is always treated
   as the start of the next statement instead, never as a continuation of
   the previous one. (There are no statement-separator tokens in this
-  grammar at all — see the parser module comment in `src/parser.py` —
+  grammar at all — see the parser module comment in `src/parser.ml` —
   so without this row check, a statement immediately followed by one
   starting with `(`, e.g. a parenthesized tuple destructuring assignment,
   would be misparsed as one giant chained call.)
@@ -691,7 +691,7 @@ Notes that don't fall out of the grammar alone:
   expression begins on the row the header's `:` ends on. The EBNF cannot
   state this, for the same reason it cannot state "a statement starts a
   line of its own": the lexer emits no token for a line break, so both
-  are checked in `src/parser.py` against the positions the tokens
+  are checked in `src/parser.ml` against the positions the tokens
   already carry. A block that begins on the *next* line without being
   indented is therefore not an inline block but the error it always was
   (`expected an indented block`).
@@ -1522,7 +1522,7 @@ print(apply(inc, 1), apply(step, 1), apply(stepper(true), 1))
 ```
 
 Annotations are parsed and stored in the AST (see `Param`,
-`SFunctionDef.return_type` and `SLet.type` in `src/syntax.py`) and
+`SFunctionDef.return_type` and `SLet.type` in `src/syntax.ml`) and
 pretty-printed back out in Pyking's own syntax. Compiling erases every
 one of them: no generated code carries type syntax at all.
 

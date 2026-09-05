@@ -367,11 +367,11 @@ change.
 
 # Part II — The code
 
-Everything below is `src/typesystem.py` unless said otherwise.
+Everything below is `src/typesystem.ml` unless said otherwise.
 
 ## 11. The two kinds of variable
 
-Both are `syntax.py`'s `TVar`, told apart by one field:
+Both are `syntax.ml`'s `TVar`, told apart by one field:
 
 | | `rigid=True` | `rigid=False` |
 |---|---|---|
@@ -485,7 +485,7 @@ solved.
 Two helpers put a name on the common shape:
 
 ```
-   demand(actual, wanted, info, what, store)  →  store, or a TypeError_
+   demand(actual, wanted, info, what, store)  →  store, or a Type_error
                                                  saying what wanted it
    demand_list(actual, info, what, store)     →  (element type, store)
 ```

@@ -1,0 +1,6 @@
+x = 1
+x
+x = "two"
+x
+def f(): 1
+:ls

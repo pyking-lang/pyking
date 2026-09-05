@@ -11,35 +11,41 @@ convenient host language, with the intent of eventually rewriting the
 compiler in Pyking itself and compiling it with the throwaway one.
 Concretely:
 
-- `src/` holds the bootstrap implementation, split into one plain script
-  module per compiler stage (see "Architecture" below) — it is *not* a
-  Python package (no `__init__.py`, no relative imports); modules import
-  each other directly (e.g. `from lexer import ...`), relying on Python
-  adding `src/` to `sys.path` when `src/pyk.py` is run directly. The
-  eventual self-hosted rewrite — the compiler written in Pyking itself —
-  is meant to replace these modules in place, here, rather than live in a
-  second, separate directory; there is no other reserved location for it.
-- `ocaml-src/` holds the same front end again, in OCaml: `lexer.ml`,
-  `syntax.ml`, `analyses.ml` (`symbolize` only), `parser.ml`, a
-  `typesystem.ml` that is still a stub, and a `main.ml` that is a
-  fraction of `pyk.py`. It is a *translation*, not a second design --
-  the same stages, the same functions, the same error messages, the same
-  printed output -- and `make test-ocaml` is what keeps it one (see "The
-  OCaml bootstrap" below). It is not the self-hosted rewrite, which is
-  still meant to replace `src/` in place.
+- `src/` holds the bootstrap implementation, in **OCaml**, one module per
+  compiler stage (see "Architecture" below). It is one dune library
+  (`pyking`, unwrapped, so a module is `Parser` and not `Pyking.Parser`)
+  plus a small executable that links it; `make` builds
+  `src/pyk.exe` and copies it to `./pyk`. The library depends on nothing
+  outside the standard library — no opam packages — which is what lets
+  `src/web/` compile the same code to JavaScript with js_of_ocaml for the
+  playground; only the executable links `unix`, for the process handling
+  `--run` and the terminal handling the REPL need. `docs/build.md` is
+  the long form. The eventual self-hosted rewrite — the compiler written
+  in Pyking itself — is meant to replace these modules in place, here,
+  rather than live in a second, separate directory; there is no other
+  reserved location for it.
+- **The code is functional.** No mutation, no objects: an environment, a
+  scope, a store, a counter is a value threaded through and rebuilt where
+  it changes, never a field written to. Algebraic data types and `match`
+  everywhere, so the compiler catches a case nobody covered. Where a
+  mutable cell would be the obvious thing, thread a value instead. The
+  two deliberate exceptions are both in `interpreter.ml` and are Pyking's
+  own semantics rather than convenience: the write-once cell a `def`
+  binds, and the location a `var` names.
 - `tests/` contains sample Pyking source programs (`.pyk`, not a pytest
   suite), each with a sibling `.out` file holding its expected stdout,
   plus `tests/test_cases.toml` (which program runs on which target) and
   `tests/test_script.py` (see "Running" below for how it uses both).
 - `docs/` holds design notes; `docs/architecture.md` is the compiler-side
-  counterpart to PYKING.md, `docs/modules.md` covers the module system,
+  counterpart to PYKING.md, `docs/build.md` covers the dune layout and the
+  browser bundle, `docs/modules.md` covers the module system,
   and `docs/source.md` describes every module
   in `src/` — what it is, its data structures, its main functions. A new
   module in `src/`, or a change to what one of them holds, belongs there
   as well as in `architecture.md`'s stage table.
 - `design/plan-eval-lsp.md` is the plan the interpreter, REPL, debugger,
   DAP and LSP work follows. The first two are built (see
-  `src/interpreter.py` and `src/repl.py`); the rest is not.
+  `src/interpreter.ml` and `src/repl.ml`); the rest is not.
 
 ## Pyking language reference
 
@@ -67,10 +73,10 @@ When a change touches how something *compiles* rather than what it
 **Static semantics are language, not compiler.** Its "Type checking"
 section documents all three layers — the shape rules the parser applies,
 the names and types the checker settles, and the mutability rule
-`analyses.py` applies after it — including what the checker refuses and
+`analyses.ml` applies after it — including what the checker refuses and
 why, since
 "which programs are well-typed" is a property of Pyking rather than of
-the pass that decides it. Extending `src/typesystem.py` therefore means
+the pass that decides it. Extending `src/typesystem.ml` therefore means
 editing that section too; `docs/architecture.md` keeps only how the pass
 is *built* (its signature, `tmap`, `same_type`), and points at PYKING.md
 for the rules.
@@ -82,42 +88,44 @@ these is updated in the same change — none of them is optional, and the
 last ones are the ones that get forgotten:
 
 1. **`src/`** — the stage(s) implementing it (lexer → parser → syntax →
-   `module.py` → `analyses.py`'s `symbolize` → `typesystem.py` →
-   `analyses.py`'s `analyze_mutability` → `optimization.py` → each
-   backend). `module.py` needs nothing for an ordinary construct: it
+   `module.ml` → `analyses.ml`'s `symbolize` → `typesystem.ml` →
+   `analyses.ml`'s `analyze_mutability` → `optimization.ml` → each
+   backend). `module.ml` needs nothing for an ordinary construct: it
    reads statements only to find imports and `public`s.
-   `optimization.py` usually needs nothing: it rewrites tail calls and
+   `optimization.ml` usually needs nothing: it rewrites tail calls and
    passes everything else through. A construct that can *hold* a tail
    position -- a new branching statement, say -- does need a case there,
-   or a tail call written inside it is silently left as a call. A new or changed AST
-   node also means updating its `datatype` comment in `syntax.py` — see
-   that module's entry below; nothing catches it drifting. `symbolize` needs
-   nothing: its walk is generic over dataclass fields, so a new node in
-   `syntax.py` gets a symbol for free. `typesystem.py` does need a
+   or a tail call written inside it is silently left as a call. A new AST
+   node needs a case in `analyses.ml`'s `symbolize` and one in
+   `walk.ml`'s `children`, and neither is caught by the compiler in a way
+   you would notice: `symbolize` would leave the node at symbol `0`, and
+   `children` would leave every whole-subtree question blind to it. Every
+   *other* `match` over the AST the compiler does catch, which is the
+   whole reason the AST is a variant type. `typesystem.ml` does need a
    decision, but only a cheap one — either check the construct or let it
    fall through to `Construct is not supported`, which is what every
    construct it has not reached yet already does. But it is not really
    optional any more: the checker runs for every program, so a construct
    it does not reach is a construct nothing can compile. A construct that
-   *binds* a name also reaches `analyses.py`: it has to bind through
+   *binds* a name also reaches `analyses.ml`: it has to bind through
    `bind`, so the no-shadowing-a-`var` rule covers it, and it has to be
    walked into so a `:=` written inside it is seen. Every backend needs a
    decision, not just the Python one: either translate the construct in
-   `target_js_core.py`, `target_c.py` and `target_java.py` too, or leave
-   it to each of those modules' `_unsupported` so that target refuses it
+   `target_js_core.ml`, `target_c.ml` and `target_java.ml` too, or leave
+   it to each of those modules' `unsupported` so that target refuses it
    with a source position. A target added rather than a construct also
-   needs a row in `src/execution.py`, which is what `--run` uses to build
-   and run its output. `target_ocaml.py` is the exception, and the
-   reason to keep `typesystem.py` honest: it compiles exactly what the
+   needs a row in `src/execution.ml`, which is what `--run` uses to build
+   and run its output. `target_ocaml.ml` is the exception, and the
+   reason to keep `typesystem.ml` honest: it compiles exactly what the
    checker accepts, so a construct the checker refuses needs nothing
    there, and one the checker *starts* accepting needs a translation
-   there or an explicit `_unsupported`. `interpreter.py` is in the same
+   there or an explicit `unsupported`. `interpreter.ml` is in the same
    position for the same reason — it runs what the checker accepts, so a
    construct the checker refuses needs nothing there, and one the checker
    *starts* accepting needs a `case` in `_step_eval`/`_step_stmt` or it
    is refused at run time by the same `Construct is not supported`. Its
    `datatype` comment block (values, control, continuations) is
-   hand-written like `syntax.py`'s and drifts just as silently.
+   hand-written like `syntax.ml`'s and drifts just as silently.
 2. **`tests/`** — at least one `.pyk` file exercising the new construct,
    with its `.out` captured from an actual run, **and an entry in
    `tests/test_cases.toml`** listing the targets it works on. The harness
@@ -136,7 +144,7 @@ last ones are the ones that get forgotten:
    anything the EBNF can't express, and a worked example. Language only:
    no targets or generated code. Its "Type checking" section is the
    exception that proves it — static semantics *are* language, so a
-   change to what `analyses.py` or `typesystem.py` accepts belongs there
+   change to what `analyses.ml` or `typesystem.ml` accepts belongs there
    too.
 4. **`docs/`** — anything about *compiling* or *running*.
    `architecture.md` for the pipeline itself (a new stage or module, a
@@ -155,10 +163,10 @@ last ones are the ones that get forgotten:
    construct a backend *refuses* belongs in its family page too, with the
    reason.
 5. **`tools/emacs/pyking-mode.el`** — the editor mode claims in its own
-   commentary to mirror `src/lexer.py` and `src/parser.py`, so it goes
+   commentary to mirror `src/lexer.ml` and `src/parser.ml`, so it goes
    stale silently. Check each of these against the change:
    - `pyking-mode-keywords` / `pyking-mode-types` / `pyking-mode-constants`
-     — together must still equal the `keywords` list in `src/lexer.py`
+     — together must still equal the `keywords` list in `src/lexer.ml`
      (split three ways so each gets the right face: control-flow/
      declaration keywords, type annotation names, and literal values like
      `true`/`false` respectively);
@@ -177,109 +185,85 @@ last ones are the ones that get forgotten:
    it disagrees with, and `-f batch-byte-compile` must stay
    warning-free.
 
-A sixth place is not on this list because nothing forgets it: a change
-to the *front end* -- `lexer.py`, `parser.py`, `syntax.py` -- has a
-counterpart in `ocaml-src/`, and `make test-ocaml` fails until it is
-made (see "The OCaml bootstrap" below). Nothing later in the pipeline
-reaches that far yet.
-
 ## Architecture of `src/`
 
 The bootstrap is split into one module per compiler stage:
 
-1. **`src/lexer.py`** — `Info` (a frozen dataclass carrying source location:
+1. **`src/lexer.ml`** — `info` (a record carrying source location:
    `file`, `row1`, `col1`, `row2`, `col2`, attached to every token, used for
-   error reporting), the Token ADT (each token kind is a frozen `@dataclass`
-   subclassing the `Token` marker base class, e.g. `TokInt`, `TokIdent`,
-   `TokAdd`, `TokDef` — this mirrors how the token type would be expressed
-   as a variant type in a language that has them, which is what the
-   self-hosted compiler will be written in; keep new token kinds in this
-   same one-class-per-variant style rather than collapsing them into a
-   single class with a `kind` field), `pprint_token`/`pprint_info`
-   (pretty-printing via `match`/`case`, mirroring how the same code would
-   pattern-match over that variant type), and the
-   lexer itself: `lexing(file, chars)` consumes a list of characters
-   (`list(str)`, not a string) via structural pattern matching (`match rest:
-   case [x, *xs] ...`) and returns a list of tokens. Helpers:
-   `string_until(pred, chars)` grabs the longest matching prefix,
+   error reporting), the `token` type (one constructor per kind, e.g.
+   `TokInt of info * int`, `TokIdent of info * string`, `TokAdd of info`,
+   `TokDef of info`; keep new token kinds in this
+   same one-constructor-per-variant style rather than collapsing them into a
+   single record with a `kind` field), `pprint_token`/`pprint_info`
+   (pretty-printing by `match` over that type), and the
+   lexer itself: `lexing file chars` consumes a `char list`
+   (not a string) by matching on it (`| x :: xs -> ...`) and returns a
+   list of tokens. Helpers:
+   `string_until pred chars` grabs the longest matching prefix,
    `scan_string` decodes a string literal's backslash escapes, `is_digit` /
-   `is_letter` / `is_digit_letter` classify characters. Row/column tracking
-   is done manually (`r, c`) as characters are consumed. Lexical errors
-   raise `LexError(info, message)`.
-2. **`src/syntax.py`** — the expression (`E*`) and statement (`S*`) AST
-   dataclasses, one class per variant (same rationale as the Token ADT), and
-   their pretty printers (`pprint_expr`, `pprint_stmt`, `pprint_program`).
-   `pprint_program(stmts, symbols=False, tmap=None)` is the only entry
-   point any caller uses; both of its options are module-level display
-   flags it sets and restores around its one call, rather than
-   parameters threaded through every printer. Given a `tmap` (the type
-   checker's symbol → type table), every annotation printed comes from
+   `is_letter` / `is_digit_letter` classify characters. Row, column, the
+   indentation stack and the tokens so far are *parameters* of the
+   recursion rather than mutable state. Lexical errors
+   raise `Lex_error (info, message)`.
+2. **`src/syntax.ml`** — the expression (`E*`) and statement (`S*`) AST,
+   one variant type per node group with one constructor per alternative,
+   and their pretty printers (`pprint_expr`, `pprint_stmt`,
+   `pprint_program`).
+   `pprint_program stmts symbols tmap` is the only entry
+   point any caller uses; the display options travel as one `config`
+   record the printers pass along rather than as state something sets
+   and clears. Given a `tmap` (the type
+   checker's symbol -> type table), every annotation printed comes from
    it and none from the AST — a node it does not know about prints no
    type at all, whatever the source wrote, since nothing has checked
    that annotation.
-   Named `syntax.py`, not `ast.py`: `src/` is a flat set of script modules
-   (not a package), so a module literally named `ast.py` would shadow the
-   standard library `ast` module on `sys.path` — which breaks `dataclasses`
-   itself (`dataclasses` → `inspect` → `annotationlib` needs the real `ast`
-   at import time). Don't rename this back to `ast.py`.
+   Named `syntax.ml`, not `ast.ml`: nothing forbids the shorter name any
+   more, but `open Syntax` at the top of a dozen modules and every doc
+   already say `syntax`, and "syntax" is what the file holds. Don't
+   rename it.
 
-   The `Type` group is the one with fields that are not the source's:
-   `TFunction` carries `tmsym` and `body` for a function whose type was
-   not written down (see `typesystem.py` below), and `TUnknown` is a type
+   The `typ` group is the one with fields that are not the source's:
+   `TFunction` carries the definition's symbol and the definition itself
+   for a function whose type was
+   not written down (see `typesystem.ml` below), and `TUnknown` is a type
    nothing has decided yet. Neither is ever produced by the parser, and
    neither takes part in comparing two function types. Two variants
    are unwritable in source and are the checker's alone — `TUnknown`
    and `TBuiltin` (the type of a host operation, which is what
-   keeps `typesystem.py`'s `Env` a map from a name to a *type*). Of the
+   keeps `typesystem.ml`'s `env` a map from a name to a *type*). Of the
    two only `TBuiltin` never reaches printed output, since nothing
    records one in `tmap`. A `TVar` the checker made rather than the
-   source is *flexible* (`rigid=False`) — the element type of `[]`,
-   which nothing has constrained; it is written in the same syntax a
-   rigid one is.
+   source is *flexible* (the `rigid` flag false) — the element type of
+   `[]`, which nothing has constrained; it is written in the same syntax
+   a rigid one is.
 
-   **The AST is documented as algebraic data types** in one block of
-   `datatype` comments at the top of the file, listing every group's
-   variants and their fields — `Expr`, `Type`, `Pattern`, `CompClause`,
-   `AssignTarget`, `Stmt`, and the single-constructor `Param`,
-   `ListRest` and `MatchCase`. They are gathered there, rather than each
-   above its own base class, so the whole shape of the AST reads in one
-   place and types that refer to each other can be compared without
-   scrolling.
+   **The AST is one recursive `type ... and ...`** declaring every group
+   at once — `expr`, `typ`, `pattern`, `comp_clause`, `assign_target`,
+   `stmt`, and the single-constructor `param`, `list_rest`, `loop_iter`
+   and `match_case`. Gathering them in one declaration means nothing has
+   to be declared before it is mentioned, the whole shape of the AST
+   reads in one place, and types that refer to each other can be
+   compared without scrolling.
 
-   Dataclasses can state a node's fields but not that the group is a
-   *closed set of alternatives*, which is exactly what every
-   `match`/`case` over the AST depends on, so the comments state it: one
-   block tells you what a `match` on that type has to cover. The
-   notation is OCaml-ish, with a legend beside it (`Int`/`String`/`Bool`
-   for Python's `int`/`str`/`bool`, `[T]` for a list of `T`, `T?` for a
-   field that may be `None`).
-
-   **These are hand-written, so keep them in step with the code in the
-   same change** — they are the one part of `syntax.py` nothing will
-   catch when it drifts. Adding, removing or renaming a node, changing a
-   field's name, type or optionality, or moving a node to a different
-   base class all mean editing the `datatype` block too. Note `[T]`
-   records something the annotation itself does not: a field is only
-   annotated `list`, so the element type lives *only* in the comment and
-   is worth getting right. The blocks are ordered alternatives-types
-   first, then the single-constructor ones — deliberately *not* the
-   order the classes are declared in, since a class has to wait for
-   whatever it mentions (`EListComp` holds `[CompClause]`, so it is
-   declared after `CompClause` despite being a variant of `Expr`). Put a
-   new variant in the block for the type it belongs to, wherever the
-   class itself has to sit.
-3. **`src/parser.py`** — the recursive-descent parser (`parse_atom`,
+   The declaration *is* the datatype description: it says the group is a
+   closed set of alternatives, and a `match` over it that misses a case
+   is a compile error rather than something to catch in review. What the
+   trailing comments still carry is what the type cannot — the source
+   syntax each variant stands for. Keep them accurate when a variant's
+   spelling changes; nothing checks those.
+3. **`src/parser.ml`** — the recursive-descent parser (`parse_atom`,
    `parse_expr`, `parse_statement`, `parse`, ...) that consumes the token
-   list and builds the AST from `src/syntax.py`. Each AST node's `info`
+   list and builds the AST from `src/syntax.ml`. Each AST node's `info`
    spans from its first token's start to its last token's end, built via
    `combine_info(start, end)` — when adding a new grammar rule, combine
    infos the same way rather than reusing a single token's span. Parse
-   errors raise `ParseError(info, message)`. A few restrictions that the
+   errors raise `Parse_error (info, message)`. A few restrictions that the
    grammar can't express are checked here too, so they fail at parse time
    with a source position rather than in a later stage: duplicate
    bindings in a pattern (`_check_no_duplicate_captures`), the "every
    branch yields a value" rules of a value-form `if`/`match`
-   (`_check_value_stmt`, on which `target_python.py` relies), and
+   (`_check_value_stmt`, on which `target_python.ml` relies), and
    "a statement starts a line of its own" (`_check_own_line`) -- the rule
    that stops `print h` being read as a bare `print` followed by a bare
    `h`. That one is checked from the `Info` positions the tokens carry,
@@ -319,7 +303,7 @@ The bootstrap is split into one module per compiler stage:
    after one in the same block). Neither keyword takes an operand: a
    loop is worth the accumulator it stopped with, so there is nothing
    for either of them to say.
-4. **`src/module.py`** — the module system: one file is one module, and
+4. **`src/module.ml`** — the module system: one file is one module, and
    a program is the acyclic graph of the modules its main file reaches.
    `load(path)` reads and parses all of them (resolving each import
    **in the importing file's own directory** -- there is no search
@@ -327,14 +311,14 @@ The bootstrap is split into one module per compiler stage:
    symbolized with **one numbering across the whole program**
    (`analyses.symbolize(stmts, start)`), which is what lets a single
    `tmap` and a single call-free table span them. Errors raise
-   `ModuleError(info, message)`, reported as `Module error`.
+   `Module_error (info, message)`, reported as `Module error`.
    `check_publics` settles what a module exports and refuses a name
    exported twice or an exported name bound twice; `resolve_imports`
    fills in a plain import's `fields` from the imported module's public
    names, refuses a `from` line naming something not exported, and
    refuses a name that collides with anything the importing module
-   already uses. `make_sigmap(stmts, tmap)` turns a checked module into
-   the `{name: Type}` the next one is checked against -- made from the
+   already uses. `make_sigmap stmts tmap` turns a checked module into
+   the `typ SMap.t` the next one is checked against -- made from the
    program the *checker* saw, before the tail-call pass, since that pass
    can change how a module computes what it exports and never what it
    exports. `Context` is what a backend is told about the module it is
@@ -344,20 +328,21 @@ The bootstrap is split into one module per compiler stage:
    module gets a `Context` saying so, which is what keeps a single-file
    program's output byte-for-byte what it was. `read_file` is the one
    entry that reads a single file and checks nothing, which is where
-   `--no-typechecking` stops -- the OCaml bootstrap has no module system,
-   so under that flag neither does this one. The two front ends that
+   `--no-typechecking` stops -- the flag halts the front end after
+   `symbolize`, and reading a module the program imports is something
+   only the stages after that need. The two front ends that
    compile a file with no program around it -- the REPL and the browser
    playground -- run `check_publics` (it needs only the file) and let
    `typesystem.available` refuse an import (it needs the program); the
    playground additionally offers neither a program that imports nor a
    module it imports as an example. See `docs/modules.md`.
-5. **`src/analyses.py`** — static analyses over the parsed AST, run
+5. **`src/analyses.ml`** — static analyses over the parsed AST, run
    between the parser and any backend; errors raise
-   `AnalysisError(info, message)`. The one the driver runs is
-   *mutability*, and it runs **after** `typesystem.py`, which owns names
+   `Analysis_error (info, message)`. The one the driver runs is
+   *mutability*, and it runs **after** `typesystem.ml`, which owns names
    now: `analyze_mutability` is a single
-   recursive walk carrying a *binding-kind environment* (`dict` name →
-   kind of binding) that is rebuilt rather than mutated — entering a
+   recursive walk carrying a *binding-kind environment* (a map from a
+   name to its kind of binding) that is rebuilt rather than mutated — entering a
    nested scope is "keep using the environment you were handed", leaving one is "go
    back to the caller's", which is what makes a block's bindings unable
    to escape it. `analyze_stmt` returns the environment its statement
@@ -369,7 +354,7 @@ The bootstrap is split into one module per compiler stage:
    `analyze_stmt`'s `SMutate` case: `:=` may only name a `var`. The walk
    never descends into an expression, because no expression mutates
    anything. `BUILTINS` seeds
-   `print`/`range`/`str`/`len`, and `typesystem.py` imports it — extend
+   `print`/`range`/`str`/`len`, and `typesystem.ml` imports it — extend
    it when a program starts calling another builtin.
    Keep new analyses in this module as separate `analyze_*` entry points
    rather than folding more checking into the parser: the parser's job
@@ -383,19 +368,21 @@ The bootstrap is split into one module per compiler stage:
    bound where the body is written. **`block_functions`** is what makes
    hoisting a name safe — one `def` per name per block, and no other
    binding of that name there (`check_no_function_clash`), so a hoisted
-   name has exactly one meaning in its block. `typesystem.py` imports
+   name has exactly one meaning in its block. `typesystem.ml` imports
    both rather than restating them; keep it that way.
 
    Also here: **`symbolize`**, which gives every AST node a unique
    integer `sym` (post-order from `start`, which defaults to 0; `0`
    means "not symbolized yet"). `start` is what makes one numbering span
-   a program of several modules -- `module.py` hands each module the
+   a program of several modules -- `module.ml` hands each module the
    highest the one before it reached -- and that is what lets one `tmap`
    and one call-free table cover all of them.
-   Unlike `analyze_mutability` it *rewrites* — nodes are frozen, so it
-   rebuilds the tree with `replace`. Its walk is generic over dataclass
-   fields rather than one case per node type, so a node added to
-   `syntax.py` is covered without touching it. A node that already has a
+   Unlike `analyze_mutability` it *rewrites* — nothing is mutated, so it
+   rebuilds the tree, threading the counter through as a value. It is one
+   case per constructor, in the order `syntax.ml` declares that node's
+   fields, so a node added to `syntax.ml` needs a case here or it keeps
+   symbol `0` — and only the `--symbols` half of the suite would catch
+   it. A node that already has a
    symbol keeps it and new numbers continue past the highest in the
    tree, which is what makes it safe to run twice, should a pass ever
    synthesize nodes into an already-symbolized tree.
@@ -404,16 +391,28 @@ The bootstrap is split into one module per compiler stage:
    fixed-point walk of the call graph saying which functions — and so
    which expressions (`may_print`) — can produce output. It is here
    rather than in a backend because it is an analysis of the Pyking AST,
-   and because two backends need it: `target_ocaml.py` and
-   `target_c.py`, whose host languages both leave the order of an
+   and because two backends need it: `target_ocaml.ml` and
+   `target_c.ml`, whose host languages both leave the order of an
    operator's operands and a call's arguments unspecified, so each has
    to pin down the ones that can print (see PYKING.md, "Evaluation
    order", and each backend's page). It is deliberately conservative —
    overestimating who prints costs a temporary, underestimating prints
    in the wrong order — and a call to something that is not a `def` is
-   assumed to print if anything in the program does. `walk` and
-   `all_functions` are here for it.
-6. **`src/optimization.py`** — tail calls into loops, one pass from the
+   assumed to print if anything in the program does. `all_functions` is
+   here for it, and folds over `walk.ml`'s `children` like every other
+   whole-subtree question in the compiler.
+
+   A module of its own sits beside this one: **`src/walk.ml`**, one
+   `node` variant covering every AST node and one `children` function
+   giving a node's immediate children in `syntax.ml`'s own field order,
+   plus the folds built on it (`fold`, `exists`, `exprs`, `stmts_in`,
+   `name_field`). Every pass that asks a question of a whole subtree —
+   `effects` here, the interpreter's call-free table, the C and Java
+   backends' "is this name used as a string" — goes through it rather
+   than writing its own descent. **A node added to `syntax.ml` needs a
+   case in `children`**, and nothing but a pass that would have looked
+   inside it will notice if it is missed.
+6. **`src/optimization.ml`** — tail calls into loops, one pass from the
    Pyking AST to the Pyking AST, run *after* the type checker and only
    over a program it accepted, unless `--no-tail-call-opt` says
    otherwise. The types are what make it decidable, which is why it runs
@@ -440,7 +439,7 @@ The bootstrap is split into one module per compiler stage:
    output is ordinary Pyking, every backend and the interpreter get tail
    recursion without knowing this pass exists -- so *do not* add
    per-backend tail-call handling. The one exception runs the other way:
-   a host that eliminates tail calls itself is named in `pyk.py`'s
+   a host that eliminates tail calls itself is named in `pyk.ml`'s
    `NATIVE_TAIL_CALLS` list (today just `ocaml`), and that target is
    then compiled from the program *as written* -- because a `loop`
    becomes a local recursive function on that backend, so the pass and
@@ -450,10 +449,10 @@ The bootstrap is split into one module per compiler stage:
    *types*, which only the checker can see; `docs/optimization.md` is
    the long form, including that case and the `fail_tco_*` tests that
    pin it.
-7. **`src/typesystem.py`** — the type checker, run for every mode and
+7. **`src/typesystem.ml`** — the type checker, run for every mode and
    every target, after `symbolize` and before anything else reads the
    program: Pyking is statically typed and there is no flag for it. It
-   is also the only pass that checks *names* (see `pyk.py` below).
+   is also the only pass that checks *names* (see `pyk.ml` below).
    One entry point, `type_check(stmts, sigmaps) -> tmap`: one module in
    -- or a whole one-file program, which is the same thing -- and the
    types it worked out back. `sigmaps` pairs the name of every module
@@ -470,7 +469,7 @@ The bootstrap is split into one module per compiler stage:
    never calls is **refused**, not inferred from nothing. An exported
    `def` is fully annotated or called in its own module; see PYKING.md,
    "What a module may export". Two consumers now define their coverage as
-   "whatever this accepts" — `target_ocaml.py` and `interpreter.py` — so
+   "whatever this accepts" — `target_ocaml.ml` and `interpreter.ml` — so
    widening the checker widens both, and each needs the corresponding
    `case` or an explicit refusal.
 
@@ -482,7 +481,7 @@ The bootstrap is split into one module per compiler stage:
    it: no function here dispatches on which *sort* of node it was handed,
    only on which variant of its own datatype. `Env` maps a name to its
    type and is used *immutably* — a binding hands what follows it an
-   extended copy, the same discipline `analyses.py` follows.
+   extended copy, the same discipline `analyses.ml` follows.
 
    `check_stmts` calls **`declare_functions`** first, binding every `def`
    in the block before checking any of it — that one step is recursion,
@@ -494,14 +493,14 @@ The bootstrap is split into one module per compiler stage:
    what the language says it captures — so what the checker proves is
    what runs (see `tests/lexical_capture.pyk`). A `def` that is not fully annotated is declared
    with no type rather than refused there, so errors stay in source
-   order. Mirror any change to it in `analyses.py` and in each backend's
+   order. Mirror any change to it in `analyses.ml` and in each backend's
    own declaration pass.
 
    **`Env` is also the scope**, and the checker does its own name
    checking with it: bound-before-use, block bindings that do not escape,
    shadowing, a `def`'s name in its own body, and `analyses.BUILTINS`
    (imported, not re-listed) in scope from the start. An unbound name
-   raises `analyses.AnalysisError`, in its words, so the message does not
+   raises `Analyses.Analysis_error`, in its words, so the message does not
    depend on which pass ran. **The value type is `Type`, with no option
    and no second inhabitant**: a name is in the map with a type, or it is
    not in scope, and there is no third state to ask about. A builtin is
@@ -509,17 +508,19 @@ The bootstrap is split into one module per compiler stage:
    `print`/`range`/`str`/`len` to a `TBuiltin`, checked at the call by
    `check_builtin_call` and refused as a value, because none of them
    fits a `TFunction` (a variadic `print` is not a `(T) -> ()`) and
-   `runtime_interface.py` calls them operations rather than functions. A
+   `runtime_interface.ml` calls them operations rather than functions. A
    new builtin needs a case there as well as an entry in
    `analyses.BUILTINS`. **`var` and `:=` are checked here**, and only
    for *types*: a `var` is `Int` or `Bool` (`check_mutable`), and a `:=`
    must give the type the declaration fixed. Which names may be written
    to is not a type question — the same `Int` is a `var` in one scope and
    an `=` binding in another — so `analyses.analyze_mutability` answers
-   that one, in a walk of its own, after this pass. `TMap` is
-   the deliberate opposite: one mutable dict, mapping a node's *symbol*
+   that one, in a walk of its own, after this pass. `tmap` is
+   the other half of the answer: a map from a node's *symbol*
    to the type inferred for it, built as the pass runs and returned as
-   its result. **The checker does not
+   its result. It is a field of the `store`, which is threaded and handed
+   back everywhere already, so nothing has to be mutated to make it
+   work. **The checker does not
    touch the AST** — it rebuilds nothing and writes into no node's
    `type` field — so what the source wrote and what the checker inferred
    stay separable; keep it that way. When checking finishes `tmap` holds
@@ -530,18 +531,18 @@ The bootstrap is split into one module per compiler stage:
    takes `TFunction.result` for that slot) — **and for every expression
    besides**, which is what the split between `check_expr` (record) and
    `expr_type` (the rules) is for. `pprint_program` never asks for those;
-   `src/target_ocaml.py` does, and is the reason to keep making them: it
+   `src/target_ocaml.ml` does, and is the reason to keep making them: it
    compiles only what this checker accepts, so rather than inferring
-   types a second time the way `target_c.py` and `target_java.py` each
-   must, it reads them back from here. Types are `syntax.py`'s own
+   types a second time the way `target_c.ml` and `target_java.ml` each
+   must, it reads them back from here. Types are `syntax.ml`'s own
    `T*` nodes, not a separate vocabulary, so a checked binding prints as
    `x: Int = 1` — syntax the parser accepts, which keeps
    `-t pyking` output re-parsable; they are synthesized here, so
    they carry no symbols. That includes `TFunction`, `(Int, Bool) -> Int`,
    which `parse_type` reads as well as prints, so `g: (Int) -> Int = f`
    round-trips like anything else. Compare types with `same_type`, never
-   `==`: `T*` nodes are dataclasses, so `==` compares `info` and `sym`
-   too.
+   `=`: every `T*` constructor carries `info` and `sym`, which structural
+   equality would compare too.
 
    A loop has one type and it is the accumulator's: what the body ends
    in is the next turn's accumulator, held to that type by `agree`
@@ -592,7 +593,7 @@ The bootstrap is split into one module per compiler stage:
    type-checks and then fails at run time.
 
    Everything outside that fragment raises
-   `TypeError_(info, "Construct is not supported")` — including a name
+   `Type_error(info, "Construct is not supported")` — including a name
    it cannot find, since no name analysis has run ahead of it in this
    mode. Keep that floor explicit rather than silently accepting what it
    has not reasoned about.
@@ -696,7 +697,7 @@ The bootstrap is split into one module per compiler stage:
    where it was recorded may have been solved by something written
    further down.
 
-8. **`src/runtime_interface.py`** — the boundary between pure Pyking code
+8. **`src/runtime_interface.ml`** — the boundary between pure Pyking code
    and the outside world, in the spirit of WebAssembly's split between a
    core language that cannot observe anything and a separate host spec.
    Backend-agnostic by construction: it holds no Python and no JavaScript,
@@ -704,16 +705,16 @@ The bootstrap is split into one module per compiler stage:
    *including* the value-formatting rules, since every backend has to
    agree on those for one program to print the same characters
    everywhere. Add an operation here first; the backends then bind it.
-9. **`src/target_js_core.py`** — the JavaScript backend's language half:
-   a `Js*` AST, translation from `syntax.py`, and a printer. Knows nothing
+9. **`src/target_js_core.ml`** — the JavaScript backend's language half:
+   a `Js*` AST, translation from `syntax.ml`, and a printer. Knows nothing
    about packaging. Calls that cross the runtime interface become
    `JsRuntimeCall`, whose spelling is supplied by the packager, so the
    same core output serves all three JS targets. JavaScript fits Pyking
    better than Python does — `const`/`let` are Pyking's `=`/`var`, and
    `{ }` blocks are scopes — so it renames only where JavaScript forces
    it (`const` redeclaration, and the temporal dead zone), not on every
-   shadow the way `target_python.py` must. Constructs outside the
-   supported subset raise `UnsupportedError`, which carries an `Info`.
+   shadow the way `target_python.ml` must. Constructs outside the
+   supported subset raise `Unsupported`, which carries an `Info`.
    The one place a `let` is not enough is a `loop` whose body defines a
    function (`_defines_function`): the accumulator's `let` stands outside
    the loop and is therefore *one* binding, so every turn's function
@@ -723,14 +724,14 @@ The bootstrap is split into one module per compiler stage:
    what each function closes over. A loop with no function in its body
    keeps the plain `let`, so ordinary output stays ordinary. See
    `tests/loop_def_capture.pyk` and `docs/target_js.md`.
-10. **`src/target_js_packaging.py`** — the JavaScript backend's packaging
+10. **`src/target_js_packaging.ml`** — the JavaScript backend's packaging
    half: wraps core output into `nodejs` (one self-contained script),
    `html` (one self-contained page printing into a visible box), and `esm`
    (a module exporting `run(runtime)`, plus a node driver and an HTML
    wrapper derived from the `--output` path). It owns the JavaScript side
    of the runtime interface — each host's `print` and the shared
    `pykFormat` — which is exactly what differs between the three.
-11. **`src/target_c.py`** — the C backend, serving both the `c89` and
+11. **`src/target_c.ml`** — the C backend, serving both the `c89` and
    `c23` targets: a `C*` AST, translation, and a printer taking a
    `standard` parameter. One backend rather than two because the
    standards disagree about *printing*, not meaning — comments, whether
@@ -741,7 +742,7 @@ The bootstrap is split into one module per compiler stage:
    their initializer's, parameters their annotation (when C can represent
    it) or a guess from the body, and a function's return type is read off
    its translated body. When inference cannot answer, raise
-   `UnsupportedError` with the `Info` rather than emitting C that will
+   `Unsupported` with the `Info` rather than emitting C that will
    not compile. The other thing C forces is *order*: it leaves an
    operator's operands and a call's arguments unspecified, and real
    compilers differ by architecture (x86-64 evaluates arguments right to
@@ -750,15 +751,15 @@ The bootstrap is split into one module per compiler stage:
    the assignments in front of the result with the comma operator — the
    one construct that fixes an order *inside* a C expression, which is
    what a `while` condition and an `if` expression's branches need.
-   `target_ocaml.py` does the same with `let` for the same reason; keep
+   `target_ocaml.ml` does the same with `let` for the same reason; keep
    both reading `Effects` rather than deciding for themselves.
-12. **`src/target_java.py`** — the Java backend, serving `java8`,
+12. **`src/target_java.ml`** — the Java backend, serving `java8`,
    `java17` and `java21`: a `J*` AST, translation, and a printer taking a
-   `version` parameter, the same shape `target_c.py` uses for `standard`
+   `version` parameter, the same shape `target_c.ml` uses for `standard`
    — one backend because the three versions disagree only in whether a
    local declaration writes `var` (Java 10's local-variable type
    inference, absent from java8) or spells its type out. Infers types the
-   same way `target_c.py` does (`Int`/`String`/`Bool`, from initializers,
+   same way `target_c.ml` does (`Int`/`String`/`Bool`, from initializers,
    annotations, and translated return bodies), and additionally checks
    that every function provably returns on every path
    (`_definitely_returns`) and that no statement follows one that always
@@ -767,9 +768,9 @@ The bootstrap is split into one module per compiler stage:
    `strcmp` are: string concatenation is Java's own `+`, and equality is
    `.equals()`. The output file and its class are named in Java's own
    style rather than the source's, since Java requires the two to match
-   (`default_class_name`; see `pyk.py` below for where the exception
+   (`default_class_name`; see `pyk.ml` below for where the exception
    is applied).
-13. **`src/target_ocaml.py`** — the OCaml backend, serving the `ocaml`
+13. **`src/target_ocaml.ml`** — the OCaml backend, serving the `ocaml`
    target: an `O*` AST, translation, and a printer. The only backend
    that infers nothing — it *runs* `typesystem.type_check` and reads the
    types back out of `tmap` (which is why `check_expr` records an entry
@@ -787,9 +788,9 @@ The bootstrap is split into one module per compiler stage:
    not promise to (`_Effects`, `in_order`). The test harness builds its
    output with `-w +a`, so a compiler warning about generated code is a
    failing test.
-14. **`src/target_python.py`** — the Python code-generation backend: its
+14. **`src/target_python.ml`** — the Python code-generation backend: its
    own `Py*` AST (`PyInt`, `PyAssign`, `PyFor`, ... — structurally the same
-   shape as `src/syntax.py`'s `E*`/`S*`, except Pyking's `SLet`/`SVar`/
+   shape as `src/syntax.ml`'s `E*`/`S*`, except Pyking's `SLet`/`SVar`/
    `SMutate` all collapse into one `PyAssign`, since Python has no
    mutable-vs-immutable-binding distinction, and `SLetStmt` — an
    `if`/`match` statement bound with `=`, see PYKING.md — has no node of
@@ -812,17 +813,17 @@ The bootstrap is split into one module per compiler stage:
    returning `None`), and `pprint_py_expr`/`pprint_py_stmt`/
    `pprint_py_program` (Py* AST → Python source text). It was the first
    backend and the JavaScript ones followed the same shape — keep it
-   independent of `syntax.py`'s pretty-printing internals so the next one
+   independent of `syntax.ml`'s pretty-printing internals so the next one
    can too, without entangling target-specific logic into the Pyking
    AST/pretty-printer. `_declare_functions` binds every `def` in a block
    before translating it, mirroring the front end: Python resolves a
    forward reference by itself at call time, but a *renamed* function
    (`helper2`) has to be renamed before the call written above it is
-   emitted. `target_js_core.py` does the same for the same reason; C and
+   emitted. `target_js_core.ml` does the same for the same reason; C and
    Java instead register signatures ahead (and C prints prototypes),
    since those two have to know a function exists before a call names
    it. Two analyses carry the scoping story the rest of the way, both in
-   `target_python.py`: **`_free_names`** (a scope renames a binding that
+   `target_python.ml`: **`_free_names`** (a scope renames a binding that
    shadows a name its body reads from *outside* itself, since any
    binding inside a Python function makes that name local to all of it)
    and **`_captured_names`** (a rebinding some function already captured
@@ -859,23 +860,22 @@ The bootstrap is split into one module per compiler stage:
    `__pyk_str` walker only for one that can hold one. That is what keeps
    an ordinary program's output free of a prelude it has no use for; do
    not go back to guessing from the AST's shape.
-15. **`src/interpreter.py`** — the interpreter: a *resumable machine*
+15. **`src/interpreter.ml`** — the interpreter: a *resumable machine*
    that runs the AST directly instead of translating it, and the
    reference for what a program means at run time (where a backend
    disagrees with it, the backend is wrong). It runs exactly the fragment
-   `typesystem.py` accepts, and the gate is the checker itself —
+   `typesystem.ml` accepts, and the gate is the checker itself —
    `check(stmts)` *is* `type_check` — the same arrangement
-   `target_ocaml.py` uses, so there is no second list of supported
+   `target_ocaml.ml` uses, so there is no second list of supported
    constructs to keep in step.
 
-   **Values** are one frozen dataclass per variant (`VInt`, `VString`,
-   `VBool`, `VUnit`, `VList`, `VTuple`, `VClosure`, `VBuiltin`,
-   `VUndefined`),
-   documented in a `datatype` comment block like `syntax.py`'s and just
-   as hand-written. They hold no host objects: the representation has to
-   survive the rewrite into Pyking.
+   **Values** are one `value` type with one constructor per variant
+   (`VInt`, `VString`, `VBool`, `VUnit`, `VList`, `VTuple`, `VClosure`,
+   `VBuiltin`, `VUndefined`). They hold no host objects — no OCaml
+   closure, no array standing in for a Pyking list: the representation
+   has to survive the rewrite into Pyking.
 
-   **`Env`** is a persistent chain of frames — `extend` builds a new
+   **`env`** is a persistent chain of frames — `extend` builds a new
    head, `lookup` walks outwards — so Pyking's scoping needs no
    machinery: a block runs in a chain of its own, `=` shadows rather than
    updates, and a closure holds the chain it was created in. The one
@@ -887,7 +887,7 @@ The bootstrap is split into one module per compiler stage:
    captures what was bound where it is written, and why using one early
    says "its `def` has not run yet" rather than "unbound". Which `def`s a
    block has comes from `analyses.block_functions`, imported rather than
-   restated, exactly as `typesystem.py` imports it.
+   restated, exactly as `typesystem.ml` imports it.
 
    **The machine** is `step(State) -> State`, driven from a flat loop in
    `run`, with `State(control, env, kont, stack, runtime, loops)` — `Runtime`
@@ -922,7 +922,7 @@ The bootstrap is split into one module per compiler stage:
    is the one optimisation — an expression with no call in it can neither
    suspend nor print, so `_evaluate` computes it in one go, off a set
    worked out once before the program runs.
-16. **`src/repl.py`** — `pyk repl`, and the editor it is typed into. A
+16. **`src/repl.ml`** — `pyk repl`, and the editor it is typed into. A
    session is *a program written one entry at a time*, and the rule that
    settles everything is that **an entry is checked the way it is run**:
    each entry is a group whose `def`s are declared together
@@ -966,18 +966,18 @@ The bootstrap is split into one module per compiler stage:
    complete and not continuable.
    `start(format_error, ...)`
    takes the driver's own error formatting so a mistake at the prompt is
-   reported in the words a file would get. Meta-commands are a dict of
-   `(session, argument, report) -> session`; add one there rather than in
-   the loop, and return an `Outcome` instead of a bare session only if it
-   has something to say about what happens next (today only `:edit`,
-   which asks for its text to be put back in the prompt).
+   reported in the words a file would get. Meta-commands are an
+   association list of `(session, argument, report) -> outcome`; add one
+   there rather than in the loop. An `outcome` carries the session and
+   the text to put back in the prompt, which is empty for every command
+   but `:edit`.
 
    **`Editor`** is a small multi-line editor over a terminal in raw mode,
    used when there is a terminal and skipped for piped input, which takes
-   the plain `input()` path (`make_reader`). It exists because `readline`
-   history is one line per `input()` call, so recalling a five-line `def`
-   is impossible with it: here the buffer is a frozen
-   `Buffer(lines, row, col)` with pure operations over it, history holds
+   a plain line-reading path (`make_reader`). It exists because a
+   line-at-a-time history makes recalling a five-line `def`
+   is impossible with it: here the buffer is an immutable
+   `buffer_ = { lines; row; col }` with pure operations over it, history holds
    whole *entries*, Up and Down move within the entry and then into
    history, Escape abandons what is being typed, Enter opens a new line
    -- already indented, one level in after a line ending in `:` -- until
@@ -988,7 +988,7 @@ The bootstrap is split into one module per compiler stage:
    and the terminal in the class: that split is what makes the editing
    testable without a tty.
 
-17. **`src/execution.py`** — what `--run` runs: one table saying which
+17. **`src/execution.ml`** — what `--run` runs: one table saying which
    commands each target's host uses to build and run what `pyk compile`
    wrote (`node prog.js`; `cc -std=c89 -o prog prog.c` and then `prog`;
    `xdg-open` for `html`, which is a page; this compiler again for
@@ -998,9 +998,9 @@ The bootstrap is split into one module per compiler stage:
    printing each first on **stderr** so the program's own stdout stays
    its own. `$CC`/`$JAVAC`/`$JAVA`/`$OCAMLOPT` name the tools, the same
    variables the test harness reads. Adding a target means adding its
-   row here as well as its extension in `pyk.py`.
+   row here as well as its extension in `pyk.ml`.
 
-18. **`src/pyk.py`** — the entry point (formerly `pykboot.py`): parses a
+18. **`src/pyk.ml`** — the entry point (formerly `pykboot.py`): parses a
    command and the flags `--tokens`/`--symbols`/`--run`/
    `--stdout`/`--output|-o <file>`/`--target|-t <target>` from argv into
    an `Options` value, runs `lexer.lexing`, `parser.parse`,
@@ -1018,8 +1018,8 @@ The bootstrap is split into one module per compiler stage:
    `'file' row:col-row:col Kind: message` line (`Lexing error` /
    `Parsing error` / `Module error` / `Name error` / `Type error` /
    `Runtime error`);
-   a backend's `UnsupportedError` is reported separately, since its
-   message names the target that refused it. `repl.py` is handed
+   a backend's `Unsupported` is reported separately, since its
+   message names the target that refused it. `repl.ml` is handed
    `format_error` itself, which is why `command_repl` imports it lazily —
    at the top it would be an import cycle. Every message goes through
    `wrap`, which reflows to 70 columns. There is one branch in
@@ -1027,7 +1027,7 @@ The bootstrap is split into one module per compiler stage:
    of the program is lexed, parsed, symbolized, type-checked and
    mutability-checked, and a refusal at any step is an error. The
    checker is the only pass that checks names — its environment *is* a
-   scope, so it raises `analyses.AnalysisError` for one it cannot find,
+   scope, so it raises `Analyses.Analysis_error` for one it cannot find,
    and the driver prints `Name error` for it. `analyze_mutability` runs
    after it, which is what lets it say "not a mutable variable" rather
    than "unbound". `symbolize` runs before both, since `tmap` and the
@@ -1049,81 +1049,67 @@ The bootstrap is split into one module per compiler stage:
    *Pyking* AST via `syntax.pprint_program`, before `apply_signatures`
    folds a `def name : type` line onto its header, since that AST is what
    every backend and the interpreter share. `--run` hands the compiled
-   output to `src/execution.py`, which owns each target's build and run
+   output to `src/execution.ml`, which owns each target's build and run
    commands, and the ordered list of the program's other files, which
    the targets that *link* a program need. Keep the driver thin: it
    sequences stages and reports errors, and each backend
    owns its own translation, packaging, and file naming (`esm` writing
    three files is `target_js_packaging`'s business, not the
    driver's; deriving a Java class name from an explicit `--output` is
-   `target_java.py`'s, by the same principle). What a backend needs to
+   `target_java.ml`'s, by the same principle). What a backend needs to
    know about the module it is compiling *as part of a program* arrives
    as one `module.Context`, not as a growing list of parameters.
 
 When extending the lexer (new operators, keywords, string escapes, etc.),
-follow the existing pattern: add a `case [...]:` arm in the `match rest:`
-block inside `lexing`, add a corresponding `Tok*` dataclass, and add a
-`case Tok*():` arm to `pprint_token`. `TokArrow` (`->`, in a function
+follow the existing pattern: add an arm to the `match rest with`
+inside `lexing`, add a corresponding `Tok*` constructor, and add an arm
+to `pprint_token` — and to `token_info`, which every arm has to cover.
+The compiler catches the last two if you forget them. `TokArrow` (`->`, in a function
 type) shows the three edits together, and is a reminder that a token
 used only in *types* still needs all three, and that
 `tools/emacs/pyking-mode.el` has to be checked even when the answer
 turns out to be "nothing to do" (it highlights no operators, so `->`
 needed none).
 
-## The OCaml bootstrap
+## The alternative type checker
 
-`ocaml-src/` is `src/`'s front end translated into OCaml: `lexer.ml`,
-`syntax.ml` (the AST and its pretty printer), `analyses.ml`
-(`symbolize`, and nothing else from `analyses.py` yet), `parser.ml`,
-`typesystem.ml` and `main.ml`. There is no counterpart to
-`src/module.py` and there will not be one: a module system reads files
-the compiler was not given, and `./main` is a program that reads the one
-it was. What *is* translated is the syntax the module system rests on --
-the four keywords, `SImport` and `EQualified`, where an import and a
-`public` may be written, and how each of them prints -- and
-`--no-typechecking` turns the module system off on the Python side so
-the two stay comparable. `docs/ocaml_bootstrap.md` is the long
-form -- what each module holds, what differs from the Python and why.
+`src/type_experiment.ml` is a second checker, a fragment of one, run
+instead of `typesystem.ml` by `pyk --type-experiment`. It covers integer
+literals, names, `+`, and the `x = e` and expression statements those
+need. Everything else raises `Construct is not supported`, in
+`typesystem.ml`'s own words, and an unbound name raises
+`Analysis_error` so it is reported as a `Name error` exactly as there.
 
-```
-make ocaml                       build it, and copy the executable to ./main
-./main [--typecheck] [--symbols] <file.pyk>
-make test-ocaml                  hold it to what src/ prints
-```
+It is there to be grown, and the flag is how it is run. Its shape is
+`typesystem.ml`'s and is the one to keep as it grows -- one function per
+AST datatype, an `env` used immutably, and one symbol -> type table
+returned as the pass's result. `pyk.ml`'s `format_error` has a line for
+its `Type_error` saying the same word as the real checker's: the flag
+swaps which checker runs, not how a refusal reads.
 
-Three things to keep in mind when changing it:
+## The browser build
 
-- **It is a translation, so it is held to the byte.**
-  `make test-ocaml` runs `tests/test_ocaml_script.py`, which prints
-  every `tests/*.pyk` with both implementations -- `pyk compile -t
-  pyking --stdout --no-typechecking` against `./main` -- and compares
-  standard output, standard error *and* the exit status, then does it
-  again with `--symbols` on both sides. A program the parser *refuses*
-  is compared too, which is what pins the translated parser's error
-  positions and wording: `main.ml` carries its own `format_error` and
-  `wrap` for exactly that. A change to `src/lexer.py`, `src/parser.py`
-  or `src/syntax.py` that is not made here as well is a failing test,
-  which is the point.
-- **It is functional throughout**: no mutation, no objects. Where the
-  Python keeps state in a module-level variable, this passes a value --
-  `parser.py`'s `_eof_info` is an `eof` parameter, and `syntax.py`'s
-  three display flags are a `config` record threaded through the
-  printers. Keep new code that way.
-- **`symbolize` is the one part nothing generic covers.**
-  `analyses.py` walks the dataclasses, so a node added to `syntax.py`
-  is numbered for free; `analyses.ml` has a case per constructor, in
-  the order `syntax.py` declares that node's fields, numbering the node
-  after its children. A node added to `syntax.ml` needs a case there or
-  it keeps symbol 0 -- and only the `--symbols` half of the suite
-  catches it.
+`src/web/` compiles the same library to JavaScript with js_of_ocaml, for
+`tools/playground/`. Two files: `pyking_web.ml`, which registers
+`pykCompile`, `pykRun`, `pykTargets`, `pykFormatHelper`, `pykKeywords`
+and `pykBuiltins` on the global object, and `stub.js`, the four
+`//Provides:` primitives that let it. Nothing in it is compiler logic —
+every entry goes through the same functions `pyk.ml` calls, and reports
+a refusal with the same `format_error`.
 
-`typesystem.ml` is a stub: integer literals, variables, `+`, and the
-`x = e` and expression statements those need. Everything else raises
-`Construct is not supported`, in `src/typesystem.py`'s own words, and
-an unbound name raises `Analysis_error` so it is reported as a
-`Name error` exactly as there. Its shape is the one to keep as it grows
--- one function per AST datatype, an `env` used immutably, and one
-symbol -> type table returned as the pass's result.
+Two rules follow from it and are easy to break:
+
+- **The library must stay dependency-free.** Nothing in `src/`'s library
+  half may open a file, start a process, read a terminal or link `unix`;
+  that is why `pyk.ml`, `execution.ml` and `repl.ml` are in the
+  executable instead. A `Unix.` call added to a library module breaks
+  the playground, not the compiler, so nothing local will tell you.
+- **js_of_ocaml's `int` is 32 bits**, where a native one is 63. Anything
+  that depends on the width has to say so explicitly:
+  `interpreter.wrap32` goes through `Int32` for exactly that reason.
+
+`docs/build.md` is the long form, and `tools/playground/README.md`
+covers what the page does with the bundle.
 
 ## Running
 
@@ -1133,26 +1119,26 @@ pyk repl                          start the REPL
 pyk compile [options] <filename>  compile it (alias: pyk c)
 
 options: [--tokens] [--symbols] [--no-tail-call-opt]
-         [--no-typechecking] [--run]
+         [--no-typechecking] [--type-experiment] [--run]
          [--target|-t <target>]
          [--stdout | --output|-o <file>]
 ```
 
 `pyk --help` prints the long help: the short one that a bare `pyk`
 prints stops at the flags that change what is *produced*, and
-`--symbols`, `--tokens`, `--no-tail-call-opt` and `--no-typechecking`
-are documented only in the long form, since none of them is needed to
-use the compiler. Keep that split when adding a flag.
+`--symbols`, `--tokens`, `--no-tail-call-opt`, `--no-typechecking` and
+`--type-experiment` are documented only in the long form, since none of
+them is needed to use the compiler. Keep that split when adding a flag.
 
-(`pyk` is the wrapper script at the repository root, and it is now two
-lines: it runs `src/pyk.py` with `src/` on Python's path and passes every
-argument through, with no behaviour of its own. Run it with no arguments
-for the usage message, which is generated from `TARGETS`/`EXTENSIONS` and
-reflowed to 70 columns by `wrap`, along with every error the driver
-prints.)
+(`./pyk` at the repository root is the compiled executable itself: `make`
+runs `dune build src/pyk.exe` and copies it there. It is a build
+artifact, not a checked-in script, and `make clean` removes it. Run it
+with no arguments for the usage message, which is generated from
+`targets`/`extensions` and reflowed to 70 columns by `wrap`, along with
+every error the driver prints.)
 
 `pyk <file>` and `pyk repl` both run a program with
-`src/interpreter.py`, on Pyking's own semantics (32-bit `Int`, Pyking
+`src/interpreter.ml`, on Pyking's own semantics (32-bit `Int`, Pyking
 runtime errors with a stack trace). The third way to run one is
 `pyk compile --run`, which builds what was compiled and runs it with
 that target's own commands — and so shows a *backend's* semantics.
@@ -1163,9 +1149,8 @@ backend is the bug.
 is then done with it, and there is no flag for it.
 
 `--no-typechecking` is not one either, and is not for compiling with:
-it exists so the front end can be compared against the OCaml one, which
-has no checker to speak of yet and no module system at all. It stops
-`front_end` after `symbolize`
+it is a debugging flag, for seeing what the front end built before
+anything reasoned about it. It stops `front_end` after `symbolize`
 -- no checker, and so no mutability analysis and no tail-call pass,
 since neither runs without what the checker works out -- and `tmap` is
 then `None`, so `-t pyking` prints the program as *written*, with the
@@ -1175,8 +1160,14 @@ for the same reason: the file named is the only one read
 what it exports is checked. `parse_args` refuses it anywhere but
 `compile -t pyking`: every other target reads the types (the Python
 backend to know what to format, the OCaml one for every type it emits)
-and so does the interpreter, so allowing it there would produce
-nonsense rather than a comparison.
+and so does the interpreter, so allowing it there would produce nonsense
+rather than a view of the parse.
+
+`--type-experiment` is the other debugging flag: it runs
+`src/type_experiment.ml` in place of `src/typesystem.ml`. That checker
+is a fragment, so most programs are refused with
+`Construct is not supported` — which is the point, since it exists to be
+grown against real programs. See "The alternative type checker" above.
 
 Flags are accepted by every command rather than being per-command, so
 `--tokens` and `--symbols` mean the same thing wherever they are
@@ -1186,7 +1177,7 @@ suffix to what `-t pyking` prints. The other three select what
 `pyk compile` does, and none of them is required:
 
 - `--run` builds and runs what was compiled, with the commands that
-  target's host uses (`src/execution.py`), each printed before it runs
+  target's host uses (`src/execution.ml`), each printed before it runs
   on stderr. Cannot be combined with `--stdout`, which writes no file.
 - `--stdout` compiles and prints the generated source. For `esm`, whose
   wrappers only exist as files, this prints the module alone.
@@ -1204,7 +1195,7 @@ suffix to what `-t pyking` prints. The other three select what
   the exception and writes none, since a page is one file and every
   module becomes a block of it.
 - With neither of the two above, the compiler names the file: the source's own stem
-  plus the target's extension (`EXTENSIONS` in `pyk.py`, fed by each
+  plus the target's extension (`extensions` in `pyk.ml`, fed by each
   backend), in the *current* directory — `-t nodejs tests/hello.pyk`
   writes `./hello.js`. Writing over the input, or into a directory that
   doesn't exist, is a usage error rather than a traceback, checked per
@@ -1221,38 +1212,38 @@ types the checker inferred and the loops the tail-call pass built — and
 so supports everything, because it *is* the shared AST rather than a
 translation of it. `--symbols` goes with it, and nothing else does.
 The rest come in groups sharing a backend: the JavaScript three differ
-only in `src/target_js_packaging.py`, the C two only in a `standard`
-parameter to `src/target_c.py`'s printer, and the Java three only in a
-`version` parameter to `src/target_java.py`'s printer; `ocaml` is a
+only in `src/target_js_packaging.ml`, the C two only in a `standard`
+parameter to `src/target_c.ml`'s printer, and the Java three only in a
+`version` parameter to `src/target_java.ml`'s printer; `ocaml` is a
 family of one. All of them support a subset of the language, and
 anything outside it is refused at compile time with a source position
 rather than emitted as code that will not build. `ocaml` is the one
 whose subset is not a list it maintains: it is whatever
-`src/typesystem.py` accepts, checked by running it. See
+`src/typesystem.ml` accepts, checked by running it. See
 `docs/architecture.md` for the subsets and the target table.
 
 `pyk <file>` and `pyk repl` take no target: the interpreter emits
-nothing to name. What they accept is `src/typesystem.py`'s fragment,
+nothing to name. What they accept is `src/typesystem.ml`'s fragment,
 checked by running it — the same arrangement `ocaml` uses, and the
 reason a program with `for`, `while`, `match`, lists or an unannotated
 `def` is refused there with the checker's own message. A `loop`, a
 tuple, a `var` and a `:=` are all inside that fragment.
 
-Plain `make` with no target prints the help: the `Makefile`'s first rule,
-`all`, is `help`, since the compiler itself is not built and someone
-typing `make` is asking what they can run. That help list is hand-written, as is the
-one in `tools/playground/Makefile` it is modelled on — add a target and
-you have to add its line too. `make ocaml` is the one rule that builds
-anything: `dune build --root ocaml-src`, and then a copy of the
-executable to `./main`, so it can be run beside `./pyk`. `make clean`
-removes `__pycache__` directories, `ocaml-src/_build/` and that `./main`,
+Plain `make` builds the compiler: the `Makefile`'s first rule, `all`, is
+`build`, since that is what someone typing `make` in a compiler's
+directory is asking for. It runs `dune build src/pyk.exe` and copies the
+executable to `./pyk`. `make help` prints the list of targets, which is
+hand-written, as is the one in `tools/playground/Makefile` it is
+modelled on — add a target and you have to add its line too.
+
+`make clean` removes `_build/`, `./pyk` and `__pycache__` directories,
 and delegates the playground's `build/` to that directory's own
 Makefile; `make distclean` also drops its `vendor/` download cache.
 Neither touches *compiled programs*: `pyk` writes them wherever the
 caller asked, under names indistinguishable from hand-written source in
 every target language, so a clean rule that guessed at them would
-eventually delete someone's own file. Keep it that way. `./main` is the
-exception that shows the rule -- `make ocaml` chose that name itself,
+eventually delete someone's own file. Keep it that way. `./pyk` is the
+exception that shows the rule -- `make build` chose that name itself,
 which is the whole of why removing it is safe.
 
 `make test` runs `tests/test_script.py`. It
@@ -1289,12 +1280,23 @@ whatever order they finished in, so a parallel run stays diffable
 against a serial one. Keep it that way — a new runner belongs in
 `RUNNERS` like the others, writing only into the `workdir` it is handed.
 
-`make test-ocaml` is a second suite over the same programs, and a
-different question: not what a program *does* but what the front end
-*prints* for it, in both implementations (see "The OCaml bootstrap"
-above). `tests/test_ocaml_script.py` is its runner, and it imports
-`test_script.py` for the job plumbing and the timeout rather than
-restating them.
+`tests/test_script.py` takes `--compiler CMD` if you need to run the
+suite against something other than `./pyk`; it defaults to that, which
+is what `make test` builds first.
+
+**`tests/test_repl.py` is the second suite**, run by `make test` after
+the first, and it covers what the first cannot reach: the `.pyk` suite
+compiles *files*, so nothing in it enters the REPL. A case is
+`tests/repl/<name>.repl` -- what is typed at the prompt -- with
+`<name>.out` holding the session's output, stderr merged into stdout in
+the order the two were written, since a refusal and a value are both
+part of what a session said. Piped input takes `repl.ml`'s plain reader
+rather than the terminal editor, so a case exercises the *session* --
+how an entry is checked against the ones before it, what a value prints
+as, what each meta-command answers -- and not the keystroke handling;
+history, cursor movement and Escape are still untested. Add a case here
+when changing anything about what the prompt prints. It takes
+`--compiler CMD` like the other one.
 
 **Four kinds of expected output**, two of them about the tail-call
 pass. `<name>.notail.ast.out` is what `-t pyking --no-tail-call-opt`
@@ -1374,62 +1376,73 @@ program that prints and *then* dies leaves its prefix on stdout, so
 comparing output alone would call a crash a pass whenever the surviving
 prefix happened to match.
 
-No third-party dependencies. Requires Python 3.11+ (`match`/`case`, and
-`tomllib` for the manifest). Running the generated code needs `node` for
+**No third-party dependencies.** Building the compiler needs OCaml and
+dune; the playground's bundle additionally needs js_of_ocaml. The test
+harness and the playground generator are Python 3.11+ (`match`/`case`,
+and `tomllib` for the manifest) — tooling around the compiler, not part
+of it.
+
+Running the generated code needs `node` for
 the JavaScript targets, a C compiler (`$CC`, default `cc`) for the C
 ones, a JDK (`$JAVAC`/`$JAVA`) for the Java ones and an OCaml compiler
 (`$OCAMLOPT`, default `ocamlopt`) for `ocaml` — none of them
 is needed to *produce* the code, and none at all to run a program with
-`pyk <file>`, so the compiler itself stays Python-only. The OCaml cases are built with `-w +a`: that target's
+`pyk <file>`. The OCaml cases are built with `-w +a`: that target's
 promise is clean OCaml, so a warning about generated code fails the
-test.
+test. (That is the *generated* OCaml. The compiler's own build sets
+`-warn-error -a`, so a warning there does not fail a build.)
 
 ## Where the project is going
 
 **`design/plan-eval-lsp.md`** is the plan for an interpreter, a REPL,
 step debugging in the playground, and LSP and DAP servers with editor
-integration. **The first two are built** — `src/interpreter.py` and
-`src/repl.py`, reached as `pyk <file>` and `pyk repl`, with `interpret` a
+integration. **The first two are built** — `src/interpreter.ml` and
+`src/repl.ml`, reached as `pyk <file>` and `pyk repl`, with `interpret` a
 target in the test manifest — and the rest is not. Read it before adding
 anything in that direction; it settles several things by design rather
 than by accident:
 
 - the evaluator is a **resumable machine over the AST** in `src/`, not a
-  second compilation to Python and not (yet) a bytecode VM;
+  second compilation to a host language and not (yet) a bytecode VM;
 - **one debug session core and one query core, both protocol-free**, so
   DAP and the playground are two transports over one session, and LSP
   and in-browser editor help are two transports over one query service;
-- the servers stay **Python reusing `src/`**, with thin per-editor shims,
-  because the browser already runs the compiler under Pyodide;
+- the servers **reuse `src/`**, with thin per-editor shims, since the
+  browser already runs the same library compiled to JavaScript;
 - **four new modules in `src/`**, with name resolution folded into
-  `analyses.py` and the `Host` protocol into `runtime_interface.py`;
+  `analyses.ml` and the `Host` interface into `runtime_interface.ml`;
 - what the machine may assume about its host, so none of it blocks the
   eventual self-hosted, machine-code Pyking.
 
 Where what was built differs from the plan, and why:
 
-- The plan calls the module `interp.py`; it is **`interpreter.py`**, and
-  the REPL is **`repl.py`** as planned.
-- The plan's `resolve.py` (name resolution producing slot indices) was
-  **not** written. The interpreter's environments are chains of small
+- The plan calls the module `interp`; it is **`interpreter.ml`**, and
+  the REPL is **`repl.ml`** as planned.
+- The plan's `resolve` module (name resolution producing slot indices)
+  was **not** written. The interpreter's environments are chains of small
   frames rather than slot-indexed arrays, which is the same semantics and
-  a slower lookup; the one thing `resolve.py` was to provide that is
+  a slower lookup; the one thing it was to provide that is
   actually used — "does this subtree contain a call?" — is computed
-  locally by `call_free_symbols`. Writing `resolve.py` later is still the
+  locally by `call_free_symbols`. Writing `resolve.ml` later is still the
   right move, for LSP as much as for speed, and the interpreter's
   environments are the thing it would change.
-- The plan's `Host` protocol was to live in `runtime_interface.py`; it is
-  in `interpreter.py`, so that module keeps its rule of holding no host
+- The plan's `Host` interface was to live in `runtime_interface.ml`; it
+  is in `interpreter.ml`, so that module keeps its rule of holding no host
   code at all. The *operations* and their formatting rules stay where
   they were.
-- `Diagnostic` objects and parser error recovery (§5b) are not built.
-  Errors are still one exception class per stage carrying an `Info`, and
-  `pyk.py`'s `format_error` is the one place they are worded.
+- The plan assumes the browser reaches the compiler through Pyodide.
+  It does not any more: `src/web/` compiles the library itself to
+  JavaScript with js_of_ocaml, so there is no Python runtime in the
+  page. The plan's own table called that the eventual state; it arrived
+  with the translation instead.
+- `Diagnostic` values and parser error recovery (§5b) are not built.
+  Errors are still one exception per stage carrying an `info`, and
+  `pyk.ml`'s `format_error` is the one place they are worded.
 
 Two language questions it raises are settled: an **`Int` is 32-bit and
 wraps** (PYKING.md, "Integer and string literals"; the backends that
 differ are listed in `docs/targets.md`), and the **maximum call depth is
-10 000** (`interpreter.MAX_CALL_DEPTH`), raising a Pyking error rather
+10 000** (`interpreter.max_call_depth`), raising a Pyking error rather
 than exhausting memory.
 
 ## User-authored documentation
@@ -1458,29 +1471,29 @@ If a change requires interpretation or rewriting rather than a mechanical correc
 
 ## Documentation style
 
-Applies to every `.py` file under `src/` and `tools/`, and to the `.md`
-files under `docs/`. Plain, direct, technical. No jargon, no rhetorical
-flourishes, no filler words.
+Applies to every `.ml` file under `src/`, every `.py` file under
+`tools/`, and the `.md` files under `docs/`. Plain, direct, technical.
+No jargon, no rhetorical flourishes, no filler words.
 
-**Module docstring** (top of the file): what the file is for, in a few
+**Module docstring** (an `(** ... *)` at the top of the file): what the
+file is for, in a few
 sentences. No design rationale, no history of alternatives considered.
 Link to the `docs/*.md` page(s) that cover the design. End with two short
 lists: the data structures defined in the file, and the functions,
 each as one line naming it and saying what it does. Example:
 
-```python
-"""Recursive-descent parser: tokens (from lexer.py) to the AST defined
-in syntax.py. Also enforces the handful of grammar rules that cannot be
-expressed in EBNF (see docs/architecture.md).
+```ocaml
+(** Recursive-descent parser: tokens (from lexer.ml) to the AST defined
+    in syntax.ml. Also enforces the handful of grammar rules that cannot
+    be expressed in EBNF (see docs/architecture.md).
 
-Data structures:
-    ParseError -- a parse failure, with the source position.
+    Data structures:
+      Parse_error -- a parse failure, with the source position.
 
-Functions:
-    parse(tokens) -- parses a full token stream into a list of statements.
-    parse_expr(tokens) -- parses one expression.
-    parse_block(tokens, header_info) -- parses one block.
-"""
+    Functions:
+      parse tokens -- parses a full token stream into a list of statements.
+      parse_expr eof tokens -- parses one expression.
+      parse_block eof tokens colon -- parses one block. *)
 ```
 
 **Function docstrings**: two parts, nothing else.
@@ -1489,14 +1502,15 @@ The following holds for new functions. I may have modified it in a
 different style, so do not change existing text, as described above.
 
 1. One or two sentences: what the function does.
-2. A type signature, written as it would be in a statically typed
-   functional language, e.g. `[Token] -> (Expr, [Token])` or
-   `Env -> String -> Type -> Env`. Use the same notation `syntax.py`'s
-   `datatype` comments use (`[T]`, `T?`, `(A, B)`).
+2. A type signature, written the way the AST's own comments write one,
+   e.g. `[token] -> (expr, [token])` or `env -> String -> typ -> env`
+   (`[T]` for a list, `T?` for an option, `(A, B)` for a pair). It is
+   written out even though OCaml infers it, because the inferred one is
+   not always the one worth reading.
 
-```python
-def parse_expr(tokens):
-    """Parses one expression. [Token] -> (Expr, [Token])"""
+```ocaml
+(** Parses one expression. info -> [token] -> (expr, [token]) *)
+let parse_expr eof tokens = ...
 ```
 
 No worked examples, no "why" in a function docstring. If a function's
@@ -1504,9 +1518,10 @@ behavior needs more than the two parts above to explain, that is a sign
 the explanation belongs in `docs/`, not that the docstring should be
 longer.
 
-**Data structures**: describe precisely, not narratively — the
-`datatype` blocks at the top of `syntax.py` are the model. Name every
-field and its type; a one-line comment per variant is enough.
+**Data structures**: describe precisely, not narratively — the type
+declaration at the top of `syntax.ml` is the model. The type says the
+fields; a one-line trailing comment per variant, saying what it is
+written as in source or what it stands for, is enough.
 
 **Everything else — why a design was chosen, what alternatives were
 rejected, how a bug happened, how pieces fit together — belongs in

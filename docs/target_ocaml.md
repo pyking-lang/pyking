@@ -4,9 +4,9 @@
 
 **Key points**
 
-- One backend, `src/target_ocaml.py`. It is the only one whose supported
+- One backend, `src/target_ocaml.ml`. It is the only one whose supported
   subset is not a list of constructs but a *stage*: it compiles exactly
-  what `src/typesystem.py` accepts, and it compiles it by **running the
+  what `src/typesystem.ml` accepts, and it compiles it by **running the
   type checker** and reading the types back out. There is no inference of
   its own.
 - OCaml fits Pyking better than any other target here. A block is a
@@ -27,7 +27,7 @@ note. See "What the compiler would have said" below.
 
 ## What is supported
 
-Exactly the fragment `src/typesystem.py` checks, no more and no less:
+Exactly the fragment `src/typesystem.ml` checks, no more and no less:
 
 - `print`, and the builtins `str`, `len` and one-argument `range`;
 - `def` with fully annotated parameters and return type — recursion,
@@ -189,7 +189,7 @@ on. This backend is the reason that is true. Two decisions need it:
   written as it is, unit becomes `"()"`, and a list of `Int` goes
   through the one generated helper.
 
-`src/target_c.py` and `src/target_java.py` each carry their own
+`src/target_c.ml` and `src/target_java.ml` each carry their own
 inference, written before the checker existed and answering a narrower
 question (which C or Java type does this need to be declared as). This
 backend does not, which is most of the reason it is the shortest of the
@@ -200,7 +200,7 @@ four.
 ### Blocks and bindings
 
 A Pyking block is a scope and OCaml's `let … in` is a scope, so the
-translation is direct. Nothing is renamed — `target_python.py` renames
+translation is direct. Nothing is renamed — `target_python.ml` renames
 shadowed bindings because Python functions have one flat scope, and none
 of that is needed here:
 
@@ -261,7 +261,7 @@ is unit — which is exactly when Pyking allows one.
 ### Tail calls, and the pass that does not run here
 
 OCaml eliminates tail calls itself, so this target is compiled from the
-program as written: `src/optimization.py`, which turns tail recursion
+program as written: `src/optimization.ml`, which turns tail recursion
 into `loop`s for every other target, is skipped for `ocaml` (see
 docs/optimization.md, "The target that needs none of this"). A
 tail-recursive Pyking function therefore compiles to a tail-recursive
@@ -277,7 +277,7 @@ would only have this backend undo it: a `loop` compiles to a local
 recursive function here, so the two would take turns rewriting one
 program into the other's shape.
 
-`NATIVE_TAIL_CALLS` in `src/pyk.py` is the list that says so; a backend
+`NATIVE_TAIL_CALLS` in `src/pyk.ml` is the list that says so; a backend
 for another host with proper tail calls adds its name to it.
 
 ### `loop`, `break` and `continue`
@@ -299,15 +299,15 @@ res = loop x = 5:
 
 ```ocaml
 let res =
-  let rec _pyk1 x = if x <= 10 then _pyk1 (x + 1) else x in
-  _pyk1 5
+  let rec tmp1 x = if x <= 10 then tmp1 (x + 1) else x in
+  tmp1 5
 ```
 
 The three ways a body can say what happens next map one to one: the
-body's last expression becomes `_pyk1 e`, `continue` becomes `_pyk1 x`,
+body's last expression becomes `tmp1 e`, `continue` becomes `tmp1 x`,
 and `break` becomes `x` -- the accumulator this turn was called with,
 which is what the loop is worth. A loop carrying several values takes a
-tuple pattern parameter, `let rec _pyk1 (x, y) = …`, and a `loop:`
+tuple pattern parameter, `let rec tmp1 (x, y) = …`, and a `loop:`
 carrying nothing takes a unit one.
 
 Because a loop is an expression, it needs nothing said about it in any
@@ -360,8 +360,8 @@ let pair = (1, true)
 
 let () =
   print_endline
-    (let (_pyk1, _pyk2) = pair in
-     "(" ^ string_of_int _pyk1 ^ ", " ^ string_of_bool _pyk2 ^ ")")
+    (let (tmp1, tmp2) = pair in
+     "(" ^ string_of_int tmp1 ^ ", " ^ string_of_bool tmp2 ^ ")")
 ```
 
 A string inside a tuple is quoted, where one printed on its own is not,
@@ -371,7 +371,7 @@ so a `pyk_quote` helper joins the prelude when a program needs it (see
 ### `print`
 
 `print_endline`, with the arguments formatted per
-[runtime_interface.py](../src/runtime_interface.py) and joined with a
+[runtime_interface.ml](../src/runtime_interface.ml) and joined with a
 single space. Booleans and unit need no translating at all: OCaml spells
 them `true`, `false` and `()` already, which no other target can say —
 the Python backend has to override `print`'s capitalisation and the C
@@ -421,7 +421,7 @@ sum = step("a", 1) + step("b", 2)
 ```
 
 ```ocaml
-let sum = let _pyk1 = step "a" 1 in _pyk1 + step "b" 2
+let sum = let tmp1 = step "a" 1 in tmp1 + step "b" 2
 ```
 
 A program whose functions only compute — nearly every program — has
@@ -444,7 +444,7 @@ Neither rule is injective on its own — `mod` and `mod_` both want
 landing on one OCaml name is a silent substitution rather than a shadow:
 whichever `let` came last wins, and the other name reads as it. So the
 names are chosen for the **whole program at once**, before anything is
-translated (`_plan_names`): a name OCaml already accepts keeps its own
+translated (`plan_names`): a name OCaml already accepts keeps its own
 spelling, and the rest take the first free `base`, `base2`, ….
 `tests/renaming_runtime.pyk` pins both pairs.
 
@@ -452,7 +452,7 @@ spelling, and the rest take the first free `base`, `base2`, ….
 
 A reader of generated code cannot act on a compiler warning, so the
 generator answers them before they are raised. A parameter or local
-binding that nothing reads is written `_name`, which is OCaml's own way
+binding that nothing reads is written `name`, which is OCaml's own way
 of saying "deliberately discarded" — and is what such a binding is,
 since Pyking's `x = expr` is a statement and a program may well write
 one just to run the expression:
@@ -515,15 +515,15 @@ let () =
 listed there cannot be reached from outside the file, which is exactly
 what "not `public`" means. It is also the one place this backend writes
 a type at all -- everywhere else it emits none, since OCaml infers them.
-`_interface_type` is what turns the checker's `Type` into OCaml's, and a
+`interface_type` is what turns the checker's `Type` into OCaml's, and a
 type it cannot write is refused rather than guessed at.
 
 **A public name is spelled by a pure function of itself.** Everywhere
 else, this backend picks OCaml names for a whole module at once
-(`_plan_names`), so that no two land on the same one. That cannot work
+(`plan_names`), so that no two land on the same one. That cannot work
 across a boundary: the module doing the importing has not seen the
-module it imports. So an exported name goes through `_public_name`,
-which looks only at the name, and `_plan_names` moves everything else
+module it imports. So an exported name goes through `public_name`,
+which looks only at the name, and `plan_names` moves everything else
 out of *its* way. Two exported names that would land on one OCaml name
 are refused.
 
@@ -540,7 +540,7 @@ run order. Nothing is emitted for it.
 **A private binding nothing reads is dead**, which it was not before:
 without an `.mli`, every top-level binding is exported and none of them
 is unused. With one, an unexported binding that nothing in the module
-reads would draw warning 32 under `-w +a`, so it gets the `_name` this
+reads would draw warning 32 under `-w +a`, so it gets the `name` this
 backend already gives an unread local. The one binding that keeps its
 name anyway is a `let rec` whose only reader is itself: renaming it
 would leave the call inside it naming nothing.

@@ -1,11 +1,11 @@
 // Browser tests for the playground: what `make e2e` runs.
 //
-// `make check` compiles every example through the generated shim under
-// the host CPython, which catches a regressed backend but says nothing
-// about the page. This drives the built page in a real browser instead:
-// it mounts, boots Pyodide, compiles, and runs -- the whole path a user
-// takes, including the worker boundary and the sandboxed iframe that
-// `check` cannot reach.
+// `make check` compiles every example through the same compiler bundle
+// the page loads, under node, which catches a regressed backend but says
+// nothing about the page. This drives the built page in a real browser
+// instead: it mounts, loads the compiler, compiles, and runs -- the whole
+// path a user takes, including the worker boundary and the sandboxed
+// iframe that `check` cannot reach.
 //
 // Playwright is the one dependency in this repository, and it is
 // optional: without it this says so and exits 0, so `make e2e` on a
@@ -157,7 +157,7 @@ async function main() {
 
   console.log("Compiling");
   await page.click('[data-r="compile"]');
-  expect("boots the Python runtime", /ready/.test(await settled(page)));
+  expect("loads the compiler", /ready/.test(await settled(page)));
   await page.waitForTimeout(500);
   expect("compiles for the default target",
          /^Compiled to /.test(await lastLine(page)), await lastLine(page));
@@ -170,7 +170,10 @@ async function main() {
          /front end/.test(await lastLine(page)), await lastLine(page));
 
   console.log("Running");
-  await page.selectOption('[data-r="target"]', "python");
+  // The left Run button runs the program itself, with the interpreter,
+  // whatever target is selected; the right one runs what is displayed,
+  // which needs a target a browser can execute.
+  await page.selectOption('[data-r="target"]', "nodejs");
   await page.click('[data-r="compile"]');
   await settled(page);
   await page.click('[data-r="runLeft"]');
@@ -186,10 +189,10 @@ async function main() {
   expect("runs the generated code", /finished/.test(generated), generated);
 
   // Every example, on every target it claims, through the page's own
-  // runtime -- the same pairs `make check` compiles under CPython, but
-  // in the browser, where Pyodide rather than the host runs the
-  // compiler. A `fail_typecheck_*` program is written to be refused, so
-  // for it a refusal is the pass.
+  // runtime -- the same pairs `make check` compiles under node, but in
+  // the browser, on the worker the page really uses. A
+  // `fail_typecheck_*` program is written to be refused, so for it a
+  // refusal is the pass.
   console.log("Every example, in the browser");
   const sweep = await page.evaluate(async () => {
     const manifest = await (await fetch("assets/playground.json")).json();

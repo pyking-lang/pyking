@@ -4,8 +4,8 @@
 
 **Key points**
 
-- One translation, `src/target_js_core.py`; three packagings,
-  `src/target_js_packaging.py`. The targets accept exactly the same
+- One translation, `src/target_js_core.ml`; three packagings,
+  `src/target_js_packaging.ml`. The targets accept exactly the same
   programs and differ only in **where `print` goes** and what files come
   out.
 - JavaScript fits Pyking better than Python does: `const` is an immutable
@@ -16,7 +16,7 @@
   `match`, comprehensions or value-form bindings. Anything outside it is
   refused with a source position.
 - `print` is the one thing crossing the runtime boundary
-  (`src/runtime_interface.py`), and the three targets bind it three
+  (`src/runtime_interface.ml`), and the three targets bind it three
   ways: `console.log`, a page element, or a function the embedder passes
   in.
 - Least optimal at: float display (`6` where Python prints `6.0`), and
@@ -132,7 +132,7 @@ Destructuring is JavaScript's own array pattern, which fits exactly.
 Printing is where the two languages part: `pykFormat` (see "`print` and
 the runtime boundary") writes an array in Pyking's notation — `()`,
 `(1,)`, `(1, 2)` — with strings inside it quoted, since that is what
-`runtime_interface.py` says a tuple looks like.
+`runtime_interface.ml` says a tuple looks like.
 
 Lists have no representation yet, so an array unambiguously means a
 tuple here. That is what makes this formatting rule safe today, and is
@@ -179,7 +179,7 @@ That single `let` is one binding for every turn, which is exactly wrong
 for a function written in the body: Pyking binds the accumulator afresh
 on every turn, and a function outlives the turn it was written on, so
 all of them would close over the last turn's value. Where the body
-defines a function (`_defines_function`), the `let` becomes a *carrier*
+defines a function (`defines_function`), the `let` becomes a *carrier*
 holding what the next turn starts with, and the accumulator itself
 becomes a `const` inside the body — one binding per turn, which is what
 each function closes over:
@@ -339,7 +339,7 @@ def class(n):                      function class2(n) {
                                    }
 ```
 
-The list (`RESERVED` in `src/target_js_core.py`) also holds a few
+The list (`RESERVED` in `src/target_js_core.ml`) also holds a few
 globals a generated file leans on -- `undefined`, `console`, `String` --
 because shadowing one of those would break the prelude rather than the
 program's own syntax, which is harder to spot.
@@ -467,7 +467,7 @@ print(bump(10));
 print(helper.greeting);
 ```
 
-The host half — `print` and the formatting `src/runtime_interface.py`
+The host half — `print` and the formatting `src/runtime_interface.ml`
 lays down for it — moves into a module of its own rather than being
 copied into every file. Its name is `pyk-runtime.js`, with a hyphen: a
 Pyking module is imported by name, so its file's stem is an identifier,

@@ -1,0 +1,8 @@
+Pyking REPL.  :help for commands, :quit to leave.
+> '<repl>' 1:4-1:14 Name error: unbound name 'nosuchname'
+> '<repl>' 1:0-1:5 Runtime error: division by zero
+> '<repl>' 1:0-1:13 Name error: module 'helper' cannot be imported here:
+  an import needs the whole program, and this is one file on its own
+> usage: :type <expression>
+> no bindings yet
+> 

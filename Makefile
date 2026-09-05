@@ -1,44 +1,44 @@
 # The Pyking compiler.
 #
-#   make            this help
+#   make            build the compiler
 #   make test       the compiler's own test suite, run in parallel
 #   make stest      the same suite, one test at a time
 #   make clean      remove what has been generated
 #
-# Run `make help` for the full list. The compiler itself has no build
-# rule: it is a set of Python scripts run in place (see ./pyk). The one
-# rule that builds anything is `make ocaml`, for the OCaml translation
-# of the front end in ocaml-src/.
+# Run `make help` for the full list. The compiler is OCaml in src/,
+# built by dune into the executable this directory calls ./pyk.
 
-.PHONY: all help test stest test-ocaml test-py2pyk ocaml playground clean \
-	clean-pycache clean-ocaml distclean
+.PHONY: all help build test stest playground clean clean-pycache clean-build \
+	distclean
 
-# A bare `make` prints the help rather than building anything. The
-# compiler is not built, so someone typing `make` is almost always
-# asking what they *can* do -- which is exactly what `help` answers.
-all: help
+# `make` builds the compiler: it is the one thing someone typing `make`
+# in a compiler's directory is asking for.
+all: build
+
+# dune writes the executable into _build/default/src, where nobody would
+# think to run it from, so it is copied out to ./pyk. `cp -f` rather than
+# `cp`: dune leaves what it builds read-only, and so is the copy, which a
+# second `make` would otherwise fail to overwrite.
+build:
+	dune build src/pyk.exe
+	@cp -f _build/default/src/pyk.exe pyk
+	@echo "build: ./pyk"
 
 # Kept in the same shape as `make -C tools/playground help`, so the two
 # read alike. Both are hand-written and neither has anything to generate
 # them from, so update this list whenever a target is added or renamed.
 help:
-	@echo "make              this help"
+	@echo "make              build the compiler into ./pyk"
 	@echo "make test         the compiler's own suite: every tests/*.pyk on every"
 	@echo "                  target tests/test_cases.toml lists it for, run in"
-	@echo "                  parallel (JOBS=n to say how parallel)"
+	@echo "                  parallel (JOBS=n to say how parallel), then the"
+	@echo "                  REPL's own cases in tests/repl/"
 	@echo "make stest        the same suite, one test at a time"
-	@echo "make test-ocaml   the ocaml-src/ bootstrap against src/: every"
-	@echo "                  tests/*.pyk pretty-printed by both with type"
-	@echo "                  checking off, and the two outputs compared"
-	@echo "make test-py2pyk  the tools/py2pyk suite: each .py translated to Pyking,"
-	@echo "                  compiled back, run and diffed"
-	@echo "make ocaml        build the ocaml-src/ bootstrap and put its"
-	@echo "                  executable in this directory as ./main"
 	@echo "make playground   build and serve the web playground, then print a link"
-	@echo "make clean        remove generated files: __pycache__/, ./main,"
-	@echo "                  ocaml-src/_build/ and the playground's build/"
+	@echo "make clean        remove generated files: _build/, ./pyk, __pycache__/"
+	@echo "                  and the playground's build/"
 	@echo "make distclean    also remove the playground's vendor/ download cache"
-	@echo "                  (~13 MB; refetching it needs the network)"
+	@echo "                  (~1 MB; refetching it needs the network)"
 	@echo
 	@echo "tools/playground has options of its own (PORT=, CDN=, ...):"
 	@echo "run 'make -C tools/playground help' for those."
@@ -49,37 +49,19 @@ help:
 # prints does not depend on that: results are reported in the order the
 # manifest lists them however they were scheduled, so this and `stest`
 # produce the same transcript.
-test:
+#
+# tests/test_repl.py runs after it, and is a suite of its own because it
+# runs *sessions* rather than (program, target) pairs: the .pyk suite
+# compiles files, so nothing in it reaches the REPL.
+test: build
 	python3 tests/test_script.py $(if $(JOBS),--jobs $(JOBS))
+	python3 tests/test_repl.py
 
 # The same suite with no pool at all, for when a parallel run's timing is
 # itself in question.
-stest:
+stest: build
 	python3 tests/test_script.py --jobs 1
-
-# The OCaml bootstrap in ocaml-src/ is a translation of the front end in
-# src/, so the two must print the same program for the same input. This
-# builds it and compares them over every tests/*.pyk, with type checking
-# off on both sides -- see tests/test_ocaml_script.py.
-test-ocaml:
-	python3 tests/test_ocaml_script.py $(if $(JOBS),--jobs $(JOBS))
-
-# The one rule here that builds anything. dune writes the executable
-# into ocaml-src/_build, where nobody would think to run it from, so it
-# is copied out to ./main -- `./main hello.pyk` beside `./pyk hello.pyk`.
-# `cp -f` rather than `cp`: dune leaves what it builds read-only, and so
-# is the copy, which a second `make ocaml` would otherwise fail to
-# overwrite.
-ocaml:
-	dune build --root ocaml-src
-	@cp -f ocaml-src/_build/default/main.exe main
-	@echo "ocaml: built ./main"
-
-# Delegates entirely to tools/py2pyk's own Makefile; see that file for
-# what "test" means there (translating tools/py2pyk/tests/*.py to Pyking
-# and back, diffing stdout).
-test-py2pyk:
-	$(MAKE) -C tools/py2pyk test
+	python3 tests/test_repl.py
 
 # Delegates entirely to tools/playground's own Makefile (its default
 # target: vendor, build, check, then serve and print a URL). `-C` runs
@@ -89,34 +71,36 @@ test-py2pyk:
 playground:
 	$(MAKE) -C tools/playground
 
-# What "generated" means here is narrow, and deliberately so: Python's own
-# bytecode caches, and whatever tools/playground built (delegated to its
-# own Makefile, which owns those files -- see the `-C` note above).
+# What "generated" means here is narrow, and deliberately so: what dune
+# built, the copy of the executable beside it, Python's bytecode caches
+# (the test harness and the playground generator are Python), and
+# whatever tools/playground built (delegated to its own Makefile, which
+# owns those files -- see the `-C` note above).
 #
 # Compiled *programs* are left alone. `pyk` writes its output wherever the
 # caller asked for it, under names that are ordinary source names in every
 # target language -- hello.py, hello.js, Hello.java -- so a rule that
 # guessed at them from the filesystem would sooner or later delete a file
 # nobody generated. Removing those is the caller's business, since only
-# the caller knows which ones they are. ./main is the exception that
-# shows the rule: `make ocaml` chose that name itself, so this knows it.
-clean: clean-pycache clean-ocaml
+# the caller knows which ones they are. ./pyk is the exception that
+# shows the rule: `make build` chose that name itself, so this knows it.
+clean: clean-build clean-pycache
 	@$(MAKE) --no-print-directory -C tools/playground clean
 
-# `distclean` depends on this rather than on `clean`, so that the
+# `distclean` depends on these rather than on `clean`, so that the
 # playground's own `distclean` -- which already runs its `clean` first --
 # is invoked exactly once and reports each removal exactly once.
-distclean: clean-pycache clean-ocaml
+distclean: clean-build clean-pycache
 	@$(MAKE) --no-print-directory -C tools/playground distclean
 
-# What `dune build --root ocaml-src` wrote, and the copy of its
-# executable that `make ocaml` puts here. Both are this Makefile's own
-# output, under names it chose itself -- which is exactly what a
-# *compiled program* is not (see the note on `clean` above).
-clean-ocaml:
-	@rm -rf ocaml-src/_build
-	@rm -f main
-	@echo "clean: removed ocaml-src/_build and ./main"
+# What `dune build` wrote, and the copy of its executable that `make
+# build` puts here. Both are this Makefile's own output, under names it
+# chose itself -- which is exactly what a *compiled program* is not (see
+# the note on `clean` above).
+clean-build:
+	@rm -rf _build
+	@rm -f pyk
+	@echo "clean: removed _build and ./pyk"
 
 # .venv/ and .git/ are pruned rather than filtered: their caches belong to
 # installed packages and to git, not to anything this repository builds,

@@ -1,16 +1,16 @@
-# `target_js_packaging.py`: design
+# `target_js_packaging.ml`: design
 
-How `src/target_js_packaging.py` turns one JavaScript translation into
+How `src/target_js_packaging.ml` turns one JavaScript translation into
 three different targets, and why the formatting helper is duplicated
 into each host rather than shared. For what `nodejs`/`html`/`esm`
 support and how a program behaves once compiled, see
 [target_js.md](target_js.md); for the translation this module packages,
 see [target_js_core.md](target_js_core.md); for a one-page summary, see
-[source.md](source.md#target_js_packagingpy).
+[source.md](source.md#target_js_packagingml).
 
 ## One translation, three files, one difference between them
 
-`target_js_core.py` does all the actual work of turning Pyking into
+`target_js_core.ml` does all the actual work of turning Pyking into
 JavaScript, and produces the *same* output regardless of which of the
 three JS targets is chosen — the only thing that differs across
 `nodejs`, `html`, and `esm` is **where `print` goes**, which is exactly
@@ -18,10 +18,10 @@ the one place the core deferred a decision by emitting `JsRuntimeCall`
 instead of a concrete call (see that module's page). This module is
 where the deferred decision finally gets made, three different ways:
 
-```python
-package_nodejs(...):  pprint_js_program(js_program, {"print": "print"})
-package_html(...):    pprint_js_program(js_program, {"print": "print"})
-package_esm_module(...): pprint_js_program(js_program, {"print": "runtime.print"})
+```ocaml
+package_nodejs ...:      pprint_js_program js_program (host "print" ...)
+package_html ...:        pprint_js_program js_program (host "print" ...)
+package_esm_module ...:  pprint_js_program js_program (host "runtime.print" ...)
 ```
 
 `nodejs` and `html` both spell it `print` — a bare function name — but
@@ -45,12 +45,12 @@ of the compiled program. `_prelude(*parts)` wraps that host code
 between `_PRELUDE_BEGIN`/`_PRELUDE_END` marker comments specifically so
 a reader looking at the generated `.js` file can tell at a glance which
 lines came from the `.pyk` source and which are harness the packager
-added — the same convention `target_python.py`'s Bool-formatting helper
+added — the same convention `target_python.ml`'s Bool-formatting helper
 and comprehension-pattern helper both follow (see
 [target_python_internals.md](target_python_internals.md)), for the
 identical reason: generated boilerplate should never be mistaken for a
 translation of something the program actually wrote. `esm`'s own
-module has no prelude at all, which `_prelude`'s docstring calls out
+module has no prelude at all, which `prelude`'s docstring calls out
 explicitly — not an oversight, but the same boundary drawn a different
 way: instead of defining host code inline, the module simply declines
 to have any, and expects it from its caller.
@@ -58,7 +58,7 @@ to have any, and expects it from its caller.
 ## `pykFormat`: copied, not shared, on purpose
 
 Every host defines its own copy of `_FORMAT_JS` — a tiny function
-converting a computed value to `runtime_interface.py`'s printed form (a
+converting a computed value to `runtime_interface.ml`'s printed form (a
 Bool prints `true`/`false` in JavaScript already; the one thing that
 needs converting is `undefined`, which is what a unit-returning
 function actually evaluates to, and which has to print as `()`). Three
@@ -66,10 +66,10 @@ copies of eleven lines might look like something a shared module should
 own instead — but the formatting rules belong to a **host**, not to the
 compiler, and a module in the compiled program that formatted its own
 output would already have made a decision that isn't the compiler's to
-make (see `runtime_interface.py`'s own page: this module deliberately
+make (see `runtime_interface.ml`'s own page: this module deliberately
 holds no host code at all). Each packaged target *is* one host, and
 each one gets its own copy for the same reason `ConsoleHost`,
-`BufferHost`, and `CallbackHost` in `interpreter.py` are three separate
+`BufferHost`, and `CallbackHost` in `interpreter.ml` are three separate
 classes rather than one parameterized by a callback that also happens
 to format — formatting and delivering are the same operation, performed
 by whoever owns the sink.
@@ -81,9 +81,9 @@ and the three targets diverge more here than anywhere else -- see
 [target_js.md](target_js.md), "Modules", for the generated code.
 
 The shape they share is that the *body* of a module is the same text in
-all three: `target_js_core.py` translates it once, and only the import
-lines and the export line differ. `_nodejs_import`, `_esm_import` and
-`_page_import` are those three spellings, handed to the core inside a
+all three: `target_js_core.ml` translates it once, and only the import
+lines and the export line differ. `nodejs_import`, `esm_import` and
+`page_import` are those three spellings, handed to the core inside a
 `JsHost` exactly as the `print` spelling is.
 
 Two things are this module's alone. **The runtime module.** A `nodejs`
@@ -113,7 +113,7 @@ out/prog.js`, and `--output out/prog.html` all normalize to the same
 `out/prog`), and `esm_paths` then appends the four real endings onto
 that shared stem. `package(target, ...)`'s `"esm"` case is the only one
 returning more than a single-entry dict — `{path: contents}` for all
-four at once — which is what lets `pyk.py`'s driver write every file a
+four at once — which is what lets `pyk.ml`'s driver write every file a
 target produces through one uniform interface, without needing to know
 in advance how many files any particular target writes.
 

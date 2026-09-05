@@ -1,10 +1,10 @@
-# `runtime_interface.py`: design
+# `runtime_interface.ml`: design
 
-How `src/runtime_interface.py` draws the line between a Pyking program
+How `src/runtime_interface.ml` draws the line between a Pyking program
 and the outside world, and why it is its own module rather than living
 inside a backend. For where this fits in the pipeline, see
 [architecture.md](architecture.md), "The runtime interface"; for a
-one-page summary, see [source.md](source.md#runtime_interfacepy).
+one-page summary, see [source.md](source.md#runtime_interfaceml).
 
 ## The WebAssembly split, applied here
 
@@ -33,8 +33,9 @@ maintain its own copy of the list.
 
 The module docstring is emphatic about this, and it's worth
 understanding why it matters rather than taking it as a style rule:
-**this file contains no Python, no JavaScript, and no interpreter
-code** — nothing here decides how `print` actually writes a line on any
+**this file contains no host code at all** — no Python, no JavaScript,
+nothing from the interpreter; nothing here decides how `print` actually
+writes a line on any
 host. What it *does* pin down is the part every host has to agree on
 regardless of how it writes that line: the formatting rules —
 
@@ -65,34 +66,34 @@ description, and every backend consults it the same way, at the same
 point in translation: recognizing that a call is *to* the runtime
 interface rather than to an ordinary Pyking function.
 
-```python
-case ECall(info, EVar(_, name), args) if runtime_interface.lookup(name):
-    ...
+```ocaml
+| ECall (info, EVar (_, name, _), args, _)
+  when Runtime_interface.lookup name <> None -> ...
 ```
 
-That guard appears, nearly verbatim, in `target_python.py`,
-`target_js_core.py`, `target_c.py`, `target_java.py`, and
-`target_ocaml.py` — every backend's expression translator has exactly
-one `case` arm gated on `runtime_interface.lookup`, because that's the
+That guard appears, nearly verbatim, in `target_python.ml`,
+`target_js_core.ml`, `target_c.ml`, `target_java.ml`, and
+`target_ocaml.ml` — every backend's expression translator has exactly
+one arm gated on `Runtime_interface.lookup`, because that's the
 one place a call needs different treatment than an ordinary function
 call: not "translate `func(args)` as a call," but "translate this as
 whatever *this host* does to produce output." What differs from there
 is entirely host-specific and lives in each backend, not here:
 
-- **`target_js_core.py`** doesn't even decide what the call looks like
+- **`target_js_core.ml`** doesn't even decide what the call looks like
   in JavaScript — it emits a `JsRuntimeCall(operation, args)` node and
   leaves the actual spelling (`print(...)` vs. `runtime.print(...)`) to
-  `target_js_packaging.py`, since that's the one thing the three
+  `target_js_packaging.ml`, since that's the one thing the three
   JavaScript targets disagree about. See that module's own page.
-- **`target_c.py`**/**`target_java.py`** turn it into `printf(...)`/
+- **`target_c.ml`**/**`target_java.ml`** turn it into `printf(...)`/
   `System.out.println(...)`, with their own type-driven formatting
   glue for the parts C and Java don't spell the way Pyking does (see
   their internals pages for why a `Bool` needs a conditional in C but
   not in Java).
-- **`target_ocaml.py`** turns it into `print_endline`, needing almost
+- **`target_ocaml.ml`** turns it into `print_endline`, needing almost
   no glue at all, since OCaml already spells `true`/`false`/`()`
   exactly as Pyking does.
-- **`interpreter.py`** is the one consumer that doesn't translate
+- **`interpreter.ml`** is the one consumer that doesn't translate
   anything — it *performs* the operation directly, through a `Host`
   object (`ConsoleHost`, `BufferHost`, `CallbackHost`), since the
   interpreter runs a program rather than emitting one. Its

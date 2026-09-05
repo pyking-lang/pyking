@@ -8,12 +8,13 @@ compiler target supports and how it compiles, see
 [targets.md](targets.md).
 
 The compiler is built to bootstrap. `src/` holds a throwaway
-implementation written in a convenient host language (Python), and the
+implementation written in a convenient host language (OCaml), and the
 plan is to eventually rewrite the compiler in Pyking itself and compile
 it with this one. Nothing in `src/` is meant to survive that
 transition, so it favours being obvious over being clever — and it is
-why the code is written in a style that ports easily: one dataclass per
-AST variant, and `match`/`case` over them rather than method dispatch.
+why the code is written in a style that ports easily: one variant per
+AST node, `match` over them rather than method dispatch, and values
+threaded through rather than state mutated in place.
 
 ## The pipeline
 
@@ -21,26 +22,26 @@ AST variant, and `match`/`case` over them rather than method dispatch.
                           foo.pyk
                              │
                     ┌────────▼────────┐
-                    │ src/module.py  │   the modules foo.pyk reaches,
+                    │ src/module.ml  │   the modules foo.pyk reaches,
                     │      load       │   dependencies first (each of
                     └────────┬────────┘   them through the stages below)
                              │
                     ┌────────▼────────┐
-                    │  src/lexer.py  │   characters → tokens
+                    │  src/lexer.ml  │   characters → tokens
                     └────────┬────────┘
                     ┌────────▼────────┐
-                    │ src/parser.py  │   tokens → AST
+                    │ src/parser.ml  │   tokens → AST
                     └────────┬────────┘
                     ┌────────▼────────┐
-                    │src/analyses.py │   one unique integer per node
+                    │src/analyses.ml │   one unique integer per node
                     │   symbolize     │
                     └────────┬────────┘
                     ┌────────▼────────┐
-                    │src/typesystem.py│   names and types, always: leaves
+                    │src/typesystem.ml│   names and types, always: leaves
                     └────────┬────────┘   the AST alone and fills a
                              │            symbol→type tmap
                     ┌────────▼────────┐
-                    │src/analyses.py │   `:=` names a `var`, and nothing
+                    │src/analyses.ml │   `:=` names a `var`, and nothing
                     │analyze_mutability│  shadows one: rejects, never
                     └────────┬────────┘   rewrites
                     ┌────────▼────────┐
@@ -48,18 +49,18 @@ AST variant, and `match`/`case` over them rather than method dispatch.
                     │      .py        │   the checker accepted; then
                     └────────┬────────┘   symbolize again for what it built
                              │
-                   src/syntax.py AST — the one
+                   src/syntax.ml AST — the one
                    thing every backend shares
                              │
       ┌─────────────────┴──────────┬──────────────────┬──────────────────┬──────────────┬──────────────┐
       ▼                            ▼                  ▼                  ▼              ▼              ▼
 ┌──────────────┐   ┌────────────────────────┐  ┌──────────────┐  ┌───────────────┐ ┌──────────────┐ ┌──────────────┐
-│target_python │   │    target_js_core.py   │  │ target_c.py  │  │target_java.py │ │target_ocaml  │ │interpreter.py│
+│target_python │   │    target_js_core.ml   │  │ target_c.ml  │  │target_java.ml │ │target_ocaml  │ │interpreter.ml│
 │ Py AST + pr. │   │    JS AST + printer    │  │ C AST + pr.  │  │ Java AST + pr.│ │ O AST + pr.  │ │values+machine│
 └──────┬───────┘   └───────────┬────────────┘  └──────┬───────┘  └───────┬───────┘ └──────┬───────┘ └──────┬───────┘
        │                       │ JsRuntimeCall(…)     │ standard=        │ version=       │ reads the     │ runs the
        │           ┌───────────▼────────────┐         │ c89 | c23        │ java8|17|21    │ checker's     │ checker,
-       │           │ target_js_packaging.py │         │                  │                │ tmap          │ then the
+       │           │ target_js_packaging.ml │         │                  │                │ tmap          │ then the
        │           └─┬─────────┬──────────┬─┘         │                  │                │               │ program
        ▼             ▼         ▼          ▼           ▼                  ▼                ▼               ▼
     foo.py        foo.js   foo.html    foo.js       foo.c            Foo.java          foo.ml        (no file:
@@ -67,12 +68,12 @@ AST variant, and `match`/`case` over them rather than method dispatch.
                                      + foo.html
                                      + package.json
 
-        src/runtime_interface.py — the contract both sides
+        src/runtime_interface.ml — the contract both sides
         reference: what a program may observe of the outside world
 ```
 
 A program of several modules runs the middle of that pipeline once per
-module, in the order `src/module.py` puts them in, each checked against
+module, in the order `src/module.ml` puts them in, each checked against
 what the ones it imports export; then every module goes through the
 backend, and a module the program imports is written beside the
 program's own output. See [modules.md](modules.md).
@@ -92,30 +93,30 @@ repl`) rather than a `--target`.
 
 | module | role |
 |---|---|
-| `src/lexer.py` | Characters → tokens. `Info` (file, row/column span) is attached to every token and rides along on every later node, so any stage can report an error against the source. |
-| `src/parser.py` | Recursive descent, tokens → the AST in `syntax.py`. Also enforces the few rules the grammar cannot state (duplicate pattern bindings, "every branch of a bound `if` yields a value", one statement per line, what a block written on its header's own line may hold, and where a `break`/`continue` may stand). |
-| `src/syntax.py` | The AST itself — one dataclass per variant — plus a pretty printer that prints Pyking back out. |
-| `src/module.py` | The module system: which modules a program is made of, in what order, what each exports, and what each import means. Runs first — it is what reads the files at all — and again between checks, since a module is checked against the signature `make_sigmap` took from the last one. |
-| `src/analyses.py` | Static passes over the AST. `symbolize` gives every node a unique integer `sym`, rebuilding the tree (nodes are frozen), and runs before anything reasons about the program. `analyze_mutability` runs *after* the checker and applies the one rule a type cannot state: `:=` may only name a `var`, and nothing may shadow one. It only rejects, never rewrites. `Effects` is a third pass the driver never runs: the C and OCaml backends ask it which expressions can print, since their host languages leave evaluation order unspecified. |
-| `src/typesystem.py` | The type checker, and the only pass that checks *names*: its environment is a scope, so an unbound name is refused here, as an `analyses.AnalysisError`. It runs for every mode and every target, since Pyking is statically typed — there is no flag and no way round it. It covers only part of the language; it leaves the AST alone and reports what it inferred in `tmap`, a symbol → type table, which is what `-t pyking` then prints from. It is given the signature of every module this one imports, and all it sees of another module is that. |
-| `src/execution.py` | What `--run` runs: the commands each target's host uses to build and run what was compiled. One table, so the driver stays a sequencer. |
-| `src/optimization.py` | Tail calls into loops: a function that calls itself in tail position becomes a `loop` carrying its parameters, and a group that tail-calls each other becomes one loop they share. AST in, AST out, after the checker and only for a program it accepted — the types decide which groups can share a loop, and what a slot a narrower member does not fill is entered with. `--no-tail-call-opt` turns it off. |
-| `src/target_python.py` | Python backend: its own `Py*` AST, translation, printer. |
-| `src/target_js_core.py` | JavaScript AST, translation, printer — with no knowledge of packaging. |
-| `src/target_js_packaging.py` | Wraps that output into the files each JS target delivers, and supplies the JavaScript side of the runtime interface. |
-| `src/target_c.py` | C AST, translation, printer, for both `c89` and `c23` — one backend with a `standard` parameter. Infers types, which C needs and Pyking does not have. |
-| `src/target_java.py` | Java AST, translation, printer, for `java8`, `java17` and `java21` — one backend with a `version` parameter, the same shape as `target_c.py`. Infers types the same way; also checks that every function provably returns, since `javac` (unlike C) refuses one that doesn't. |
-| `src/target_ocaml.py` | OCaml AST, translation, printer. The one backend that infers nothing: it *runs* `typesystem.py` and reads the types back out of `tmap`, so its subset is exactly what the checker accepts, and a program that does not check is refused with the checker's own message. Emits no type annotations. |
-| `src/interpreter.py` | The interpreter: runtime values, environments, and a resumable small-step machine over the AST. Runs the fragment the checker accepts, and is the reference for what a program *means* at run time. |
-| `src/repl.py` | `pyk repl`: a session as a program written one statement at a time — checked as one program, run one statement at a time. |
-| `src/runtime_interface.py` | The host/IO boundary. Backend-agnostic. |
-| `src/pyk.py` | The driver: argv, stage sequencing, error reporting, and the three commands (`pyk <file>`, `repl`, `compile`). |
+| `src/lexer.ml` | Characters → tokens. `Info` (file, row/column span) is attached to every token and rides along on every later node, so any stage can report an error against the source. |
+| `src/parser.ml` | Recursive descent, tokens → the AST in `syntax.ml`. Also enforces the few rules the grammar cannot state (duplicate pattern bindings, "every branch of a bound `if` yields a value", one statement per line, what a block written on its header's own line may hold, and where a `break`/`continue` may stand). |
+| `src/syntax.ml` | The AST itself — one variant type per node group — plus a pretty printer that prints Pyking back out. |
+| `src/module.ml` | The module system: which modules a program is made of, in what order, what each exports, and what each import means. Runs first — it is what reads the files at all — and again between checks, since a module is checked against the signature `make_sigmap` took from the last one. |
+| `src/analyses.ml` | Static passes over the AST. `symbolize` gives every node a unique integer `sym`, rebuilding the tree (nodes are frozen), and runs before anything reasons about the program. `analyze_mutability` runs *after* the checker and applies the one rule a type cannot state: `:=` may only name a `var`, and nothing may shadow one. It only rejects, never rewrites. `Effects` is a third pass the driver never runs: the C and OCaml backends ask it which expressions can print, since their host languages leave evaluation order unspecified. |
+| `src/typesystem.ml` | The type checker, and the only pass that checks *names*: its environment is a scope, so an unbound name is refused here, as an `Analyses.Analysis_error`. It runs for every mode and every target, since Pyking is statically typed — there is no flag and no way round it. It covers only part of the language; it leaves the AST alone and reports what it inferred in `tmap`, a symbol → type table, which is what `-t pyking` then prints from. It is given the signature of every module this one imports, and all it sees of another module is that. |
+| `src/execution.ml` | What `--run` runs: the commands each target's host uses to build and run what was compiled. One table, so the driver stays a sequencer. |
+| `src/optimization.ml` | Tail calls into loops: a function that calls itself in tail position becomes a `loop` carrying its parameters, and a group that tail-calls each other becomes one loop they share. AST in, AST out, after the checker and only for a program it accepted — the types decide which groups can share a loop, and what a slot a narrower member does not fill is entered with. `--no-tail-call-opt` turns it off. |
+| `src/target_python.ml` | Python backend: its own `Py*` AST, translation, printer. |
+| `src/target_js_core.ml` | JavaScript AST, translation, printer — with no knowledge of packaging. |
+| `src/target_js_packaging.ml` | Wraps that output into the files each JS target delivers, and supplies the JavaScript side of the runtime interface. |
+| `src/target_c.ml` | C AST, translation, printer, for both `c89` and `c23` — one backend with a `standard` parameter. Infers types, which C needs and Pyking does not have. |
+| `src/target_java.ml` | Java AST, translation, printer, for `java8`, `java17` and `java21` — one backend with a `version` parameter, the same shape as `target_c.ml`. Infers types the same way; also checks that every function provably returns, since `javac` (unlike C) refuses one that doesn't. |
+| `src/target_ocaml.ml` | OCaml AST, translation, printer. The one backend that infers nothing: it *runs* `typesystem.ml` and reads the types back out of `tmap`, so its subset is exactly what the checker accepts, and a program that does not check is refused with the checker's own message. Emits no type annotations. |
+| `src/interpreter.ml` | The interpreter: runtime values, environments, and a resumable small-step machine over the AST. Runs the fragment the checker accepts, and is the reference for what a program *means* at run time. |
+| `src/repl.ml` | `pyk repl`: a session as a program written one statement at a time — checked as one program, run one statement at a time. |
+| `src/runtime_interface.ml` | The host/IO boundary. Backend-agnostic. |
+| `src/pyk.ml` | The driver: argv, stage sequencing, error reporting, and the three commands (`pyk <file>`, `repl`, `compile`). |
 
 ## The runtime interface
 
 A Pyking program on its own only computes. It cannot reach a console, a
 file or a clock; everything observable crosses a boundary that
-`src/runtime_interface.py` writes down. This is the split WebAssembly
+`src/runtime_interface.ml` writes down. This is the split WebAssembly
 draws — a core language with no access to the world, plus a separate
 named set of operations a host agrees to provide — and it is drawn here
 for the same reason: the language keeps one meaning, while *where the
@@ -149,12 +150,12 @@ arithmetic, ... -- it needs no runtime check at all, just an inline
 conditional or none; only a value it can't classify that way (a
 variable, a function call) falls back to a small generated helper,
 appearing only when actually needed (see "Booleans" in
-`docs/target_python.md`). Every JS host in `target_js_packaging.py`
+`docs/target_python.md`). Every JS host in `target_js_packaging.ml`
 still routes through one `pykFormat`, kept as a single indirection point
 for any future value type that does need converting, even though today
 it is just `String()`.
 
-`target_js_core.py` emits a `JsRuntimeCall` for each such operation and
+`target_js_core.ml` emits a `JsRuntimeCall` for each such operation and
 never decides what it looks like. Packaging decides, and that is the only
 real difference between the three JavaScript targets.
 
@@ -162,12 +163,11 @@ real difference between the three JavaScript targets.
 
 Two passes sit between the parser and the backends.
 
-**`symbolize`** (in `src/analyses.py`) gives every AST node a unique
+**`symbolize`** (in `src/analyses.ml`) gives every AST node a unique
 integer `sym`, numbering post-order from 1 — so `0`, every node's
-default, means "not symbolized yet". It runs for every mode, and the
-walk is generic over dataclass fields rather than one case per node
-type, so a node added to `syntax.py` is covered without touching this
-pass. Nothing consumes symbols yet; they exist so that a later stage
+default, means "not symbolized yet". It runs for every mode, and it is
+one case per constructor: a node added to `syntax.ml` needs a case here
+or it keeps symbol `0`. Nothing consumes symbols yet; they exist so that a later stage
 wanting to attach information to a node has a stable key that does not
 depend on the node's identity or its position in the tree. `--symbols`
 prints them, as an `@n` suffix, alongside the `pyking` target:
@@ -182,7 +182,7 @@ past the highest in the tree, which makes the pass safe to run twice
 should a later pass ever synthesize nodes into an already-symbolized
 tree: those get symbols without anything else being renumbered.
 
-**`type_check`** (in `src/typesystem.py`) is the type checker, run for
+**`type_check`** (in `src/typesystem.ml`) is the type checker, run for
 every mode and every target, after symbolizing and before anything else
 reads the program. What it means for a *program* — the rules it applies, what it
 refuses and why — is [PYKING.md](../PYKING.md)'s "Type checking"
@@ -209,7 +209,7 @@ same_type     : Type -> Type -> Bool
 
 `Env` maps a name to what it means here and is used immutably — a
 binding hands what follows it an extended *copy*, the same discipline
-`analyses.py` follows, and for the same reason: what a name means is
+`analyses.ml` follows, and for the same reason: what a name means is
 decided by where it is written. It maps a name straight to its type;
 there is nothing else a name can mean here.
 
@@ -223,9 +223,10 @@ along and rebuilt where it changes, holding everything the deferred
 half of the checker (below) has worked out about a function that did
 not write its type down. See [type_inference.md](type_inference.md).
 
-`TMap` is the deliberate opposite of `Env`: one mutable dict, mapping a
-node's *symbol* to the type worked out for it, built up as the pass runs
-and handed back as its result. The AST is not touched — nothing is
+`tmap` is the other half of the answer: a map from a node's *symbol* to
+the type worked out for it, built up as the pass runs and handed back as
+its result. It rides in the `store`, which is threaded and returned
+everywhere already, so it needs no mutation of its own. The AST is not touched — nothing is
 rebuilt and no node's `type` field is written — so what the source
 *wrote* and what the checker *inferred* stay separable, and the driver
 hands the finished `tmap` to `pprint_program` (below) to print the
@@ -240,7 +241,7 @@ not depend on the node's identity, which is why symbolizing runs first —
 and, since no node is synthesized into the tree, it does not have to run
 again afterwards.
 
-Types are the `T*` nodes from `syntax.py` rather than a vocabulary of
+Types are the `T*` nodes from `syntax.ml` rather than a vocabulary of
 their own, so a checked binding prints as `x: Int = 1` — syntax the
 parser accepts, which is what keeps `-t pyking` output
 re-parsable. They are synthesized by the checker and so carry no symbols
@@ -255,8 +256,8 @@ re-parses like anything else.
 
 Being writable, a function type can also reach a *backend* — as an
 annotation, since annotations are erased and no backend reads one it
-cannot represent (`_annotated_type` in `target_c.py` and
-`target_java.py` returns `None` for it, exactly as for a list or tuple
+cannot represent (`annotated_type` in `target_c.ml` and
+`target_java.ml` returns `None` for it, exactly as for a list or tuple
 type, leaving inference to decide). What C and Java refuse is the
 *value*: a call through a parameter is `call to unknown function`,
 which is a limit on functions as values rather than on their types.
@@ -268,10 +269,10 @@ branch ending in an expression yields that expression's value, and the
 two branches of an `if` are required to agree. An `if` with no `else` is
 checked against unit.
 
-Types are compared with `same_type` rather than `==`: `T*` nodes are
-frozen dataclasses, so `==` would compare their `info` and `sym` too and
-find `Int` written in one place different from `Int` inferred in
-another.
+Types are compared with `same_type` rather than `=`: every `T*`
+constructor carries `info` and `sym`, so structural equality would
+compare those too and find `Int` written in one place different from
+`Int` inferred in another.
 
 The checker does the old name analysis's job as well as its own, which
 is why there is no separate name pass any more: `Env` **is** the scope. A name
@@ -280,8 +281,8 @@ must be bound where it is used, a block's bindings do not escape it
 visible only after its own binding, an inner binding shadows an outer
 one, a `def`'s name is in scope in its own body, and the builtins —
 `analyses.BUILTINS`, imported rather than re-listed — are in scope from
-the start. A name that is not found raises `analyses.py`'s own
-`AnalysisError`, with its wording, so the driver prints the same `Name
+the start. A name that is not found raises `analyses.ml`'s own
+`Analysis_error`, with its wording, so the driver prints the same `Name
 error` whichever pass caught it.
 
 `Env` maps a name to a `Type` and to nothing else, so being in the map
@@ -291,11 +292,11 @@ the checker found.
 The builtins are in it like anything else, at a type of their own.
 `print`, `range`, `str` and `len` are bound to a `TBuiltin`, because
 none of them fits a `TFunction` — `print` takes any number of arguments
-of any type — and because they are not values: `runtime_interface.py`
+of any type — and because they are not values: `runtime_interface.ml`
 calls them operations, and the C and Java backends already refuse
 `print` as one. `check_builtin_call` gives each its own rule at the call
 site, and using one anywhere else is an error. `range` is typed `[Int]`,
-which is why `target_python.py` materialises a range used as a value
+which is why `target_python.ml` materialises a range used as a value
 while leaving a `for` header lazy.
 
 Every `def` in a block is declared before any of that block is checked
@@ -305,13 +306,13 @@ holds its own name, its siblings', and every function of every enclosing
 block. It is not recursive — a `def` in a branch belongs to that
 branch's block — and it declares *only* functions, since an `=` binding's
 type is whatever its right-hand side works out to, while a `def`'s is
-written on the `def`. `analyses.py` does the same thing with names, and
+written on the `def`. `analyses.ml` does the same thing with names, and
 each backend does it with its own naming (see below), so all three agree
 about what is in scope where.
 
 The one rule left behind is the mutable one: a `var` may not be
 shadowed. This checker refuses `var` outright, so there is nothing here
-for that rule to protect, and it stays in `analyses.py` until there is.
+for that rule to protect, and it stays in `analyses.ml` until there is.
 That is the last thing standing between the two passes — when the
 checker covers the constructs the analysis walks, the analysis can go.
 
@@ -349,7 +350,7 @@ asked the same question — *what value do you supply?* — and `return e`
 answers "e's", exactly as the tail-position table says of it. So a
 branch that returns and a branch that ends in an expression are
 comparable without either being a special case, and no separate
-"does every path return?" pass is needed the way `target_java.py` still
+"does every path return?" pass is needed the way `target_java.ml` still
 needs one for `javac`.
 
 Recursion needs nothing beyond the declaration pass: the function's own
@@ -393,16 +394,16 @@ $ pyk compile prog.pyk
 
 ## The interpreter
 
-`src/interpreter.py` runs a program instead of translating it, and it is
+`src/interpreter.ml` runs a program instead of translating it, and it is
 where the language's *runtime* semantics are defined. Where a compiled
 target disagrees with it, the target is wrong. `pyk <file>` and `pyk
-repl` are its two front ends; `src/repl.py` adds a prompt and nothing else to
+repl` are its two front ends; `src/repl.ml` adds a prompt and nothing else to
 the semantics.
 
 It runs the fragment the type checker accepts, and the gate is the
-checker itself: `src/pyk.py` runs `typesystem.type_check` before handing
+checker itself: `src/pyk.ml` runs `typesystem.type_check` before handing
 a program here, so there is no second list of supported constructs to
-keep in step — the same arrangement `target_ocaml.py` uses, and for the
+keep in step — the same arrangement `target_ocaml.ml` uses, and for the
 same reason.
 
 **It is a machine, not a walker.** Execution is `step(State) -> State`,
@@ -444,7 +445,7 @@ follow:
 **Environments are Pyking's own.** An `Env` is a persistent chain of
 frames: a block runs in a chain of its own, `=` makes a new frame (a
 rebinding shadows, it never updates), and a `def` captures the chain it
-was created in. Everything `target_python.py` needs machinery for —
+was created in. Everything `target_python.ml` needs machinery for —
 renaming a shadowed binding, a per-turn factory so a closure keeps its
 own turn's values — is simply what this representation does. The one
 mutation is Pyking's `def` rule: `declare` puts a write-once cell per
@@ -457,7 +458,7 @@ since this is the reference. Which targets differ, and why none of them
 is forced to agree, is in
 [targets.md](targets.md#integers-are-32-bit).
 
-`src/interpreter.py`'s own docstring and [source.md](source.md) carry the
+`src/interpreter.ml`'s own docstring and [source.md](source.md) carry the
 detail; `design/plan-eval-lsp.md` is where the debugger, DAP and LSP
 built on top of it are planned.
 
@@ -557,15 +558,16 @@ pyk repl                          start the REPL
 pyk compile [options] <filename>  compile it (alias: pyk c)
 ```
 
-`pyk` at the repository root is a two-line script: it runs
-`src/pyk.py` with the directory it lives in on Python's path, and passes
-every argument through. Run it with no arguments for the full option and
-target list, which the driver builds from `TARGETS`/`EXTENSIONS` so it
-cannot drift from what the backends actually support.
+`pyk` at the repository root is the compiled driver itself: `make`
+builds `src/pyk.exe` with dune and copies it there, so it is a build
+artifact rather than a checked-in script (see [build.md](build.md)). Run
+it with no arguments for the full option and target list, which the
+driver builds from `targets`/`extensions` so it cannot drift from what
+the backends actually support.
 
 Two of the three commands *run* a program, and both run it the same way:
 
-- **`pyk <file>`** runs the AST with `src/interpreter.py`. Pyking's own
+- **`pyk <file>`** runs the AST with `src/interpreter.ml`. Pyking's own
   semantics: 32-bit integers, and Pyking runtime errors with spans and a
   stack trace.
 - **`pyk repl`** is the same interpreter with a prompt in front of it.
@@ -575,7 +577,7 @@ compiled and runs it with that target's own commands — generated Python
 under the host's `python3`, generated C under `cc` and then the binary,
 and so on. That is how a *backend's* semantics are observed rather than
 the interpreter's, and where the two disagree the backend is the bug.
-The commands are `src/execution.py`'s, and each is printed before it
+The commands are `src/execution.ml`'s, and each is printed before it
 runs.
 
 The flags are shared by every command rather than being per-command, so
@@ -589,12 +591,12 @@ the front end after `symbolize` — no checker, and so no mutability
 analysis and no tail-call pass, neither of which runs without what the
 checker works out — and is accepted only by `compile -t pyking`, since
 every other target and the interpreter read the types. It also stops
-*before* the module system: the file named is the only one read, since
-comparing the two front ends is what the flag is for and the OCaml one
-has no module system. What that prints is the program as written, with
-the source's own annotations, which is what the OCaml bootstrap in
-`ocaml-src/` prints; comparing the two is what it is for (see
-[ocaml_bootstrap.md](ocaml_bootstrap.md)).
+*before* the module system: the file named is the only one read, and
+nothing it imports is opened. What that prints is the program as
+written, with the source's own annotations -- the parser's output with
+nothing inferred on top of it, which is what makes the flag worth having
+when the question is what the front end built rather than what the
+checker made of it.
 
 A file that fails to lex, parse, find or agree with a module it imports,
 resolve its names, or type-check, that
@@ -612,7 +614,7 @@ being interpreted, reports
 ```
 
 to stderr and produces no output. The first six all come from one
-function — `format_error` in `src/pyk.py` — because every error type in
+function — `format_error` in `src/pyk.ml` — because every error type in
 the front end carries an `Info` and differs only in its label; `pyk repl`
 is handed that same function, so a mistake made at the prompt is
 reported in exactly the words a file would get. A runtime error is
@@ -620,7 +622,7 @@ followed by the calls that were in progress under it, innermost first,
 truncated after ten.
 
 Every message the driver prints is reflowed to 70 columns first (`wrap`
-in `src/pyk.py`), with continuation lines indented two spaces, so a long
+in `src/pyk.ml`), with continuation lines indented two spaces, so a long
 one stays readable in a narrow terminal instead of wrapping raggedly at
 whatever width it happens to find.
 
@@ -662,14 +664,14 @@ implicitly returning `None`.
 
 The `ocaml` target is the odd one out in a more interesting way: its
 subset is not a list this backend maintains but the type checker's, run
-for real. A program it accepts is one `typesystem.py` accepted, which
+for real. A program it accepts is one `typesystem.ml` accepted, which
 also means the subset grows when the checker does, without the backend
 being touched.
 
 The interpreter (`pyk <file>`) shares that arrangement: it runs the checker
 and then the program, so its coverage grows with the checker's too. It is
 not in the target pages because it emits nothing to document — what it
-supports is [typesystem.py](../src/typesystem.py)'s fragment, and what it
+supports is [typesystem.ml](../src/typesystem.ml)'s fragment, and what it
 *means* is the language itself, which is the point of having it: it is
 the reference the compiled targets are measured against rather than
 another translation to check.
@@ -723,7 +725,7 @@ serial one.
 
 Two of the names in a `targets` list compile nothing. `typecheck` checks
 a program and compares the printed AST against its `.ast.out`;
-`interpret` runs it with `src/interpreter.py` and compares its stdout
+`interpret` runs it with `src/interpreter.ml` and compares its stdout
 against the same `.out` as every compiling target. That last comparison
 is the whole reason the interpreter is cheap to trust: it is a second
 definition of the language's semantics, and holding it to the files the
@@ -775,12 +777,15 @@ generated page's only contact with the outside world is the element it
 prints into, so stubbing that one thing covers everything the compiler is
 responsible for.
 
-### Comparing the OCaml bootstrap
+### One suite, and what used to be two
 
-`make test-ocaml` is a second suite, and a different kind of comparison:
-`ocaml-src/` holds the front end translated into OCaml, and every
-program in `tests/` is pretty-printed by both implementations with type
-checking off on both sides, then diffed — standard output, standard
-error and the exit status, so a program the parser *refuses* is compared
-too. `tests/test_ocaml_script.py` is the runner, and
-[ocaml_bootstrap.md](ocaml_bootstrap.md) is what it is holding honest.
+There was a second suite once. The compiler was Python, `ocaml-src/`
+held the front end translated into OCaml beside it, and `make
+test-ocaml` pretty-printed every program in `tests/` with both and
+diffed the two — standard output, standard error and the exit status, so
+a program the parser *refuses* was compared too. That is what kept the
+translation honest while it was a translation.
+
+It is gone because the translation finished: `src/` **is** the OCaml
+one, there is no second front end to disagree with, and `make test`
+holds the only implementation to the same `.out` files it always did.

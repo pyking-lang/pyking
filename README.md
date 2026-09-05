@@ -20,8 +20,8 @@ sees a finished version of everything it imports.
 
 Pyking is statically typed: every program is type-checked, whatever is
 then done with it. A program can be compiled for any of eleven targets,
-or run directly by the interpreter. The `pyk` script at the repository
-root is the front end for all of it, and has three commands:
+or run directly by the interpreter. `./pyk` — the compiled driver, built
+by `make` — is the front end for all of it, and has three commands:
 
 ```sh
 ./pyk hello.pyk                # run it with the interpreter
@@ -75,9 +75,8 @@ The type checker runs for every program, whatever is then done with it —
 see
 [docs/architecture.md](docs/architecture.md#symbols-and-types); `./pyk
 <file>` and `./pyk repl` run exactly the fragment it accepts, since it is
-what decides what they can run. Every flag is passed straight through to
-the compiler (`src/pyk.py`), so running `./pyk` with no arguments prints
-the full usage.
+what decides what they can run. Running `./pyk` with no arguments prints
+the usage, and `--help` prints it in full.
 
 The REPL is a session read as a program written one entry at a time: each
 entry is checked against what the entries before it left behind, and then
@@ -106,41 +105,40 @@ long ago. `:help` lists the rest.
 
 ## Make targets
 
-The compiler itself is not built — it is a set of Python scripts run in
-place — so a bare `make` prints this list rather than building anything
-(`make ocaml` is the one rule that does build something):
+The compiler is OCaml in `src/`, built by dune, so `make` builds it:
+
+```sh
+make            # dune build src/pyk.exe, copied here as ./pyk
+```
 
 | command | what it does |
 |---|---|
-| `make`, `make help` | the list below |
-| `make test` | the compiler's own suite: every program in `tests/` on every target it supports, comparing each against one shared `.out` file — run in parallel, one job per usable CPU (`JOBS=n` to say how many) |
+| `make` | build the compiler into `./pyk` |
+| `make help` | the list below |
+| `make test` | the compiler's own suite: every program in `tests/` on every target it supports, comparing each against one shared `.out` file — run in parallel, one job per usable CPU (`JOBS=n` to say how many) — then the REPL's own cases in `tests/repl/` |
 | `make stest` | the same suite, one test at a time |
-| `make test-ocaml` | the [OCaml bootstrap](docs/ocaml_bootstrap.md) against the Python one: every program in `tests/` pretty-printed by both, with type checking off on both sides, and the two compared |
-| `make test-py2pyk` | the [py2pyk](tools/py2pyk/) suite: each `.py` translated to Pyking, compiled back to Python, and both run and diffed |
-| `make ocaml` | build the [OCaml bootstrap](docs/ocaml_bootstrap.md) and copy its executable here as `./main` |
 | `make playground` | build and serve the [web playground](tools/playground/), then print a link to open |
-| `make clean` | remove what has been generated: `__pycache__/` directories, `ocaml-src/_build/`, `./main`, and the playground's `build/` |
+| `make clean` | remove what has been generated: `_build/`, `./pyk`, `__pycache__/` directories, and the playground's `build/` |
 | `make distclean` | that, plus the playground's `vendor/` download cache |
 
-`make ocaml` builds `ocaml-src/` with dune and copies the executable to
-`./main`, so it can be run beside `./pyk`:
+`./pyk` is a build artifact, not a checked-in script: `make` writes it
+and `make clean` removes it. Everything else `make clean` leaves alone —
+in particular *compiled programs*. `pyk` writes its output wherever you
+point it, under names that are ordinary source names in the target
+language (`hello.py`, `Hello.java`), so nothing can tell those apart
+from files you wrote yourself; deleting them stays your call. `./pyk` is
+the exception that shows the rule, since `make` chose that name itself.
 
-```sh
-./main hello.pyk               # the same program, printed by the OCaml front end
-```
-
-`make clean` leaves *compiled programs* alone (`./main` excepted, since
-`make ocaml` chose that name itself). `pyk` writes its output
-wherever you point it, under names that are ordinary source names in the
-target language (`hello.py`, `Hello.java`), so nothing can tell those
-apart from files you wrote yourself — deleting them stays your call.
+See [docs/build.md](docs/build.md) for how the build is put together —
+the library/executable split, and the js_of_ocaml bundle the playground
+runs.
 
 `make playground` delegates to `tools/playground/`, which has options of
 its own (`PORT=`, `CDN=`, ...) — run `make -C tools/playground help` for
 those. Everything it generates stays inside that directory and is
-gitignored; the first run downloads ~12 MB and caches it, later ones are
-offline. That cache is why the playground's build output goes on `make
-clean` but the cache itself only goes on `make distclean`.
+gitignored; the first run downloads its editor assets and caches them,
+later ones are offline. That cache is why the playground's build output
+goes on `make clean` but the cache itself only goes on `make distclean`.
 
 ## Documentation
 
@@ -171,10 +169,9 @@ clean` but the cache itself only goes on `make distclean`.
 - **[docs/source.md](docs/source.md)** — every file in `src/`: what it
   is, its data structures, and its main functions, each linking to a
   dedicated page working through that module's own design in depth.
-- **[docs/ocaml_bootstrap.md](docs/ocaml_bootstrap.md)** — the front end
-  translated into OCaml in `ocaml-src/`: what is there, how to build and
-  run it, what differs from the Python and why, and the suite that keeps
-  the two printing the same thing.
+- **[docs/build.md](docs/build.md)** — how `src/` becomes `./pyk`: the
+  dune layout, why the pure half is a library of its own, and how the
+  same code becomes the JavaScript the playground runs.
 - **[docs/optimization.md](docs/optimization.md)** — tail calls, and the
   loops they become: what counts as one, what a mutually recursive group
   is merged into, what the pass deliberately leaves alone, and the one
@@ -190,17 +187,20 @@ clean` but the cache itself only goes on `make distclean`.
 
 | path | contents |
 |---|---|
-| `pyk` | the command-line front end (see above) |
-| `src/` | the bootstrap compiler, one module per stage (see [CLAUDE.md](CLAUDE.md)) |
-| `ocaml-src/` | the front end again, in OCaml (see [docs/ocaml_bootstrap.md](docs/ocaml_bootstrap.md)) |
+| `pyk` | the compiled command-line front end (built by `make`; see above) |
+| `src/` | the compiler, one module per stage (see [docs/source.md](docs/source.md)) |
+| `src/web/` | the browser entry point, compiled to JavaScript by js_of_ocaml |
 | `tests/` | Pyking programs, their expected output, and the test runner |
 | `docs/` | design and architecture notes |
 | `tools/emacs/` | a major mode for editing `.pyk` files |
-| `tools/py2pyk/` | a standalone Python-to-Pyking translator, with its own tests |
-| `tools/playground/` | the browser playground: the compiler running under Pyodide |
+| `tools/playground/` | the browser playground: the compiler itself, compiled to JavaScript |
 
-Requires Python 3.11+ (`match`/`case`, `tomllib`). Running the generated
-code needs `node` for the JavaScript targets, a C compiler for the C
-ones, a JDK (`javac`/`java`) for the Java ones and an OCaml compiler for
-`ocaml`; producing it needs none of them, and running a program with
-`./pyk` needs nothing at all. No third-party dependencies.
+Building the compiler needs OCaml and dune, and nothing else; the
+playground's bundle additionally needs js_of_ocaml. The test harness and
+the playground generator are Python 3.11+ (`match`/`case`, `tomllib`).
+
+Running the generated code needs `node` for the JavaScript targets, a C
+compiler for the C ones, a JDK (`javac`/`java`) for the Java ones and an
+OCaml compiler for `ocaml`; producing it needs none of them, and running
+a program with `./pyk` needs nothing at all. The compiler itself has no
+third-party dependencies.

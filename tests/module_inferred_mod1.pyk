@@ -31,4 +31,4 @@ public def odd(n): if n == 0 then false else even(n - 1)
 
 
 # What makes each of them a definition this module has a type for.
-#print(bump(identity(start)), swap(quadruple(1), even(0)), odd(1))
+print(bump(identity(start)), swap(quadruple(1), even(0)), odd(1))

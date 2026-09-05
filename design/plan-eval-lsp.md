@@ -4,6 +4,16 @@ A plan, not an implementation. It covers what to build, how to split it,
 what each piece may reuse, and which decisions have to be made
 consciously rather than by accident.
 
+> **Written when the compiler was Python.** It is now OCaml in `src/`,
+> and two of this plan's premises have moved with it: "servers in
+> Python" is now "servers reusing `src/`", and the browser reaches the
+> compiler through js_of_ocaml rather than through Pyodide — the
+> playground ships the compiler itself, so the "Pyodide disappears"
+> line in the table below has already happened. Everything the plan
+> says about *what to build* — the resumable machine, the two
+> protocol-free cores, name resolution as one pass — is unaffected, and
+> is what CLAUDE.md's "Where the project is going" tracks against.
+
 The short version:
 
 - **One evaluator**, written as a *resumable machine* over the existing

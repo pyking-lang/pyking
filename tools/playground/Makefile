@@ -3,11 +3,12 @@
 #   make            vendor, build, check, then serve and print the URL
 #   make build      regenerate build/ only
 #   make serve      serve an existing build/
-#   make CDN=1      build against a CDN instead of vendoring 12 MB
+#   make CDN=1      build against a CDN instead of vendoring Ace
 #   make PORT=9000  serve somewhere other than 8000
 #
-# Nothing under build/ or vendor/ is checked in: generator.py is the single
-# source for every generated file, and `make` is the only way to produce them.
+# Nothing under build/ or vendor/ is checked in: generator.py and assets/
+# are the source for every generated file, and `make` is the only way to
+# produce them.
 
 PYTHON ?= python3
 PORT   ?= 8000
@@ -53,11 +54,11 @@ clean:
 # request -- rebuilding it needs the network again.
 distclean: clean
 	@rm -rf vendor
-	@echo "distclean: removed vendor/ (next build re-downloads ~12 MB)"
+	@echo "distclean: removed vendor/ (next build re-downloads ~1 MB)"
 
 help:
 	@echo "make            vendor + build + check + serve (prints a clickable URL)"
-	@echo "make build      regenerate build/ from generator.py"
+	@echo "make build      regenerate build/ from generator.py and assets/"
 	@echo "make check      compile every example headlessly, no browser needed"
 	@echo "make e2e        browser tests (needs Playwright; skips if absent)"
 	@echo "make serve      serve build/ on http://localhost:\$$(PORT)/"

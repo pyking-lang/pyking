@@ -1,7 +1,0 @@
-#!/bin/bash
-# The Pyking front end: everything happens in src/pyk.py, which is run
-# with the directory it lives in on Python's path -- that is what lets
-# the compiler's modules import each other by plain name (see CLAUDE.md).
-# This script adds nothing of its own; every argument is passed through.
-DIR="$(cd "$(dirname "$0")" && pwd)"
-exec python3 "$DIR/src/pyk.py" "$@"

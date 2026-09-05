@@ -1,12 +1,12 @@
-# `interpreter.py`: design
+# `interpreter.ml`: design
 
-How `src/interpreter.py` runs a Pyking program directly from its AST,
+How `src/interpreter.ml` runs a Pyking program directly from its AST,
 and why it is built as a small-step machine rather than a recursive
 evaluator. For the pipeline-level view (where the interpreter sits
 relative to the backends, what "reference semantics" means), see
 [architecture.md](architecture.md), "The interpreter"; for a one-page
 summary of its data structures and functions, see
-[source.md](source.md#interpreterpy).
+[source.md](source.md#interpreterml).
 
 ## Why not just write `eval`
 
@@ -30,9 +30,9 @@ what `Kont` is — a linked chain of small objects, each one saying "when
 a value arrives, here's what to do with it, and here's what to do after
 that" — and once "what happens next" is a value instead of a stack
 frame, a *paused machine* is simply that value, sitting in a variable,
-touched by nothing until something calls `step` on it again. `State` is
-a plain, frozen dataclass; keeping one *is* how a debugger pauses. There
-is no other mechanism.
+touched by nothing until something calls `step` on it again. `state` is
+a plain record; keeping one *is* how a debugger pauses. There is no
+other mechanism.
 
 ## Reading the machine: `Control`, `Kont`, and one step at a time
 
@@ -50,7 +50,7 @@ what to do:
   and switch `control` to evaluate that first piece.
 - **`CStmt(stmt)`** — execute one statement, similarly.
 - **`CApply(value)`** — a value has arrived; hand it to whatever
-  `state.kont` says to do with it (`_step_apply`).
+  `state.kont` says to do with it (`step_apply`).
 - **`CDone(value)`** / **`CFailed(error)`** — the machine has stopped;
   `step` on either of these is the identity, which is what makes `run`
   a bare loop with no special-casing of "are we finished yet" beyond
@@ -62,23 +62,23 @@ expression is *not* call-free (it contains `double(21)`), so it goes
 through the continuation machinery step by step rather than the fast
 path:
 
-1. `CEval(EAdd(double(21), 1))`. `_step_eval` sees an `EAdd`, and pushes
+1. `CEval(EAdd(double(21), 1))`. `step_eval` sees an `EAdd`, and pushes
    a `KBinaryLeft(node, right=1, env, rest=<whatever was there before>)`
    — "once the left operand's value arrives, evaluate the right one" —
    and switches to `CEval(double(21))`.
-2. `CEval(ECall(double, [21]))`. Not call-free by definition. `_step_eval`
+2. `CEval(ECall(double, [21]))`. Not call-free by definition. `step_eval`
    pushes `KCallee(call, env, rest=KBinaryLeft(...))` — "once the callee
    itself has a value, start on the arguments" — and switches to
    `CEval(EVar(double))`, which *is* call-free (looking up a name
    involves no call), so it resolves immediately to `CApply(VClosure(...))`.
-3. `CApply(VClosure(...))`, with `kont = KCallee(...)`. `_step_apply`'s
-   `KCallee` case starts on the argument list via `_start_arguments`,
+3. `CApply(VClosure(...))`, with `kont = KCallee(...)`. `step_apply`'s
+   `KCallee` case starts on the argument list via `start_arguments`,
    which — finding one argument left to evaluate — pushes
    `KArgument(call, callee, done=(), todo=(21,), env, rest=KBinaryLeft(...))`
    and evaluates `21`.
 4. `21` is call-free; `CApply(VInt(21))` arrives with `kont =
-   KArgument(...)`. `_start_arguments` is called again, this time with
-   `todo` empty, so `_call` actually applies the closure: it checks
+   KArgument(...)`. `start_arguments` is called again, this time with
+   `todo` empty, so `call` actually applies the closure: it checks
    arity, checks `max_depth`, builds a new `Frame` recording *this*
    point (`rest = KBinaryLeft(...)`, the caller's `env`, the caller's
    `stack`) and pushes it onto `state.stack`, then switches to
@@ -110,12 +110,13 @@ step again, or not, on its own schedule.
 ## Three properties, and why each one is load-bearing
 
 **Depth costs heap, not host stack.** Because a Pyking call pushes a
-`Frame` onto `State.stack` — an ordinary linked value — rather than a
-Python stack frame, a Pyking program can recurse far deeper than the
-host interpreter's own call stack would allow (`sys.setrecursionlimit`
-is never touched, and never needs to be). `max_depth` (10,000) is an
-*explicit*, checked limit in `_call`, raising an ordinary Pyking
-`RuntimeError_` — with the calls in progress listed, via
+`frame` onto `state.stack` — an ordinary linked value — rather than a
+host stack frame, a Pyking program can recurse far deeper than the host
+language's own call stack would allow: `step` is called from a flat
+loop, so nothing grows the OCaml stack per Pyking call.
+`max_depth` (10,000) is an *explicit*, checked limit in `call`, raising
+an ordinary Pyking
+`Runtime_error` — with the calls in progress listed, via
 `stack_trace` — rather than letting a runaway recursion exhaust memory
 or crash the host process. `docs/targets.md`'s "Integers are 32 bit"
 section notes the analogous point about `Int`: this is a *language*
@@ -146,9 +147,9 @@ with.
 `step` is total — it is documented as answering *every* state,
 including an already-`CFailed` one, with another state — which is what
 lets `run` be an unconditional `while` loop with no `try`/`except`
-wrapped around each iteration. Internally, `_evaluate`, `apply_binary`
+wrapped around each iteration. Internally, `evaluate`, `apply_binary`
 and `apply_builtin` *do* raise (a private `_Trap`, never
-`RuntimeError_` directly), but every one of those call sites catches it
+`Runtime_error` directly), but every one of those call sites catches it
 immediately and turns it into `failed(state, error)` before `step`
 returns — so from the outside, a runtime error never unwinds anything.
 `state.env`, `state.kont`, and `state.stack` are all still exactly what
@@ -167,7 +168,7 @@ value)` builds a brand-new one-entry frame pointing at the old `env` as
 `parent`; nothing already built is ever mutated (`define`, below, is
 the sole, deliberate exception). `lookup` walks outward until it finds
 the name or runs out of chain. This is the same "rebuild, don't mutate"
-discipline `analyses.py` and `typesystem.py` both use for their own
+discipline `analyses.ml` and `typesystem.ml` both use for their own
 environments — see those pages — applied here to actual runtime values
 instead of types or binding-kinds.
 
@@ -184,7 +185,7 @@ mean), and a closure — `VClosure`'s `env` field — simply *is* the chain
 that was current when its `def` was reached, no different in kind from
 any other value carrying a reference to something built earlier.
 
-It's worth noticing what this buys against `target_python.py`'s design
+It's worth noticing what this buys against `target_python.ml`'s design
 in particular: that backend has to detect exactly the situations where
 Python's own function-scoped variables would behave differently from
 Pyking's block-scoped ones, and *rename* to compensate (`total`,
@@ -198,7 +199,7 @@ reference implementation the compiled backends are checked against.
 ## A program of several modules: one machine, several top levels
 
 `run_modules(units, host)` runs a program whose modules were put in
-dependency order by `src/module.py`. Each module runs in a top level of
+dependency order by `src/module.ml`. Each module runs in a top level of
 its own, and what it exports is what the ones after it are given:
 `module_env` builds a module's starting environment from the exports
 collected so far — a selected name under the name it is known by here,
@@ -218,7 +219,7 @@ it exports, so it has to survive.
 
 **There is one call-free table for the whole program**, not one per
 module. A closure a module exports is called from the module that
-imported it, and the table `_step_eval` reads it against is the calling
+imported it, and the table `step_eval` reads it against is the calling
 machine's, so a per-module table would leave the callee's body outside
 the fragment the fast path knows about. Symbols are unique across a
 program (`analyses.symbolize` continues its numbering from module to
@@ -239,13 +240,13 @@ capture the environment *as it stood where the `def` is written*, not
 some later, more-filled-in version of it.
 
 `declare(stmts, env)` (called once per block, by `enter_block`, via
-`block_functions` — the very same helper `analyses.py` and
-`typesystem.py` use to find "the `def`s of this block," so all three
+`block_functions` — the very same helper `analyses.ml` and
+`typesystem.ml` use to find "the `def`s of this block," so all three
 modules agree about what's being hoisted) puts one `VUndefined(name)`
 placeholder per `def` into a fresh frame, *before* any statement in the
 block runs. That's what makes a name resolve — `lookup` finds it,
 bound, in scope — even before its `def` statement has executed;
-`_evaluate`'s `EVar` case specifically distinguishes "not bound at all"
+`evaluate`'s `EVar` case specifically distinguishes "not bound at all"
 from "bound, but still `VUndefined`" so that calling a function too
 early gets a message that says exactly that (`'name' is in scope, but
 its 'def' has not run yet`) rather than the more confusing "unbound
@@ -284,12 +285,12 @@ a persistent stack in `State.loops`, each entry holding the accumulator
 this turn started with, the environment the loop is written in, and the
 continuation the loop's own value goes to. A `break` delivers that
 accumulator there -- which is what the loop is worth, and what a
-`for`/`while` running out of turns delivers too (`_finish`); `continue`
+`for`/`while` running out of turns delivers too (`finish`); `continue`
 starts the next turn with it instead.
 
-The turn itself is where the shape matters. `_turn` binds the
+The turn itself is where the shape matters. `turn` binds the
 accumulator afresh in the loop's own environment and enters the body
-with `KIterate` waiting for its value — and `KIterate` calls `_turn`
+with `KIterate` waiting for its value — and `KIterate` calls `turn`
 again, *replacing* itself rather than pushing anything. So a loop of ten
 million turns holds exactly as much as a loop of one, which is the same
 property `KSeq`'s index gives a block, and the reason `loop:` with no
@@ -301,7 +302,7 @@ has to unwind, because the chain is a value rather than a host stack.
 
 A call entering from inside a loop takes the loop stack with it in its
 `Frame` and starts with none of its own, so a `break` written in a
-function called from a loop body cannot reach that loop. `src/parser.py`
+function called from a loop body cannot reach that loop. `src/parser.ml`
 already refuses such a program, so this is the same rule said twice —
 and the machine holding it means a `break` can never escape through a
 call by accident.
@@ -319,16 +320,16 @@ exchange for the allocation.
 `call_free_symbols(node)` is computed **once**, before a run starts
 (`initial_state` stores the result in `Runtime.simple`, which never
 changes afterward), by a generic walk — the same style `symbolize`
-uses in `analyses.py`, for the same reason: it doesn't need to know
+uses in `analyses.ml`, for the same reason: it doesn't need to know
 what *kind* of expression it's looking at, only whether an `ECall`
 appears anywhere underneath. Every expression node whose subtree
-contains no call gets its symbol recorded; `_step_eval` checks
+contains no call gets its symbol recorded; `step_eval` checks
 `expr.sym in state.runtime.simple` before doing anything else, and if
-it's there, hands the whole subexpression to `_evaluate` — an ordinary
+it's there, hands the whole subexpression to `evaluate` — an ordinary
 recursive function, no continuations involved — and jumps straight to
 `CApply` with the answer.
 
-This is safe specifically *because* it's call-free: `_evaluate`'s own
+This is safe specifically *because* it's call-free: `evaluate`'s own
 recursion is bounded by how deeply the **source** nests expressions
 (`(((1 + 2) + 3) + 4)` nests four deep in the parsed tree, and no
 running program can make that number four grow), never by anything
@@ -346,13 +347,13 @@ call-free one ever takes the shortcut.
 `VTuple`, `VClosure`, `VBuiltin`, `VUndefined` — hold nothing from
 outside this small vocabulary: a `VList`'s elements are more `Value`s, a
 `VClosure`'s
-captured environment is this module's own `Env`, never a Python
-closure, a Python list, or any other host-native object standing in for
-a Pyking one. That restriction is about where this code is headed, not
-just about today: CLAUDE.md's bootstrapping plan is to eventually
-rewrite this compiler *in* Pyking, and a representation with Python
-objects woven through it wouldn't survive that translation — a `Value`
-tree built only from these nine shapes will.
+captured environment is this module's own `env`, never an OCaml closure,
+an OCaml array, or any other host-native object standing in for a Pyking
+one. That restriction is about where this code is headed, not just about
+today: CLAUDE.md's bootstrapping plan is to eventually rewrite this
+compiler *in* Pyking, and a representation with host objects woven
+through it wouldn't survive that translation — a `value` tree built only
+from these nine shapes will.
 
 ## Hosts: where output actually goes
 
@@ -365,7 +366,7 @@ lines for a caller that wants to inspect output after the fact rather
 than watch it stream (used by the test harness); `CallbackHost` hands
 each line to a function, which is the shape both a debugger's "output"
 pane and a browser worker's message-passing need. None of the machine
-itself — `step`, `_call`, `apply_builtin` — knows or cares which one is
+itself — `step`, `call`, `apply_builtin` — knows or cares which one is
 in play; `apply_builtin`'s `PRINT` case just calls `host.print(...)`,
 and *which* `Host` that is was fixed once, in `Runtime`, when the run
 began.

@@ -1,0 +1,6 @@
+Pyking REPL.  :help for commands, :quit to leave.
+> > > x   = 6 : Int
+foo = <function> : (Int) -> String
+> Int
+> (Int) -> String
+> 

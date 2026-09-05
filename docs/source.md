@@ -10,49 +10,60 @@ tests) see [architecture.md](architecture.md); for what each target
 accepts see [targets.md](targets.md); for the language itself see
 [../PYKING.md](../PYKING.md). This page is about the code.
 
-`src/` is deliberately **not a package**: no `__init__.py`, no relative
-imports. The modules import each other by plain name (`from lexer import
-...`), which works because Python puts a script's own directory on
-`sys.path` when `src/pyk.py` is run. That flatness is not an oversight —
-these files are to be rewritten *in Pyking* one day, and Pyking has no
-module system to express a directory hierarchy with.
+`src/` is one dune **library** (`pyking`, unwrapped) plus a small
+executable that links it. Unwrapped means the modules are reachable as
+`Lexer`, `Parser`, `Syntax` and so on rather than under a `Pyking.`
+prefix, and one module refers to another by that name directly. The
+library depends on nothing outside the standard library, which is what
+lets `src/web/` compile the same code to JavaScript with js_of_ocaml;
+only the executable adds `unix`, for the process handling `--run`
+needs. See [build.md](build.md).
+
+That flatness is not an oversight — these files are to be rewritten *in
+Pyking* one day, and Pyking's own module system is one file per module
+with no hierarchy to express.
 
 ## At a glance
 
 | module | lines | what it is |
 |---|---:|---|
-| [`lexer.py`](#lexerpy) | ~650 | Characters → tokens. Also defines `Info`, the source span every later node carries. |
-| [`syntax.py`](#syntaxpy) | ~1100 | The AST: one frozen dataclass per variant, documented as algebraic data types, plus the pretty printer that prints Pyking back out. |
-| [`parser.py`](#parserpy) | ~1280 | Recursive descent, tokens → AST, and the few rules the grammar cannot state. |
-| [`module.py`](#modulepy) | ~420 | The module system: which modules a program is made of, in what order, what each exports, and what each import means. |
-| [`analyses.py`](#analysespy) | ~500 | Static analyses over the AST: mutability (`analyze_mutability`), `symbolize`, which numbers every node, and `Effects`, which says what can print. |
-| [`typesystem.py`](#typesystempy) | ~1390 | The type checker: one function per AST datatype, producing `tmap` (symbol → type). Also the type *inference*, which is the same machinery run at a call site rather than at a definition. Its fragment is the interpreter's and the OCaml backend's. |
-| [`optimization.py`](#optimizationpy) | ~770 | Tail calls into loops: one AST-to-AST pass over a program the checker accepted, so every backend and the interpreter get tail recursion at once. |
-| [`runtime_interface.py`](#runtime_interfacepy) | ~50 | The boundary between a pure Pyking program and the world: the operations a host must provide, and how values are formatted. No host code at all. |
-| [`interpreter.py`](#interpreterpy) | ~1440 | The interpreter: values, environments, and a resumable small-step machine that runs the AST. The reference for runtime semantics. |
-| [`repl.py`](#replpy) | ~1020 | `pyk repl`: a session as a program written one entry at a time, and the multi-line editor it is typed into. |
-| [`target_python.py`](#target_pythonpy) | ~2110 | The Python backend, and the only one that compiles the whole language. |
-| [`target_js_core.py`](#target_js_corepy) | ~840 | The JavaScript backend's language half: a `Js*` AST, translation, printer. |
-| [`target_js_packaging.py`](#target_js_packagingpy) | ~290 | Its packaging half: `nodejs`, `html`, `esm`, and the JavaScript side of the runtime interface. |
-| [`target_c.py`](#target_cpy) | ~1570 | The C backend, for `c89` and `c23`. Infers the types C insists on, and pins down the evaluation order C leaves open. |
-| [`target_java.py`](#target_javapy) | ~1250 | The Java backend, for `java8`/`java17`/`java21`. Also proves every function returns. |
-| [`target_ocaml.py`](#target_ocamlpy) | ~1340 | The OCaml backend. Infers nothing: it reads the checker's `tmap`. |
-| [`execution.py`](#executionpy) | ~120 | What `--run` runs: the commands each target's host uses to build and run what was compiled. |
-| [`pyk.py`](#pykpy) | ~610 | The driver: argv, stage sequencing, error reporting, the three commands. |
+| [`lexer.ml`](#lexerml) | ~450 | Characters → tokens. Also defines `info`, the source span every later node carries. |
+| [`syntax.ml`](#syntaxml) | ~960 | The AST: one variant type per node group, plus the pretty printer that prints Pyking back out. |
+| [`parser.ml`](#parserml) | ~1520 | Recursive descent, tokens → AST, and the few rules the grammar cannot state. |
+| [`module.ml`](#modulem) | ~520 | The module system: which modules a program is made of, in what order, what each exports, and what each import means. |
+| [`analyses.ml`](#analysesml) | ~1030 | Static analyses over the AST: mutability (`analyze_mutability`), `symbolize`, which numbers every node, and `effects`, which says what can print. |
+| [`walk.ml`](#walkml) | ~190 | One `children` function over every AST node, for the passes that ask a question of a whole subtree. |
+| [`typesystem.ml`](#typesystemml) | ~2930 | The type checker: one function per AST datatype, producing `tmap` (symbol → type). Also the type *inference*, which is the same machinery run at a call site rather than at a definition. Its fragment is the interpreter's and the OCaml backend's. |
+| [`type_experiment.ml`](#type_experimentml) | ~140 | An alternative checker, a fragment of one, run instead of the real one by `--type-experiment`. |
+| [`optimization.ml`](#optimizationml) | ~1190 | Tail calls into loops: one AST-to-AST pass over a program the checker accepted, so every backend and the interpreter get tail recursion at once. |
+| [`runtime_interface.ml`](#runtime_interfaceml) | ~40 | The boundary between a pure Pyking program and the world: the operations a host must provide, and how values are formatted. No host code at all. |
+| [`interpreter.ml`](#interpreterml) | ~1670 | The interpreter: values, environments, and a resumable small-step machine that runs the AST. The reference for runtime semantics. |
+| [`repl.ml`](#replml) | ~1160 | `pyk repl`: a session as a program written one entry at a time, and the multi-line editor it is typed into. |
+| [`target_python.ml`](#target_pythonml) | ~2410 | The Python backend, and the only one that compiles the whole language. |
+| [`target_js_core.ml`](#target_js_coreml) | ~1280 | The JavaScript backend's language half: a `Js*` AST, translation, printer. |
+| [`target_js_packaging.ml`](#target_js_packagingml) | ~660 | Its packaging half: `nodejs`, `html`, `esm`, and the JavaScript side of the runtime interface. |
+| [`target_c.ml`](#target_cml) | ~1990 | The C backend, for `c89` and `c23`. Infers the types C insists on, and pins down the evaluation order C leaves open. |
+| [`target_java.ml`](#target_javaml) | ~1690 | The Java backend, for `java8`/`java17`/`java21`. Also proves every function returns. |
+| [`target_ocaml.ml`](#target_ocamlml) | ~2030 | The OCaml backend. Infers nothing: it reads the checker's `tmap`. |
+| [`execution.ml`](#executionml) | ~200 | What `--run` runs: the commands each target's host uses to build and run what was compiled. |
+| [`pyk.ml`](#pykml) | ~780 | The driver: argv, stage sequencing, error reporting, the three commands. |
+| [`web/pyking_web.ml`](#webpyking_webml) | ~320 | The browser entry point: the same library compiled to JavaScript, for the playground. |
 
 Two shapes recur everywhere and are worth reading once rather than
-eighteen times:
+twenty times:
 
-**One dataclass per variant, plus `match`.** Every tree in the
+**One constructor per variant, plus `match`.** Every tree in the
 repository — tokens, the AST, types, values, each backend's own AST — is
-written as a set of frozen dataclasses with a shared marker base class,
-and consumed by `match`/`case`. That is how a variant type would be
-written in a language that has one, which is what the self-hosted
-compiler will be written in. New variants follow the same style rather
-than being collapsed into one class with a `kind` field.
+one variant type with one constructor per alternative, consumed by
+`match`. A `match` that misses a case is a compile error, which is the
+whole reason the shape is worth insisting on; it is also how the tree
+will be written once the compiler is rewritten in Pyking, whose own
+variant types are meant to be read the same way. New variants follow
+the same style rather than being collapsed into one record with a
+`kind` field.
 
 **Tables are threaded, not mutated.** Environments, scopes and type
-environments are rebuilt by extension (`{**env, name: value}`) rather
+environments are rebuilt by extension (`SMap.add name value env`) rather
 than updated in place. Entering a nested scope is "keep using what you
 were handed"; leaving one is "go back to the caller's" — which is what
 makes a block's bindings unable to escape it, with no scope stack to
@@ -60,7 +71,7 @@ pop.
 
 ---
 
-## `lexer.py`
+## `lexer.ml`
 
 **Characters → tokens, and the vocabulary of source positions.**
 
@@ -71,15 +82,15 @@ imported by every other one.
 
 ### Data structures
 
-- **`Info(file, row1, col1, row2, col2)`** — a frozen dataclass: the span
+- **`info = { file; row1; col1; row2; col2 }`** — a record: the span
   a token or node covers. Rows count from 1, columns from 0. Attached to
   every token by the lexer, and carried onto every AST node by the
   parser, so any later stage can report against the source.
   `pprint_info` renders it as `'file' row:col-row:col`, the form every
   error message in the compiler begins with.
-- **The token ADT** — `Token` as a marker base class and one frozen
-  dataclass per kind: `TokInt(info, value)`, `TokString(info, value)`,
-  `TokIdent(info, name)`, the operators (`TokAdd`, `TokConcat`,
+- **`token`** — one variant type, one constructor per kind:
+  `TokInt of info * int`, `TokString of info * string`,
+  `TokIdent of info * string`, the operators (`TokAdd`, `TokConcat`,
   `TokSub`, `TokMul`, `TokDiv`, `TokEqEq`, `TokLessThan`, …), the punctuation (`TokColon`,
   `TokComma`, `TokLParen`, `TokArrow`, `TokDotDot`, …), the keywords
   (`TokDef`, `TokReturn`, `TokFor`, `TokIf`, `TokMatch`, `TokVar`, …),
@@ -89,14 +100,14 @@ imported by every other one.
   declarations, the type names `Int`/`String`/`Bool`, and the literals
   `true`/`false`. `tools/emacs/pyking-mode.el` mirrors this list split
   three ways, and must be kept in step with it.
-- **`LexError(info, message)`** — raised for a lexical error.
+- **`Lex_error (info, message)`** — raised for a lexical error.
 
 ### Main functions
 
-- **`lexing(file, chars) -> [Token]`** — the lexer. It consumes a *list
-  of characters* (not a string) with structural pattern matching (`match
-  rest: case ['-', '>', *rest]: …`), tracking row and column by hand as
-  it goes. Indentation is turned into `TokIndent`/`TokDedent` here, which
+- **`lexing file chars -> [token]`** — the lexer. It consumes a *list
+  of characters* (not a string) by matching on it (`| '-' :: '>' :: xs
+  -> …`), carrying row, column, the indentation stack and the tokens so
+  far along as parameters rather than mutating anything. Indentation is turned into `TokIndent`/`TokDedent` here, which
   is what lets the parser treat a block as a bracketed construct.
 - **`string_until(pred, chars)`** — the longest prefix satisfying `pred`,
   used for numbers and identifiers.
@@ -105,35 +116,35 @@ imported by every other one.
 - **`is_digit` / `is_letter` / `is_digit_letter`** — character classes.
 - **`keyword_token(name, info)`** — the keyword token for a name, or
   `None` if it is an ordinary identifier.
-- **`pprint_token(tok)`** — a token as text, by `match`/`case` over the
-  ADT.
+- **`pprint_token tok`** — a token as text, by `match` over the type.
 
-Adding an operator or keyword means three edits in this file: a `case`
-arm in `lexing`, a `Tok*` dataclass, and a `case` arm in `pprint_token`.
+Adding an operator or keyword means three edits in this file: an arm in
+`lexing`, a `Tok*` constructor, and an arm in `pprint_token`. The
+compiler catches the third if you forget it.
 
 ---
 
-## `syntax.py`
+## `syntax.ml`
 
 **The AST, and how to print it.** Every backend and every analysis
 consumes exactly this.
 
-The name is not an accident: `src/` is a flat set of script modules, so a
-module named `ast.py` would shadow the standard library's `ast` on
-`sys.path` — which breaks `dataclasses` itself, since it reaches `ast`
-through `inspect`. Do not rename it back.
+The name is `syntax.ml` rather than `ast.ml` because everything else
+already says so — the `open Syntax` at the top of a dozen modules, the
+docs, the error messages. See [syntax.md](syntax.md) for the reason the
+name was ever a question.
 
 **Design, in depth:** [syntax.md](syntax.md).
 
 ### Data structures
 
-The file opens with one block of **`datatype` comments** naming every
-group, its variants and their fields, in OCaml-ish notation (`[T]` for a
-list of `T`, `T?` for a field that may be absent). Dataclasses can state
-a node's fields but not that a group is a *closed set of alternatives*,
-which is exactly what every `match` over the AST relies on — so the
-comments state it. They are hand-written, and keeping them in step with
-the classes is part of changing the AST.
+The file opens with one recursive `type ... and ...` declaring every
+group at once, with a trailing comment on each constructor saying what
+it is written as in source. The declaration is the datatype description:
+a `match` that misses a case is a compile error, so nothing here can
+drift out of step with the code that reads it. What the comments still
+carry is the notation the type cannot (`[T]` is `t list`, `T?` is
+`t option`) and the source syntax each variant stands for.
 
 The groups:
 
@@ -168,22 +179,21 @@ The groups:
   keeps (see [type_inference.md](type_inference.md)). Neither is part of what a
   function type *means*, so neither takes part in comparing two of
   them.
-- **`Pattern`** — `PInt`, `PString`, `PBool`, `PWildcard`, `PCapture`,
-  `PTuple`, `PList`.
 - **`CompClause`** — `CompFor`, `CompIf` (list comprehensions).
 - **`AssignTarget`** — `TargetName`, `TargetTuple`.
-- **`Stmt`** — `SLet` (`x = e`), `SLetStmt` (`x = if c: …`), `SVar`,
-  `SMutate` (`:=`), `SReturn`, `SReturnStmt`, `SExprStmt`, `SFor`,
-  `SWhile`, `SLoop` (`loop x = e:`), `SBreak`, `SContinue`, `SIf`,
-  `SFunctionDef`, `SMatch`. `SLoop` carries its accumulator as a
-  `target`/`init` pair, both absent for the bare `loop:`; `SBreak` and
-  `SContinue` carry nothing but their span, since a loop is worth the
-  accumulator it stopped with.
-- **Single-constructor records** — `Param`, `ListRest`, `MatchCase`.
+- **`stmt`** — `SLet` (`x = e`), `SLetStmt` (`x = if c: …`), `SVar`,
+  `SMutate` (`:=`), `SReturn`, `SReturnStmt`, `SExprStmt`,
+  `SLoop` (`loop x = e:`), `SBreak`, `SContinue`, `SIf`,
+  `SFunctionDef`, `SFunctionSig`, `SMatch`, `SImport`. `SLoop` carries
+  its accumulator as a `target`/`init` pair, both absent for the bare
+  `loop:`; `SBreak` and `SContinue` carry nothing but their span, since
+  a loop is worth the accumulator it stopped with.
+- **Single-constructor records** — `param`, `list_rest`, `match_case`.
 
 Every node carries `info` (its span) and `sym` (its symbol, `0` until
-`symbolize` runs). Every node is frozen, so passes that change the tree
-rebuild it with `dataclasses.replace`.
+`symbolize` runs), written first and last in each constructor. Nothing
+is mutated, so a pass that changes the tree rebuilds it — which is
+exactly what `symbolize` does.
 
 ### Main functions
 
@@ -201,7 +211,7 @@ rebuild it with `dataclasses.replace`.
 
 ---
 
-## `parser.py`
+## `parser.ml`
 
 **Recursive descent: tokens → AST.**
 
@@ -241,43 +251,43 @@ Around them:
   keyword: the optional accumulator (a target, an optional annotation,
   `=`, an expression) and the body. A loop is also a *bound* value, so
   `parse_bound_value` reaches it too.
-- **`parse_target`** and `_try_parse_assignment_target` — assignment
+- **`parse_target`** and `try_parse_assignment_target` — assignment
   targets, including tuple destructuring.
 - **`parse(tokens) -> [Stmt]`** — the whole program.
 
 Two helpers matter beyond their size. **`combine_info(start, end)`**
 builds each node's span from its first token's start to its last token's
 end — a new grammar rule combines infos the same way rather than reusing
-one token's span. **`_here(tokens)`** is the position to blame when the
+one token's span. **`here(tokens)`** is the position to blame when the
 input has run out.
 
 Five checks live here rather than in a later stage, so that they fail
-with a source position at parse time: **`_check_no_duplicate_captures`**
-(a pattern may not bind one name twice), **`_check_value_stmt`** (every
+with a source position at parse time: **`check_no_duplicate_captures`**
+(a pattern may not bind one name twice), **`check_value_stmt`** (every
 branch of a value-form `if`/`match` must yield a value — which
-`target_python.py` then relies on), **`_check_own_line`** (a
+`target_python.ml` then relies on), **`check_own_line`** (a
 statement, and a `case` clause, begins a line of its own — the rule that
 stops `print h` from being read as two statements, which the grammar
 cannot state because it cannot see line boundaries),
-**`_check_loop_context`** (a `break`/`continue` belongs to a `loop`, and
+**`check_loop_context`** (a `break`/`continue` belongs to a `loop`, and
 may not reach out of a `for`, a `while` or a `def` to find one), and
-**`_check_reachable`** (nothing may be written after one in the same
+**`check_reachable`** (nothing may be written after one in the same
 block). The last two are shape rather than scope — neither needs to know
 what a name means — which is why they are here and not in
-`analyses.py`, and being here they hold in every mode.
+`analyses.ml`, and being here they hold in every mode.
 
-`ParseError(info, message)` carries the position.
+`Parse_error (info, message)` carries the position.
 
 ---
 
-## `module.py`
+## `module.ml`
 
 **The module system.** One file is one module; a program is the acyclic
 graph of the modules its main file reaches. This reads and parses all of
 them, refuses a cycle, puts them in dependency order, settles what each
 one exports and what each import means, and turns a checked module into
 the signature the next one is checked against. Errors are
-`ModuleError(info, message)`, reported as `Module error`.
+`Module_error (info, message)`, reported as `Module error`.
 
 **Design, in depth:** [modules.md](modules.md).
 
@@ -303,10 +313,10 @@ the signature the next one is checked against. Errors are
 - **`load(path) -> [Module]`** — every module the program needs,
   dependencies first and the program itself last, parsed, symbolized
   with one numbering across the whole program, and with every import
-  resolved. Raises `ModuleError` for a missing module or a cycle.
+  resolved. Raises `Module_error` for a missing module or a cycle.
 - **`read_file(path) -> Module`** — one file, lexed and parsed, and
-  nothing else: what `--no-typechecking` stops at, so this front end and
-  the OCaml one in `ocaml-src/` can be compared over one file.
+  nothing else: what `--no-typechecking` stops at, which is why nothing
+  a program imports is opened under that flag.
 - **`check_publics(stmts) -> {name: info}`** — what a module exports,
   refusing a name exported twice and an exported name bound twice.
 - **`resolve_imports(module, loaded) -> Module`** — each plain import's
@@ -322,10 +332,10 @@ the signature the next one is checked against. Errors are
 
 ---
 
-## `analyses.py`
+## `analyses.ml`
 
 **Static analyses over the parsed AST**, run between the parser and
-anything else, for every mode. Errors are `AnalysisError(info, message)`.
+anything else, for every mode. Errors are `Analysis_error (info, message)`.
 `Effects` is the exception to "for every mode": it is not run by the
 driver at all, but asked for by the two backends whose host language
 leaves evaluation order unspecified.
@@ -343,13 +353,13 @@ leaves evaluation order unspecified.
 - **`BUILTINS`** — `("print", "range", "str", "len")`. Pyking's grammar
   has no notion of a builtin, so these are seeded into the top-level
   environment; that is what lets every *other* unbound name be an error.
-  Imported by `typesystem.py` and `interpreter.py` rather than repeated.
+  Imported by `typesystem.ml` and `interpreter.ml` rather than repeated.
 - **`Effects(stmts)`** — which of the program's functions can end up
   printing, by a fixed-point walk of the call graph; `may_print(expr)`
   answers for one expression. A call whose target is not a known `def`
   is assumed to print if anything in the program does, since
   overestimating costs a temporary and underestimating prints in the
-  wrong order. `target_ocaml.py` and `target_c.py` use it to decide
+  wrong order. `target_ocaml.ml` and `target_c.ml` use it to decide
   which operands need their order pinned down (see
   [target_ocaml.md](target_ocaml.md) and [target_c.md](target_c.md),
   "Evaluation order"); it lives here rather than in either because it is
@@ -361,7 +371,7 @@ leaves evaluation order unspecified.
   walk carrying a binding-kind environment, enforcing the two rules a
   type cannot state: `:=` may only name a `var`, and a `var` may not be
   shadowed (which is what keeps `:=` unambiguous). It runs *after*
-  `typesystem.py`, so every name it meets is already known to be bound,
+  `typesystem.ml`, so every name it meets is already known to be bound,
   and it never descends into an expression, since no expression
   mutates anything.
 - **`bind(env, name, kind, info)`** — every binding form funnels through
@@ -377,45 +387,77 @@ leaves evaluation order unspecified.
 - **`block_functions(stmts)`** — the `def`s at the top of one block, as
   name → node, refusing two of the same name; with
   **`check_no_function_clash`** it enforces the two rules that make a
-  hoisted name unambiguous. Both `typesystem.py` and `interpreter.py`
+  hoisted name unambiguous. Both `typesystem.ml` and `interpreter.ml`
   import it rather than restating the rules.
 - **`apply_signatures(stmts)`** — folds each `def name : type` line
   onto the definition it describes and drops the line. A signature is
   another spelling of the annotations a header could carry, so after
   this there is one shape for every later stage to read: a backend that
   refuses a type it cannot represent needs to know nothing about
-  signatures. Run by `pyk.py` after the `pyking` target has printed, so
+  signatures. Run by `pyk.ml` after the `pyking` target has printed, so
   that output still shows the program as it stands — and by the
   playground's own driver (`PYKING_WEB_PY` in
-  `tools/playground/generator.py`), which repeats `pyk.py`'s front end
+  `tools/playground/generator.py`), which repeats `pyk.ml`'s front end
   and has to gain each step it gains. Only well-formed
   pairings are folded — a signature naming no definition is left for
-  `typesystem.py` to refuse in its own words.
-- **`symbolize(stmts, start=0) -> [Stmt]`** — gives every node a unique
+  `typesystem.ml` to refuse in its own words.
+- **`symbolize ?start stmts -> [stmt]`** — gives every node a unique
   integer `sym`, post-order from `start` + 1 (`0` means "not
-  symbolized"). Unlike the
-  analysis it *rewrites*: nodes are frozen, so it rebuilds the tree with
-  `replace`. Its walk is generic over dataclass fields, so a node added
-  to `syntax.py` gets a symbol without touching this file. Existing
+  symbolized"). Unlike the analysis it *rewrites*: nothing is mutated,
+  so it rebuilds the tree, threading the counter through as a value. It
+  is one case per constructor, so a node added to `syntax.ml` needs a
+  case here or it keeps symbol `0`. Existing
   symbols are kept and new ones continue past the highest, which makes it
   safe to run twice. `start` is what makes one numbering span a program
-  of several modules; `highest_sym(node)` is what the next module
+  of several modules; `highest_sym stmts` is what the next module
   continues past.
-- **`walk(node)`** and **`all_functions(stmts)`** — a generic walk over
-  dataclass fields, and every `def` in a program by name. Both exist for
-  `Effects`; the backends use `walk` for their own whole-program
-  questions too.
+- **`all_functions stmts`** — every `def` in a program by name. It
+  exists for `effects`, and folds over `walk.ml`'s `children`, as do the
+  backends' own whole-program questions.
 
 ---
 
+## `walk.ml`
+
+**One generic traversal of the AST**, for the passes that ask a question
+of a whole subtree rather than of one node kind: which functions can
+print (`analyses.effects`), whether an expression holds a call (the
+interpreter's call-free table), whether a name is used as a string (the
+C and Java backends).
+
+### Data structures
+
+- **`node`** — any AST node, whatever its type: `NExpr`, `NType`,
+  `NPattern`, `NListRest`, `NCompClause`, `NTarget`, `NParam`,
+  `NLoopIter`, `NMatchCase`, `NStmt`. What a traversal that does not
+  care which kind of node it is looking at carries.
+
+### Main functions
+
+- **`children n`** — one node's immediate children, in the order
+  `syntax.ml` declares the fields they came from. This is the whole
+  module; everything else is a fold over it.
+- **`fold f acc n`** / **`exists p n`** — over a subtree, pre-order;
+  **`fold_stmts`** / **`exists_stmts`** over a statement sequence.
+- **`exprs n`** / **`stmts_in n`** — every expression, or every
+  statement, in a subtree.
+- **`name_field n`** — the value of a node's `name` field, where it has
+  one. Fourteen node kinds do; a `PText`'s captured middle (`rest`) and
+  a `TForall`'s bound variables (`vars`) deliberately do not, so neither
+  counts as an identifier for `optimization.ml`'s "does this program
+  write this name" tests.
+
+A node kind added to `syntax.ml` needs a case in `children`, and nothing
+but a pass that would have looked inside it will notice if it is missed.
+
 ---
 
-## `typesystem.py`
+## `typesystem.ml`
 
 **The type checker.** Run for every mode and every target: Pyking is
 statically typed, so a program it refuses is refused. It is also the
 only pass that checks *names* — its environment is a scope, so it raises
-`analyses.AnalysisError`, in that module's own words, for a name it
+`Analyses.Analysis_error`, in that module's own words, for a name it
 cannot find.
 
 What it means for a *program* is PYKING.md's "Type checking" section;
@@ -427,9 +469,10 @@ scheme specifically).
 
 ### Data structures
 
-- **`tmap`** — the result: one mutable dict from a node's `sym` to the
-  `Type` worked out for it. Every expression gets an entry, not just the
-  annotatable constructs, which is what lets `target_ocaml.py` read types
+- **`tmap`** — the result: a map from a node's `sym` to the type worked
+  out for it. It is a field of the `store`, which is threaded and handed
+  back everywhere already, so it needs no mutation of its own. Every expression gets an entry, not just the
+  annotatable constructs, which is what lets `target_ocaml.ml` read types
   back instead of inferring them again. A `SFunctionDef`'s entry is its
   *function* type, not its return type. Entries are written through
   `record`, which **merges**: a function checked at two argument types
@@ -472,7 +515,7 @@ scheme specifically).
   partner's own row in `OPERATORS`, so it cannot claim an acceptance
   the checker does not have. `1 + 'a'`, which nothing accepts, is
   offered nothing.
-- **`TypeError_(info, message)`** — a type error, or the floor:
+- **`Type_error (info, message)`** — a type error, or the floor:
   `Construct is not supported`, raised for everything outside the
   fragment. That floor is deliberate — a checker that quietly accepted
   what it had not reasoned about would be worse than one that says where
@@ -521,7 +564,7 @@ OCaml-style near the top of the file):
   accumulator, which is what it is worth however it stops. A `return`
   written in the body leaves the enclosing function, so the frame comes
   back as it went in.
-- **`ends_every_path(stmts)` / `ends_here(statement)`** — whether every
+- **`ends_every_path(stmts)` / `endshere(statement)`** — whether every
   path through a block jumps (`continue`, `break`, `return`),
   structurally: an `if` or a `match` counts when all its branches do,
   and a `match` has to cover its subject as well. `check_stmts` uses it
@@ -580,15 +623,37 @@ OCaml-style near the top of the file):
 - **`check_annotation(annotation, actual)`** — an annotation is
   *checked*, never replaced. That is the difference between an annotation
   and a comment.
-- **`same_type(a, b)`** — structural equality. Never `==`: `T*` nodes are
-  dataclasses, so `==` would compare `info` and `sym` too.
+- **`same_type a b`** — structural equality. Never `=`: every `T*`
+  constructor carries `info` and `sym`, which `=` would compare too.
 - **`declare_functions(stmts, env, store)`** — every `def` of a block
   bound before any of it is checked, through `analyses.block_functions`.
   That one step is recursion, mutual recursion and forward references.
 
 ---
 
-## `optimization.py`
+## `type_experiment.ml`
+
+**An alternative type checker**, a fragment of one, run instead of
+`typesystem.ml` by `pyk --type-experiment`. It covers integer literals,
+names, `+`, and the bindings those need; everything else raises
+`Type_error (info, "Construct is not supported")`, in `typesystem.ml`'s
+own words, and an unbound name raises `Analyses.Analysis_error` so the
+driver reports it as a `Name error` exactly as it would otherwise.
+
+It exists to be grown against real programs, and the flag is how it is
+run. Its shape is `typesystem.ml`'s and is the one to keep as it grows:
+one function per AST datatype, each taking a node of exactly that type;
+an `env` mapping a name to its type, used immutably; and one `tmap`,
+from a node's symbol to the type worked out for it, returned as the
+pass's result.
+
+`pyk.ml`'s `format_error` has a line for this module's `Type_error`
+saying the same word as the real checker's: the flag swaps which checker
+runs, not how a refusal reads.
+
+---
+
+## `optimization.ml`
 
 **Tail calls into loops.** One pass from the AST to the AST, run after
 the type checker and only over a program it accepted — the types are
@@ -620,39 +685,39 @@ backend compiles are then the same program.
   position. Tail position is PYKING.md's own, and the walk stops at a
   nested `def` (whose tails are its own) and at a `for`/`while`/`loop`
   (where a `break` would belong to that loop instead).
-- **`_rewrite_block` / `_rewrite_tail` / `_rewrite_inner` /
-  `_going_on`** — the rewrite: a recursive call becomes what the block
+- **`rewrite_block` / `rewrite_tail` / `rewrite_inner` /
+  `going_on`** — the rewrite: a recursive call becomes what the block
   ends in, which is what the next turn carries, and anything else
   becomes a `return` (leaving the loop and leaving the function are one
   thing here, since the loop *is* the function's body).
-- **`_hoist` / `_goes_round` / `_always_returns` / `_Decline`** — going
+- **`hoist` / `goes_round` / `always_returns` / `_Decline`** — going
   round can only be said by ending a block, so a call in a statement
   that is not the block's last is restructured first: a guard that
   always returns takes what follows it into its `else`. Where that
   cannot be done the rewrite declines and the function is left as the
   recursion it was.
-- **`_rewrite_self`** — a function that calls itself, as a loop carrying
+- **`rewrite_self`** — a function that calls itself, as a loop carrying
   its own parameters under their own names.
-- **`_merge`** — a mutually recursive group, as one `tail_groupN` worker
+- **`merge`** — a mutually recursive group, as one `tail_groupN` worker
   carrying a `state`, with each original left as a wrapper. The
   accumulator is as wide as the widest member; a narrower one carries
   the slots it does not fill forward inside the loop, and enters with a
   zero of their type at its wrapper.
-- **`_shared`** — the gate, and the only part that reads types: the
+- **`shared`** — the gate, and the only part that reads types: the
   members must agree per position and on what they answer with, every
   padded slot must have a zero to write, and each member must have one
   definite type. A group failing any of these is left as recursion.
 
 ---
 
-## `runtime_interface.py`
+## `runtime_interface.ml`
 
 **The boundary between pure Pyking code and the outside world**, in the
 spirit of WebAssembly's split between a core language that can observe
 nothing and a separate host specification.
 
-Backend-agnostic by construction: no Python, no JavaScript, no
-interpreter code. It holds the *names* of the operations and their
+Backend-agnostic by construction: no host code of any kind, and nothing
+from the interpreter. It holds the *names* of the operations and their
 semantics, including the value-formatting rules, because every backend
 has to agree on those before one program can print the same characters
 everywhere.
@@ -664,8 +729,8 @@ everywhere.
 - **`PRINT`**, **`OPERATIONS`**, **`NAMES`** — today's whole interface:
   one operation.
 - **`lookup(name)`** — the `Operation` a name denotes, or `None` for an
-  ordinary Pyking name. `target_python.py`, `target_js_core.py` and
-  `interpreter.py` all route through it.
+  ordinary Pyking name. `target_python.ml`, `target_js_core.ml` and
+  `interpreter.ml` all route through it.
 
 The formatting rules pinned here: arguments formatted individually and
 joined with single spaces, then a newline; a string bare; an integer in
@@ -676,7 +741,7 @@ Add an operation here first; the backends then bind it.
 
 ---
 
-## `interpreter.py`
+## `interpreter.ml`
 
 **The interpreter: a resumable machine that runs the AST directly.**
 
@@ -685,8 +750,8 @@ Java, in Python?". This one answers "what does this program *do*?", in
 Pyking's own terms — which makes it the reference for runtime semantics:
 where a backend disagrees with it, the backend is wrong.
 
-It runs exactly the fragment `typesystem.py` accepts. The gate is the
-checker itself (`check`), the same arrangement `target_ocaml.py` uses, so
+It runs exactly the fragment `typesystem.ml` accepts. The gate is the
+checker itself (`check`), the same arrangement `target_ocaml.ml` uses, so
 there is no second list of supported constructs to keep in step.
 
 **Design, in depth:** [interpreter.md](interpreter.md).
@@ -723,7 +788,7 @@ three are design rather than accident:
   builds a new head; `lookup` walks outwards. Pyking's scoping falls
   straight out of it: a block runs in a chain of its own, `=` makes a new
   frame (a rebinding shadows, it never updates), and a `def` captures the
-  chain it was created in. Everything `target_python.py` has to work for
+  chain it was created in. Everything `target_python.ml` has to work for
   — renaming shadowed bindings, per-turn factories — is simply what this
   representation does.
 - **`Control`** — `CEval(expr)`, `CStmt(stmt)`, `CApply(value)`,
@@ -758,7 +823,7 @@ three are design rather than accident:
   implementations: `ConsoleHost` (a stream), `BufferHost` (collected
   lines), `CallbackHost` (a function per line — the shape a debugger or a
   browser worker wants).
-- **`RuntimeError_(info, message)`** — carried by `CFailed`. Never thrown
+- **`Runtime_error (info, message)`** — carried by `CFailed`. Never thrown
   through `step`.
 
 ### Main functions
@@ -768,13 +833,14 @@ three are design rather than accident:
   what the REPL passes.
 - **`step(state) -> state`** — one small step. Total: every state has a
   successor, including a finished or failed one, which is what lets `run`
-  be a bare loop. `_step_eval`, `_step_stmt` and `_step_apply` are its
+  be a bare loop. `step_eval`, `step_stmt` and `step_apply` are its
   three halves-and-a-bit.
-- **`run(state, steps=None) -> state`** — step until the machine stops,
+- **`run ?steps state -> state`** — step until the machine stops,
   or until `steps` steps have been taken. The bounded form is what makes
   this usable from somewhere that must not block.
-- **`run_program(stmts, host) -> state`**, **`finished`**, **`result`**,
-  **`failure`**, **`unwrap`**, **`stack_trace`** — the embedding API.
+- **`run_program stmts host -> state`**, **`initial_state`**,
+  **`finished`**, **`result`**, **`failure`**, **`stack_trace`** — the
+  embedding API.
 - **`run_modules(units, host) -> state`** — a program of several
   modules: each runs in a top level of its own, in dependency order, and
   what it exports is what the ones after it are given. **`module_env`**
@@ -791,13 +857,13 @@ three are design rather than accident:
   `eval_statement` is the two together, for a group of one — the shape a
   debugger's "evaluate in this frame" wants.
 - **`_turn(state, loop)` / `_leave(state, loop, value)`** — a turn of a
-  loop body, and the end of a loop. `_turn` binds the accumulator afresh
+  loop body, and the end of a loop. `turn` binds the accumulator afresh
   and enters the body with `KIterate` waiting for its value, which comes
   back here — so a turn costs no continuation chain however many turns
-  there are, and a loop that never ends never grows. `_leave` delivers
+  there are, and a loop that never ends never grows. `leave` delivers
   the loop's value where the loop statement stood -- the accumulator
   this turn started with, which is what a `break` leaves with too.
-  `_finish` is the other end: a loop that ran out of turns is worth
+  `finish` is the other end: a loop that ran out of turns is worth
   that same accumulator.
 - **`bind_target(env, target, value)`** — binds one name, or takes a
   tuple apart; used by both `KBind` and each turn of a loop.
@@ -826,15 +892,15 @@ three are design rather than accident:
   [targets.md](targets.md#integers-are-32-bit) for which backends differ.
 - **`call_free_symbols(node)`** — the one optimisation: an expression
   containing no call can neither suspend nor reach the host, so it is
-  evaluated in one gulp by `_evaluate` instead of one continuation at a
+  evaluated in one gulp by `evaluate` instead of one continuation at a
   time. Which expressions those are is computed once, before the program
   runs, and kept as a set of symbols in `Runtime`. The recursion in
-  `_evaluate` is bounded by how deeply the *source* nests expressions, so
+  `evaluate` is bounded by how deeply the *source* nests expressions, so
   it cannot be driven deep by a long-running program.
 
 ---
 
-## `repl.py`
+## `repl.ml`
 
 **`pyk repl`.** A session is a *program being written one entry at a
 time*, and the module is built that way: each entry is checked against
@@ -868,8 +934,8 @@ function written now is invisible to one written before it.
   Only `:edit` has anything to put in `pending` (text to place in front
   of the user instead of an empty prompt); every other command returns a
   bare session, which `run_meta` wraps.
-- **`Buffer(lines, row, col)`** — the entry being typed, as a frozen
-  value with pure operations over it (`insert`, `newline`, `backspace`,
+- **`buffer_ = { lines; row; col }`** — the entry being typed, as an
+  immutable record with pure operations over it (`insert`, `newline`, `backspace`,
   `left`, `up`, …). Everything about *what the text is* can therefore be
   reasoned about without a terminal in sight.
 - **`Editor`** — a small multi-line editor over a terminal in raw mode.
@@ -885,7 +951,7 @@ function written now is invisible to one written before it.
 ### Main functions
 
 - **`start(format_error, read=None, session=None)`** — the loop.
-  `format_error` is `pyk.py`'s own, so an error made at the prompt is
+  `format_error` is `pyk.ml`'s own, so an error made at the prompt is
   reported in exactly the words it would have been reported in from a
   file; the other two arguments let something other than a terminal drive
   the REPL (a transcript test, another front end).
@@ -939,7 +1005,7 @@ at its edges, step through the history of entries — so a function comes
 back whole and can be edited anywhere in it. Left and Right move through
 it a character at a time (across line boundaries), Tab inserts one level
 of indentation, Shift+Return finishes an entry without the blank line
-(where the terminal distinguishes it from Return — `_named` reads both
+(where the terminal distinguishes it from Return — `named` reads both
 the `CSI u` and the older `modifyOtherKeys` encodings), Escape abandons
 what is being typed, Ctrl-C does the same, and Ctrl-D at an empty prompt
 ends the session. Enter submits a single line that parses, and otherwise opens
@@ -963,7 +1029,7 @@ a line long enough to wrap is still followed correctly.
 
 ---
 
-## `target_python.py`
+## `target_python.ml`
 
 **The Python backend** — the first one written, the reference for the
 others, and the only one that compiles the whole language.
@@ -977,7 +1043,7 @@ factory).
 
 - **The `Py*` AST** — `PyInt`, `PyString`, `PyVar`, `PyAdd`, `PyCall`,
   `PyIf`, `PyFor`, `PyMatch`, `PyAssign`, … Structurally the same shape
-  as `syntax.py`'s, with two deliberate collapses: Pyking's `SLet`,
+  as `syntax.ml`'s, with two deliberate collapses: Pyking's `SLet`,
   `SVar` and `SMutate` all become one `PyAssign`, since Python has no
   immutable-binding distinction; and `SLetStmt` has no node at all, since
   it compiles to an ordinary `PyIf`/`PyMatch` with a `PyAssign` pushed
@@ -985,7 +1051,7 @@ factory).
 - **`Scope`** — Pyking name → the Python name standing in for it. Pyking
   blocks are scopes and Python's are not, so a binding that shadows
   another *within one Python function scope* is renamed (`total` →
-  `total2`). `_bind`, `_lookup`, `_block_scope` and `_function_scope` are
+  `total2`). `bind`, `lookup`, `block_scope` and `function_scope` are
   the whole mechanism, and it renames only when it must — never inside a
   `def` body or a comprehension, where Python already scopes. Its `used`
   field is every Python name an enclosing block of the same Python
@@ -1003,36 +1069,36 @@ factory).
   one Pyking statement needs several (a `loop` is a variable and a
   `while`). Each `match` ends in `case _: raise NotImplementedError`,
   so a future construct without a translation fails loudly.
-- **`_translate_loop` / `_translate_loop_block` / `_translate_loop_tail`**
+- **`translate_loop` / `translate_loop_block` / `translate_loop_tail`**
   — a `loop` as `while True` over one variable: the initializer gives it
   its first value and every tail of the body assigns the next, which is
-  the same push-into-the-tails shape `_translate_value_block` uses for a
+  the same push-into-the-tails shape `translate_value_block` uses for a
   value-form `if`.
 - **`pprint_py_program` / `pprint_py_stmt` / `pprint_py_expr`** — `Py*`
   AST → Python source.
-- **`_declare_functions`** — binds every `def` in a block before
+- **`declare_functions`** — binds every `def` in a block before
   translating it. Python resolves forward references itself, but a
   *renamed* function has to be renamed before the call above it is
   emitted.
-- **`_free_names`** and **`_captured_names`** — the two analyses that
+- **`free_names`** and **`captured_names`** — the two analyses that
   carry the scoping story: a scope renames a binding that shadows a name
   its body reads from outside itself, and a rebinding some function
   already captured gets its own Python variable, because in Pyking it is
   a *new* binding.
-- **`_turn_groups` / `_absorbed` / `_translate_turn_group`** — a `def`
+- **`turn_groups` / `absorbed` / `translate_turn_group`** — a `def`
   written inside a loop is built by a small per-turn factory, so each
   turn's functions keep that turn's values; `def`s that name each other
   are built together. Nothing but `def`s moves — a `return` or a `:=`
   carried into a factory would change what it means. See
   [target_python.md](target_python.md).
-- **`_bool_kind` / `_wrap_print_argument` / `_format_helper_name`**
+- **`bool_kind` / `wrap_print_argument` / `format_helper_name`**
   — Pyking prints `true`/`false` and Python prints `True`/`False`, so a
   printed argument is formatted rather than merely printed: inline for a
   Bool, bare for a type with no Bool anywhere inside it, and through a
   small generated helper only for one that can hold one. The type comes
   from `tmap`, which `translate_program` takes for exactly this — which
   is why an ordinary program compiles to Python with no prelude at all.
-- **`_mutated_names` / `_scope_declarations`** — a `def` that writes a
+- **`mutated_names` / `scope_declarations`** — a `def` that writes a
   `var` bound outside it opens with `global` or `nonlocal`, since
   assigning a name anywhere in a Python function makes it local to the
   whole function. `Scope.depth` (0 is the module) and `Scope.mutables`
@@ -1041,7 +1107,7 @@ factory).
 
 ---
 
-## `target_js_core.py`
+## `target_js_core.ml`
 
 **The JavaScript backend's language half.** Knows nothing about
 packaging.
@@ -1060,12 +1126,12 @@ all three JS targets).
 - **`translate_program(stmts, taken=())` / `translate_stmts` /
   `translate_stmt` /
   `translate_expr`**, plus `translate_tail_stmts` for tail position,
-  `_translate_loop` and friends for a `loop` (a `while (true)` over a
+  `translate_loop` and friends for a `loop` (a `while (true)` over a
   `let` -- or, where the body defines a function, over a carrier holding
   the next turn's value, with the accumulator a `const` inside the body
-  so each turn's functions close over that turn: `_defines_function`),
+  so each turn's functions close over that turn: `defines_function`),
   and `declare_functions` for the same reason
-  `target_python.py` has one. A statement translator may answer with a
+  `target_python.ml` has one. A statement translator may answer with a
   list, since a loop is several JavaScript statements.
 - **`translate_target`** — a binding target: a name, or the array
   pattern that takes a tuple apart, tuples being arrays here.
@@ -1076,12 +1142,12 @@ all three JS targets).
   several modules emits one copy rather than one per module.
 - **`JsImport`** — what an import brings in, named rather than spelled,
   exactly as `JsRuntimeCall` is.
-- **`UnsupportedError(info, message)`** — anything outside the subset,
+- **`Unsupported (info, message)`** — anything outside the subset,
   with a position.
 
 ---
 
-## `target_js_packaging.py`
+## `target_js_packaging.ml`
 
 **The JavaScript backend's packaging half**, and the JavaScript side of
 the runtime interface — each host's `print`, and the shared `pykFormat`,
@@ -1099,7 +1165,7 @@ which is exactly what differs between the three targets.
   text `--stdout` prints, so that `esm` writing four files, `nodejs`
   writing a shared runtime module, and `html` putting every module on
   one page are all this module's business and not the driver's.
-- **`_nodejs_import` / `_esm_import` / `_page_import`** — the three
+- **`nodejs_import` / `esm_import` / `page_import`** — the three
   spellings of an import, handed to the core inside a `JsHost`.
   **`RUNTIME_MODULE`** is where a multi-file `nodejs` program's `print`
   lives; **`reserved_names`** is what the packager tells the core it has
@@ -1110,7 +1176,7 @@ which is exactly what differs between the three targets.
 
 ---
 
-## `target_c.py`
+## `target_c.ml`
 
 **The C backend**, serving both `c89` and `c23`. One backend rather than
 two because the standards disagree about *printing* — comments, whether
@@ -1129,7 +1195,7 @@ meaning, so `standard` reaches only the printer.
   node carries a type, bindings take their initializer's, parameters
   their annotation (when C can represent it) or a guess from the body,
   and a function's return type is read off its translated body. Where
-  inference cannot answer, it raises `UnsupportedError` rather than
+  inference cannot answer, it raises `Unsupported` rather than
   emitting C that will not compile.
 - **`_Translator.loop` / `plain_loop` / `loop_block` / `loop_tail`** —
   a `loop` as `while (1)` over one mutable variable per slot, whose C
@@ -1157,7 +1223,7 @@ meaning, so `standard` reaches only the printer.
 
 ---
 
-## `target_java.py`
+## `target_java.ml`
 
 **The Java backend**, serving `java8`, `java17` and `java21` — the same
 shape as the C backend, with a `version` parameter instead of a
@@ -1166,7 +1232,7 @@ writes `var` (Java 10's local-variable type inference) or spells its type
 out.
 
 **Design, in depth:** [target_java_internals.md](target_java_internals.md)
-(this module — mostly a repeat of `target_c.py`'s own machinery, so
+(this module — mostly a repeat of `target_c.ml`'s own machinery, so
 that page focuses on the differences); [target_java.md](target_java.md)
 (what compiles to what, and what's refused).
 
@@ -1174,11 +1240,11 @@ that page focuses on the differences); [target_java.md](target_java.md)
   `JCall`, `JCond`, **`JEquals`** (`.equals()`, since Java's `==` on
   strings compares references), and the statement variants.
 - **`translate_program(stmts, context=None)`** — infers types the way
-  `target_c.py`
+  `target_c.ml`
   does, including the `while (true)` a `loop` becomes, and additionally
-  proves two things `javac` insists on: **`_definitely_returns`** (every
+  proves two things `javac` insists on: **`definitely_returns`** (every
   path of a value-returning function returns — counting a loop nothing
-  breaks out of, which never finishes) and **`_check_reachable`**
+  breaks out of, which never finishes) and **`check_reachable`**
   (nothing follows a statement that always returns, or such a loop).
   Both are refused at compile time with a position.
 - **`pprint_java_program(program, version, class_name, source)`**.
@@ -1189,7 +1255,7 @@ that page focuses on the differences); [target_java.md](target_java.md)
 
 ---
 
-## `target_ocaml.py`
+## `target_ocaml.ml`
 
 **The OCaml backend**, and the one that infers nothing: it *runs*
 `typesystem.type_check` and reads the types back out of `tmap`, which is
@@ -1206,14 +1272,14 @@ refused).
 - **`TARGET`** = `"ocaml"`, **`EXTENSION`** = `".ml"`,
   **`INTERFACE_EXTENSION`** = `".mli"`, and the `O*` AST.
 - **`translate_program(stmts, tmap, context=None)`** — the table comes from
-  `src/pyk.py`, which type-checks every program; this module fills none
+  `src/pyk.ml`, which type-checks every program; this module fills none
   of its own. Most of
   the translation is direct
   (`let … in` is a block scope, a rebinding is a new binding, `let rec …
   and …` is Pyking's rule that every `def` in a block is visible
   throughout it, and `true`/`false`/`()` are spelled identically). The
   interesting work is what it emits *around* that: no type annotations at
-  all, `rec` only where something recurses, `_name` for a binding nothing
+  all, `rec` only where something recurses, `name` for a binding nothing
   reads, and — via **`analyses.Effects`** and **`in_order`** — a `let`
   inserted wherever two operands of one expression can both print, since
   Pyking evaluates left to right and OCaml does not promise to.
@@ -1225,7 +1291,7 @@ refused).
 - **`pprint_ocaml_program(program, source)`**, and
   **`pprint_ocaml_interface(program, source)`** — the `.mli` a module
   the program imports is seen through, which is the whole of privacy on
-  this target. **`_public_name`** spells an exported name from the name
+  this target. **`public_name`** spells an exported name from the name
   alone, since the module importing it has not seen the module it comes
   from.
 
@@ -1234,12 +1300,12 @@ warning about generated code is a failing test.
 
 ---
 
-## `execution.py`
+## `execution.ml`
 
 **What `--run` runs.** Compiling a program and running it are two
 different pieces of knowledge, and this is the second: which command
 builds a `.c` and which runs the binary belongs to the target, not to
-the driver. One table, so `pyk.py` stays a sequencer.
+the driver. One table, so `pyk.ml` stays a sequencer.
 
 **Design, in depth:** [pyk.md](pyk.md), "Running what was compiled".
 
@@ -1270,12 +1336,12 @@ the driver. One table, so `pyk.py` stays a sequencer.
 
 ---
 
-## `pyk.py`
+## `pyk.ml`
 
 **The driver.** It parses argv, sequences the stages, reports errors, and
 dispatches to one of three commands. Everything else — translation,
 packaging, file naming, and running what was compiled — belongs to the
-backends and to `execution.py`.
+backends and to `execution.ml`.
 
 ```
 pyk <file>              run it with the interpreter
@@ -1287,34 +1353,62 @@ pyk compile <file>      compile it (alias: pyk c)
 
 ### Data structures
 
-- **`Options`** — everything argv said, as one frozen value: the command,
-  the filename, and the flags. Flags are shared by every command rather
+- **`options`** — everything argv said, as one immutable record: the
+  command, the filename, and the flags. Flags are shared by every command rather
   than per-command, so `--tokens` and `--symbols` mean the same thing
   wherever they are written.
-- **`TARGETS` / `EXTENSIONS`** — built from the backends themselves, so
+- **`targets` / `extensions`** — built from the backends themselves, so
   the usage message and the default output name cannot drift from what
   the compiler actually supports.
-- **`ERROR_KINDS`** — one row per stage that can refuse a program, in the
-  order the stages run: `LexError`, `ParseError`, `AnalysisError`,
-  `TypeError_`, `RuntimeError_`. Every one carries an `Info`, which is
-  what lets them all be reported the same way.
+- **The errors `format_error` knows** — one line per stage that can
+  refuse a program, in the order the stages run: `Lex_error`,
+  `Parse_error`, `Module_error`, `Analysis_error`, `Type_error` (from
+  either checker), `Runtime_error`. Every one carries an `info`, which
+  is what lets them all be reported the same way.
 
 ### Main functions
 
-- **`main(argv) -> status`** — argv in, exit status out.
-- **`parse_args(argv) -> Options`**; anything malformed ends in
+- **`main ()`** — argv in, exit status out.
+- **`parse_args argv -> options`**; anything malformed ends in
   **`usage_error`**, which prints the usage after the complaint.
-- **`front_end(options) -> (program, tmap)`** — lex, parse, symbolize,
-  type-check, check mutability, and run the tail-call pass. No branch:
+- **`front_end options`** — load the program's modules, then per module
+  lex, parse, symbolize, type-check, check mutability, and run the
+  tail-call pass. One branch, and it is `--no-typechecking`'s: otherwise
   every program takes the same route, and a refusal at any step is an
   error.
-- **`command_interpret` / `command_compile` / `command_repl`** — the
-  three. `command_repl` imports `repl` lazily,
-  because the REPL is handed this module's own `format_error` and
-  importing it at the top would be a cycle.
-- **`format_error(error)`** — any front-end error as one
-  `'file' row:col-row:col Kind: message` line, reflowed. Used here and
-  handed to the REPL.
-- **`wrap(text)`** — every message this module prints is reflowed to 70
+- **`command_interpret` / `command_compile`**, and `Repl.start` for the
+  third. The REPL is *handed* this module's `format_error` rather than
+  importing it, which is what keeps the dependency one-way — a cycle
+  between two modules of one library does not link.
+- **`format_error error -> string option`** — any front-end error as one
+  `'file' row:col-row:col Kind: message` line, reflowed; `None` for an
+  exception that is not one, so a caller can re-raise it unchanged.
+- **`wrap text`** — every message this module prints is reflowed to 70
   columns with continuation lines indented, so a long path or diagnostic
   stays readable in a narrow terminal.
+
+---
+
+## `web/pyking_web.ml`
+
+**The browser entry point**: the same library, compiled to JavaScript
+with js_of_ocaml, so `tools/playground/` runs the real compiler in the
+page instead of a Python runtime.
+
+It registers a handful of functions on the global object through the
+primitives in `src/web/stub.js` — `pykCompile` (a program and a target
+in, generated source or a formatted error out), `pykRun` (the
+interpreter, emitting each line as the program produces it),
+`pykTargets`, `pykFormatHelper`, `pykKeywords` and `pykBuiltins`. The
+last four are what `generator.py` asks the bundle for at build time, so
+the page's target list, its syntax mode's keyword list and its `esm`
+worker's formatter all come from the compiler rather than from a
+hand-kept copy.
+
+Nothing here is compiler logic: every entry lexes, parses, checks and
+compiles through the same functions `pyk.ml` calls, and reports a
+refusal with the same `format_error`. The one thing it may not use is
+the library's `unix` half — the executable links that, this does not,
+which is why the library depends on nothing outside the standard
+library. See [build.md](build.md) and
+`tools/playground/README.md`.

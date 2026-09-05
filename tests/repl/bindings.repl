@@ -1,0 +1,5 @@
+x = 6
+def foo(n:Int) -> String: "a"
+:ls
+:type x
+:type foo

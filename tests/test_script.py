@@ -81,7 +81,12 @@ import tempfile
 import tomllib
 from concurrent.futures import ThreadPoolExecutor
 
-PYK = os.path.join("src", "pyk.py")
+# What runs the compiler: the executable `make build` puts in the
+# repository root. `--compiler` points the suite at another build of it,
+# which is what a bisect or a second working tree wants.
+PYK = os.path.join(".", "pyk")
+DEFAULT_COMPILER = [PYK]
+COMPILER = list(DEFAULT_COMPILER)
 CASES_FILE = os.path.join("tests", "test_cases.toml")
 # The `pyking` target compiles Pyking to Pyking: it runs the front end
 # and prints the program back, with the types the checker inferred. That
@@ -215,7 +220,7 @@ def executed(result):
 
 def compile_to(source, target, output, flags=()):
     return run(
-        [sys.executable, PYK, "compile", "--target", target, "--output", output]
+        COMPILER + ["compile", "--target", target, "--output", output]
         + list(flags)
         + [source]
     )
@@ -453,7 +458,7 @@ def run_interpret(source, _workdir, modules):
     targets above it. The exit status still goes through `executed`, so
     a program that prints its output and *then* hits a runtime error is a
     failure rather than a pass."""
-    return executed(run([sys.executable, PYK, source]))
+    return executed(run(COMPILER + [source]))
 
 
 def run_pyking(source, workdir, modules):
@@ -479,7 +484,7 @@ def _pyking(source, flags, expect_failure):
     """Runs `pyk compile -t pyking --stdout` with these extra flags, and
     answers with whichever stream this program is expected to produce."""
     result = run(
-        [sys.executable, PYK, "compile", "-t", PYKING_TARGET, "--stdout"]
+        COMPILER + ["compile", "-t", PYKING_TARGET, "--stdout"]
         + flags + [source]
     )
     if expect_failure:
@@ -741,8 +746,9 @@ def positive(value, what):
     return int(value)
 
 
-def parse_jobs(argv):
-    """How many runs this invocation wants in flight. [String] -> Int"""
+def parse_args(argv):
+    """How many runs this invocation wants in flight, and what command
+    runs the compiler. [String] -> (Int, [String])"""
     parser = argparse.ArgumentParser(
         description="Runs every test program on every target it declares."
     )
@@ -756,12 +762,25 @@ def parse_jobs(argv):
             f"usable CPUs, or ${JOBS_VARIABLE}); 1 runs them one at a time"
         ),
     )
-    jobs = parser.parse_args(argv).jobs
-    return jobs if jobs is not None else default_jobs()
+    parser.add_argument(
+        "--compiler",
+        metavar="CMD",
+        help=(
+            "the command that runs the compiler, split on spaces "
+            f"(default: {' '.join(DEFAULT_COMPILER)})"
+        ),
+    )
+    arguments = parser.parse_args(argv)
+    jobs = arguments.jobs if arguments.jobs is not None else default_jobs()
+    compiler = (
+        arguments.compiler.split() if arguments.compiler else DEFAULT_COMPILER
+    )
+    return jobs, compiler
 
 
 def main():
-    jobs = parse_jobs(sys.argv[1:])
+    global COMPILER
+    jobs, COMPILER = parse_args(sys.argv[1:])
     cases = load_cases()
     tasks = plan(cases)
     passed = {target: 0 for target in TARGETS}

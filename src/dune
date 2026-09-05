@@ -1,0 +1,29 @@
+; The Pyking compiler, built from the OCaml sources in this directory.
+;
+; Everything pure is one library: the front end, the analyses, the type
+; checker, the optimizer, the interpreter and every backend. Nothing in
+; it opens a file, starts a process or reads a terminal, which is what
+; lets the same code be compiled to JavaScript for the playground (see
+; docs/build.md). The library is unwrapped, so its modules are reached
+; by their own names -- `Parser.parse`, not `Pyking.Parser.parse`.
+;
+; The executable adds the three modules that do talk to the outside
+; world -- the driver, `--run`, and the REPL with its editor -- and they
+; are the only ones that link `unix`.
+;
+; Warnings are on but never fatal, so a build fails only on a real
+; error.
+(library
+ (name pyking)
+ (wrapped false)
+ (modules lexer syntax walk runtime_interface analyses parser module
+   typesystem optimization interpreter target_python target_js_core target_js_packaging target_ocaml target_c target_java type_experiment)
+ (flags
+  (:standard -warn-error -a)))
+
+(executable
+ (name pyk)
+ (modules pyk execution repl)
+ (libraries pyking unix)
+ (flags
+  (:standard -warn-error -a)))

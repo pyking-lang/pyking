@@ -1,0 +1,13 @@
+; The compiler as JavaScript, for the playground: the same library the
+; native executable is built from, with a browser-side entry point and
+; the hand-written stub that registers it on the global object. Only
+; js_of_ocaml is needed for this, and only here -- the library itself has
+; no dependencies at all (see docs/build.md).
+(executable
+ (name pyking_web)
+ (modes js)
+ (libraries pyking)
+ (js_of_ocaml
+  (javascript_files stub.js))
+ (flags
+  (:standard -warn-error -a)))

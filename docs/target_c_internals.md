@@ -1,26 +1,26 @@
-# `target_c.py`: internals
+# `target_c.ml`: internals
 
-How `src/target_c.py` infers the types C forces onto a program Pyking
+How `src/target_c.ml` infers the types C forces onto a program Pyking
 never required them for, how it pins down the evaluation order C leaves
 open, and how it makes one translation serve both
 `c89` and `c23`. For what each construct compiles to and what's
 refused, see [target_c.md](target_c.md); for a one-page summary, see
-[source.md](source.md#target_cpy).
+[source.md](source.md#target_cml).
 
 ## Types as strings, not a type system
 
 `INT`, `BOOL`, `STRING`, `UNIT` are the literal strings `"Int"`,
 `"Bool"`, `"String"`, `"Unit"` — not a mini reimplementation of
-`syntax.py`'s `Type` hierarchy. Every `CExpr` carries one as its
+`syntax.ml`'s `Type` hierarchy. Every `CExpr` carries one as its
 `ctype` field, and the whole of this backend's type *reasoning* is
 comparing these four strings against each other and looking them up in
 small dicts (`_C_TYPES`, keyed by `standard`, since `Bool` is `int` in
 c89 and a real `bool` in c23; `_FORMATS`, the `printf` conversion per
 type). This is deliberately the simplest representation that works:
 there's no subtyping, no type variables, no need to compare a `TList`'s
-element type recursively the way `typesystem.py`'s `same_type` does —
+element type recursively the way `typesystem.ml`'s `same_type` does —
 this backend's subset has exactly three value types and a unit type,
-so four constant strings and a couple of dict lookups are the whole
+so four constant strings and a couple of table lookups are the whole
 mechanism, with none of the machinery a real type system would need for
 questions this backend never has to ask.
 
@@ -43,10 +43,10 @@ build its `CExpr` in the first place; `SLet`'s case in `translate_stmt`
 just reads `value.ctype` off the already-translated right-hand side.
 
 **A parameter takes its annotation, when C can represent it, else a
-guess.** `_param_type` tries `_annotated_type` first (see above); when
+guess.** `param_type` tries `annotated_type` first (see above); when
 that's `None` — the parameter wasn't annotated, or was annotated with
 something C has no type for, like a tuple — it falls back to
-`_used_as_string`, which walks the function's body looking for exactly
+`used_as_string`, which walks the function's body looking for exactly
 one piece of
 evidence: is this parameter ever added to, or compared with, a string
 literal? If so, it's guessed as `String`; otherwise it defaults to
@@ -56,7 +56,7 @@ only ever flows through unchanged (`def id(x): x`, called with a
 string) gives no evidence either way, and the guess lands on `Int`,
 producing C that won't compile. The fix, when it happens, is to
 annotate the parameter; a real inference pass (unifying types across
-every call site the way `typesystem.py`'s deferred checking does — see
+every call site the way `typesystem.ml`'s deferred checking does — see
 `type_inference.md`) would remove the guess entirely, at a cost in
 complexity this backend has so far chosen not to pay.
 
@@ -70,8 +70,8 @@ it, needs *some* type to check against before the real one is known).
 ## The two-pass shape: provisional first, real answer after
 
 `declare_functions` runs before any function body is translated (the
-same two-pass hoisting `analyses.py`'s `block_functions` and
-`typesystem.py`'s `declare_functions` both perform, for the same
+same two-pass hoisting `analyses.ml`'s `block_functions` and
+`typesystem.ml`'s `declare_functions` both perform, for the same
 reason: forward references and recursion need every name bound before
 any body is walked). What it registers is deliberately **provisional**:
 the annotation, if the `def` wrote a return type, or `Int` as a guess
@@ -133,20 +133,20 @@ translated program means — comments (`/* */` vs `//`), whether `bool`
 exists as a real type, and where declarations may appear. `standard`
 reaches exactly the parts of the printer that need to know: `_C_TYPES`
 (so `Bool` prints as `int` under c89 and `bool` under c23),
-`_bool_literal` (`1`/`0` vs `true`/`false`), `_comment`, and — the one
-genuinely structural difference — `_emit_block`.
+`bool_literal` (`1`/`0` vs `true`/`false`), `comment`, and — the one
+genuinely structural difference — `emit_block`.
 
 C89 allows a declaration only at the **start** of a block; C23 allows
 one anywhere a statement can appear, matching what Pyking itself
-allows. Rather than reject C89 or refuse the difference, `_emit_block`
+allows. Rather than reject C89 or refuse the difference, `emit_block`
 does the translation itself: under `c89`, every `CDecl` in the block is
 split into a bare declaration (hoisted to the top, in source order) and
 an assignment left where it originally stood — so `var x = a` becomes
 `int x;` at the block's top and `x = a;` where the binding actually
 was. Because each Pyking binding already has its own distinct C
 variable name (renamed for shadowing exactly as every other backend's
-`Scope` renames — see `target_c.py`'s own `Scope`/`_bind`, which follow
-the same shape `target_js_core.py`'s do), hoisting the bare declaration
+`Scope` renames — see `target_c.ml`'s own `Scope`/`bind`, which follow
+the same shape `target_js_core.ml`'s do), hoisting the bare declaration
 ahead of its assignment can never accidentally capture the wrong
 variable; the split is purely mechanical.
 
@@ -166,13 +166,13 @@ says doesn't matter.
 
 ## Strings: a real helper, because C has no `++`
 
-Unlike `target_java.py`, where string concatenation is just Java's own
+Unlike `target_java.ml`, where string concatenation is just Java's own
 `+` and equality is `.equals()` (see that page), C has neither. This
 backend generates one small `pyk_concat` helper (written in the subset
 both standards accept, so one copy serves both) and translates an
 `EConcat` into a call to it; equality between two strings becomes
 `strcmp(...) == 0`. `CProgram.uses_concat`/`uses_strcmp` track whether
-either was needed at all, which is what lets `_headers` include
+either was needed at all, which is what lets `headers` include
 `<string.h>` (and, for `pyk_concat`'s `malloc`, `<stdlib.h>`) only in a
 program that actually uses them — a program printing one integer pulls
 in nothing beyond `<stdio.h>`.
@@ -200,7 +200,7 @@ Both are ordinary programs here, and neither is detectable from inside
 `expr`, which does not know what statement it is being translated for.
 So `in_order`/`sequenced` use the comma operator instead: `(t = a, f(t,
 b))` is a single expression, self-contained wherever it lands, and the
-comma is a sequence point. It composes the way `target_ocaml.py`'s `let`
+comma is a sequence point. It composes the way `target_ocaml.ml`'s `let`
 does, which is why the two backends' translation code reads the same
 despite the very different output.
 
@@ -211,15 +211,15 @@ Two consequences worth knowing:
   has to outlive the condition it is assigned in. `_Translator.temps`
   collects them while a body is translated and `declarations` turns them
   into `CVarDecl`s; `function` prepends them, and `translate_program`
-  does the same for `main`. Under `c89`, `_emit_block` already hoists
+  does the same for `main`. Under `c89`, `emit_block` already hoists
   declarations to the top of a block, so a `CVarDecl` joins that group
   and prints nothing of its own.
 - **`print` is the exception**, because it is a statement here (a
   `CPrint`, not a `CExpr`): there is no expression to wrap, and none is
   needed, so its ordering assignments are emitted as plain statements in
   front of the `printf`. That also means `stmt` can answer with a list
-  where it used to answer with one statement — every caller goes through
-  `_as_stmts`.
+  where it used to answer with one statement, which is why `stmt`
+  answers a `cstmt list` rather than a `cstmt`.
 
 A program whose functions only compute allocates no temporary and gets
 byte-for-byte the output it got before any of this existed, which is the

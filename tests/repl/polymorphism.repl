@@ -1,0 +1,5 @@
+def pair(a, b): (b, a)
+pair(1, "s")
+:type pair
+pair(true, 2)
+:ls

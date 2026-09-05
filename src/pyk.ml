@@ -1,0 +1,780 @@
+(** The driver: what `pyk` on the command line runs. Parses argv,
+    sequences the front-end stages, and dispatches to one of three
+    commands (`pyk <file>`, `repl`, `compile`). Every program is
+    type-checked, so a program that does not check is refused whatever
+    was asked for. A program of several modules runs the middle of that
+    sequence once per module, in the order module.ml puts them in. Each
+    backend owns its own translation, packaging and file naming.
+    See docs/architecture.md ("Command
+    line"), docs/modules.md and docs/source.md ("pyk.ml").
+
+    Data structures:
+      options -- argv parsed into one value: command, filename, flags.
+
+    Functions:
+      main argv -- argv in, exit status out.
+      parse_args argv -- argv, as an options.
+      front_end options -- loads the program's modules, then checks and
+        analyses each of them.
+      format_error error -- formats any front-end error as one line.
+      command_interpret checked -- `pyk <file>`.
+      command_compile checked options -- `pyk compile`.
+      wrap text -- reflows text to the driver's line width. *)
+
+(* The compiling targets, in the order the usage message lists them. The
+   interpreter is *not* one of them: it produces no source file, so it
+   is what `pyk <file>` does rather than something `--target` selects.
+   The test harness calls it a target because there it is one -- a way
+   of running a program and comparing its output.
+
+   `pyking` is the odd one: it compiles Pyking to Pyking, which is to
+   say it prints the program the front end worked out -- with the types
+   the checker inferred, and the loops the tail-call pass built. *)
+let pyking_target = Execution.pyking_target
+
+(* Nothing here names a target twice: each backend declares what it
+   supports and this is the concatenation, so a new C standard or Java
+   version reaches the usage message, `--target`'s check and the default
+   output name by being added there. *)
+let targets =
+  ([ "python" ] @ Target_js_packaging.targets @ Target_c.standards
+ @ Target_java.versions
+  @ [ Target_ocaml.target; pyking_target ])
+
+(* The targets whose host language eliminates tail calls itself, and
+   which are therefore compiled from the program as written rather than
+   from the one optimization.ml rewrote -- there the rewrite would only
+   be undone (see docs/optimization.md, "The target that needs none of
+   this"). *)
+let native_tail_calls = [ "ocaml" ]
+
+(* What the primary output file is called when `--output` doesn't say.
+   Each backend owns its own extension; `esm` names three files from
+   this stem. *)
+let extensions =
+  ([ ("python", ".py") ]
+  @ Target_js_packaging.primary_extensions
+  @ List.map (fun standard -> (standard, ".c")) Target_c.standards
+  @ List.map (fun version -> (version, ".java")) Target_java.versions
+  @ [ (Target_ocaml.target, Target_ocaml.extension); (pyking_target, ".pyk") ])
+
+(* Every message this module prints is laid out for a terminal this
+   wide. 70 rather than the usual 80 so that output still reads well
+   once a `$ ` prompt, a quoting mail client, or a docs code block has
+   eaten a few columns. *)
+let width = 70
+
+(** Reflows text to `width`, continuation lines indented; never breaks a
+    word. string -> string -> string *)
+let wrap ?(indent = "  ") text =
+  let words = List.filter (fun w -> w <> "") (String.split_on_char ' ' text) in
+  let rec fill words line lines =
+    match words with
+    | [] -> List.rev (if line = "" then lines else line :: lines)
+    | w :: rest ->
+        if line = "" then
+          let start = if lines = [] then "" else indent in
+          fill rest (start ^ w) lines
+        else
+          let candidate = line ^ " " ^ w in
+          if String.length candidate <= width then fill rest candidate lines
+          else fill words "" (line :: lines)
+  in
+  String.concat "\n" (fill words "" [])
+
+(* --- paths ---
+   Python's os.path, in the few shapes this driver needs. `dirname` is
+   "" rather than "." for a bare file name, which is what keeps a
+   generated path reading the way the command that produced it did. *)
+
+let dirname = Module.dirname
+let absolute = Module.absolute
+let join = Module.join
+let basename path = Filename.basename path
+let stem path = Filename.remove_extension (Filename.basename path)
+
+(** The Targets: block for --help: one row per group of targets sharing
+    an output extension. () -> string *)
+let target_table () =
+  let groups =
+    List.fold_left
+      (fun groups name ->
+        let extension = List.assoc name extensions in
+        match List.assoc_opt extension groups with
+        | Some _ ->
+            List.map
+              (fun (e, ns) -> if e = extension then (e, ns @ [ name ]) else (e, ns))
+              groups
+        | None -> groups @ [ (extension, [ name ]) ])
+      [] targets
+  in
+  let rows =
+    List.map (fun (extension, names) -> (String.concat ", " names, extension)) groups
+  in
+  let column =
+    List.fold_left (fun width (names, _) -> max width (String.length names)) 0 rows
+    + 3
+  in
+  String.concat "\n"
+    (List.map
+       (fun (names, extension) ->
+         Printf.sprintf "  %s%s" names
+           (String.make (column - String.length names) ' ' ^ extension))
+       rows)
+
+(* The help comes in two lengths, sharing the part nobody can do
+   without. What someone who typed `pyk` by itself needs is the shape of
+   the command and the flags; what someone who asked for `--help` wants
+   is everything, including the target table and the paragraphs
+   explaining what the commands actually do. *)
+
+let synopsis =
+  "Usage: pyk [options] <filename>          run it with the interpreter\n\
+  \       pyk repl                          start the REPL\n\
+  \       pyk compile [options] <filename>  compile it (alias: pyk c)\n\n\
+   Options:\n\
+  \  -t, --target <name>   compile for <name> (default: python)\n\
+  \  -o, --output <file>   write the output to <file>\n\
+  \  --stdout              print the generated code instead of writing it\n\
+  \  --run                 build and run what was compiled, with the\n\
+  \                        target's own commands\n\
+  \  --help                this, in full: the rest of the flags, what each\n\
+  \                        command does, and what each target writes"
+
+(* The flags someone reaches for once they know the shape of the tool:
+   two that show a stage's own output, and two that turn off a
+   transformation nobody has to know about to use the compiler. *)
+let more_options =
+  "More options:\n\
+  \  --symbols             with -t pyking, also print each node's symbol\n\
+  \  --tokens              print the token stream first\n\
+  \  --no-typechecking     skip the type checker, and with it the\n\
+  \                        mutability analysis and the tail-call pass,\n\
+  \                        which both need what it works out. Only\n\
+  \                        `compile -t pyking` accepts it: every other\n\
+  \                        target and the interpreter need the types.\n\
+  \                        What it prints is then the program as written,\n\
+  \                        with the source's own annotations, and nothing\n\
+  \                        it imports is read.\n\
+  \  --type-experiment     check the program with the alternative type\n\
+  \                        checker in src/type_experiment.ml instead of\n\
+  \                        the real one. That checker is a fragment --\n\
+  \                        integer literals, names, `+`, and the bindings\n\
+  \                        those need -- so most programs are refused with\n\
+  \                        'Construct is not supported'. It is there to be\n\
+  \                        grown, and this flag is how it is run.\n\
+  \  --no-tail-call-opt    leave tail calls as calls. A function that calls\n\
+  \                        itself in tail position is otherwise rewritten\n\
+  \                        into a `loop` carrying its parameters, and a\n\
+  \                        group of functions that tail-call each other\n\
+  \                        into one loop they share -- so such a function\n\
+  \                        runs in constant space on every target. Turning\n\
+  \                        it off is for reading the program as written,\n\
+  \                        and for the recursion depth it restores."
+
+(* The short form names the targets in a sentence rather than a table:
+   someone who wants to know what `-t` takes is answered by the list,
+   and someone who wants to know what each one *writes* is asking for
+   --help. *)
+let usage () =
+  Printf.sprintf "%s\n\nTargets:\n%s" synopsis
+    (wrap ("  " ^ String.concat ", " targets ^ "."))
+
+let usage_full () =
+  Printf.sprintf
+    "%s\n\n\
+     %s\n\n\
+     Targets:\n\
+     %s\n\n\
+     Pyking is statically typed, and every program is type-checked before\n\
+     anything else happens -- there is no flag for it and no way round it.\n\n\
+     `pyk <filename>` runs the program on the AST, with Pyking's own\n\
+     semantics: 32-bit integers, and its own runtime errors.\n\n\
+     `pyk compile` writes a file named after the source, in the current\n\
+     directory, unless --output says otherwise. The `esm` target writes three\n\
+     more files beside its .js: a .node.js driver, an .html wrapper, and\n\
+     package.json. The Java targets name the file and its class in Java's own\n\
+     casing: foo_bar.pyk -> FooBar.java. The `pyking` target writes Pyking\n\
+     again -- the program as the front end worked it out, with the types the\n\
+     checker inferred and the loops the tail-call pass built.\n\n\
+     `--run` builds and runs what was compiled, with the commands that\n\
+     target's host uses, each printed before it runs:\n\n\
+    \  python           python3 prog.py\n\
+    \  nodejs           node prog.js\n\
+    \  esm              node prog.node.js\n\
+    \  html             xdg-open prog.html (open, on macOS)\n\
+    \  c89, c23         cc -std=<standard> -o prog prog.c, then prog\n\
+    \  java8, java17,   javac --release <version> prog.java, then java prog\n\
+    \  java21\n\
+    \  ocaml            ocamlopt -o prog prog.ml, then prog\n\
+    \  pyking           pyk prog.pyk\n\n\
+     $CC, $JAVAC, $JAVA and $OCAMLOPT say which tool to use where there is a\n\
+     choice. --run needs a file to run, so it cannot be combined with\n\
+     --stdout."
+    synopsis more_options (target_table ())
+
+(* --- what was asked for --- *)
+
+(* The commands, and the one that is meant when a command word is left
+   out. A bare `pyk foo.pyk` runs the program -- the thing someone with
+   a file in their hand almost always wants -- and every other command
+   says its name. *)
+let commands = [ ("repl", "repl"); ("compile", "compile"); ("c", "compile") ]
+let default_command = "interpret"
+
+(** argv parsed into one value. Flags are shared by every command. *)
+type options = {
+  command : string;
+  filename : string option;
+  target : string;
+  output : string option;
+  stdout : bool;
+  run : bool;
+  symbols : bool;
+  tokens : bool;
+  tail_calls : bool;
+  typecheck : bool;
+  type_experiment : bool;
+}
+
+let default_options command =
+  {
+    command;
+    filename = None;
+    target = "python";
+    output = None;
+    stdout = false;
+    run = false;
+    symbols = false;
+    tokens = false;
+    tail_calls = true;
+    typecheck = true;
+    type_experiment = false;
+  }
+
+(** Whether this run hands the program to a backend whose own host
+    eliminates tail calls, in which case the pass would only be undone
+    (see docs/optimization.md). options -> bool *)
+let compiling_natively options =
+  options.command = "compile" && List.mem options.target native_tail_calls
+
+(** Prints message and the usage text to stderr, and exits 1.
+    string -> 'a *)
+let usage_error message =
+  prerr_endline (wrap (Printf.sprintf "Usage error: %s" message));
+  prerr_endline (usage ());
+  exit 1
+
+(** Parses argv into an options; exits via usage_error on anything
+    malformed. [string] -> options *)
+let parse_args argv =
+  let command, argv =
+    match argv with
+    | first :: rest when List.mem_assoc first commands ->
+        (List.assoc first commands, rest)
+    | argv -> (default_command, argv)
+  in
+  let rec go options positional rest =
+    match rest with
+    | [] -> (options, List.rev positional)
+    | "--help" :: _ | "-h" :: _ ->
+        print_endline (usage_full ());
+        exit 0
+    | "--tokens" :: rest -> go { options with tokens = true } positional rest
+    | "--run" :: rest -> go { options with run = true } positional rest
+    | "--symbols" :: rest -> go { options with symbols = true } positional rest
+    | "--no-tail-call-opt" :: rest ->
+        go { options with tail_calls = false } positional rest
+    | "--no-typechecking" :: rest ->
+        go { options with typecheck = false } positional rest
+    | "--type-experiment" :: rest ->
+        go { options with type_experiment = true } positional rest
+    | "--stdout" :: rest -> go { options with stdout = true } positional rest
+    | ("--target" | "-t") :: rest -> (
+        match rest with
+        | [] -> usage_error "--target requires a <target> argument"
+        | target :: rest ->
+            if not (List.mem target targets) then
+              usage_error
+                (Printf.sprintf "unknown target '%s'; expected one of %s" target
+                   (String.concat ", " targets));
+            go { options with target } positional rest)
+    | ("--output" | "-o") :: rest -> (
+        match rest with
+        | [] -> usage_error "--output requires a <file> argument"
+        | output :: rest -> go { options with output = Some output } positional rest)
+    | argument :: rest -> go options (argument :: positional) rest
+  in
+  let options, positional = go (default_options command) [] argv in
+  if options.run && options.stdout then
+    usage_error "--run needs a file to run, so it cannot be used with --stdout";
+  if (not options.typecheck) && (command <> "compile" || options.target <> pyking_target)
+  then
+    (* Every backend but this one reads the types, and so does the
+       interpreter: the Python one to know what to format, the OCaml one
+       for every type it emits, and the rest through the tail-call pass,
+       which the checker's table is what makes decidable. `-t pyking` is
+       the one that can print a program nothing has checked, since it
+       prints the program itself. *)
+    usage_error
+      (Printf.sprintf
+         "--no-typechecking only applies to 'pyk compile -t %s': every other \
+          target, and the interpreter, need the types the checker works out"
+         pyking_target);
+  if command = "repl" then (
+    if positional <> [] then usage_error "'pyk repl' takes no filename";
+    options)
+  else
+    match positional with
+    | [ filename ] -> { options with filename = Some filename }
+    | _ ->
+        prerr_endline (usage ());
+        exit 1
+
+(* --- reporting --- *)
+
+(** Formats a front-end error as `'file' row:col-row:col Kind: message`,
+    or None if error is not one of the stages'. One line per stage that
+    can refuse a program, in the order the stages run: every one of them
+    carries an info, which is what lets them all be reported the same
+    way, and the label is the only thing that differs.
+    exn -> string option *)
+let format_error error =
+  let line label (i : Lexer.info) message =
+    Some (wrap (Printf.sprintf "%s %s: %s" (Lexer.pprint_info i) label message))
+  in
+  match error with
+  | Lexer.Lex_error (i, message) -> line "Lexing error" i message
+  | Parser.Parse_error (i, message) -> line "Parsing error" i message
+  | Module.Module_error (i, message) -> line "Module error" i message
+  | Analyses.Analysis_error (i, message) -> line "Name error" i message
+  | Typesystem.Type_error (i, message) -> line "Type error" i message
+  | Type_experiment.Type_error (i, message) -> line "Type error" i message
+  | Interpreter.Runtime_error (i, message) -> line "Runtime error" i message
+  | _ -> None
+
+(** Prints error and exits 1. exn -> 'a *)
+let fail error =
+  (match format_error error with
+  | Some text -> prerr_endline text
+  | None -> raise error);
+  exit 1
+
+(** Prints an unsupported-construct error, naming the target that
+    refused it, and exits 1. string -> info -> string -> 'a *)
+let fail_unsupported target (i : Lexer.info) message =
+  prerr_endline
+    (wrap
+       (Printf.sprintf "%s Unsupported by target '%s': %s"
+          (Lexer.pprint_info i) target message));
+  exit 1
+
+(* --- the front end --- *)
+
+(** One module through the type checker and the mutability analysis,
+    answering the types it worked out. Exits via fail on the first
+    error. Module.t -> [(string, Typesystem.sigmap)] -> bool
+    -> typ IntMap.t *)
+let check_module (unit : Module.t) sigmaps experiment =
+  (* Pyking is statically typed, so this is not a mode: a program that
+     does not check is refused, whatever was asked for. The checker
+     carries a scope of its own, so it reports an unbound name too, in
+     analyses.ml's words. *)
+  let tmap =
+    try
+      if experiment then Type_experiment.type_check unit.stmts
+      else Typesystem.type_check unit.stmts sigmaps
+    with
+    | Analyses.Analysis_error _ as e -> fail e
+    | Typesystem.Type_error _ as e -> fail e
+    | Type_experiment.Type_error _ as e -> fail e
+  in
+  (* The one rule types do not state: only a `var` may be written to
+     with `:=`, and nothing may shadow one. *)
+  (try Analyses.analyze_mutability unit.stmts
+   with Analyses.Analysis_error _ as e -> fail e);
+  tmap
+
+(** One module through the tail-call pass, with the symbols it hands out
+    continuing past `highest` -- the highest anywhere in the program so
+    far, which is what the next module continues past in turn. Tail
+    calls become loops before anything reads the program, so what the
+    `pyking` target prints and what every backend compiles are the same
+    program.
+    [stmt] -> typ IntMap.t -> int -> options -> ([stmt], typ IntMap.t, int) *)
+let optimize_module program tmap highest options =
+  if not (options.tail_calls && not (compiling_natively options)) then
+    (program, tmap, highest)
+  else
+    (* The pass builds nodes, so symbols are handed out again --
+       `symbolize` keeps the ones already given -- and it extends `tmap`
+       for what it built, since the checker will not run again to say
+       what those nodes are. *)
+    let program, tmap = Optimization.optimize program tmap in
+    let program = Analyses.symbolize ~start:highest program in
+    (program, tmap, max highest (Analyses.highest_sym program))
+
+(** Prints the token stream of every module of the program.
+    [Module.t] -> () *)
+let report_tokens units =
+  List.iter
+    (fun (unit : Module.t) ->
+      List.iter
+        (fun token ->
+          Printf.printf "%s %s\n"
+            (Lexer.pprint_info (Lexer.token_info token))
+            (Lexer.pprint_token token))
+        unit.tokens;
+      print_newline ())
+    units
+
+(** Every stage before a backend, over every module the program reaches:
+    loading (which lexes, parses, symbolizes and orders them), type
+    checking, the mutability analysis, and the tail-call pass, each
+    module in the order it is loaded in -- so a module is checked after
+    everything it imports, against what those export. Under
+    `--no-typechecking` it stops after loading, and every table is None.
+    Exits via fail on the first error.
+    options -> [(Module.t, typ IntMap.t option)] *)
+let front_end options =
+  let filename = Option.get options.filename in
+  (* `--no-typechecking` is the one flag that stops the front end early:
+     the file named is lexed, parsed and symbolized, nothing it imports
+     is read, and `-t pyking` -- the only target that accepts the flag
+     (see `parse_args`) -- prints the program the parser built, with the
+     source's own annotations. *)
+  if not options.typecheck then (
+    let unit =
+      try Module.read_file filename None with
+      | Lexer.Lex_error _ as e -> fail e
+      | Parser.Parse_error _ as e -> fail e
+      | Module.Module_error _ as e -> fail e
+    in
+    if options.tokens then report_tokens [ unit ];
+    [ ({ unit with stmts = Analyses.symbolize unit.stmts }, None) ])
+  else
+    let units =
+      try Module.load filename with
+      | Lexer.Lex_error _ as e -> fail e
+      | Parser.Parse_error _ as e -> fail e
+      | Analyses.Analysis_error _ as e -> fail e
+      | Module.Module_error _ as e -> fail e
+    in
+    if options.tokens then report_tokens units;
+    (* Every module is checked against what the ones it imports export,
+       which is why they are checked in this order -- and `make_sigmap`
+       is what turns each result into the next module's input. It is
+       made from the program the *checker* saw, since the tail-call pass
+       below can only change how a module computes what it exports,
+       never what it exports or at what type. *)
+    (* The tail-call pass builds nodes and so hands out more symbols;
+       they continue past the highest in the whole program, since one
+       numbering spans every module of it (see Analyses.symbolize). *)
+    let highest =
+      List.fold_left
+        (fun highest (unit : Module.t) ->
+          max highest (Analyses.highest_sym unit.stmts))
+        0 units
+    in
+    let _, _, checked =
+      List.fold_left
+        (fun (sigmaps, highest, checked) (unit : Module.t) ->
+          let tmap =
+            check_module unit
+              (Module.sigmaps_for unit sigmaps)
+              options.type_experiment
+          in
+          let sigmap = Module.make_sigmap unit.stmts tmap in
+          let stmts, tmap, highest =
+            optimize_module unit.stmts tmap highest options
+          in
+          ( sigmaps @ [ (unit.name, sigmap) ],
+            highest,
+            checked
+            @ [ ({ unit with stmts; sigmap = Some sigmap }, Some tmap) ] ))
+        ([], highest, []) units
+    in
+    checked
+
+(* --- the commands --- *)
+
+(* How many calls a runtime error's stack trace shows before it says how
+   many more there were. *)
+let trace_limit = 10
+
+(** Runs `pyk <file>` with the interpreter; prints a runtime error (with
+    a truncated stack trace) if one occurs. Every module of the program
+    runs, in the order it was checked in, each in a top level of its
+    own. [(Module.t, typ IntMap.t option)] -> int *)
+let command_interpret checked =
+  let units =
+    List.map
+      (fun ((unit : Module.t), _) ->
+        (unit.name, Analyses.apply_signatures unit.stmts))
+      checked
+  in
+  let state = Interpreter.run_modules units Interpreter.console_host in
+  match Interpreter.failure state with
+  | None -> 0
+  | Some error ->
+      (match format_error error with
+      | Some text -> prerr_endline text
+      | None -> raise error);
+      let trace = Interpreter.stack_trace state in
+      List.iteri
+        (fun index (name, info) ->
+          if index < trace_limit then
+            prerr_endline
+              (wrap
+                 (Printf.sprintf "  in '%s', called at %s" name
+                    (Lexer.pprint_info info))))
+        trace;
+      if List.length trace > trace_limit then
+        Printf.eprintf "  ... %d more calls\n" (List.length trace - trace_limit);
+      1
+
+(** What a file compiled from `stem` is called when nothing says: the
+    source's own name with the target's extension -- except for the Java
+    targets, which require the public class to share its file's name
+    exactly, so the name is Java-cased rather than the source's own
+    spelling: `foo_bar.pyk` writes `FooBar.java`.
+    string -> string -> string *)
+let default_name target stem =
+  if List.mem target Target_java.versions then
+    Target_java.default_class_name stem ^ ".java"
+  else stem ^ List.assoc target extensions
+
+(** One module compiled for one target: the text of its own file, and
+    the companion files that go beside it -- a C header, an OCaml
+    interface -- keyed by path. Nothing is written here; a companion is
+    left out entirely where there is no path to put it beside
+    (`--stdout`).
+    Module.t -> typ IntMap.t option -> string -> string option -> options
+    -> (string, [(string, string)]) *)
+let compile_unit (unit : Module.t) tmap target path options checked =
+  let context = Module.context checked unit in
+  let source = basename unit.path in
+  if target = pyking_target then
+    (* Pyking back out again: the program as the front end worked it
+       out, with the checker's types and the tail-call pass's loops. It
+       is printed *before* `apply_signatures`, so a `def name : type`
+       line stays the line the source wrote rather than being folded
+       onto its header. *)
+    (Syntax.pprint_program unit.stmts options.symbols tmap ^ "\n", [])
+  else
+    let program = Analyses.apply_signatures unit.stmts in
+    if target = "python" then
+      ( Target_python.pprint_py_program
+          (Target_python.translate_program program
+             (Option.value tmap ~default:Syntax.IntMap.empty))
+        ^ "\n",
+        [] )
+    else if List.mem target Target_c.standards then
+      (* One backend, two standards: the difference is in how the C is
+         printed, not in what it means. *)
+      let c_program =
+        try Target_c.translate_program program context
+        with Target_c.Unsupported (info, message) ->
+          fail_unsupported target info message
+      in
+      let text = Target_c.pprint_c_program c_program target source in
+      if context.main || path = None then (text, [])
+      else
+        (* The program's own module declares nothing for anyone else to
+           include, so it has no header. *)
+        let header =
+          join
+            (dirname (Option.get path))
+            (unit.name ^ Target_c.header_extension)
+        in
+        (text, [ (header, Target_c.pprint_c_header c_program target source) ])
+    else if List.mem target Target_java.versions then
+      (* Java requires the public class to share its file's name exactly.
+         An explicit `--output` is trusted as-is: the class is named
+         after whatever file the caller chose. With none, `path` was
+         already picked in Java's own casing above, and the class matches
+         it too. *)
+      let class_name =
+        match path with
+        | Some path -> Filename.remove_extension (basename path)
+        | None -> Target_java.default_class_name unit.name
+      in
+      let java_program =
+        try Target_java.translate_program program context
+        with Target_java.Unsupported (info, message) ->
+          fail_unsupported target info message
+      in
+      ( Target_java.pprint_java_program java_program target class_name source,
+        [] )
+    else if target = Target_ocaml.target then
+      (* The one backend that infers nothing: it reads the types back out
+         of the table `front_end` filled, which is why this target
+         type-checks whether or not it was asked for, and why a program
+         that does not check has already been refused. *)
+      let ocaml_program =
+        try
+          Target_ocaml.translate_program program
+            (Option.value tmap ~default:Syntax.IntMap.empty)
+            context
+        with Target_ocaml.Unsupported (info, message) ->
+          fail_unsupported target info message
+      in
+      let text = Target_ocaml.pprint_ocaml_program ocaml_program source in
+      if context.main || path = None then (text, [])
+      else
+        (* Nothing imports the program's own module, so it needs no
+           interface saying what it exports. *)
+        let interface =
+          Filename.remove_extension (Option.get path)
+          ^ Target_ocaml.interface_extension
+        in
+        ( text,
+          [ (interface, Target_ocaml.pprint_ocaml_interface ocaml_program source) ]
+        )
+    else
+      (* Every target above is handled; `parse_args` refuses any other
+         name. *)
+      raise (Invalid_argument target)
+
+(** Every file the program compiles to, as (path, contents), and the
+    text of the one `--stdout` prints -- the program's own module, since
+    a module it imports is a file and `--stdout` writes none. A module
+    is written beside the program's output under its own name, which is
+    also what the generated import in that output names it by.
+    [(Module.t, typ IntMap.t option)] -> string -> string option
+    -> options -> ([(string, string)], string) *)
+let compile_program checked target output_path options =
+  let main_unit = fst (List.nth checked (List.length checked - 1)) in
+  let directory = dirname (Option.value output_path ~default:"") in
+  if List.mem target Target_js_packaging.targets then
+    (* The JavaScript targets package a whole program at once: `html`
+       has one file to put every module in, and the other two share one
+       runtime module between them. *)
+    let taken =
+      Target_js_packaging.reserved_names
+        (List.map (fun ((unit : Module.t), _) -> unit.name) checked)
+    in
+    Target_js_packaging.package_program target
+      (List.map
+         (fun ((unit : Module.t), _) ->
+           ( unit,
+             try
+               Target_js_core.translate_program ~taken
+                 (Analyses.apply_signatures unit.stmts)
+             with Target_js_core.Unsupported (info, message) ->
+               fail_unsupported target info message ))
+         checked)
+      output_path options.stdout
+  else
+  let files, primary =
+    List.fold_left
+      (fun (files, primary) ((unit : Module.t), tmap) ->
+        let is_main = unit.name = main_unit.Module.name in
+        let path =
+          if is_main then output_path
+          else Some (join directory (default_name target unit.name))
+        in
+        let contents, companions =
+          compile_unit unit tmap target path options checked
+        in
+        let primary = if is_main then contents else primary in
+        match path with
+        | None -> (files, primary)
+        | Some path -> (files @ [ (path, contents) ] @ companions, primary))
+      ([], "") checked
+  in
+  (files, primary)
+
+(** Runs `pyk compile <file>`: translates every module of the program
+    for options.target and writes the files, or prints the program's own
+    module (--stdout). A module the program imports is written beside
+    the program's own output, under its own name.
+    [(Module.t, typ IntMap.t option)] -> options -> int *)
+let command_compile checked options =
+  let target = options.target in
+  let filename = Option.get options.filename in
+  let output_path =
+    match (options.stdout, options.output) with
+    | false, None ->
+        (* Nothing said where to put it: use the source file's own name,
+           with the target's extension, in the directory the command was
+           run from. *)
+        Some (default_name target (stem filename))
+    | _, output -> output
+  in
+  (* Every file the program was read from: the program's own, and every
+     module it imports. `-t pyking` writes `.pyk` files, and a module is
+     written under its own name, so without this a program compiled into
+     its own directory would overwrite the module beside it. *)
+  let sources =
+    List.map (fun ((unit : Module.t), _) -> absolute unit.path) checked
+  in
+  let write path contents =
+    if List.mem (absolute path) sources then
+      usage_error
+        (Printf.sprintf "writing '%s' would overwrite %s; choose a different \
+                         output path."
+           path
+           (if absolute path = absolute filename then "the input file"
+            else
+              Printf.sprintf "'%s', a module this program imports"
+                (basename path)));
+    let directory = dirname path in
+    if directory <> "" && not (Sys.file_exists directory && Sys.is_directory directory)
+    then
+      usage_error
+        (Printf.sprintf "cannot write '%s': the directory '%s' does not exist."
+           path directory);
+    let channel = open_out path in
+    output_string channel contents;
+    close_out channel
+  in
+  let write_manifest path contents =
+    (* The esm target's package.json, unless one already exists there
+       (with a note if it does not declare ES modules). *)
+    if not (Sys.file_exists path) then write path contents
+    else
+      let channel = open_in_bin path in
+      let existing = really_input_string channel (in_channel_length channel) in
+      close_in channel;
+      if not (Target_js_packaging.manifest_declares_module existing) then
+        prerr_endline
+          (wrap
+             (Printf.sprintf
+                "Note: '%s' already exists and does not set \"type\":                  \"module\"; node will read the generated .js files as                  CommonJS until it does. Left untouched."
+                path))
+  in
+  let directory = dirname (Option.value output_path ~default:"") in
+  let files, primary = compile_program checked target output_path options in
+  if options.stdout then (
+    print_string primary;
+    0)
+  else (
+    List.iter
+      (fun (path, contents) ->
+        if basename path = Target_js_packaging.module_manifest then
+          write_manifest path contents
+        else write path contents)
+      files;
+    if options.run then
+      (* `--stdout` wrote no file, and `parse_args` already refused the
+         combination, so there is always something here to run. The
+         modules the program imports are named in the order they must be
+         built and run, which is the order they were compiled in. *)
+      Execution.execute target
+        (Option.get output_path)
+        (List.filteri (fun i _ -> i < List.length checked - 1) checked
+        |> List.map (fun ((unit : Module.t), _) ->
+               join directory (default_name target unit.name)))
+    else 0)
+
+(** Runs pyk. [string] -> int *)
+let main argv =
+  let options = parse_args argv in
+  if options.command = "repl" then Repl.start format_error
+  else
+    let checked = front_end options in
+    if options.command = "compile" then command_compile checked options
+    else command_interpret checked
+
+let () = exit (main (List.tl (Array.to_list Sys.argv)))

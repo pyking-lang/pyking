@@ -1,6 +1,6 @@
-# `module.py`: design
+# `module.ml`: design
 
-How `src/module.py` turns a file into a program: which modules a program
+How `src/module.ml` turns a file into a program: which modules a program
 is made of, in what order they are compiled and run, what each of them
 exports, and what each import means. For what the rules *are* (as
 language, not implementation), see PYKING.md, "Modules"; for where this
@@ -33,9 +33,9 @@ source.
 
 ## The graph is built while it is walked
 
-`_visit` is an ordinary depth-first search over the import graph, and it
+`visit` is an ordinary depth-first search over the import graph, and it
 does three things at once. It reads and parses each module it reaches
-(`read_module`). It appends each one to `order` *after* everything that
+(`read_file`). It appends each one to `order` *after* everything that
 module imports, which is a topological sort. And it carries the path of
 imports it is following in `stack`, which is what makes a cycle
 findable: reaching a module already on the stack is a cycle, and the
@@ -58,9 +58,9 @@ it is read against is the *calling* machine's (see
 [interpreter.md](interpreter.md)).
 
 `--no-typechecking` is the one path that does not go through `load` at
-all: it exists only so this front end can be compared against the OCaml
-one in `ocaml-src/`, which reads one file and has no module system, so
-it reads one file too (`read_file`).
+all: it stops the front end after `symbolize`, and reading a module the
+program imports is something only the stages after that need, so it
+reads the one file it was given (`read_file`) and nothing else.
 
 ## What a module exports
 
@@ -73,7 +73,7 @@ definition" for granted.
 
 A `def` may be marked on its definition or on its own signature line, so
 one name can be marked twice and still be one definition;
-`_one_definition` is what tells that from two different things sharing a
+`one_definition` is what tells that from two different things sharing a
 name. Two `def`s of one name is not this module's error to report:
 `analyses.block_functions` already refuses it, in its own words.
 
@@ -197,7 +197,7 @@ after the module and given the target's extension -- `helper.py`,
 `helper.mli`. The generated import in the program's output names it by
 that name, so the two agree by construction.
 
-`src/execution.py` is where `--run` learns the rest: which of those
+`src/execution.ml` is where `--run` learns the rest: which of those
 files have to be handed to the compiler, and in which order. For C, Java
 and OCaml that order is the dependency order, since those three link a
 program rather than importing at run time -- and for OCaml it is also

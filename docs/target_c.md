@@ -4,7 +4,7 @@
 
 **Key points**
 
-- One backend, `src/target_c.py`, with a `standard` parameter. The two
+- One backend, `src/target_c.ml`, with a `standard` parameter. The two
   targets translate *identically*; only the printer differs, in four
   places: comments, where declarations may appear, how booleans are
   spelled, and which headers are needed.
@@ -135,7 +135,7 @@ a value and leaves the other with unit. C has a single return type per
 function and no way to say "or nothing", and falling off the end of a
 non-`void` function is undefined behaviour -- the compiler will happily
 build a program that returns whatever was in the return register. This
-is the same rule `target_java.py` enforces because `javac` demands it;
+is the same rule `target_java.ml` enforces because `javac` demands it;
 here it is enforced because the C standard does *not*.
 
 ### A recursive or forward-called function returning non-`Int` without an annotation
@@ -453,7 +453,7 @@ already hold it, so nothing has to be put anywhere. C has no loop
 writes itself, `if (!c) break;` at the top of a `while (1)`.
 
 A `while (1)` no `break` leaves is a loop that never finishes, so
-`_falls_through` (see "A function that produces a value on some paths
+`falls_through` (see "A function that produces a value on some paths
 and none on others") counts a function ending in one as returning —
 there is no path off the end to worry about.
 
@@ -470,7 +470,7 @@ def double(n):                     int double2(int n)
                                    }
 ```
 
-The list (`RESERVED` in `src/target_c.py`) is one list for both
+The list (`RESERVED` in `src/target_c.ml`) is one list for both
 standards -- C89 plus the C99/C11/C23 additions -- since a name renamed
 under `c23` but not `c89` would make the two targets disagree about the
 generated code for no good reason. It also holds `main`, `printf`,
@@ -480,7 +480,7 @@ shadowing one would break the file just as thoroughly.
 ### Booleans
 
 `true`/`false` literals translate directly to `CBool`, printed by
-`_bool_literal` as whichever spelling the standard uses (`1`/`0` for
+`bool_literal` as whichever spelling the standard uses (`1`/`0` for
 c89, `true`/`false` — real keywords, no `<stdbool.h>` needed — for c23).
 *Printing* a boolean is a separate concern from representing one: Pyking
 prints booleans `true`/`false` too, but neither C standard spells its own
@@ -549,11 +549,11 @@ called = add(step("f", 10), step("g", 20))
 ```
 
 ```c
-called = (_pyk1 = step("f", 10), add(_pyk1, step("g", 20)));
+called = (tmp1 = step("f", 10), add(tmp1, step("g", 20)));
 ```
 
 The temporaries are declared at the top of the function they appear in
-(`_pyk1`, `_pyk2`, ..., with a prefix `_unused_prefix` guarantees the
+(`tmp1`, `tmp2`, ..., with a prefix `unused_prefix` guarantees the
 program does not use), never beside the statement that needs them: an
 operand written in a `while` condition is evaluated again every turn,
 and one written in a branch of an `if` expression only when that branch
@@ -568,8 +568,8 @@ print(step("l", 1), step("m", 2))
 ```
 
 ```c
-_pyk7 = step("l", 1);
-printf("%d %d\n", _pyk7, step("m", 2));
+tmp7 = step("l", 1);
+printf("%d %d\n", tmp7, step("m", 2));
 ```
 
 A program whose functions only compute — nearly every program — has
@@ -702,8 +702,8 @@ harness both do.
   Pyking program that overflows will disagree with the Python target.
 - **Parameter inference is a guess** for unannotated parameters (above).
 - **Ordering temporaries read as C, not as the source.** A comma
-  expression is legal and correct C, but `(_pyk1 = step("f", 10),
-  add(_pyk1, step("g", 20)))` is not what a person would write. A
+  expression is legal and correct C, but `(tmp1 = step("f", 10),
+  add(tmp1, step("g", 20)))` is not what a person would write. A
   smarter backend would hoist the assignment to the statement in front
   of it wherever the expression is evaluated exactly once there, and
   keep the comma only for the `while` conditions and `if` expression

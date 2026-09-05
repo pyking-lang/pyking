@@ -1,16 +1,16 @@
-# `analyses.py`: design
+# `analyses.ml`: design
 
-How `src/analyses.py` checks mutability, gives every AST node a unique
+How `src/analyses.ml` checks mutability, gives every AST node a unique
 symbol, and works out which expressions can print. For what the rules
 *are* (as language, not implementation), see PYKING.md, "Names and
 scoping"; for where this module sits in the pipeline, see
 [architecture.md](architecture.md); for a one-page summary, see
-[source.md](source.md#analysespy).
+[source.md](source.md#analysesml).
 
 ## What is left here, and what moved
 
 This module used to own *names*: every name bound where it is used,
-every scope rule, the lot. `src/typesystem.py` does that now — Pyking is
+every scope rule, the lot. `src/typesystem.ml` does that now — Pyking is
 statically typed, the checker runs for every program, and its `Env` is a
 scope, so a second walk asking the same questions would only be a second
 place for the answers to drift.
@@ -28,23 +28,23 @@ it cannot find in its own environment is never "unbound", because the
 checker already refused those: it is "not a mutable variable", which is
 the message worth printing.
 
-## The environment is a dict that gets rebuilt, not mutated
+## The environment is a map that gets rebuilt, not mutated
 
 `analyze_mutability` and everything it calls thread one value through the
-whole walk: `env`, a plain `{name: Binding}` dict. Every function that
-introduces a name returns a **new** dict — `bind` is `return {**env,
-name: Binding(kind, info)}`, never `env[name] = ...` — and that one
-line is the entire mechanism lexical scoping is built from here. There
-is no separate "push a scope" / "pop a scope" pair of operations, and
-no stack of scopes to manage:
+whole walk: `env`, a `name -> binding` map. Every function that
+introduces a name answers with a **new** map — `bind` ends in
+`SMap.add name { kind; info } env`, and nothing writes into the one it
+was handed — and that one line is the entire mechanism lexical scoping
+is built from here. There is no separate "push a scope" / "pop a scope"
+pair of operations, and no stack of scopes to manage:
 
 - **Entering a nested block** is simply "keep using the `env` you were
   handed." `analyze_scope(stmts, env)` calls `analyze_stmts(stmts,
   env)` and does nothing with what comes back.
 - **Leaving one** is "go back to the caller's own `env`," which
-  requires no action at all — the caller's local variable was never
-  touched, because the callee only ever built new dicts on top of a
-  *copy* of what it started with.
+  requires no action at all — the caller's own value was never touched,
+  because the callee only ever built new maps on top of what it started
+  with.
 
 That is what makes a block's own bindings provably unable to escape it:
 `analyze_if`'s `then_body`/`else_body` branches are each analyzed with
@@ -61,7 +61,7 @@ behind. **Whether a name escapes its block is entirely a question of
 whose return value gets reused** — nothing more elaborate is needed,
 and there is no environment-stack data structure anywhere in this file.
 
-`typesystem.py`'s `Env` and `interpreter.py`'s persistent `Env` chain
+`typesystem.ml`'s `Env` and `interpreter.ml`'s persistent `Env` chain
 both follow the identical discipline, for the identical reason — see
 their own design pages.
 
@@ -90,7 +90,7 @@ and a helper defined at the bottom of a file all work (see PYKING.md).
 
 `block_functions(stmts)` is what makes this safe rather than magical:
 it collects every `SFunctionDef` at the top level of one block into a
-`name -> node` dict *before* anything in the block is walked, checking
+`name -> node` list *before* anything in the block is walked, checking
 two things while it's at it — no two `def`s in the same block share a
 name, and no *other* binding in the block (a `SLet`, a `SVar`, a loop
 variable) shares a `def`'s name either (`check_no_function_clash`,
@@ -102,13 +102,14 @@ block you asked. `analyze_stmts` then binds every one of
 `block_functions`'s results *first*, in one pass, before walking any
 statement's actual body:
 
-```python
-def analyze_stmts(stmts, env):
-    for stmt in block_functions(stmts).values():
-        env = bind(env, stmt.name, FUNCTION, stmt.info)
-    for stmt in stmts:
-        env = analyze_stmt(stmt, env)
-    return env
+```ocaml
+let rec analyze_stmts stmts env =
+  let env =
+    List.fold_left
+      (fun env (name, stmt) -> bind env name Function (stmt_info stmt))
+      env (block_functions stmts)
+  in
+  List.fold_left (fun env stmt -> analyze_stmt stmt env) env stmts
 ```
 
 That two-pass shape — bind all the names, *then* walk all the bodies —
@@ -119,8 +120,8 @@ resolves. `block_functions` deliberately only looks at *this* block's
 top level, not nested ones — a `def` written inside an `if` branch is
 hoisted only within that branch's own `analyze_scope` call, which is
 why "hoisting" here never reaches further than the block that lexically
-contains it. `typesystem.py`'s `declare_functions` and
-`interpreter.py`'s `declare`/`define` both import `block_functions`
+contains it. `typesystem.ml`'s `declare_functions` and
+`interpreter.ml`'s `declare`/`define` both import `block_functions`
 directly rather than reimplementing this logic, specifically so the
 three passes cannot disagree about which programs are legal — see their
 own pages.
@@ -160,36 +161,35 @@ has none, since it was never written in this source file at all.
 ## Symbols: a generic walk, so a new AST node needs no code here
 
 `symbolize(stmts, start)` is unlike everything above it in this file: it
-**rewrites** the tree rather than only reading it. Every node is a
-frozen dataclass, so "rewrite" means "build a new tree with
-`dataclasses.replace`," bottom-up — `renumber(node)` recurses into every
-field first (so children get their symbols assigned before their
-parent's own `replace` call happens), then replaces `node`'s `sym`
-field if it was `0`.
+**rewrites** the tree rather than only reading it. Nothing mutates a
+node, so "rewrite" means "build a new tree", bottom-up — `sym_expr` and
+friends recurse into every child first (so children are numbered before
+their parent), then give the node its own number if it had none.
 
-The walk is written generically over `is_dataclass(node) and
-hasattr(node, "sym")`, not as one `match`/`case` arm per AST node type.
-That is a deliberate difference from every other tree walk in this
-file (`analyze_stmt`, `bound_names`, ... are all one `match` per node
-kind) and the reason is squarely practical: `syntax.py` has upward of
-forty node kinds, and `symbolize`'s job — "give this node a number, and
-recurse into its children, whatever they are" — doesn't actually depend
-on *which* forty kinds. Writing it generically means a brand-new AST
-node added to `syntax.py` gets symbolized for free, with nothing to
-touch in this file; `analyses.py`'s CLAUDE.md entry says exactly this —
-"`symbolize` needs nothing" when the language grows a construct. It is
-the one place in the compiler where reflection over dataclass fields
-substitutes for exhaustive pattern matching, and it works because the
-job at hand (assign a number, recurse) is genuinely uniform across
-every node kind, unlike name analysis or type checking, where each
-kind means something different and *has* to be handled on its own
-terms.
+There is one case per constructor, in the order `syntax.ml` declares
+that node's fields, and the counter is threaded through as a value
+rather than held in a cell. That is a real cost — a node added to
+`syntax.ml` needs a case here or it keeps symbol `0`, and only the
+`--symbols` half of the suite would catch it — and it is the price of
+the exhaustiveness the rest of the compiler gets: every other walk in
+this file is one `match` per node kind too, and the compiler checks that
+each of them covers the type.
+
+The first implementation could write this one walk generically, over
+Python's dataclass fields, because the job at hand — "give this node a
+number, and recurse into its children, whatever they are" — is genuinely
+uniform across every node kind. What replaces that reflection here is
+`walk.ml`: one `children` function, written out once, that the passes
+asking a question of a whole subtree (`Effects`, the C and Java
+backends' "is this name used as a string", the interpreter's call-free
+table) all fold over. `symbolize` does not use it, because it rebuilds
+rather than reads, and rebuilding a node needs to know which node it is.
 
 `highest_sym` walks the same way, read-only, to find where numbering
 should *resume*: `symbolize` starts its counter one past the largest
 symbol already present, or past `start`, whichever is higher, rather
 than always starting at 1. `start` is what makes one numbering span a
-program of several modules: `src/module.py` hands each module the
+program of several modules: `src/module.ml` hands each module the
 highest the one before it reached, so no two nodes in a program share a
 symbol -- which is what lets one type table, and one call-free table,
 cover all of them (see [modules.md](modules.md)). Combined
@@ -220,7 +220,7 @@ difference reached the test suite in the first place, as
 another (AArch64 and x86-64 disagree about a call's arguments, and both
 are conforming).
 
-So `target_c.py` and `target_ocaml.py` both need to know which operands
+So `target_c.ml` and `target_ocaml.ml` both need to know which operands
 to pin down, and the answer is the same for both. It lives here because
 it is an analysis of the Pyking AST — no C, no OCaml, nothing about
 temporaries — and because one definition cannot drift from the other.

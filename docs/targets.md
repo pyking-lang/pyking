@@ -22,7 +22,7 @@ much of the language it takes. For how the compiler is put together see
 | `java21` | [Java](target_java.md) | `Foo.java` | `javac --release 21 Foo.java && java Foo` | subset, minus `/` |
 | `ocaml` | [OCaml](target_ocaml.md) | `foo.ml` | `ocamlopt foo.ml -o foo && ./foo` | whatever type-checks |
 | `pyking` | *(the front end itself)* | `foo.pyk` | `pyk foo.pyk` | everything |
-| *(none — `pyk foo.pyk`)* | [the interpreter](source.md#interpreterpy) | nothing | `pyk foo.pyk` | whatever type-checks |
+| *(none — `pyk foo.pyk`)* | [the interpreter](source.md#interpreterml) | nothing | `pyk foo.pyk` | whatever type-checks |
 
 Select one with `pyk compile --target <name>`, or `-t <name>`; `python`
 is the default. With no `--output`, the compiler names the file after the
@@ -62,7 +62,7 @@ because it produces no file to name. It is a command of its own:
 pyk tests/hello.pyk              # runs it; nothing is written anywhere
 ```
 
-It runs the AST directly (`src/interpreter.py`) rather than translating
+It runs the AST directly (`src/interpreter.ml`) rather than translating
 it, which makes it the *reference* for what a Pyking program means at run
 time: where a compiled target disagrees with it, the target is wrong. Its
 coverage is the type checker's, run for real — the same arrangement the
@@ -88,22 +88,22 @@ always accept exactly the same programs:
   the only one that compiles the whole language. Everything else is
   measured against it.
 - **[JavaScript](target_js.md)** — `nodejs`, `html`, `esm`. One
-  translation (`src/target_js_core.py`), three packagings
-  (`src/target_js_packaging.py`). They differ only in where `print` goes
+  translation (`src/target_js_core.ml`), three packagings
+  (`src/target_js_packaging.ml`). They differ only in where `print` goes
   and what files come out.
-- **[C](target_c.md)** — `c89`, `c23`. One backend (`src/target_c.py`)
+- **[C](target_c.md)** — `c89`, `c23`. One backend (`src/target_c.ml`)
   with a `standard` parameter. They differ only in how the same C is
   printed.
 - **[Java](target_java.md)** — `java8`, `java17`, `java21`. One backend
-  (`src/target_java.py`) with a `version` parameter, the same shape as
+  (`src/target_java.ml`) with a `version` parameter, the same shape as
   the C family. They differ only in how the same Java is printed.
 - **[OCaml](target_ocaml.md)** — `ocaml`. One backend
-  (`src/target_ocaml.py`), and the only family with one member. Its
+  (`src/target_ocaml.ml`), and the only family with one member. Its
   subset is not a list of constructs but a *stage*: it compiles exactly
   what the type checker accepts, by running it and reading the types
   back.
 - **The interpreter** — `pyk <file>`, `pyk repl`. Not a family and not a
-  backend: `src/interpreter.py` runs the AST on a small-step machine
+  backend: `src/interpreter.ml` runs the AST on a small-step machine
   instead of translating it. Like `ocaml`, its subset is the type
   checker's, run for real.
 
@@ -137,7 +137,7 @@ Two things it does that no compiling target does:
 
 A function that calls itself in tail position is rewritten into a `loop`
 before any backend sees it, and a group that tail-calls each other into
-one loop they share (`src/optimization.py`,
+one loop they share (`src/optimization.ml`,
 [optimization.md](optimization.md)). So the guarantee is the same
 everywhere, including the interpreter, and no backend implements
 anything for it: what each of them compiles is a program with a `loop`
@@ -223,7 +223,7 @@ block of that page instead. [modules.md](modules.md) has the shape each
 of them uses; the family pages have the generated code.
 
 The `ocaml` column is the type checker's coverage, not a list this
-backend maintains: it compiles what `src/typesystem.py` accepts, so the
+backend maintains: it compiles what `src/typesystem.ml` accepts, so the
 two move together. That is also why it is the one target whose subset
 grows without touching the backend — and why a `def` there must be
 annotated, which no other target requires.

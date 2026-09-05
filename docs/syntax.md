@@ -1,49 +1,50 @@
-# `syntax.py`: design
+# `syntax.ml`: design
 
-How `src/syntax.py` represents the Pyking AST and prints it back out,
+How `src/syntax.ml` represents the Pyking AST and prints it back out,
 and why. For the AST itself as a reference (every variant and its
 fields), read the file's own `datatype` comment block first — it is
 meant to be read directly, not reproduced here. For where this module
 sits in the pipeline, see [architecture.md](architecture.md); for a
-one-page summary, see [source.md](source.md#syntaxpy).
+one-page summary, see [source.md](source.md#syntaxml).
 
-## Why not `ast.py`
+## Why `syntax.ml` and not `ast.ml`
 
-The obvious name for "the AST module" is taken — by the Python standard
-library. `src/` is a flat set of script modules, not a package (see
-CLAUDE.md), so nothing shadows a top-level import the way a package's
-own submodule would; a module here literally named `ast.py` would sit
-on `sys.path` in front of the real one. That would not just break an
-explicit `import ast` somewhere in this codebase — it breaks
-`dataclasses` itself, which reaches the standard library's `ast`
-indirectly through `inspect` at class-definition time, before any of
-this project's own code has run. Every `@dataclass` in every module
-would fail to import. The name `syntax.py` sidesteps the problem
-entirely rather than working around it (e.g. with a package and
-relative imports, which `src/` deliberately avoids for a different
-reason — see CLAUDE.md on the self-hosting plan).
+Nothing forbids the shorter name now: OCaml module names live in a
+namespace of their own, and an `Ast` module would shadow nothing. The
+name is `syntax.ml` because everything else already says so — the
+`open Syntax` at the top of a dozen modules, the docs, the error
+messages — and because "syntax" is what the file holds: the shape a
+program has after parsing, and the printer that puts it back.
+
+It is worth knowing why the name was ever a question. The first
+implementation was Python, where `src/` was a flat set of script
+modules on `sys.path`: a file literally named `ast.py` would have sat
+in front of the standard library's own, and `dataclasses` reaches that
+one indirectly at class-definition time, so every module in the
+compiler would have failed to import. That hazard is gone with the
+language it belonged to.
 
 ## The AST as algebraic data types
 
-Every node group — `Expr`, `Type`, `Pattern`, `CompClause`,
-`AssignTarget`, `Stmt`, and the single-constructor `Param`, `ListRest`,
-`MatchCase` — is a Python base class with no fields of its own, plus
-one frozen `@dataclass` per variant that subclasses it: `EAdd`,
-`ESub`, `EMul`, ... all extend `Expr` and carry exactly the fields that
-variant needs. This is the same shape `lexer.py`'s `Token` uses, for
-the same reason: Python has no closed sum type, and a base class plus
-one final subclass per alternative is the nearest approximation,
-consumed everywhere by `match`/`case` rather than by method dispatch.
-It also happens to be the shape a real variant type would take once
-this compiler is rewritten *in* Pyking — see CLAUDE.md — so nothing
-here is written to be clever with Python; it is written to translate.
+Every node group — `expr`, `typ`, `pattern`, `comp_clause`,
+`assign_target`, `stmt`, and the single-constructor `param`,
+`list_rest`, `match_case` — is one variant type, with one constructor
+per alternative: `EAdd`,
+`ESub`, `EMul`, ... each carrying exactly the fields that variant needs.
+This is the same shape `lexer.ml`'s `token` uses, and it is consumed
+everywhere by `match` rather than by method dispatch. It is also the
+shape the AST will keep once this compiler is rewritten *in* Pyking —
+see CLAUDE.md — since Pyking's own variant types are meant to be read
+the same way.
 
-A dataclass, though, can only say what fields a class has — not that
-`EAdd` and `EInt` are two cases of one thing, and nothing *else* is. A
-`match` over `Expr` implicitly assumes exactly that: every `case` arm
-is only exhaustive if the set of subclasses is closed. Python's type
-checker (if one is even running) can't verify it, so the file states it
-by hand, in one comment block near the top:
+The type declaration says all of it: `type expr = EInt of ... | EAdd of
+... | ...` is one closed set of alternatives, and a `match` over it that
+misses a case is a compile error rather than a `None` returned at run
+time. That is the one thing the first implementation could not have. It
+was Python, where each variant was a frozen dataclass subclassing a
+marker base class, and a dataclass can say what fields a class has but
+not that the set of subclasses is closed — so the file stated it by hand,
+in one comment block near the top:
 
 ```
 # datatype Expr:
@@ -52,42 +53,42 @@ by hand, in one comment block near the top:
 #     ...
 ```
 
-This is documentation a reader can trust because — deliberately —
-nothing generates it and nothing checks it against the dataclasses
-automatically. That is a real cost (it can drift; CLAUDE.md calls this
-out explicitly as the one place in the file that nothing catches
-drifting) traded for a real benefit: **the whole shape of the AST reads
-in one place**, in a notation chosen for what it can say and Python's
-annotations can't — `[T]` records an element type a bare `list`
-annotation loses, and `T?` records that a field may be absent, which
-`x: Type = None` only implies. Gathering every group here also lets
-mutually referencing types be compared side by side — `TFunction`
-mentions `SFunctionDef`, so reading whether the two agree means reading
-two lines, not scrolling between two ends of the file.
+That block is now the type declaration itself, and the drift it could
+suffer is gone with it: the compiler reads the same text a reader does.
+What survives from the comment block is the *legend* — `[T]` for a list
+of `T`, `T?` for a field that may be absent — and the trailing comment on
+each variant saying what it is written as in source. `[T]` in particular
+is no longer only a comment: `expr list` says the element type outright,
+where the Python could annotate a field `list` and nothing more.
 
-The comment block orders the six alternative-types first and the three
-single-constructor "records" last — not the order the classes are
-*declared* in below, which instead follows a different constraint:
-Python has to see a name before it's used, so `EListComp` (which holds
-`[CompClause]`) is declared after `CompClause`, even though it's a
-variant of `Expr` and so belongs with the other `E*` classes in the
-comment block. The comment's order is for a reader; the file's order is
-for the interpreter.
+What the old block bought, the type declaration keeps: **the whole shape
+of the AST reads in one place**. Gathering every group in one recursive
+`type ... and ...` also lets mutually referencing types be compared side
+by side — `TFunction` mentions `stmt`, so reading whether the two agree
+means reading two lines, not scrolling between two ends of the file.
 
-Every node also carries two fields the comment block includes but the
-grammar doesn't produce: `info` (its source span, attached by the
-parser) and `sym` (`0` until `symbolize` — see `analyses.py` — assigns
-one post-order). Because every dataclass is frozen, nothing mutates a
-tree in place; a pass that needs to change a node rebuilds it with
-`dataclasses.replace`, which is exactly what `symbolize` does to attach
-symbols after the fact.
+The declaration orders the six alternative-types first and the three
+single-constructor "records" last. One recursive `type ... and ...`
+binds them all at once, so nothing has to be declared before it is
+mentioned and the order is free to be the one a reader wants — which is
+what the first implementation could not do: in Python a class had to see
+a name before using it, so `EListComp` (which holds `[CompClause]`) was
+declared after `CompClause` even though it belongs with the other `E*`
+variants, and the comment block's order and the file's order disagreed.
+
+Every node also carries two fields the grammar doesn't produce: `info` (its source span, attached by the
+parser) and `sym` (`0` until `symbolize` — see `analyses.ml` — assigns
+one post-order). Both are ordinary fields of the constructor, written
+first and last; nothing mutates a tree in place, so a pass that needs to
+change a node rebuilds it, which is exactly what `symbolize` does to
+attach symbols after the fact.
 
 ## `TFunction`: two fields the source never writes
 
 Every other node's fields all come from parsing. `TFunction` is the one
 exception, and it's worth understanding why. A parsed function type —
 `(Int, Bool) -> Int` written in an annotation — has only `params` and
-`result`; but the type checker (`src/typesystem.py`) also needs to
+`result`; but the type checker (`src/typesystem.ml`) also needs to
 represent *a function whose type was never written down*, deferred
 until its first call (see [type_inference.md](type_inference.md)). That
 needs somewhere to keep two more facts: which `def` this promise is
@@ -97,7 +98,7 @@ you can hash reliably across a rebuilt tree). Rather than invent a
 second type for "a function type still being worked out," `TFunction`
 just grows two fields that are `None`/`0` for a type the parser built
 and populated for one the checker built. `same_type` (in
-`typesystem.py`) ignores both when comparing two function types, since
+`typesystem.ml`) ignores both when comparing two function types, since
 neither is part of what the type *means* — only where it came from and
 how much of it is still a promise.
 
@@ -111,7 +112,7 @@ has to solve the same problem the parser solved in the other direction:
 decide when a sub-expression needs parentheses to force the same
 grouping on re-parse.
 
-The mechanism is `min_prec`, threaded through `_pprint_expr` the way a
+The mechanism is `min_prec`, threaded through `pprint_expr` the way a
 Pratt parser threads a minimum binding power: each call says "the
 result must bind at least this tightly," and `_wrap(prec, min_prec, s)`
 parenthesizes `s` exactly when its own precedence falls short. `EAdd`
@@ -150,26 +151,26 @@ even though those are the functions that do the actual formatting. The
 reason is `tmap`: the type checker has always run, so `-t pyking`
 is supposed to show the types it *inferred*, which may differ from (or
 simply exist where the source omitted) what was written. The checker
-doesn't write into the AST — see `typesystem.py`'s design note that it
+doesn't write into the AST — see `typesystem.ml`'s design note that it
 touches nothing but its own `tmap` — so a printer that only looked at a
 node's own `type` field would show the source's claim, not the
 checker's answer.
 
 `_node_type(node, annotation)` is the switch: if a `tmap` was given,
 look up `node.sym` there and print *that*; otherwise fall back to the
-node's own field. `_annotation` and `_function_header`/
-`_return_annotation` all route through it. The interesting corner is a
+node's own field. `annotation` and `function_header`/
+`return_annotation` all route through it. The interesting corner is a
 *parameter* whose own type is quantified — `f: all a. (a) -> a`, which
 is what a body using its argument at two types infers (see
 [type_inference.md](type_inference.md)). That `all` is not the
 signature's outermost one, so unlike the outermost it has to be printed:
 `f: (a) -> a` in a signature quantified further out is a different and
 weaker claim, and printing it would say something the checker does not
-enforce. `_pprint_param` is where that is decided. The principle is
-`typesystem.py`'s own: when a type can't be written down in the syntax
+enforce. `pprint_param` is where that is decided. The principle is
+`typesystem.ml`'s own: when a type can't be written down in the syntax
 available, print less, never print something that isn't true.
 
-`_spellable` applies that same principle one level down, to types rather
+`spellable` applies that same principle one level down, to types rather
 than to whole signatures. `TUnknown` prints as `?`, which the lexer does
 not accept, and `TBuiltin` names an operation rather than a value — so
 an annotation whose type holds one of them anywhere is left off
@@ -181,7 +182,7 @@ flexible type variable, so it prints as `xs: [a] = []` and does read
 back. `tests/typecheck_pyking_reparse.pyk` pins it.
 
 `symbols` and `tmap` are **module-level variables** (`_show_symbols`,
-`_tmap`), not parameters threaded through every one of the dozen
+`tmap`), not parameters threaded through every one of the dozen
 printer functions. `pprint_program` sets them, calls the (parameterless,
 from its own perspective) printers, and restores both in a `finally` —
 so the flag exists for exactly the duration of one top-level call and

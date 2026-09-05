@@ -4,13 +4,13 @@
 
 **Key points**
 
-- One backend, `src/target_java.py`, with a `version` parameter -- the
-  same shape as `src/target_c.py`'s `standard`. All three versions
+- One backend, `src/target_java.ml`, with a `version` parameter -- the
+  same shape as `src/target_c.ml`'s `standard`. All three versions
   translate *identically*; only the printer differs, and in one place:
   whether a local declaration spells out its type or writes `var`.
 - Java is statically typed and Pyking is not, so this backend **infers
   types** -- `int`, `String`, `boolean` -- for every binding, parameter
-  and function, by the same three rules `target_c.py` uses.
+  and function, by the same three rules `target_c.ml` uses.
 - Output is one `.java` file with no imports: string concatenation is
   Java's own `+`, string equality is `.equals()`, and `System.out` needs
   nothing declared.
@@ -27,7 +27,7 @@
   `public final class FooBar`. See "Naming the class" below.
 - Least optimal at: renaming more shadowed bindings than a Java method's
   own scoping strictly requires (inherited from the same conservative
-  scope mechanism `target_c.py` uses).
+  scope mechanism `target_c.ml` uses).
 
 Verified with `javac --release 8`, `--release 17` and `--release 21`
 (the last two by way of a JDK 21 `javac`, which supports emitting all
@@ -117,8 +117,8 @@ with no `break` never finishes, so a method ending in one has no path
 off the end, and javac agrees (JLS 14.21: such a statement cannot
 complete normally). Refusing it would refuse a perfectly ordinary
 program. A `while` loop is still never the proof on its own,
-`while true:` included: `_stmt_definitely_returns` (see
-`src/target_java.py`) attempts no analysis of a *condition*,
+`while true:` included: `stmt_definitely_returns` (see
+`src/target_java.ml`) attempts no analysis of a *condition*,
 deliberately -- real `javac` does special-case a constant-`true` one,
 but recognising that here would mean recognising it for `while 1 == 1:`
 too, and Pyking's `loop` is now the way to write a loop that provably
@@ -293,7 +293,7 @@ $ pyk compile -t java21 test1.pyk     # writes Test1.java
 
 Words are split on anything that is not a letter or digit, each
 capitalised and run together (`default_class_name` in
-`src/target_java.py`); a stem with none becomes `Program`, and one that
+`src/target_java.ml`); a stem with none becomes `Program`, and one that
 would start with a digit gets an underscore prefixed, since neither is a
 legal Java identifier otherwise.
 
@@ -460,7 +460,7 @@ def static(n):                     private static int static2(final int n) {
                                    }
 ```
 
-The list (`RESERVED` in `src/target_java.py`) also holds `String`,
+The list (`RESERVED` in `src/target_java.ml`) also holds `String`,
 `System`, `args` and `main`: not keywords, but a Pyking function
 shadowing one would break the generated file just as thoroughly. And
 `_`, which is a keyword in Java 9 and later and an unnamed variable
@@ -498,7 +498,7 @@ No conversion needed for the boolean: Java's `+` already stringifies a
 `boolean` operand as `true`/`false`, which is exactly Pyking's own
 spelling too (see PYKING.md) -- unlike the C targets, where neither
 standard spells a boolean's *printed* form the way Pyking does on its
-own, so `target_c.py`'s `printf` arguments need an explicit conditional
+own, so `target_c.ml`'s `printf` arguments need an explicit conditional
 expression (see `docs/target_c.md`'s "Booleans"). A single boolean
 argument to `print` on its own (no concatenation to trigger) compiles
 just as directly -- `System.out.println` has an overload that takes a
@@ -522,7 +522,7 @@ Java blocks are lexical scopes, so shadowing across blocks needs no help.
 Rebinding does: a Java local cannot be declared twice in one block, and
 Pyking's `x = 1` then `x = 2` is two bindings, possibly of two different
 types -- so the second gets a fresh Java name (`x2`), the same mechanism
-`target_c.py` uses and for the same reason (two Java locals is exactly
+`target_c.ml` uses and for the same reason (two Java locals is exactly
 what two different types needs).
 
 *Not optimal:* the renaming scope is shared across an entire translation

@@ -1,13 +1,13 @@
-# `typesystem.py`: design
+# `typesystem.ml`: design
 
-How `src/typesystem.py` is built as a piece of software: its shape, what
+How `src/typesystem.ml` is built as a piece of software: its shape, what
 is threaded through it, and why each decision was made that way.
 
 For the rules a *program* is judged by, see PYKING.md, "Type checking".
 For the inference algorithm — how a function nobody annotated gets a
 type — see [type_inference.md](type_inference.md), which this page does
 not repeat. For a one-page summary of every function, see
-[source.md](source.md#typesystempy).
+[source.md](source.md#typesystemml).
 
 ## The shape of the pass
 
@@ -39,8 +39,8 @@ not repeat. For a one-page summary of every function, see
 ```
 
 One entry point, `type_check(stmts) -> tmap`. A whole program in, the
-types it worked out back. It raises `TypeError_` for the first thing
-that does not check, and `analyses.AnalysisError` for a name it cannot
+types it worked out back. It raises `Type_error` for the first thing
+that does not check, and `Analyses.Analysis_error` for a name it cannot
 find.
 
 ## One function per AST datatype
@@ -65,7 +65,7 @@ handed** — only on which *variant of its own datatype* it was handed.
 only place a `Stmt` is. There is no function that takes "any node" and
 works out what to do with it.
 
-This mirrors `syntax.py`'s AST-as-ADT design and `analyses.py`'s
+This mirrors `syntax.ml`'s AST-as-ADT design and `analyses.ml`'s
 per-kind walk, and it is what keeps a file this size tractable: a bug in
 how `if` expressions are checked is a bug in `expr_type`'s `EIf` case,
 and nothing about statements, functions or inference can be involved,
@@ -88,10 +88,10 @@ differences are the design.
    └───────────┴────────────┴───────────────────────────────────────┘
 ```
 
-**`Env` (`{String: Type}`)** — the names in scope. Threaded exactly the
-way `analyses.py`'s environment is: `bind` returns a *new* dict, nothing
+**`env` (`typ SMap.t`)** — the names in scope. Threaded exactly the
+way `analyses.ml`'s environment is: `bind` returns a *new* map, nothing
 is mutated, and leaving a scope is simply not using the extended copy.
-There is no third state: a name is in the dict with a type, or it is not
+There is no third state: a name is in the map with a type, or it is not
 in scope.
 
 **`Store`** — everything inference has worked out: solutions,
@@ -99,13 +99,14 @@ environments, instances, and the rest. Threaded like `Env`, and never
 written to. See [type_inference.md](type_inference.md#13-the-store) for
 the fields.
 
-**`TMap` (`{Int: Type}`)** — the pass's *result*: a plain mutable dict,
-symbol to type, built as checking proceeds and handed back once at the
-end. This is the deliberate exception. Threading a third immutable table
-through every function purely to merge it back at the top would be
-machinery for nothing — nothing downstream compares two `tmap`s or asks
-what one looked like three calls ago. `record` is the one function that
-writes into it.
+**`tmap` (`typ IntMap.t`)** — the pass's *result*: symbol to type,
+built as checking proceeds and handed back once at the end. It is a
+field of the `store`, which is threaded and returned everywhere already,
+so recording a type costs nothing beyond what a store already carries
+and nothing has to be mutated to make it work. `record` is the one
+function that adds to it, and it *replaces* rather than accumulating: a
+generalisable body is checked twice, and `verified`'s pass is the one
+that counts.
 
 **`return_type`** has three states, and it is threaded down through
 every nested block rather than looked at once when a body finishes,
@@ -150,8 +151,8 @@ Two payoffs:
 - **`check_function` needs no reachability analysis.** "A body that
   returns on every path" and "a body that ends in a value" are the same
   case — ask the body's last statement what it supplies, and check that
-  against the declared type. `target_java.py` needs a real
-  `_definitely_returns` for `javac`'s sake; the front end does not,
+  against the declared type. `target_java.ml` needs a real
+  `definitely_returns` for `javac`'s sake; the front end does not,
   because the tail-position rule *is* the analysis.
 - **`None` composes.** A branch that never falls through leaves the
   answer to its sibling, so `if c: x + 1 else: break` needs no special
@@ -208,14 +209,14 @@ sound because `Env` does the whole of that job: a name must be bound
 where it is used, a block's bindings do not survive it, an inner binding
 shadows an outer one, a `def`'s name is in scope in its own body, and
 the builtins are in scope from the start — all of it falling out of the
-same immutable-dict discipline `analyses.py` established.
+same immutable-map discipline `analyses.ml` established.
 
-An unbound name raises `analyses.AnalysisError` — imported, not a
+An unbound name raises `Analyses.Analysis_error` — imported, not a
 lookalike defined here — so the driver's `Name error` reads identically
 whichever pass caught it. A caller should not be able to tell which one
 ran from the wording.
 
-**What `analyses.py` still owns is mutability**, and it is a separate
+**What `analyses.ml` still owns is mutability**, and it is a separate
 question rather than a leftover. This module does check `var` and `:=`
 for *types* — a `var` is `Int` or `Bool`, and a `:=` must give the type
 the declaration fixed — but *which names may be written to* is not
@@ -230,7 +231,7 @@ runs, every name is known to be bound, so a name it cannot find is never
 "unbound" — it is "not a mutable variable".
 
 **An import is part of the scope too.** `type_check` takes the signature
-of every module this one imports (`sigmaps`, from `src/module.py`), and
+of every module this one imports (`sigmaps`, from `src/module.ml`), and
 `import_env` puts what they bring in into the environment before the
 first statement is checked: a selected name under the name it is known
 by here, and a field of a plain import under `alias.field`, which is the
@@ -286,14 +287,14 @@ whatever its value has — which is what `-t pyking` is for.
 first environment `type_check` builds, rather than to a `TFunction`,
 because none of the four fits one. `print` takes any number of arguments
 of any type, which no fixed parameter list expresses, and none of them is
-a value in the sense `runtime_interface.py` means: they are host
+a value in the sense `runtime_interface.ml` means: they are host
 *operations*, callable and nothing else.
 
 `check_builtin_call` gives each its own rule, applied only at a call.
 Using one any other way — `x = print`, passing `str` as an argument — is
 refused, exactly as the C and Java backends refuse `print` as a value.
 
-`TBuiltin` is a variant of `syntax.py`'s `Type` rather than a class of
+`TBuiltin` is a variant of `syntax.ml`'s `Type` rather than a class of
 this module's own, so `Env` stays a map from a name to a type and every
 lookup dispatches on a type variant. Like `TUnknown` it is unwritable in
 source; unlike it, it is never recorded in `tmap`, so it cannot reach
@@ -301,7 +302,7 @@ printed output.
 
 ## Three kinds of type variable
 
-`syntax.py` has one node, `TVar`, and the checker uses it two ways. With
+`syntax.ml` has one node, `TVar`, and the checker uses it two ways. With
 `TUnknown` that makes three things a reader has to keep apart:
 
 | | written | means | compared by |
@@ -403,7 +404,7 @@ rules no value out, and a set of tuple patterns covers as soon as *one*
 column does: `(a, true)` beside `(a, false)` takes every `(Int, Bool)`
 for the reason `true` and `false` take every `Bool`. Without it those
 need a `case _` that can never run — worse than untidy, since
-`target_ocaml.py` compiles what this checker accepts and OCaml *can* see
+`target_ocaml.ml` compiles what this checker accepts and OCaml *can* see
 the arm is unreachable, so it warns, and a warning about generated code
 fails that target's tests.
 
@@ -496,10 +497,10 @@ be refused.
 
 ## Comparing types: never `==`
 
-Every `T*` node is a frozen dataclass, so Python's `==` compares *every*
-field — including `info` (the source span) and `sym`. Neither is part of
-what a type means: two `Int`s written in different places would compare
-unequal despite being the same type.
+Every `T*` constructor carries `info` (the source span) and `sym`, so
+OCaml's structural `=` compares those too. Neither is part of what a type
+means: two `Int`s written in different places would compare unequal
+despite being the same type.
 
 ```
    same_type(a, b)              structural; blind to `info` and `sym`

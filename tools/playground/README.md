@@ -1,34 +1,39 @@
 # Pyking playground
 
 An editor in a web page with a compile button, showing the generated Python,
-JavaScript, C or Java beside it — and running the result. **Nothing executes
-on the server.** The real compiler from `src/` runs inside the browser, under
-[Pyodide](https://pyodide.org) (CPython compiled to WebAssembly).
+JavaScript, C, Java or OCaml beside it — and running the result. **Nothing
+executes on the server.** The real compiler from `src/` runs inside the
+browser: `src/` compiled to JavaScript by
+[js_of_ocaml](https://ocsigen.org/js_of_ocaml/), so the page runs the same
+front end, the same type checker, the same interpreter and the same backends
+`pyk` does.
 
 ```sh
 make          # vendor, build, check, serve — then open the printed link
 ```
 
-The first `make` downloads ~12 MB of Ace and Pyodide into `vendor/` and
-caches it; later builds are offline and instant.
+The first `make` downloads ~1 MB of Ace into `vendor/` and caches it; later
+builds are offline and instant.
 
 ## Why this design
 
-`advice-pyking-on-web.md` at the repository root works through the options in
-full. The short version is that the compiler is 51 KB of gzipped source but
-leans on `dataclasses`, which drags in CPython's whole introspection stack
-(`inspect`, `ast`, `dis`, `tokenize`, `annotationlib`) — 22 stdlib modules in
-all. That rules out MicroPython, Transcrypt and the other lightweight
-runtimes, and leaves a real CPython. Pyodide *is* real CPython, so the
-compiler ships unmodified: `src/*.py` is copied into the build verbatim.
+There is **no Python runtime in the page**. The compiler is OCaml, and
+`src/`'s pure half is a library that opens no file, starts no process and
+reads no terminal — which is exactly what js_of_ocaml can compile. The page
+therefore ships the compiler itself rather than an interpreter that runs it:
+one 5 MB `pyking.js`, built by `dune build src/web/pyking_web.bc.js`. See
+[../../docs/build.md](../../docs/build.md).
 
-The one thing missing from `src/` is a callable entry point — `pyk.py` is
-a script that reads `argv`, opens files and calls `sys.exit`. The generator
-emits a small `pyking_web.py` beside the copied modules that exposes the same
-stage sequence as two functions returning values. Everything else in `src/`
-is already pure: `os`, `sys` and `subprocess` appear only in the driver
-and the two front ends -- `pyk.py`, `repl.py` and `execution.py` -- and
-none of the three is copied.
+The one thing the library does not have is a browser entry point.
+`src/web/pyking_web.ml` is that: it registers `pykCompile`, `pykRun`,
+`pykTargets`, `pykFormatHelper`, `pykKeywords` and `pykBuiltins` on the
+global object through the four `//Provides:` primitives in
+`src/web/stub.js`. It is checked in beside the compiler, not generated here
+— `generator.py` only builds it and asks it questions.
+
+The three modules the library deliberately leaves out are the ones that talk
+to the outside world: `pyk.ml` (the driver), `execution.ml` (`--run`) and
+`repl.ml` (the prompt). None of them is needed to compile a string.
 
 ## What `make` does
 
@@ -36,28 +41,28 @@ none of the three is copied.
 |---|---|
 | `make` | `vendor` → `build` → `check` → `serve` |
 | `make build` | regenerate `build/` from `generator.py` |
-| `make vendor` | download Ace + Pyodide into `vendor/` (cached; skipped if present) |
+| `make vendor` | download Ace into `vendor/` (cached; skipped if present) |
 | `make check` | compile every example for every target it claims, headlessly |
 | `make e2e` | browser tests — mounting, compiling, running, Stop (needs Playwright) |
-| `make serve` | refresh the compiler from `src/`, serve `build/`, print a clickable `http://localhost:8000/` |
+| `make serve` | rebuild the compiler bundle if `src/` moved on, serve `build/`, print a clickable `http://localhost:8000/` |
 | `make clean` | remove `build/` |
 | `make distclean` | also remove `vendor/` |
 
 Variables: `PORT=9000` (auto-advances if busy), `CDN=1` (see below),
 `PYTHON=python3.12`.
 
-`make check` is worth knowing about: it runs all 124 examples through the
-generated `pyking_web.py` under your host CPython — 653 example/target pairs —
-so a broken shim or a regressed backend fails the build without a browser
-being involved.
+`make check` is worth knowing about: it runs all 270 examples through the
+same `pyking.js` the page loads, under `node` — over 1300 example/target
+pairs — so a regressed backend fails the build without a browser being
+involved.
 
 ### `CDN=1`
 
-By default Ace and Pyodide are vendored, so the built directory is entirely
+By default Ace is vendored, so the built directory is entirely
 self-contained and works with no internet. `make CDN=1` skips the download and
-points the page at jsdelivr instead: the build drops from 12.6 MB to 0.3 MB,
-at the cost of needing internet on every page load. Useful for CI or a quick
-look; the default is better for anything you intend to hand to someone.
+points the page at jsdelivr instead: the build drops from 6.1 MB to 5.5 MB,
+at the cost of needing internet on every page load. The compiler itself is
+always local — it is not on any CDN — so this only moves the editor.
 
 ### It must be *served*
 
@@ -71,7 +76,7 @@ static host will do; nothing runs server-side.
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│ Pyking Playground                  ● Pyodide: ready  [≡ Settings]│
+│ Pyking Playground                 ● compiler: ready  [≡ Settings]│
 ├────────────────────────────────╥─────────────────────────────────┤
 │ Source        [example ▾]      ║ Target [▾]                      │
 │           [Compile →] [▶ Run]  ║              [▶ Run]  [⧉ Copy]  │
@@ -90,17 +95,20 @@ static host will do; nothing runs server-side.
 
 - **Compile →** turns the left pane into the right pane. The arrow is there to
   make the direction obvious.
-- **▶ Run** on the left compiles to Python and runs it, whatever target is
-  selected — the "just run my program" button.
+- **▶ Run** on the left runs the program with the **interpreter**, whatever
+  target is selected — the "just run my program" button. The interpreter is
+  the reference for what a program means (`docs/interpreter.md`), and it is
+  compiled into the same bundle, so this needs no host at all.
 - **▶ Run** on the right executes exactly what is displayed. Enabled for
-  `python` (via Pyodide) and for `nodejs`, `esm` and `html`, which the browser
-  can genuinely execute. Disabled for `c89`/`c23`/`java*`, with a tooltip
-  saying why: there is no C compiler or JVM in a browser. That is a property
-  of the target, not a shortcoming here.
+  `nodejs`, `esm` and `html`, which the browser can genuinely execute.
+  Disabled for `python`, `c89`/`c23`, `java*` and `ocaml`, with a tooltip
+  saying why: there is no Python interpreter, C compiler, JVM or OCaml
+  runtime in a browser. That is a property of the target, not a shortcoming
+  here.
 - **Target** lists every target the compiler has, plus `ast` — the
   target-independent view of the parsed program, which is what every backend
   starts from.
-- **Example** lists all 124 programs from `tests/`, grouped by whether they
+- **Example** lists all 270 programs from `tests/`, grouped by whether they
   work on every target or only on `python`. Picking a python-only example with
   a JavaScript target selected is *not* prevented: seeing the compiler refuse
   it, with a source position, is the point.
@@ -119,7 +127,7 @@ static host will do; nothing runs server-side.
     Only typing in the *source* counts: loading an example, or the generated
     pane being rewritten by a compile, does not trigger it. Ticking the box
     does not run anything either — the next keystroke does — so enabling it
-    can never start the runtime download while the dialog is still open.
+    can never start the compiler loading while the dialog is still open.
   - **Scrollable** output — on by default. Off clips the pane instead, and
     also stops it auto-following the newest line: scrolling programmatically
     while clipped would push the start of the output out of reach.
@@ -141,8 +149,8 @@ static host will do; nothing runs server-side.
   both split positions, are remembered in `localStorage`, so the layout you
   set is the one you come back to.
 - **`Shift`+`Enter` runs** — the same as the **▶ Run** button of whichever
-  pane has focus: in the source pane it compiles to Python and runs that, in
-  the generated pane it runs what is displayed. With focus anywhere else it
+  pane has focus: in the source pane it runs the program with the
+  interpreter, in the generated pane it runs what is displayed. With focus anywhere else it
   runs the source. `Ctrl`/`Cmd`+`Enter` compiles;
   `Ctrl`/`Cmd`+`Shift`+`Enter` also runs.
 
@@ -152,62 +160,59 @@ static host will do; nothing runs server-side.
   loses nothing, since plain `Enter` inserts a newline anyway and Shift+Enter
   merely duplicated it.
 
-Pyodide loads lazily on the first compile or run, not on page load, so the
-page appears immediately and the status pill reports progress.
+The compiler loads lazily on the first compile or run, not on page load, so
+the page appears immediately and the status pill reports progress.
 
 ### How long the first compile takes
 
-Pressing **Compile** the first time starts the Python runtime. The status pill
+Pressing **Compile** the first time fetches the compiler. The status pill
 names the phase and counts seconds, so you can tell working from frozen:
 
 | Pill | What is happening | Typical |
 |---|---|---|
-| `downloading Python (~12 MB, first load only)… 3s` | fetching Pyodide, then compiling an 8.25 MB WebAssembly binary | 1–5 s served locally |
-| `loading compiler… 4s` | mounting the 11 compiler modules and importing them | ~0.15 s |
-| `ready in 4.2s` | done — it stays warm for the session | — |
+| `starting… 1s` | booting the worker | instant |
+| `loading compiler… 1s` | fetching and evaluating the 5 MB `pyking.js` | well under a second served locally |
+| `ready in 0.6s` | done — it stays warm for the session | — |
 
 After that, compiling is **about a millisecond**, and running is as fast as
-the generated code. Measured end to end from local disk, the runtime work is
-~0.9 s; the rest is transfer and WebAssembly compilation.
+the generated code.
 
-A reload no longer repeats the download: the server marks `assets/vendor/`
+A reload does not repeat the fetch: the server marks `assets/vendor/`
 cacheable for a day while everything `make` regenerates stays `no-store`, so
-you can rebuild and reload without ever debugging a stale asset *and* without
-re-fetching Pyodide.
+you can rebuild and reload without ever debugging a stale asset.
 
 **The compiler cannot go stale under you either**, which needs more than
-cache headers: `build/pyking/` is a *copy* of `src/`, and the page fetches
-it once, at boot, into Pyodide's own filesystem. So there are two ways to
-end up with the page running one compiler while `pyk` runs another, and
-each has its own answer. `make serve` re-copies the compiler modules from
-`src/` before it serves, and says which it refreshed — so editing the
-compiler and re-serving is enough, without the full rebuild that also
-re-fetches 12 MB of vendored assets. And `manifest.json` carries a
-**stamp** of the modules it lists, which the page re-reads before every
-compile: a tab left open across a rebuild reloads its worker rather than
-going on answering with the compiler it started with. Nothing else in
-`build/` is covered — a change to the page itself, the examples or the Ace
-mode still needs `make build`.
+cache headers: `build/pyking/pyking.js` is a *copy* of what dune built, and
+the page fetches it once, at boot. So there are two ways to end up with the
+page running one compiler while `pyk` runs another, and each has its own
+answer. `make serve` rebuilds the bundle from `src/` and re-copies it before
+it serves, saying so when it moved on — so editing the compiler and
+re-serving is enough, without the full rebuild that also re-copies the
+vendored editor. And `manifest.json` carries a **stamp** of the bytes it
+names, which the page re-reads before every compile: a tab left open across
+a rebuild reloads its worker rather than going on answering with the
+compiler it started with. Nothing else in `build/` is covered — a change to
+the page itself, the examples or the Ace mode still needs `make build`.
 
-> **If it seems to hang at `starting…`** on a build from before this was
-> fixed: the dev server used to be single-threaded. Browsers open several
-> connections at once and speculatively pre-connect ones they never use, and
-> one idle pre-connect blocked the whole server — the page would wait
-> indefinitely for files that were never sent. `make serve` now uses
-> `ThreadingHTTPServer`; re-run `make build` (or just `make`) to pick it up.
-> `python3 -m http.server` has the same flaw, so prefer `make serve` over
-> serving `build/` by hand.
+> **If it seems to hang at `starting…`** on an old build: the dev server used
+> to be single-threaded. Browsers open several connections at once and
+> speculatively pre-connect ones they never use, and one idle pre-connect
+> blocked the whole server — the page would wait indefinitely for files that
+> were never sent. `make serve` now uses `ThreadingHTTPServer`; re-run
+> `make build` (or just `make`) to pick it up. `python3 -m http.server` has
+> the same flaw, so prefer `make serve` over serving `build/` by hand.
 
 ### How programs are executed, and how they are stopped
 
 **Nothing runs on the main thread.** That is the whole design, and it exists
-for one case: a program that never terminates. If Pyodide ran on the main
-thread an endless loop would freeze the tab — including the button you would
-press to stop it — and no amount of care in the UI could recover.
+for one case: a program that never terminates. If the compiler's own
+interpreter ran on the main thread an endless loop would freeze the tab —
+including the button you would press to stop it — and no amount of care in
+the UI could recover.
 
-| Target | Runs on | Stopped by |
+| What | Runs on | Stopped by |
 |---|---|---|
-| `python` | the Pyodide worker | `terminate()`, then a fresh worker boots |
+| the source, via the interpreter | the compiler worker | `terminate()`, then a fresh worker boots |
 | `nodejs` (script) | the JavaScript worker | `terminate()` |
 | `esm` (module) | the JavaScript worker | `terminate()` |
 | `html` | an iframe preview | removing the frame |
@@ -216,8 +221,8 @@ A **sandboxed iframe is not good enough** for the first three, which is why
 they moved. A same-process iframe shares the main thread, so a loop inside
 one can still lock the page; browsers only isolate it when site isolation
 happens to apply. A worker is *guaranteed* a separate thread and
-`terminate()` is *guaranteed* to end it — measured at ~5 ms, against a
-Python loop that was ignoring everything else.
+`terminate()` is *guaranteed* to end it — measured at ~5 ms, against a loop
+that was ignoring everything else.
 
 Only `html` still uses a frame, because it **is** a page: it draws into its
 own document rather than printing. Removing the frame stops it, which is what
@@ -225,20 +230,20 @@ Stop does.
 
 Two consequences worth knowing:
 
-- **Output streams as it is produced.** Pyodide's `setStdout` posts each line
-  across as the program prints it, rather than the run returning everything
-  at the end. So a program that prints and *then* hangs still shows what it
-  printed — which is exactly the case you want to see.
-- **Stopping Python costs the interpreter.** `terminate()` reclaims the
-  thread whatever the interpreter was doing, which is the point, but the
-  Pyodide instance goes with it. A replacement starts immediately and is
-  usually warm again before the next run is asked for; the status pill says
-  `restarting Python` until it is.
+- **Output streams as it is produced.** `pykRun` posts each line across as
+  the interpreter produces it, through the `pyk_emit` primitive, rather than
+  the run returning everything at the end. So a program that prints and
+  *then* hangs still shows what it printed — which is exactly the case you
+  want to see.
+- **Stopping costs the loaded compiler.** `terminate()` reclaims the thread
+  whatever the interpreter was doing, which is the point, but the worker's
+  copy of the compiler goes with it. A replacement starts immediately and is
+  usually warm again before the next run is asked for.
 
 The `esm` module is imported as a real module from a blob URL and handed a
 `print` — the source runs exactly as written, with no rewriting to make it
 fit. That `print` formats values with the JavaScript backend's **own**
-`pykFormat`, lifted out of `src/target_js_packaging.py` at build time rather
+`pykFormat`, lifted out of `src/target_js_packaging.ml` at build time rather
 than hand-copied, so the playground cannot disagree with `node prog.js` about
 how a value prints.
 
@@ -256,10 +261,9 @@ by a pixel. Both are a little larger than the other buttons, being the ones
 you aim for.
 
 The swap happens the instant Run is pressed and covers everything that press
-costs: booting the runtime, compiling, then executing — so the first Run of a
-session, which spends several seconds on the Pyodide download, is
-interruptible too. Stopping during the boot is reported as stopped rather
-than as a failure.
+costs: booting the worker, loading the compiler, compiling, then executing —
+so the first Run of a session is interruptible too. Stopping during the boot
+is reported as stopped rather than as a failure.
 
 It was originally a separate button delayed by 0.6 s, on the reasoning that a
 quick run should not make a control flash past. That was the wrong trade: the
@@ -278,7 +282,7 @@ while i < 1:
 ```
 
 The page stays responsive, Run has become Stop, and clicking it ends the
-program. That works for the `python` target and for `nodejs` / `esm` alike.
+program. That works for the interpreter and for `nodejs` / `esm` alike.
 
 ## Layout
 
@@ -301,50 +305,49 @@ build/
   assets/
     playground.js            the UI (ES module, exports mountPlayground)
     pyking-runtime.js        the compiler as an object — no UI at all
-    pyking-worker.js         Pyodide + the compiler, on their own thread
+    pyking-worker.js         the compiler bundle, on its own thread
     js-worker.js             generated JavaScript, on its own thread
     pyking-mode.js           Ace syntax mode for Pyking
     playground.css           all styles, scoped under .pyk-playground
     playground.json          targets, editor modes, examples — drives the UI
     vendor/ace/…             Ace + the modes the targets need
-    vendor/pyodide/…         the 5 pyodide-core files
   pyking/
-    lexer.py parser.py …     copied verbatim from src/ (10 modules)
-    pyking_web.py            generated: compile_source() and run_python()
-    manifest.json            what the runtime fetches into Pyodide's
-                             filesystem, and the stamp saying which
-                             compiler that is
+    pyking.js                the compiler, built from src/ by dune and
+                             js_of_ocaml, copied here byte for byte
+    manifest.json            what the runtime loads, and the stamp saying
+                             which compiler that is
   examples/
     *.pyk                    copied from tests/
 ```
 
-### Three things read out of the repository
+### Four things read out of the repository
 
 The playground cannot drift from the compiler, because it does not restate
-anything the compiler already knows:
+anything the compiler already knows. Three of the four are *asked of the
+built bundle*, with `node`, rather than parsed out of the source:
 
-1. **The compiler modules** are copied from `src/` at build time — never
-   forked. `pyk.py`, `repl.py` and `execution.py` are excluded: the two
-   front ends and the driver's own way of running what was compiled.
-2. **The keyword and builtin lists** in `pyking-mode.js` are lifted out of
-   `src/lexer.py` and `src/analyses.py` while generating it, and **the value
-   formatter** in `js-worker.js` out of `src/target_js_packaging.py`.
+1. **The compiler** is `dune build src/web/pyking_web.bc.js`, copied into
+   `build/pyking/pyking.js` byte for byte — never forked, and never edited
+   here.
+2. **The target list** comes from `pykTargets`, which is `pyk.ml`'s own
+   `targets`, itself assembled from the backends. So a new target appears in
+   the dropdown automatically. `generator.py` fails the build if a target
+   turns up that has no editor mode assigned, rather than silently showing
+   it unhighlighted.
+3. **The keyword and builtin lists** in `pyking-mode.js` come from
+   `pykKeywords` and `pykBuiltins` — `lexer.keywords` and
+   `analyses.builtins` — and **the value formatter** in `js-worker.js` from
+   `pykFormatHelper`, which is the JavaScript backend's own `pykFormat`.
    (`tools/emacs/` warns in its own commentary that a hand-copied keyword
    list goes stale silently; these cannot. The formatter was a hand-copy
    once, and it drifted the moment booleans stopped printing capitalised —
    hence the rule.)
-3. **The examples and their target support** come from `tests/*.pyk` and
+4. **The examples and their target support** come from `tests/*.pyk` and
    `tests/test_cases.toml` — the same manifest `make test` runs from, so the
    page cannot claim support the test suite does not. A program of several
    modules is the one thing left out, along with the modules it imports:
    the page compiles one file and has no filesystem, so there is nothing
    for an `import` to reach (see `docs/modules.md`).
-
-The **target list itself** is imported from the backends
-(`target_js_packaging.TARGETS`, `target_c.STANDARDS`,
-`target_java.VERSIONS`), so a new target appears in the dropdown
-automatically. `generator.py` fails the build if a target turns up that has no
-editor mode assigned, rather than silently showing it unhighlighted.
 
 ## Embedding it in another page
 
@@ -395,11 +398,10 @@ layout from your own CSS:
 import { PykingRuntime } from "./assets/pyking-runtime.js";
 
 const rt = new PykingRuntime({
-  pyodideIndexURL: "./assets/vendor/pyodide/",
   pykingURL: "./pyking/",
   workerURL: "./assets/pyking-worker.js",
 });
-await rt.ready(status => console.log(status));   // the big download happens here
+await rt.ready(status => console.log(status));   // the compiler is fetched here
 
 const result = await rt.compile("print(1 + 2)\n", "java17");
 // { ok: true, files: { "Playground.java": "…" } }
@@ -408,24 +410,24 @@ const failed = await rt.compile("print(nope)\n", "python");
 // { ok: false, stage: "Name error", text: "'playground.pyk' 1:6-1:10 …",
 //   info: { row1: 1, col1: 6, row2: 1, col2: 10 } }
 
-// pyk's front-end flags, both off unless asked for -- what the settings
-// dialog's last two checkboxes switch on:
-const checked = await rt.compile("x = 1 + 2\n", "python", "playground.pyk",
-                                 { typecheck: true, ast: true });
-// { ok: true, files: { "playground.ast": "x: Int = 1 + 2" },
-//   views: ["playground.ast"] }
+// The front end's own view of the program, types and all -- the `pyking`
+// target, which is what the dropdown's first entry selects:
+const view = await rt.compile("x = 1 + 2\n", "pyking");
+// { ok: true, files: { "playground.pyk": "x: Int = 1 + 2" },
+//   views: ["playground.pyk"] }
 
-await rt.runPython(code, { onOutput: text => process.stdout.write(text) });
+// Run it with the interpreter -- no host, no generated code:
+await rt.runProgram(source, { onOutput: text => process.stdout.write(text) });
 rt.stop();     // ends a program that will not end itself, and re-boots
 ```
 
-`compile` and `runPython` are asynchronous because they cross a thread
+`compile` and `runProgram` are asynchronous because they cross a thread
 boundary — everything happens on a worker (see above). Relative URLs are
 resolved against the page before being handed over, so `"./assets/…"` means
 what you expect: inside a worker a relative URL would otherwise resolve
-against the *worker's* location, which is how `./assets/vendor/pyodide/`
-once became `/assets/assets/vendor/pyodide/`. Generated JavaScript
-has its own runner with the same shape:
+against the *worker's* location, which is how `./pyking/` once became
+`/assets/pyking/`. Generated JavaScript has its own runner with the same
+shape:
 
 ```js
 import { JsRunner } from "./assets/pyking-runtime.js";
@@ -442,9 +444,10 @@ uses it to keep its Run button honest, and an embedder that runs generated
 code should skip them the same way.
 
 `compile()` never throws for a bad program — a refusal is data, with the same
-wording `pyk.py` prints and the raw span for highlighting. Rows count from
-1 and columns from 0, exactly as `lexer.Info` records them (Ace counts both
-from 0, hence the `row1 - 1` in `playground.js`).
+wording `pyk.ml` prints, because it *is* `pyk.ml`'s `format_error`. The raw
+span comes with it, for highlighting: rows count from 1 and columns from 0,
+exactly as `lexer.info` records them (Ace counts both from 0, hence the
+`row1 - 1` in `playground.js`).
 
 ## Verifying without a browser
 
@@ -456,18 +459,19 @@ make check                       # every example/target pair, through the shim
 make e2e                         # the same page, in a real browser
 ```
 
-`make check` needs nothing but Python. Every example is compiled for the
+`make check` needs Python and `node`. Every example is compiled for the
 `pyking` target as well as for every target it claims, and the
 type-checker fixtures under `tests/` are held to the rule their names
 state — `typecheck_*` must check, `fail_typecheck_*` must
-not. That rule is why the shim runs `module.check_publics`: what a module
-exports is a property of the one file, so a program the compiler refuses
-for exporting one name twice has to be refused here too. A `fail_typecheck_*` fixture is held to *only* that rule: some of them
+not. That rule is why the entry point runs `Module.check_publics`: what a
+module exports is a property of the one file, so a program the compiler
+refuses for exporting one name twice has to be refused here too. A
+`fail_typecheck_*` fixture is held to *only* that rule: some of them
 are not valid programs at all (one names something unbound), so expecting
 them to compile any other way would be expecting the front end to miss what
 they exist to catch. What those programs *infer* is `tests/test_script.py`'s
-business; this only proves the checker is reached through the shim.
-`make e2e` needs Playwright — the one
+business; this only proves the checker is reached through the page's own
+entry point. `make e2e` needs Playwright — the one
 dependency anywhere in this tool, which is why it is a separate target and
 why the script prints an install line and exits cleanly when it is absent:
 
@@ -476,30 +480,23 @@ npm install playwright && npx playwright install chromium
 ```
 
 It is worth having, because there is a class of defect nothing headless can
-see: node can model a Worker but not run WebAssembly inside one, so nothing
-short of a browser proves the page actually compiles anything. `make e2e`
-starts its own server on a free port and drives the built page: that it
-mounts with every target in the dropdown, that Compile boots Pyodide and
-produces a file, that the `pyking` target prints the front end's own output,
-that both Run buttons produce output, that **every example compiles for every
-target it claims** — the same pairs `make check` compiles, but through the
-worker rather than under the host CPython — and that Stop ends a program
-written never to end (`loop: continue`) with the page still answering. Any
-error on the console fails the run.
-
-The build was additionally validated by driving the real vendored Pyodide from
-node — mounting the compiler, compiling all ten targets, and confirming the
-Python output matches `tests/subset_control.out` byte for byte — and by
-running the generated `nodejs` and `esm` output against their `.out` files
-using the same drivers the iframe uses. If you change how code is generated,
-those are the properties to re-check.
+see: Ace, the worker plumbing and the page's own wiring only exist in a
+browser. `make e2e` starts its own server on a free port and drives the built
+page: that it mounts with every target in the dropdown, that Compile loads
+the compiler and produces a file, that the `pyking` target prints the front
+end's own output, that both Run buttons produce output, that **every example
+compiles for every target it claims** — the same pairs `make check` compiles,
+but through the page's worker rather than under `node` — and that Stop ends a
+program written never to end (`loop: continue`) with the page still
+answering. Any error on the console fails the run.
 
 ## Limitations
 
-- **Needs a static server** (above). No way around it for WebAssembly.
-- **~12 MB on first load**, cached by the browser afterwards. `CDN=1` moves
-  the bytes rather than removing them. The long-term fix is not a smaller
-  Python but no Python: see "self-hosting" in `advice-pyking-on-web.md`.
+- **Needs a static server** (above). No way around it for ES modules and
+  workers.
+- **About 6 MB on first load**, cached by the browser afterwards — 5.1 MB
+  of it the compiler. `CDN=1` moves the editor's share rather than the
+  compiler's.
 - **A non-terminating program no longer freezes the tab.** Execution happens
   on workers, so the page stays responsive and the Stop button ends it (see
   "How programs are executed" above). This is what makes "run while you type"

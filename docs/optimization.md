@@ -1,6 +1,6 @@
 # Tail calls, and the loops they become
 
-`src/optimization.py` is a pass from the Pyking AST to the Pyking AST.
+`src/optimization.ml` is a pass from the Pyking AST to the Pyking AST.
 It finds calls in tail position and rewrites them into `loop`s, so that
 a tail-recursive function runs in one frame instead of thousands. It
 runs for every mode unless `--no-tail-call-opt` says otherwise, on
@@ -92,7 +92,7 @@ an error about an accumulator nobody wrote.
 **A group has to be in one scope.** The merged worker stands where the
 *first* member did, so anything the block binds between the members is
 bound later than the worker — and a member whose body reads such a name
-would find it unbound at run time. `_same_scope` declines those, and
+would find it unbound at run time. `same_scope` declines those, and
 the members' self-calls are still rewritten. The shape is a group with
 a statement written between its `def`s:
 
@@ -102,7 +102,7 @@ step = 1
 def odd(k): even(k - step + 1)          # reads `step`, so no merge
 ```
 
-The test is `_mentions`-blunt on purpose — it asks whether the name
+The test is `mentions`-blunt on purpose — it asks whether the name
 appears at all — because being over-careful costs a merge that would
 have been safe, and being wrong costs a program that captures the wrong
 thing. `tests/lexical_capture_group.pyk` is the case, and it went
@@ -165,7 +165,7 @@ accumulator it carries.
 
 **Going round is ending a block**, and only a block's last statement can
 do that. A tail call written anywhere else — a `return f(x)` before the
-end of a body — is restructured first (`_hoist`): a guard whose every
+end of a body — is restructured first (`hoist`): a guard whose every
 path returns takes the rest of the block into its `else`, which puts
 the call in a tail position without changing what the program means.
 Where that cannot be done the pass **declines** and leaves the function
@@ -177,7 +177,7 @@ jump: where the function can fall through, a subject matching no arm
 falls out of it as unit, so a `return ()` follows the match — and an arm
 that merely ended in the next accumulator would reach it. Such a match
 is declined rather than mistranslated. Where the function cannot fall
-through (`_falls_through`), nothing follows the match and its arms may
+through (`falls_through`), nothing follows the match and its arms may
 end in the next accumulator like any other block.
 
 The pass declines a function whose parameters are not distinct names it
@@ -275,7 +275,7 @@ and are declined rather than quietly rearranged.
 
 Merging asks four things of the checker's types, and a group that fails
 any of them is left as the recursion it was written as. All four are
-`_shared` in `src/optimization.py`:
+`shared` in `src/optimization.ml`:
 
 1. **The members agree per position.** Every function that has slot *i*
    must put the same type in it. `ping(n: Int)` beside
@@ -319,8 +319,8 @@ into the other's shape, and undoing each other:
 ```ocaml
 (* what the pass and this backend produce between them *)
 let f1 x =
-  let rec _pyk1 x = if x >= 20000 then 1000 + x else _pyk1 (x + 1) in
-  _pyk1 x
+  let rec tmp1 x = if x >= 20000 then 1000 + x else tmp1 (x + 1) in
+  tmp1 x
 
 (* what the program said, which is what the target now emits *)
 let rec f1 x = if x >= 20000 then 1000 + x else f1 (x + 1)
@@ -341,7 +341,7 @@ Five million levels deep, self-recursive and mutually recursive alike,
 in constant space — which is the same guarantee the pass gives
 everywhere else, obtained by not getting in the way.
 
-Which targets these are is one list in `src/pyk.py`,
+Which targets these are is one list in `src/pyk.ml`,
 `NATIVE_TAIL_CALLS = ("ocaml",)`, read by `compiling_natively`. A
 backend for another host with proper tail calls adds its name to it and
 needs nothing else. `tests/test_script.py` pins the arrangement from the
@@ -354,7 +354,7 @@ Three consequences worth stating plainly:
   backend shares, so it prints the optimized one; only a compile for
   `ocaml` itself takes the other path.
 - **The `ocaml` target checks the program as written.** Its subset is
-  whatever `src/typesystem.py` accepts, and what it hands the checker is
+  whatever `src/typesystem.ml` accepts, and what it hands the checker is
   now the original — so a `fail_tco_*` program compiles here perfectly
   well, and, in the other direction, a program that only checks *after*
   the pass would not.
@@ -364,7 +364,7 @@ Three consequences worth stating plainly:
 
 ## Where it runs
 
-`src/pyk.py` owns the order, and every stage is called there:
+`src/pyk.ml` owns the order, and every stage is called there:
 
 ```
 lex -> parse -> symbolize -> typecheck -> mutability -> optimize -> symbolize -> backend
@@ -384,7 +384,7 @@ Three things about that line are load-bearing:
   the symbols already handed out (see `docs/analyses.md`), so a moved
   statement carries its own identity through.
 
-`src/repl.py` does the same per entry, in the same order: an entry is
+`src/repl.ml` does the same per entry, in the same order: an entry is
 checked, then optimized, so a function written at the prompt runs the
 way it would in a file. It checks the entry a second time afterwards —
 not to verify the rewrite, which needs none, but because a merged group

@@ -17,7 +17,7 @@
   from the source) and refutable comprehension patterns (a helper
   function per clause, hoisted to the top of the file).
 
-Implementation: `src/target_python.py`.
+Implementation: `src/target_python.ml`.
 
 ## What is supported
 
@@ -54,7 +54,7 @@ simply lacking a distinction Pyking makes.
 
 Which arguments need that spelling is read off the **type checker's own
 answers**: `translate_program` takes `tmap`, the symbol → type table, and
-`_bool_kind` asks it about each `print` argument. Pyking is statically
+`bool_kind` asks it about each `print` argument. Pyking is statically
 typed, so there is always an answer to ask for.
 
 ```pyking                                     # generated Python
@@ -74,7 +74,7 @@ compiles to Python with no helper in front of it at all.
 What is left is a value that really can hold a `Bool` where Python and
 Pyking spell it differently — a `[Bool]`, a `(Int, Bool)`, or a type
 nothing has pinned down. Those go through a small generated helper that
-walks the value at *runtime* and formats it by `runtime_interface.py`'s
+walks the value at *runtime* and formats it by `runtime_interface.ml`'s
 rules:
 
 ```pyking                              # generated Python (only ever emitted if needed)
@@ -84,11 +84,11 @@ print(flags)                           print(__pyk_str(flags, True))    # [true,
 
 Booleans are not the only thing the host spells its own way. A string
 prints **bare on its own and quoted inside a list or a tuple**
-(`runtime_interface.py`), with `'` escaped as `\'` — and Python's own
+(`runtime_interface.ml`), with `'` escaped as `\'` — and Python's own
 `repr` picks its quotes for itself, writing `["it's"]` where every other
 target writes `['it\'s']`. So a value that can hold a string *inside* a
 container goes through the helper too, whatever its booleans say
-(`_nests_a_string`). A string on its own does not: it prints bare, which
+(`nests_a_string`). A string on its own does not: it prints bare, which
 Python already agrees with, and neither does a container of `Int`s.
 `tests/printing_quotes.pyk` is the case.
 
@@ -102,7 +102,7 @@ gets one at all — and named to avoid every identifier in the source (the
 same scheme `__pm*` comprehension helpers use, see below), so it can
 never collide with a user's own name. When present, it prints in its own
 commented-off **prelude** block ahead of the rest of the file (mirroring
-the convention `target_js_packaging.py` uses for its own prelude, for the
+the convention `target_js_packaging.ml` uses for its own prelude, for the
 same reason: it's boilerplate for the host, not a translation of
 anything the Pyking source wrote):
 
@@ -135,7 +135,7 @@ def __pyk_str(v, top):
 
 The walk is what makes a boolean print as `true` wherever it sits —
 `print([true, false])` writes `[true, false]`, and `print((1, true))`
-writes `(1, true)` — which is the rule `runtime_interface.py` states and
+writes `(1, true)` — which is the rule `runtime_interface.ml` states and
 the interpreter implements. The `top` parameter carries the one thing
 that changes with depth: a string prints bare on its own and quoted
 inside a container, and the quoting is Pyking's own (single quotes,
@@ -181,7 +181,7 @@ def outer(start):               def outer(start):
 `Scope` carries what that decision needs: `depth`, how many Python
 function scopes deep the translation is (0 is the module), and
 `mutables`, each `var` in scope and the depth its declaration sits at.
-`_mutated_names` collects the names a body writes with `:=` and does not
+`mutated_names` collects the names a body writes with `:=` and does not
 itself declare with `var`, stopping at a nested `def` — that body
 declares its own. Nothing needs to be declared for a name the body
 declares itself, and nothing may shadow a `var` anyway (PYKING.md,
@@ -237,7 +237,7 @@ holds one Python name per Pyking name, so `x` → `x3` at the third level
 has already overwritten the `x2` the second level is still reading.
 `Scope.used` is what remembers the ones a shadow replaced — every Python
 name handed out by an enclosing block of this Python function scope. It
-is inherited by `_block_scope` and reset by `_function_scope`, and it
+is inherited by `block_scope` and reset by `function_scope`, and it
 deliberately does *not* travel back out of a finished block, so two
 sibling blocks may still reuse a name. Without it, a fourth level of
 `x` wraps back round to `x2` and assigns over the second level's
@@ -268,7 +268,7 @@ Spelling both `helper` would turn the else branch into a read of the
 local one — `UnboundLocalError` at run time, not a name that merely looks
 odd. The decision is made per `def` body, from what that body reads
 *freely*: names it uses without having bound them itself at that point
-(`_free_names`). Only those are protected, so a body that shadows a name
+(`free_names`). Only those are protected, so a body that shadows a name
 it never reads from outside keeps the source's own spelling:
 
 ```pyking                          # generated Python
@@ -284,7 +284,7 @@ Pyking's `=` is a binding, so rebinding a name makes a *new* one and a
 function written earlier keeps the old (PYKING.md, "Names and scoping").
 Python has one variable per name per scope, so the second binding gets
 its own — but only when a function in that scope actually captured the
-first (`_captured_names`), so code without closures over the name is
+first (`captured_names`), so code without closures over the name is
 untouched:
 
 ```pyking                          # generated Python
@@ -334,7 +334,7 @@ This backend spells Pyking's unit as Python's empty tuple, `()`: a
 unit-returning `def` gets an explicit `return ()`, and the literal `()`
 is itself. Python's own `print` is the one thing that does not agree —
 it answers `None`, where Pyking's `print` yields unit
-(`runtime_interface.py`) — so a `print` call *used as a value* is
+(`runtime_interface.ml`) — so a `print` call *used as a value* is
 followed by the unit it is worth:
 
 ```pyking                          # generated Python
@@ -458,15 +458,15 @@ def pick(x, y, z):                 def pick(x, y, z):
         2 * x                              return 2 * x
 ```
 
-`_translate_tail_block`/`_translate_tail_stmt` do this, and they are
-deliberately the same recursion as `_translate_value_block` below with
+`translate_tail_block`/`translate_tail_stmt` do this, and they are
+deliberately the same recursion as `translate_value_block` below with
 `return` in place of the assignment — which is why an `if` nested in a
 `match` nested in an `if` needs no case of its own.
 
 A body that can fall out of its end produces unit on that path, and unit
 is `()` — Python's implicit `None` is *not* it, and printing one would
 write `None` where every other backend writes `()`. So a `return ()` is
-appended exactly when control can reach the end (`_falls_through`),
+appended exactly when control can reach the end (`falls_through`),
 which keeps unit a real value instead of a print-time special case:
 
 ```pyking                          # generated Python
@@ -578,7 +578,7 @@ comprehension.
 ### Functions used before they are written
 
 Every `def` in a block is bound before the block is translated
-(`_declare_functions`), mirroring the front end. Python needs no help to
+(`declare_functions`), mirroring the front end. Python needs no help to
 *run* a forward reference — it resolves a global or a closure variable
 when the call happens — but the translation does, because a name here may
 be renamed: a nested `def` that shadows something in the same Python
@@ -709,7 +709,7 @@ first imports it, which is before the importing module's own top level
 gets any further — exactly Pyking's rule, for exactly the same reason.
 
 **Renaming composes.** An import binds a name in the module scope like a
-`def` does, so it goes through `_bind` with everything else. Where the
+`def` does, so it goes through `bind` with everything else. Where the
 Pyking name would land on a Python name already in use, the generated
 import says so in Python's own words — `import helper as helper2`,
 `from helper import inc as bump2` — and the qualified references follow
@@ -722,7 +722,7 @@ it.
 - **Comprehension helpers.** One generated function per refutable
   clause, plus a list allocation per element tested.
 - **A `print` argument whose type is unknown pays for a function call.**
-  `_bool_kind` (see "Booleans" above) answers from the checker's own
+  `bool_kind` (see "Booleans" above) answers from the checker's own
   table, so a variable, a call and a list are all settled where their
   types are; what is left is a value the checker could not pin down,
   which falls back to the `__pyk_str` runtime walk on every run.
@@ -732,8 +732,8 @@ it.
 - **The immutability distinction disappears.** `=`, `var` and `:=` all
   become assignment (plus a `global`/`nonlocal` where one is needed), so
   generated Python will happily let you do things the Pyking source would
-  have been rejected for. The checking lives in `src/typesystem.py` and
-  `src/analyses.py`, ahead of every backend; it is not re-expressible in
+  have been rejected for. The checking lives in `src/typesystem.ml` and
+  `src/analyses.ml`, ahead of every backend; it is not re-expressible in
   the output.
 - **No optimisation of any kind.** The backend is a printer: no constant
   folding, no dead-code elimination, no tail calls. `1 + 2` compiles to

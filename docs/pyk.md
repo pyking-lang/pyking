@@ -1,18 +1,18 @@
-# `pyk.py`: design
+# `pyk.ml`: design
 
-How `src/pyk.py` — the command-line driver — is put together: why it
-stays thin, how `Options` and `TARGETS` are built so they can't drift
+How `src/pyk.ml` — the command-line driver — is put together: why it
+stays thin, how `options` and `targets` are built so they can't drift
 from what the backends actually support, and how one front end feeds
 three different commands. For the pipeline itself, see
 [architecture.md](architecture.md), "Command line"; for a one-page
-summary, see [source.md](source.md#pykpy).
+summary, see [source.md](source.md#pykml).
 
 ## What the driver does, and what it deliberately doesn't
 
-`pyk.py`'s job is narrow on purpose: parse `argv`, run the front-end
+`pyk.ml`'s job is narrow on purpose: parse `argv`, run the front-end
 stages every command needs, dispatch to one of three command functions,
 and format whatever error comes back. Running what was *compiled* is
-`src/execution.py`'s, by the same rule: which command builds a `.c` and
+`src/execution.ml`'s, by the same rule: which command builds a `.c` and
 which runs the binary is that target's knowledge, not the driver's. Every backend owns its **own**
 translation, packaging, and file naming — `command_compile` calls
 `target_c.translate_program`, `target_java.default_class_name`,
@@ -25,43 +25,40 @@ each know their own business.
 
 ## `Options`: one value, flags shared by every command
 
-`Options` is a single frozen dataclass carrying the command, the
-filename, and every flag — `target`, `output`, `stdout`, `run`,
-`symbols`, `tokens`, `tail_calls` — regardless of which command was
+`options` is a single record carrying the command, the filename, and
+every flag — `target`, `output`, `stdout`, `run`, `symbols`, `tokens`,
+`tail_calls`, `typecheck`, `type_experiment` — regardless of which command was
 actually invoked. That's a deliberate choice over, say, three different
 per-command option types: it's what makes `--tokens` and `--symbols`
 mean the *same thing* wherever they're written, since there's exactly
 one code path (`front_end`, then `main`) that interprets them, rather
 than three copies of that interpretation that could quietly drift apart.
-`parse_args` builds one `Options` from `argv` regardless of which
+`parse_args` builds one `options` from `argv` regardless of which
 command word appeared (or was left out — a bare `pyk foo.pyk` defaults
-to `"interpret"`, `DEFAULT_COMMAND`, on the theory, stated in the
+to `"interpret"`, `default_command`, on the theory, stated in the
 comment beside it, that someone holding a file almost always wants to
 just run it).
 
-## `TARGETS`/`EXTENSIONS`: assembled from the backends, not stated here
+## `targets`/`extensions`: assembled from the backends, not stated here
 
-```python
-TARGETS = (
-    ("python",)
-    + target_js_packaging.TARGETS
-    + target_c.STANDARDS
-    + target_java.VERSIONS
-    + (target_ocaml.TARGET, execution.PYKING_TARGET)
-)
+```ocaml
+let targets =
+  ([ "python" ] @ Target_js_packaging.targets @ Target_c.standards
+ @ Target_java.versions
+  @ [ Target_ocaml.target; pyking_target ])
 ```
 
 Nothing in this module *lists* the compiling targets by name — it concatenates
 each backend's own declaration of what it supports
-(`target_js_packaging.TARGETS`, `target_c.STANDARDS`, ...). That's what
+(`Target_js_packaging.targets`, `Target_c.standards`, ...). That's what
 makes the usage message, `--target`'s validation, and the default
-output extension (`EXTENSIONS`, built the same way) impossible to leave
+output extension (`extensions`, built the same way) impossible to leave
 stale when a target is added: a new C standard added to
-`target_c.STANDARDS` shows up in `pyk --help`'s target table
+`Target_c.standards` shows up in `pyk --help`'s target table
 automatically, with no second place in this file to remember to update.
-It's the same discipline `tools/playground/generator.py`'s
-`target_order` follows for the exact same reason — see that tool's own
-documentation.
+`tools/playground/generator.py` goes one better and asks the *compiled*
+compiler for the same list (`pykTargets`), so the page's dropdown cannot
+drift from it either — see that tool's own documentation.
 
 ## `front_end`: the stages every command shares, with one branch
 
@@ -81,12 +78,12 @@ decided whose refusal counted — `pyk run`'s, the `ocaml` target's, and
 gone: the checker runs, and a program it refuses is refused. What
 follows from that is that the checker is also the **only** pass that
 checks names. Its `Env` **is** a scope and derives every rule the old
-`analyze_program` did, in the identical wording (`typesystem.py` raises
-`analyses.AnalysisError` for an unbound name, imported rather than
+`analyze_program` did, in the identical wording (`typesystem.ml` raises
+`Analyses.Analysis_error` for an unbound name, imported rather than
 reimplemented, specifically so `format_error` can't tell which pass
 caught it from the message alone).
 
-What is left in `src/analyses.py` runs *after* the checker, and is one
+What is left in `src/analyses.ml` runs *after* the checker, and is one
 rule: `:=` may only name a `var`, and nothing may shadow one. It goes
 second precisely because by then every name is known to be bound, so a
 name the mutability walk cannot find is never "unbound" — it is
@@ -109,7 +106,7 @@ continue past the highest anywhere in the program, which is why
 `optimize_module` takes and returns that number rather than asking each
 module's own tree.
 
-The tail-call pass (`src/optimization.py`) sits between symbolizing and
+The tail-call pass (`src/optimization.ml`) sits between symbolizing and
 type checking, and that position is the whole of its wiring: it rewrites
 before *anything* reads the program, so `-t pyking` prints what it built,
 the checker checks that, and `tmap` is keyed to it — which the OCaml
@@ -133,15 +130,16 @@ and `parse_args` refuses the flag anywhere but `compile -t pyking` --
 every other target reads the types, the Python backend to know what to
 format and the OCaml one for every type it emits, and so does the
 interpreter. What `-t pyking` prints under it is the program as
-written, with the source's own annotations, which is what the OCaml
-bootstrap in `ocaml-src/` prints and what `make test-ocaml` compares
-(see [ocaml_bootstrap.md](ocaml_bootstrap.md)).
+written, with the source's own annotations: the parser's output with
+nothing inferred on top of it, which is what makes it worth having when
+the question is what the front end built rather than what the checker
+made of it.
 
 `compiling_natively(options)` is the other half of that wiring: a target
 whose host eliminates tail calls itself gets the program as written,
 since the pass would only be undone there. Which targets those are is
-`NATIVE_TAIL_CALLS`, a plain list of names here rather than something
-asked of each backend -- unlike `TARGETS` and `EXTENSIONS`, which each
+`native_tail_calls`, a plain list of names here rather than something
+asked of each backend -- unlike `targets` and `extensions`, which each
 backend really does own, this is the driver's own decision about which
 stage to run.
 
@@ -161,33 +159,41 @@ command is not a request for a manual.
 
 ## One table, one function, six kinds of error
 
-```python
-ERROR_KINDS = (
-    (LexError, "Lexing error"),
-    (ParseError, "Parsing error"),
-    (module.ModuleError, "Module error"),
-    (AnalysisError, "Name error"),
-    (typesystem.TypeError_, "Type error"),
-    (interpreter.RuntimeError_, "Runtime error"),
-)
+```ocaml
+let format_error error =
+  let line label i message = ... in
+  match error with
+  | Lexer.Lex_error (i, message) -> line "Lexing error" i message
+  | Parser.Parse_error (i, message) -> line "Parsing error" i message
+  | Module.Module_error (i, message) -> line "Module error" i message
+  | Analyses.Analysis_error (i, message) -> line "Name error" i message
+  | Typesystem.Type_error (i, message) -> line "Type error" i message
+  | Type_experiment.Type_error (i, message) -> line "Type error" i message
+  | Interpreter.Runtime_error (i, message) -> line "Runtime error" i message
+  | _ -> None
 ```
 
-Every stage that can refuse a program raises its own exception type,
-and every one of them carries an `Info`. `format_error` doesn't need
-six different formatting functions because of that uniformity — it's
-one loop over `ERROR_KINDS` checking `isinstance`, and the *only* thing
-that differs between a lexical failure and a runtime one is which label
-gets printed. This is the same table `src/repl.py` is handed (`start`
-takes `format_error` as a parameter specifically so a mistake made at
-the REPL prompt is reported in the exact words a file would get — see
-that module's own page), and it's why adding a seventh kind of front-end
-error later would mean adding one tuple here, not writing a new
-formatting function -- which is exactly what `Module error` was.
+Every stage that can refuse a program raises its own exception, and
+every one of them carries an `info`. `format_error` doesn't need six
+different formatting functions because of that uniformity — it's one
+`match` with a line per stage, and the *only* thing that differs
+between a lexical failure and a runtime one is which label gets
+printed. It answers `string option` rather than raising on something it
+does not recognize, which is what lets a caller with an exception that
+is not a Pyking error re-raise it unchanged. This is the same function
+`src/repl.ml` is handed (`start` takes `format_error` as a parameter
+specifically so a mistake made at the REPL prompt is reported in the
+exact words a file would get — see that module's own page), and it's why
+adding a seventh kind of front-end error later would mean adding one
+line here, not writing a new formatting function -- which is exactly
+what `Module error` was. `Type_experiment.Type_error` is the seventh
+line and says the same word as the sixth: `--type-experiment` swaps
+which checker runs, not how its refusal reads.
 
-`fail_unsupported` is kept separate from `format_error`'s table on
-purpose: an `UnsupportedError` needs to name *which target* refused the
+`fail_unsupported` is kept separate from `format_error`'s match on
+purpose: an `Unsupported` needs to name *which target* refused the
 construct (`"Unsupported by target 'nodejs': ..."`), a piece of context
-none of the six `ERROR_KINDS` need, since they're refused by the front
+none of the front-end errors need, since they're refused by the front
 end itself rather than by one particular backend's subset.
 
 ## `command_compile`: one function, one `write` closure reused everywhere
@@ -227,10 +233,10 @@ repeated:
   driver didn't create.
 
 The per-target branches in `compile_unit` are mostly symmetric —
-translate, catch that backend's own `UnsupportedError` and hand it to
+translate, catch that backend's own `Unsupported` and hand it to
 `fail_unsupported`, answer with the text — with two real asymmetries
 worth noting: the C branch passes `target` itself as the `standard` parameter
-(`target_c.py` serves both `c89` and `c23` from one function, gated by
+(`target_c.ml` serves both `c89` and `c23` from one function, gated by
 exactly that string — see that backend's internals page), and the Java
 branch has to work out the class name *before* it can print anything,
 since the class name has to match whatever file name was chosen (an
@@ -246,18 +252,18 @@ it imports export -- is handed one value for all of it,
 one module gets a `Context` saying so, which is what keeps a single-file
 program's output byte-for-byte what it was before there were modules.
 
-## Running what was compiled: `--run` and `src/execution.py`
+## Running what was compiled: `--run` and `src/execution.ml`
 
 `--run` compiles for the selected target and then builds and runs the
 result the way a user would by hand. What each target needs to do that
 is that target's own knowledge — `node prog.js`, but `cc -std=c89 -o
-prog prog.c` *and then* `prog` — so it lives in `src/execution.py`, not
+prog prog.c` *and then* `prog` — so it lives in `src/execution.ml`, not
 here. The driver's whole part is one line at the end of
 `command_compile`:
 
-```python
-if options.run:
-    return execution.execute(target, output_path, module_outputs)
+```ocaml
+if options.run then
+  Execution.execute target (Option.get output_path) module_outputs
 ```
 
 `plan_for(target, path, modules)` answers with a `Plan`: the build
@@ -269,7 +275,7 @@ than importing at run time, and for OCaml that order is also the order
 the modules' top levels run in. Everything in it is made absolute, since the
 commands run in the *output file's* directory rather than the one `pyk`
 was called from — which is what makes `esm`'s generated `package.json`
-and Java's `-cp` find what they expect. `_shown` puts them back for the
+and Java's `-cp` find what they expect. `shown` puts them back for the
 announcement: relative to the directory the command runs in, with `./`
 on the program being run, since a bare name would mean PATH.
 
@@ -284,34 +290,27 @@ Two targets are runnable in a way the others are not, and both are the
 table's business rather than a special case here. `html` is a page, so
 running it means handing it to `xdg-open` (`open` on macOS). `pyking`
 compiles Pyking to Pyking, so running it means handing it back to this
-compiler: `python3 src/pyk.py prog.pyk`, the interpreter, on the
-generated source.
+compiler: this very executable, run on the generated source, which is
+the interpreter.
 
 `--run` with `--stdout` is refused in `parse_args` rather than here,
 because it is a statement about the *arguments*: `--stdout` writes no
 file, so there is nothing for `--run` to run.
 
-## Why `command_repl` imports `repl` lazily
+## Why `repl.ml` is handed `format_error`
 
-```python
-def command_repl():
-    import repl
-    return repl.start(format_error)
+```ocaml
+if options.command = "repl" then Repl.start format_error
 ```
 
-`repl.py` is handed `format_error` itself, as a parameter, precisely so
-its own error reporting matches the driver's exactly — but `repl.py`
-doesn't import `pyk.py` back (that would be the cycle); instead,
-`pyk.py` imports `repl` **inside** `command_repl`, at the point it's
-actually needed, rather than at module load time alongside every other
-import at the top of the file. If it were a top-level import instead,
-loading `pyk.py` would require `repl.py` to already be importable, and
-if `repl.py` ever needed anything from `pyk.py` at its own import time
-(it doesn't today, but the point is architectural, not incidental)
-loading either module first would fail. The lazy import breaks that
-potential cycle by construction, at the one call site that actually
-needs it, without constraining either module's own list of top-level
-imports.
+`repl.ml` is handed `format_error` itself, as a parameter, precisely so
+its own error reporting matches the driver's exactly — and the parameter
+is what keeps the dependency one-way. `pyk.ml` refers to `Repl`;
+`repl.ml` refers to nothing in `pyk.ml`, so the two are ordered and the
+module graph stays acyclic, which is a requirement here rather than a
+preference: a cycle between two modules of one library does not link.
+Passing the function rather than importing it back is the whole of how
+that is arranged.
 
 ## `wrap`: every message reflows to 70 columns
 

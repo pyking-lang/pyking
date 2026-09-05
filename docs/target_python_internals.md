@@ -1,6 +1,6 @@
-# `target_python.py`: internals
+# `target_python.ml`: internals
 
-How `src/target_python.py`'s own machinery works — the `Scope` object
+How `src/target_python.ml`'s own machinery works — the `Scope` object
 and its renaming decision, the two free-variable analyses that decide
 when a rename is needed, and how a refutable comprehension pattern and
 a possibly-boolean `print` argument each get their generated helpers.
@@ -8,7 +8,7 @@ For what each Pyking construct compiles *to*, and where the output is
 not optimal, see [target_python.md](target_python.md) — that page is
 about the target's behavior; this one is about how the module that
 implements it is built. For a one-page summary, see
-[source.md](source.md#target_pythonpy).
+[source.md](source.md#target_pythonml).
 
 This page assumes you've read `target_python.md`'s "Blocks are scopes;
 Python's are not," "A rebinding some function captured," and "A def
@@ -25,7 +25,7 @@ binding translated naively — Pyking name straight to the same Python
 name — breaks the moment two blocks in the same Python function reuse a
 name, because Python has nowhere for the inner one to go but the same
 variable the outer one already occupies. The fix is renaming, and the
-whole of `Scope`, `_bind`, `_free_names` and `_captured_names` exists to
+whole of `Scope`, `bind`, `free_names` and `captured_names` exists to
 answer two different questions about *when* a rename is actually
 needed — because renaming everything that merely *could* collide would
 produce code where every third variable was `x2`, `y3`, and so on, and
@@ -35,28 +35,29 @@ be wrong, not merely unusual.
 The two questions:
 
 1. **Looking backward**: does this new binding land on a Python name
-   that's still live in this function scope? (`_bind`, using
+   that's still live in this function scope? (`bind`, using
    `scope.local`.)
 2. **Looking forward**: does *anything already translated in this
    scope* — specifically, a nested function — depend on a name this
-   binding is about to shadow? (`_free_names`/`_captured_names`,
+   binding is about to shadow? (`free_names`/`captured_names`,
    computed once per Python function scope before any of its statements
-   are translated, and consulted by `_bind` via `scope.shadowed`/
+   are translated, and consulted by `bind` via `scope.shadowed`/
    `scope.captured`.)
 
 ## `Scope`: what's tracked, and why it's split the way it is
 
-```python
-@dataclass(frozen=True)
-class Scope:
-    outer: dict          # enclosing Python function scopes' renames
-    local: dict           # this Python function scope's renames
-    block: frozenset      # names bound by the innermost Pyking block
-    shadowed: frozenset   # outer names this scope reads (question 2)
-    captured: frozenset   # names nested functions read from around them
-    loop_names: frozenset # names the nearest loop rebinds each turn, or None
-    depth: int            # Python function scopes deep; 0 is the module
-    mutables: dict        # each `var` in scope -> the depth it was declared at
+```ocaml
+type scope = {
+  outer : string SMap.t;         (* enclosing Python function scopes' renames *)
+  local : string SMap.t;         (* this Python function scope's renames *)
+  block : StringSet.t;           (* names bound by the innermost Pyking block *)
+  shadowed : StringSet.t;        (* outer names this scope reads (question 2) *)
+  captured : StringSet.t;        (* names nested functions read from around them *)
+  loop_names : StringSet.t option; (* names the nearest loop rebinds each turn *)
+  depth : int;                   (* Python function scopes deep; 0 is the module *)
+  mutables : int SMap.t;         (* each `var` in scope -> the depth it was declared at *)
+  used : StringSet.t;            (* every Python name already spoken for *)
+}
 ```
 
 The split between `outer` and `local` is not bookkeeping for its own
@@ -65,7 +66,7 @@ A binding only ever needs to dodge names that are **live in the same
 Python function scope**: Python's own scoping already keeps `local`
 apart from `outer` (a nested `def`'s local variables can't collide with
 its enclosing function's, because Python itself won't let them), so
-`_bind` only has to check `local` — checking `outer` too would rename
+`bind` only has to check `local` — checking `outer` too would rename
 things that don't actually collide in the generated code. `block` is
 what tells rebinding (reusing a name — `x = 1` then `x = 2` in the same
 block, which is two Pyking bindings that safely become one Python
@@ -74,38 +75,43 @@ block reusing an outer name, which is not safe to reuse): a name in
 `scope.block` is this block's own, already assigned a Python name, so
 binding it again just returns that same name — unless a function
 already captured it (see "A rebinding some function captured" below,
-and the `rebinding`/`captured` interaction in `_bind`).
+and the `rebinding`/`captured` interaction in `bind`).
 
 `loop_names` is explained fully in `gap.md`; the short version for
-context here is that it's what tells `_bind` a binding is happening
+context here is that it's what tells `bind` a binding is happening
 *inside* a loop, so that name can be recorded as "rebound each turn" —
 information the turn-groups mechanism needs and nothing else does.
 
 `depth` and `mutables` answer a question none of the others can: a `def`
 that writes a `var` bound outside it has to say `global` or `nonlocal`,
 and which of the two depends on *where the declaration is*, not on
-anything about the name itself. `_function_scope` increments `depth`;
-`_bind` records `mutables[name] = scope.depth` for a `var` and drops the
+anything about the name itself. `function_scope` increments `depth`;
+`bind` records `mutables[name] = scope.depth` for a `var` and drops the
 name for anything else, since a name rebound with `=` is no longer a
 cell. A `var` at depth 0 is `global`, one deeper is `nonlocal`. See
 [target_python.md](target_python.md), "A `var` written from inside a
 function".
 
-## `_bind`: the actual decision
+## `bind`: the actual decision
 
-```python
-def _bind(name, scope, rebinding=False, loop_carried=True):
-    if name in scope.block and not (rebinding and name in scope.captured):
-        return scope.local[name], scope
-    py_name = name
-    if (
-        name in RESERVED
-        or name in scope.local
-        or name in scope.local.values()
-        or name in scope.shadowed
-    ):
-        py_name = _fresh_py_name(name, scope)
-    return py_name, Scope(...)
+```ocaml
+let bind ?(rebinding = false) ?(loop_carried = true) ?(mutable_ = false)
+    name scope =
+  if StringSet.mem name scope.block
+     && not (rebinding && StringSet.mem name scope.captured)
+  then (SMap.find name scope.local, scope)
+  else
+    let py_name =
+      if
+        StringSet.mem name reserved
+        || SMap.mem name scope.local
+        || SMap.exists (fun _ value -> value = name) scope.local
+        || StringSet.mem name scope.used
+        || StringSet.mem name scope.shadowed
+      then fresh_py_name name scope
+      else name
+    in
+    (py_name, { scope with ... })
 ```
 
 Four conditions can force a rename, and it's worth having a concrete
@@ -127,7 +133,7 @@ example of each in mind:
   as the *keys* of `scope.local` is what rules that out.
 - **`name in scope.shadowed`** — the name isn't shadowing anything
   visible right here, but some function *already translated in this
-  scope* reads it from further out (question 2, from `_free_names`
+  scope* reads it from further out (question 2, from `free_names`
   below) — binding it here would make it local to the whole Python
   function and break that read, even though the read happens to be
   written *before* this binding in the source.
@@ -149,13 +155,13 @@ the set of names this scope's own nested functions read from around
 them, so `rebinding and name in scope.captured` is precisely "this
 would-be-free rebinding actually needs its own variable."
 
-## `_free_names`: what a function reads before it's bound anything itself
+## `free_names`: what a function reads before it's bound anything itself
 
 `_free_names(stmts, bound)` walks a statement list and collects every
 name used **before** something in `stmts` (or already in `bound`, the
 names already in scope when the walk starts — a `def`'s own parameters,
 for instance) has bound it. The recursive structure
-(`_free_in_stmt`/`_free_in_expr`) is a straightforward walk with one
+(`free_in_stmt`/`free_in_expr`) is a straightforward walk with one
 thing worth calling out: it extends `bound` **in place** as it goes
 (`bound.update(...)`, `bound.add(...)`), which is what makes order
 matter correctly — a name read on line 3 that was bound on line 1 is
@@ -165,28 +171,28 @@ would be. `SFunctionDef`'s own case adds the nested `def`'s name to
 rule — a block's `def`s are visible throughout it), and a nested `def`
 that reads a name from *outside itself* still gets walked here rather
 than skipped, because "a body reads this name from outside itself" is
-exactly the question `_captured_names` (next) needs answered for that
+exactly the question `captured_names` (next) needs answered for that
 inner function too.
 
-`_function_scope`, called whenever translation enters a `def` body or a
+`function_scope`, called whenever translation enters a `def` body or a
 comprehension (both genuine Python scopes on their own), is what
 actually populates `scope.shadowed` for the body about to be
 translated: it's called with `_free_names(body, params ∪ {def's own
 name})` as its `shadowed` argument. Only *after* that computation is
-available does `_bind` have anything to consult — which is why
-`_free_names` always runs once, up front, for a whole function body
+available does `bind` have anything to consult — which is why
+`free_names` always runs once, up front, for a whole function body
 before any of that body's individual statements are translated one by
 one.
 
-## `_captured_names`: the same question, one level removed
+## `captured_names`: the same question, one level removed
 
 `_captured_names(stmts, bound)` asks something related but distinct:
 not "what does *this* scope read from outside," but "what do the
 **functions defined somewhere in this scope** read from around
-*themselves*." `_captured_in_block` walks the block, and for every
-`SFunctionDef` it finds, calls `_free_names` on *that function's own
+*themselves*." `captured_in_block` walks the block, and for every
+`SFunctionDef` it finds, calls `free_names` on *that function's own
 body* — reusing the exact same free-variable machinery, just rooted one
-level deeper. The result feeds `scope.captured`, which is what `_bind`
+level deeper. The result feeds `scope.captured`, which is what `bind`
 checks for the rebinding-that-a-closure-captured case described above.
 
 Both analyses run once per Python function scope, before any statement
@@ -200,30 +206,30 @@ way to know that without having looked ahead first.
 Two constructs in this backend need code that doesn't correspond to
 anything the Pyking source wrote — host boilerplate, not a translation:
 
-**A refutable comprehension pattern.** `_build_match_helper` is called
+**A refutable comprehension pattern.** `build_match_helper` is called
 the first time a comprehension's `for` clause needs one (see
 `target_python.md`, "List comprehensions with refutable patterns," for
 what makes a pattern refutable and what the desugared shape looks
 like), synthesizing a small `PyFunctionDef` — pattern-only, capturing
-nothing from the surrounding scope — and appending it to
-`_pending_comp_helpers`, a module-level list `translate_program` drains
-and prepends to the final output exactly once, regardless of how deeply
-the comprehension that needed it was nested. `_fresh_comp_names`
-allocates both the loop-item name and the helper's own name checked
-against `_used_identifiers` — every identifier anywhere in the source,
-collected once by `_collect_identifiers` — so a generated name can
-never collide with, or shadow, anything the program actually wrote.
+nothing from the surrounding scope — and adding it to `gen.pending`,
+the list `translate_program` drains and prepends to the final output
+exactly once, regardless of how deeply the comprehension that needed it
+was nested. `fresh_comp_names` allocates both the loop-item name and the
+helper's own name checked against `gen.used` — every identifier anywhere
+in the source, collected once by `collect_identifiers` — so a generated
+name can never collide with, or shadow, anything the program actually
+wrote.
 
 **A possibly-boolean `print` argument.** Pyking spells its booleans
 `true`/`false`; Python's `print` would spell the same value
 `True`/`False`. Most arguments don't need a runtime check at all —
-`_bool_kind` reads the argument's type out of `tmap`, the checker's
+`bool_kind` reads the argument's type out of `tmap`, the checker's
 symbol → type table that `translate_program` is handed, and
-`_wrap_print_argument` emits either an inline `'true' if <expr> else
+`wrap_print_argument` emits either an inline `'true' if <expr> else
 'false'` (for a `Bool`) or the expression completely unwrapped (for a
 type with no `Bool` anywhere inside it, which is most of them). Only a
 value that genuinely can hold one — a `[Bool]`, a `(Int, Bool)`, a type
-nothing pinned down — makes `_format_helper_name` build (once, lazily,
+nothing pinned down — makes `format_helper_name` build (once, lazily,
 the first time it's actually needed) a small `__pyk_str` helper and
 route the argument through a call to it. Reading the types rather than
 guessing at AST shapes is what keeps an ordinary program's output free
@@ -231,5 +237,5 @@ of a prelude it has no use for. Like the comprehension helper, this one is kept
 separate from the translated program itself and printed in its own
 marked-off prelude block (`pprint_py_program`), because it's boilerplate
 for the host Python interpreter, not a rendering of anything the Pyking
-source wrote — the same distinction `target_js_packaging.py` draws for
+source wrote — the same distinction `target_js_packaging.ml` draws for
 its own generated preludes.
