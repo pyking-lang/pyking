@@ -1,12 +1,14 @@
 # The Python implementation of the Pyking module declared in
-# external_all_mod1.external.pyk. An Int is a Python int held to 32 bits
-# by the implementation; a String is a str; a Bool is a bool.
+# external_all_mod1.external.pyk. An Int is a Python int, a String a
+# str, a Bool a bool. Nothing here narrows a result: past the signed
+# 32-bit range Pyking leaves the answer undefined, so an implementation
+# returns whatever its host computes.
 
 def shout(s):
     return s + "!"
 
 def twice(n):
-    return (n * 2 + 2**31) % 2**32 - 2**31
+    return n * 2
 
 def flip(b):
     return not b

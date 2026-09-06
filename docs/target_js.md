@@ -419,10 +419,11 @@ the whole of the difference, and it is right for either sign.
 7 / 2                Math.trunc(7 / 2)
 ```
 
-*Not optimal, and deliberately so:* an `Int` is 32-bit and wrapping in
-Pyking, and nothing here enforces that — a JavaScript number is a
-double, so a program that overflows prints a value this backend does not
-wrap. Matching it would mean `| 0` on every arithmetic operator, or
+*Not optimal, and deliberately so:* a JavaScript number is a double, so
+a program that overflows the signed 32-bit range prints whatever the
+double arithmetic gives. Pyking leaves that undefined, so there is
+nothing to enforce. Pinning it to one answer would mean `| 0` on every
+arithmetic operator, or
 `BigInt` throughout, either of which costs the thing this backend is
 built for: output that reads like the source. See
 [targets.md](targets.md) for the same difference measured across all the
@@ -562,7 +563,8 @@ the block. Nothing needs saying in the output.
 
 ## Where the output is not optimal
 
-- **No 32-bit wrapping**, as above.
+- **Integers are doubles**, as above — exact to 2^53, and past the
+  signed 32-bit range Pyking says nothing about what the answer is.
 - **Over-eager renaming** around the temporal dead zone, as above.
 - **`pykFormat` on every printed value**, including integers that
   `String()` would have handled — one code path is easier to keep

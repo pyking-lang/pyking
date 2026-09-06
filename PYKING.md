@@ -739,22 +739,38 @@ double quotes, and support backslash escapes: `\n`, `\t`, `\r`, `\\`, `\'`,
 and `\"` (so a string can contain its own delimiter, or the other quote
 character, once escaped).
 
-An `Int` is a **signed 32-bit integer**: its values run from
-−2 147 483 648 to 2 147 483 647, and `+`, `-` and `*` *wrap* rather than
-overflowing, two's complement, so `2147483647 + 1` is −2 147 483 648.
-Arithmetic is therefore total — there is no overflow error to handle —
-and every result is again an `Int`.
+An `Int` holds **at least the signed 32-bit range**, −2 147 483 648 to
+2 147 483 647. Every implementation carries that much; several carry
+more, and none is made to pretend otherwise.
+
+**Past that range the result is undefined.** `2147483647 + 1` may be
+2 147 483 648, or −2 147 483 648, or anything else the host arrives at —
+the language does not say, and two implementations may answer
+differently without either being wrong. There is no overflow error to
+handle, and nothing is inserted into generated code to force one answer:
+what a target computes is what its own arithmetic computes.
+
+A program that stays inside the 32-bit range therefore means the same
+thing everywhere, and that is the range to write programs for. One that
+leaves it is relying on a width the language does not promise.
+
+**What a program may write down stops at 32 bits, whatever the host.** A
+literal outside the range is a lexical error on every target, so the
+front end refuses the same programs wherever it runs:
 
 ```pyking
-biggest = 2147483647
-wrapped = biggest + 1     # -2147483648
+biggest = 2147483647      # fine
+too_big = 2147483648      # Lexing error: integer literal is too large
 ```
 
-This is what the interpreter implements, and the interpreter is what
-defines the language's runtime behaviour. Not every compiler target
-enforces the same width — some hosts count wider, and none of them is
-made to pretend otherwise; `docs/targets.md` lists which and why. A
-program that stays inside 32 bits means the same thing everywhere.
+The lower end is one short of the range for a reason worth knowing: a
+negative literal is unary minus applied to a positive one, so
+`-2147483648` asks for the literal `2147483648`, which is refused.
+Write `-2147483647` — or, if the exact value is needed,
+`-2147483647 - 1`, which computes it without writing it.
+
+`docs/targets.md` shows what each target does past the range, and why
+nothing is inserted to hide the difference.
 
 ```python
 count = 42

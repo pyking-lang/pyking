@@ -1,14 +1,15 @@
 // The JavaScript implementation of the Pyking module declared in
 // external_all_mod1.external.pyk. An ES module: `esm` imports it
 // directly, and `nodejs` is emitted as ES modules when a program
-// reaches one. An Int is a number held to 32 bits with `| 0`.
+// reaches one. An Int is a number, and nothing here narrows a result:
+// past the signed 32-bit range Pyking leaves the answer undefined.
 
 export function shout(s) {
   return s + "!";
 }
 
 export function twice(n) {
-  return (n * 2) | 0;
+  return n * 2;
 }
 
 export function flip(b) {

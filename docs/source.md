@@ -30,7 +30,7 @@ with no hierarchy to express.
 | [`lexer.ml`](#lexerml) | ~450 | Characters → tokens. Also defines `info`, the source span every later node carries. |
 | [`syntax.ml`](#syntaxml) | ~960 | The AST: one variant type per node group, plus the pretty printer that prints Pyking back out. |
 | [`parser.ml`](#parserml) | ~1520 | Recursive descent, tokens → AST, and the few rules the grammar cannot state. |
-| [`module.ml`](#modulem) | ~520 | The module system: which modules a program is made of, in what order, what each exports, and what each import means. |
+| [`module.ml`](#moduleml) | ~520 | The module system: which modules a program is made of, in what order, what each exports, and what each import means. |
 | [`analyses.ml`](#analysesml) | ~1030 | Static analyses over the AST: mutability (`analyze_mutability`), `symbolize`, which numbers every node, and `effects`, which says what can print. |
 | [`walk.ml`](#walkml) | ~190 | One `children` function over every AST node, for the passes that ask a question of a whole subtree. |
 | [`typesystem.ml`](#typesystemml) | ~2930 | The type checker: one function per AST datatype, producing `tmap` (symbol → type). Also the type *inference*, which is the same machinery run at a call site rather than at a definition. Its fragment is the interpreter's and the OCaml backend's. |
@@ -903,9 +903,11 @@ three are design rather than accident:
   `format_value` writes a string bare, while a prompt, a list's elements
   and (later) a debugger's variable view *display* a value, so
   `display_value` quotes it.
-- **`wrap32(n)`** — a Pyking `Int` is a signed 32-bit integer, and `+`,
-  `-` and `*` wrap two's complement, as they do in C and Java. See
-  [targets.md](targets.md#integers-are-32-bit) for which backends differ.
+- **Integers are the host's own.** A Pyking `Int` holds at least the
+  signed 32-bit range and overflow is undefined, so nothing here narrows
+  a result — there is no wrapping step. See
+  [targets.md](targets.md#integers-hold-32-bits-and-overflow-is-undefined)
+  for what each host does past that range.
 - **`call_free_symbols(node)`** — the one optimisation: an expression
   containing no call can neither suspend nor reach the host, so it is
   evaluated in one gulp by `evaluate` instead of one continuation at a

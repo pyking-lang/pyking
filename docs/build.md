@@ -81,10 +81,18 @@ hand-kept copy. See `tools/playground/README.md`.
 
 One thing about js_of_ocaml is load-bearing rather than incidental: its
 `int` is 32 bits, where a native OCaml `int` is 63. Anything that
-depends on the width has to say so. `interpreter.wrap32` goes through
-`Int32` for exactly that reason — a modulus written with `1 lsl 32`
-would be `1` in the browser and correct natively, and the browser would
-then print a different number for the same program.
+depends on the width has to say so.
+
+A Pyking `Int` is one such thing, and the answer is deliberately *not*
+to normalise it: an `Int` holds at least the signed 32-bit range and
+overflow is undefined (PYKING.md), so the interpreter leaves results as
+the host computes them. The consequence is that **the playground and the
+terminal disagree past 2^31** — `2147483647 + 1` is `2147483648` under
+`pyk` and `-2147483648` in the browser. Both conform, because the
+language promises nothing there. What *is* the same on both is which
+programs are accepted: `lexer.max_int_literal` fixes the largest literal
+at 32 bits whatever the host, so the front end refuses the same source
+wherever it runs.
 
 ## What is needed to build, and what is not
 

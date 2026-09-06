@@ -931,9 +931,12 @@ The bootstrap is split into one module per compiler stage:
    formatting rules are that module's, implemented once here.
 
    Two things that are language decisions rather than implementation
-   ones: an `Int` is **32-bit, wrapping** (`wrap32`, applied to every
-   literal and every `+ - *`), which PYKING.md states and
-   `docs/targets.md` measures the backends against; and `call_free_symbols`
+   ones: an `Int` holds **at least the signed 32-bit range, and
+   overflow is undefined**, so nothing here narrows a result -- an Int
+   is the host's own `int`, and the interpreter native and the
+   interpreter under js_of_ocaml may therefore disagree past 2^31
+   (PYKING.md states the rule, `docs/targets.md` has the table); and
+   `call_free_symbols`
    is the one optimisation — an expression with no call in it can neither
    suspend nor print, so `_evaluate` computes it in one go, off a set
    worked out once before the program runs.
@@ -1120,8 +1123,11 @@ Two rules follow from it and are easy to break:
   executable instead. A `Unix.` call added to a library module breaks
   the playground, not the compiler, so nothing local will tell you.
 - **js_of_ocaml's `int` is 32 bits**, where a native one is 63. Anything
-  that depends on the width has to say so explicitly:
-  `interpreter.wrap32` goes through `Int32` for exactly that reason.
+  that depends on the width has to say so explicitly. A Pyking `Int`
+  deliberately does not: overflow is undefined, so the two builds may
+  differ past 2^31 and both are right. What is pinned instead is the
+  *literal* bound, `lexer.max_int_literal`, so the front end accepts the
+  same programs on both.
 
 `docs/build.md` is the long form, and `tools/playground/README.md`
 covers what the page does with the bundle.
@@ -1153,8 +1159,8 @@ with no arguments for the usage message, which is generated from
 every error the driver prints.)
 
 `pyk <file>` and `pyk repl` both run a program with
-`src/interpreter.ml`, on Pyking's own semantics (32-bit `Int`, Pyking
-runtime errors with a stack trace). The third way to run one is
+`src/interpreter.ml`, on Pyking's own semantics (Pyking runtime errors
+with a stack trace, and no narrowing of an `Int`). The third way to run one is
 `pyk compile --run`, which builds what was compiled and runs it with
 that target's own commands — and so shows a *backend's* semantics.
 Where the two disagree, the interpreter is the reference and the
@@ -1473,9 +1479,10 @@ Where what was built differs from the plan, and why:
   Errors are still one exception per stage carrying an `info`, and
   `pyk.ml`'s `format_error` is the one place they are worded.
 
-Two language questions it raises are settled: an **`Int` is 32-bit and
-wraps** (PYKING.md, "Integer and string literals"; the backends that
-differ are listed in `docs/targets.md`), and the **maximum call depth is
+Two language questions it raises are settled: an **`Int` holds at least
+the signed 32-bit range, and past it overflow is undefined** (PYKING.md,
+"Integer and string literals"; what each host does is in
+`docs/targets.md`), and the **maximum call depth is
 10 000** (`interpreter.max_call_depth`), raising a Pyking error rather
 than exhausting memory.
 

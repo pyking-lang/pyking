@@ -453,10 +453,11 @@ mutation is Pyking's `def` rule: `declare` puts a write-once cell per
 reached, which is how a function name can be visible throughout its block
 while its body still captures what was bound where it is written.
 
-**An `Int` is 32 bits**, wrapping on overflow — the language's answer,
-since this is the reference. Which targets differ, and why none of them
-is forced to agree, is in
-[targets.md](targets.md#integers-are-32-bit).
+**An `Int` holds at least 32 bits, and overflow is undefined** — so
+nothing here narrows a result, and this reference is free to disagree
+with a target past that range. What each host does, and why none is
+forced to agree, is in
+[targets.md](targets.md#integers-hold-32-bits-and-overflow-is-undefined).
 
 `src/interpreter.ml`'s own docstring and [source.md](source.md) carry the
 detail; `design/plan-eval-lsp.md` is where the debugger, DAP and LSP

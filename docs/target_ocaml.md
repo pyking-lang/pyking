@@ -556,10 +556,10 @@ would leave the call inside it naming nothing.
   each time, so building text by recursion is quadratic. `Buffer` is
   what OCaml offers instead, and nothing in the Pyking source says which
   concatenations belong to one piece of text.
-- **Integers are `int`.** OCaml's native 63-bit integer, so a program
-  that overflows disagrees with the Python target, whose integers are
-  arbitrary precision. The C and Java targets have the same gap, at
-  32 bits.
+- **Integers are `int`.** OCaml's native 63-bit integer. A program that
+  overflows the signed 32-bit range disagrees with the C and Java
+  targets, which stop at 32 — but Pyking leaves that undefined, so
+  neither is wrong and nothing is emitted to reconcile them.
 - **No optimisation.** The backend is a printer: no constant folding, no
   dead-code elimination. The OCaml compiler does that work afterwards.
 - **The subset is the checker's.** Everything the checker does not cover

@@ -50,18 +50,14 @@ let unsupported_message = "Construct is not supported"
 
 (* --- integers ---
 
-   A Pyking `Int` is a signed 32-bit integer, and arithmetic wraps. The
-   width is a language decision (see PYKING.md, "Integers"), made here
-   because the interpreter is what defines the runtime semantics; the
-   backends whose host integers are wider are listed in
-   docs/targets.md. *)
-
-(** n wrapped to a signed 32-bit integer, two's complement. Through
-    Int32 rather than by arithmetic on `int`, because `int` is not one
-    width: 63 bits natively and 32 under js_of_ocaml, and a modulus
-    written with `1 lsl 32` is 1 there rather than 4294967296. Int32 is
-    exactly 32 bits in both. int -> int *)
-let wrap32 n = Int32.to_int (Int32.of_int n)
+   A Pyking `Int` holds at least the signed 32-bit range; what a program
+   may *write down* stops there (src/lexer.ml refuses a wider literal),
+   but what arithmetic may *produce* is not bounded by the language --
+   past that range the result is undefined (see PYKING.md, "Integers").
+   So nothing here narrows a result: an Int is the host's own int, which
+   is 63 bits natively and 32 under js_of_ocaml, and the two may
+   therefore disagree about a program that overflows. Both are right,
+   because the language promises nothing there. *)
 
 (* --- values and environments --- *)
 
@@ -493,7 +489,7 @@ let divide_info = { file = "<division>"; row1 = 0; col1 = 0; row2 = 0; col2 = 0 
 
 let arith op left right =
   match (left, right) with
-  | VInt a, VInt b -> Some (VInt (wrap32 (op a b)))
+  | VInt a, VInt b -> Some (VInt (op a b))
   | _ -> None
 
 let compare_with op left right =
@@ -509,7 +505,7 @@ let divide left right =
   | VInt _, VInt 0 -> raise (Trap (divide_info, "division by zero"))
   | VInt a, VInt b ->
       let quotient = abs a / abs b in
-      Some (VInt (wrap32 (if a < 0 = (b < 0) then quotient else -quotient)))
+      Some (VInt (if a < 0 = (b < 0) then quotient else -quotient))
   | _ -> None
 
 let concat left right =
@@ -582,7 +578,7 @@ let apply_binary node left right =
     operand the operator does not accept. expr -> value -> value *)
 let apply_unary node operand =
   match (node, operand) with
-  | ENeg _, VInt a -> VInt (wrap32 (-a))
+  | ENeg _, VInt a -> VInt (-a)
   | _ ->
       raise
         (Trap
@@ -597,7 +593,7 @@ let range_list start stop step info =
   if step = 0 then raise (Trap (info, "'range' step must not be zero"));
   let rec go n out =
     if (step > 0 && n >= stop) || (step < 0 && n <= stop) then List.rev out
-    else go (n + step) (VInt (wrap32 n) :: out)
+    else go (n + step) (VInt n :: out)
   in
   VList (go start [])
 
@@ -610,8 +606,8 @@ let apply_builtin name args info host =
       host.print_line (String.concat " " (List.map format_value args));
       unit_value
   | "str", [ value ] -> VString (format_value value)
-  | "len", [ VString text ] -> VInt (wrap32 (String.length text))
-  | "len", [ VList elements ] -> VInt (wrap32 (List.length elements))
+  | "len", [ VString text ] -> VInt (String.length text)
+  | "len", [ VList elements ] -> VInt (List.length elements)
   | "range", [ VInt stop ] -> range_list 0 stop 1 info
   | "range", [ VInt start; VInt stop ] -> range_list start stop 1 info
   | "range", [ VInt start; VInt stop; VInt step ] ->
@@ -745,7 +741,7 @@ let rec bind_target env target value =
     an expression in `runtime.simple`). expr -> env -> value *)
 let rec evaluate e env =
   match e with
-  | EInt (_, value, _) -> VInt (wrap32 value)
+  | EInt (_, value, _) -> VInt value
   | EString (_, value, _) -> VString value
   | EBool (_, value, _) -> boolean value
   | EQualified (info, module_, name, _) -> (

@@ -118,10 +118,16 @@ loop, so nothing grows the OCaml stack per Pyking call.
 an ordinary Pyking
 `Runtime_error` — with the calls in progress listed, via
 `stack_trace` — rather than letting a runaway recursion exhaust memory
-or crash the host process. `docs/targets.md`'s "Integers are 32 bit"
-section notes the analogous point about `Int`: this is a *language*
-decision (see PYKING.md), made here because the interpreter is what
-defines runtime semantics, not an accident of the implementation.
+or crash the host process. That is a *language* decision (see
+PYKING.md), made here because the interpreter is what defines runtime
+semantics, rather than an accident of the implementation.
+
+`Int` is the opposite case, and worth contrasting: it holds at least 32
+bits and overflow is **undefined**, so nothing here narrows a result at
+all. An `Int` is the host's own `int` — 63 bits natively, 32 under
+js_of_ocaml — and the same program may print different things in the
+terminal and in the playground once it passes 2^31. Both conform;
+`docs/targets.md` has the table.
 
 **A block never grows the continuation chain.** `KSeq(stmts, index,
 exit_env, rest)` runs a whole statement list by *incrementing an index*

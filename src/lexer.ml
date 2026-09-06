@@ -210,6 +210,12 @@ let is_letter x =
 (** Whether x is a digit, letter, or underscore. char -> bool *)
 let is_digit_letter x = is_digit x || is_letter x
 
+(* The largest integer literal a program may write. A negative literal
+   is unary minus applied to one of these, so the lower bound needs no
+   constant of its own: -2147483648 is `-` on 2147483648, which this
+   refuses, and PYKING.md says so. *)
+let max_int_literal = 2147483647
+
 let keywords =
   [
     "for"; "in"; "if"; "while"; "loop"; "break"; "continue"; "then";
@@ -349,13 +355,15 @@ let lexing file chars =
     | x :: _ when is_digit x ->
         let y, ys = string_until is_digit rest in
         let width = String.length y in
-        (* A run of digits too long to be an int is refused here
-           rather than left to overflow. A Pyking Int is 32 bits, so
-           nothing writable is lost. *)
+        (* What a program may write down is fixed at the signed 32-bit
+           range, whatever the host's own int is, so the front end
+           refuses the same literals wherever it runs. What arithmetic
+           may *produce* is a separate question the language leaves
+           undefined (see PYKING.md, "Integers"). *)
         let value =
           match int_of_string_opt y with
-          | Some value -> value
-          | None ->
+          | Some value when value <= max_int_literal -> value
+          | _ ->
               raise
                 (Lex_error
                    ( fi r c width,

@@ -280,12 +280,11 @@ they are not the same everywhere:
 
 Two of these need care from whoever writes the implementation.
 
-**An `Int` is 32 bits and wraps** (PYKING.md, "Integer and string
-literals"). Python's `int` is unbounded and JavaScript's `number` is a
-double, so on those two hosts the implementation is what keeps the
-promise: return a value already reduced to the signed 32-bit range
-(`(n + 2**31) % 2**32 - 2**31` in Python, `n | 0` in JavaScript). C,
-Java and OCaml wrap on their own.
+**An `Int` holds at least the signed 32-bit range, and past it the
+result is undefined** (PYKING.md, "Integer and string literals"). An
+implementation therefore has nothing to normalise: return whatever the
+host computes. What it must not do is narrow the range *below* 32 bits —
+a value inside it has to survive the round trip on every host.
 
 **A JavaScript list must say it is one.** A Pyking list and a Pyking
 tuple are both arrays there, and the value formatter walks values rather

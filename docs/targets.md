@@ -252,31 +252,42 @@ followed by a third difference, which is about the values themselves:
   `step` is total, so it reports a Pyking runtime error with a stack
   trace like any other. Nothing guards the compiled output.
 
-### Integers are 32 bit
+### Integers hold 32 bits, and overflow is undefined
 
-A Pyking `Int` is a **signed 32-bit integer**, and `+`, `-` and `*` wrap
-on overflow, two's complement. That is what the interpreter implements,
-and the interpreter is the reference — so it is the language's answer,
-not one host's.
+A Pyking `Int` holds **at least the signed 32-bit range**. Past it the
+result is **undefined**: the language does not say what `2147483647 + 1`
+is, and no two targets are required to agree (PYKING.md, "Integer and
+string literals").
 
-The hosts do not all agree, and they are not forced to:
+That is why the widths below are a description rather than a list of
+deviations — each host is simply doing its own arithmetic:
 
 | where | width | `2147483647 + 1` |
 |---|---|---|
-| the interpreter (`pyk <file>`, `pyk repl`) | 32, wrapping | `-2147483648` |
+| the interpreter, `pyk <file>` / `pyk repl` | 63 (OCaml's `int` keeps one bit for the GC) | `2147483648` |
+| the interpreter in the playground | 32 (js_of_ocaml's `int`) | `-2147483648` |
 | `c89`, `c23` | whatever the C compiler's `int` is — 32 on every mainstream target | `-2147483648` (undefined behaviour, in practice this) |
 | `java8`, `java17`, `java21` | 32, wrapping (the JVM defines it) | `-2147483648` |
 | `python` | arbitrary precision | `2147483648` |
 | `nodejs`, `html`, `esm` | IEEE-754 doubles: exact to 2^53 | `2147483648` |
-| `ocaml` | 63 on a 64-bit build (OCaml's `int` keeps one bit for the GC) | `2147483648` |
+| `ocaml` | 63 | `2147483648` |
 
-Nothing is inserted into the generated code to hide this. Masking every
-Python or OCaml arithmetic result back down to 32 bits would slow those
-targets down, make their output unreadable, and — more to the point —
-misrepresent the host: a reader of the generated `.py` should see what
-Python will do with it. A program that stays inside 32 bits means the
-same thing everywhere, and one that does not is relying on a width the
-language does not promise.
+The interpreter appears twice on purpose: it is one implementation
+compiled two ways, and past 2^31 the two disagree. Both conform, because
+there is nothing there to conform to.
+
+**Nothing is inserted into the generated code**, and nothing narrows a
+result in the interpreter either. Masking every Python or OCaml
+arithmetic result back down to 32 bits would slow those targets down,
+make their output unreadable, and — more to the point — misrepresent the
+host: a reader of the generated `.py` should see what Python will do
+with it.
+
+What *is* fixed everywhere is what a program may write down: an integer
+literal outside the signed 32-bit range is a lexical error on every
+target. A program that stays inside that range means the same thing
+everywhere; one that leaves it is relying on a width the language does
+not promise.
 
 Everything else is expected to agree exactly, and the test suite enforces
 it: `tests/test_cases.toml` lists which targets each program supports, and

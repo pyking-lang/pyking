@@ -747,13 +747,14 @@ module: the generated program writes `import sys` and reaches it as
 `sys.loadfile(...)`, exactly as it would a compiled one. The file is
 copied beside the program's output, where `import` finds it.
 
-Two things an implementation has to keep, because Python will not:
+One thing an implementation has to watch, because Python will not:
 
-- **An `Int` is 32 bits and wraps.** Python's `int` is unbounded, so a
-  function returning one has to reduce it itself:
-  `(n + 2**31) % 2**32 - 2**31`.
 - **A module's name is a name in Python's own namespace.** A Pyking
   module called `sys` or `os` will not be found -- the builtin wins.
+
+Integers need no care. Python's `int` is unbounded, and Pyking leaves
+overflow past the signed 32-bit range undefined, so an implementation
+returns whatever Python computes.
 
 The boundary carries `Int`, `String`, `Bool`, unit, tuples and lists,
 each as Python's own.
