@@ -1,0 +1,9 @@
+# A program whose external module has one implementation for node and
+# another for the browser. Whichever is used, the program prints the
+# same thing, so one `.out` serves every target -- which is what makes
+# the two implementations comparable at all.
+
+import external_web_mod1 as host
+
+print(host.origin)
+print(host.origin ++ "!")

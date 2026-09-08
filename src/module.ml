@@ -184,14 +184,30 @@ let external_module_path directory name =
 let is_external_path path =
   Filename.check_suffix path external_extension
 
+(** Where a program's files come from. The compiler reads a directory;
+    the browser has none and is handed the sources instead, which is
+    what lets `iweb` run a program of several modules in a page (see
+    docs/target_js.md, "The interpreted target"). *)
+type sources = { exists : string -> bool; contents : string -> string }
+
+(** The contents of a file. string -> string *)
+let read_whole_file path =
+  let channel = open_in_bin path in
+  let contents = really_input_string channel (in_channel_length channel) in
+  close_in channel;
+  contents
+
+(** The files on disk: what `pyk` compiles from. sources *)
+let disk = { exists = Sys.file_exists; contents = read_whole_file }
+
 (** The file a module name means and whether it declares an external
     module. A name with both files is refused: a module is one thing,
     and which of the two was meant would be a guess.
     string -> string -> info option -> (string, bool) *)
-let module_file directory name info =
+let module_file ?(from = disk) directory name info =
   let plain = module_path directory name in
   let declared = external_module_path directory name in
-  match (Sys.file_exists declared, Sys.file_exists plain) with
+  match (from.exists declared, from.exists plain) with
   | true, true ->
       let where =
         match info with
@@ -212,21 +228,14 @@ let module_file directory name info =
 
 (* --- reading one module --- *)
 
-(** The contents of a file. string -> string *)
-let read_whole_file path =
-  let channel = open_in_bin path in
-  let contents = really_input_string channel (in_channel_length channel) in
-  close_in channel;
-  contents
-
 (** Lexes and parses one file into a module, and nothing else: no module
     it imports is read, and nothing about what it exports is checked.
     `info` is the import that asked for it, for the error a missing file
     raises. What `--no-typechecking` stops at.
     string -> info option -> t *)
-let read_file path info =
+let read_file ?(from = disk) path info =
   let data =
-    try read_whole_file path
+    try from.contents path
     with Sys_error _ as error -> (
       match info with
       (* The program's own file: nothing imported it, so there is no
@@ -405,6 +414,17 @@ let check_boundary_type type_ name info =
   in
   walk false type_
 
+(** Whether a statement list is a declaration file's -- signatures and
+    nothing else, which is what an external module holds. Asked of the
+    statements rather than the file name, so a caller that has only the
+    program (the interpreter) can tell. [stmt] -> bool *)
+let is_declaration stmts =
+  stmts <> []
+  && List.for_all
+       (fun statement ->
+         match statement with SFunctionSig _ -> true | _ -> false)
+       stmts
+
 (** Refuses anything but a public signature in a declaration file: a
     body there would have to be compiled into the very file the target's
     own implementation already occupies, and a private signature names
@@ -463,13 +483,16 @@ let class_name stem =
     nothing is renamed. None for a target that cannot reach one.
     string -> string -> string option *)
 let implementation_name name target =
-  match target with
-  | "python" -> Some (name ^ ".py")
-  | "nodejs" | "esm" -> Some (name ^ ".js")
-  | "c89" | "c23" -> Some (name ^ ".c")
-  | "java8" | "java17" | "java21" -> Some (class_name name ^ ".java")
-  | "ocaml" -> Some (name ^ ".ml")
-  | _ -> None
+  match Targets.family_of target with
+  | Targets.Python -> Some (name ^ ".py")
+  (* Every JavaScript target imports a module as `./<name>.js`, so that
+     is what the file must be called in the output, whichever source it
+     was copied from -- see `implementation_path`. *)
+  | Targets.Node | Targets.Web | Targets.Iweb -> Some (name ^ ".js")
+  | Targets.C -> Some (name ^ ".c")
+  | Targets.Java -> Some (class_name name ^ ".java")
+  | Targets.Ocaml -> Some (name ^ ".ml")
+  | Targets.Pyking -> None
 
 (** An external module's implementation for a target, checked to exist.
     Raises Module_error naming both the module and the file it looked
@@ -481,18 +504,36 @@ let implementation_path directory name target info =
         (Module_error
            ( info,
              Printf.sprintf
-               "target '%s' cannot use the external module '%s': it has no                 file of its own for a module to be implemented in"
+               "target '%s' cannot use the external module '%s': it has no \
+                file of its own for a module to be implemented in"
                target name ))
   | Some file ->
-      let path = join directory file in
-      if Sys.file_exists path then path
-      else
-        raise
-          (Module_error
-             ( info,
-               Printf.sprintf
-                 "the external module '%s' has no implementation for target                   '%s': there is no file '%s'"
-                 name target path ))
+      (* Where the implementation is *read* from, which is not always
+         what it is called in the output. A browser may need different
+         code from node, and `<name>.web.js` is where that goes -- but
+         most modules need none, so a plain `<name>.js` serves both.
+         Whichever is found is copied out as `<name>.js`, which is what
+         every generated import names. *)
+      let browser =
+        match Targets.family_of target with
+        | Targets.Web | Targets.Iweb -> [ join directory (name ^ ".web.js") ]
+        | _ -> []
+      in
+      let candidates = browser @ [ join directory file ] in
+      (match List.find_opt Sys.file_exists candidates with
+      | Some path -> path
+      | None ->
+          raise
+            (Module_error
+               ( info,
+                 Printf.sprintf
+                   "the external module '%s' has no implementation for target \
+                    '%s': there is no file %s"
+                   name target
+                   (String.concat " and no "
+                      (List.map
+                         (fun path -> Printf.sprintf "'%s'" (Filename.basename path))
+                         candidates)) )))
 
 (* --- resolving what an import means --- *)
 
@@ -626,14 +667,14 @@ let cycle_message name stack =
     followed, which is what a cycle is reported from.
     string -> string -> info option -> [(string, t)] -> [string] ->
     [(string, info option)] -> ([(string, t)], [string]) *)
-let rec visit name path info parsed order stack =
+let rec visit ?(from = disk) name path info parsed order stack =
   if List.exists (fun (held, _) -> held = name) stack then
     (* Only a recursive call has a non-empty stack, and every one of
        those carries the import that asked for the module. *)
     raise (Module_error (Option.get info, cycle_message name stack))
   else if List.mem_assoc name parsed then (parsed, order)
   else
-    let module_ = read_file path info in
+    let module_ = read_file ~from path info in
     if module_.is_external then check_declaration module_.stmts module_.path;
     let module_ =
       {
@@ -654,9 +695,10 @@ let rec visit name path info parsed order stack =
           match statement with
           | SImport (import_info, imported_name, _, _, _, _) ->
               let imported_path, _ =
-                module_file directory imported_name (Some import_info)
+                module_file ~from directory imported_name (Some import_info)
               in
-              visit imported_name imported_path (Some import_info) parsed order
+              visit ~from imported_name imported_path (Some import_info) parsed
+                order
                 (stack @ [ (name, info) ])
           | _ -> (parsed, order))
         (parsed, order) module_.stmts
@@ -667,15 +709,15 @@ let rec visit name path info parsed order stack =
     program itself last: read, parsed, symbolized with one numbering
     across the whole program, and with every import resolved. Raises
     Module_error for a missing module or a cycle. string -> [t] *)
-let load path =
+let load ?(from = disk) path =
   (* The program's own file is named on the command line rather than
      resolved, but a name with both files is still a name meaning two
      things, so it is refused here too. *)
-  let path, _ = 
+  let path, _ =
     if is_external_path path then (path, true)
-    else module_file (dirname path) (module_name path) None
+    else module_file ~from (dirname path) (module_name path) None
   in
-  let parsed, order = visit (module_name path) path None [] [] [] in
+  let parsed, order = visit ~from (module_name path) path None [] [] [] in
   let _, _, modules =
     List.fold_left
       (fun (highest, loaded, modules) name ->

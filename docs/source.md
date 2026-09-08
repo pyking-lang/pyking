@@ -41,7 +41,7 @@ with no hierarchy to express.
 | [`repl.ml`](#replml) | ~1160 | `pyk repl`: a session as a program written one entry at a time, and the multi-line editor it is typed into. |
 | [`target_python.ml`](#target_pythonml) | ~2410 | The Python backend, and the only one that compiles the whole language. |
 | [`target_js_core.ml`](#target_js_coreml) | ~1280 | The JavaScript backend's language half: a `Js*` AST, translation, printer. |
-| [`target_js_packaging.ml`](#target_js_packagingml) | ~660 | Its packaging half: `nodejs`, `html`, `esm`, and the JavaScript side of the runtime interface. |
+| [`target_js_packaging.ml`](#target_js_packagingml) | ~300 | Its packaging half: `node24`, `web24`, `iweb24`, and the JavaScript side of the runtime interface. |
 | [`target_c.ml`](#target_cml) | ~1990 | The C backend, for `c89` and `c23`. Infers the types C insists on, and pins down the evaluation order C leaves open. |
 | [`target_java.ml`](#target_javaml) | ~1690 | The Java backend, for `java8`/`java17`/`java21`. Also proves every function returns. |
 | [`target_ocaml.ml`](#target_ocamlml) | ~2030 | The OCaml backend. Infers nothing: it reads the checker's `tmap`. |
@@ -1168,36 +1168,41 @@ all three JS targets).
 ## `target_js_packaging.ml`
 
 **The JavaScript backend's packaging half**, and the JavaScript side of
-the runtime interface — each host's `print`, and the shared `pykFormat`,
-which is exactly what differs between the three targets.
+the runtime interface. `node24` and `web24` emit the same ES modules and
+both print with `console.log`; `web24` adds a page that loads the
+program, and `iweb24` compiles nothing at all and ships the interpreter
+instead.
 
 **Design, in depth:** [target_js_packaging.md](target_js_packaging.md).
 
-- **`TARGETS`** = `("nodejs", "html", "esm")`, **`PRIMARY_EXTENSIONS`**.
-- **`package_nodejs` / `package_html` / `package_esm_module` /
-  `package_esm_node_driver` / `package_esm_html`** — one self-contained
-  script, one self-contained page, and the module plus its two wrappers:
-  what a program of one module becomes, unchanged.
-- **`package_program(target, units, output_path, stdout) -> ({path:
-  contents}, String)`** — everything a whole program writes, and the
-  text `--stdout` prints, so that `esm` writing four files, `nodejs`
-  writing a shared runtime module, and `html` putting every module on
-  one page are all this module's business and not the driver's.
-- **`nodejs_import` / `esm_import` / `page_import`** — the three
-  spellings of an import, handed to the core inside a `JsHost`.
-  **`RUNTIME_MODULE`** is where a multi-file `nodejs` program's `print`
-  lives; **`reserved_names`** is what the packager tells the core it has
-  taken.
-- **`esm_paths` / `output_stem` / `manifest_declares_module`** — how an
-  `--output` path becomes the four `esm` files, and why an existing
-  `package.json` is never overwritten.
+- **`targets`** — the JavaScript targets, read out of `targets.ml`.
+- **`js_module unit js_program main target`** — one Pyking module as one
+  ES module: its body, `print` imported where it prints, its imports,
+  and an `export` clause unless it is the program's own.
+- **`shared_runtime ()`** — `pyk-runtime.js`: `print` and the value
+  formatting every module of the program imports rather than repeating.
+- **`web_page module source`** — a `web` program's HTML: a loader and
+  nothing else, since the program prints to the console.
+- **`interpreted_page main sources externals`** — an `iweb` program's
+  HTML: the interpreter, the Pyking sources, the external modules, and
+  the call that runs them. Nothing is compiled for this target.
+- **`package_program target units output_path stdout -> ([(path,
+  contents)], string)`** — everything a whole program writes, and the
+  text `--stdout` prints. `node` and `web` share it entirely; `web` adds
+  the page.
+- **`module_import`** — an import as an ES `import`, handed to the core
+  inside a `jshost`. **`runtime_module`** is where `print` lives;
+  **`reserved_names`** is what the packager tells the core it has taken.
+- **`manifest_declares_module`** — why an existing `package.json` is
+  never overwritten.
 
 ---
 
 ## `target_c.ml`
 
-**The C backend**, serving both `c89` and `c23`. One backend rather than
-two because the standards disagree about *printing* — comments, whether
+**The C backend**, serving `c89`, `c99` and `c23`. One backend rather
+than three because the standards disagree about *printing* — comments,
+whether
 declarations may follow statements, whether `bool` exists — not about
 meaning, so `standard` reaches only the printer.
 
@@ -1287,7 +1292,7 @@ translation, evaluation-order fixing, mutual-recursion grouping);
 [target_ocaml.md](target_ocaml.md) (what compiles to what, and what's
 refused).
 
-- **`TARGET`** = `"ocaml"`, **`EXTENSION`** = `".ml"`,
+- **`TARGET`** = `"ocaml5.5"`, **`EXTENSION`** = `".ml"`,
   **`INTERFACE_EXTENSION`** = `".mli"`, and the `O*` AST.
 - **`translate_program(stmts, tmap, context=None)`** — the table comes from
   `src/pyk.ml`, which type-checks every program; this module fills none
@@ -1337,11 +1342,13 @@ the driver. One table, so `pyk.ml` stays a sequencer.
 ### Main functions
 
 - **`plan_for(target, path, modules) -> Plan`** — the commands for one
-  target. `python3 prog.py`; `node prog.js`; `node prog.node.js` for
-  `esm`, whose generated driver is the file a user would run; `xdg-open`
-  (`open` on macOS) for `html`, which is a page; `cc`/`javac`/`ocamlopt`
-  and then the result for the compiled ones; and, for `pyking`, this
-  compiler again — what runs Pyking is the interpreter. `modules` names
+  target, and a `note` printed before them. `python3 prog.py`; `node
+  prog.js`; `python3 -m http.server` for `web` and `iweb`, whose pages
+  must be served because a browser refuses a module over `file://` —
+  there the note is the page's own URL, since the server says only which
+  port it took; `cc`/`javac`/`ocamlopt` and then the
+  result for the compiled ones; and, for `pyking`, this compiler again —
+  what runs Pyking is the interpreter. `modules` names
   the program's other files in dependency order, which the three that
   *link* a program rather than importing at run time need — and which,
   for OCaml, is also the order the modules' top levels run in.
@@ -1419,7 +1426,7 @@ in, generated source or a formatted error out), `pykRun` (the
 interpreter, emitting each line as the program produces it),
 `pykTargets`, `pykFormatHelper`, `pykKeywords` and `pykBuiltins`. The
 last four are what `generator.py` asks the bundle for at build time, so
-the page's target list, its syntax mode's keyword list and its `esm`
+the page's target list, its syntax mode's keyword list and its JavaScript
 worker's formatter all come from the compiler rather than from a
 hand-kept copy.
 

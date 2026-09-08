@@ -26,7 +26,8 @@
 open Lexer
 open Syntax
 
-let target = "ocaml"
+(* The one OCaml target; its name is src/targets.ml's. *)
+let target = List.hd (Targets.members Targets.Ocaml)
 let extension = ".ml"
 
 (* What a module the program imports says it exports, beside its own
@@ -1956,13 +1957,13 @@ let pprint_ocaml_program program source =
     @
     if program.main then
       [
-        "(* Target: ocaml. Compile with:  ocamlopt <this file>";
+        Printf.sprintf "(* Target: %s. Compile with:  ocamlopt <this file>" target;
         "   or run it directly with:      ocaml <this file> *)";
       ]
     else
       [
         Printf.sprintf
-          "(* Target: ocaml. The module '%s' of the program; compile it\n   \
+          "(* Target: ocaml5.5. The module '%s' of the program; compile it\n   \
            before the ones that import it. *)"
           program.program_name;
       ]

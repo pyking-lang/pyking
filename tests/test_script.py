@@ -94,7 +94,7 @@ CASES_FILE = os.path.join("tests", "test_cases.toml")
 # `typecheck_*.pyk` test pins those types down. See `run_pyking` below.
 PYKING_TARGET = "pyking"
 # Nor is `interpret` a backend: it compiles nothing either, and runs the
-# program on the AST with src/interpreter.py. It is still compared
+# program on the AST with src/interpreter.ml. It is still compared
 # against the same `.out` as every compiling target, which is what makes
 # it a test of the *language* rather than of the interpreter alone. Its
 # subset is the type checker's (see `interpreter.check`), and every
@@ -119,7 +119,7 @@ FAIL_TYPECHECK_PREFIX = "fail_typecheck_"
 # means. `pyking_notail` prints the AST without it, which is where a
 # program's own shape is pinned once the pass has rewritten it.
 PYKING_NOTAIL_TARGET = "pyking_notail"
-PYTHON_NOTAIL_TARGET = "python_notail"
+PYTHON_NOTAIL_TARGET = "python14_notail"
 NOTAIL_FLAG = "--no-tail-call-opt"
 # What the `pyking` target compares against, beside the `.out` every
 # backend shares.
@@ -148,11 +148,63 @@ def expected_path(source, target):
     return stem + ".out"
 
 
+# Every target the suite can run, in the order the summary lists them.
+# The compiling ones are src/targets.ml's, spelled the same way; the four
+# after them compile nothing (see the notes above each).
 TARGETS = (
-    "python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17",
-    "java21", "ocaml", INTERPRET_TARGET, PYKING_TARGET,
+    "python14", "node24", "web24", "iweb24", "c89", "c99", "c23",
+    "java8", "java17", "java21", "ocaml5.5", INTERPRET_TARGET, PYKING_TARGET,
     PYTHON_NOTAIL_TARGET, PYKING_NOTAIL_TARGET,
 )
+
+# The unversioned name of each family, for `--target`: naming a family
+# selects every version of it, which is what a change to one backend
+# wants tested. A name that is already a target selects just that one.
+FAMILIES = {
+    "python": ["python14"],
+    "node": ["node24"],
+    "web": ["web24"],
+    "iweb": ["iweb24"],
+    "c": ["c89", "c99", "c23"],
+    "java": ["java8", "java17", "java21"],
+    "ocaml": ["ocaml5.5"],
+}
+
+
+def selected_targets(name):
+    """The targets a --target argument selects: a whole family, or one
+    target. String -> [String]"""
+    if name in FAMILIES:
+        return FAMILIES[name]
+    if name in TARGETS:
+        return [name]
+    return []
+
+# How the JavaScript targets are run.
+#
+# A node from 22.12 on guesses whether a .js file is an ES module, and
+# that guess quietly makes under-declared output work -- output an older
+# node then refuses. So the guess is turned off where it can be, and what
+# is tested is what the compiler actually declares: a package.json beside
+# the output, or a .mjs name.
+#
+# The flag that turns it off only exists from node 22.7, and an older
+# node rejects an option it does not know rather than ignoring it. So it
+# is offered and kept only if node takes it -- and a node too old for the
+# flag is also too old to guess, which is the behaviour the flag is
+# asking for in the first place.
+def node_command():
+    """`node`, with detection turned off where that is possible.
+    () -> [String]"""
+    flag = "--no-experimental-detect-module"
+    try:
+        probe = subprocess.run(["node", flag, "-e", ""], capture_output=True)
+    except FileNotFoundError:
+        return ["node"]
+    return ["node", flag] if probe.returncode == 0 else ["node"]
+
+
+NODE = node_command()
 
 # The compiler used for the C targets; `cc` is the standard name.
 C_COMPILER = os.environ.get("CC", "cc")
@@ -282,7 +334,7 @@ def run_python(source, workdir, modules):
 
 def _run_python(source, workdir, flags):
     generated = os.path.join(workdir, "program.py")
-    compiled = compile_to(source, "python", generated, flags)
+    compiled = compile_to(source, "python14", generated, flags)
     if compiled.returncode != 0:
         return None, compiled.stderr
     with open(generated) as f:
@@ -296,52 +348,96 @@ def _run_python(source, workdir, flags):
     return executed(run([sys.executable, generated]))
 
 
-def run_nodejs(source, workdir, modules):
+def run_node(source, workdir, modules):
+    """Runs the compiled ES module under node.
+
+    The generated package.json beside it is what makes a plain `.js` an
+    ES module to node; without it the `import` lines would be read as
+    CommonJS and fail, so running this exercises that too."""
     generated = os.path.join(workdir, "program.js")
-    compiled = compile_to(source, "nodejs", generated)
+    compiled = compile_to(source, "node24", generated)
     if compiled.returncode != 0:
         return None, compiled.stderr
-    return executed(run(["node", generated]))
+    return executed(run(NODE + [generated]))
 
 
-def run_esm(source, workdir, modules):
-    """Runs the generated node driver, not the module directly: the
-    driver is the file a user would run, and exercising it also checks
-    that the module's `run(runtime)` interface is wired up -- and that the
-    generated package.json really does put node in ES module mode, since
-    the driver's `import` fails without it."""
-    module = os.path.join(workdir, "program.js")
-    compiled = compile_to(source, "esm", module)
-    if compiled.returncode != 0:
-        return None, compiled.stderr
-    return executed(run(["node", os.path.join(workdir, "program.node.js")]))
+def run_web(source, workdir, modules):
+    """Compiles the page, then runs the module it loads, under node.
 
-
-def run_html(source, workdir, modules):
-    """Runs the page's program under node with a stubbed `document`.
-
-    This executes the real generated program and the real `print` path --
-    the code that appends to the page -- and compares what would have
-    appeared there. It does not prove that a browser parses the page or
-    that the layout works; only a headless browser could do that, and one
-    would be a heavy dependency for an otherwise stdlib-only repository.
-    """
+    The `web` target emits the same ES modules `node` does and prints to
+    the console, so the program itself runs identically here; what is
+    checked on top is that the page exists and really does load that
+    module. A browser would be needed to prove it renders, and one is a
+    heavy dependency for an otherwise stdlib-only repository."""
     page = os.path.join(workdir, "program.html")
-    compiled = compile_to(source, "html", page)
+    compiled = compile_to(source, "web24", page)
     if compiled.returncode != 0:
         return None, compiled.stderr
     with open(page) as f:
-        script = SCRIPT_RE.search(f.read())
-    if script is None:
-        return None, 'no <script type="module"> found in the generated page'
-    # `.mjs` here is the harness's own choice, not the compiler's: the
-    # extracted text came from a `<script type="module">` and so is a
-    # module by definition, and the extension says so without depending
-    # on a manifest the html target has no reason to write.
-    harness = os.path.join(workdir, "program.page.mjs")
-    with open(harness, "w") as f:
-        f.write(DOM_STUB + script.group(1) + DOM_FLUSH)
-    return executed(run(["node", harness]))
+        text = f.read()
+    if '<script type="module" src="./program.js">' not in text:
+        return None, "the generated page does not load ./program.js"
+    # The `web` target writes no package.json -- a browser does not read
+    # one -- so running its module under node needs the harness to say
+    # what a browser would have taken for granted.
+    with open(os.path.join(workdir, "package.json"), "w") as f:
+        f.write('{\n  "type": "module"\n}\n')
+    return executed(run(NODE + [os.path.join(workdir, "program.js")]))
+
+
+# The driver that runs an `iweb` page's program outside a browser: the
+# page's own script is three lines of glue around `pykRunProgram`, and
+# this is the same glue with node's filesystem in place of `fetch`. What
+# it proves is that the interpreter, the sources and the external
+# modules the page ships really do run the program; that a browser
+# parses the page is `make -C tools/playground e2e`'s business.
+IWEB_DRIVER = """
+import fs from 'fs';
+const here = process.argv[2];
+const files = fs.readdirSync(here);
+globalThis.pykSources = Object.fromEntries(
+  files.filter((f) => f.endsWith('.pyk'))
+       .map((f) => [f, fs.readFileSync(here + '/' + f, 'utf8')]));
+globalThis.pykExternals = {};
+for (const f of files) {
+  if (f.endsWith('.js') && f !== 'pyking.js') {
+    // An external module is an ES module, but node decides that from
+    // the file extension and the nearest package.json -- and an `iweb`
+    // program has neither, because nothing about it runs under node: a
+    // browser reading `<script type="module">` needs no such hint. So
+    // the copy this driver imports is named .mjs, which says it outright
+    // and leaves pyking.js (a classic script) read as one.
+    const mjs = here + '/' + f.slice(0, -3) + '.pyk-test.mjs';
+    fs.copyFileSync(here + '/' + f, mjs);
+    globalThis.pykExternals[f.slice(0, -3)] = await import(mjs);
+  }
+}
+globalThis.pykOnPrint = (line) => process.stdout.write(line);
+await import(here + '/pyking.js');
+const result = JSON.parse(pykRunProgram(process.argv[3]));
+if (!result.ok) {
+  process.stderr.write(result.stage + ': ' + result.text + '\\n');
+  process.exit(1);
+}
+"""
+
+
+def run_iweb(source, workdir, modules):
+    """Runs an `iweb` program the way its page does, under node.
+
+    Nothing is compiled for this target: the page ships the Pyking
+    sources and the interpreter built to JavaScript, so what runs is the
+    program itself, interpreted. That is why it supports the whole
+    language where a backend supports a subset -- and why its output is
+    compared against the same `.out` as every other target."""
+    page = os.path.join(workdir, "program.html")
+    compiled = compile_to(source, "iweb24", page)
+    if compiled.returncode != 0:
+        return None, compiled.stderr
+    driver = os.path.join(workdir, "run-iweb.mjs")
+    with open(driver, "w") as f:
+        f.write(IWEB_DRIVER)
+    return executed(run(NODE + [driver, workdir, os.path.basename(source)]))
 
 
 def run_c(source, workdir, modules, standard):
@@ -534,11 +630,12 @@ RUNNERS = {
     PYKING_NOTAIL_TARGET: run_pyking_notail,
     PYTHON_NOTAIL_TARGET: run_python_notail,
     INTERPRET_TARGET: run_interpret,
-    "python": run_python,
-    "nodejs": run_nodejs,
-    "esm": run_esm,
-    "html": run_html,
+    "python14": run_python,
+    "node24": run_node,
+    "web24": run_web,
+    "iweb24": run_iweb,
     "c89": lambda source, workdir, modules: run_c(source, workdir, modules, "c89"),
+    "c99": lambda source, workdir, modules: run_c(source, workdir, modules, "c99"),
     "c23": lambda source, workdir, modules: run_c(source, workdir, modules, "c23"),
     "java8": lambda source, workdir, modules: run_java(
         source, workdir, modules, "java8"),
@@ -546,7 +643,7 @@ RUNNERS = {
         source, workdir, modules, "java17"),
     "java21": lambda source, workdir, modules: run_java(
         source, workdir, modules, "java21"),
-    "ocaml": run_ocaml,
+    "ocaml5.5": run_ocaml,
 }
 
 
@@ -601,20 +698,20 @@ def load_cases():
         # The pass must not change what a program means, and the pair of
         # outputs is where that is checked -- so a program that runs one
         # way should run the other.
-        if PYTHON_NOTAIL_TARGET in targets and "python" not in targets:
+        if PYTHON_NOTAIL_TARGET in targets and "python14" not in targets:
             print(
                 f"WARNING: {name} lists {PYTHON_NOTAIL_TARGET} but not "
-                f'"python"; the two outputs are only worth comparing '
+                f'"python14"; the two outputs are only worth comparing '
                 f"together"
             )
         # A program whose types are pinned must also be a program that
         # runs: `python` compiles the whole language, so a
         # `typecheck_*` file that does not list it is describing
         # something nothing ever executes.
-        if checks and "python" not in targets:
+        if checks and "python14" not in targets:
             print(
                 f"WARNING: {name} pins its types but lists no backend; add "
-                f'"python" so the program it describes is one that runs'
+                f'"python14" so the program it describes is one that runs'
             )
         # The interpreter runs the checker's fragment, so a program whose
         # types are pinned is one it can run -- and the cheapest check
@@ -791,21 +888,44 @@ def parse_args(argv):
             f"(default: {' '.join(DEFAULT_COMPILER)})"
         ),
     )
+    parser.add_argument(
+        "--target",
+        metavar="NAME",
+        help=(
+            "run only this target, or every version of this family "
+            f"({', '.join(sorted(FAMILIES))}); default: all of them"
+        ),
+    )
     arguments = parser.parse_args(argv)
     jobs = arguments.jobs if arguments.jobs is not None else default_jobs()
     compiler = (
         arguments.compiler.split() if arguments.compiler else DEFAULT_COMPILER
     )
-    return jobs, compiler
+    only = None
+    if arguments.target:
+        only = selected_targets(arguments.target)
+        if not only:
+            parser.error(
+                f"unknown target {arguments.target!r}; expected one of "
+                f"{', '.join(TARGETS)}, or a family "
+                f"({', '.join(sorted(FAMILIES))})"
+            )
+    return jobs, compiler, only
 
 
 def main():
     global COMPILER
-    jobs, COMPILER = parse_args(sys.argv[1:])
+    jobs, COMPILER, only = parse_args(sys.argv[1:])
     cases = load_cases()
     tasks = plan(cases)
-    passed = {target: 0 for target in TARGETS}
-    failed = {target: 0 for target in TARGETS}
+    if only is not None:
+        # The manifest is still read whole -- its warnings are about the
+        # suite as a whole, not about the targets being run -- and only
+        # the runs are narrowed.
+        tasks = [task for task in tasks if task[0] in only]
+    shown = TARGETS if only is None else tuple(t for t in TARGETS if t in only)
+    passed = {target: 0 for target in shown}
+    failed = {target: 0 for target in shown}
 
     print(f"{len(tasks)} runs on {jobs} worker{'' if jobs == 1 else 's'}.")
     for target, report, did_fail in outcomes(tasks, jobs):
@@ -821,8 +941,8 @@ def main():
     # Width taken from the names themselves rather than fixed, so the
     # columns stay lined up whatever a target is called -- `pyking_notail`
     # is already longer than every backend name.
-    width = max(len(target) for target in TARGETS)
-    for target in TARGETS:
+    width = max(len(target) for target in shown)
+    for target in shown:
         total = passed[target] + failed[target]
         print(
             f"  target {target:<{width}} {passed[target]:3d} passed, "

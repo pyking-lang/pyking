@@ -1,6 +1,6 @@
 # The OCaml target
 
-**Targets in this family:** `ocaml`.
+**Targets in this family:** `ocaml5.5`.
 
 **Key points**
 
@@ -262,7 +262,7 @@ is unit — which is exactly when Pyking allows one.
 
 OCaml eliminates tail calls itself, so this target is compiled from the
 program as written: `src/optimization.ml`, which turns tail recursion
-into `loop`s for every other target, is skipped for `ocaml` (see
+into `loop`s for every other target, is skipped for `ocaml5.5` (see
 docs/optimization.md, "The target that needs none of this"). A
 tail-recursive Pyking function therefore compiles to a tail-recursive
 OCaml one --

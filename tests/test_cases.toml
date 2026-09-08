@@ -24,47 +24,47 @@
 
 [[cases]]
 file = "arithmetic.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "iweb24", "interpret"]
 
 [[cases]]
 file = "arithmetic_division.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "boolean_literals.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "iweb24", "interpret"]
 
 [[cases]]
 file = "boolean_literals_patterns.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "concatenation.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "else_if.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "iweb24", "interpret"]
 
 [[cases]]
 file = "else_if_nested.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "iweb24", "interpret"]
 
 [[cases]]
 file = "else_if_nested_loop.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "escapes.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "evaluation_order.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "evaluation_order_branches.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "iweb24", "interpret"]
 
 [[cases]]
 file = "fail_typecheck_binding_annotation.pyk"
@@ -236,303 +236,303 @@ targets = ["pyking"]
 
 [[cases]]
 file = "for_complex.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "for_simple.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "function_types.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "if_expr.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "ifelse.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "iweb24", "interpret"]
 
 [[cases]]
 file = "indent.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "iweb24", "interpret"]
 
 [[cases]]
 file = "lexical_capture.pyk"
-targets = ["python", "nodejs", "esm", "html", "interpret"]
+targets = ["python14", "node24", "web24", "iweb24", "interpret"]
 
 [[cases]]
 file = "lexical_capture_group.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "lexical_capture_loop.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "lexical_capture_nested.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "list_complex.pyk"
-targets = ["python", "nodejs", "esm", "html", "interpret"]
+targets = ["python14", "node24", "web24", "iweb24", "interpret"]
 
 [[cases]]
 file = "list_comprehension_basic.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "list_comprehension_filter.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "list_comprehension_nested.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "list_comprehension_pattern_helper.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "list_literals.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "list_pattern_match.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "list_pattern_recursive.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "list_pattern_recursive_short.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "loop_corner_cases.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "iweb24", "interpret"]
 
 [[cases]]
 file = "loop_def_capture.pyk"
-targets = ["python", "nodejs", "esm", "html", "interpret"]
+targets = ["python14", "node24", "web24", "iweb24", "interpret"]
 
 [[cases]]
 file = "loop_early_return.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "loop_unit.pyk"
-targets = ["python", "nodejs", "esm", "html", "interpret"]
+targets = ["python14", "node24", "web24", "iweb24", "interpret"]
 
 [[cases]]
 file = "match_int_simple.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "match_int_simple_new.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "match_string_simple.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "negative_numbers.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "nested_for_mutation.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "recursion_forward.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "recursion_mutual.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "recursion_nested.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "recursion_shadowing.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "recursion_simple.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "renaming_keywords.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "iweb24", "interpret"]
 
 [[cases]]
 file = "renaming_shadowing.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "scopes.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "shadowing.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "shadowing_blocks.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "shadowing_functions.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "shadowing_mutable.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "short_function.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "iweb24", "interpret"]
 
 [[cases]]
 file = "short_function_values.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "strings.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "subset_control.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "iweb24", "interpret"]
 
 [[cases]]
 file = "subset_values.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "iweb24", "interpret"]
 
 [[cases]]
 file = "test1.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "iweb24", "interpret"]
 
 [[cases]]
 file = "tail_return_boundaries.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "tail_return_nested.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "tail_return_subset.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "iweb24", "interpret"]
 
 [[cases]]
 file = "testen.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "tuples_assign_destructure.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "tuples_complex.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "tuples_functions.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "tuples_lists.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "tuples_literals.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "tuples_match_destructure.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "typecheck_builtins.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_function_if.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_function_types.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_for_value.pyk"
-targets = ["python", "interpret", "pyking"]
+targets = ["python14", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_loop_combined.pyk"
-targets = ["python", "interpret", "pyking"]
+targets = ["python14", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_functions.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_higher_order.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_if.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_infer_basic.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_infer_higher_order.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_infer_if_expr.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_infer_mutual.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking", "pyking_notail"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_infer_nested_recursion.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking", "pyking_notail"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_infer_partial.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_infer_recursion.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking", "pyking_notail"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_infer_polymorphic.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_infer_variables.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_infer_pinned.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_infer_empty.pyk"
-targets = ["python", "interpret", "pyking"]
+targets = ["python14", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "fail_typecheck_infer_pinned.pyk"
@@ -544,91 +544,91 @@ targets = ["pyking"]
 
 [[cases]]
 file = "typecheck_infer_polymorphic_arg.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_infer_generic_lists.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_infer_pipeline.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_hm_annotated_rank2.pyk"
-targets = ["python", "nodejs", "esm", "html", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_hm_annotation_agrees.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_hm_apply.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_hm_branch_uses.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_hm_compose.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_hm_fold.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_hm_generalisation.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_hm_higher_order.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_hm_letpoly.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_hm_lists.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_hm_loops.pyk"
-targets = ["python", "interpret", "pyking"]
+targets = ["python14", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_hm_map.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_hm_mutual.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_hm_nested.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_hm_order.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_hm_pipeline.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_hm_recursion.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_hm_shadowed.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_hm_tuples.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "fail_typecheck_hm_argument.pyk"
@@ -648,128 +648,128 @@ targets = ["pyking"]
 
 [[cases]]
 file = "typecheck_infer_reuse.pyk"
-targets = ["python", "interpret", "pyking"]
+targets = ["python14", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_infer_tail.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_int_string.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_lexical_capture.pyk"
-targets = ["python", "nodejs", "esm", "html", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_loop_break.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_loop_iteration.pyk"
-targets = ["python", "nodejs", "esm", "html", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_infer_loop_return.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_loop_simple.pyk"
-targets = ["python", "nodejs", "esm", "html", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_loop_basic.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_loop_continue.pyk"
-targets = ["python", "interpret", "pyking"]
+targets = ["python14", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_loop_nested.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_loop_return.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_loop_string.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_loop_tuple.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_loop_value_forms.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_loop_value.pyk"
 targets = [
-    "python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17",
-    "java21", "ocaml", "interpret", "pyking",
+    "python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17",
+    "java21", "ocaml5.5", "iweb24", "interpret", "pyking",
 ]
 
 # No C or Java: both refuse a `loop` with no accumulator outright, since
 # neither has a value to give it (docs/target_c.md, docs/target_java.md).
 [[cases]]
 file = "typecheck_loop_unit_value.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_tco_accumulator.pyk"
-targets = ["python", "python_notail", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking", "pyking_notail"]
+targets = ["python14", "python14_notail", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_tco_basic.pyk"
-targets = ["python", "python_notail", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking", "pyking_notail"]
+targets = ["python14", "python14_notail", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_tco_declined.pyk"
-targets = ["python", "python_notail", "nodejs", "esm", "html", "ocaml", "interpret", "pyking", "pyking_notail"]
+targets = ["python14", "python14_notail", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_tco_declined_group.pyk"
-targets = ["python", "python_notail", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking", "pyking_notail"]
+targets = ["python14", "python14_notail", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_tco_deep.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_tco_mutual.pyk"
-targets = ["python", "python_notail", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking", "pyking_notail"]
+targets = ["python14", "python14_notail", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_tco_shapes.pyk"
-targets = ["python", "python_notail", "nodejs", "esm", "html", "ocaml", "interpret", "pyking", "pyking_notail"]
+targets = ["python14", "python14_notail", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_tco_types.pyk"
-targets = ["python", "python_notail", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking", "pyking_notail"]
+targets = ["python14", "python14_notail", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_tco_widths.pyk"
-targets = ["python", "python_notail", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking", "pyking_notail"]
+targets = ["python14", "python14_notail", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_tco_widths_three.pyk"
-targets = ["python", "python_notail", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking", "pyking_notail"]
+targets = ["python14", "python14_notail", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_numeric_recursion.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking", "pyking_notail"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_recursion.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking", "pyking_notail"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_string_recursion.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "fail_typecheck_type_first_class.pyk"
@@ -777,151 +777,151 @@ targets = ["pyking"]
 
 [[cases]]
 file = "typecheck_type_first_class_twice.pyk"
-targets = ["python", "nodejs", "esm", "html", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_type_first_class_outer.pyk"
-targets = ["python", "nodejs", "esm", "html", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_type_first_class.pyk"
-targets = ["python", "pyking", "interpret"]
+targets = ["python14", "pyking", "iweb24", "interpret"]
 
 [[cases]]
 file = "typecheck_type_signature.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "pyking", "interpret"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "pyking", "iweb24", "interpret"]
 
 [[cases]]
 file = "typecheck_type_variables.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "pyking", "interpret"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "pyking", "iweb24", "interpret"]
 
 [[cases]]
 file = "typecheck_comprehensions.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_concat_nested.pyk"
-targets = ["python", "interpret", "pyking"]
+targets = ["python14", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_concat_parse.pyk"
-targets = ["python", "nodejs", "esm", "html", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_concat_patterns.pyk"
-targets = ["python", "interpret", "pyking"]
+targets = ["python14", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_division.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_expr_evaluator.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_list_pipeline.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_lists.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_map_fold.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_match_exhaustive.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_match_lists.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_match_polymorphic.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_match_scalars.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_match_suffix.pyk"
-targets = ["python", "interpret", "pyking"]
+targets = ["python14", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_match_value.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_tail.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "types_atoms.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "types_complex.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "types_lists.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "types_mixed.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "iweb24", "interpret"]
 
 [[cases]]
 file = "types_tuples.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "unit_values.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "value_if.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "value_match.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "value_next_line.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "variables.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "iweb24", "interpret"]
 
 [[cases]]
 file = "variables_loop.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "while_nested.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "iweb24", "interpret"]
 
 [[cases]]
 file = "while_simple.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "iweb24", "interpret"]
 
 [[cases]]
 file = "inline_blocks.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "inline_blocks_value.pyk"
-targets = ["python", "ocaml", "interpret"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "inline_match.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "fail_typecheck_inline_two_statements.pyk"
@@ -953,11 +953,11 @@ targets = ["pyking"]
 
 [[cases]]
 file = "typecheck_var_basic.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_var_scope.pyk"
-targets = ["python", "interpret", "pyking"]
+targets = ["python14", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "fail_typecheck_var_string.pyk"
@@ -977,47 +977,47 @@ targets = ["pyking"]
 
 [[cases]]
 file = "typecheck_var_functions.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_var_nested.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "negative_nested.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "renaming_runtime.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "shadowing_depth.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "shadowing_depth_loops.pyk"
-targets = ["python", "interpret"]
+targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "printing_quotes.pyk"
-targets = ["python", "nodejs", "esm", "html", "interpret"]
+targets = ["python14", "node24", "web24", "iweb24", "interpret"]
 
 [[cases]]
 file = "printing_quotes_str.pyk"
-targets = ["python", "ocaml", "interpret"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "typecheck_pyking_reparse.pyk"
-targets = ["python", "interpret", "pyking"]
+targets = ["python14", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "match_exhaustive_tuple.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "typecheck_singleton_tuple.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 # The unannotated twins: each is a `typecheck_*` program above with
 # every annotation taken off, so its `.ast.out` pins what inference
@@ -1025,125 +1025,125 @@ targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_builtins.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_division.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_function_if.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_lexical_capture.pyk"
-targets = ["python", "nodejs", "esm", "html", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_list_pipeline.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_lists.pyk"
-targets = ["python", "interpret", "pyking"]
+targets = ["python14", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_loop_basic.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_loop_break.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_loop_iteration.pyk"
-targets = ["python", "nodejs", "esm", "html", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_loop_nested.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_loop_tuple.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_map_fold.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_match_lists.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_match_scalars.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_match_value.pyk"
-targets = ["python", "ocaml", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_recursion.pyk"
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_string_recursion.pyk"
-targets = ["python", "interpret", "pyking"]
+targets = ["python14", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_tco_mutual.pyk"
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_var_scope.pyk"
-targets = ["python", "interpret", "pyking"]
+targets = ["python14", "iweb24", "interpret", "pyking"]
 
 
 [[cases]]
 file = "module_qualified.pyk"
 modules = ["module_qualified_mod1.pyk"]
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "module_alias.pyk"
 modules = ["module_alias_mod1.pyk"]
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "module_from.pyk"
 modules = ["module_from_mod1.pyk"]
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "module_multi.pyk"
 modules = ["module_multi_mod1.pyk", "module_multi_mod2.pyk"]
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "module_chain.pyk"
 modules = ["module_chain_mod1.pyk", "module_chain_mod2.pyk"]
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "module_values.pyk"
 modules = ["module_values_mod1.pyk"]
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "module_signature.pyk"
 modules = ["module_signature_mod1.pyk"]
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "module_inferred.pyk"
 modules = ["module_inferred_mod1.pyk"]
-targets = ["python", "nodejs", "esm", "html", "ocaml", "interpret"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "typecheck_module_public.pyk"
 modules = ["typecheck_module_public_mod1.pyk"]
-targets = ["python", "nodejs", "esm", "html", "c89", "c23", "java8", "java17", "java21", "ocaml", "interpret", "pyking"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "fail_typecheck_module_cycle.pyk"
@@ -1180,12 +1180,12 @@ targets = ["pyking"]
 [[cases]]
 file = "external_all.pyk"
 modules = ["external_all_mod1.external.pyk"]
-targets = ["python", "nodejs", "esm", "c89", "c23", "java8", "java17", "java21", "ocaml"]
+targets = ["python14", "node24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5"]
 
 [[cases]]
 file = "external_shapes.pyk"
 modules = ["external_shapes_mod1.external.pyk"]
-targets = ["python", "nodejs", "esm", "ocaml"]
+targets = ["python14", "node24", "ocaml5.5"]
 
 [[cases]]
 file = "fail_typecheck_external_body.pyk"
@@ -1206,3 +1206,8 @@ targets = ["pyking"]
 file = "fail_typecheck_external_callback.pyk"
 modules = ["fail_typecheck_external_callback_mod1.external.pyk"]
 targets = ["pyking"]
+
+[[cases]]
+file = "external_web.pyk"
+modules = ["external_web_mod1.external.pyk"]
+targets = ["node24", "web24", "iweb24"]

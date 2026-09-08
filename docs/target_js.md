@@ -1,6 +1,7 @@
 # The JavaScript targets
 
-**Targets in this family:** `nodejs`, `html`, `esm`.
+**Targets in this family:** `node24`, `web24` and `iweb24`, aliased
+`node`, `web` and `iweb`.
 
 **Key points**
 
@@ -24,41 +25,114 @@
 
 ## The three targets
 
-| target | files | `print` goes to | notes |
+| target | alias | files | what runs the program |
 |---|---|---|---|
-| `nodejs` | `foo.js` | `console.log`, called directly | self-contained; `node foo.js` |
-| `html` | `foo.html` | a visible box on the page | self-contained; opens from disk |
-| `esm` | `foo.js`, `foo.node.js`, `foo.html`, `package.json` | a function the embedder supplies | the page wrapper must be *served* |
+| `node24` | `node` | `foo.js`, `pyk-runtime.js`, `package.json` | `node foo.js` |
+| `web24` | `web` | `foo.js`, `pyk-runtime.js`, `foo.html` | a browser, over HTTP |
+| `iweb24` | `iweb` | `foo.html`, `pyking.js`, the `.pyk` sources | a browser, over HTTP |
 
-`esm` is the one worth understanding. The module reaches nothing by
-itself — it exports `run(runtime)` and prints through `runtime.print`:
+**`node24` and `web24` emit the same JavaScript.** Both are ES modules,
+both print with `console.log`, and both compile a Pyking module to a
+`.js` module of its own. The only difference is the entry point: `web24`
+adds an HTML file that loads the program, and nothing else.
 
-```js
-export function run(runtime) {
-  let i = 0;
-  while (i < 5) {
-    runtime.print(i);
-    i = i + 1;
-  }
-}
+```html
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>foo.pyk</title>
+<script type="module" src="./foo.js"></script>
 ```
 
-so the same module prints to a terminal under the generated node driver,
-onto the page under the generated HTML wrapper, and could just as well
-print into a debugger, a test harness, or a text box in someone else's
-application — with no recompilation. Running either wrapper behaves
-exactly like the `nodejs` and `html` targets.
+That is the whole page. Output goes to the browser console, not onto the
+page: what a compiled program prints is what `node foo.js` prints, and a
+reader comparing the two should not have to account for a difference.
 
-The `package.json` (`{ "type": "module" }`) is what lets those files be
-plain `.js`: node decides a file's module system from its extension
-first and the nearest manifest second, so `.js` without one means
-CommonJS and the driver's `import` fails. An existing `package.json` is
-never overwritten — it belongs to whatever project the output landed in.
+**The `package.json` is `node`'s alone.** `{ "type": "module" }` is what
+lets a program be plain `.js` there: node decides a file's module system
+from its extension first and the nearest manifest second, so `.js`
+without one means CommonJS and the `import` lines fail.
 
-The `esm` HTML wrapper *imports* the module, and browsers refuse module
-imports over `file://`, so it needs serving (`python3 -m http.server`).
-The standalone `html` target embeds the program instead, which is why it
-exists as a separate target rather than as a wrapper.
+A browser never reads one — a `<script type="module">` says outright
+what it is loading — so **`web24` writes no manifest**, and neither does
+`iweb24`. That matters beyond tidiness: a `package.json` saying
+`"type": "module"` governs every `.js` file *below* it, so one written
+into a directory holding other JavaScript changes how node reads that
+too. Writing one only where it is needed keeps that reach where it was
+asked for.
+
+The consequence for `web24` is worth knowing: its `.js` files are
+perfectly good ES modules, but `node foo.js` on them needs a manifest
+you supply, because the target did not assume you wanted one. Serving
+the page, which is how the target is meant to be run, needs nothing.
+
+An existing `package.json` is never overwritten — it belongs to whatever
+project the output landed in.
+
+**A `web24` program has to be served.** A browser refuses a module
+fetched over `file://`, and the program is a module. `pyk compile -t web
+--run` starts `python3 -m http.server` in the output directory for
+exactly that reason, and prints the page's own address before it:
+
+```
+  open http://localhost:8000/prog.html
+$ python3 -m http.server 8000 --directory .
+```
+
+The server only says which port it took, so the address of the page --
+which is what a reader actually needs -- is printed by the compiler. Any
+static server does; the port is python's own default, so a taken port is
+an error rather than a silent move to another one.
+
+### The interpreted target
+
+`iweb24` compiles nothing at all. The page ships the program's Pyking
+**source** and the Pyking compiler built to JavaScript, and interprets
+it in the browser:
+
+```html
+<script type="module">
+import './pyking.js';
+
+const sources = {};
+sources['foo.pyk'] = await (await fetch('./foo.pyk')).text();
+
+globalThis.pykSources = sources;
+globalThis.pykExternals = {};
+globalThis.pykOnPrint = (line) => console.log(line.replace(/\n$/, ''));
+
+const result = JSON.parse(pykRunProgram('foo.pyk'));
+if (!result.ok) console.error(result.text);
+</script>
+```
+
+The point is coverage. A backend supports a subset; the interpreter
+supports everything `src/typesystem.ml` accepts, so `for`, `while`,
+`match`, lists and comprehensions all work in a browser under `iweb24`
+where `web24` refuses them. The price is that the program is interpreted
+rather than compiled, and that `pyking.js` (about 5 MB) ships with it.
+
+`pyking.js` is the same file the playground runs, built by `make` into
+`build/pyking.js`. The compiler looks for it beside itself; `make` is
+what puts it there, and says so plainly if it is not:
+
+```
+Usage error: target 'iweb24' ships the interpreter, and 'pyking.js' is
+  not beside the compiler; run `make` to build it.
+```
+
+Compiling **in the directory the sources already sit in** copies each
+`.pyk` onto itself, which is nothing to do — so it is skipped rather
+than reported as overwriting the input. `pyk compile -t iweb foo.pyk`
+in `foo.pyk`'s own directory is the ordinary case, and works.
+
+**Modules and external modules work exactly as they do for `web24`.**
+Every module's `.pyk` file ships, including an external module's
+declaration — the module system runs in the page, reading those instead
+of a directory. An external module's *implementation* is still
+JavaScript, imported by the page and reached through a host hook, which
+is why `iweb24` runs a program that `pyk foo.pyk` refuses: a terminal
+cannot call JavaScript, and a browser can.
 
 ## What is supported
 
@@ -90,15 +164,14 @@ Lists, list comprehensions and `match` *are* supported. A Pyking tuple
 is a JavaScript array, so a **list is an array carrying a marker** --
 `pykList` in the compiled program sets it, and `pykFormat` reads it to
 tell `[1, 2]` from `(1, 2)`. It is a property rather than a class
-because for the `esm` target the program and the formatter live in
-different modules, where two `class` declarations would not be the same
-class. A `match` becomes an if/else chain over the subject, held in a
+because the program and the formatter live in different modules, where
+two `class` declarations would not be the same class. A `match` becomes an if/else chain over the subject, held in a
 name of its own so it is evaluated once; an arm whose pattern always
 matches becomes the `else`, so a `match` that fits nothing does nothing.
 
 ```
-$ pyk compile -t nodejs tests/for_simple.pyk
-'tests/for_simple.pyk' 2:0-3:22 Unsupported by target 'nodejs': `for`
+$ pyk compile -t node24 tests/for_simple.pyk
+'tests/for_simple.pyk' 2:0-3:22 Unsupported by target 'node24': `for`
   loops are not supported by the JavaScript backends yet
 ```
 
@@ -321,9 +394,9 @@ match.)
 
 Note the arrow function in `print`: `values.map(pykFormat)` would hand
 `map`'s *index* argument to `inner`, and every argument after the first
-would print as though it were nested. The `html` target substitutes a
-`print` that appends to a `<pre>` on the page; `esm` has no prelude at
-all, since it is handed a `runtime` instead of building one.
+would print as though it were nested. It lives in `pyk-runtime.js`,
+which every module of the program imports, rather than being repeated in
+each of them.
 
 ### Names that are keywords in JavaScript
 
@@ -350,10 +423,10 @@ and `print`. Those are not words JavaScript has taken but ones this
 compiler emits, and a binding of one is a redeclaration rather than a
 shadow -- `const pykFormat = 3` beside the prelude's `function
 pykFormat` is a `SyntaxError`, so the file does not run at all. The
-`esm` packaging keeps its helpers in a module of their own and would
-survive, which is exactly why the list lives in the core: the three
-packagings must accept the same programs. `tests/renaming_runtime.pyk`
-is the case.
+helpers now live in a module of their own and a redeclaration there
+would be caught the same way, which is exactly why the list lives in the
+core: every packaging must accept the same programs.
+`tests/renaming_runtime.pyk` is the case.
 
 ### Scope and renaming
 
@@ -382,7 +455,7 @@ says `x2` where plain `x` would have been fine.
 ### `str`, `range` and `len`
 
 ```
-Unsupported by target 'nodejs': the builtin `str` is not supported yet
+Unsupported by target 'node24': the builtin `str` is not supported yet
 ```
 
 Refused at compile time rather than emitted. `String(x)` is not Pyking's
@@ -431,135 +504,61 @@ backends.
 
 ## Modules
 
-A Pyking module is a JavaScript module, except on the page, where there
-is only one file to put them in. What differs between the three targets
-is how a module is brought in and how its public names are handed out;
-the compiled body is the same text in all of them, which is what
-`JsHost` is for — the packager supplies the spelling of an import
-exactly as it supplies the spelling of `print`.
+A Pyking module is a JavaScript module — one `.js` file each, on every
+JavaScript target. ES modules give Pyking's own rule for free: a
+module's top level runs once, the first time something imports it, and
+imports resolve before the importing file runs. That is exactly "every
+module runs after everything it imports", so there is no `init` to call
+and no order for the program to arrange.
 
-### `nodejs`: CommonJS
+`helper.pyk`:
 
-A one-module program is the single self-contained script it has always
-been. A program of several is several files, each `require`ing the ones
-it imports:
+```pyking
+public def greet(name:String) -> String:
+    "hello, " ++ name
 
-```javascript
-// helper.js
-const priv = 3;
+def priv(): 1
+```
 
-function inc(x) {
-  return x + priv;
+becomes `helper.js`:
+
+```js
+function greet(name) {
+  return "hello, " + name;
 }
 
-const greeting = 'hi';
-
-module.exports = { inc, greeting };
-```
-
-```javascript
-// program.js
-const { print } = require('./pyk-runtime.js');
-
-const helper = require('./helper.js');
-const { inc: bump } = require('./helper.js');
-print(helper.inc(1));
-print(bump(10));
-print(helper.greeting);
-```
-
-The host half — `print` and the formatting `src/runtime_interface.ml`
-lays down for it — moves into a module of its own rather than being
-copied into every file. Its name is `pyk-runtime.js`, with a hyphen: a
-Pyking module is imported by name, so its file's stem is an identifier,
-and no Pyking module can ever be called that. A module that never
-prints does not require it.
-
-Requiring one module twice, as `program.js` does above, is one module:
-node caches it, and the two lines are the two import statements the
-source wrote.
-
-### `esm`: one `init(runtime)` per module
-
-The `esm` contract is that the program is pure and the host is handed
-in, and that has to hold for every module of it, not just the program's
-own. So a module the program imports exports an `init(runtime)` that
-runs its top level and answers with what it exports:
-
-```javascript
-// helper.js
-let pykExports;
-
-export function init(runtime) {
-  if (pykExports !== undefined) return pykExports;
-  const priv = 3;
-
-  function inc(x) {
-    return x + priv;
-  }
-
-  const greeting = 'hi';
-  pykExports = { inc, greeting };
-  return pykExports;
+function priv() {
+  return 1;
 }
+
+export { greet };
 ```
 
-```javascript
-// program.js
-import { init as pykInit_helper } from './helper.js';
+and the program that imports it:
 
-export function run(runtime) {
-  const helper = pykInit_helper(runtime);
-  const { inc: bump } = pykInit_helper(runtime);
-  runtime.print(helper.inc(1));
-  ...
-}
+```js
+import { print } from './pyk-runtime.js';
+
+import * as helper from './helper.js';
+print(helper.greet('world'));
 ```
 
-The memoization is what makes a module run **once** however many other
-modules import it — which is also what lets each import statement call
-`init` where it stands, rather than the program having to wire the whole
-graph up front. `pykInit_<module>` is spoken for in
-`target_js_core.RESERVED`'s manner: the packager tells
-`translate_program` those names are taken, so a Pyking binding of one is
-renamed rather than shadowing it.
+A `from` line takes its names directly, and `as` renames:
 
-### `html`: every module on one page
-
-A page is one file, so a module becomes a block of it — built in the
-order the modules must run, and reached afterwards by its own name:
-
-```javascript
-// The module 'helper', from helper.pyk.
-const helper = (() => {
-  const priv = 3;
-
-  function inc(x) {
-    return x + priv;
-  }
-
-  const greeting = 'hi';
-  return { inc, greeting };
-})();
-
-const { inc: bump } = helper;
-print(helper.inc(1));
+```pyking
+from helper import greet as hello
+```
+```js
+import { greet as hello } from './helper.js';
 ```
 
-Each module's body is inside a function scope of its own, so two modules
-binding the same name do not collide; only the module names themselves
-are on the page. An `import` of a module already built above it under
-its own name writes nothing at all — the `const` is already there under
-that name — which is why the page has no line for `import helper`.
+`pyk-runtime.js` is the one file the program does not get from its own
+source: `print` and the value formatting `runtime_interface.ml` lays
+down, shared by every module rather than repeated in each.
 
-The generated runtime helpers (`pykList`, `pykConcat`) are emitted once
-for the whole page rather than once per module, since a page is one
-scope and a second `function pykList` in it is a syntax error.
-
-**Privacy leaves no trace** on any of the three: JavaScript's own
-privacy is what a module exports, so `priv` above is unreachable from
-outside `helper.js` on `nodejs` and `esm` — and on the page it is inside
-the block. Nothing needs saying in the output.
+**Privacy leaves no trace.** JavaScript's own privacy is what a module
+exports, so `priv` above is simply unreachable from outside `helper.js`.
+Nothing needs saying in the output.
 
 ## Where the output is not optimal
 
@@ -568,12 +567,10 @@ the block. Nothing needs saying in the output.
 - **Over-eager renaming** around the temporal dead zone, as above.
 - **`pykFormat` on every printed value**, including integers that
   `String()` would have handled — one code path is easier to keep
-  consistent across three hosts than three special cases.
-- **Duplicated formatting in the `esm` wrappers.** Each wrapper carries
-  its own few lines of `pykFormat` rather than importing one, because
-  formatting is what a *host* does with the values it is handed; a module
-  that formatted its own output would already have decided what output
-  looks like.
+  consistent across the hosts than a special case for each.
+- **`pyking.js` is about 5 MB** on the `iweb` target — the whole
+  compiler, shipped so the page can interpret rather than run compiled
+  code. That is the trade the target makes, not an accident of it.
 - **No optimisation.** The backend is a printer: no constant folding, no
   dead-code elimination, no tail calls.
 
@@ -584,17 +581,21 @@ A module implemented in JavaScript (`sys.js`, declared in
 it uses `export`, and the compiler emits `import * as sys from
 './sys.js'` to reach it.
 
-That is why a program importing one is emitted as ES modules on the
-`nodejs` target too, where an ordinary program is CommonJS: `require`
-cannot load an ES module. The switch is narrow -- it happens only when
-an external module is actually imported -- and carries the same
-`package.json` (`{"type": "module"}`) the `esm` target already writes,
-which is what makes plain `.js` mean ES module to node. Ordinary nodejs
-output is untouched.
+Every JavaScript target emits ES modules, so nothing special is needed
+to reach one: the implementation is imported like any other module and
+copied beside the program's output as `sys.js`.
 
-`html` refuses an external module, with a source position. A page is one
-file: every module of a program becomes a block of it, and there is
-nothing for a block to load an implementation from.
+**A browser may need different code from node**, and `sys.web.js` is
+where that goes. The `web` and `iweb` targets look for it first and fall
+back to `sys.js`, so a module needing no browser-specific code writes
+one file and a module needing it writes two. Whichever is found is
+copied out as `sys.js`, which is what the generated import names.
+
+Under `iweb24` the implementation is reached from *interpreted* code:
+the page imports it, puts it in `pykExternals`, and the interpreter
+calls through a host hook, with values crossing as JSON. That is why
+`iweb24` runs a program `pyk foo.pyk` refuses -- see
+[modules.md](modules.md), "Running one".
 
 One thing an implementation has to know: **a Pyking list and a Pyking
 tuple are both JavaScript arrays**, and the formatter walks values

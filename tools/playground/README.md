@@ -67,8 +67,8 @@ always local — it is not on any CDN — so this only moves the editor.
 ### It must be *served*
 
 `file://` will not work — browsers block the module and WebAssembly loads the
-page needs. This is the same constraint the compiler's own `esm` target
-documents for its HTML wrapper (see `docs/target_js.md`), and the reason
+page needs. This is the same constraint the compiler's own `web` target
+documents (see `docs/target_js.md`), and the reason
 `make` ends by starting a server rather than telling you to open a file. Any
 static host will do; nothing runs server-side.
 
@@ -100,8 +100,8 @@ static host will do; nothing runs server-side.
   the reference for what a program means (`docs/interpreter.md`), and it is
   compiled into the same bundle, so this needs no host at all.
 - **▶ Run** on the right executes exactly what is displayed. Enabled for
-  `nodejs`, `esm` and `html`, which the browser can genuinely execute.
-  Disabled for `python`, `c89`/`c23`, `java*` and `ocaml`, with a tooltip
+  `node24` and `web24`, which the browser can genuinely execute.
+  Disabled for `python`, `c89`/`c23`, `java*` and `ocaml5.5`, with a tooltip
   saying why: there is no Python interpreter, C compiler, JVM or OCaml
   runtime in a browser. That is a property of the target, not a shortcoming
   here.
@@ -213,20 +213,18 @@ the UI could recover.
 | What | Runs on | Stopped by |
 |---|---|---|
 | the source, via the interpreter | the compiler worker | `terminate()`, then a fresh worker boots |
-| `nodejs` (script) | the JavaScript worker | `terminate()` |
-| `esm` (module) | the JavaScript worker | `terminate()` |
-| `html` | an iframe preview | removing the frame |
+| `node24`, `web24` | the JavaScript worker | `terminate()` |
 
-A **sandboxed iframe is not good enough** for the first three, which is why
+A **sandboxed iframe is not good enough** for either of them, which is why
 they moved. A same-process iframe shares the main thread, so a loop inside
 one can still lock the page; browsers only isolate it when site isolation
 happens to apply. A worker is *guaranteed* a separate thread and
 `terminate()` is *guaranteed* to end it — measured at ~5 ms, against a loop
 that was ignoring everything else.
 
-Only `html` still uses a frame, because it **is** a page: it draws into its
-own document rather than printing. Removing the frame stops it, which is what
-Stop does.
+Every target now runs on a worker: `web24` emits the same ES module
+`node24` does and prints to the console, so nothing is left that needs a
+frame of its own.
 
 Two consequences worth knowing:
 
@@ -240,11 +238,16 @@ Two consequences worth knowing:
   copy of the compiler goes with it. A replacement starts immediately and is
   usually warm again before the next run is asked for.
 
-The `esm` module is imported as a real module from a blob URL and handed a
-`print` — the source runs exactly as written, with no rewriting to make it
-fit. That `print` formats values with the JavaScript backend's **own**
-`pykFormat`, lifted out of `src/target_js_packaging.ml` at build time rather
-than hand-copied, so the playground cannot disagree with `node prog.js` about
+Generated JavaScript is imported as a real module from a blob URL. A
+compiled program is several files now — the module being looked at, the
+modules it imports, and the shared `pyk-runtime.js` — so the worker gives
+each a blob URL and rewrites the relative import specifiers to point at
+them, because a module loaded from a blob has no base to resolve
+`./x.js` against. Nothing else is touched: the text in the pane is what
+runs, edits included. Its
+`print` formats values with the JavaScript backend's **own** `pykFormat`,
+lifted out of `src/target_js_packaging.ml` at build time rather than
+hand-copied, so the playground cannot disagree with `node prog.js` about
 how a value prints.
 
 ### The Stop button
@@ -282,7 +285,8 @@ while i < 1:
 ```
 
 The page stays responsive, Run has become Stop, and clicking it ends the
-program. That works for the interpreter and for `nodejs` / `esm` alike.
+program. That works for the interpreter and for the JavaScript targets
+alike.
 
 ## Layout
 
@@ -319,6 +323,26 @@ build/
   examples/
     *.pyk                    copied from tests/
 ```
+
+### The bundle is evaluated, not required
+
+`generator.py` asks the compiled compiler for the target list, the word
+lists and the formatter by running it under node — and it does that by
+*reading* `build/pyking.js` and evaluating it, rather than `require`ing
+it.
+
+That looks roundabout and is not. The bundle is a classic script, but
+node decides a `.js` file's module system from the nearest
+`package.json`: one saying `"type": "module"` anywhere above the
+repository makes it an ES module, and `require` of an ES module works on
+some node versions and fails with `ERR_REQUIRE_ESM` on others. Reading
+the text sidesteps the module system, so the generator behaves the same
+wherever the repository sits and whichever node is installed. The one
+thing evaluation needs supplying is `require` itself — a module-local in
+CommonJS, which js_of_ocaml's runtime calls — so it is put on
+`globalThis` first.
+
+`check.cjs` does the same, and is named `.cjs` for the same reason.
 
 ### Four things read out of the repository
 
@@ -501,8 +525,13 @@ answering. Any error on the console fails the run.
   on workers, so the page stays responsive and the Stop button ends it (see
   "How programs are executed" above). This is what makes "run while you type"
   safe to leave on: a loop that never ends can be stopped, and the edit that
-  fixes it can still be typed. The remaining exception is the `html` target,
-  which needs a real frame to draw into — removing the frame stops it, but a
-  same-process frame can still make the page stutter first.
+  fixes it can still be typed.
 - **C and Java output is display-only.** Copy it out and build it locally —
   the header comment in each generated file gives the exact command.
+
+## What the page does not offer
+
+`iweb24` is missing from the target list on purpose. That target packages
+a program *with* the interpreter so a browser can run it — which is what
+this page already is. It has nothing to add here, and could not build its
+own page anyway without a copy of `pyking.js` to ship.

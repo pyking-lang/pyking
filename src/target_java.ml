@@ -25,7 +25,9 @@
 open Lexer
 open Syntax
 
-let versions = [ "java8"; "java17"; "java21" ]
+(* The Java releases this backend prints for, oldest first; the names
+   themselves are src/targets.ml's. *)
+let versions = Targets.members Targets.Java
 
 (* What each version's printer may use (docs/target_java.md, "The three
    targets"). `var_locals` gates JEP 286 local-variable type inference;

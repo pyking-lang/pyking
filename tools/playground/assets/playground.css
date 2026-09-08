@@ -152,7 +152,6 @@
 .pyk-output .note { color: var(--pyk-dim); }
 .pyk-output .err  { color: var(--pyk-bad); }
 .pyk-output .good { color: var(--pyk-good); }
-.pyk-preview { flex: 1 1 auto; width: 100%; border: 0; background: #fff; }
 .pyk-hidden { display: none !important; }
 
 /* --- drag handles between the three panes --- */

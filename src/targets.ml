@@ -1,0 +1,126 @@
+(** The compiler's targets: every one the driver offers, which family it
+    belongs to, what its output file is called, and the unversioned
+    alias that names its family's latest.
+
+    A target is named once, here. Nothing else in the compiler writes a
+    target name into a list of its own -- the backends read their own
+    versions back out of this module, and so do pyk.ml, module.ml,
+    execution.ml and the test harness. See docs/targets.md.
+
+    A *version* says the oldest host the output is guaranteed to run on.
+    Two versions of one family may emit identical text: the version sets
+    the header comment and the command `--run` uses, and lets a backend
+    refuse what an older host cannot do. Only C and Java differ today.
+
+    Data structures:
+      family -- which backend a target belongs to.
+
+    Functions:
+      all -- every target, in the order the usage message lists them.
+      default -- the target `pyk compile` uses when none is given.
+      aliases -- each unversioned name and the version it means.
+      resolve name -- the canonical target a name means, if any.
+      family_of target -- the family a canonical target belongs to.
+      members family -- a family's targets, oldest version first.
+      expand name -- the targets a name selects: one, or a whole family.
+      extension target -- what the primary output file is called.
+      family_name family -- the unversioned name of a family. *)
+
+(** Which backend compiles a target, and so which targets share an
+    emission. *)
+type family =
+  | Python
+  | Node
+  | Web
+  | Iweb
+  | C
+  | Java
+  | Ocaml
+  | Pyking
+
+(* Every target, in the order `pyk --help` lists them: the families a
+   program is most likely to want first, and `pyking` -- which compiles
+   Pyking to Pyking rather than to a host -- last. *)
+let table =
+  [
+    ("python14", Python, ".py");
+    ("node24", Node, ".js");
+    ("web24", Web, ".html");
+    ("iweb24", Iweb, ".html");
+    ("c89", C, ".c");
+    ("c99", C, ".c");
+    ("c23", C, ".c");
+    ("java8", Java, ".java");
+    ("java17", Java, ".java");
+    ("java21", Java, ".java");
+    ("ocaml5.5", Ocaml, ".ml");
+    ("pyking", Pyking, ".pyk");
+  ]
+
+(** Every target, in the order the usage message lists them.
+    [string] *)
+let all = List.map (fun (name, _, _) -> name) table
+
+(** The unversioned name of a family. family -> string *)
+let family_name f =
+  match f with
+  | Python -> "python"
+  | Node -> "node"
+  | Web -> "web"
+  | Iweb -> "iweb"
+  | C -> "c"
+  | Java -> "java"
+  | Ocaml -> "ocaml"
+  | Pyking -> "pyking"
+
+(** The family a canonical target belongs to. string -> family *)
+let family_of target =
+  match List.find_opt (fun (name, _, _) -> name = target) table with
+  | Some (_, f, _) -> f
+  | None -> invalid_arg ("no such target: " ^ target)
+
+(** A family's targets, in the order `all` lists them -- oldest version
+    first, so the last is the latest. family -> [string] *)
+let members f =
+  List.filter_map (fun (name, g, _) -> if g = f then Some name else None) table
+
+(* The families that take a version. `pyking` is not one of them: it
+   compiles Pyking to Pyking, so there is no host whose version could
+   matter. *)
+let versioned = [ Python; Node; Web; Iweb; C; Java; Ocaml ]
+
+(** Each unversioned name and the version it means: a family's latest,
+    which is the last one `table` lists for it. [(string, string)] *)
+let aliases =
+  List.map
+    (fun f ->
+      let group = members f in
+      (family_name f, List.nth group (List.length group - 1)))
+    versioned
+
+(** The canonical target a name means -- itself if it is already one, or
+    what an alias points at. None for a name that is neither.
+    string -> string option *)
+let resolve name =
+  if List.mem name all then Some name else List.assoc_opt name aliases
+
+(** The targets a name selects: one target for a canonical name or an
+    alias, and a whole family for a family's name. The two differ only
+    where a family has more than one version -- `c` is the alias for
+    `c23` and also the name of the family, and selecting a family is
+    what the test harness wants where compiling wants the alias.
+    string -> [string] *)
+let expand name =
+  match List.find_opt (fun f -> family_name f = name) (List.map (fun (_, f, _) -> f) table) with
+  | Some f -> members f
+  | None -> ( match resolve name with Some target -> [ target ] | None -> [])
+
+(* What `pyk compile` picks when `--target` says nothing. Python
+   because it is the one backend that compiles the whole language. *)
+let default = "python14"
+
+(** What a target's primary output file is called. string -> string *)
+let extension target =
+  match List.find_opt (fun (name, _, _) -> name = target) table with
+  | Some (_, _, ext) -> ext
+  | None -> invalid_arg ("no such target: " ^ target)

@@ -455,7 +455,7 @@ The bootstrap is split into one module per compiler stage:
    recursion without knowing this pass exists -- so *do not* add
    per-backend tail-call handling. The one exception runs the other way:
    a host that eliminates tail calls itself is named in `pyk.ml`'s
-   `NATIVE_TAIL_CALLS` list (today just `ocaml`), and that target is
+   `NATIVE_TAIL_CALLS` list (today just `ocaml5.5`), and that target is
    then compiled from the program *as written* -- because a `loop`
    becomes a local recursive function on that backend, so the pass and
    the backend would otherwise undo each other and leave a
@@ -740,12 +740,14 @@ The bootstrap is split into one module per compiler stage:
    keeps the plain `let`, so ordinary output stays ordinary. See
    `tests/loop_def_capture.pyk` and `docs/target_js.md`.
 10. **`src/target_js_packaging.ml`** — the JavaScript backend's packaging
-   half: wraps core output into `nodejs` (one self-contained script),
-   `html` (one self-contained page printing into a visible box), and `esm`
-   (a module exporting `run(runtime)`, plus a node driver and an HTML
-   wrapper derived from the `--output` path). It owns the JavaScript side
-   of the runtime interface — each host's `print` and the shared
-   `pykFormat` — which is exactly what differs between the three.
+   half: wraps core output into `node24` (one self-contained script),
+   `web24` (the same modules plus an HTML file that loads them) and
+   `iweb24` (which compiles nothing: the page ships the Pyking source
+   and the interpreter). `node24` and `web24` emit *identical*
+   JavaScript -- ES modules printing with `console.log` -- so the only
+   difference between them is the extra page. It owns the JavaScript
+   side of the runtime interface: `pyk-runtime.js`, holding `print` and
+   the shared `pykFormat` that every module of a program imports.
 11. **`src/target_c.ml`** — the C backend, serving both the `c89` and
    `c23` targets: a `C*` AST, translation, and a printer taking a
    `standard` parameter. One backend rather than two because the
@@ -785,7 +787,7 @@ The bootstrap is split into one module per compiler stage:
    style rather than the source's, since Java requires the two to match
    (`default_class_name`; see `pyk.ml` below for where the exception
    is applied).
-13. **`src/target_ocaml.ml`** — the OCaml backend, serving the `ocaml`
+13. **`src/target_ocaml.ml`** — the OCaml backend, serving the `ocaml5.5`
    target: an `O*` AST, translation, and a printer. The only backend
    that infers nothing — it *runs* `typesystem.type_check` and reads the
    types back out of `tmap` (which is why `check_expr` records an entry
@@ -1009,7 +1011,9 @@ The bootstrap is split into one module per compiler stage:
 17. **`src/execution.ml`** — what `--run` runs: one table saying which
    commands each target's host uses to build and run what `pyk compile`
    wrote (`node prog.js`; `cc -std=c89 -o prog prog.c` and then `prog`;
-   `xdg-open` for `html`, which is a page; this compiler again for
+   `python3 -m http.server` for `web` and `iweb`, whose pages must be
+   served because a browser refuses a module over `file://`; this
+   compiler again for
    `pyking`, since what runs Pyking is the interpreter). `plan_for`
    answers with a `Plan` — build commands, the run command, and the
    directory they run in, all absolute — and `execute` runs them,
@@ -1071,8 +1075,9 @@ The bootstrap is split into one module per compiler stage:
    commands, and the ordered list of the program's other files, which
    the targets that *link* a program need. Keep the driver thin: it
    sequences stages and reports errors, and each backend
-   owns its own translation, packaging, and file naming (`esm` writing
-   three files is `target_js_packaging`'s business, not the
+   owns its own translation, packaging, and file naming (a JavaScript
+   program writing a runtime module and a manifest beside itself is
+   `target_js_packaging`'s business, not the
    driver's; deriving a Java class name from an explicit `--output` is
    `target_java.ml`'s, by the same principle). What a backend needs to
    know about the module it is compiling *as part of a program* arrives
@@ -1200,33 +1205,39 @@ suffix to what `-t pyking` prints. The other three select what
 - `--run` builds and runs what was compiled, with the commands that
   target's host uses (`src/execution.ml`), each printed before it runs
   on stderr. Cannot be combined with `--stdout`, which writes no file.
-- `--stdout` compiles and prints the generated source. For `esm`, whose
-  wrappers only exist as files, this prints the module alone.
+- `--stdout` compiles and prints the generated source: the program's own
+  module, since what is written beside it exists only as files.
 - `--output <file>` compiles and writes to `<file>`. A single-file target
-  writes exactly that path; `esm` reads it as a *stem* and names its own
-  files, so `--output out/prog`, `out/prog.js` and `out/prog.html` all
-  produce `out/prog.js` (module), `out/prog.node.js` (driver),
-  `out/prog.html`, and `out/package.json` (`{"type": "module"}`, which is
-  what lets the first two be plain `.js`). An existing `package.json` is
-  never overwritten — it belongs to the surrounding project.
+  writes exactly that path. The JavaScript targets write more beside it:
+  one `.js` per module, `pyk-runtime.js`, and `package.json`
+  (`{"type": "module"}`, which is what lets them all be plain `.js`). An
+  existing `package.json` is never overwritten — it belongs to the
+  surrounding project.
 - A module the program imports is written beside the program's own
   output, under its own name and the target's extension -- which is also
   what the generated import in that output names it by. C and OCaml
-  write a companion beside each (`helper.h`, `helper.mli`); `html` is
-  the exception and writes none, since a page is one file and every
-  module becomes a block of it.
+  write a companion beside each (`helper.h`, `helper.mli`).
 - With neither of the two above, the compiler names the file: the source's own stem
   plus the target's extension (`extensions` in `pyk.ml`, fed by each
-  backend), in the *current* directory — `-t nodejs tests/hello.pyk`
+  backend), in the *current* directory — `-t node24 tests/hello.pyk`
   writes `./hello.js`. Writing over the input, or into a directory that
   doesn't exist, is a usage error rather than a traceback, checked per
-  file since `esm` writes three. The Java targets are the exception: the
+  file since the JavaScript targets write several. The Java targets are the exception: the
   default name is Java-cased instead of the source's own stem, since Java
   requires the file and its public class to match exactly — `-t java21
   tests/foo_bar.pyk` writes `./FooBar.java`, not `./foo_bar.java`.
 
-`--target`/`-t` selects the backend: `python` (the default), `nodejs`,
-`html`, `esm`, `c89`, `c23`, `java8`, `java17`, `java21`, `ocaml`, or
+**Every target has a version, and every family an unversioned alias for
+its latest.** `src/targets.ml` is the one place any of them is named --
+the list, the aliases, the extensions and the families -- and `pyk.ml`,
+`module.ml`, `execution.ml`, every backend and the test harness read it
+from there. `-t c` is `-t c23`, `-t java` is `-t java21`; a version says
+the oldest host the output is promised to run on, and two versions of a
+family may emit identical text.
+
+`--target`/`-t` selects the backend: `python14` (the default), `node24`,
+`web24`, `iweb24`, `c89`, `c99`, `c23`, `java8`, `java17`, `java21`,
+`ocaml5.5`, or
 `pyking`. The last is the odd one: it compiles Pyking to Pyking, which
 is to say it prints the program the front end worked out — with the
 types the checker inferred and the loops the tail-call pass built — and
@@ -1235,10 +1246,10 @@ translation of it. `--symbols` goes with it, and nothing else does.
 The rest come in groups sharing a backend: the JavaScript three differ
 only in `src/target_js_packaging.ml`, the C two only in a `standard`
 parameter to `src/target_c.ml`'s printer, and the Java three only in a
-`version` parameter to `src/target_java.ml`'s printer; `ocaml` is a
+`version` parameter to `src/target_java.ml`'s printer; `ocaml5.5` is a
 family of one. All of them support a subset of the language, and
 anything outside it is refused at compile time with a source position
-rather than emitted as code that will not build. `ocaml` is the one
+rather than emitted as code that will not build. `ocaml5.5` is the one
 whose subset is not a list it maintains: it is whatever
 `src/typesystem.ml` accepts, checked by running it. See
 `docs/architecture.md` for the subsets and the target table.
@@ -1251,7 +1262,7 @@ does not warn about its absence.
 
 `pyk <file>` and `pyk repl` take no target: the interpreter emits
 nothing to name. What they accept is `src/typesystem.ml`'s fragment,
-checked by running it — the same arrangement `ocaml` uses, and the
+checked by running it — the same arrangement `ocaml5.5` uses, and the
 reason a program with `for`, `while`, `match`, lists or an unannotated
 `def` is refused there with the checker's own message. A `loop`, a
 tuple, a `var` and a `:=` are all inside that fragment.
@@ -1273,13 +1284,19 @@ eventually delete someone's own file. Keep it that way. `./pyk` is the
 exception that shows the rule -- `make build` chose that name itself,
 which is the whole of why removing it is safe.
 
+`make test TARGET=c23` runs one target and `make test TARGET=c` every
+version of that family; with no `TARGET` every target runs, which is
+what `make test` means. The REPL suite runs only when no `TARGET` was
+given, since it is not a target.
+
 `make test` runs `tests/test_script.py`. It
 reads `tests/test_cases.toml`, and for every (program, target) pair the
 manifest declares, compiles the program to a temp directory, runs it the
 way a user would — `python3` on the `.py`, `node` on the `.js`, `node` on
-the *generated driver* for `esm`, `cc`/`javac`/`ocamlopt` and
-then the binary for the C, Java and OCaml targets, and, for `html`, the
-page's extracted module under a small `document` stub — and compares
+`cc`/`javac`/`ocamlopt` and
+then the binary for the C, Java and OCaml targets, `node` on the module a
+`web24` page loads, and, for `iweb24`, the page's own glue with node's
+filesystem in place of `fetch` — and compares
 stdout against the sibling `.out` file. `interpret` is the one that
 compiles nothing: it runs `pyk <program>` and compares that. One
 `.out` serves every target, which is the property being tested — and the
@@ -1344,7 +1361,7 @@ prints -- the program as *written*, where `.ast.out`
 shows what the pass built -- and `<name>.notail.out` is what it prints
 when run with the pass off, which must equal `<name>.out` exactly: the
 pass may change how much room a program needs and never what it means.
-The targets that read them are `pyking_notail` and `python_notail`.
+The targets that read them are `pyking_notail` and `python14_notail`.
 A program the pass *declines* to rewrite has the same text in both
 `.ast.out` files, which is what being declined looks like from here.
 
@@ -1411,6 +1428,15 @@ several backend bugs surfaced: a Java method name emitted as a value, a
 Pyking expression statement emitted as a Java one, and calls to `str`,
 `range` and `len` emitted as JavaScript that would not run.
 
+**Every JavaScript runner disables node's module detection**
+(`--no-experimental-detect-module`, `NODE` in the harness). A recent
+node guesses whether a `.js` file is an ES module and quietly makes
+output work that an older node refuses; turning the guess off means the
+suite tests what the compiler actually *declares* -- a `package.json`
+beside the output, or a `.mjs` name -- rather than what one node version
+is willing to infer. Two bugs reached a user this way before it was
+turned off.
+
 **Every runner checks the exit status** (`executed` in the harness). A
 program that prints and *then* dies leaves its prefix on stdout, so
 comparing output alone would call a crash a pass whenever the surviving
@@ -1425,7 +1451,7 @@ of it.
 Running the generated code needs `node` for
 the JavaScript targets, a C compiler (`$CC`, default `cc`) for the C
 ones, a JDK (`$JAVAC`/`$JAVA`) for the Java ones and an OCaml compiler
-(`$OCAMLOPT`, default `ocamlopt`) for `ocaml` — none of them
+(`$OCAMLOPT`, default `ocamlopt`) for `ocaml5.5` — none of them
 is needed to *produce* the code, and none at all to run a program with
 `pyk <file>`. The OCaml cases are built with `-w +a`: that target's
 promise is clean OCaml, so a warning about generated code fails the

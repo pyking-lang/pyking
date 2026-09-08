@@ -74,8 +74,14 @@ ACE_FILES = [
 
 # The compiler as one JavaScript file: `dune` builds it from src/ and
 # src/web/, and the page loads exactly this.
+# The compiler as JavaScript. `make` at the repository root builds it
+# into build/pyking.js -- the same file the `iweb` target ships -- so
+# there is one copy of it and one place it comes from. This runs the
+# build itself when it is missing or stale, so `make -C tools/playground`
+# still works on its own.
 BUNDLE_TARGET = "src/web/pyking_web.bc.js"
 BUNDLE_NAME = "pyking.js"
+SHARED_BUNDLE = REPO / "build" / BUNDLE_NAME
 
 # Which Ace mode highlights each target's output, and how (or whether) the
 # browser can execute it. `python`, `c89`/`c23`, `java*` and `ocaml` are
@@ -88,41 +94,47 @@ PYKING_TARGET = "pyking"
 
 TARGET_MODE = {
     "pyking": "text",
-    "python": "python",
-    "nodejs": "javascript",
-    "esm": "javascript",
-    "html": "html",
+    "python14": "python",
+    "node24": "javascript",
+    "web24": "html",
+    "iweb24": "html",
     "c89": "c_cpp",
+    "c99": "c_cpp",
     "c23": "c_cpp",
     "java8": "java",
     "java17": "java",
     "java21": "java",
-    "ocaml": "ocaml",
+    "ocaml5.5": "ocaml",
 }
 TARGET_RUN = {
-    "nodejs": "script",   # inlined into a sandboxed worker as a classic script
-    "esm": "module",      # inlined as a module, then driven with a `runtime`
-    "html": "page",       # already a whole page: rendered in the preview frame
+    # Both JavaScript targets emit the same ES module, so both run the
+    # same way here: inlined into a worker as a module.
+    "node24": "module",
+    "web24": "module",
 }
 TARGET_LABEL = {
     "pyking": "Pyking (the front end's own output)",
-    "python": "Python",
-    "nodejs": "JavaScript - node",
-    "esm": "JavaScript - ES module",
-    "html": "JavaScript - HTML page",
+    "python14": "Python 3.14",
+    "node24": "JavaScript - node 24",
+    "web24": "JavaScript - web (ES2024)",
+    "iweb24": "Pyking interpreted in the browser",
     "c89": "C89",
+    "c99": "C99",
     "c23": "C23",
     "java8": "Java 8",
     "java17": "Java 17",
     "java21": "Java 21",
-    "ocaml": "OCaml",
+    "ocaml5.5": "OCaml 5.5",
 }
 
 
 def bundle_path():
-    """The compiled compiler, built if it is not there already. Built by
-    `dune` from the repository root, so this needs no knowledge of where
-    dune puts things beyond the target's own name. () -> Path"""
+    """The compiled compiler, built if it is not there already.
+
+    `make` at the repository root writes build/pyking.js; this reuses it
+    when it is there and current, and runs the same dune build itself
+    otherwise, so the playground can still be built on its own.
+    () -> Path"""
     try:
         subprocess.run(["dune", "build", BUNDLE_TARGET], cwd=REPO, check=True)
     except FileNotFoundError:
@@ -136,7 +148,13 @@ def bundle_path():
     path = REPO / "_build" / "default" / BUNDLE_TARGET
     if not path.exists():
         raise SystemExit(f"generator.py: {BUNDLE_TARGET} was not built")
-    return path
+    # Keep the shared copy in step, so `make` at the root and `make -C
+    # tools/playground` cannot end up with different compilers.
+    SHARED_BUNDLE.parent.mkdir(parents=True, exist_ok=True)
+    source = path.read_bytes()
+    if not SHARED_BUNDLE.exists() or SHARED_BUNDLE.read_bytes() != source:
+        SHARED_BUNDLE.write_bytes(source)
+    return SHARED_BUNDLE
 
 
 def ask_compiler(function, *args):
@@ -147,14 +165,30 @@ def ask_compiler(function, *args):
     (README.md, "What is read out of the repository").
     String -> String... -> Any"""
     bundle = bundle_path()
+    # Read and evaluate rather than `require`: the bundle is a classic
+    # script, but a package.json saying "type": "module" anywhere above
+    # it makes node read a .js file as an ES module, and whether
+    # `require` then works depends on the node version. Reading the text
+    # sidesteps the module system entirely, so this behaves the same
+    # wherever the repository happens to sit.
     script = (
-        f"require({json.dumps(str(bundle))});\n"
+        f"const fs = require('fs');\n"
+        # The bundle is evaluated in global scope, which is what it
+        # expects; js_of_ocaml's own runtime calls `require`, which is a
+        # module-local in CommonJS, so it is put where global code can
+        # see it.
+        f"globalThis.require = require;\n"
+        f"(0, eval)(fs.readFileSync({json.dumps(str(bundle))}, 'utf8'));\n"
         f"process.stdout.write(String(globalThis[{json.dumps(function)}]"
         f"({', '.join(json.dumps(a) for a in args)})));\n"
     )
     try:
         result = subprocess.run(
-            ["node", "-e", script], capture_output=True, text=True, check=True
+            # --input-type=commonjs for the same reason: without it, the
+            # code passed to -e is read as an ES module in a "type":
+            # "module" scope, where `require` is not defined.
+            ["node", "--input-type=commonjs", "-e", script],
+            capture_output=True, text=True, check=True,
         )
     except FileNotFoundError:
         raise SystemExit(
@@ -185,10 +219,17 @@ def js_value_formatter():
     return formatter
 
 
+# `iweb` compiles nothing: it packages a program with the interpreter so
+# a browser can run it. This page already *is* that -- it runs the
+# interpreter -- so the target has nothing to offer here, and it could
+# not produce its own page anyway without a copy of pyking.js to ship.
+NOT_IN_THE_PAGE = {"iweb24"}
+
+
 def target_order():
     """Every target the compiler has, in the order the dropdown shows
     them (pyking first), read out of the compiler. () -> [String]"""
-    names = ask_json("pykTargets")
+    names = [n for n in ask_json("pykTargets") if n not in NOT_IN_THE_PAGE]
     missing = [n for n in names if n not in TARGET_MODE]
     if missing:
         raise SystemExit(
@@ -349,10 +390,14 @@ def build_examples(code_targets):
              if case["file"] not in skipped}
     declared = {t for targets in known.values() for t in targets}
     every = sorted(declared & set(code_targets))
-    other = sorted(declared - set(code_targets))
+    other = sorted(declared - set(code_targets) - NOT_IN_THE_PAGE)
     if other:
         print(f"build: note: manifest also lists {', '.join(other)}, which "
               "is not a code-generation target -- ignored for the playground")
+    skipped_here = sorted(declared & NOT_IN_THE_PAGE)
+    if skipped_here:
+        print(f"build: note: {', '.join(skipped_here)} is a target of the "
+              "compiler's but not one this page offers -- see README.md")
 
     entries = []
     for path in sorted(TESTS_DIR.glob("*.pyk")):
@@ -377,7 +422,13 @@ CHECK_JS = r"""// Compiles every example for every target it claims, under node.
 // Written by tools/playground/generator.py; nothing here is shipped.
 const fs = require("fs");
 const path = require("path");
-require(process.argv[2]);
+// Evaluated rather than required: the bundle is a classic script, and a
+// package.json saying "type": "module" above it would otherwise make
+// node read it as an ES module (see ask_compiler in generator.py).
+// `require` is a module-local in CommonJS and js_of_ocaml's runtime
+// calls it, so global code needs it put within reach.
+globalThis.require = require;
+(0, eval)(fs.readFileSync(process.argv[2], "utf8"));
 const manifest = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
 const examples = process.argv[4];
 
@@ -420,7 +471,7 @@ def check():
     manifest = BUILD / "assets" / "playground.json"
     if not manifest.exists():
         raise SystemExit("check: nothing built yet -- run `make build` first.")
-    script = BUILD / "check.js"
+    script = BUILD / "check.cjs"
     script.write_text(CHECK_JS)
     try:
         result = subprocess.run(

@@ -1,7 +1,8 @@
 # The Pyking compiler.
 #
-#   make            build the compiler
+#   make            build the compiler and build/pyking.js
 #   make test       the compiler's own test suite, run in parallel
+#                   (TARGET=c23 or TARGET=c for one target or family)
 #   make stest      the same suite, one test at a time
 #   make clean      remove what has been generated
 #
@@ -19,10 +20,17 @@ all: build
 # think to run it from, so it is copied out to ./pyk. `cp -f` rather than
 # `cp`: dune leaves what it builds read-only, and so is the copy, which a
 # second `make` would otherwise fail to overwrite.
+#
+# build/pyking.js is the same compiler as JavaScript -- the interpreter
+# the `iweb` target ships and the playground runs. It is built here so
+# there is one copy: tools/playground reuses this rather than running a
+# dune build of its own.
 build:
-	dune build src/pyk.exe
+	dune build src/pyk.exe src/web/pyking_web.bc.js
 	@cp -f _build/default/src/pyk.exe pyk
-	@echo "build: ./pyk"
+	@mkdir -p build
+	@cp -f _build/default/src/web/pyking_web.bc.js build/pyking.js
+	@echo "build: ./pyk and build/pyking.js"
 
 # Kept in the same shape as `make -C tools/playground help`, so the two
 # read alike. Both are hand-written and neither has anything to generate
@@ -33,6 +41,8 @@ help:
 	@echo "                  target tests/test_cases.toml lists it for, run in"
 	@echo "                  parallel (JOBS=n to say how parallel), then the"
 	@echo "                  REPL's own cases in tests/repl/"
+	@echo "                  TARGET=c23 runs one target; TARGET=c runs every"
+	@echo "                  version of that family"
 	@echo "make stest        the same suite, one test at a time"
 	@echo "make playground   build and serve the web playground, then print a link"
 	@echo "make clean        remove generated files: _build/, ./pyk, __pycache__/"
@@ -54,14 +64,17 @@ help:
 # runs *sessions* rather than (program, target) pairs: the .pyk suite
 # compiles files, so nothing in it reaches the REPL.
 test: build
-	python3 tests/test_script.py $(if $(JOBS),--jobs $(JOBS))
-	python3 tests/test_repl.py
+	python3 tests/test_script.py $(if $(JOBS),--jobs $(JOBS)) \
+		$(if $(TARGET),--target $(TARGET))
+	@if [ -z "$(TARGET)" ]; then python3 tests/test_repl.py; \
+	else echo "repl: skipped (TARGET=$(TARGET) selected)"; fi
 
 # The same suite with no pool at all, for when a parallel run's timing is
 # itself in question.
 stest: build
-	python3 tests/test_script.py --jobs 1
-	python3 tests/test_repl.py
+	python3 tests/test_script.py --jobs 1 $(if $(TARGET),--target $(TARGET))
+	@if [ -z "$(TARGET)" ]; then python3 tests/test_repl.py; \
+	else echo "repl: skipped (TARGET=$(TARGET) selected)"; fi
 
 # Delegates entirely to tools/playground's own Makefile (its default
 # target: vendor, build, check, then serve and print a URL). `-C` runs
@@ -98,9 +111,9 @@ distclean: clean-build clean-pycache
 # chose itself -- which is exactly what a *compiled program* is not (see
 # the note on `clean` above).
 clean-build:
-	@rm -rf _build
+	@rm -rf _build build
 	@rm -f pyk
-	@echo "clean: removed _build and ./pyk"
+	@echo "clean: removed _build, build/ and ./pyk"
 
 # .venv/ and .git/ are pruned rather than filtered: their caches belong to
 # installed packages and to git, not to anything this repository builds,

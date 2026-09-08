@@ -44,10 +44,24 @@ let browser () =
 
 let pyking_target = "pyking"
 
+(* What `--run` serves a page on. 8000 is python's own default for
+   `http.server`, so the address printed is the one a reader would guess.
+   The server refuses to start if it is taken, which is the right answer:
+   silently choosing another port would print an address for a server
+   somebody else is running. *)
+let web_port = "8000"
+
 (** The commands one target needs to turn its output into a running
     program: the ones run first, each of which must succeed; the program
-    itself; and where to run them. *)
-type plan = { build : string list list; run : string list; directory : string }
+    itself; where to run them; and a line to print before running, for a
+    target whose "run" is a server rather than the program -- there the
+    address of the page is what a reader actually needs. *)
+type plan = {
+  build : string list list;
+  run : string list;
+  directory : string;
+  note : string option;
+}
 
 (** The commands that build and run what was compiled to path. `modules`
     names the other files the program was compiled to, in the order they
@@ -61,18 +75,30 @@ let plan_for target path modules =
   let directory = Module.dirname path in
   let binary = Filename.remove_extension path in
   let others = List.map Module.absolute modules in
-  if target = "python" then { build = []; run = [ "python3"; path ]; directory }
+  if Targets.family_of target = Targets.Python then
+    { build = []; run = [ "python3"; path ]; directory; note = None }
   else if target = pyking_target then
     (* The interpreter, reached the way this process was: `pyking`
        compiles to Pyking, and what runs Pyking is this compiler. *)
-    { build = []; run = [ Sys.executable_name; path ]; directory }
-  else if target = "nodejs" then { build = []; run = [ "node"; path ]; directory }
-  else if target = "esm" then
-    (* The generated driver is the file a user would run: it imports the
-       module and supplies it a runtime. *)
-    { build = []; run = [ "node"; binary ^ ".node.js" ]; directory }
-  else if target = "html" then { build = []; run = [ browser (); path ]; directory }
-  else if List.mem target Target_c.standards then
+    { build = []; run = [ Sys.executable_name; path ]; directory; note = None }
+  else if Targets.family_of target = Targets.Node then
+    { build = []; run = [ "node"; path ]; directory; note = None }
+  else if List.mem (Targets.family_of target) [ Targets.Web; Targets.Iweb ] then
+    (* A page of ES modules has to be *served*: a browser refuses a
+       module fetched over file://. So `--run` starts a static server in
+       the output directory and leaves it running, which is what looking
+       at the page needs -- and prints the page's own address, since the
+       server only says which port it took. *)
+    {
+      build = [];
+      run = [ "python3"; "-m"; "http.server"; web_port; "--directory"; directory ];
+      directory;
+      note =
+        Some
+          (Printf.sprintf "open http://localhost:%s/%s" web_port
+             (Filename.basename path));
+    }
+  else if Targets.family_of target = Targets.C then
     (* Every translation unit of the program, the modules first: each is
        a file of its own, and `main` is in the last. *)
     {
@@ -82,8 +108,9 @@ let plan_for target path modules =
         ];
       run = [ binary ];
       directory;
+      note = None;
     }
-  else if List.mem target Target_java.versions then
+  else if Targets.family_of target = Targets.Java then
     (* Java's class is its file's name, which is what the compiler
        already made sure of when it chose that name. *)
     let class_name = Filename.remove_extension (Filename.basename path) in
@@ -98,8 +125,9 @@ let plan_for target path modules =
         ];
       run = [ java_runtime (); "-cp"; directory; class_name ];
       directory;
+      note = None;
     }
-  else if target = Target_ocaml.target then
+  else if Targets.family_of target = Targets.Ocaml then
     (* OCaml links in the order given, and runs each module's top level
        in that order, which is why the modules come first: a module runs
        after everything it imports. An interface is named ahead of the
@@ -120,6 +148,7 @@ let plan_for target path modules =
         ];
       run = [ binary ];
       directory;
+      note = None;
     }
   else invalid_arg target
 
@@ -187,6 +216,11 @@ let run_command command directory =
     string -> string -> [string] -> int *)
 let execute target path modules =
   let plan = plan_for target path modules in
+  (* Printed before the command, on stderr like the commands themselves,
+     since a served page's address is not something the server says. *)
+  (match plan.note with
+  | Some note -> Printf.eprintf "  %s\n%!" note
+  | None -> ());
   let rec build commands =
     match commands with
     | [] -> run_command plan.run plan.directory

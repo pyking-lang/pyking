@@ -73,6 +73,10 @@ type value =
   | VClosure of string * string list * stmt list * env
       (* a function and the environment it was written in *)
   | VBuiltin of string (* one of Analyses.builtins, callable as a value *)
+  | VHostFun of string * string
+      (* <module>.<field> of an external module: a function the host
+         implements in a target language, called through host.externals
+         rather than by interpreting a body. *)
   | VUndefined of string (* a hoisted `def` whose definition has not run *)
 
 (** A persistent chain of frames: the names this frame introduces, and
@@ -161,6 +165,9 @@ let display_value value =
         | VBuiltin name ->
             Buffer.add_string out (Printf.sprintf "<builtin %s>" name);
             go rest
+        | VHostFun (module_, field) ->
+            Buffer.add_string out (Printf.sprintf "<%s.%s>" module_ field);
+            go rest
         | VUndefined _ -> go rest)
   in
   go [ Item value ];
@@ -181,29 +188,48 @@ let describe value =
   | VUnit -> "()"
   | VList _ -> "a list"
   | VTuple elements -> Printf.sprintf "a tuple of %d" (List.length elements)
-  | VClosure _ | VBuiltin _ -> "a function"
+  | VClosure _ | VBuiltin _ | VHostFun _ -> "a function"
   | VUndefined _ -> "a value"
 
 (* --- hosts --- *)
 
-(** What a Pyking program may observe: one field per operation in
-    Runtime_interface.operations. *)
-type host = { print_line : string -> unit }
+(** How a host reaches a module implemented in a target language: what
+    one of its value exports is, and how to call one of its functions.
+    Both take the module's name and the field's. *)
+type externals = {
+  field : string -> string -> value;
+  call : string -> string -> value list -> value;
+}
 
-(** Writes to standard output. host *)
-let console_host = { print_line = (fun text -> print_string text; print_newline ()) }
+type host = {
+  print_line : string -> unit;
+  (* A module implemented in a target language has no AST to interpret,
+     so a host that cannot call into that language leaves this None and
+     a program importing one is refused before it runs (docs/modules.md,
+     "Running one"). The browser can: `iweb` interprets a program whose
+     external modules are JavaScript. *)
+  externals : externals option;
+}
+
+(** Writes to standard output, and reaches no external module: nothing
+    in a terminal can call a target language's own code. host *)
+let console_host =
+  {
+    print_line = (fun text -> print_string text; print_newline ());
+    externals = None;
+  }
 
 (** A host that collects what was printed, and the reader for it.
     () -> (host, () -> string) *)
 let buffer_host () =
   let lines = ref [] in
-  ( { print_line = (fun text -> lines := text :: !lines) },
+  ( { print_line = (fun text -> lines := text :: !lines); externals = None },
     fun () ->
       String.concat "" (List.map (fun line -> line ^ "\n") (List.rev !lines)) )
 
 (** A host that hands each printed line to a function.
     (string -> ()) -> host *)
-let callback_host write_line = { print_line = write_line }
+let callback_host ?externals write_line = { print_line = write_line; externals }
 
 (* --- environments --- *)
 
@@ -963,6 +989,25 @@ let call state call_node callee args env rest =
       with
       | Error (info, message) -> failed state info message
       | Ok value -> { state with control = CApply value; env; kont = rest })
+  | VHostFun (module_, field) -> (
+      (* A function an external module implements: there is no body to
+         interpret, so the host runs it and answers with a value. Only a
+         host that can reach the target language has one, and a program
+         importing such a module is refused before it runs otherwise. *)
+      match state.runtime.host.externals with
+      | None ->
+          failed state info
+            (Printf.sprintf
+               "'%s.%s' is implemented in a target language, which this host \
+                cannot call"
+               module_ field)
+      | Some externals -> (
+          match
+            try Ok (externals.call module_ field args)
+            with Trap (info, message) -> Error (info, message)
+          with
+          | Error (info, message) -> failed state info message
+          | Ok value -> { state with control = CApply value; env; kont = rest }))
   | VClosure (name, params, body, captured) ->
       if List.length args <> List.length params then
         failed state info
@@ -1624,6 +1669,22 @@ let exported_values stmts state =
       | None -> None)
     (Module.public_names stmts)
 
+(** What an external module exports, for a host that can reach one: a
+    function becomes a VHostFun the host runs when it is called, and
+    anything else is asked of the host now. The declaration is what says
+    which is which -- there is no body here to look at.
+    [stmt] -> string -> host -> [(string, value)] *)
+let external_exports stmts name host =
+  match host.externals with
+  | None -> []
+  | Some externals ->
+      List.map
+        (fun (field, type_) ->
+          match type_ with
+          | TFunction _ -> (field, VHostFun (name, field))
+          | _ -> (field, externals.field name field))
+        (Module.external_signatures stmts)
+
 (** Runs a program of several modules, each in a top level of its own,
     in the order given -- which is dependency order, so a module runs
     after everything it imports (docs/modules.md, "Running a program of
@@ -1646,6 +1707,11 @@ let run_modules ?(max_depth = max_call_depth) units host =
   let rec go units exports last =
     match units with
     | [] -> last
+    | (name, stmts) :: rest when Module.is_declaration stmts ->
+        (* An external module has no top level to run: what it exports
+           is the host's, and is bound here for the modules that import
+           it. *)
+        go rest (exports @ [ (name, external_exports stmts name host) ]) last
     | (name, stmts) :: rest ->
         let env = module_env stmts exports in
         let state =

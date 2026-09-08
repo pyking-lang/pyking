@@ -26,7 +26,9 @@
 open Lexer
 open Syntax
 
-let standards = [ "c89"; "c23" ]
+(* The C standards this backend prints for, oldest first; the names
+   themselves are src/targets.ml's. *)
+let standards = Targets.members Targets.C
 
 (* What a module the program imports declares itself in, beside its own
    translation unit. *)
@@ -82,6 +84,8 @@ let ctype_name t =
 let c_type_text standard t =
   match (standard, t) with
   | _, Int -> "int"
+  (* C89 has no boolean type; C99 gained `bool` through <stdbool.h>,
+     which `headers` adds, and C23 made it a keyword. *)
   | "c89", Bool -> "int"
   | _, Bool -> "bool"
   | _, String -> "const char *"
@@ -1842,10 +1846,51 @@ let concat_helper =
       "}";
     ]
 
+(** Whether a statement declares a boolean anywhere inside it -- what
+    decides, under C99, whether <stdbool.h> is needed.
+    cstmt -> bool *)
+let rec stmt_declares_bool statement =
+  match statement with
+  | CDecl (_, ctype, _, _) | CVarDecl (_, ctype, _) -> ctype = Bool
+  | CIf (_, _, then_body, else_body) ->
+      List.exists stmt_declares_bool then_body
+      || (match else_body with
+         | Some body -> List.exists stmt_declares_bool body
+         | None -> false)
+  | CWhile (_, _, body) | CLoop (_, body) -> List.exists stmt_declares_bool body
+  | CAssign _ | CExprStmt _ | CPrint _ | CBreak _ | CContinue _ | CReturn _ ->
+      false
+
+(** Whether this translation unit writes `bool` anywhere -- in what it
+    defines, in what it declares for an external module, or in a local.
+    cprogram -> bool *)
+let declares_bool (program : cprogram) =
+  List.exists (fun g -> g.global_ctype = Bool) program.globals
+  || List.exists
+       (fun e ->
+         match e with
+         | CExternFunc (_, params, result) -> result = Bool || List.mem Bool params
+         | CExternValue (_, ctype) -> ctype = Bool)
+       program.external_decls
+  || List.exists
+       (fun f ->
+         f.ret_type = Bool
+         || List.exists (fun (t, _) -> t = Bool) f.func_params
+         || List.exists stmt_declares_bool f.func_body)
+       program.functions
+  || List.exists stmt_declares_bool program.main_body
+
 (** The #include lines the program actually needs.
-    cprogram -> [string] *)
-let headers (program : cprogram) =
-  let needed = if program.uses_print then [ "stdio.h" ] else [] in
+    cprogram -> string -> [string] *)
+let headers (program : cprogram) standard =
+  (* C99 spells a boolean `bool`, but only through <stdbool.h>; C89 has
+     no boolean type at all and writes `int`, and C23 made `bool` a
+     keyword needing no header. So the include is C99's alone, and only
+     where a boolean is actually declared. *)
+  let needed =
+    if standard = "c99" && declares_bool program then [ "stdbool.h" ] else []
+  in
+  let needed = needed @ if program.uses_print then [ "stdio.h" ] else [] in
   let needed = needed @ if program.uses_concat then [ "stdlib.h" ] else [] in
   let needed =
     needed @ if program.uses_concat || program.uses_strcmp then [ "string.h" ] else []
@@ -1897,6 +1942,13 @@ let pprint_c_header (program : cprogram) standard source =
       Printf.sprintf "#ifndef %s" guard;
       Printf.sprintf "#define %s" guard;
     ]
+  in
+  (* A header naming a boolean carries its own include: whoever includes
+     it may have no reason to have included <stdbool.h> already. *)
+  let parts =
+    if standard = "c99" && declares_bool program then
+      parts @ [ ""; "#include <stdbool.h>" ]
+    else parts
   in
   let exported =
     List.map
@@ -1950,7 +2002,7 @@ let pprint_c_program (program : cprogram) standard source =
         standard;
     ]
   in
-  let found = headers program in
+  let found = headers program standard in
   let parts = parts @ if found = [] then [] else "" :: found in
   let included = List.map (Printf.sprintf "#include \"%s.h\"") program.includes in
   let included =

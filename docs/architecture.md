@@ -472,84 +472,75 @@ pages it links to; what follows is the shape of the mechanism.
 
 | target | files written | `print` goes to |
 |---|---|---|
-| `python` | `foo.py` | Python's own `print` |
-| `nodejs` | `foo.js` | `console.log`, called directly — self-contained, `node foo.js` |
-| `html` | `foo.html` | a visible box on the page — self-contained, open it from disk |
-| `esm` | `foo.js`, `foo.node.js`, `foo.html`, `package.json` | a function the embedder passes in |
+| `python14` | `foo.py` | Python's own `print` |
+| `node24` | `foo.js`, `pyk-runtime.js`, `package.json` | `console.log` — `node foo.js` |
+| `web24` | those, plus `foo.html` | `console.log` — the browser's console, over HTTP |
+| `iweb24` | `foo.html`, `pyking.js`, the `.pyk` sources | `console.log`, from the interpreter |
 | `c89` | `foo.c` | `printf`, from a C89-conforming file |
+| `c99` | `foo.c` | `printf`, from a C99 file |
 | `c23` | `foo.c` | `printf`, from a C23 file |
 | `java8` | `Foo.java` | `System.out.println`, `javac --release 8` |
 | `java17` | `Foo.java` | `System.out.println`, `javac --release 17` |
 | `java21` | `Foo.java` | `System.out.println`, `javac --release 21` |
-| `ocaml` | `foo.ml` | `print_endline`, `ocamlopt` |
+| `ocaml5.5` | `foo.ml` | `print_endline`, `ocamlopt` |
 
-`esm` is the interesting one. The module exports `run(runtime)` and
-prints through `runtime.print(...)`, so it reaches nothing by itself:
+`iweb24` is the odd one: it compiles nothing. The page ships the
+program's Pyking source and the compiler built to JavaScript, and
+interprets it — so it covers everything the checker accepts rather than
+one backend's subset. See [target_js.md](target_js.md), "The interpreted
+target".
 
-```js
-export function run(runtime) {
-  let i = 0;
-  while (i < 5) {
-    runtime.print(i);
-    i = i + 1;
-  }
-}
-```
-
-The same module therefore prints to a terminal under the generated node
-driver and onto the page under the generated HTML wrapper, with no
-recompilation — and could just as well print into a debugger, a test
-harness, or a text box in someone else's application. Running either
-wrapper behaves exactly like the `nodejs` and `html` targets.
+`node24` and `web24` emit the *same* JavaScript: ES modules printing
+with `console.log`, one `.js` per Pyking module. `web24` adds an HTML
+file that loads the program, and nothing else.
 
 ### Naming the output
 
 With no `--output`, the compiler names the file itself: the source file's
 own name, the target's extension, in the directory the command was run
-from. `pyk compile -t nodejs tests/hello.pyk` writes `./hello.js`, and
+from. `pyk compile -t node tests/hello.pyk` writes `./hello.js`, and
 `-t python` would have written `./hello.py`.
 
 The Java targets are the one exception: Java requires the file holding a
 `public` class to share that class's name exactly, so the source's own
-spelling would not do. `pyk compile -t java21 tests/foo_bar.pyk` writes
+spelling would not do. `pyk compile -t java tests/foo_bar.pyk` writes
 `./FooBar.java`, holding `public final class FooBar` — see "Naming the
 class" in [target_java.md](target_java.md#naming-the-class) for the exact
 rule and what an explicit `--output` does instead.
 
-`--output` overrides that. A single-file target writes exactly the path
-given (for Java, its class is then named after that path instead of the
-source). `esm` reads it as a *stem*, because it produces several files
-and their endings are not the caller's to choose: `--output out/prog`,
-`out/prog.js` and `out/prog.html` all write
+`--output` overrides that, and the JavaScript targets write more than
+the file it names: `pyk compile -t web -o out/prog.html` writes
 
 ```
-out/prog.js         the module
-out/prog.node.js    the node driver
-out/prog.html       the browser wrapper
-out/package.json    `{ "type": "module" }`
+out/prog.html       the page that loads the program
+out/prog.js         the program
+out/helper.js       one file per module it imports
+out/pyk-runtime.js  `print`, and the value formatting every module shares
 ```
 
-That last file is what lets the others be plain `.js`. Node decides a
-file's module system from its extension first and the nearest
-`package.json` second, so without a manifest it reads `.js` as CommonJS
-and the driver's `import` fails — on any node old enough to lack ES
-module detection, and on *every* node inside a project whose own
-`package.json` says `"type": "commonjs"`. `.mjs` would sidestep all of
-that, at the cost of an extension most projects never write.
+`node` writes one more, `package.json` (`{ "type": "module" }`), which
+is what lets the others be plain `.js` there: node decides a file's
+module system from its extension first and the nearest manifest second,
+so without one it reads `.js` as CommonJS and the `import` lines fail.
+`.mjs` would sidestep that, at the cost of an extension most projects
+never write.
+
+`web` writes no manifest, because a browser never reads one and a
+manifest governs every `.js` beneath it — writing one into a directory
+that was not asked to have it would change how node reads whatever else
+is there.
 
 An existing `package.json` is never overwritten: if it already declares
 `"type": "module"` the compiler says nothing, and otherwise it warns and
 leaves the file alone — it belongs to whatever project the output landed
 in, and clobbering it would break more than this build.
 
-`--stdout` prints the primary artifact only — for `esm` the module, since
-the wrappers exist only as files.
+`--stdout` prints the primary artifact only — the program's own module,
+since the files beside it exist only as files.
 
-One caveat about the `esm` HTML wrapper: it *imports* the module, and
-browsers refuse module imports over `file://`, so it needs serving —
-`python3 -m http.server` in the output directory. The standalone `html`
-target embeds the program instead and works when opened straight from
-disk, which is why it is a separate target rather than a wrapper.
+A `web24` or `iweb24` page has to be **served**: a browser refuses a
+module fetched over `file://`, and both load one. `--run` starts
+`python3 -m http.server` in the output directory for that reason.
 
 ## Command line
 
@@ -611,7 +602,7 @@ being interpreted, reports
 'file' row:col-row:col Name error: ...
 'file' row:col-row:col Type error: ...
 'file' row:col-row:col Runtime error: ...
-'file' row:col-row:col Unsupported by target 'nodejs': ...
+'file' row:col-row:col Unsupported by target 'node24': ...
 ```
 
 to stderr and produces no output. The first six all come from one
@@ -647,9 +638,9 @@ own page:
   target benefits from, and why it is one AST rewrite rather than nine
   backend features.
 - **[target_python.md](target_python.md)** — `python`.
-- **[target_js.md](target_js.md)** — `nodejs`, `html`, `esm`.
+- **[target_js.md](target_js.md)** — `node24`, `web24` and `iweb24`.
 - **[target_c.md](target_c.md)** — `c89`, `c23`.
-- **[target_ocaml.md](target_ocaml.md)** — `ocaml`. The subset that
+- **[target_ocaml.md](target_ocaml.md)** — `ocaml5.5`. The subset that
   type-checks, compiled with no annotations.
 - **[target_java.md](target_java.md)** — `java8`, `java17`, `java21`.
 
@@ -663,7 +654,7 @@ whose control can fall off the end without returning, since `javac` —
 unlike Python, and unlike C — treats that as a compile error rather than
 implicitly returning `None`.
 
-The `ocaml` target is the odd one out in a more interesting way: its
+The `ocaml5.5` target is the odd one out in a more interesting way: its
 subset is not a list this backend maintains but the type checker's, run
 for real. A program it accepts is one `typesystem.ml` accepted, which
 also means the subset grows when the checker does, without the backend
@@ -685,7 +676,7 @@ expected to work on:
 ```toml
 [[cases]]
 file = "while_simple.pyk"
-targets = ["python", "nodejs", "esm", "html"]
+targets = ["python14", "node24", "web24", "iweb24"]
 ```
 
 A program that imports lists the modules it imports as well, in
@@ -697,7 +688,7 @@ order to build the program at all:
 [[cases]]
 file = "module_chain.pyk"
 modules = ["module_chain_mod1.pyk", "module_chain_mod2.pyk"]
-targets = ["python", "nodejs", "interpret"]
+targets = ["python", "node24", "interpret"]
 ```
 
 A module listed there is not a case of its own — it is not a program,
@@ -730,17 +721,23 @@ a program and compares the printed AST against its `.ast.out`;
 against the same `.out` as every compiling target. That last comparison
 is the whole reason the interpreter is cheap to trust: it is a second
 definition of the language's semantics, and holding it to the files the
-eleven targets are held to is worth more than any amount of care in
+twelve targets are held to is worth more than any amount of care in
 review.
 
 Each target is executed the way a user would run it: `python3` on the
 generated `.py`, `node` on the generated `.js`, `cc -std=… -pedantic` and
-then the binary for `c89`/`c23`, `javac --release <8|17|21>` and then
-`java` for `java8`/`java17`/`java21`, `ocamlopt -w +a` and then
-the binary for `ocaml`, and, for `esm`, `node` on the
-*generated node driver* rather than the module — the wrapper is the
-artifact a user runs, and exercising it also checks that `run(runtime)`
-is wired up. `-pedantic` matters for the C targets: the point of having a
+then the binary for `c89`/`c99`/`c23`, `javac --release <8|17|21>` and
+then `java` for `java8`/`java17`/`java21`, `ocamlopt -w +a` and then
+the binary for `ocaml5.5`. `web24` runs the module its page loads, under
+node — the page is a loader and the program prints to the console, so
+what runs is the same program either way — and `iweb24` runs its page's
+own three lines of glue with node's filesystem in place of `fetch`,
+which exercises the interpreter, the shipped sources and the external
+modules. The JavaScript runners pass `--no-experimental-detect-module`, so node
+does not guess whether a `.js` file is an ES module: what is tested is
+what the compiler declares, a `package.json` or a `.mjs` name, rather
+than what a recent node infers and an older one does not.
+`-pedantic` matters for the C targets: the point of having a
 `c89` target is that its output really is C89, and a compiler that
 merely tolerated the difference would hide it. `-w +a` matters for the
 same kind of reason: that target's promise is *clean* OCaml, so a

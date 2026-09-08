@@ -19,7 +19,7 @@ one file per module on every target, and run in an order each module
 sees a finished version of everything it imports.
 
 Pyking is statically typed: every program is type-checked, whatever is
-then done with it. A program can be compiled for any of eleven targets,
+then done with it. A program can be compiled for any of twelve targets,
 or run directly by the interpreter. `./pyk` — the compiled driver, built
 by `make` — is the front end for all of it, and has three commands:
 
@@ -38,18 +38,26 @@ reference; see [docs/targets.md](docs/targets.md).
 says otherwise:
 
 ```sh
-./pyk c -t python  hello.pyk   # ./hello.py     (python is the default)
-./pyk c -t nodejs  hello.pyk   # ./hello.js
-./pyk c -t html    hello.pyk   # ./hello.html
-./pyk c -t esm     hello.pyk   # ./hello.js + .node.js + .html + package.json
+./pyk c -t python  hello.pyk   # ./hello.py     (python14; the default)
+./pyk c -t node    hello.pyk   # ./hello.js     (node24, an ES module)
+./pyk c -t web     hello.pyk   # ./hello.html + the .js files it loads
+./pyk c -t iweb    hello.pyk   # ./hello.html + pyking.js + hello.pyk
 ./pyk c -t c89     hello.pyk   # ./hello.c      (C89)
-./pyk c -t c23     hello.pyk   # ./hello.c      (C23)
+./pyk c -t c99     hello.pyk   # ./hello.c      (C99)
+./pyk c -t c       hello.pyk   # ./hello.c      (C23; `c` is the alias)
 ./pyk c -t java8   hello.pyk   # ./Hello.java   (Java 8)
 ./pyk c -t java17  hello.pyk   # ./Hello.java   (Java 17)
-./pyk c -t java21  hello.pyk   # ./Hello.java   (Java 21)
-./pyk c -t ocaml   hello.pyk   # ./hello.ml
+./pyk c -t java    hello.pyk   # ./Hello.java   (Java 21; `java` is the alias)
+./pyk c -t ocaml   hello.pyk   # ./hello.ml     (ocaml5.5)
 ./pyk c -t pyking  hello.pyk   # ./hello.pyk    (Pyking, as the front end has it)
 ```
+
+Every target carries a **version**, and every family has an unversioned
+**alias** naming its latest: `c` is `c23`, `java` is `java21`, `node` is
+`node24`. A version says the oldest host the output is promised to run
+on. `iweb` is the odd one — it compiles nothing, shipping the Pyking
+source and the interpreter so a browser runs the *whole* language rather
+than one backend's subset.
 
 `--stdout` prints the generated code instead of writing it, and
 `--tokens` the token stream. `--run` builds and runs what was compiled,
@@ -63,7 +71,7 @@ node with the unique number the `symbolize` pass gave it:
 ```sh
 ./pyk c -t pyking --stdout hello.pyk             # x: Int = 12 + 20
 ./pyk c -t pyking --symbols --stdout hello.pyk   # x@1: Int = (12@2 + 20@3)@4  @5
-./pyk c -t nodejs --run hello.pyk                # $ node hello.js
+./pyk c -t node24 --run hello.pyk                # $ node hello.js
 ```
 
 A program that imports something compiles to more than one file: each
@@ -201,6 +209,6 @@ the playground generator are Python 3.11+ (`match`/`case`, `tomllib`).
 
 Running the generated code needs `node` for the JavaScript targets, a C
 compiler for the C ones, a JDK (`javac`/`java`) for the Java ones and an
-OCaml compiler for `ocaml`; producing it needs none of them, and running
+OCaml compiler for `ocaml5.5`; producing it needs none of them, and running
 a program with `./pyk` needs nothing at all. The compiler itself has no
 third-party dependencies.

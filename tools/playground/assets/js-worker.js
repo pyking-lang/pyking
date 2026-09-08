@@ -7,51 +7,66 @@
 // can still lock the page. A worker is guaranteed to be a separate thread
 // and `terminate()` is guaranteed to end it.
 //
-// Two shapes of generated code arrive here, and neither is modified on the
-// way in:
-//   "script" -- the `nodejs` target, a plain script that prints through
-//               `console.log`, so `console.log` is what gets redirected;
-//   "module" -- the `esm` target, which exports `run(runtime)` and is handed
-//               a `print` implementing the runtime interface's formatting.
+// What arrives is a whole compiled program: the module the user is
+// looking at, plus the files the compiler wrote beside it (the shared
+// `pyk-runtime.js`, and one module per Pyking module). Nothing is
+// rewritten except the import specifiers, which have to become blob URLs
+// -- a module loaded from a blob has no base to resolve `./x.js` against.
 
 const send = (type, data) => self.postMessage({ type, data });
 
-// The `esm` target hands its `print` to whoever drives it, so this worker
-// has to do the formatting -- and formatting is fixed by the language, not
-// chosen by the host (src/runtime_interface.ml). The function below is not
-// written here: it is lifted verbatim out of src/target_js_packaging.ml at
-// build time, so it cannot drift from what the compiler generates for every
-// other JavaScript host. A hand-copy did drift, which is why it no longer
-// is one.
+// A generated program prints through `console.log`, which is redirected
+// below -- but `pykFormat` is still needed here, because the shared
+// runtime module the program imports is one of the files being wired up
+// and this worker is what supplies its formatting. It is lifted verbatim
+// out of src/target_js_packaging.ml at build time, so it cannot drift
+// from what the compiler generates. A hand-copy did drift, which is why
+// it no longer is one.
 %%PYK_FORMAT%%
 
+/** Blob URLs for a whole program, with every relative import rewritten
+ *  to point at them. Files are wired up in dependency order by resolving
+ *  lazily: a specifier is replaced only once its target has a URL, and
+ *  the compiler emits no cycles. */
+function link(files, main) {
+  const urls = {};
+  const remaining = Object.keys(files);
+  const specifier = /(\bfrom\s*|\bimport\s*)(["'])\.\/([^"']+)\2/g;
+  // Repeat until nothing more can be resolved: each pass links the files
+  // whose own imports are all already linked.
+  for (let pass = 0; pass < remaining.length + 1 && remaining.length; pass++) {
+    for (let i = remaining.length - 1; i >= 0; i--) {
+      const name = remaining[i];
+      const needs = [];
+      files[name].replace(specifier, (_, __, ___, target) => needs.push(target));
+      if (needs.some((n) => files[n] !== undefined && urls[n] === undefined)) continue;
+      const text = files[name].replace(
+        specifier,
+        (whole, keyword, quote, target) =>
+          urls[target] ? keyword + quote + urls[target] + quote : whole);
+      urls[name] = URL.createObjectURL(
+        new Blob([text], { type: "text/javascript" }));
+      remaining.splice(i, 1);
+    }
+  }
+  return urls;
+}
+
 self.onmessage = async (event) => {
-  const { how, code } = event.data;
+  const { code, files, main } = event.data;
   console.log = (...args) => send("stdout", args.join(" ") + "\n");
   console.error = console.log;
+  let urls = {};
   try {
-    if (how === "module") {
-      // Imported as a real module from a blob, so the source runs exactly as
-      // written -- `export` and all -- with no rewriting to make it fit.
-      const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
-      try {
-        const module = await import(url);
-        if (typeof module.run !== "function") {
-          throw new Error("the generated module does not export run(runtime)");
-        }
-        module.run({
-          print: (...values) => send("stdout", values.map(pykFormat).join(" ") + "\n"),
-        });
-      } finally {
-        URL.revokeObjectURL(url);
-      }
-    } else {
-      // Indirect eval, so the generated declarations land in the global
-      // scope the generated code expects.
-      (0, eval)(code);
-    }
+    // The pane's text wins: the user may have edited what is displayed.
+    const program = { ...files, [main]: code };
+    urls = link(program, main);
+    if (!urls[main]) throw new Error("could not resolve the program's imports");
+    await import(urls[main]);
     send("done");
   } catch (err) {
     send("failed", err && err.message ? err.message : String(err));
+  } finally {
+    for (const url of Object.values(urls)) URL.revokeObjectURL(url);
   }
 };

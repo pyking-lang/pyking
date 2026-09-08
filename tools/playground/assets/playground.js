@@ -38,7 +38,7 @@ const DEFAULTS = {
   pykingURL: "./pyking/",
   examplesURL: "./examples/",
   theme: "ace/theme/tomorrow_night",
-  initialTarget: "nodejs",
+  initialTarget: "node24",
   initialExample: "subset_control.pyk",
 };
 
@@ -70,8 +70,6 @@ class Playground {
     this.views = new Set();   // which of those are front-end views, not code
     this.current = null;      // which of those is shown on the right
     this.errorMarker = null;
-    this.frame = null;         // the sandboxed iframe a JS run lives in
-    this.frameSeq = 0;
     this.autoRunTimer = null;  // pending "run while you type"
     this.autoRunning = false;
     this.programmaticEdit = false;
@@ -339,15 +337,14 @@ class Playground {
   // and the record of what is currently running. Three backends sit behind
   // that one lifecycle:
   //
-  //   pyking          the compiler's worker   stop = terminate the worker
-  //   script, module  the JavaScript worker   stop = terminate the worker
-  //   page            an iframe preview       stop = remove the frame
+  //   pyking   the compiler's worker     stop = terminate the worker
+  //   js       the JavaScript worker     stop = terminate the worker
   //
-  // Only the `html` target uses a frame, because it *is* a page: it draws
-  // into its own document rather than printing. The other two run on workers
-  // precisely so that a program which never returns can still be stopped --
-  // a same-process iframe shares the main thread and would take the page
-  // down with it.
+  // Both run on workers precisely so that a program which never returns
+  // can still be stopped -- a same-process iframe shares the main thread
+  // and would take the page down with it. Nothing renders into a frame
+  // any more: a compiled Pyking program prints, and `web` prints to the
+  // console like `node` does.
 
   /** The Run button next to the source: run the program itself, with the
    *  interpreter, whatever target happens to be selected.
@@ -381,12 +378,7 @@ class Playground {
     if (!how) return;          // nothing runs, so nothing is cleared either
     this.beforeRun();
     const code = this.right.getValue();
-    this.beginRun("right", how === "page" ? how : "js");
-
-    // A rendered page has no completion event -- it may still be drawing --
-    // so it ends its own run on a timer rather than when this returns.
-    if (how === "page") return this.showPage(code, target);
-
+    this.beginRun("right", "js");
     try {
       await this.executeJs(how, code, target);
     } finally {
@@ -395,7 +387,6 @@ class Playground {
   }
 
   async executeProgram(source) {
-    this.showText();
     try {
       const result = await this.runtime.runProgram(source, {
         onOutput: (text) => this.write(text),
@@ -415,39 +406,19 @@ class Playground {
   }
 
   async executeJs(how, code, target) {
-    this.showText();
     try {
-      await this.jsRunner.run(how, code, { onOutput: (text) => this.write(text) });
+      // The whole compiled program goes across, not just the pane: a
+      // generated module imports the shared runtime and the modules it
+      // uses, and a blob URL has no base to resolve those against.
+      await this.jsRunner.run(code, {
+        files: this.files,
+        main: this.current,
+        onOutput: (text) => this.write(text),
+      });
       this.good(`— ${target} finished —`);
     } catch (err) {
       if (!this.stopped) this.error(err.message);
     }
-  }
-
-  /** The `html` target: a complete self-contained page, shown rather than
-   *  piped into the text pane. */
-  showPage(code, target) {
-    this.stopFrame();
-    const frame = document.createElement("iframe");
-    frame.className = "pyk-preview";
-    frame.sandbox = "allow-scripts";
-    frame.srcdoc = code;
-    this.showPreview();
-    this.ui.preview.replaceWith(frame);
-    this.ui.preview = frame;
-    this.frame = frame;
-    this.note(`Rendering the ${target} page below.`);
-    // A page has no natural "finished": it may still be drawing. The Stop
-    // button appears as for anything else and removes the frame; otherwise
-    // the run is considered over once it has had a moment to render.
-    setTimeout(() => { if (this.running?.kind === "page") this.endRun(); }, 1500);
-  }
-
-  stopFrame() {
-    if (this.frame && this.frame.parentNode && this.frame !== this.ui.preview) {
-      this.frame.remove();
-    }
-    this.frame = null;
   }
 
   // -- the Stop button --------------------------------------------------
@@ -486,8 +457,7 @@ class Playground {
     const { kind } = this.running;
     this.stopped = true;
     if (kind === "pyking") this.runtime.stop();
-    else if (kind === "js") this.jsRunner.stop();
-    else this.stopFrame();
+    else this.jsRunner.stop();
     this.endRun();
     this.error("— stopped —");
     if (kind === "pyking") {
@@ -502,10 +472,6 @@ class Playground {
 
   // -- output pane ------------------------------------------------------
 
-  showText() { this.ui.output.classList.remove("pyk-hidden");
-               this.ui.preview.classList.add("pyk-hidden"); }
-  showPreview() { this.ui.output.classList.add("pyk-hidden");
-                  this.ui.preview.classList.remove("pyk-hidden"); }
 
   // -- run while you type -----------------------------------------------
 
@@ -570,10 +536,10 @@ class Playground {
       this.ui.output.scrollTop = this.ui.output.scrollHeight;
     }
   }
-  note(text) { this.showText(); this.write(text + "\n", "note"); }
-  good(text) { this.showText(); this.write(text + "\n", "good"); }
-  error(text) { this.showText(); this.write(text + "\n", "err"); }
-  clearOutput() { this.ui.output.textContent = ""; this.showText(); this.stopFrame(); }
+  note(text) { this.write(text + "\n", "note"); }
+  good(text) { this.write(text + "\n", "good"); }
+  error(text) { this.write(text + "\n", "err"); }
+  clearOutput() { this.ui.output.textContent = ""; }
 
   // -- error marking ----------------------------------------------------
 
@@ -831,8 +797,6 @@ function buildDom(host, meta, cfg) {
             <button data-r="clear">Clear</button>
           </div>
           <pre class="pyk-output" data-r="output"></pre>
-          <iframe class="pyk-preview pyk-hidden" data-r="preview"
-                  sandbox="allow-scripts" title="Generated page preview"></iframe>
         </div>
       </section>
     </div>
@@ -926,9 +890,9 @@ function whyNotRunnable(target) {
     return "the Pyking view is what the front end saw, not code to run";
   }
   const missing =
-    target === "python" ? "Python interpreter"
+    target.startsWith("python") ? "Python interpreter"
     : target.startsWith("java") ? "JVM"
-    : target === "ocaml" ? "OCaml runtime"
+    : target.startsWith("ocaml") ? "OCaml runtime"
     : "C compiler";
   return `${target} cannot run in a browser — there is no ${missing} here.`
     + " Use Run beside the source: that runs the program itself.";

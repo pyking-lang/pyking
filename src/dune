@@ -16,7 +16,7 @@
 (library
  (name pyking)
  (wrapped false)
- (modules lexer syntax walk runtime_interface analyses parser module
+ (modules targets lexer syntax walk runtime_interface analyses parser module
    typesystem optimization interpreter target_python target_js_core target_js_packaging target_ocaml target_c target_java type_experiment)
  (flags
   (:standard -warn-error -a)))

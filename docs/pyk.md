@@ -73,7 +73,7 @@ than filling it. Every command needs this much; nothing past it is
 shared, and there is no branch in it at all.
 
 There used to be one. Type checking was a *mode*, and a `required` flag
-decided whose refusal counted — `pyk run`'s, the `ocaml` target's, and
+decided whose refusal counted — `pyk run`'s, the `ocaml5.5` target's, and
 `--typecheck`'s. Pyking is statically typed now, so the question is
 gone: the checker runs, and a program it refuses is refused. What
 follows from that is that the checker is also the **only** pass that
@@ -192,13 +192,13 @@ which checker runs, not how its refusal reads.
 
 `fail_unsupported` is kept separate from `format_error`'s match on
 purpose: an `Unsupported` needs to name *which target* refused the
-construct (`"Unsupported by target 'nodejs': ..."`), a piece of context
+construct (`"Unsupported by target 'node24': ..."`), a piece of context
 none of the front-end errors need, since they're refused by the front
 end itself rather than by one particular backend's subset.
 
 ## `command_compile`: one function, one `write` closure reused everywhere
 
-`command_compile` picks the output path (or paths, for `esm`) if
+`command_compile` picks the output path if
 `--output` wasn't given, asks `compile_program` for every file the whole
 program becomes, and writes them -- or prints the one `--stdout` asks
 for, which is the program's own module, since the modules it imports are
@@ -223,7 +223,8 @@ repeated:
   difference) and refuses to write into a directory that doesn't exist —
   both as `usage_error`s, not stack traces, since both are mistakes a
   user made, not the compiler.
-- **`write_manifest(path, contents)`** is `esm`'s special case: the
+- **`write_manifest(path, contents)`** is the JavaScript targets' one
+  special case: the
   target's own `package.json` is never blindly overwritten, because an
   existing one belongs to whatever project the output landed in (see
   `target_js_packaging.md`). It only writes a fresh manifest when none
@@ -274,7 +275,7 @@ which C, Java and OCaml need, since those three *link* a program rather
 than importing at run time, and for OCaml that order is also the order
 the modules' top levels run in. Everything in it is made absolute, since the
 commands run in the *output file's* directory rather than the one `pyk`
-was called from — which is what makes `esm`'s generated `package.json`
+was called from — which is what makes the generated `package.json`
 and Java's `-cp` find what they expect. `shown` puts them back for the
 announcement: relative to the directory the command runs in, with `./`
 on the program being run, since a bare name would mean PATH.
@@ -287,7 +288,7 @@ same variables `tests/test_script.py` reads, so a machine set up to run
 the suite is set up to run this.
 
 Two targets are runnable in a way the others are not, and both are the
-table's business rather than a special case here. `html` is a page, so
+table's business rather than a special case here. `web` is a page, so
 running it means handing it to `xdg-open` (`open` on macOS). `pyking`
 compiles Pyking to Pyking, so running it means handing it back to this
 compiler: this very executable, run on the generated source, which is

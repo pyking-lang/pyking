@@ -31,8 +31,20 @@ external register3 : string -> (string -> string -> string -> string) -> unit
 
 external emit : string -> unit = "pyk_emit"
 
-(* --- JSON, written out ---
-   Nothing here needs to read JSON, so this is an encoder and no more. *)
+(* Reaching a module implemented in JavaScript: the module's name, the
+   field, and the arguments as a JSON array -- or the empty string for a
+   value rather than a call. Answers the result as JSON. *)
+external external_call : string -> string -> string -> string = "pyk_external"
+
+(* The program's own files, which the page supplies rather than a
+   directory: what lets a program of several modules run in a browser. *)
+external file_exists : string -> string = "pyk_file_exists"
+external file_read : string -> string = "pyk_file_read"
+
+(* --- JSON ---
+   Written out for every answer this module gives, and read back for the
+   one thing that comes the other way: what an external module's
+   JavaScript answered (see `externals` below). *)
 
 let json_string s =
   let buffer = Buffer.create (String.length s + 2) in
@@ -61,6 +73,125 @@ let json_object pairs =
 let json_array items = "[" ^ String.concat "," items ^ "]"
 let json_int n = string_of_int n
 let json_bool b = if b then "true" else "false"
+
+(* --- values across the boundary ---
+
+   What may cross is what a declaration may name: Int, String, Bool,
+   unit, tuples and lists (docs/modules.md, "What may cross the
+   boundary"). JSON carries all of them, with `null` for unit and an
+   array for both a tuple and a list -- the declaration says which, so
+   nothing is lost. *)
+
+(** A Pyking value as JSON, for an argument crossing to JavaScript.
+    Interpreter.value -> string *)
+let rec json_of_value value =
+  match value with
+  | Interpreter.VInt n -> string_of_int n
+  | Interpreter.VString text -> json_string text
+  | Interpreter.VBool b -> json_bool b
+  | Interpreter.VUnit -> "null"
+  | Interpreter.VList elements | Interpreter.VTuple elements ->
+      json_array (List.map json_of_value elements)
+  | other ->
+      raise
+        (Interpreter.Trap
+           ( Lexer.
+               { file = "<external>"; row1 = 1; col1 = 0; row2 = 1; col2 = 0 },
+             Printf.sprintf "%s cannot be passed to a module implemented in a target language"
+               (Interpreter.describe other) ))
+
+(** A JSON text as a Pyking value: what an external module answered.
+    A number is an Int, an array a list, `null` unit. string -> value *)
+let value_of_json text =
+  let length = String.length text in
+  let fail () =
+    raise
+      (Interpreter.Trap
+         ( Lexer.{ file = "<external>"; row1 = 1; col1 = 0; row2 = 1; col2 = 0 },
+           "a module implemented in a target language answered something \
+            Pyking has no value for" ))
+  in
+  let rec skip i =
+    if i < length && (text.[i] = ' ' || text.[i] = '\n' || text.[i] = '\t' || text.[i] = '\r')
+    then skip (i + 1)
+    else i
+  in
+  let literal i word = 
+    let n = String.length word in
+    i + n <= length && String.sub text i n = word
+  in
+  let rec value i =
+    let i = skip i in
+    if i >= length then fail ()
+    else
+      match text.[i] with
+      | 'n' when literal i "null" -> (Interpreter.VUnit, i + 4)
+      | 't' when literal i "true" -> (Interpreter.VBool true, i + 4)
+      | 'f' when literal i "false" -> (Interpreter.VBool false, i + 5)
+      | '"' -> string_at (i + 1) (Buffer.create 16)
+      | '[' -> array_at (skip (i + 1)) []
+      | c when c = '-' || (c >= '0' && c <= '9') -> number_at i
+      | _ -> fail ()
+  and number_at i =
+    let j = ref i in
+    if !j < length && text.[!j] = '-' then incr j;
+    while !j < length && text.[!j] >= '0' && text.[!j] <= '9' do incr j done;
+    (* A fraction or an exponent is not an Int, and Pyking has no other
+       number, so it is refused rather than rounded. *)
+    if !j < length && (text.[!j] = '.' || text.[!j] = 'e' || text.[!j] = 'E') then fail ();
+    match int_of_string_opt (String.sub text i (!j - i)) with
+    | Some n -> (Interpreter.VInt n, !j)
+    | None -> fail ()
+  and string_at i out =
+    if i >= length then fail ()
+    else
+      match text.[i] with
+      | '"' -> (Interpreter.VString (Buffer.contents out), i + 1)
+      | '\\' ->
+          if i + 1 >= length then fail ()
+          else
+            let c = text.[i + 1] in
+            let next =
+              match c with
+              | 'n' -> "\n"
+              | 't' -> "\t"
+              | 'r' -> "\r"
+              | '"' -> "\""
+              | '\\' -> "\\"
+              | '/' -> "/"
+              | _ -> fail ()
+            in
+            Buffer.add_string out next;
+            string_at (i + 2) out
+      | c ->
+          Buffer.add_char out c;
+          string_at (i + 1) out
+  and array_at i acc =
+    let i = skip i in
+    if i < length && text.[i] = ']' then (Interpreter.VList (List.rev acc), i + 1)
+    else
+      let element, i = value i in
+      let i = skip i in
+      if i < length && text.[i] = ',' then array_at (i + 1) (element :: acc)
+      else if i < length && text.[i] = ']' then
+        (Interpreter.VList (List.rev (element :: acc)), i + 1)
+      else fail ()
+  in
+  fst (value 0)
+
+(** How the interpreter reaches a module implemented in JavaScript: the
+    page puts the imported modules in `pykExternals`, and this asks it
+    for a value or calls one of its functions. Interpreter.externals *)
+let externals =
+  Interpreter.
+    {
+      field = (fun module_ field -> value_of_json (external_call module_ field ""));
+      call =
+        (fun module_ field args ->
+          value_of_json
+            (external_call module_ field
+               (json_array (List.map json_of_value args))));
+    }
 
 (* --- the compiler's answers --- *)
 
@@ -147,6 +278,106 @@ let lone_context () =
       externals = [];
     }
 
+(** The program's files, as the module system reads them: supplied by
+    the page rather than by a directory. Module.sources *)
+let browser_sources =
+  Module.{ exists = (fun name -> file_exists name = "1"); contents = file_read }
+
+(** Runs a whole program -- the file named, and every module it reaches
+    -- with the interpreter, in a browser. The sources come from the
+    page (`pykSources`), and a module implemented in JavaScript is
+    reached through `pykExternals`, so a program that imports one runs
+    here where `pyk <file>` refuses it: this host really can call the
+    target language. string -> string *)
+let run_program main =
+  match
+    try
+      let units = Module.load ~from:browser_sources main in
+      (* The same sequence pyk.ml runs, module by module in dependency
+         order: each is checked against what the ones it imports export,
+         and an external module contributes what it declared. *)
+      (* The tail-call pass builds nodes and so hands out more symbols;
+         they continue past the highest in the whole program, since one
+         numbering spans every module of it. pyk.ml does the same. *)
+      let highest =
+        List.fold_left
+          (fun highest (unit : Module.t) ->
+            max highest (Analyses.highest_sym unit.stmts))
+          0 units
+      in
+      let _, _, checked =
+        List.fold_left
+          (fun (sigmaps, highest, checked) (unit : Module.t) ->
+            if unit.is_external then
+              ( sigmaps @ [ (unit.name, Module.external_sigmap unit.stmts) ],
+                highest,
+                checked @ [ unit ] )
+            else
+              let tmap =
+                Typesystem.type_check unit.stmts (Module.sigmaps_for unit sigmaps)
+              in
+              Analyses.analyze_mutability unit.stmts;
+              let sigmap = Module.make_sigmap unit.stmts tmap in
+              let optimized, _ = Optimization.optimize unit.stmts tmap in
+              (* Without this the nodes the pass built keep symbol 0,
+                 and the interpreter's call-free table -- which is keyed
+                 by symbol -- would answer for the wrong node. *)
+              let optimized = Analyses.symbolize ~start:highest optimized in
+              ( sigmaps @ [ (unit.name, sigmap) ],
+                max highest (Analyses.highest_sym optimized),
+                checked @ [ { unit with stmts = optimized } ] ))
+          ([], highest, []) units
+      in
+      Ok checked
+    with e -> Error e
+  with
+  | Error e -> (
+      match front_end_error e with
+      | Some (stage, info, message) -> failed stage info message
+      (* Anything else is a bug in the compiler rather than in the
+         program, but a page that stops answering is no way to find out,
+         so it is reported like any other refusal. *)
+      | None ->
+          json_object
+            [
+              ("ok", json_bool false);
+              ("stage", json_string "Internal error");
+              ("text", json_string (Printexc.to_string e));
+            ])
+  | Ok checked -> (
+      let host =
+        Interpreter.callback_host ~externals (fun line -> emit (line ^ "\n"))
+      in
+      let state =
+        Interpreter.run_modules
+          (List.map
+             (fun (unit : Module.t) ->
+               ( unit.name,
+                 (* A declaration file is signatures and nothing else,
+                    and `apply_signatures` folds a signature onto the
+                    definition it describes -- there being none here, it
+                    would leave the file empty. *)
+                 if unit.is_external then unit.stmts
+                 else Analyses.apply_signatures unit.stmts ))
+             checked)
+          host
+      in
+      match Interpreter.failure state with
+      | None -> json_object [ ("ok", json_bool true) ]
+      | Some error ->
+          let text =
+            match front_end_error error with
+            | Some (stage, info, message) ->
+                Printf.sprintf "%s %s: %s" (Lexer.pprint_info info) stage message
+            | None -> "Runtime error"
+          in
+          json_object
+            [
+              ("ok", json_bool false);
+              ("stage", json_string "Runtime error");
+              ("text", json_string text);
+            ])
+
 (** Compile `source` for `target`.
     Answers `{"ok":true,"files":{label:source},"views":[label,...]}` --
     several files for `esm`, which really does emit four -- or a refusal
@@ -163,7 +394,7 @@ let compile_source source target name =
         ("views", json_array (List.map json_string views));
       ]
   in
-  let natively = target = Target_ocaml.target in
+  let natively = Targets.family_of target = Targets.Ocaml in
   match front_end source name natively with
   | exception e -> (
       match front_end_error e with
@@ -187,7 +418,7 @@ let compile_source source target name =
              `pyking` view above, which shows it as it stands. pyk.ml
              does the same. *)
           let program = Analyses.apply_signatures program in
-          if target = "python" then
+          if Targets.family_of target = Targets.Python then
             done_
               [
                 ( stem ^ ".py",
@@ -195,11 +426,10 @@ let compile_source source target name =
                     (Target_python.translate_program program tmap)
                   ^ "\n" );
               ]
-          else if List.mem target Target_js_packaging.targets then
+          else if List.mem (Targets.family_of target) [ Targets.Node; Targets.Web ]
+          then
             let js = Target_js_core.translate_program program in
-            let out =
-              stem ^ List.assoc target Target_js_packaging.primary_extensions
-            in
+            let out = stem ^ Targets.extension target in
             let unit =
               Module.
                 {
@@ -218,10 +448,10 @@ let compile_source source target name =
                 (Some out) false
             in
             done_ files
-          else if List.mem target Target_c.standards then
+          else if Targets.family_of target = Targets.C then
             let c = Target_c.translate_program program (lone_context ()) in
             done_ [ (stem ^ ".c", Target_c.pprint_c_program c target name) ]
-          else if List.mem target Target_java.versions then
+          else if Targets.family_of target = Targets.Java then
             (* Java requires the file and its public class to share a
                name. *)
             let cls = Target_java.default_class_name stem in
@@ -300,12 +530,13 @@ let run_source source name =
 (** Every target the compiler has, in the order the dropdown shows them
     (pyking first). () -> string *)
 let targets_json () =
+  (* Every target the compiler has, `pyking` first because it is what a
+     reader looks at to see the front end's own answer. The list itself
+     is src/targets.ml's, so the page cannot offer one the compiler does
+     not have. *)
   json_array
     (List.map json_string
-       ([ "pyking"; "python" ]
-       @ Target_js_packaging.targets
-       @ Target_c.standards @ Target_java.versions
-       @ [ Target_ocaml.target ]))
+       ("pyking" :: List.filter (fun t -> t <> "pyking") Targets.all))
 
 (** The `pykFormat` helper the JavaScript backend generates, read out of
     the backend rather than hand-copied. () -> string *)
@@ -323,6 +554,7 @@ let () =
           run_source
             (String.sub request (i + 1) (String.length request - i - 1))
             (String.sub request 0 i));
+  register1 "pykRunProgram" run_program;
   register0 "pykTargets" targets_json;
   register0 "pykFormatHelper" format_helper;
   register0 "pykKeywords" (fun () ->

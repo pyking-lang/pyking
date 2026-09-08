@@ -165,6 +165,9 @@ module is not a program.
 Every module's top level runs once, in dependency order, and its public
 bindings are what the modules importing it are given.
 
+An external module has no top level at all: what it exports is the
+host's, so nothing of it runs and no backend starts it.
+
 `interpreter.run_modules` does that directly: each module runs in a top
 level of its own, and `exported_values` reads its public names out of
 the environment it left behind. It uses `run_entry` rather than
@@ -234,11 +237,11 @@ code refers to:
 | target | implementation | what the generated program does |
 |---|---|---|
 | `python` | `sys.py` | `import sys` |
-| `nodejs`, `esm` | `sys.js` | `import * as sys from './sys.js'` |
+| `node24` | `sys.js` | `import * as sys from './sys.js'` |
 | `c89`, `c23` | `sys.c` | declares `sys_loadfile` and calls it |
 | `java8`/`17`/`21` | `Sys.java` | `Sys.loadfile(...)` |
-| `ocaml` | `sys.ml` | `Sys.loadfile ...` |
-| `html` | -- | refused: a page is one file |
+| `ocaml5.5` | `sys.ml` | `Sys.loadfile ...` |
+| `web24`, `iweb24` | `sys.web.js`, else `sys.js` | `import * as sys from './sys.js'` |
 
 Java's is capitalised where the others are not, because javac requires
 the file name and the public class to match and the generated program
@@ -269,7 +272,7 @@ The file is a header, in the sense C and OCaml already have one.
 The types a declaration may name are the ones the target can carry, and
 they are not the same everywhere:
 
-| Pyking | python | nodejs, esm | c89, c23 | java | ocaml |
+| Pyking | python | node24, web24, iweb24 | c89, c99, c23 | java | ocaml |
 |---|---|---|---|---|---|
 | `Int` | `int` | `number` | `int` | `int` | `int` |
 | `String` | `str` | `string` | `const char *` | `String` | `string` |
@@ -285,6 +288,12 @@ result is undefined** (PYKING.md, "Integer and string literals"). An
 implementation therefore has nothing to normalise: return whatever the
 host computes. What it must not do is narrow the range *below* 32 bits —
 a value inside it has to survive the round trip on every host.
+
+**A `.web.js` may differ from a `.js`.** The `web` and `iweb` targets
+look for `sys.web.js` before `sys.js`, so a module that needs different
+code in a browser writes both and one that does not writes one. The file
+found is copied out as `sys.js` either way, which is the name every
+generated import uses.
 
 **A JavaScript list must say it is one.** A Pyking list and a Pyking
 tuple are both arrays there, and the value formatter walks values rather

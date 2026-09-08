@@ -216,12 +216,15 @@ export class JsRunner {
 
   get isRunning() { return this.worker !== null; }
 
-  /** Resolves when the program finishes; rejects if it threw. */
-  run(how, code, { onOutput } = {}) {
+  /** Runs a compiled program. `code` is the module being looked at,
+   *  `files` the whole program the compiler wrote and `main` which of
+   *  them `code` is -- the worker wires them together and imports it.
+   *  Resolves when the program finishes; rejects if it threw. */
+  run(code, { files = {}, main, onOutput } = {}) {
     this.stop();
     return new Promise((resolve, reject) => {
-      // A module worker: the esm target is imported as a real module, which
-      // needs dynamic import, which classic workers do not have.
+      // A module worker: generated code is imported as a real module,
+      // which needs dynamic import, which classic workers do not have.
       const worker = new Worker(this.workerURL, { type: "module" });
       this.worker = worker;
       const finish = (fn, value) => {
@@ -236,7 +239,7 @@ export class JsRunner {
       };
       worker.onerror = (event) =>
         finish(reject, new Error(event.message || "worker failed"));
-      worker.postMessage({ how, code });
+      worker.postMessage({ code, files, main });
     });
   }
 

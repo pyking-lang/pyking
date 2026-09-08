@@ -12,9 +12,14 @@ make playground     build and serve the web playground
 make clean          remove _build/, ./pyk, __pycache__/, the playground's build/
 ```
 
-`make` is the whole of it: `dune build src/pyk.exe`, then a copy of the
-executable to `./pyk`, since nobody would think to run it out of
-`_build/default/src/`. The copy is `cp -f` because dune leaves what it
+`make` builds two things: `./pyk`, the compiler, and
+`build/pyking.js`, the same compiler as JavaScript. The second is what
+the `iweb` target ships beside a program and what the playground runs,
+and it is built here so there is one copy of it — `tools/playground`
+reuses this rather than running a dune build of its own.
+
+Both are copied out of `_build/`, since nobody would think to run them
+from there. The copy is `cp -f` because dune leaves what it
 builds read-only, and so is the copy — a second `make` would otherwise
 fail to overwrite it.
 
@@ -74,7 +79,7 @@ entry-point module and one hand-written JavaScript stub.
 
 `tools/playground/generator.py` runs that build, then asks the resulting
 bundle — with `node` — for the target list, the keyword and builtin
-lists, and the `esm` runtime's formatter, and writes them into the page's
+lists, and the JavaScript runtime's formatter, and writes them into the page's
 assets. So the playground's target menu, its syntax highlighting and its
 worker's value formatting all come from the compiler rather than from a
 hand-kept copy. See `tools/playground/README.md`.
@@ -101,7 +106,7 @@ the browser bundle additionally needs js_of_ocaml.
 
 Running the *generated code* needs whatever that target's host needs —
 `node` for the JavaScript targets, a C compiler for `c89`/`c23`, a JDK
-for the Java ones, `ocamlopt` for `ocaml` — but none of that is needed
+for the Java ones, `ocamlopt` for `ocaml5.5` — but none of that is needed
 to *produce* the code, and none at all to run a program with
 `pyk <file>`, which is the interpreter.
 

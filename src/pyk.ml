@@ -32,31 +32,21 @@
    the checker inferred, and the loops the tail-call pass built. *)
 let pyking_target = Execution.pyking_target
 
-(* Nothing here names a target twice: each backend declares what it
-   supports and this is the concatenation, so a new C standard or Java
-   version reaches the usage message, `--target`'s check and the default
-   output name by being added there. *)
-let targets =
-  ([ "python" ] @ Target_js_packaging.targets @ Target_c.standards
- @ Target_java.versions
-  @ [ Target_ocaml.target; pyking_target ])
+(* Every target, and every unversioned alias for one, comes from
+   src/targets.ml -- nothing here names a target. Adding one there
+   reaches the usage message, `--target`'s check and the default output
+   name at once. *)
+let targets = Targets.all
 
 (* The targets whose host language eliminates tail calls itself, and
    which are therefore compiled from the program as written rather than
    from the one optimization.ml rewrote -- there the rewrite would only
    be undone (see docs/optimization.md, "The target that needs none of
    this"). *)
-let native_tail_calls = [ "ocaml" ]
+let native_tail_calls = Targets.members Targets.Ocaml
 
-(* What the primary output file is called when `--output` doesn't say.
-   Each backend owns its own extension; `esm` names three files from
-   this stem. *)
-let extensions =
-  ([ ("python", ".py") ]
-  @ Target_js_packaging.primary_extensions
-  @ List.map (fun standard -> (standard, ".c")) Target_c.standards
-  @ List.map (fun version -> (version, ".java")) Target_java.versions
-  @ [ (Target_ocaml.target, Target_ocaml.extension); (pyking_target, ".pyk") ])
+(* What the primary output file is called when `--output` doesn't say. *)
+let extensions = List.map (fun target -> (target, Targets.extension target)) targets
 
 (* Every message this module prints is laid out for a terminal this
    wide. 70 rather than the usual 80 so that output still reads well
@@ -92,6 +82,12 @@ let absolute = Module.absolute
 let join = Module.join
 let basename path = Filename.basename path
 let stem path = Filename.remove_extension (Filename.basename path)
+
+(** The unversioned aliases, as one line for --help: each family's name
+    and the version it currently means. () -> string *)
+let alias_line () =
+  String.concat ", "
+    (List.map (fun (alias, target) -> alias ^ " = " ^ target) Targets.aliases)
 
 (** The Targets: block for --help: one row per group of targets sharing
     an output extension. () -> string *)
@@ -186,32 +182,35 @@ let usage_full () =
      %s\n\n\
      Targets:\n\
      %s\n\n\
+     %s\n\n\
      Pyking is statically typed, and every program is type-checked before\n\
      anything else happens -- there is no flag for it and no way round it.\n\n\
      `pyk <filename>` runs the program on the AST, with Pyking's own\n\
-     semantics: 32-bit integers, and its own runtime errors.\n\n\
+     semantics: at least 32-bit integers, and its own runtime errors.\n\n\
      `pyk compile` writes a file named after the source, in the current\n\
-     directory, unless --output says otherwise. The `esm` target writes three\n\
-     more files beside its .js: a .node.js driver, an .html wrapper, and\n\
-     package.json. The Java targets name the file and its class in Java's own\n\
-     casing: foo_bar.pyk -> FooBar.java. The `pyking` target writes Pyking\n\
-     again -- the program as the front end worked it out, with the types the\n\
-     checker inferred and the loops the tail-call pass built.\n\n\
+     directory, unless --output says otherwise. The JavaScript targets write\n\
+     more beside it: one .js per module, pyk-runtime.js, and package.json.\n\
+     The Java targets name the file and its class in Java's own casing:\n\
+     foo_bar.pyk -> FooBar.java. The `iweb` target compiles nothing -- it\n\
+     ships the Pyking source and the interpreter, so a browser runs the\n\
+     whole language. The `pyking` target writes Pyking again -- the program\n\
+     as the front end worked it out, with the types the checker inferred and\n\
+     the loops the tail-call pass built.\n\n\
      `--run` builds and runs what was compiled, with the commands that\n\
      target's host uses, each printed before it runs:\n\n\
-    \  python           python3 prog.py\n\
-    \  nodejs           node prog.js\n\
-    \  esm              node prog.node.js\n\
-    \  html             xdg-open prog.html (open, on macOS)\n\
-    \  c89, c23         cc -std=<standard> -o prog prog.c, then prog\n\
+    \  python14         python3 prog.py\n\
+    \  node24           node prog.js\n\
+    \  web24, iweb24    python3 -m http.server (a page must be served)\n\
+    \  c89, c99, c23    cc -std=<standard> -o prog prog.c, then prog\n\
     \  java8, java17,   javac --release <version> prog.java, then java prog\n\
     \  java21\n\
-    \  ocaml            ocamlopt -o prog prog.ml, then prog\n\
+    \  ocaml5.5         ocamlopt -o prog prog.ml, then prog\n\
     \  pyking           pyk prog.pyk\n\n\
      $CC, $JAVAC, $JAVA and $OCAMLOPT say which tool to use where there is a\n\
      choice. --run needs a file to run, so it cannot be combined with\n\
      --stdout."
     synopsis more_options (target_table ())
+    (wrap ("An unversioned name is the family's latest: " ^ alias_line () ^ "."))
 
 (* --- what was asked for --- *)
 
@@ -241,7 +240,7 @@ let default_options command =
   {
     command;
     filename = None;
-    target = "python";
+    target = Targets.default;
     output = None;
     stdout = false;
     run = false;
@@ -293,11 +292,21 @@ let parse_args argv =
     | ("--target" | "-t") :: rest -> (
         match rest with
         | [] -> usage_error "--target requires a <target> argument"
-        | target :: rest ->
-            if not (List.mem target targets) then
-              usage_error
-                (Printf.sprintf "unknown target '%s'; expected one of %s" target
-                   (String.concat ", " targets));
+        | given :: rest ->
+            (* An unversioned name is an alias for its family's latest,
+               so what the rest of the driver sees is always a versioned
+               target (src/targets.ml). *)
+            let target =
+              match Targets.resolve given with
+              | Some target -> target
+              | None ->
+                  usage_error
+                    (Printf.sprintf
+                       "unknown target '%s'; expected one of %s, or one of \
+                        the unversioned names %s"
+                       given (String.concat ", " targets)
+                       (String.concat ", " (List.map fst Targets.aliases)))
+            in
             go { options with target } positional rest)
     | ("--output" | "-o") :: rest -> (
         match rest with
@@ -573,7 +582,7 @@ let command_interpret checked =
     spelling: `foo_bar.pyk` writes `FooBar.java`.
     string -> string -> string *)
 let default_name target stem =
-  if List.mem target Target_java.versions then
+  if Targets.family_of target = Targets.Java then
     Target_java.default_class_name stem ^ ".java"
   else stem ^ List.assoc target extensions
 
@@ -596,13 +605,13 @@ let compile_unit (unit : Module.t) tmap target path options checked =
     (Syntax.pprint_program unit.stmts options.symbols tmap ^ "\n", [])
   else
     let program = Analyses.apply_signatures unit.stmts in
-    if target = "python" then
+    if Targets.family_of target = Targets.Python then
       ( Target_python.pprint_py_program
           (Target_python.translate_program program
              (Option.value tmap ~default:Syntax.IntMap.empty))
         ^ "\n",
         [] )
-    else if List.mem target Target_c.standards then
+    else if Targets.family_of target = Targets.C then
       (* One backend, two standards: the difference is in how the C is
          printed, not in what it means. *)
       let c_program =
@@ -621,7 +630,7 @@ let compile_unit (unit : Module.t) tmap target path options checked =
             (unit.name ^ Target_c.header_extension)
         in
         (text, [ (header, Target_c.pprint_c_header c_program target source) ])
-    else if List.mem target Target_java.versions then
+    else if Targets.family_of target = Targets.Java then
       (* Java requires the public class to share its file's name exactly.
          An explicit `--output` is trusted as-is: the class is named
          after whatever file the caller chose. With none, `path` was
@@ -639,7 +648,7 @@ let compile_unit (unit : Module.t) tmap target path options checked =
       in
       ( Target_java.pprint_java_program java_program target class_name source,
         [] )
-    else if target = Target_ocaml.target then
+    else if Targets.family_of target = Targets.Ocaml then
       (* The one backend that infers nothing: it reads the types back out
          of the table `front_end` filled, which is why this target
          type-checks whether or not it was asked for, and why a program
@@ -688,6 +697,26 @@ let compile_program checked target output_path options =
         { Lexer.file = unit.path; row1 = 1; col1 = 0; row2 = 1; col2 = 0 }
     with Module.Module_error _ as e -> fail e
   in
+  (* The compiler as JavaScript, which the `iweb` target ships beside
+     the program: `make` writes it to build/pyking.js, so it is looked
+     for beside the executable that is asking for it. *)
+  let interpreter_js () =
+    let here = dirname (Module.absolute Sys.executable_name) in
+    let candidates =
+      [
+        join (join here "build") Target_js_packaging.interpreter_module;
+        join here Target_js_packaging.interpreter_module;
+      ]
+    in
+    match List.find_opt Sys.file_exists candidates with
+    | Some path -> Module.read_whole_file path
+    | None ->
+        usage_error
+          (Printf.sprintf
+             "target '%s' ships the interpreter, and '%s' is not beside the \
+              compiler; run `make` to build it."
+             target Target_js_packaging.interpreter_module)
+  in
   (* Every external module's implementation, as a file to write beside
      the program's output. Nothing is generated for one, and a copy onto
      itself -- compiling beside the implementation -- is skipped rather
@@ -706,7 +735,48 @@ let compile_program checked target output_path options =
           else Some (destination, Module.read_whole_file source))
       checked
   in
-  if List.mem target Target_js_packaging.targets then
+  if Targets.family_of target = Targets.Iweb then
+    (* Nothing is compiled: the program ships as Pyking and is
+       interpreted in the page by the same compiler, built to JavaScript
+       (see docs/target_js.md, "The interpreted target"). *)
+    let main_name = basename main_unit.Module.path in
+    let page =
+      Target_js_packaging.interpreted_page main_name
+        (* Every module's Pyking file, an external module's declaration
+           included: the module system reads that to know what the
+           module offers, and only the *implementation* is JavaScript. *)
+        (List.map (fun ((unit : Module.t), _) -> basename unit.path) checked)
+        (List.filter_map
+           (fun ((unit : Module.t), _) ->
+             if unit.is_external then
+               Some
+                 ( unit.name,
+                   Option.get (Module.implementation_name unit.name target) )
+             else None)
+           checked)
+    in
+    match output_path with
+    | None -> ([], page)
+    | Some output_path ->
+        if options.stdout then ([], page)
+        else
+          let beside name = join (dirname output_path) name in
+          ( [ (output_path, page) ]
+            @ [ (beside Target_js_packaging.interpreter_module, interpreter_js ()) ]
+            @ List.filter_map
+                (fun ((unit : Module.t), _) ->
+                  (* The page reads the program's own Pyking, so every
+                     module's source ships beside it. Compiling in the
+                     directory the sources already sit in copies each
+                     onto itself, which is nothing to do -- and must not
+                     look like overwriting the input. *)
+                  let destination = beside (basename unit.path) in
+                  if absolute destination = absolute unit.path then None
+                  else Some (destination, Module.read_whole_file unit.path))
+                checked
+            @ external_copies (),
+            page )
+  else if List.mem (Targets.family_of target) [ Targets.Node; Targets.Web ] then
     (* The JavaScript targets package a whole program at once: `html`
        has one file to put every module in, and the other two share one
        runtime module between them. *)

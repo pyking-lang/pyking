@@ -173,7 +173,7 @@ async function main() {
   // The left Run button runs the program itself, with the interpreter,
   // whatever target is selected; the right one runs what is displayed,
   // which needs a target a browser can execute.
-  await page.selectOption('[data-r="target"]', "nodejs");
+  await page.selectOption('[data-r="target"]', "node24");
   await page.click('[data-r="compile"]');
   await settled(page);
   await page.click('[data-r="runLeft"]');

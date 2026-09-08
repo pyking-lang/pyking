@@ -4,7 +4,7 @@ How `src/target_js_core.ml` translates Pyking to JavaScript, and why
 its `Scope` is so much simpler than `target_python.ml`'s. For what each
 construct compiles to and where the output is not optimal, see
 [target_js.md](target_js.md); for how the three JavaScript targets
-(`nodejs`, `html`, `esm`) are built from this module's output, see
+(`node24`, `web24`, `iweb24`) are built from this module's output, see
 [target_js_packaging.md](target_js_packaging.md); for a one-page
 summary, see [source.md](source.md#target_js_coreml).
 
@@ -93,9 +93,9 @@ for how each of the three builds that dictionary.
 `JsImport` works exactly the same way, for exactly the same reason. The
 core says *what* an import brings in -- the module, the name it is known
 by here, and the fields it takes -- and the packager says how that is
-written: `require` for `nodejs`, a call to the module's `init(runtime)`
-for `esm`, and a reference to a module already built above it on the
-page for `html`. Exports need no node at all: the packager knows a
+written -- today one ES `import` for every JavaScript target, which is
+what makes them share an emission at all. Exports need no node at all:
+the packager knows a
 module's public names and writes the one line that hands them out.
 
 `runtime` is therefore not a bare table any more but a `jshost`, holding
@@ -155,10 +155,8 @@ call (see `docs/syntax.md`). The difference is deliberate: `syntax.ml`'s
 flags are genuinely global to one print — everything in a single
 `pyking` target shares the same `symbols`/`tmap` setting — while
 the `JsHost` varies *per target*, and `target_js_packaging.ml` calls
-this printer once per module of the program on top of that -- three
-separate times in the course of building one `esm` output (once for the module itself, differently for each of its
-generated wrappers' inlined copies, where applicable) with a different
-mapping each time. A parameter, not a global, is what makes those calls
+this printer once per module of the program on top of that. A
+parameter, not a global, is what makes those calls
 independent of each other and safe to make in any order or even
 concurrently — nothing here needs the "one call, then restore" discipline
 `syntax.ml`'s design depends on.
