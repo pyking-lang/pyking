@@ -78,7 +78,7 @@ type value =
   | VTuple of value list
   | VClosure of string * string list * stmt list * env
       (* a function and the environment it was written in *)
-  | VBuiltin of string (* one of Analyses.builtins, callable as a value *)
+  | VBuiltin of string (* one of Builtin.names, callable as a value *)
   | VHostFun of string * string
       (* <module>.<field> of an external module: a function the host
          implements in a target language *)
@@ -197,7 +197,7 @@ val bindings_in_scope : env -> (string * value) list
 
 (* --- showing a value --- *)
 
-(** Formats a value as print writes it (runtime_interface.ml's rules): a
+(** Formats a value as print writes it (builtin.ml's rules): a
     string bare, everything else as display_value. value -> string *)
 val format_value : value -> string
 

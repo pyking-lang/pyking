@@ -63,7 +63,7 @@ let builtin_kinds () =
   List.fold_left
     (fun env name ->
       Analyses.SMap.add name Analyses.{ kind = Builtin; info = None } env)
-    Analyses.SMap.empty Analyses.builtins
+    Analyses.SMap.empty Builtin.names
 
 (** An empty session: builtins in scope, nothing seen. () -> session *)
 let new_session () =
@@ -935,7 +935,7 @@ let meta_ls session _argument _report =
     names
     @ List.filter_map
         (fun (name, _) ->
-          if List.mem_assoc name types || List.mem name Analyses.builtins then None
+          if List.mem_assoc name types || List.mem name Builtin.names then None
           else Some name)
         bindings
   in

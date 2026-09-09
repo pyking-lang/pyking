@@ -43,7 +43,7 @@ and which module calls which.
 | [`typesystem.ml`](#typesystemml) | ~2930 | The type checker: one function per AST datatype, producing `tmap` (symbol → type). Also the type *inference*, which is the same machinery run at a call site rather than at a definition. Its fragment is the interpreter's and the OCaml backend's. |
 | [`type_experiment.ml`](#type_experimentml) | ~140 | An alternative checker, a fragment of one, run instead of the real one by `--type-experiment`. |
 | [`opt_tailcall.ml`](#opt_tailcallml) | ~1190 | Tail calls into loops: one AST-to-AST pass over a program the checker accepted, so every backend and the interpreter get tail recursion at once. |
-| [`runtime_interface.ml`](#runtime_interfaceml) | ~40 | The boundary between a pure Pyking program and the world: the operations a host must provide, and how values are formatted. No host code at all. |
+| [`builtin.ml`](#builtinml) | ~110 | The builtins (`print`, `range`, `str`, `len`): each one's name, arity, whether it crosses the host boundary, and what it does. One table, and no host code at all. |
 | [`interpreter.ml`](#interpreterml) | ~1670 | The interpreter: values, environments, and a resumable small-step machine that runs the AST. The reference for runtime semantics. |
 | [`repl.ml`](#replml) | ~1160 | `pyk repl`: a session as a program written one entry at a time, and the multi-line editor it is typed into. |
 | [`target_python.ml`](#target_pythonml) | ~2410 | The Python backend, and the only one that compiles the whole language. |
@@ -373,10 +373,11 @@ leaves evaluation order unspecified.
   `PATTERN_VAR`, `FUNCTION`, `BUILTIN`) and where. The kind
   is what makes an error say *what* the name is; `info` is what lets it
   point at the other line.
-- **`BUILTINS`** — `("print", "range", "str", "len")`. Pyking's grammar
-  has no notion of a builtin, so these are seeded into the top-level
-  environment; that is what lets every *other* unbound name be an error.
-  Imported by `typesystem.ml` and `interpreter.ml` rather than repeated.
+- The **builtins** are `builtin.ml`'s rather than this module's.
+  Pyking's grammar has no notion of one, so `Builtin.names` is seeded
+  into the top-level environment here, in `typesystem.ml` and in
+  `interpreter.ml`; that is what lets every *other* unbound name be an
+  error.
 - **`Effects(stmts)`** — which of the program's functions can end up
   printing, by a fixed-point walk of the call graph; `may_print(expr)`
   answers for one expression. A call whose target is not a known `def`
@@ -731,34 +732,44 @@ backend compiles are then the same program.
 
 ---
 
-## `runtime_interface.ml`
+## `builtin.ml`
 
-**The boundary between pure Pyking code and the outside world**, in the
-spirit of WebAssembly's split between a core language that can observe
-nothing and a separate host specification.
+**The names a Pyking program may call without binding them**, and what
+every stage has to agree about each one: its arity, whether calling it
+can be observed outside the program, and what it does. One table, read
+by the checker, the interpreter and every backend — which is why it
+sits before `analyses.ml` in the module graph.
 
 Backend-agnostic by construction: no host code of any kind, and nothing
-from the interpreter. It holds the *names* of the operations and their
-semantics, including the value-formatting rules, because every backend
-has to agree on those before one program can print the same characters
-everywhere.
+from the interpreter.
 
-**Design, in depth:** [runtime_interface.md](runtime_interface.md).
+**Design, in depth:** [builtin.md](builtin.md).
 
-- **`Operation(name, variadic, doc)`** — one operation a host must
-  provide.
-- **`PRINT`**, **`OPERATIONS`**, **`NAMES`** — today's whole interface:
-  one operation.
-- **`lookup(name)`** — the `Operation` a name denotes, or `None` for an
-  ordinary Pyking name. `target_python.ml`, `target_js_core.ml` and
-  `interpreter.ml` all route through it.
+- **`t = { name; min_args; max_args; crosses_host; doc }`** — one
+  builtin. `max_args` is `None` for a variadic one, which is the whole
+  of what makes `print` take any number of arguments; there is no
+  separate flag that could disagree with the bounds.
+- **`names`** / **`pure_names`** — every builtin's name, and the ones
+  that do *not* cross the host boundary, which is exactly the list a
+  backend with no translation for them has to refuse.
+- **`lookup(name)`** — the entry a name denotes, or `None` for an
+  ordinary Pyking name. `typesystem.ml` reads the arity from it.
+- **`crosses_host(name)`** — whether the call leaves the program. Every
+  backend has one arm gated on this; `interpreter.ml` performs the
+  operation through its host there instead.
 
 The formatting rules pinned here: arguments formatted individually and
-joined with single spaces, then a newline; a string bare; an integer in
-base 10; unit as `()` — never the host's own word for "no value"; a
-boolean as `true`/`false`, Pyking's spelling rather than Python's.
+joined with single spaces, then a newline; a string bare on its own and
+quoted inside a list or a tuple; an integer in base 10; unit as `()` —
+never the host's own word for "no value"; a boolean as `true`/`false`,
+Pyking's spelling rather than Python's.
 
-Add an operation here first; the backends then bind it.
+Two things are deliberately elsewhere, because neither can be said
+without a type or a value: which argument *types* a builtin accepts is
+`typesystem.ml`'s, since those are settled by unification rather than
+comparison, and what a builtin computes is `interpreter.ml`'s. Write a
+new builtin's entry here first; the checker, the interpreter and each
+backend then bind it.
 
 ---
 
@@ -840,7 +851,7 @@ three are design rather than accident:
   stack, runtime, loops)`** — the settings a run never changes, kept
   apart from the progress it does. A `State` is a plain value; keeping
   one is how a debugger pauses.
-- **`Host`** — one method per `runtime_interface` operation, with two
+- **`Host`** — one method per builtin that crosses the host boundary, with two
   implementations: `ConsoleHost` (a stream) and `CallbackHost` (a
   function per line — the shape a debugger or a browser worker wants).
 - **`Runtime_error (info, message)`** — carried by `CFailed`. Never thrown
@@ -901,7 +912,7 @@ three are design rather than accident:
   is written in, and a closure over that frame sees what is written to it
   afterwards — which is what a `var` means.
 - **`format_value(value)` / `display_value(value)`** —
-  `runtime_interface`'s formatting rules, written iteratively with an
+  `builtin.ml`'s formatting rules, written iteratively with an
   explicit stack so that a deeply nested value cannot overflow the host's
   stack. The two differ over strings: `print` *emits* text, so
   `format_value` writes a string bare, while a prompt, a list's elements

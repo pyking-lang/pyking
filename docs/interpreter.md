@@ -364,7 +364,7 @@ from these nine shapes will.
 ## Hosts: where output actually goes
 
 `Host` is a tiny protocol — one method, `print`, matching
-`runtime_interface.OPERATIONS` exactly (see that module's own page for
+`builtin.ml`'s host-crossing entries exactly (see that module's own page for
 what the interface itself specifies) — with two implementations
 serving two different embeddings: `ConsoleHost` writes to a real
 stream (`sys.stdout` by default, for `pyk <file>`); `CallbackHost` hands

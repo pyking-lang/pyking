@@ -28,7 +28,7 @@ let runtime_module = "pyk-runtime.js"
     of them. [string] -> [string] *)
 let reserved_names modules = modules
 
-(* The formatter every host needs, implementing runtime_interface's
+(* The formatter every host needs, implementing builtin.ml's
    print rules. Three values need converting: JavaScript's undefined (a
    unit-returning function's actual result), which Pyking spells `()`; a
    tuple, which is an array here and prints in Pyking's own notation;
@@ -168,7 +168,7 @@ let manifest_declares_module text =
   go 0
 
 (** The host code every file of a program shares: `print`, and the
-    formatting runtime_interface.ml lays down for it. Both targets print
+    formatting builtin.ml lays down for it. Both targets print
     with console.log -- the page's output goes to the browser console,
     which is where a reader of a compiled program looks.
     () -> string *)

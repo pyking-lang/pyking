@@ -212,10 +212,6 @@ let reserve names scope =
     taken = List.fold_left (fun set name -> StringSet.add name set) scope.taken names;
   }
 
-(* Builtins this backend has no translation for yet (docs/target_js.md,
-   "str, range and len"). *)
-let unsupported_builtins = [ "str"; "range"; "len" ]
-
 (* What each unsupported construct is called in an error message.
    Nothing here is load-bearing -- an entry missing just falls back to
    the node's own name -- but a message naming what the programmer wrote
@@ -354,11 +350,11 @@ let rec translate_expr e scope =
          whichever way the packager brought it in. *)
       JsMember (info, JsVar (info, lookup module_name scope), name)
   | ECall (info, EVar (_, name, _), args, _)
-    when Runtime_interface.lookup name <> None ->
-      (* A call that leaves the program: see runtime_interface.ml. *)
+    when Builtin.crosses_host name ->
+      (* A call that leaves the program: see builtin.ml. *)
       JsRuntimeCall (info, name, List.map (fun a -> translate_expr a scope) args)
   | ECall (info, EVar (_, name, _), _, _)
-    when List.mem name unsupported_builtins && lookup name scope = name ->
+    when List.mem name Builtin.pure_names && lookup name scope = name ->
       ignore info;
       unsupported_because (expr_info e)
         (Printf.sprintf
@@ -569,7 +565,7 @@ and pattern_parts patterns places test scope =
     JavaScript's own implicit `undefined` already is it. expr -> bool *)
 let yields_unit e =
   match e with
-  | ECall (_, EVar (_, name, _), _, _) -> Runtime_interface.lookup name <> None
+  | ECall (_, EVar (_, name, _), _, _) -> Builtin.crosses_host name
   | _ -> false
 
 (** Whether a `def` is written anywhere in these statements, at any

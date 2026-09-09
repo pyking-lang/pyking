@@ -111,7 +111,7 @@ type store = {
 val type_check : stmt list -> (string * sigmap) list -> typ IntMap.t
 
 (** The environment a program starts in: every name in
-    Analyses.builtins, at its TBuiltin type. () -> env *)
+    Builtin.names, at its TBuiltin type. () -> env *)
 val builtin_env : unit -> env
 
 (** The store a program starts checking in, holding the signature of

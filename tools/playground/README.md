@@ -360,7 +360,7 @@ built bundle*, with `node`, rather than parsed out of the source:
    it unhighlighted.
 3. **The keyword and builtin lists** in `pyking-mode.js` come from
    `pykKeywords` and `pykBuiltins` — `lexer.keywords` and
-   `analyses.builtins` — and **the value formatter** in `js-worker.js` from
+   `builtin.names` — and **the value formatter** in `js-worker.js` from
    `pykFormatHelper`, which is the JavaScript backend's own `pykFormat`.
    (`tools/emacs/` warns in its own commentary that a hand-copied keyword
    list goes stale silently; these cannot. The formatter was a hand-copy

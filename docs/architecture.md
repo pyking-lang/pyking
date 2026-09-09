@@ -68,8 +68,8 @@ threaded through rather than state mutated in place.
                                      + foo.html
                                      + package.json
 
-        src/runtime_interface.ml — the contract both sides
-        reference: what a program may observe of the outside world
+        src/builtin.ml — the contract both sides reference: what a
+        program may call unbound, and what it may be observed doing
 ```
 
 A program of several modules runs the middle of that pipeline once per
@@ -109,21 +109,25 @@ repl`) rather than a `--target`.
 | `src/target_ocaml.ml` | OCaml AST, translation, printer. The one backend that infers nothing: it *runs* `typesystem.ml` and reads the types back out of `tmap`, so its subset is exactly what the checker accepts, and a program that does not check is refused with the checker's own message. Emits no type annotations. |
 | `src/interpreter.ml` | The interpreter: runtime values, environments, and a resumable small-step machine over the AST. Runs the fragment the checker accepts, and is the reference for what a program *means* at run time. |
 | `src/repl.ml` | `pyk repl`: a session as a program written one statement at a time — checked as one program, run one statement at a time. |
-| `src/runtime_interface.ml` | The host/IO boundary. Backend-agnostic. |
+| `src/builtin.ml` | The builtins: each one's name, arity, and whether it crosses the host/IO boundary. Backend-agnostic. |
 | `src/pyk.ml` | The driver: argv, stage sequencing, error reporting, and the three commands (`pyk <file>`, `repl`, `compile`). |
 
-## The runtime interface
+## The builtins and the host boundary
+
+`print`, `range`, `str` and `len` are in scope in every program and are
+bound by nothing. `src/builtin.ml` is the one table that says so: each
+one's name, how many arguments it takes, whether calling it can be
+observed outside the program, and what it does. See
+[builtin.md](builtin.md).
 
 A Pyking program on its own only computes. It cannot reach a console, a
-file or a clock; everything observable crosses a boundary that
-`src/runtime_interface.ml` writes down. This is the split WebAssembly
-draws — a core language with no access to the world, plus a separate
-named set of operations a host agrees to provide — and it is drawn here
-for the same reason: the language keeps one meaning, while *where the
-output goes* becomes the host's decision instead of something baked into
-the compiler.
+file or a clock; everything observable crosses a boundary that table
+writes down, as the `crosses_host` field of the one builtin that has it.
+Drawing it explicitly is what keeps the language to one meaning while
+*where the output goes* stays the host's decision rather than something
+baked into the compiler.
 
-Today the interface has exactly one operation:
+Today exactly one builtin crosses it:
 
 ```
 print(values...)   write one line; values formatted individually and
@@ -280,7 +284,7 @@ must be bound where it is used, a block's bindings do not escape it
 (`check_stmts` hands its extended environment to nobody), a name is
 visible only after its own binding, an inner binding shadows an outer
 one, a `def`'s name is in scope in its own body, and the builtins —
-`analyses.BUILTINS`, imported rather than re-listed — are in scope from
+`builtin.ml`'s table, read rather than re-listed — are in scope from
 the start. A name that is not found raises `analyses.ml`'s own
 `Analysis_error`, with its wording, so the driver prints the same `Name
 error` whichever pass caught it.
@@ -292,8 +296,8 @@ the checker found.
 The builtins are in it like anything else, at a type of their own.
 `print`, `range`, `str` and `len` are bound to a `TBuiltin`, because
 none of them fits a `TFunction` — `print` takes any number of arguments
-of any type — and because they are not values: `runtime_interface.ml`
-calls them operations, and the C and Java backends already refuse
+of any type — and because they are not values: `builtin.ml`
+calls them builtins rather than functions, and the C and Java backends already refuse
 `print` as one. `check_builtin_call` gives each its own rule at the call
 site, and using one anywhere else is an error. `range` is typed `[Int]`,
 which is why `target_python.ml` materialises a range used as a value

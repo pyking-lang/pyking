@@ -287,7 +287,7 @@ whatever its value has — which is what `-t pyking` is for.
 first environment `type_check` builds, rather than to a `TFunction`,
 because none of the four fits one. `print` takes any number of arguments
 of any type, which no fixed parameter list expresses, and none of them is
-a value in the sense `runtime_interface.ml` means: they are host
+a value in the sense `builtin.ml` means: they are host
 *operations*, callable and nothing else.
 
 `check_builtin_call` gives each its own rule, applied only at a call.

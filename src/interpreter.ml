@@ -72,7 +72,7 @@ type value =
   | VTuple of value list
   | VClosure of string * string list * stmt list * env
       (* a function and the environment it was written in *)
-  | VBuiltin of string (* one of Analyses.builtins, callable as a value *)
+  | VBuiltin of string (* one of Builtin.names, callable as a value *)
   | VHostFun of string * string
       (* <module>.<field> of an external module: a function the host
          implements in a target language, called through host.externals
@@ -173,7 +173,7 @@ let display_value value =
   go [ Item value ];
   Buffer.contents out
 
-(** Formats a value as print writes it (runtime_interface.ml's rules): a
+(** Formats a value as print writes it (builtin.ml's rules): a
     string bare, everything else as display_value. value -> string *)
 let format_value value =
   match value with VString text -> text | value -> display_value value
@@ -276,7 +276,7 @@ let top_level_env () =
     bindings =
       List.fold_left
         (fun map name -> SMap.add name (ref (VBuiltin name)) map)
-        SMap.empty Analyses.builtins;
+        SMap.empty Builtin.names;
     parent = None;
   }
 
@@ -615,12 +615,12 @@ let range_list start stop step info =
   in
   VList (go start [])
 
-(** Applies one of Analyses.builtins. print crosses the runtime
-    interface through host; the rest are pure.
+(** Applies one of Builtin.names. print crosses the host boundary
+    through host; the rest are pure.
     string -> [value] -> info -> host -> value *)
 let apply_builtin name args info host =
   match (name, args) with
-  | name, _ when name = Runtime_interface.print_operation.name ->
+  | name, _ when Builtin.crosses_host name ->
       host.print_line (String.concat " " (List.map format_value args));
       unit_value
   | "str", [ value ] -> VString (format_value value)

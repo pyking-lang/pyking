@@ -98,9 +98,10 @@ respects that, which is what makes the library link.
 │                              │                                       │
 │                    ┌─────────┴─────────┐                             │
 │                    ▼                   ▼                             │
-│             walk.ml             runtime_interface.ml                 │
-│             children, exists,   lookup, print_operation              │
-│             exists_stmts, fold_stmts, name_field                     │
+│             walk.ml             builtin.ml                           │
+│             children, fold,     names, pure_names,                   │
+│             exists, fold_stmts, lookup, crosses_host                 │
+│             exists_stmts, name_field                                 │
 │                    │                                                 │
 │                    ▼                                                 │
 │             syntax.ml    the AST, its accessors, pprint_program      │
@@ -246,14 +247,23 @@ from the other two front ends. `pyk.ml` hands `format_error` to
 otherwise, and the reason the REPL reports a mistake at the prompt in
 the words a file would get.
 
-## The one exception
+## The two exceptions
 
-Four names — `Interpreter.step`, `.run`, `.format_value` and
-`.eval_statement` — are in an interface with no caller outside their own
-module. They are the embedding API `design/plan-eval-lsp.md` has the
-debugger, DAP and LSP servers sitting on, and that plan names each of
-them: `run_program` and `run_modules` are `step` and `run` with the loop
-written for the caller, and a debugger will want the loop itself.
+Both are named, so that a third has to be argued for rather than
+assumed.
+
+**The interpreter's embedding API.** `Interpreter.step`, `.run`,
+`.format_value` and `.eval_statement` have no caller outside their own
+module. `design/plan-eval-lsp.md` names each of them as the surface the
+debugger, DAP and LSP servers are to sit on: `run_program` and
+`run_modules` are `step` and `run` with the loop written for the caller,
+and a debugger will want the loop itself.
+
+**`walk.ml`.** `children` and the folds built on it are the compiler's
+one shared traversal, and the module exists to be called that way, so
+they stay exported whether or not each has a caller today. `fold` is the
+one with none — it is the primitive the other four are written over, and
+a pass wanting a shape they do not cover needs it.
 
 Nothing else in `src/` is exported without a caller.
 
@@ -284,9 +294,11 @@ thing -- something is dead -- so fix rather than silence them:
 Narrowing the interfaces to the rule above turned up six more names
 reachable from nowhere, and those went the same way: `Targets.expand`,
 `Runtime_interface.names`, `Syntax.comp_info`, `Walk.exprs`,
-`Walk.stmts_in` and `Interpreter.buffer_host`. Three others were kept
-and made private instead, since each is used inside its own module:
-`Walk.fold`, `Interpreter.finished` and `Interpreter.max_call_depth`.
+`Walk.stmts_in` and `Interpreter.buffer_host`. Two others were kept and
+made private instead, since each is used inside its own module:
+`Interpreter.finished` and `Interpreter.max_call_depth`. `Walk.fold` was
+made private on the same ground and then exported again, as the second
+exception above.
 
 Adding the interfaces in the first place turned up eleven. Ten were
 leftovers of superseded designs and were removed in the same change --

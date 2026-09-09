@@ -1049,7 +1049,7 @@ let build_divide_helper info =
     spelled `true`/`false` wherever it sits, including inside a list or
     a tuple, which is why this walks a value instead of merely testing
     it. Everything else is left to Python's own spelling, which already
-    agrees (runtime_interface.ml's rules). info -> string -> pystmt *)
+    agrees (builtin.ml's rules). info -> string -> pystmt *)
 let build_format_helper info name =
   let var n = PyVar (info, n) in
   let text s = PyString (info, s) in
@@ -1395,12 +1395,11 @@ let is_builtin_range e scope =
   | ECall (_, EVar (_, "range", _), _, _) -> not (is_bound "range" scope)
   | _ -> false
 
-(** Whether expr is a runtime_interface call (print), which needs no
-    return emitted in tail position. expr -> bool *)
+(** Whether expr is a call that crosses the host boundary (print),
+    which needs no return emitted in tail position. expr -> bool *)
 let yields_unit e =
   match e with
-  | ECall (_, EVar (_, name, _), _, _) ->
-      Runtime_interface.lookup name <> None
+  | ECall (_, EVar (_, name, _), _, _) -> Builtin.crosses_host name
   | _ -> false
 
 (** A target read back as an expression: what a loop's accumulator holds
@@ -1693,7 +1692,7 @@ let rec translate_expr e scope gen =
       binary (fun i a b -> PyGreatThanEq (i, a, b)) info l r
   | EEq (info, l, r, _) -> binary (fun i a b -> PyEq (i, a, b)) info l r
   | ECall (info, EVar (_, name, _), args, _)
-    when Runtime_interface.lookup name <> None ->
+    when Builtin.crosses_host name ->
       (* Python's own `print` answers None, and Pyking's answers unit --
          which this backend spells `()`, as the `return ()` on a
          unit-returning `def` does. In *value* position the two have to
@@ -1789,7 +1788,7 @@ and wrap_print_argument pyking_expr translated info gen =
     let name, gen = format_helper_name info gen in
     (PyCall (info, PyVar (info, name), [ translated; PyBool (info, true) ]), gen)
 
-(** One runtime_interface call (print), as the bare Python call. A call's
+(** One host-crossing call (print), as the bare Python call. A call's
     arguments are formatted, not merely translated -- see
     `wrap_print_argument`.
     info -> string -> [expr] -> scope -> gen -> (pyexpr, gen) *)
@@ -1852,7 +1851,7 @@ and lazy_range call scope gen =
       (PyCall (info, PyVar (info, "range"), py_args), gen)
   | e -> translate_expr e scope gen
 
-(** A runtime_interface call written as a statement: the bare call, with
+(** A host-crossing call written as a statement: the bare call, with
     none of the unit `translate_expr` adds for value position.
     expr -> scope -> gen -> (pystmt, gen) *)
 and runtime_call_stmt e scope gen =

@@ -371,7 +371,7 @@ so a `pyk_quote` helper joins the prelude when a program needs it (see
 ### `print`
 
 `print_endline`, with the arguments formatted per
-[runtime_interface.ml](../src/runtime_interface.ml) and joined with a
+[builtin.ml](../src/builtin.ml) and joined with a
 single space. Booleans and unit need no translating at all: OCaml spells
 them `true`, `false` and `()` already, which no other target can say —
 the Python backend has to override `print`'s capitalisation and the C

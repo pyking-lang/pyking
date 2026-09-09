@@ -608,7 +608,7 @@ let resolve_imports module_ loaded =
   let taken =
     List.fold_left
       (fun taken name -> assoc_set name None taken)
-      [] Analyses.builtins
+      [] Builtin.names
   in
   let taken =
     List.fold_left

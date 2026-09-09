@@ -746,8 +746,7 @@ let rec expr state e scope allow_unit =
         unsupported (expr_info e)
           "the branches of an `if` expression must have the same type in C";
       (CCond (info, c, t, f, ctype_of t), state)
-  | ECall (_, EVar (_, name, _), _, _) when Runtime_interface.lookup name <> None
-    ->
+  | ECall (_, EVar (_, name, _), _, _) when Builtin.crosses_host name ->
       unsupported (expr_info e)
         (Printf.sprintf "`%s` may only be used as a statement, not as a value"
            name)
@@ -875,7 +874,7 @@ and tail_stmts state statements scope =
 and tail_stmt state s scope =
   match s with
   | SExprStmt (_, ECall (_, EVar (_, name, _), _, _), _)
-    when Runtime_interface.lookup name <> None ->
+    when Builtin.crosses_host name ->
       let translated, _, state = stmt state s scope in
       (translated, state)
   | SExprStmt (info, e, _) ->
@@ -1233,7 +1232,7 @@ and stmt state s scope =
       let translated, state = tail_stmt state inner scope in
       (translated, scope, state)
   | SExprStmt (info, ECall (_, EVar (_, name, _), args, _), _)
-    when Runtime_interface.lookup name <> None ->
+    when Builtin.crosses_host name ->
       (* `printf` is a call like any other, so its arguments are ordered
          the same way -- but this is a statement, and a statement can put
          them in front of itself rather than in a comma expression. *)

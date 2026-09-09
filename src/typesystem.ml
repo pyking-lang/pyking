@@ -1112,13 +1112,13 @@ and ends_every_path stmts =
 let bind env name type_ = SMap.add name type_ env
 
 (** The environment a program starts in: every name in
-    Analyses.builtins, at its TBuiltin type. Its own function so
+    Builtin.names, at its TBuiltin type. Its own function so
     src/repl.ml can reuse it when checking a session one entry at a
     time. () -> env *)
 let builtin_env () =
   List.fold_left
     (fun env name -> bind env name (t_builtin builtin_info name))
-    SMap.empty Analyses.builtins
+    SMap.empty Builtin.names
 
 (** What a module exports, or a refusal saying it cannot be reached from
     here at all -- which is what a file checked on its own gets, since no
@@ -1395,23 +1395,31 @@ let declare_functions stmts env store =
 
 (* --- the arity and the argument types of a builtin call --- *)
 
-(** Raises Type_error if a call does not pass between low and high
-    arguments. string -> info -> int -> int -> int -> () *)
-let check_builtin_arity name info given low high =
-  if low <= given && given <= high then ()
-  else
-    let expected =
-      if low = high then string_of_int low
-      else Printf.sprintf "%d to %d" low high
-    in
-    raise
-      (Type_error
-         ( info,
-           Printf.sprintf "'%s' takes %s argument%s, but %d %s given" name
-             expected
-             (if high = 1 then "" else "s")
-             given
-             (if given = 1 then "was" else "were") ))
+(** Raises Type_error if a call does not pass as many arguments as the
+    builtin takes. The bounds are Builtin's, so a variadic one has no
+    upper bound and never refuses. string -> info -> int -> () *)
+let check_builtin_arity name info given =
+  match Builtin.lookup name with
+  | None -> ()
+  | Some builtin ->
+      let low = builtin.Builtin.min_args and high = builtin.Builtin.max_args in
+      if low <= given && match high with None -> true | Some h -> given <= h
+      then ()
+      else
+        let expected =
+          match high with
+          | None -> Printf.sprintf "at least %d" low
+          | Some h when h = low -> string_of_int low
+          | Some h -> Printf.sprintf "%d to %d" low h
+        in
+        raise
+          (Type_error
+             ( info,
+               Printf.sprintf "'%s' takes %s argument%s, but %d %s given" name
+                 expected
+                 (if high = Some 1 then "" else "s")
+                 given
+                 (if given = 1 then "was" else "were") ))
 
 (** The Type_error for a builtin argument of the wrong type.
     string -> expr -> typ -> string -> exn *)
@@ -2380,21 +2388,21 @@ and check_builtin_call name call env store =
   match (name, types) with
   | "print", _ -> (unit_type info, store)
   | "str", [ value ] ->
-      check_builtin_arity name info given 1 1;
+      check_builtin_arity name info given;
       if not (every value [ KInt; KString; KBool; KList; KTuple ]) then
         raise
           (builtin_argument_error name (List.hd args) value
              "Int, String, Bool, a list or a tuple");
       (t_string info, store)
   | "len", [ value ] ->
-      check_builtin_arity name info given 1 1;
+      check_builtin_arity name info given;
       if not (every value [ KList; KString ]) then
         raise
           (builtin_argument_error name (List.hd args) value
              "a list or a String");
       (t_int info, store)
   | "range", _ ->
-      check_builtin_arity name info given 1 3;
+      check_builtin_arity name info given;
       List.iter2
         (fun argument actual ->
           if not (every actual [ KInt ]) then
@@ -2405,7 +2413,7 @@ and check_builtin_call name call env store =
       (* A builtin with the wrong number of arguments reaches here for
          `str` and `len`, whose cases ask for exactly one; the arity
          check says which and how many. *)
-      check_builtin_arity name info given 1 1;
+      check_builtin_arity name info given;
       unsupported info
 
 (** One call to something of known type: the type it is worth, and the

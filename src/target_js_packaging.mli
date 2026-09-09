@@ -29,7 +29,7 @@
     of them. [string] -> [string] *)
 val reserved_names : string list -> string list
 
-(** The formatter every host needs, implementing runtime_interface's
+(** The formatter every host needs, implementing builtin.ml's
     print rules. string *)
 val format_js : string
 

@@ -368,9 +368,10 @@ The bootstrap is split into one module per compiler stage:
    new binding form only has to call it to be covered. The other rule is
    `analyze_stmt`'s `SMutate` case: `:=` may only name a `var`. The walk
    never descends into an expression, because no expression mutates
-   anything. `BUILTINS` seeds
-   `print`/`range`/`str`/`len`, and `typesystem.ml` imports it — extend
-   it when a program starts calling another builtin.
+   anything. The builtins are
+   `builtin.ml`'s rather than this module's: `Builtin.names` seeds the
+   starting environment here, as it does in `typesystem.ml` and
+   `interpreter.ml` — add a builtin to that table.
    Keep new analyses in this module as separate `analyze_*` entry points
    rather than folding more checking into the parser: the parser's job
    is shape, and only a scope-aware walk can judge how a name is bound.
@@ -513,8 +514,8 @@ The bootstrap is split into one module per compiler stage:
 
    **`Env` is also the scope**, and the checker does its own name
    checking with it: bound-before-use, block bindings that do not escape,
-   shadowing, a `def`'s name in its own body, and `analyses.BUILTINS`
-   (imported, not re-listed) in scope from the start. An unbound name
+   shadowing, a `def`'s name in its own body, and `Builtin.names`
+   (read, not re-listed) in scope from the start. An unbound name
    raises `Analyses.Analysis_error`, in its words, so the message does not
    depend on which pass ran. **The value type is `Type`, with no option
    and no second inhabitant**: a name is in the map with a type, or it is
@@ -523,9 +524,9 @@ The bootstrap is split into one module per compiler stage:
    `print`/`range`/`str`/`len` to a `TBuiltin`, checked at the call by
    `check_builtin_call` and refused as a value, because none of them
    fits a `TFunction` (a variadic `print` is not a `(T) -> ()`) and
-   `runtime_interface.ml` calls them operations rather than functions. A
-   new builtin needs a case there as well as an entry in
-   `analyses.BUILTINS`. **`var` and `:=` are checked here**, and only
+   `builtin.ml` records them as builtins rather than functions. A
+   new builtin needs a case in `check_builtin_call` as well as an entry
+   in `builtin.ml`'s table. **`var` and `:=` are checked here**, and only
    for *types*: a `var` is `Int` or `Bool` (`check_mutable`), and a `:=`
    must give the type the declaration fixed. Which names may be written
    to is not a type question — the same `Int` is a `var` in one scope and
@@ -667,8 +668,9 @@ The bootstrap is split into one module per compiler stage:
      already gets. Unification is sound, so it should never refuse
      anything, and it earns its keep twice over: it makes "a type this
      checker reports is one it enforces" true by construction, and its
-     *failure* is how the four overloaded builtins are handled at all.
-     `str`, `len`, `==` and `++` accept several types and no one type, so
+     *failure* is how the four overloaded names are handled at all. The
+     builtins `str` and `len` and the operators `==` and `++` each
+     accept several types and no one type, so
      a body using one on a parameter generalises to a promise it cannot
      keep; the re-check says so, the definition keeps its monotype, and
      the first call settles it.
@@ -712,17 +714,23 @@ The bootstrap is split into one module per compiler stage:
    where it was recorded may have been solved by something written
    further down.
 
-8. **`src/runtime_interface.ml`** — the boundary between pure Pyking code
-   and the outside world, in the spirit of WebAssembly's split between a
-   core language that cannot observe anything and a separate host spec.
-   Backend-agnostic by construction: it holds no Python and no JavaScript,
-   only the named operations (today just `print`) and their semantics,
-   *including* the value-formatting rules, since every backend has to
-   agree on those for one program to print the same characters
-   everywhere. Add an operation here first; the backends then bind it.
+8. **`src/builtin.ml`** — the builtins: the names a Pyking program may
+   call without binding them (`print`, `range`, `str`, `len`), and what
+   every stage has to agree about each one — its arity, whether calling
+   it can be observed outside the program (`crosses_host`), and what it
+   does. One table, read by the checker, the interpreter and every
+   backend, which is why it sits before `analyses.ml` in the module
+   graph. Backend-agnostic by construction: it holds no Python and no
+   JavaScript, and the value-formatting rules are stated here too, since
+   every backend has to agree on those for one program to print the same
+   characters everywhere. What is *not* here is which argument types a
+   builtin accepts (`typesystem.ml`'s, since those are settled by
+   unification rather than comparison) and what a builtin computes
+   (`interpreter.ml`'s, which needs a `value`). Add a builtin here
+   first; the checker, the interpreter and each backend then bind it.
 9. **`src/target_js_core.ml`** — the JavaScript backend's language half:
    a `Js*` AST, translation from `syntax.ml`, and a printer. Knows nothing
-   about packaging. Calls that cross the runtime interface become
+   about packaging. Calls that cross the host boundary become
    `JsRuntimeCall`, whose spelling is supplied by the packager, so the
    same core output serves all three JS targets. JavaScript fits Pyking
    better than Python does — `const`/`let` are Pyking's `=`/`var`, and
@@ -929,7 +937,7 @@ The bootstrap is split into one module per compiler stage:
    this frame" will do), `result`, `failure`, `stack_trace`,
    `format_value`/`display_value` (emitting a value and showing one —
    they differ over quoting a string), and the `Host` classes.
-   `Host` has one method per `runtime_interface.OPERATIONS` entry; the
+   `Host` has one method per host-crossing entry in `builtin.ml`; the
    formatting rules are that module's, implemented once here.
 
    Two things that are language decisions rather than implementation
@@ -1120,11 +1128,15 @@ an `.mli`, a private value nothing calls is warning 32, a private type
 nothing mentions 34, and an unused constructor 37. Fix what they point
 at — the name is dead — rather than re-exporting it to quiet them.
 
-The one exception is a name a design document commits to as an entry
-point that is not built out yet: today the interpreter's embedding API
+There are exactly two exceptions, and both are named here rather than
+left to judgement. The first is the interpreter's embedding API
 (`step`, `run`, `format_value`, `eval_statement`), which
-`design/plan-eval-lsp.md` has the debugger, DAP and LSP servers sitting
-on. Nothing else in `src/` is exported without a caller.
+`design/plan-eval-lsp.md` commits to as the surface the debugger, DAP
+and LSP servers are to sit on. The second is `walk.ml`: `children` and
+the folds built on it are the compiler's one shared traversal, and they
+stay exported whether or not each has a caller today. Nothing else in
+`src/` is exported without a caller, and a third exception belongs in
+this list rather than in someone's judgement.
 
 ## The alternative type checker
 
@@ -1524,10 +1536,10 @@ Where what was built differs from the plan, and why:
   locally by `call_free_symbols`. Writing `resolve.ml` later is still the
   right move, for LSP as much as for speed, and the interpreter's
   environments are the thing it would change.
-- The plan's `Host` interface was to live in `runtime_interface.ml`; it
-  is in `interpreter.ml`, so that module keeps its rule of holding no host
-  code at all. The *operations* and their formatting rules stay where
-  they were.
+- The plan's `Host` interface was to live in `runtime_interface.ml`, a
+  module that no longer exists. The `Host` is in `interpreter.ml`, and
+  the operations and their formatting rules are `builtin.ml`'s, beside
+  every other builtin.
 - The plan assumes the browser reaches the compiler through Pyodide.
   It does not any more: `src/web/` compiles the library itself to
   JavaScript with js_of_ocaml, so there is no Python runtime in the

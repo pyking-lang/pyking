@@ -31,7 +31,6 @@
       bound_names stmt -- the (name, info) pairs a statement binds in
         its block.
       block_functions stmts -- the defs of a block, in source order.
-      builtins -- the names a program may call without binding them.
       symbolize stmts -- gives every node a unique integer sym.
       highest_sym stmts -- the largest sym anywhere in a program.
       apply_signatures stmts -- folds every `def name : type` line onto
@@ -51,7 +50,7 @@ type kind =
   | Loop_var (* for name in ... / loop name = ... *)
   | Pattern_var (* case ...name...: *)
   | Function (* def name(...) *)
-  | Builtin (* see `builtins` *)
+  | Builtin (* see Builtin.names *)
   | Imported (* import m / from m import name *)
 
 module SMap : Map.S with type key = string
@@ -67,10 +66,6 @@ type env = binding SMap.t
 (** Which functions in a program can print. Built by `effects` and read
     by `may_print`; a backend does neither of those itself. *)
 type effects
-
-(** Names that are not bound in a Pyking program but that the generated
-    code calls directly. [string] *)
-val builtins : string list
 
 (** The names a statement binds in the block it is written in (excludes
     for/pattern/parameter names, and a def's own name), as (name, info)

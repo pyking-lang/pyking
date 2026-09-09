@@ -74,7 +74,7 @@ an ordinary loop compiles to ordinary JavaScript. See
 ## `JsRuntimeCall`: one core, three ways to print it
 
 The core doesn't decide what a call across the runtime interface (see
-`runtime_interface.ml`'s own page) is *spelled* as in the output — it
+`builtin.ml`'s own page) is *spelled* as in the output — it
 emits `JsRuntimeCall(info, operation, args)`, naming the operation
 (`"print"`) rather than committing to `print(...)` or
 `runtime.print(...)`. That deferral is the entire reason

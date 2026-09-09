@@ -18,6 +18,7 @@
 
     Functions:
       children n -- one node's immediate children, in field order.
+      fold f acc n -- f over every node in a subtree, pre-order.
       exists p n -- whether any node in a subtree satisfies p.
       fold_stmts f acc stmts -- fold over a statement sequence.
       exists_stmts p stmts -- exists over a statement sequence.
@@ -42,6 +43,10 @@ type node =
 (** One node's immediate children, in the order src/syntax.ml declares
     the fields they came from. node -> [node] *)
 val children : node -> node list
+
+(** f over every node in a subtree, the subtree's own root first.
+    ('a -> node -> 'a) -> 'a -> node -> 'a *)
+val fold : ('a -> node -> 'a) -> 'a -> node -> 'a
 
 (** Whether any node in a subtree satisfies p. Stops at the first one.
     (node -> bool) -> node -> bool *)

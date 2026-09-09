@@ -58,7 +58,7 @@ type kind =
   | Loop_var (* for name in ... / loop name = ... *)
   | Pattern_var (* case ...name...: *)
   | Function (* def name(...) *)
-  | Builtin (* see `builtins` *)
+  | Builtin (* see Builtin.names *)
   | Imported (* import m / from m import name *)
 
 (** What an error message calls a kind of binding. kind -> string *)
@@ -71,11 +71,6 @@ let kind_name = function
   | Function -> "function"
   | Builtin -> "builtin"
   | Imported -> "imported name"
-
-(* Names that are not bound in a Pyking program but that the generated
-   code calls directly. Extend when a program starts using another
-   one. *)
-let builtins = [ "print"; "range"; "str"; "len" ]
 
 module SMap = Map.Make (String)
 module SSet = Set.Make (String)
@@ -355,7 +350,7 @@ let analyze_mutability stmts =
   let env =
     List.fold_left
       (fun env name -> SMap.add name { kind = Builtin; info = None } env)
-      SMap.empty builtins
+      SMap.empty Builtin.names
   in
   ignore (analyze_stmts stmts env)
 
@@ -967,8 +962,8 @@ let call_prints effects call =
   | ECall (_, func, _, _) -> (
       match func with
       | EVar (_, name, _) ->
-          if Runtime_interface.lookup name <> None then true
-          else if List.mem name builtins then false
+          if Builtin.crosses_host name then true
+          else if List.mem name Builtin.names then false
           else if SMap.mem name effects.functions then
             SSet.mem name effects.printing
           else effects.unknown_prints

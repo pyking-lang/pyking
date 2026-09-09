@@ -500,8 +500,6 @@ let no_early_exit =
    so only one in tail position -- or one guarding the rest of the body -- \
    can be compiled"
 
-let builtins = [ "str"; "len"; "range" ]
-
 (** The name of the statement node kind, for a refusal with nothing
     better to say. stmt -> string *)
 let stmt_kind_name s =
@@ -599,9 +597,9 @@ let rec expr ctx acc e =
       let pieces, sequence, acc = in_order ctx acc elements in
       (sequence (OTuple pieces), acc)
   | ECall (_, EVar (_, name, _), args, _)
-    when Runtime_interface.lookup name <> None ->
+    when Builtin.crosses_host name ->
       print_call ctx acc e args
-  | ECall (_, EVar (_, name, _), args, _) when List.mem name builtins ->
+  | ECall (_, EVar (_, name, _), args, _) when List.mem name Builtin.pure_names ->
       builtin_call ctx acc e name args
   | ECall (_, func, args, _) ->
       let pieces, sequence, acc = in_order ctx acc (func :: args) in
@@ -705,7 +703,7 @@ and in_order ctx acc exprs =
     in
     (translated, sequence, acc)
 
-(** print(...): the arguments formatted per runtime_interface.ml and
+(** print(...): the arguments formatted per builtin.ml and
     written as one line. ctx -> acc -> expr -> [expr] -> (oexpr, acc) *)
 and print_call ctx acc _call args =
   if args = [] then (OApp (OVar "print_newline", [ OUnit ]), acc)
@@ -745,7 +743,7 @@ and as_string ctx acc arg translated =
   in
   string_of ctx acc (type_of ctx arg) translated (expr_info arg) true
 
-(** A value of this type as a string, per runtime_interface.ml's rules.
+(** A value of this type as a string, per builtin.ml's rules.
     `top` says the value is being printed on its own rather than from
     inside a tuple, which is the one thing that changes: a string prints
     bare there and quoted here.

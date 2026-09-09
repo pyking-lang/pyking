@@ -48,7 +48,7 @@ a plain value, not a formatting concern, so a bound, returned, or
 compared boolean looks exactly as you'd expect in the generated code.
 Printing one is the exception: Python's own `print` would write it back
 out capitalised, `True`/`False`, but Pyking prints `true`/`false` (see
-"The runtime interface" in `docs/architecture.md`) — the one place this
+"The builtins and the host boundary" in `docs/architecture.md`) — the one place this
 backend's native behavior actively disagrees with Pyking's, rather than
 simply lacking a distinction Pyking makes.
 
@@ -74,7 +74,7 @@ compiles to Python with no helper in front of it at all.
 What is left is a value that really can hold a `Bool` where Python and
 Pyking spell it differently — a `[Bool]`, a `(Int, Bool)`, or a type
 nothing has pinned down. Those go through a small generated helper that
-walks the value at *runtime* and formats it by `runtime_interface.ml`'s
+walks the value at *runtime* and formats it by `builtin.ml`'s
 rules:
 
 ```pyking                              # generated Python (only ever emitted if needed)
@@ -84,7 +84,7 @@ print(flags)                           print(__pyk_str(flags, True))    # [true,
 
 Booleans are not the only thing the host spells its own way. A string
 prints **bare on its own and quoted inside a list or a tuple**
-(`runtime_interface.ml`), with `'` escaped as `\'` — and Python's own
+(`builtin.ml`), with `'` escaped as `\'` — and Python's own
 `repr` picks its quotes for itself, writing `["it's"]` where every other
 target writes `['it\'s']`. So a value that can hold a string *inside* a
 container goes through the helper too, whatever its booleans say
@@ -135,7 +135,7 @@ def __pyk_str(v, top):
 
 The walk is what makes a boolean print as `true` wherever it sits —
 `print([true, false])` writes `[true, false]`, and `print((1, true))`
-writes `(1, true)` — which is the rule `runtime_interface.ml` states and
+writes `(1, true)` — which is the rule `builtin.ml` states and
 the interpreter implements. The `top` parameter carries the one thing
 that changes with depth: a string prints bare on its own and quoted
 inside a container, and the quoting is Pyking's own (single quotes,
@@ -334,7 +334,7 @@ This backend spells Pyking's unit as Python's empty tuple, `()`: a
 unit-returning `def` gets an explicit `return ()`, and the literal `()`
 is itself. Python's own `print` is the one thing that does not agree —
 it answers `None`, where Pyking's `print` yields unit
-(`runtime_interface.ml`) — so a `print` call *used as a value* is
+(`builtin.ml`) — so a `print` call *used as a value* is
 followed by the unit it is worth:
 
 ```pyking                          # generated Python

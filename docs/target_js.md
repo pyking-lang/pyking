@@ -17,7 +17,7 @@
   `match`, comprehensions or value-form bindings. Anything outside it is
   refused with a source position.
 - `print` is the one thing crossing the runtime boundary
-  (`src/runtime_interface.ml`), and the three targets bind it three
+  (`src/builtin.ml`), and the three targets bind it three
   ways: `console.log`, a page element, or a function the embedder passes
   in.
 - Least optimal at: float display (`6` where Python prints `6.0`), and
@@ -205,7 +205,7 @@ Destructuring is JavaScript's own array pattern, which fits exactly.
 Printing is where the two languages part: `pykFormat` (see "`print` and
 the runtime boundary") writes an array in Pyking's notation — `()`,
 `(1,)`, `(1, 2)` — with strings inside it quoted, since that is what
-`runtime_interface.ml` says a tuple looks like.
+`builtin.ml` says a tuple looks like.
 
 Lists have no representation yet, so an array unambiguously means a
 tuple here. That is what makes this formatting rule safe today, and is
@@ -553,7 +553,7 @@ import { greet as hello } from './helper.js';
 ```
 
 `pyk-runtime.js` is the one file the program does not get from its own
-source: `print` and the value formatting `runtime_interface.ml` lays
+source: `print` and the value formatting `builtin.ml` lays
 down, shared by every module rather than repeated in each.
 
 **Privacy leaves no trace.** JavaScript's own privacy is what a module

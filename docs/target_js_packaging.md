@@ -49,7 +49,7 @@ answer, which is how the mistake was found.
 ## `print` lives in a module of its own
 
 `pyk-runtime.js` holds `print` and the value formatting
-`runtime_interface.ml` lays down, and every file of a program imports it
+`builtin.ml` lays down, and every file of a program imports it
 rather than carrying its own copy. One definition, so a program cannot
 print two ways; and a module that prints nothing imports nothing.
 

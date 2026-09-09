@@ -560,4 +560,4 @@ let () =
   register0 "pykKeywords" (fun () ->
       json_array (List.map json_string Lexer.keywords));
   register0 "pykBuiltins" (fun () ->
-      json_array (List.map json_string Analyses.builtins))
+      json_array (List.map json_string Builtin.names))

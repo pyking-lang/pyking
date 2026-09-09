@@ -705,8 +705,7 @@ let rec expr state e scope allow_unit =
         unsupported (expr_info e)
           "the branches of an `if` expression must have the same type in Java";
       (JCond (info, c, t, f, jtype_of t), state)
-  | ECall (_, EVar (_, name, _), _, _) when Runtime_interface.lookup name <> None
-    ->
+  | ECall (_, EVar (_, name, _), _, _) when Builtin.crosses_host name ->
       unsupported (expr_info e)
         (Printf.sprintf "`%s` may only be used as a statement, not as a value"
            name)
@@ -799,7 +798,7 @@ and tail_stmts state statements scope =
 and tail_stmt state s scope =
   match s with
   | SExprStmt (_, ECall (_, EVar (_, name, _), _, _), _)
-    when Runtime_interface.lookup name <> None ->
+    when Builtin.crosses_host name ->
       let translated, _, state = stmt state s scope in
       (translated, state)
   | SExprStmt (info, e, _) ->
@@ -1117,7 +1116,7 @@ and stmt state s scope =
       let value, state = expr state e scope false in
       ([ JReturn (info, value) ], scope, state)
   | SExprStmt (info, ECall (_, EVar (_, name, _), args, _), _)
-    when Runtime_interface.lookup name <> None ->
+    when Builtin.crosses_host name ->
       let translated, state =
         List.fold_left
           (fun (out, state) a ->
