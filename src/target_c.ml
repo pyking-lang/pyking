@@ -26,10 +26,6 @@
 open Lexer
 open Syntax
 
-(* The C standards this backend prints for, oldest first; the names
-   themselves are src/targets.ml's. *)
-let standards = Targets.members Targets.C
-
 (* What a module the program imports declares itself in, beside its own
    translation unit. *)
 let header_extension = ".h"

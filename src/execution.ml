@@ -35,13 +35,6 @@ let ocaml_compiler () =
   List.filter (fun w -> w <> "")
     (String.split_on_char ' ' (from_environment "OCAMLOPT" "ocamlopt"))
 
-(* Opening a page is the one "run" that hands the file to something else
-   entirely, and the two systems spell it differently. This is the
-   directory only macOS has, since OCaml cannot ask for the platform's
-   name. *)
-let browser () =
-  if Sys.file_exists "/System/Library/CoreServices" then "open" else "xdg-open"
-
 let pyking_target = "pyking"
 
 (* What `--run` serves a page on. 8000 is python's own default for

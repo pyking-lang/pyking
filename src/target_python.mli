@@ -1,0 +1,33 @@
+(** The Python code-generation backend: Pyking AST (syntax.ml) to a
+    Python-shaped AST to Python source text. See docs/target_python.md
+    for how each construct compiles and where the output is not
+    optimal.
+
+    Two functions and one abstract type: a caller translates a program
+    and prints it. The Python AST itself, the scope that renames a
+    binding Python would otherwise merge with another, and the
+    generated helpers are this module's own, and a `pyprogram` is
+    nothing to build or inspect from outside -- `translate_program` is
+    the only thing that makes one and `pprint_py_program` the only
+    thing that reads one.
+
+    Data structures:
+      pyprogram -- a translated program: the host boilerplate and the
+        program itself.
+
+    Functions:
+      translate_program stmts tmap -- translates a whole program.
+      pprint_py_program program -- pyprogram to Python source text. *)
+
+(** A translated program: the host boilerplate and the program itself. *)
+type pyprogram
+
+(** Translates a whole program. `tmap` is the type checker's table,
+    which is what says whether a `print` argument can hold a Bool and
+    so needs formatting rather than printing as it stands.
+    [stmt] -> typ IntMap.t -> pyprogram *)
+val translate_program :
+  Syntax.stmt list -> Syntax.typ Syntax.IntMap.t -> pyprogram
+
+(** A translated program as Python source text. pyprogram -> string *)
+val pprint_py_program : pyprogram -> string

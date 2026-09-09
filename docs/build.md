@@ -58,8 +58,18 @@ two modules of one library that refer to each other do not link. It is
 why `repl.ml` is *handed* `pyk.ml`'s `format_error` as a parameter
 instead of calling it (see [pyk.md](pyk.md)).
 
+Every module has an **`.mli`** beside it, in both halves, holding what
+another module may use and nothing else. See
+[interfaces.md](interfaces.md) for the map of them and for what is
+public where. An executable's main module is the one place dune would
+write an empty interface itself; `pyk.ml` and `web/pyking_web.ml` have
+one written out instead, since a file that exports nothing is worth
+saying so.
+
 Warnings are on but not fatal (`-warn-error -a`), so a build fails on a
-real error and not on an unused binding left behind mid-edit.
+real error and not on an unused binding left behind mid-edit. With the
+`.mli` files in place, an unused *private* value now warns too, which is
+the compiler saying it is dead.
 
 ## The browser build
 

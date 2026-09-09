@@ -304,17 +304,6 @@ let expr_kind_name e =
   | ENeg _ -> "ENeg"
   | _ -> "Expr"
 
-let pattern_kind_name p =
-  match p with
-  | PInt _ -> "PInt"
-  | PString _ -> "PString"
-  | PBool _ -> "PBool"
-  | PWildcard _ -> "PWildcard"
-  | PCapture _ -> "PCapture"
-  | PTuple _ -> "PTuple"
-  | PList _ -> "PList"
-  | PText _ -> "PText"
-
 (** Translates one expression. Raises Unsupported for a construct
     outside this backend's subset. expr -> scope -> jsexpr *)
 let rec translate_expr e scope =

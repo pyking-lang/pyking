@@ -23,6 +23,12 @@ That flatness is not an oversight — these files are to be rewritten *in
 Pyking* one day, and Pyking's own module system is one file per module
 with no hierarchy to express.
 
+Every module has an `.mli` beside it, holding what another module may
+use and nothing else, so what this page calls a module's main functions
+and what is *reachable* from outside it are two different lists. The
+second is [interfaces.md](interfaces.md), which also says which types
+are opaque and which module calls which.
+
 ## At a glance
 
 | module | lines | what it is |

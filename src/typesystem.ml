@@ -746,11 +746,6 @@ let learned store inner =
 let record store sym type_ =
   { store with tmap = IntMap.add sym (zonk type_ store) store.tmap }
 
-(** store with a node's type recorded, where there is one to record.
-    store -> int -> typ option -> store *)
-let record_option store sym type_ =
-  match type_ with None -> store | Some type_ -> record store sym type_
-
 (* --- ground types, and the tables that name them --- *)
 
 (** The ground types the operator and builtin tables name. *)

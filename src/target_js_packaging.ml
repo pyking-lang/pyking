@@ -15,12 +15,6 @@
 
 open Target_js_core
 
-(* The JavaScript targets: `node` runs the program under node, `web`
-   adds an HTML file that loads it in a browser. Both emit the same ES
-   modules and both print with console.log, so the only difference is
-   the entry point and how `--run` starts it. *)
-let targets = Targets.members Targets.Node @ Targets.members Targets.Web
-
 (* The module holding `print` for a nodejs program of several files, so
    that the host code is written once rather than copied into every one.
    The hyphen is deliberate: a Pyking module is imported by name, so its
@@ -85,24 +79,6 @@ let print_via sink =
         sink;
       "}";
     ]
-
-(* Markers around the host code a self-contained file carries ahead of
-   the compiled program, so a reader can see at a glance which lines
-   came from the `.pyk` source and which are the harness around it. *)
-let prelude_begin =
-  String.concat "\n"
-    [
-      "// --- prelude begins ---";
-      "// A Pyking program cannot do I/O by itself; its host must define \
-       `print`.";
-    ]
-
-let prelude_end = "// --- prelude ends; the compiled program follows ---"
-
-(** The host definitions, delimited. Only the runtime module carries
-    them; every other file imports `print` from it. [string] -> string *)
-let prelude parts =
-  String.concat "\n" ((prelude_begin :: "" :: parts) @ [ ""; prelude_end ])
 
 (* --- modules ---
 

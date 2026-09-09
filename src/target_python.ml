@@ -44,7 +44,6 @@ type pyexpr =
   | PyAdd of info * pyexpr * pyexpr (* left + right *)
   | PySub of info * pyexpr * pyexpr (* left - right *)
   | PyMul of info * pyexpr * pyexpr (* left * right *)
-  | PyDiv of info * pyexpr * pyexpr (* left / right *)
   | PyFloorDiv of info * pyexpr * pyexpr
       (* left // right. Only the division helper builds one: Pyking's
          `/` truncates and Python's `//` floors, so the helper corrects
@@ -182,7 +181,6 @@ let rec pprint_py_expr ?(min_prec = 0) e =
   | PyAdd (_, l, r) -> binary 2 2 3 l "+" r
   | PySub (_, l, r) -> binary 2 2 3 l "-" r
   | PyMul (_, l, r) -> binary 3 3 4 l "*" r
-  | PyDiv (_, l, r) -> binary 3 3 4 l "/" r
   | PyFloorDiv (_, l, r) -> binary 3 3 4 l "//" r
   | PyNeg (_, operand) ->
       (* Python's unary minus binds tighter than `*`/`/` too, so the

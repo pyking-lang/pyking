@@ -522,41 +522,6 @@ let stmt_kind_name s =
   | SMatch _ -> "SMatch"
   | SImport _ -> "SImport"
 
-let expr_kind_name e =
-  match e with
-  | EInt _ -> "EInt"
-  | EString _ -> "EString"
-  | EBool _ -> "EBool"
-  | EVar _ -> "EVar"
-  | EQualified _ -> "EQualified"
-  | EList _ -> "EList"
-  | EListComp _ -> "EListComp"
-  | ETuple _ -> "ETuple"
-  | ECall _ -> "ECall"
-  | EIf _ -> "EIf"
-  | ENeg _ -> "ENeg"
-  | EAdd _ -> "EAdd"
-  | ESub _ -> "ESub"
-  | EMul _ -> "EMul"
-  | EDiv _ -> "EDiv"
-  | EConcat _ -> "EConcat"
-  | ELessThan _ -> "ELessThan"
-  | ELessThanEq _ -> "ELessThanEq"
-  | EGreatThan _ -> "EGreatThan"
-  | EGreatThanEq _ -> "EGreatThanEq"
-  | EEq _ -> "EEq"
-
-let pattern_kind_name p =
-  match p with
-  | PInt _ -> "PInt"
-  | PString _ -> "PString"
-  | PBool _ -> "PBool"
-  | PWildcard _ -> "PWildcard"
-  | PCapture _ -> "PCapture"
-  | PTuple _ -> "PTuple"
-  | PList _ -> "PList"
-  | PText _ -> "PText"
-
 let escape_char c =
   match c with
   | '\\' -> "\\\\"

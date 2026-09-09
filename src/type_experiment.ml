@@ -56,7 +56,7 @@ let rec same_type a b =
 
 (** The type of one expression, and the table with it recorded.
     env -> tmap -> expr -> (typ, tmap) *)
-let rec check_expr env tmap e =
+let rec check_expr (env : env) tmap e =
   let type_, tmap = expr_type env tmap e in
   (type_, IntMap.add (expr_sym e) type_ tmap)
 
