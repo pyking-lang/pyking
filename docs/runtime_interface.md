@@ -95,7 +95,7 @@ is entirely host-specific and lives in each backend, not here:
   exactly as Pyking does.
 - **`interpreter.ml`** is the one consumer that doesn't translate
   anything — it *performs* the operation directly, through a `Host`
-  object (`ConsoleHost`, `BufferHost`, `CallbackHost`), since the
+  object (`ConsoleHost`, `CallbackHost`), since the
   interpreter runs a program rather than emitting one. Its
   `format_value`/`display_value` are this module's formatting rules
   implemented for real, and — being the reference implementation for

@@ -23,11 +23,12 @@ That flatness is not an oversight — these files are to be rewritten *in
 Pyking* one day, and Pyking's own module system is one file per module
 with no hierarchy to express.
 
-Every module has an `.mli` beside it, holding what another module may
-use and nothing else, so what this page calls a module's main functions
-and what is *reachable* from outside it are two different lists. The
-second is [interfaces.md](interfaces.md), which also says which types
-are opaque and which module calls which.
+Every module has an `.mli` beside it — bar the two entry points, which
+nothing calls — holding what another module may use and nothing else,
+so what this page calls a module's main functions and what is
+*reachable* from outside it are two different lists. The second is
+[interfaces.md](interfaces.md), which also says which types are opaque
+and which module calls which.
 
 ## At a glance
 
@@ -41,7 +42,7 @@ are opaque and which module calls which.
 | [`walk.ml`](#walkml) | ~190 | One `children` function over every AST node, for the passes that ask a question of a whole subtree. |
 | [`typesystem.ml`](#typesystemml) | ~2930 | The type checker: one function per AST datatype, producing `tmap` (symbol → type). Also the type *inference*, which is the same machinery run at a call site rather than at a definition. Its fragment is the interpreter's and the OCaml backend's. |
 | [`type_experiment.ml`](#type_experimentml) | ~140 | An alternative checker, a fragment of one, run instead of the real one by `--type-experiment`. |
-| [`optimization.ml`](#optimizationml) | ~1190 | Tail calls into loops: one AST-to-AST pass over a program the checker accepted, so every backend and the interpreter get tail recursion at once. |
+| [`opt_tailcall.ml`](#opt_tailcallml) | ~1190 | Tail calls into loops: one AST-to-AST pass over a program the checker accepted, so every backend and the interpreter get tail recursion at once. |
 | [`runtime_interface.ml`](#runtime_interfaceml) | ~40 | The boundary between a pure Pyking program and the world: the operations a host must provide, and how values are formatted. No host code at all. |
 | [`interpreter.ml`](#interpreterml) | ~1670 | The interpreter: values, environments, and a resumable small-step machine that runs the AST. The reference for runtime semantics. |
 | [`repl.ml`](#replml) | ~1160 | `pyk repl`: a session as a program written one entry at a time, and the multi-line editor it is typed into. |
@@ -461,12 +462,10 @@ C and Java backends).
   module; everything else is a fold over it.
 - **`fold f acc n`** / **`exists p n`** — over a subtree, pre-order;
   **`fold_stmts`** / **`exists_stmts`** over a statement sequence.
-- **`exprs n`** / **`stmts_in n`** — every expression, or every
-  statement, in a subtree.
 - **`name_field n`** — the value of a node's `name` field, where it has
   one. Fourteen node kinds do; a `PText`'s captured middle (`rest`) and
   a `TForall`'s bound variables (`vars`) deliberately do not, so neither
-  counts as an identifier for `optimization.ml`'s "does this program
+  counts as an identifier for `opt_tailcall.ml`'s "does this program
   write this name" tests.
 
 A node kind added to `syntax.ml` needs a case in `children`, and nothing
@@ -675,7 +674,7 @@ runs, not how a refusal reads.
 
 ---
 
-## `optimization.ml`
+## `opt_tailcall.ml`
 
 **Tail calls into loops.** One pass from the AST to the AST, run after
 the type checker and only over a program it accepted — the types are
@@ -841,10 +840,9 @@ three are design rather than accident:
   stack, runtime, loops)`** — the settings a run never changes, kept
   apart from the progress it does. A `State` is a plain value; keeping
   one is how a debugger pauses.
-- **`Host`** — one method per `runtime_interface` operation, with three
-  implementations: `ConsoleHost` (a stream), `BufferHost` (collected
-  lines), `CallbackHost` (a function per line — the shape a debugger or a
-  browser worker wants).
+- **`Host`** — one method per `runtime_interface` operation, with two
+  implementations: `ConsoleHost` (a stream) and `CallbackHost` (a
+  function per line — the shape a debugger or a browser worker wants).
 - **`Runtime_error (info, message)`** — carried by `CFailed`. Never thrown
   through `step`.
 

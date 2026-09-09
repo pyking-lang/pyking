@@ -22,8 +22,6 @@
       exists p n -- whether any node in a subtree satisfies p.
       fold_stmts f acc stmts -- fold over a statement sequence.
       exists_stmts p stmts -- exists over a statement sequence.
-      exprs n -- every expression in a subtree, pre-order.
-      stmts_in n -- every statement in a subtree, pre-order.
       name_field n -- the value of a node's `name` field, if it has one. *)
 
 open Syntax
@@ -153,18 +151,8 @@ let fold_stmts f acc stmts =
     (node -> bool) -> [stmt] -> bool *)
 let exists_stmts p stmts = List.exists (fun s -> exists p (NStmt s)) stmts
 
-(** Every expression in a subtree, pre-order. node -> [expr] *)
-let exprs n =
-  List.rev
-    (fold (fun acc n -> match n with NExpr e -> e :: acc | _ -> acc) [] n)
-
-(** Every statement in a subtree, pre-order. node -> [stmt] *)
-let stmts_in n =
-  List.rev
-    (fold (fun acc n -> match n with NStmt s -> s :: acc | _ -> acc) [] n)
-
 (** The value of a node's `name` field, where it has one. Fourteen node
-    kinds have a field called `name`, and src/optimization.ml's blunt
+    kinds have a field called `name`, and src/opt_tailcall.ml's blunt
     tests for "does this program write this identifier" ask for exactly
     that field. Note what is *not* one: a PText's captured middle is
     called `rest`, and the variables a TForall binds are called `vars`,

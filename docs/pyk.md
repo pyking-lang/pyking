@@ -106,7 +106,7 @@ continue past the highest anywhere in the program, which is why
 `optimize_module` takes and returns that number rather than asking each
 module's own tree.
 
-The tail-call pass (`src/optimization.ml`) sits between symbolizing and
+The tail-call pass (`src/opt_tailcall.ml`) sits between symbolizing and
 type checking, and that position is the whole of its wiring: it rewrites
 before *anything* reads the program, so `-t pyking` prints what it built,
 the checker checks that, and `tmap` is keyed to it — which the OCaml

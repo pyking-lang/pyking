@@ -22,7 +22,6 @@
       resolve name -- the canonical target a name means, if any.
       family_of target -- the family a canonical target belongs to.
       members family -- a family's targets, oldest version first.
-      expand name -- the targets a name selects: one, or a whole family.
       extension target -- what the primary output file is called.
       family_name family -- the unversioned name of a family. *)
 
@@ -103,17 +102,6 @@ let aliases =
     string -> string option *)
 let resolve name =
   if List.mem name all then Some name else List.assoc_opt name aliases
-
-(** The targets a name selects: one target for a canonical name or an
-    alias, and a whole family for a family's name. The two differ only
-    where a family has more than one version -- `c` is the alias for
-    `c23` and also the name of the family, and selecting a family is
-    what the test harness wants where compiling wants the alias.
-    string -> [string] *)
-let expand name =
-  match List.find_opt (fun f -> family_name f = name) (List.map (fun (_, f, _) -> f) table) with
-  | Some f -> members f
-  | None -> ( match resolve name with Some target -> [ target ] | None -> [])
 
 (* What `pyk compile` picks when `--target` says nothing. Python
    because it is the one backend that compiles the whole language. *)

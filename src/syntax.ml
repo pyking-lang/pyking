@@ -264,10 +264,6 @@ let rest_info (ListRest (i, _, _)) = i
     list_rest -> string option *)
 let rest_name (ListRest (_, name, _)) = name
 
-(** The source span of one comprehension clause. comp_clause -> info *)
-let comp_info c =
-  match c with CompFor (i, _, _, _) -> i | CompIf (i, _, _) -> i
-
 (** The symbol of one comprehension clause. comp_clause -> int *)
 let comp_sym c =
   match c with CompFor (_, _, _, s) -> s | CompIf (_, _, s) -> s

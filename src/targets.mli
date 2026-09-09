@@ -8,8 +8,8 @@
     execution.ml. See docs/targets.md.
 
     The table itself is private: a caller asks what a name means
-    (`resolve`, `expand`), what a target belongs to (`family_of`) and
-    what it produces (`extension`) rather than reading rows.
+    (`resolve`), what a target belongs to (`family_of`) and what it
+    produces (`extension`) rather than reading rows.
 
     Data structures:
       family -- which backend a target belongs to.
@@ -19,7 +19,6 @@
       default -- the target `pyk compile` uses when none is given.
       aliases -- each unversioned name and the version it means.
       resolve name -- the canonical target a name means, if any.
-      expand name -- the targets a name selects: one, or a whole family.
       family_of target -- the family a canonical target belongs to.
       members family -- a family's targets, oldest version first.
       extension target -- what the primary output file is called. *)
@@ -43,10 +42,6 @@ val aliases : (string * string) list
     what an alias points at. None for a name that is neither.
     string -> string option *)
 val resolve : string -> string option
-
-(** The targets a name selects: one target for a canonical name or an
-    alias, and a whole family for a family's name. string -> [string] *)
-val expand : string -> string list
 
 (** The family a canonical target belongs to. Raises Invalid_argument
     for a name that is not one. string -> family *)

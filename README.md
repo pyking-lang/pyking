@@ -177,9 +177,9 @@ goes on `make clean` but the cache itself only goes on `make distclean`.
 - **[docs/source.md](docs/source.md)** — every file in `src/`: what it
   is, its data structures, and its main functions, each linking to a
   dedicated page working through that module's own design in depth.
-- **[docs/interfaces.md](docs/interfaces.md)** — the `.mli` beside every
-  module in `src/`: what each one exports and what it keeps to itself,
-  which module may call which, and which types are opaque.
+- **[docs/interfaces.md](docs/interfaces.md)** — the `.mli` files in
+  `src/`: what each module exports and what it keeps to itself, which
+  module may call which, and which types are opaque.
 - **[docs/build.md](docs/build.md)** — how `src/` becomes `./pyk`: the
   dune layout, why the pure half is a library of its own, and how the
   same code becomes the JavaScript the playground runs.

@@ -809,7 +809,7 @@ let submit session stmts report source =
          shows a type per statement it runs. The pass is over the entry
          alone, which is exactly right: an entry is its own group of
          `def`s. *)
-      let optimized, _ = Optimization.optimize entry tmap in
+      let optimized, _ = Opt_tailcall.optimize entry tmap in
       let checked, seen, entry =
         if optimized = entry then (checked, seen, entry)
         else

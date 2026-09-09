@@ -89,10 +89,10 @@ last ones are the ones that get forgotten:
 
 1. **`src/`** — the stage(s) implementing it (lexer → parser → syntax →
    `module.ml` → `analyses.ml`'s `symbolize` → `typesystem.ml` →
-   `analyses.ml`'s `analyze_mutability` → `optimization.ml` → each
+   `analyses.ml`'s `analyze_mutability` → `opt_tailcall.ml` → each
    backend). `module.ml` needs nothing for an ordinary construct: it
    reads statements only to find imports and `public`s.
-   `optimization.ml` usually needs nothing: it rewrites tail calls and
+   `opt_tailcall.ml` usually needs nothing: it rewrites tail calls and
    passes everything else through. A construct that can *hold* a tail
    position -- a new branching statement, say -- does need a case there,
    or a tail call written inside it is silently left as a call. A new AST
@@ -420,14 +420,14 @@ The bootstrap is split into one module per compiler stage:
    A module of its own sits beside this one: **`src/walk.ml`**, one
    `node` variant covering every AST node and one `children` function
    giving a node's immediate children in `syntax.ml`'s own field order,
-   plus the folds built on it (`fold`, `exists`, `exprs`, `stmts_in`,
-   `name_field`). Every pass that asks a question of a whole subtree —
+   plus the folds built on it (`fold`, `exists`, `fold_stmts`,
+   `exists_stmts`, `name_field`). Every pass that asks a question of a whole subtree —
    `effects` here, the interpreter's call-free table, the C and Java
    backends' "is this name used as a string" — goes through it rather
    than writing its own descent. **A node added to `syntax.ml` needs a
    case in `children`**, and nothing but a pass that would have looked
    inside it will notice if it is missed.
-6. **`src/optimization.ml`** — tail calls into loops, one pass from the
+6. **`src/opt_tailcall.ml`** — tail calls into loops, one pass from the
    Pyking AST to the Pyking AST, run *after* the type checker and only
    over a program it accepted, unless `--no-tail-call-opt` says
    otherwise. The types are what make it decidable, which is why it runs
@@ -1093,6 +1093,38 @@ used only in *types* still needs all three, and that
 `tools/emacs/pyking-mode.el` has to be checked even when the answer
 turns out to be "nothing to do" (it highlights no operators, so `->`
 needed none).
+
+## Module interfaces (`.mli` files)
+
+Every module in `src/` has an `.mli` beside it, and that file is the
+whole of what another module may use: what is not named there is
+unreachable from outside, whatever the `.ml` defines.
+`docs/interfaces.md` is the map of them — which module refers to which,
+what crosses each boundary, and which types are opaque.
+
+**A name belongs in an `.mli` only if something outside its own module
+calls it.** A function or value used only inside the module that defines
+it stays out of the interface, however much it reads like an API — and a
+great deal does: each non-terminal of the parser, each `check_*` of the
+type checker, each `translate_*` of a backend, the scope every backend
+threads, every helper that formats a message. A type is named in an
+`.mli` only because an exported signature mentions it, and it is
+abstract unless a caller has to look inside it.
+
+So adding a function does not mean adding it to the `.mli`. Leave it
+private until a second module needs it; when one does, add the `val`
+with the two-part docstring every function in `src/` gets.
+
+A narrow interface is also what lets the compiler find dead code: with
+an `.mli`, a private value nothing calls is warning 32, a private type
+nothing mentions 34, and an unused constructor 37. Fix what they point
+at — the name is dead — rather than re-exporting it to quiet them.
+
+The one exception is a name a design document commits to as an entry
+point that is not built out yet: today the interpreter's embedding API
+(`step`, `run`, `format_value`, `eval_statement`), which
+`design/plan-eval-lsp.md` has the debugger, DAP and LSP servers sitting
+on. Nothing else in `src/` is exported without a caller.
 
 ## The alternative type checker
 

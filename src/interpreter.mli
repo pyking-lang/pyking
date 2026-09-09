@@ -40,7 +40,6 @@
       initial_state stmts host -- a machine about to run stmts.
       step state -- one small step.
       run state steps -- steps until the machine stops or steps run out.
-      finished state -- whether it has stopped.
       result state / failure state / stack_trace state -- what a stopped
         machine answers.
       declare_entry state stmts / eval_in state stmt /
@@ -50,12 +49,9 @@
       format_value value / display_value value -- formats a value as
         print emits it / as a value is shown.
       describe value -- a value's type name, for an error message.
-      console_host / buffer_host / callback_host -- the three hosts
-        there are.
+      console_host / callback_host -- the two hosts there are.
       binary_operands e -- the two operands of a binary operator, which
-        the backends share rather than re-deriving.
-      max_call_depth -- the depth at which runaway recursion becomes a
-        Pyking error. *)
+        the backends share rather than re-deriving. *)
 
 open Lexer
 open Syntax
@@ -132,19 +128,11 @@ type state = {
   loops : loop option;
 }
 
-(** Maximum Pyking call depth before the machine fails with a Pyking
-    error rather than exhausting memory. int *)
-val max_call_depth : int
-
 (* --- hosts --- *)
 
 (** Writes to standard output, and reaches no external module: nothing
     in a terminal can call a target language's own code. host *)
 val console_host : host
-
-(** A host that collects what was printed, and the reader for it.
-    () -> (host, () -> string) *)
-val buffer_host : unit -> host * (unit -> string)
 
 (** A host that hands each printed line to a function.
     externals? -> (string -> ()) -> host *)
@@ -177,9 +165,6 @@ val step : state -> state
 (** Steps until the machine stops or `steps` steps have been taken,
     whichever comes first. int? -> state -> state *)
 val run : ?steps:int -> state -> state
-
-(** Whether the machine has stopped (done or failed). state -> bool *)
-val finished : state -> bool
 
 (** The value a finished machine produced, or None if it failed or has
     not finished. state -> value option *)

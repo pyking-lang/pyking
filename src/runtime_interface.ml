@@ -31,7 +31,6 @@ let print_operation =
   }
 
 let operations = [ print_operation ]
-let names = List.map (fun operation -> operation.name) operations
 
 (** The operation a name denotes, or None if it is an ordinary Pyking
     name. string -> operation option *)

@@ -261,7 +261,7 @@ let front_end source name natively =
      pass would only be undone (docs/optimization.md). *)
   if natively then (program, tmap)
   else
-    let program, tmap = Optimization.optimize program tmap in
+    let program, tmap = Opt_tailcall.optimize program tmap in
     (Analyses.symbolize program, tmap)
 
 (** The context a backend is given for a page that has one file: a
@@ -318,7 +318,7 @@ let run_program main =
               in
               Analyses.analyze_mutability unit.stmts;
               let sigmap = Module.make_sigmap unit.stmts tmap in
-              let optimized, _ = Optimization.optimize unit.stmts tmap in
+              let optimized, _ = Opt_tailcall.optimize unit.stmts tmap in
               (* Without this the nodes the pass built keep symbol 0,
                  and the interpreter's call-free table -- which is keyed
                  by symbol -- would answer for the wrong node. *)

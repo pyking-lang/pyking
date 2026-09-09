@@ -4,7 +4,7 @@
     checker's tmap, which pyk.ml fills and hands it -- so a program that
     does not type-check is refused before translation begins. It is also
     the one target compiled from the program as *written*: OCaml
-    eliminates tail calls itself, so pyk.ml skips optimization.ml here
+    eliminates tail calls itself, so pyk.ml skips opt_tailcall.ml here
     rather than have a rewrite this module would only undo. Translated
     See docs/target_ocaml.md.
 

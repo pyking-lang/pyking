@@ -365,11 +365,9 @@ from these nine shapes will.
 
 `Host` is a tiny protocol — one method, `print`, matching
 `runtime_interface.OPERATIONS` exactly (see that module's own page for
-what the interface itself specifies) — with three implementations
-serving three different embeddings: `ConsoleHost` writes to a real
-stream (`sys.stdout` by default, for `pyk <file>`); `BufferHost` collects
-lines for a caller that wants to inspect output after the fact rather
-than watch it stream (used by the test harness); `CallbackHost` hands
+what the interface itself specifies) — with two implementations
+serving two different embeddings: `ConsoleHost` writes to a real
+stream (`sys.stdout` by default, for `pyk <file>`); `CallbackHost` hands
 each line to a function, which is the shape both a debugger's "output"
 pane and a browser worker's message-passing need. None of the machine
 itself — `step`, `call`, `apply_builtin` — knows or cares which one is

@@ -261,7 +261,7 @@ is unit — which is exactly when Pyking allows one.
 ### Tail calls, and the pass that does not run here
 
 OCaml eliminates tail calls itself, so this target is compiled from the
-program as written: `src/optimization.ml`, which turns tail recursion
+program as written: `src/opt_tailcall.ml`, which turns tail recursion
 into `loop`s for every other target, is skipped for `ocaml5.5` (see
 docs/optimization.md, "The target that needs none of this"). A
 tail-recursive Pyking function therefore compiles to a tail-recursive

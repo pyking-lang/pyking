@@ -1,6 +1,6 @@
 # Tail calls, and the loops they become
 
-`src/optimization.ml` is a pass from the Pyking AST to the Pyking AST.
+`src/opt_tailcall.ml` is a pass from the Pyking AST to the Pyking AST.
 It finds calls in tail position and rewrites them into `loop`s, so that
 a tail-recursive function runs in one frame instead of thousands. It
 runs for every mode unless `--no-tail-call-opt` says otherwise, on
@@ -275,7 +275,7 @@ and are declined rather than quietly rearranged.
 
 Merging asks four things of the checker's types, and a group that fails
 any of them is left as the recursion it was written as. All four are
-`shared` in `src/optimization.ml`:
+`shared` in `src/opt_tailcall.ml`:
 
 1. **The members agree per position.** Every function that has slot *i*
    must put the same type in it. `ping(n: Int)` beside

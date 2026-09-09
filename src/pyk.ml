@@ -40,7 +40,7 @@ let targets = Targets.all
 
 (* The targets whose host language eliminates tail calls itself, and
    which are therefore compiled from the program as written rather than
-   from the one optimization.ml rewrote -- there the rewrite would only
+   from the one opt_tailcall.ml rewrote -- there the rewrite would only
    be undone (see docs/optimization.md, "The target that needs none of
    this"). *)
 let native_tail_calls = Targets.members Targets.Ocaml
@@ -419,7 +419,7 @@ let optimize_module program tmap highest options =
        `symbolize` keeps the ones already given -- and it extends `tmap`
        for what it built, since the checker will not run again to say
        what those nodes are. *)
-    let program, tmap = Optimization.optimize program tmap in
+    let program, tmap = Opt_tailcall.optimize program tmap in
     let program = Analyses.symbolize ~start:highest program in
     (program, tmap, max highest (Analyses.highest_sym program))
 

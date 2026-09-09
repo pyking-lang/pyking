@@ -192,9 +192,6 @@ val rest_info : list_rest -> info
     list_rest -> string option *)
 val rest_name : list_rest -> string option
 
-(** The source span of one comprehension clause. comp_clause -> info *)
-val comp_info : comp_clause -> info
-
 (** The symbol of one comprehension clause. comp_clause -> int *)
 val comp_sym : comp_clause -> int
 

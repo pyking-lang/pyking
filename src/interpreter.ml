@@ -219,14 +219,6 @@ let console_host =
     externals = None;
   }
 
-(** A host that collects what was printed, and the reader for it.
-    () -> (host, () -> string) *)
-let buffer_host () =
-  let lines = ref [] in
-  ( { print_line = (fun text -> lines := text :: !lines); externals = None },
-    fun () ->
-      String.concat "" (List.map (fun line -> line ^ "\n") (List.rev !lines)) )
-
 (** A host that hands each printed line to a function.
     (string -> ()) -> host *)
 let callback_host ?externals write_line = { print_line = write_line; externals }

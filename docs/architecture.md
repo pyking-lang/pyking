@@ -45,8 +45,8 @@ threaded through rather than state mutated in place.
                     │analyze_mutability│  shadows one: rejects, never
                     └────────┬────────┘   rewrites
                     ┌────────▼────────┐
-                    │src/optimization │   tail calls → loops, for a program
-                    │      .py        │   the checker accepted; then
+                    │src/opt_tailcall │   tail calls → loops, for a program
+                    │      .ml        │   the checker accepted; then
                     └────────┬────────┘   symbolize again for what it built
                              │
                    src/syntax.ml AST — the one
@@ -100,7 +100,7 @@ repl`) rather than a `--target`.
 | `src/analyses.ml` | Static passes over the AST. `symbolize` gives every node a unique integer `sym`, rebuilding the tree (nodes are frozen), and runs before anything reasons about the program. `analyze_mutability` runs *after* the checker and applies the one rule a type cannot state: `:=` may only name a `var`, and nothing may shadow one. It only rejects, never rewrites. `Effects` is a third pass the driver never runs: the C and OCaml backends ask it which expressions can print, since their host languages leave evaluation order unspecified. |
 | `src/typesystem.ml` | The type checker, and the only pass that checks *names*: its environment is a scope, so an unbound name is refused here, as an `Analyses.Analysis_error`. It runs for every mode and every target, since Pyking is statically typed — there is no flag and no way round it. It covers only part of the language; it leaves the AST alone and reports what it inferred in `tmap`, a symbol → type table, which is what `-t pyking` then prints from. It is given the signature of every module this one imports, and all it sees of another module is that. |
 | `src/execution.ml` | What `--run` runs: the commands each target's host uses to build and run what was compiled. One table, so the driver stays a sequencer. |
-| `src/optimization.ml` | Tail calls into loops: a function that calls itself in tail position becomes a `loop` carrying its parameters, and a group that tail-calls each other becomes one loop they share. AST in, AST out, after the checker and only for a program it accepted — the types decide which groups can share a loop, and what a slot a narrower member does not fill is entered with. `--no-tail-call-opt` turns it off. |
+| `src/opt_tailcall.ml` | Tail calls into loops: a function that calls itself in tail position becomes a `loop` carrying its parameters, and a group that tail-calls each other becomes one loop they share. AST in, AST out, after the checker and only for a program it accepted — the types decide which groups can share a loop, and what a slot a narrower member does not fill is entered with. `--no-tail-call-opt` turns it off. |
 | `src/target_python.ml` | Python backend: its own `Py*` AST, translation, printer. |
 | `src/target_js_core.ml` | JavaScript AST, translation, printer — with no knowledge of packaging. |
 | `src/target_js_packaging.ml` | Wraps that output into the files each JS target delivers, and supplies the JavaScript side of the runtime interface. |

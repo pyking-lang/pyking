@@ -292,7 +292,7 @@ def compile_to(source, target, output, flags=()):
 # a loop must never produce one.
 FACTORY_MARKER = "__pyk_turn"
 
-# src/optimization.ml names the worker it builds for a mutually recursive
+# src/opt_tailcall.ml names the worker it builds for a mutually recursive
 # group `tail_group1`, `tail_group2`, ... The OCaml target is compiled
 # from the program as written, since OCaml eliminates tail calls itself
 # (see docs/optimization.md), so one of these appearing in generated

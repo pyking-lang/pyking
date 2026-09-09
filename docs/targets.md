@@ -164,7 +164,7 @@ Two things it does that no compiling target does:
 
 A function that calls itself in tail position is rewritten into a `loop`
 before any backend sees it, and a group that tail-calls each other into
-one loop they share (`src/optimization.ml`,
+one loop they share (`src/opt_tailcall.ml`,
 [optimization.md](optimization.md)). So the guarantee is the same
 everywhere, including the interpreter, and no backend implements
 anything for it: what each of them compiles is a program with a `loop`

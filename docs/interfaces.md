@@ -1,9 +1,9 @@
 # The interfaces between modules
 
-Every file in `src/` has an `.mli` beside it. The `.mli` is the module's
-contract: what another module may use, and nothing else. Everything a
-module does not name there is unreachable from outside it, whatever the
-`.ml` defines.
+Every module in `src/` has an `.mli` beside it — bar the two entry
+points, which nothing calls. The `.mli` is the module's contract: what
+another module may use, and nothing else. Everything a module does not
+name there is unreachable from outside it, whatever the `.ml` defines.
 
 This page is the map of those contracts — which module may refer to
 which, what crosses each boundary, and which types are opaque. For what
@@ -13,17 +13,13 @@ put together see [build.md](build.md).
 
 ## The rule
 
-A name is in an `.mli` for one of two reasons:
+**A name is in an `.mli` only if something outside its own module calls
+it.** A function or value used only inside the module that defines it
+stays private, however much it reads like an API from the outside.
 
-1. **Another module in the repository uses it.** This is the usual
-   reason, and it is checkable: every `val` in every `.mli` here has at
-   least one caller, with the exceptions listed at the end of this page.
-2. **It is a documented entry point of a module whose purpose is to be
-   called that way** — `walk.ml`'s folds, and the interpreter's
-   embedding API, which the debugger, DAP and LSP servers planned in
-   `design/plan-eval-lsp.md` are to sit on. These are named in the
-   module docstring as the way in, and they stay in the interface even
-   where nothing calls them yet.
+That is checkable, and it is checked: every `val` in every `.mli` here
+has at least one caller in another module, with the single exception
+named at the end of this page.
 
 Everything else is private, including a great deal that reads like an
 API: each non-terminal of the parser, each `check_*` of the type
@@ -80,7 +76,7 @@ respects that, which is what makes the library link.
 │                  value a prompt or a page shows                      │
 │                              │                                       │
 │                              ▼                                       │
-│  optimization.ml optimize                                            │
+│  opt_tailcall.ml optimize                                            │
 │                              │                                       │
 │                              ▼                                       │
 │  typesystem.ml   type_check, and what checking a session one         │
@@ -95,16 +91,16 @@ respects that, which is what makes the library link.
 │             ▼                ▼                ▼                      │
 │  parser.ml         analyses.ml         targets.ml                    │
 │  parse             symbolize,          all, default, resolve,        │
-│                    highest_sym,        expand, family_of,            │
-│                    analyze_mutability, members, extension            │
+│                    highest_sym,        family_of, members,           │
+│                    analyze_mutability, extension                     │
 │                    block_functions,                                  │
 │                    effects/may_print                                 │
 │                              │                                       │
 │                    ┌─────────┴─────────┐                             │
 │                    ▼                   ▼                             │
 │             walk.ml             runtime_interface.ml                 │
-│             children, fold,     lookup, print_operation              │
-│             exists, name_field                                       │
+│             children, exists,   lookup, print_operation              │
+│             exists_stmts, fold_stmts, name_field                     │
 │                    │                                                 │
 │                    ▼                                                 │
 │             syntax.ml    the AST, its accessors, pprint_program      │
@@ -121,7 +117,7 @@ Two modules are `open`ed rather than qualified, and they are the ones
 whose contents are the compiler's shared vocabulary rather than a
 service. `Syntax` is opened by the fourteen modules that work on the
 AST: `walk.ml`, `analyses.ml`, `parser.ml`, `module.ml`, both checkers,
-`optimization.ml`, `interpreter.ml`, `repl.ml` and the five language
+`opt_tailcall.ml`, `interpreter.ml`, `repl.ml` and the five language
 backends. `Lexer` is opened by eleven — ten of those, and `syntax.ml`
 itself, whose nodes carry an `info`. `target_js_packaging.ml` opens
 neither and opens `Target_js_core` instead, whose AST it works on.
@@ -234,15 +230,15 @@ in `typesystem.ml` (`tmap` of a store, and a store with an empty one)
 would let the type be abstract like the interpreter's `env`. Until then
 the fields are visible, and nothing but `repl.ml` reads them.
 
-## The two files that export nothing
+## The two files with no interface
 
 `pyk.ml` and `web/pyking_web.ml` are entry points, not modules anything
-calls, and their `.mli` files say so and hold no `val` at all. Both are
-run by a `let () = ...` at the bottom of the file: `pyk.ml` by
-`exit (main ...)`, and `pyking_web.ml` by registering its entry points
-on the global object through the primitives in `stub.js`. (dune generates
-an empty interface for an executable's main module by itself; these are
-written out so the reason is stated where the file is.)
+calls, and neither has an `.mli`. Both are run by a `let () = ...` at
+the bottom of the file: `pyk.ml` by `exit (main ...)`, and
+`pyking_web.ml` by registering its entry points on the global object
+through the primitives in `stub.js`. dune gives an executable's main
+module an empty interface of its own, so a hand-written file holding no
+`val` would only restate what dune already enforces.
 
 Nothing may depend on the driver, which is what keeps every stage usable
 from the other two front ends. `pyk.ml` hands `format_error` to
@@ -250,26 +246,16 @@ from the other two front ends. `pyk.ml` hands `format_error` to
 otherwise, and the reason the REPL reports a mistake at the prompt in
 the words a file would get.
 
-## Exported but not yet called
+## The one exception
 
-Thirteen names, in five modules, are in an interface for reason 2 above
-rather than reason 1: no *other* module calls them today, though several
-are used inside their own.
+Four names — `Interpreter.step`, `.run`, `.format_value` and
+`.eval_statement` — are in an interface with no caller outside their own
+module. They are the embedding API `design/plan-eval-lsp.md` has the
+debugger, DAP and LSP servers sitting on, and that plan names each of
+them: `run_program` and `run_modules` are `step` and `run` with the loop
+written for the caller, and a debugger will want the loop itself.
 
-- `Targets.expand` — the target-naming API's fourth question ("which
-  targets does this name select?"). The test harness asks it in Python,
-  of its own copy of the table.
-- `Walk.fold`, `Walk.exprs`, `Walk.stmts_in` — the folds over
-  `children`, of which the passes happen to use only `fold_stmts`,
-  `exists` and `exists_stmts` so far. `fold` is what the other two are
-  built from.
-- `Runtime_interface.names` — the name of every operation there is.
-- `Syntax.comp_info` — the one accessor of the "span and symbol each
-  node carries" family that nothing has needed yet.
-- `Interpreter.step`, `.run`, `.finished`, `.eval_statement`,
-  `.format_value`, `.buffer_host`, `.max_call_depth` — the embedding
-  API. `run_program` and `run_modules` are `step` and `run` with the
-  loop written for the caller; a debugger will want the loop itself.
+Nothing else in `src/` is exported without a caller.
 
 ## Keeping them in step
 
@@ -295,9 +281,17 @@ thing -- something is dead -- so fix rather than silence them:
   constructor is only ever matched and never built is a case that
   cannot happen.
 
-Adding the interfaces turned up eleven of them. Ten were leftovers of
-superseded designs and were removed in the same change -- twelve
-definitions in all, since the prelude markers went with the function
+Narrowing the interfaces to the rule above turned up six more names
+reachable from nowhere, and those went the same way: `Targets.expand`,
+`Runtime_interface.names`, `Syntax.comp_info`, `Walk.exprs`,
+`Walk.stmts_in` and `Interpreter.buffer_host`. Three others were kept
+and made private instead, since each is used inside its own module:
+`Walk.fold`, `Interpreter.finished` and `Interpreter.max_call_depth`.
+
+Adding the interfaces in the first place turned up eleven. Ten were
+leftovers of superseded designs and were removed in the same change --
+twelve definitions in all, since the prelude markers went with the
+function
 that emitted them: a `browser ()` from before `--run` printed a URL for
 the `web` targets instead of launching one, a `PyDiv` node for a `/`
 the Python backend compiles to `PyFloorDiv`, the prelude markers no

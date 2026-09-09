@@ -61,10 +61,10 @@ instead of calling it (see [pyk.md](pyk.md)).
 Every module has an **`.mli`** beside it, in both halves, holding what
 another module may use and nothing else. See
 [interfaces.md](interfaces.md) for the map of them and for what is
-public where. An executable's main module is the one place dune would
-write an empty interface itself; `pyk.ml` and `web/pyking_web.ml` have
-one written out instead, since a file that exports nothing is worth
-saying so.
+public where. The two entry points are the exception: `pyk.ml` and
+`web/pyking_web.ml` are what a `let () = ...` runs rather than modules
+anything calls, and dune gives an executable's main module an empty
+interface of its own.
 
 Warnings are on but not fatal (`-warn-error -a`), so a build fails on a
 real error and not on an unused binding left behind mid-edit. With the
