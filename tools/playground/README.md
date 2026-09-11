@@ -483,6 +483,13 @@ make check                       # every example/target pair, through the shim
 make e2e                         # the same page, in a real browser
 ```
 
+The repository's own `make test` asks the first of those questions too,
+as `tests/test_playground.py`: it drives `build/pyking.js` directly, so
+it needs neither `build/` nor the vendored assets, and it reads the
+example list out of this generator's `offered_examples` so the two
+cannot disagree about what the page offers. `make check` here is the
+same question asked of a page that has actually been built.
+
 `make check` needs Python and `node`. Every example is compiled for the
 `pyking` target as well as for every target it claims, and the
 type-checker fixtures under `tests/` are held to the rule their names

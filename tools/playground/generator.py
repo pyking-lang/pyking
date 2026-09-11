@@ -369,13 +369,17 @@ def patch_for_cdn(assets):
         f'ace.config.set("basePath", "{ACE_CDN}")'))
 
 
-def build_examples(code_targets):
-    """Copies tests/*.pyk and records which targets each is known to
-    accept, straight out of tests/test_cases.toml (README.md, "What is
+def offered_examples(code_targets, notes=False):
+    """Which tests/*.pyk the page offers, and which targets each is known
+    to accept, straight out of tests/test_cases.toml (README.md, "What is
     read out of the repository") -- so the playground cannot claim
     support the test suite does not. A program of several modules is
     left out entirely: the page compiles one file.
-    [String] -> [{...}]"""
+
+    Nothing is written, so that tests/test_playground.py can ask the same
+    question without building a page. `notes` prints what was left out
+    and why, which is for the build rather than for a test.
+    [String] -> Bool -> [{...}]"""
     with open(TESTS_DIR / "test_cases.toml", "rb") as f:
         cases = tomllib.load(f)["cases"]
     # A program that imports is not one this page can compile: it has
@@ -383,7 +387,14 @@ def build_examples(code_targets):
     # to reach (see docs/modules.md). Both halves are left out -- the
     # program that imports, and the modules it imports, which are not
     # programs of their own.
-    with_modules = {case["file"] for case in cases if case.get("modules")}
+    #
+    # `libs` counts as importing too: a library is resolved off a search
+    # path the page does not have, so a program naming one is no more
+    # compilable here than a program naming a module beside it. The
+    # libraries themselves need no exclusion, since they live under
+    # lib/ rather than in tests/.
+    with_modules = {case["file"] for case in cases
+                    if case.get("modules") or case.get("libs")}
     imported = {name for case in cases for name in case.get("modules", [])}
     skipped = with_modules | imported
     known = {case["file"]: case["targets"] for case in cases
@@ -391,11 +402,11 @@ def build_examples(code_targets):
     declared = {t for targets in known.values() for t in targets}
     every = sorted(declared & set(code_targets))
     other = sorted(declared - set(code_targets) - NOT_IN_THE_PAGE)
-    if other:
+    if other and notes:
         print(f"build: note: manifest also lists {', '.join(other)}, which "
               "is not a code-generation target -- ignored for the playground")
     skipped_here = sorted(declared & NOT_IN_THE_PAGE)
-    if skipped_here:
+    if skipped_here and notes:
         print(f"build: note: {', '.join(skipped_here)} is a target of the "
               "compiler's but not one this page offers -- see README.md")
 
@@ -403,7 +414,6 @@ def build_examples(code_targets):
     for path in sorted(TESTS_DIR.glob("*.pyk")):
         if path.name in skipped:
             continue
-        shutil.copy2(path, BUILD / "examples" / path.name)
         targets = [t for t in known.get(path.name, ["python"]) if t in code_targets]
         entries.append({
             "file": path.name,
@@ -412,9 +422,18 @@ def build_examples(code_targets):
             "universal": bool(targets) and len(targets) == len(every),
         })
     missing = sorted(set(known) - {e["file"] for e in entries})
-    if missing:
+    if missing and notes:
         print(f"build: WARNING {len(missing)} manifest entries have no .pyk: "
               f"{', '.join(missing)}")
+    return entries
+
+
+def build_examples(code_targets):
+    """The examples the page offers, copied into build/examples.
+    [String] -> [{...}]"""
+    entries = offered_examples(code_targets, notes=True)
+    for entry in entries:
+        shutil.copy2(TESTS_DIR / entry["file"], BUILD / "examples" / entry["file"])
     return entries
 
 

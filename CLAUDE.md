@@ -1408,6 +1408,30 @@ history, cursor movement and Escape are still untested. Add a case here
 when changing anything about what the prompt prints. It takes
 `--compiler CMD` like the other one.
 
+**`tests/test_libpath.py` is the third suite** and
+**`tests/test_playground.py` the fourth**, both run by `make test` after
+the other two and both covering what a (program, target) pair cannot
+express. `test_libpath.py` is about the *invocation*: the order of `-L`
+flags, `$PYKING_LIB_PATH`, a name that resolves in two places at once,
+and the wording of a failure. Each case builds a throwaway tree of tiny
+libraries, each exporting a `tag()` naming itself, and runs the program
+-- so what is printed says which library was found. See
+`docs/libraries.md`.
+
+`test_playground.py` drives `build/pyking.js`, the compiler bundle the
+page loads: that its entry points are registered, that one small program
+compiles for every target the page offers and runs under the
+interpreter, and that **every example the page offers still compiles on
+every target it claims**. That last is `make -C tools/playground check`
+asked without generating the page, which needs the vendored browser
+assets and a network; the example list comes from `generator.py`'s own
+`offered_examples`, so the suite and the page cannot disagree about what
+is offered. A manifest key the generator has not been taught about --
+which is how `libs` broke `make playground` once -- shows up here as an
+example that will not compile. The page itself, its worker and its
+iframe are `make -C tools/playground e2e`'s, which needs Playwright and
+is not part of `make test`.
+
 A fifth family covers **external modules**: `external_*` for a module
 implemented in a target language -- `external_all` on every host, and
 `external_shapes` on the four whose boundary can carry a tuple and a

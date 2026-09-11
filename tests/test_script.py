@@ -278,6 +278,18 @@ def run(cmd, cwd=None):
             cmd, 1, expired.stdout or "",
             f"timed out after {STEP_TIMEOUT} seconds",
         )
+    except OSError as error:
+        # A command that cannot be executed at all. The one that happens
+        # is ./pyk built on another machine and copied in by a shared or
+        # synced working tree, which is ENOEXEC -- and it can land in the
+        # middle of a run, so it is reported as a failed step rather than
+        # raised, where it would end the whole suite with a traceback and
+        # no summary.
+        return subprocess.CompletedProcess(
+            cmd, 1, "",
+            f"cannot run {cmd[0]}: {error.strerror}. If that is ./pyk, it "
+            "was built for another platform -- `make clean` and build again.",
+        )
 
 
 def executed(result):

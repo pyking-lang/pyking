@@ -9,8 +9,8 @@
 # Run `make help` for the full list. The compiler is OCaml in src/,
 # built by dune into the executable this directory calls ./pyk.
 
-.PHONY: all help build test stest playground clean clean-pycache clean-build \
-	distclean
+.PHONY: all help build test stest check-node playground clean clean-pycache \
+	clean-build distclean
 
 # `make` builds the compiler: it is the one thing someone typing `make`
 # in a compiler's directory is asking for.
@@ -28,6 +28,20 @@ all: build
 build:
 	dune build src/pyk.exe src/web/pyking_web.bc.js
 	@cp -f _build/default/src/pyk.exe pyk
+	@./pyk --help >/dev/null 2>&1 || { \
+	  echo "build: ./pyk was copied, but it will not run on this machine:"; \
+	  echo "       $$(file -b pyk 2>/dev/null || echo 'unrecognised format')"; \
+	  echo ""; \
+	  echo "       _build/ and ./pyk are this machine's build output. One of"; \
+	  echo "       them has come from another machine -- a shared or synced"; \
+	  echo "       working tree will do it -- and dune reads a _build/ it did"; \
+	  echo "       not write as up to date, so it copies out a binary for the"; \
+	  echo "       wrong platform."; \
+	  echo ""; \
+	  echo "       Run 'make clean' and build again. To stop it recurring,"; \
+	  echo "       keep _build/, ./pyk and build/ out of whatever syncs the"; \
+	  echo "       tree; .gitignore already lists all three."; \
+	  exit 1; }
 	@mkdir -p build
 	@cp -f _build/default/src/web/pyking_web.bc.js build/pyking.js
 	@echo "build: ./pyk and build/pyking.js"
@@ -41,7 +55,8 @@ help:
 	@echo "                  target tests/test_cases.toml lists it for, run in"
 	@echo "                  parallel (JOBS=n to say how parallel), then the"
 	@echo "                  REPL's own cases in tests/repl/, then the"
-	@echo "                  library search path's in tests/test_libpath.py"
+	@echo "                  library search path's in tests/test_libpath.py,"
+	@echo "                  then the playground's compiler bundle"
 	@echo "                  TARGET=c23 runs one target; TARGET=c runs every"
 	@echo "                  version of that family"
 	@echo "make stest        the same suite, one test at a time"
@@ -64,22 +79,59 @@ help:
 # tests/test_repl.py runs after it, and is a suite of its own because it
 # runs *sessions* rather than (program, target) pairs: the .pyk suite
 # compiles files, so nothing in it reaches the REPL.
-test: build
+# The JavaScript targets are named for the node they promise to run on
+# -- node24, web24, iweb24 -- and tests/test_playground.py drives the
+# compiler bundle under node as well, so an older one cannot run any of
+# it. Checked once, here, because a version failure inside a runner
+# reads as a broken test rather than as a missing tool. Skipped for a
+# TARGET that needs no node at all.
+check-node:
+	@case "$(TARGET)" in \
+	  ""|*node*|*web*) ;; \
+	  *) exit 0 ;; \
+	esac; \
+	if ! command -v node >/dev/null 2>&1; then \
+	  echo "make: node not found, and node 24 or above is required."; \
+	  echo "      The JavaScript targets are node24, web24 and iweb24, and"; \
+	  echo "      the playground suite runs the compiler under node too."; \
+	  exit 1; \
+	fi; \
+	version=$$(node --version 2>&1); \
+	major=$$(printf '%s' "$$version" | sed 's/^v//; s/\..*//'); \
+	case "$$major" in \
+	  ''|*[!0-9]*) \
+	    echo "make: could not read node's version from '$$version'."; \
+	    echo "      node 24 or above is required."; \
+	    exit 1 ;; \
+	esac; \
+	if [ "$$major" -lt 24 ]; then \
+	  echo "make: found node $$version, but node 24 or above is required."; \
+	  echo "      The JavaScript targets are named for it -- node24, web24"; \
+	  echo "      and iweb24 -- and the playground suite runs the compiler"; \
+	  echo "      under node too."; \
+	  exit 1; \
+	fi
+
+test: check-node build
 	python3 tests/test_script.py $(if $(JOBS),--jobs $(JOBS)) \
 		$(if $(TARGET),--target $(TARGET))
 	@if [ -z "$(TARGET)" ]; then python3 tests/test_repl.py; \
 	else echo "repl: skipped (TARGET=$(TARGET) selected)"; fi
 	@if [ -z "$(TARGET)" ]; then python3 tests/test_libpath.py; \
 	else echo "libpath: skipped (TARGET=$(TARGET) selected)"; fi
+	@if [ -z "$(TARGET)" ]; then python3 tests/test_playground.py; \
+	else echo "playground: skipped (TARGET=$(TARGET) selected)"; fi
 
 # The same suite with no pool at all, for when a parallel run's timing is
 # itself in question.
-stest: build
+stest: check-node build
 	python3 tests/test_script.py --jobs 1 $(if $(TARGET),--target $(TARGET))
 	@if [ -z "$(TARGET)" ]; then python3 tests/test_repl.py; \
 	else echo "repl: skipped (TARGET=$(TARGET) selected)"; fi
 	@if [ -z "$(TARGET)" ]; then python3 tests/test_libpath.py; \
 	else echo "libpath: skipped (TARGET=$(TARGET) selected)"; fi
+	@if [ -z "$(TARGET)" ]; then python3 tests/test_playground.py; \
+	else echo "playground: skipped (TARGET=$(TARGET) selected)"; fi
 
 # Delegates entirely to tools/playground's own Makefile (its default
 # target: vendor, build, check, then serve and print a URL). `-C` runs
