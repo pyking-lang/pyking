@@ -1,0 +1,13 @@
+# The Pyking half of the module `module_external_mixed_mod1`.
+#
+# `f1` is ordinary Pyking. `f2` calls `g2`, which the .external.pyk
+# beside this file declares and the host implements -- written
+# unqualified, because the two files are one module, and reached
+# through the implementation in the generated code.
+
+public def f1(x:Int) -> Int:
+    return x * 2
+
+
+public def f2(x:Int) -> Int:
+    return g2(x)

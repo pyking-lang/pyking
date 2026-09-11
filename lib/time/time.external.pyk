@@ -1,0 +1,36 @@
+# The host's clock and calendar.
+#
+# This is the external half of the module `time`; `time.pyk` beside it
+# is the other half, written in Pyking against what is declared here.
+# The two files are one module (docs/modules.md, "A module in two
+# halves").
+#
+# `instant` and `now` are what a program calls. The six decomposers
+# below are **private**: they are how `of_instant` is written in
+# Pyking, and a program reaching one directly would be reaching into
+# this library's own workings. A private declaration is in scope in
+# time.pyk and nowhere else.
+#
+# `now` is one reading of the clock, decomposed by the host in one go,
+# so the six fields cannot straddle a second and report a date that
+# never happened.
+#
+# Decomposition is **UTC** on every host. A local one would depend on
+# the host's own zone database, which the targets disagree about, and a
+# library that formatted differently per target would be no use.
+
+public def instant : () -> Int
+
+public def now : () -> (Int, Int, Int, Int, Int, Int)
+
+def year_of : (Int) -> Int
+
+def month_of : (Int) -> Int
+
+def day_of : (Int) -> Int
+
+def hour_of : (Int) -> Int
+
+def minute_of : (Int) -> Int
+
+def second_of : (Int) -> Int

@@ -210,12 +210,18 @@ let reached module_name field =
     as: a value of the module that exports it, reached through that
     module. Nothing is bound here for it -- the name simply means the
     other module's. [stmt] -> [(string, string)] *)
-let imported_names stmts =
+let imported_names external_fields stmts =
   List.concat_map
     (fun statement ->
       match statement with
       | SImport (_, name, _, true, fields, _) ->
-          List.map (fun (exported, local) -> (local, reached name exported)) fields
+          List.map
+            (fun (exported, local) ->
+              ( local,
+                reached
+                  (Module.reached_module external_fields name exported)
+                  exported ))
+            fields
       | _ -> [])
     stmts
 
@@ -394,6 +400,13 @@ type ctx = {
   (* What each name a module was imported under actually names, so that
      `nm.sum` finds the module `numerical`. *)
   modules : (string * string) list;
+  (* Which of each module's names the target's own source provides, so
+     that `foo.g1` reaches Foo_external and `foo.f1` reaches Foo. *)
+  external_fields : (string * string list) list;
+  (* This module's own name, and the names it declared rather than
+     defined -- the host's half of it. *)
+  own_module : string;
+  own_external : string list;
   names : string SMap.t;
 }
 
@@ -579,13 +592,20 @@ let rec expr ctx acc e =
   | EString (_, value, _) -> (OStr value, acc)
   | EBool (_, value, _) -> (OBool value, acc)
   | EVar (_, name, _) ->
-      (* A `var` is a cell, so reading it is a dereference. *)
-      if StringSet.mem name ctx.refs then (ODeref (mangle ctx name), acc)
+      (* A name this module *declared* rather than defined is the host's,
+         and lives in the implementation beside this file -- the two
+         halves are one module, so it is written unqualified here and
+         reached through `<Module>_external` in the output. *)
+      if List.mem name ctx.own_external then
+        (OVar (reached (ctx.own_module ^ "_external") name), acc)
+        (* A `var` is a cell, so reading it is a dereference. *)
+      else if StringSet.mem name ctx.refs then (ODeref (mangle ctx name), acc)
       else (OVar (mangle ctx name), acc)
   | EQualified (_, alias, field, _) ->
       (* A public name of another module, which OCaml reaches the same
          way: through the module that holds it. *)
-      (OVar (reached (List.assoc alias ctx.modules) field), acc)
+      let module_ = List.assoc alias ctx.modules in
+      (OVar (reached (Module.reached_module ctx.external_fields module_ field) field), acc)
   | EIf (_, cond, then_expr, else_expr, _) ->
       let o_cond, acc = expr ctx acc cond in
       let o_then, acc = expr ctx acc then_expr in
@@ -1952,12 +1972,27 @@ let translate_program stmts tmap (context : Module.context) =
     | Some sigmap -> sigmap
     | None -> []
   in
-  let exported = if context.main then [] else List.map fst own_sigmap in
+  (* Only what this file defines. A module is up to two files, and the
+     names its declaration half offers are the implementation's: an
+     importer reaches those through `<Module>_external`, so naming them
+     in this interface would promise something this file never binds. *)
+  let own_external =
+    Option.value
+      (List.assoc_opt context.context_name context.external_fields)
+      ~default:[]
+  in
+  let exported =
+    if context.main then []
+    else
+      List.filter_map
+        (fun (name, _) -> if List.mem name own_external then None else Some name)
+        own_sigmap
+  in
   let names = plan_names stmts exported in
   let names =
     List.fold_left
       (fun names (local, reached) -> SMap.add local reached names)
-      names (imported_names stmts)
+      names (imported_names context.external_fields stmts)
   in
   let ctx =
     {
@@ -1973,6 +2008,12 @@ let translate_program stmts tmap (context : Module.context) =
             | SImport (_, module_, name, false, _, _) -> Some (name, module_)
             | _ -> None)
           stmts;
+      external_fields = context.external_fields;
+      own_module = context.context_name;
+      own_external =
+        Option.value
+          (List.assoc_opt context.context_name context.external_fields)
+          ~default:[];
       names;
     }
   in

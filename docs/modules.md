@@ -196,8 +196,9 @@ modules.
 
 A module can be implemented in the target's own language instead of in
 Pyking. `sys.external.pyk` declares what it offers and at what type;
-`sys.py`, `sys.js`, `sys.c`, `Sys.java` and `sys.ml` implement it, one
-per target family.
+`sys_external.py`, `sys_external.js`, `sys_external.c`,
+`SysExternal.java` and `sys_external.ml` implement it, one per target
+family.
 
 ```
 public def loadfile : (String) -> String
@@ -225,30 +226,36 @@ module `Sys`'s interface from `sys.ml`.
 
 ### Finding it
 
-`import sys` looks for `sys.external.pyk` first and `sys.pyk` second, in
-the directory of the importing file. A name with **both** files is
-refused: a module is one thing, and which of the two was meant would be
-a guess.
+`import sys` looks in the directory of the importing file for
+`sys.external.pyk` and `sys.pyk`, and takes whichever it finds -- or
+both, which is one module in two halves (see below). The first level of
+the search that holds *either* answers, so a library's two halves always
+come from one place.
 
-Only the declaration carries the marker. The implementation files are
-named the way their host requires, because that is what the generated
-code refers to:
+The implementation is `<module>_external.<ext>`, which is what the
+generated code refers to. The suffix is not decoration: a module may
+also have a Pyking half, and `sys.js` is then the file generated from
+`sys.pyk`.
 
 | target | implementation | what the generated program does |
 |---|---|---|
-| `python` | `sys.py` | `import sys` |
-| `node24` | `sys.js` | `import * as sys from './sys.js'` |
-| `c89`, `c23` | `sys.c` | declares `sys_loadfile` and calls it |
-| `java8`/`17`/`21` | `Sys.java` | `Sys.loadfile(...)` |
-| `ocaml5.5` | `sys.ml` | `Sys.loadfile ...` |
-| `web24`, `iweb24` | `sys.web.js`, else `sys.js` | `import * as sys from './sys.js'` |
+| `python` | `sys_external.py` | `import sys_external` |
+| `node24` | `sys_external.js` | `import * as sys_external from './sys_external.js'` |
+| `c89`, `c23` | `sys_external.c` | declares `sys_loadfile` and calls it |
+| `java8`/`17`/`21` | `SysExternal.java` | `SysExternal.loadfile(...)` |
+| `ocaml5.5` | `sys_external.ml` | `Sys_external.loadfile ...` |
+| `web24`, `iweb24` | `sys_external.web.js`, else `sys_external.js` | `import * as sys_external from './sys_external.js'` |
 
 Java's is capitalised where the others are not, because javac requires
-the file name and the public class to match and the generated program
-calls `Sys.loadfile`. A module's name becomes a name in the host's own
-namespace, so a module called `sys` collides with Python's builtin `sys`
-and will not be found -- name an external module something the host does
-not already use.
+the file name and the public class to match. C is the one target whose
+*symbols* are not named after the file: a name there is
+`<module>_<field>`, so `sys_external.c` defines `sys_loadfile`.
+
+A module's name becomes a name in the host's own namespace. The Python
+backend handles the collision that follows -- `import time` would find
+the interpreter's own -- by loading such a module by path instead (see
+[target_python.md](target_python.md), "Module names Python has already
+taken").
 
 A target with no implementation file is refused before anything is
 translated, naming the module and the file it looked for.
@@ -256,16 +263,55 @@ translated, naming the module and the file it looked for.
 ### Why a declaration file holds nothing else
 
 A `.external.pyk` may contain signatures, and nothing but signatures --
-no bodies, no top-level bindings, and every one of them `public`.
+no bodies and no top-level bindings. The file is a header, in the sense
+C and OCaml already have one: it says what something else provides.
 
-It is not a restriction for its own sake. If the file implemented `a` in
-Pyking and declared `b` externally, the compiler would have to generate
-`sys.py` for `a` while `sys.py` is already the hand-written file
-providing `b`: one name, two files. A private signature is refused for a
-different reason -- an external module is reached only through what it
-exports, so a signature nothing can import names nothing.
+A signature there may be **private**. It is then in scope in the
+module's own Pyking half and nowhere else, which is how a library keeps
+a host function it needs without offering it. The boundary rule below
+applies to a private signature exactly as to a public one, because what
+crosses the boundary is the *call*, and the Pyking half makes it.
 
-The file is a header, in the sense C and OCaml already have one.
+### A module in two halves
+
+`foo.pyk` and `foo.external.pyk` are one module `foo`. Either may stand
+alone -- a module written only in Pyking, or one only declared -- and
+together they are still one name to whoever imports it.
+
+```
+lib/foo/foo.pyk            public def f1(x:Int): x * 2
+                           public def f2(x:Int): g2(x)
+lib/foo/foo.external.pyk   public def g1 : (Int) -> Int
+                           def g2 : (Int) -> Int
+lib/foo/foo_external.js    export function g1(x) { ... }
+                           export function g2(x) { ... }
+```
+
+A program says `import foo` and calls `foo.f1`, `foo.f2` and `foo.g1`.
+`foo.g2` is refused: `g2` is not public, so it is the module's own.
+
+Three things make that work, and the first is the only one a reader of
+Pyking sees:
+
+- **The declarations are in scope in the Pyking half**, unqualified.
+  `f2` calls `g2` as it would call anything else of its own module,
+  because it is.
+- **A qualified name reaches whichever half provides it.** The compiler
+  answers that question once, in `Module.reached_module`, and every
+  backend asks it rather than deciding: `foo.f1` reaches the file
+  generated from `foo.pyk`, and `foo.g1` the implementation. The
+  generated file imports the implementation too, which is what lets
+  `f2` reach `g2`.
+- **Each half exports only what it holds.** The generated file exports
+  `f1` and `f2`; an importer reaches `g1` in the implementation
+  directly. Exporting a name the file never declared would be a
+  syntax error in JavaScript and a missing value in OCaml.
+
+C is the exception that shows the rule: a name there is
+`<module>_<field>` whichever half provides it, and both halves are
+linked into one program, so nothing needs rewriting. C and Java do not
+compile a module in two halves yet -- each refuses one with a message --
+though both compile a module that is only a declaration half.
 
 ### What may cross the boundary
 
@@ -290,12 +336,18 @@ host computes. What it must not do is narrow the range *below* 32 bits —
 a value inside it has to survive the round trip on every host.
 
 **A `.web.js` may differ from a `.js`.** The `web` and `iweb` targets
-look for `sys.web.js` before `sys.js`, so a module that needs different
-code in a browser writes both and one that does not writes one. The file
-found is copied out as `sys.js` either way, which is the name every
-generated import uses.
+look for `sys_external.web.js` before `sys_external.js`, so a module
+that needs different code in a browser writes both and one that does not
+writes one. The file found is copied out as `sys_external.js` either
+way, which is the name every generated import uses.
 
-**A JavaScript list must say it is one.** A Pyking list and a Pyking
+**A JavaScript list must say it is one**, and on the `iweb` target that
+marker has to survive JSON: a value crossing into the interpreted page
+is encoded by `src/web/stub.js`, which writes a tuple as
+`{"pyk_tuple":[...]}` because `JSON.stringify` would drop the marker and
+every array would arrive as a list.
+
+A Pyking list and a Pyking
 tuple are both arrays there, and the value formatter walks values rather
 than reading types, so a list carries `pykList === true` and a tuple
 does not. An implementation returning a plain array for a `[Int]` will

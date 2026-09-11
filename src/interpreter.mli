@@ -150,8 +150,12 @@ val run_program : ?max_depth:int -> stmt list -> host -> state
     several modules"). The state answered is the last module's, so
     `failure` and `stack_trace` report a failure in whichever module hit
     it and the run stops there.
-    [(string, [stmt])] -> host -> state *)
-val run_modules : ?max_depth:int -> (string * stmt list) list -> host -> state
+    Each unit is a module's name, its Pyking half and its declaration
+    half -- a module is up to two files, and both are needed here: the
+    declarations are what the host answers for.
+    [(string, [stmt], [stmt])] -> host -> state *)
+val run_modules :
+  ?max_depth:int -> (string * stmt list * stmt list) list -> host -> state
 
 (** A machine about to run stmts, not yet stepped. `env`, if given, lets
     a caller continue an earlier session (default: a fresh top level).

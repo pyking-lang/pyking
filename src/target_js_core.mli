@@ -113,6 +113,9 @@ type jshost = {
     [string] -> [stmt] -> ([jsstmt], [(string, string)]) *)
 val translate_program :
   ?taken:Syntax.StringSet.elt list ->
+  ?external_fields:(string * string list) list ->
+  ?externals:string list ->
+  ?own:string ->
   Syntax.stmt list ->
   jsstmt list * (string * string) list
 

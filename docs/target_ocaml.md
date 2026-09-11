@@ -587,7 +587,7 @@ on the include path. An unqualified `Sys.argv` in an implementation then
 resolves to *that* one and fails to compile — and only once the other
 module's `.cmi` is there, so it can compile on a first build and break
 on a second, or break only when a program happens to import both.
-`Stdlib.Sys.argv` is unambiguous, and `lib/sys/sys_ext.ml` and
+`Stdlib.Sys.argv` is unambiguous, and `lib/sys/sys_external.ml` and
 `lib/fs/fs.ml` are written that way throughout; `Array`, `List` and
 `String` are shadowable in exactly the same way.
 
@@ -612,7 +612,7 @@ ocamlopt -I +unix unix.cmxa -I <dir> -o prog <modules> prog.ml
 ```
 
 Nothing the compiler *generates* needs it. An external module's own
-implementation may: `lib/sys/sys_ext.ml` does, because nothing in
+implementation may: `lib/sys/sys_external.ml` does, because nothing in
 OCaml's `Stdlib` enumerates the environment, and without it the whole
 `sys` library would be unavailable here. `unix` ships with the compiler,
 so this adds no dependency to install — and it is named before the

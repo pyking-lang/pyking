@@ -1,71 +1,50 @@
 # The process this program is running as: its arguments, its name, and
 # its environment.
 #
-# The host is reached through sys_ext, which declares scalars only, and
-# the list-shaped answers are assembled here. That is what keeps the
-# boundary portable: a list crosses it on no target that refuses lists,
-# so it never crosses it at all. See docs/libraries.md.
-
-import sys_ext
-
-
-# The program's own arguments, and not its name: argument 0 differs on
-# every host -- a script name, an absolute path, a binary -- so it is
-# `program` instead, where a caller that wants it can ask.
-public def arguments() -> [String]:
-    count = sys_ext.argument_count()
-    (_, collected) = loop i, out = 0, []:
-        if i >= count:
-            break
-        else:
-            (i + 1, out ++ [sys_ext.argument(i)])
-    return collected
+# The Pyking half of `sys`. What the host provides is declared in
+# sys.external.pyk beside this file and is in scope here unqualified --
+# the two files are one module -- so `env()` below is the host's.
+#
+# `env_get` and `env_has` are written here rather than declared so that
+# every host answers them the same way, rather than each reimplementing
+# the same scan slightly differently.
 
 
-# The name this program was started as, as the host reports it, path and
-# all. There is nothing portable to say about its shape.
-public def program() -> String:
-    return sys_ext.program()
+# The pairs walked one at a time. A `loop ... for` would read better but
+# the OCaml backend has no translation for one, and `len` is refused by
+# the JavaScript backends -- so the walk is a recursion over the list,
+# which every target `sys` reaches does compile.
+def lookup(pairs:[(String, String)], name:String) -> String:
+    match pairs:
+        case []:
+            return ""
+        case [first] ++ rest:
+            (key, value) = first
+            if key == name:
+                return value
+            else:
+                return lookup(rest, name)
 
 
-# Every environment variable and its contents, in the order the host
-# lists them.
-public def environment() -> [(String, String)]:
-    count = sys_ext.environment_count()
-    (_, collected) = loop i, out = 0, []:
-        if i >= count:
-            break
-        else:
-            (i + 1, out ++ [(sys_ext.environment_name(i), sys_ext.environment_value(i))])
-    return collected
+def holds(pairs:[(String, String)], name:String) -> Bool:
+    match pairs:
+        case []:
+            return false
+        case [first] ++ rest:
+            (key, _) = first
+            if key == name:
+                return true
+            else:
+                return holds(rest, name)
 
 
 # What one variable holds, or "" where it is not set. A variable set to
-# the empty string answers the same way, which is what
-# `environment_has` is for.
-public def environment_get(name:String) -> String:
-    count = sys_ext.environment_count()
-    (_, found) = loop i, found = 0, "":
-        if i >= count:
-            break
-        else:
-            if sys_ext.environment_name(i) == name:
-                (count, sys_ext.environment_value(i))
-            else:
-                (i + 1, found)
-    return found
+# the empty string answers the same way, which is what `env_has` is for.
+public def env_get(name:String) -> String:
+    return lookup(env(), name)
 
 
 # Whether one variable is set at all, which tells an empty variable from
 # a missing one.
-public def environment_has(name:String) -> Bool:
-    count = sys_ext.environment_count()
-    (_, found) = loop i, found = 0, false:
-        if i >= count:
-            break
-        else:
-            if sys_ext.environment_name(i) == name:
-                (count, true)
-            else:
-                (i + 1, found)
-    return found
+public def env_has(name:String) -> Bool:
+    return holds(env(), name)

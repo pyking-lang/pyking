@@ -1542,6 +1542,25 @@ let function_of state func scope =
     own module, and what the modules it imports export.
     [stmt] -> Module.context -> cprogram *)
 let translate_program stmts context =
+  (* A module in two halves needs the generated file to call into the
+     implementation beside it, which this backend does not emit yet: an
+     external module it can compile is one with no Pyking half. Refused
+     here rather than left to the host's own compiler, which would
+     report an undeclared name in generated code. *)
+  (match
+     List.assoc_opt context.Module.context_name context.Module.external_fields
+   with
+  | Some (field :: _) ->
+      unsupported
+        (match stmts with
+        | statement :: _ -> stmt_info statement
+        | [] -> { file = ""; row1 = 1; col1 = 0; row2 = 1; col2 = 0 })
+        (Printf.sprintf
+           "a module in two halves: '%s' declares '%s' for the host and is \
+            written in Pyking beside it, which this backend cannot compile \
+            yet -- an external module it can compile has no Pyking half"
+           context.Module.context_name field)
+  | _ -> ());
   let state =
     {
       context;

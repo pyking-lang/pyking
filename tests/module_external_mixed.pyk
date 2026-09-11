@@ -1,0 +1,11 @@
+# A module in two halves, reached as one.
+#
+# `f1` is compiled from the module's Pyking half, `g1` is the host's,
+# and `f2` is Pyking calling the host's private `g2` -- and the import
+# side sees one module for all three.
+
+import module_external_mixed_mod1 as mixed
+
+print(mixed.f1(1))
+print(mixed.f2(5))
+print(mixed.g1(10))

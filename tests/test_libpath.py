@@ -148,13 +148,17 @@ def cases():
         library(root / "libs", "mylib", "", body=False)
         return ([f"-L{root / 'libs'}"], {}, "cannot read module 'mylib'")
 
-    def declared_twice(root):
-        # One level holding both files is refused: which of the two was
-        # meant would be a guess.
+    def both_halves(root):
+        # A level holding both files is one module, not a collision: the
+        # .pyk is its Pyking half and the .external.pyk the host's. What
+        # proves it resolved as one module here is the refusal that
+        # follows -- the interpreter answers only for the libraries
+        # under lib/, so any other external half has to be compiled.
         library(root / "libs", "mylib", "written")
         (root / "libs" / "mylib" / "mylib.external.pyk").write_text(
-            "public def tag : () -> String\n")
-        return ([f"-L{root / 'libs'}"], {}, "is declared twice")
+            "public def other : () -> String\n")
+        return ([f"-L{root / 'libs'}"], {},
+                "is an external module, implemented in a target language")
 
     return [
         ("from -Lpath", from_flag),
@@ -170,7 +174,7 @@ def cases():
         ("FAILS: refusal names the paths tried", unknown_module_names_paths),
         ("FAILS: -L at a missing directory", flag_at_missing_directory),
         ("FAILS: library folder with no module", library_folder_without_module),
-        ("FAILS: declared twice in one level", declared_twice),
+        ("both halves of a name are one module", both_halves),
     ]
 
 

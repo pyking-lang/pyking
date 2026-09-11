@@ -124,6 +124,19 @@ type scope = {
   names : string SMap.t;
   block : StringSet.t;
   taken : StringSet.t;
+  (* Which of each module's names the target's own source provides, and
+     which modules have no Pyking half at all. A qualified name reaches
+     the implementation where the field is one of the first, and a
+     module in the second has no generated file to import. *)
+  external_fields : (string * string list) list;
+  externals : string list;
+  (* This module's own name, and the names it declared rather than
+     defined -- the host's half of it. *)
+  own_module : string;
+  own_external : string list;
+  (* What each name a module was imported under actually names, so that
+     a qualified name can be asked which half provides it. *)
+  module_aliases : (string * string) list;
 }
 
 (** A scope for a nested block: it sees the enclosing names, and what it
@@ -197,6 +210,7 @@ let bind name scope =
   in
   ( js_name,
     {
+      scope with
       names = SMap.add name js_name scope.names;
       block = StringSet.add name scope.block;
       taken = StringSet.add js_name scope.taken;
@@ -307,7 +321,14 @@ let rec translate_expr e scope =
   | EInt (info, v, _) -> JsNum (info, v)
   | EString (info, s, _) -> JsStr (info, s)
   | EBool (info, v, _) -> JsBool (info, v)
-  | EVar (info, name, _) -> JsVar (info, lookup name scope)
+  | EVar (info, name, _) ->
+      (* A name this module *declared* rather than defined is the host's,
+         and lives in the implementation beside this file -- the two
+         halves are one module, so it is written unqualified here and
+         reached through `<module>_external` in the output. *)
+      if List.mem name scope.own_external then
+        JsMember (info, JsVar (info, scope.own_module ^ "_external"), name)
+      else JsVar (info, lookup name scope)
   | ENeg (info, operand, _) -> JsUnary (info, "-", translate_expr operand scope)
   | EIf (info, cond, then_expr, else_expr, _) ->
       (* Pyking's `if c then a else b` is JavaScript's conditional
@@ -347,8 +368,21 @@ let rec translate_expr e scope =
       JsArray (info, List.map (fun el -> translate_expr el scope) elements)
   | EQualified (info, module_name, name, _) ->
       (* `m.f` is a property of the object the module was brought in as,
-         whichever way the packager brought it in. *)
-      JsMember (info, JsVar (info, lookup module_name scope), name)
+         whichever way the packager brought it in -- and a module is up
+         to two objects, since a name the target's own source provides
+         lives in the implementation. *)
+      let alias = lookup module_name scope in
+      let real =
+        Option.value
+          (List.assoc_opt module_name scope.module_aliases)
+          ~default:module_name
+      in
+      let reached =
+        if Module.reached_module scope.external_fields real name <> real then
+          alias ^ "_external"
+        else alias
+      in
+      JsMember (info, JsVar (info, reached), name)
   | ECall (info, EVar (_, name, _), args, _)
     when Builtin.crosses_host name ->
       (* A call that leaves the program: see builtin.ml. *)
@@ -804,16 +838,37 @@ and translate_stmt s scope =
          reference to a module already built on the page reads like is
          the packager's (see JsImport). The names were bound by
          `declare_functions`, so a renamed one is read back here. *)
-      ( [
-          JsImport
-            ( info,
-              module_name,
-              lookup local scope,
-              selected,
-              List.map (fun (exported, name) -> (exported, lookup name scope)) fields
-            );
-        ],
-        scope )
+      let alias = lookup local scope in
+      let external_here = Option.value (List.assoc_opt module_name scope.external_fields) ~default:[] in
+      let from_half half =
+        List.filter
+          (fun (exported, _) -> List.mem exported external_here = half)
+          fields
+      in
+      let named half =
+        List.map (fun (exported, name) -> (exported, lookup name scope)) (from_half half)
+      in
+      (* The generated file, unless this module is only a declaration
+         half; then the implementation, under an alias of its own. *)
+      let own =
+        if List.mem module_name scope.externals then []
+        else if selected && named false = [] && fields <> [] then []
+        else [ JsImport (info, module_name, alias, selected, named false) ]
+      in
+      let implementation =
+        if external_here = [] then []
+        else if selected && named true = [] then []
+        else
+          [
+            JsImport
+              ( info,
+                module_name ^ "_external",
+                alias ^ "_external",
+                selected,
+                named true );
+          ]
+      in
+      (own @ implementation, scope)
   | SFunctionDef (info, name, params, body, _, _, _) ->
       (* The name was bound by `declare_functions`; read it back rather
          than binding again, which would rename it twice. *)
@@ -971,18 +1026,52 @@ and translate_loop_tail s js_target scope =
     (`export { arguments2 as arguments }`), or it writes a name nothing
     declared.
     [stmt] -> [string] -> ([jsstmt], [(string, string)]) *)
-let translate_program ?(taken = []) stmts =
+let translate_program ?(taken = []) ?(external_fields = []) ?(externals = [])
+    ?(own = "") stmts =
   let statements, scope =
     translate_stmts stmts
       {
         names = SMap.empty;
         block = StringSet.empty;
         taken =
-          List.fold_left (fun set name -> StringSet.add name set) StringSet.empty
-            taken;
+          List.fold_left
+            (fun set name -> StringSet.add name set)
+            StringSet.empty
+            (* The alias each implementation is brought in under is
+               written by this backend, so a Pyking binding may not take
+               it. *)
+            (taken @ List.map (fun (name, _) -> name ^ "_external") external_fields);
+        external_fields;
+        externals;
+        own_module = own;
+        own_external =
+          Option.value (List.assoc_opt own external_fields) ~default:[];
+        module_aliases =
+          List.filter_map
+            (function
+              | SImport (_, module_, local, false, _, _) -> Some (local, module_)
+              | _ -> None)
+            stmts;
       }
   in
-  ( statements,
+  (* The implementation of this module's own declaration half, imported
+     so that a name declared here can be called here. *)
+  let own_external =
+    Option.value (List.assoc_opt own external_fields) ~default:[]
+  in
+  let own_import =
+    if own_external = [] then []
+    else
+      [
+        JsImport
+          ( Lexer.{ file = ""; row1 = 1; col1 = 0; row2 = 1; col2 = 0 },
+            own ^ "_external",
+            own ^ "_external",
+            false,
+            [] );
+      ]
+  in
+  ( own_import @ statements,
     List.filter
       (fun (pyking, js) -> pyking <> js)
       (SMap.bindings scope.names) )
@@ -1243,7 +1332,17 @@ let uses p stmts =
     none. [jsstmt] -> int -> string *)
 let js_helpers ?(level = 0) stmts =
   let pad = String.concat "" (List.init level (fun _ -> "  ")) in
-  let uses_list = uses (function JsList _ -> true | _ -> false) stmts in
+  let uses_list =
+    uses
+      (function
+        (* A list *literal*, and a list a pattern rebuilds: matching
+           `case [first] ++ rest` compiles to a `pykList` call rather
+           than to a JsList, so looking only for the node would leave
+           the helper out of a module whose lists are all in patterns. *)
+        | JsList _ | JsVar (_, "pykList") -> true
+        | _ -> false)
+      stmts
+  in
   let uses_concat = uses (function JsConcat _ -> true | _ -> false) stmts in
   let wanted =
     (* `pykConcat` builds a list, so it needs `pykList` beside it. *)

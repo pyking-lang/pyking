@@ -332,19 +332,40 @@ The bootstrap is split into one module per compiler stage:
    `symbolize`, and reading a module the program imports is something
    only the stages after that need.
 
-   **External modules** are here too. A module declared in
-   `sys.external.pyk` is implemented in the target's own language, and
-   this module owns everything about that: `module_file` resolves
-   `.external.pyk` before `.pyk` and refuses a name with both;
-   `check_declaration` refuses anything but a public signature in a
-   declaration file, and `check_boundary_type` refuses a function type
-   or a type variable in one; `implementation_name` says what the
-   implementation file is called on each target (`sys.py`, `Sys.java`,
-   ...) and `implementation_path` checks it exists; `external_sigmap`
-   takes the module's exports from what it declared, since there is no
-   body for the checker to work them out from. Nothing is *generated*
-   for such a module -- `pyk.ml` copies the one implementation file
-   beside the program's output, skipping a copy onto itself. See
+   **External modules** are here too, and **a module is up to two
+   files**: `sys.pyk` and `sys.external.pyk` are one module `sys`, the
+   first written in Pyking against what the second declares. Either may
+   stand alone. `module_file` answers with whichever halves a level
+   holds -- both always come from one place -- and `read_module` keeps
+   them in separate fields, `stmts` and `declarations`, because
+   `apply_signatures` deletes every signature it cannot fold onto a
+   definition and would empty a declaration joined into one list.
+   `is_external` now means "no Pyking half".
+
+   `check_declaration` refuses anything but a signature, public or not:
+   a **private** declaration is in scope in the module's own Pyking half
+   and nowhere else, which is how a library keeps a host function it
+   does not offer. `check_boundary_type` applies to every declaration,
+   since what crosses the boundary is the call the Pyking half makes.
+   `check_publics` runs over the union, so `public` means one thing
+   across both files and a name in both halves is refused.
+   `implementation_name` says what the implementation is called on each
+   target -- always `<module>_external.<ext>`, because `sys.js` is the
+   file generated from `sys.pyk` -- and `implementation_path` checks it
+   exists. `external_sigmap` is a declaration half's *public* names, and
+   `module_sigmap` is both halves together.
+
+   **`reached_module` is the one place a backend asks which half
+   provides a name**, so none of them decides for itself: `foo.g1`
+   reaches `foo_external` where `g1` is declared and `foo` where it is
+   written in Pyking, and the generated file imports the implementation
+   too, which is what lets the Pyking half call a private declaration.
+   C is the exception -- a name there is `<module>_<field>` whichever
+   half provides it -- and C and Java refuse a module in two halves
+   outright, since neither emits that call yet. `pyk.ml` copies the
+   implementation beside the program's output for any module with a
+   declaration half, skipping a copy onto itself, and a module
+   contributes *two* files to every file list, implementation first. See
    `docs/modules.md`, "External modules". The two front ends that
    compile a file with no program around it -- the REPL and the browser
    playground -- run `check_publics` (it needs only the file) and let
@@ -1197,7 +1218,7 @@ options: [--tokens] [--symbols] [--no-tail-call-opt]
 ```
 
 **Everything after `--` belongs to the program**, not to the compiler:
-it is what `sys.arguments()` answers with, and it is why a program's own
+it is what `sys.args()` answers with, and it is why a program's own
 `-t` or `--run` is not read as ours. It applies where a program is
 *run* -- `pyk prog.pyk -- a b`, or `pyk compile --run` for a target
 whose host takes arguments -- and is refused for `pyk repl`, for
@@ -1435,9 +1456,12 @@ is not part of `make test`.
 A fifth family covers **external modules**: `external_*` for a module
 implemented in a target language -- `external_all` on every host, and
 `external_shapes` on the four whose boundary can carry a tuple and a
-list -- and `fail_typecheck_external_*` for what is refused: a bodiless
-signature in a plain `.pyk`, one that is not `public`, a declaration
-file that also holds a body, and a declaration naming a function type.
+list -- `module_external_mixed` for a module in two halves -- `f1` from the
+Pyking half, public `g1` from the host's, and `f2` from the Pyking half
+calling the host's *private* `g2` -- and `fail_typecheck_external_*` for
+what is refused: a bodiless signature in a plain `.pyk`, a declaration
+file that also holds a body, a declaration naming a function type, and
+reaching a private declaration from another module.
 A `.external.pyk` is listed under the importing program's `modules`
 like any other, and the harness knows not to expect `interpret` from a
 program that imports one. The one rule the suite does *not* pin is a
@@ -1545,7 +1569,7 @@ ones, a JDK (`$JAVAC`/`$JAVA`) for the Java ones and an OCaml compiler
 is needed to *produce* the code, and none at all to run a program with
 `pyk <file>`. The OCaml cases are built with `-w +a` and linked with
 `-I +unix unix.cmxa` (an external implementation may need `unix`, and
-`lib/sys/sys_ext.ml` does; see `docs/target_ocaml.md`, "Linking unix"):
+`lib/sys/sys_external.ml` does; see `docs/target_ocaml.md`, "Linking unix"):
 that target's
 promise is clean OCaml, so a warning about generated code fails the
 test. (That is the *generated* OCaml. The compiler's own build sets

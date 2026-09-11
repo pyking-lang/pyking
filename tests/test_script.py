@@ -441,7 +441,13 @@ for (const f of files) {
     // and leaves pyking.js (a classic script) read as one.
     const mjs = here + '/' + f.slice(0, -3) + '.pyk-test.mjs';
     fs.copyFileSync(here + '/' + f, mjs);
-    globalThis.pykExternals[f.slice(0, -3)] = await import(mjs);
+    // An implementation is `<module>_external.js`, and the compiler asks
+    // for it by the *module's* name -- a module is up to two files and
+    // this is the host's half of one.
+    const stem = f.slice(0, -3);
+    const name = stem.endsWith('_external')
+      ? stem.slice(0, -'_external'.length) : stem;
+    globalThis.pykExternals[name] = await import(mjs);
   }
 }
 globalThis.pykOnPrint = (line) => process.stdout.write(line);
@@ -831,25 +837,44 @@ def plan(cases):
 
 
 def module_names(case):
-    """Every module one program is built from besides its own, as module
-    names, dependencies first -- the order they must be compiled, linked
-    and run in. The `libs` come first: a library never imports a module
-    from tests/, and a module in tests/ may import a library.
-    Case -> [String]"""
-    # `sys.external.pyk` is module `sys`: the marker is part of the file
-    # name, not of the name another module imports it by.
-    return list(case.get("libs", [])) + [
-        os.path.splitext(os.path.splitext(name)[0])[0]
-        if name.endswith(".external.pyk") else os.path.splitext(name)[0]
-        for name in case.get("modules", [])]
+    """Every file one program is built from besides its own, as the stem
+    each is generated or copied under, dependencies first -- the order
+    they must be compiled, linked and run in. The `libs` come first: a
+    library never imports a module from tests/, and a module in tests/
+    may import a library.
+
+    A module is up to two files, and each is a stem of its own: the
+    implementation of `foo.external.pyk` is `foo_external`, and the file
+    generated from `foo.pyk` is `foo`. The implementation comes first,
+    since the generated half calls into it. Case -> [String]"""
+    stems = []
+    for name in case.get("libs", []):
+        stems += library_stems(name)
+    for name in case.get("modules", []):
+        if name.endswith(".external.pyk"):
+            stems.append(os.path.splitext(os.path.splitext(name)[0])[0]
+                         + "_external")
+        else:
+            stems.append(os.path.splitext(name)[0])
+    return stems
+
+
+def library_stems(name):
+    """The file stems one library under lib/ contributes, implementation
+    first. A library is up to two files and either may be absent.
+    String -> [String]"""
+    stems = []
+    if glob.glob(os.path.join("lib", "*", name + ".external.pyk")):
+        stems.append(name + "_external")
+    if glob.glob(os.path.join("lib", "*", name + ".pyk")):
+        stems.append(name)
+    return stems
 
 
 def library_module_missing(name):
-    """Whether no library under lib/ holds the module `name`. A library
-    is one folder per library, and a folder may hold more than one
-    module, so the folder is not named by the module. String -> Bool"""
-    return not (glob.glob(os.path.join("lib", "*", name + ".pyk"))
-                or glob.glob(os.path.join("lib", "*", name + ".external.pyk")))
+    """Whether no library under lib/ holds the module `name` in either
+    half. String -> Bool"""
+    return library_stems(name) == []
 
 
 def java_class_name(module_name):

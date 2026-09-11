@@ -1,0 +1,5 @@
+# The Pyking half of the module, which may call `hidden`: a private
+# declaration is in scope here, since the two files are one module.
+
+public def doubled(x:Int) -> Int:
+    return hidden(x)

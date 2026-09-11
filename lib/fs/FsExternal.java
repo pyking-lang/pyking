@@ -1,7 +1,7 @@
 // The Java implementation of the Pyking module declared in
 // fs.external.pyk. Java requires the file name and the public class to
 // match, so this one file is capitalised where its siblings are not:
-// the generated program calls Fs.read_text.
+// the generated program calls FsExternal.read_text.
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -9,7 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
-public final class Fs {
+public final class FsExternal {
 
     // Reading a file that is not there is undefined (fs.external.pyk),
     // and the empty string is this host's version of undefined: there

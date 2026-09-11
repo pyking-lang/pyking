@@ -1666,7 +1666,7 @@ let exported_values stmts state =
     anything else is asked of the host now. The declaration is what says
     which is which -- there is no body here to look at.
     [stmt] -> string -> host -> [(string, value)] *)
-let external_exports stmts name host =
+let host_values signatures name host =
   match host.externals with
   | None -> []
   | Some externals ->
@@ -1675,7 +1675,7 @@ let external_exports stmts name host =
           match type_ with
           | TFunction _ -> (field, VHostFun (name, field))
           | _ -> (field, externals.field name field))
-        (Module.external_signatures stmts)
+        signatures
 
 (** Runs a program of several modules, each in a top level of its own,
     in the order given -- which is dependency order, so a module runs
@@ -1683,7 +1683,10 @@ let external_exports stmts name host =
     several modules"). The state answered is the last module's, so
     `failure` and `stack_trace` report a failure in whichever module hit
     it and the run stops there.
-    [(string, [stmt])] -> host -> state *)
+    Each unit is a module's name, its Pyking half and its declaration
+    half -- a module is up to two files, and both are needed here: the
+    declarations are what the host answers for.
+    [(string, [stmt], [stmt])] -> host -> state *)
 let run_modules ?(max_depth = max_call_depth) units host =
   (* One call-free table for the whole program, not one per module: a
      closure a module exports is called from the module that imported
@@ -1692,20 +1695,31 @@ let run_modules ?(max_depth = max_call_depth) units host =
      union is exactly right. *)
   let simple =
     List.fold_left
-      (fun simple (_, stmts) -> IntSet.union simple (call_free_symbols stmts))
+      (fun simple (_, stmts, _) -> IntSet.union simple (call_free_symbols stmts))
       IntSet.empty units
   in
   let runtime = { host; simple; max_depth } in
   let rec go units exports last =
     match units with
     | [] -> last
-    | (name, stmts) :: rest when Module.is_declaration stmts ->
-        (* An external module has no top level to run: what it exports
-           is the host's, and is bound here for the modules that import
-           it. *)
-        go rest (exports @ [ (name, external_exports stmts name host) ]) last
-    | (name, stmts) :: rest ->
-        let env = module_env stmts exports in
+    | (name, [], declarations) :: rest ->
+        (* Only a declaration half: there is no top level to run, and
+           what it exports is the host's, bound here for the modules
+           that import it. *)
+        go rest
+          (exports
+          @ [ (name, host_values (Module.external_signatures declarations) name host) ])
+          last
+    | (name, stmts, declarations) :: rest ->
+        (* A module's own declaration half is in scope in its Pyking
+           half, unqualified and private ones included: the two files
+           are one module. What it *exports* is the public ones only. *)
+        let env =
+          List.fold_left
+            (fun env (field, value) -> extend env field value)
+            (module_env stmts exports)
+            (host_values (Module.external_signatures declarations) name host)
+        in
         let state =
           run_entry
             {
@@ -1719,7 +1733,17 @@ let run_modules ?(max_depth = max_call_depth) units host =
             stmts
         in
         if failure state <> None then state
-        else go rest (exports @ [ (name, exported_values stmts state) ]) state
+        else
+          go rest
+            (exports
+            @ [
+                ( name,
+                  exported_values stmts state
+                  @ host_values
+                      (Module.public_declarations declarations)
+                      name host );
+              ])
+            state
   in
   go units []
     (run (initial_state ~max_depth [] host))

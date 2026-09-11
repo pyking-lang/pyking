@@ -130,6 +130,10 @@ let value_of_json text =
       | 'f' when literal i "false" -> (Interpreter.VBool false, i + 5)
       | '"' -> string_at (i + 1) (Buffer.create 16)
       | '[' -> array_at (skip (i + 1)) []
+      (* A tuple, which an array cannot say it is: stub.js writes one as
+         {"pyk_tuple":[...]} so that the marker a list carries in
+         JavaScript is not lost to JSON. *)
+      | '{' -> tuple_at (i + 1)
       | c when c = '-' || (c >= '0' && c <= '9') -> number_at i
       | _ -> fail ()
   and number_at i =
@@ -166,6 +170,20 @@ let value_of_json text =
       | c ->
           Buffer.add_char out c;
           string_at (i + 1) out
+  and tuple_at i =
+    let marker = "\"pyk_tuple\":" in
+    let i = skip i in
+    if not (literal i marker) then fail ()
+    else
+      let i = skip (i + String.length marker) in
+      if i >= length || text.[i] <> '[' then fail ()
+      else
+        match array_at (skip (i + 1)) [] with
+        | Interpreter.VList elements, j ->
+            let j = skip j in
+            if j < length && text.[j] = '}' then (Interpreter.VTuple elements, j + 1)
+            else fail ()
+        | _ -> fail ()
   and array_at i acc =
     let i = skip i in
     if i < length && text.[i] = ']' then (Interpreter.VList (List.rev acc), i + 1)
@@ -274,6 +292,7 @@ let lone_context () =
       main = true;
       separate = false;
       starts = [];
+      external_fields = [];
       sigmaps = [];
       externals = [];
     }
@@ -309,15 +328,19 @@ let run_program main =
         List.fold_left
           (fun (sigmaps, highest, checked) (unit : Module.t) ->
             if unit.is_external then
-              ( sigmaps @ [ (unit.name, Module.external_sigmap unit.stmts) ],
+              ( sigmaps @ [ (unit.name, Module.external_sigmap unit.declarations) ],
                 highest,
                 checked @ [ unit ] )
             else
+              let declared = Module.external_signatures unit.declarations in
               let tmap =
-                Typesystem.type_check unit.stmts (Module.sigmaps_for unit sigmaps)
+                Typesystem.type_check ~declared unit.stmts
+                  (Module.sigmaps_for unit sigmaps)
               in
               Analyses.analyze_mutability unit.stmts;
-              let sigmap = Module.make_sigmap unit.stmts tmap in
+              let sigmap =
+                Module.module_sigmap unit.stmts unit.declarations tmap
+              in
               let optimized, _ = Opt_tailcall.optimize unit.stmts tmap in
               (* Without this the nodes the pass built keep symbol 0,
                  and the interpreter's call-free table -- which is keyed
@@ -352,13 +375,12 @@ let run_program main =
         Interpreter.run_modules
           (List.map
              (fun (unit : Module.t) ->
+               (* The two halves stay apart: `apply_signatures` folds a
+                  signature onto the definition it describes and drops
+                  every one it cannot, which would empty a declaration. *)
                ( unit.name,
-                 (* A declaration file is signatures and nothing else,
-                    and `apply_signatures` folds a signature onto the
-                    definition it describes -- there being none here, it
-                    would leave the file empty. *)
-                 if unit.is_external then unit.stmts
-                 else Analyses.apply_signatures unit.stmts ))
+                 Analyses.apply_signatures unit.stmts,
+                 unit.declarations ))
              checked)
           host
       in
@@ -428,7 +450,11 @@ let compile_source source target name =
               ]
           else if List.mem (Targets.family_of target) [ Targets.Node; Targets.Web ]
           then
-            let js, renames = Target_js_core.translate_program program in
+            let js, renames =
+              Target_js_core.translate_program
+                ~external_fields:(lone_context ()).external_fields
+                ~externals:(lone_context ()).externals program
+            in
             let out = stem ^ Targets.extension target in
             let unit =
               Module.
@@ -437,6 +463,8 @@ let compile_source source target name =
                   path = name;
                   tokens = [];
                   stmts = program;
+                  declarations = [];
+                  declaration_path = None;
                   imports = [];
                   publics = [];
                   sigmap = None;

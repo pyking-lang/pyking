@@ -1,9 +1,9 @@
 // The Java implementation of the Pyking module declared in
 // external_all_mod1.external.pyk. Java requires the file name and the
 // public class to match, so this one file is capitalised where its
-// siblings are not: the generated program calls ExternalAllMod1.shout.
+// siblings are not: the generated program calls ExternalAllMod1External.shout.
 
-public final class ExternalAllMod1 {
+public final class ExternalAllMod1External {
 
     public static String shout(String s) {
         return s + "!";

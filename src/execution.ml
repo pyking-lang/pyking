@@ -144,7 +144,7 @@ let plan_for target path modules arguments =
         [
           (* `unix` is linked for every program on this target. Nothing
              the compiler *generates* needs it, but an external module's
-             implementation may -- lib/sys/sys_ext.ml does, since
+             implementation may -- lib/sys/sys_external.ml does, since
              nothing in OCaml's Stdlib enumerates the environment -- and
              it ships with the compiler, so there is no dependency to
              install. It is named before the modules that use it,

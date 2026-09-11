@@ -154,9 +154,14 @@ let source_of (unit : Module.t) = Filename.basename unit.path
 let prints js_program =
   uses (function JsRuntimeCall _ -> true | _ -> false) js_program
 
-(** A module's public names, in the order it made them public.
+(** The public names the *generated* file holds. A module is up to two
+    files, and the names its declaration half offers are the
+    implementation's -- an importer reaches those directly, so exporting
+    them here would name something this file never declared.
     Module.t -> [string] *)
-let publics_of (unit : Module.t) = List.map fst unit.publics
+let publics_of (unit : Module.t) =
+  let declared = List.map fst (Module.external_signatures unit.declarations) in
+  List.filter (fun name -> not (List.mem name declared)) (List.map fst unit.publics)
 
 let module_manifest = "package.json"
 let module_manifest_json = "{\n  \"type\": \"module\"\n}\n"

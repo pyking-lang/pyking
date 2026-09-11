@@ -137,7 +137,7 @@ let synopsis =
   \  --run                 build and run what was compiled, with the\n\
   \                        target's own commands\n\
   \  --                    everything after it is the program's own\n\
-  \                        arguments, read by sys.arguments()\n\
+  \                        arguments, read by sys.args()\n\
   \  --help                this, in full: the rest of the flags, what each\n\
   \                        command does, and what each target writes"
 
@@ -215,7 +215,7 @@ let usage_full () =
      choice. --run needs a file to run, so it cannot be combined with\n\
      --stdout.\n\n\
      Everything after `--` is passed to the program rather than read as a\n\
-     flag, which is what `sys.arguments()` answers with. It applies to a\n\
+     flag, which is what `sys.args()` answers with. It applies to a\n\
      program being *run*: `pyk prog.pyk -- a b`, or `pyk compile --run` for\n\
      a target whose host takes arguments. `pyk compile` on its own writes a\n\
      file and runs nothing, so it refuses them.\n\n\
@@ -411,7 +411,7 @@ let parse_args argv =
               positional rest)
     (* Everything after `--` belongs to the program being run, not to
        this compiler: it is how a Pyking program is given arguments of
-       its own (`sys.arguments`), and it stops a program's `-t` or
+       its own (`sys.args`), and it stops a program's `-t` or
        `--run` being read as ours. *)
     | "--" :: rest -> ({ options with arguments = rest }, List.rev positional)
     | argument :: rest -> go options (argument :: positional) rest
@@ -505,6 +505,7 @@ let fail_unsupported target (i : Lexer.info) message =
     error. Module.t -> [(string, Typesystem.sigmap)] -> bool
     -> typ IntMap.t *)
 let check_module (unit : Module.t) sigmaps experiment =
+  let declared = Module.external_signatures unit.declarations in
   (* Pyking is statically typed, so this is not a mode: a program that
      does not check is refused, whatever was asked for. The checker
      carries a scope of its own, so it reports an unbound name too, in
@@ -512,7 +513,7 @@ let check_module (unit : Module.t) sigmaps experiment =
   let tmap =
     try
       if experiment then Type_experiment.type_check unit.stmts
-      else Typesystem.type_check unit.stmts sigmaps
+      else Typesystem.type_check ~declared unit.stmts sigmaps
     with
     | Analyses.Analysis_error _ as e -> fail e
     | Typesystem.Type_error _ as e -> fail e
@@ -609,10 +610,11 @@ let front_end options =
       List.fold_left
         (fun (sigmaps, highest, checked) (unit : Module.t) ->
           if unit.is_external then
-            (* A declaration file holds signatures and nothing else, so
-               there is no body to check, nothing to infer and no tail
-               call to rewrite. What it exports is what it wrote down. *)
-            let sigmap = Module.external_sigmap unit.stmts in
+            (* A module that is only a declaration half holds signatures
+               and nothing else, so there is no body to check, nothing to
+               infer and no tail call to rewrite. What it exports is what
+               it wrote down. *)
+            let sigmap = Module.external_sigmap unit.declarations in
             ( sigmaps @ [ (unit.name, sigmap) ],
               highest,
               checked @ [ ({ unit with sigmap = Some sigmap }, None) ] )
@@ -622,7 +624,10 @@ let front_end options =
                 (Module.sigmaps_for unit sigmaps)
                 options.type_experiment
             in
-            let sigmap = Module.make_sigmap unit.stmts tmap in
+            (* Both halves: a module with a declaration beside it exports
+               what its Pyking half worked out *and* what that half
+               declared public. *)
+            let sigmap = Module.module_sigmap unit.stmts unit.declarations tmap in
             let stmts, tmap, highest =
               optimize_module unit.stmts tmap highest options
             in
@@ -663,7 +668,7 @@ let command_interpret checked arguments =
             when (not (Stdlib_host.implements name))
                  && List.exists
                       (fun ((other : Module.t), _) ->
-                        other.name = name && other.is_external)
+                        other.name = name && other.declarations <> [])
                       checked ->
               fail
                 (Module.Module_error
@@ -679,19 +684,18 @@ let command_interpret checked arguments =
   let units =
     List.map
       (fun ((unit : Module.t), _) ->
-        (* A declaration file is nothing but signatures, and they are its
-           content rather than annotations to fold onto a definition --
-           `apply_signatures` drops every one it does not move, which
-           would leave an external module with no exports at all. *)
+        (* The two halves stay apart: `apply_signatures` folds a
+           signature onto the definition it describes and drops every one
+           it cannot, which would empty a declaration. *)
         ( unit.name,
-          if unit.is_external then unit.stmts
-          else Analyses.apply_signatures unit.stmts ))
+          Analyses.apply_signatures unit.stmts,
+          unit.declarations ))
       checked
   in
   (* The program's own module is last, since the modules are in
-     dependency order, and its path is what `sys_ext.program` answers
+     dependency order, and its path is what `sys.prog_name` answers
      with; `arguments` is what followed `--`, which is what
-     `sys_ext.argument` answers from. *)
+     `sys.args` answers from. *)
   let program =
     match List.rev checked with
     | ((unit : Module.t), _) :: _ -> unit.path
@@ -756,7 +760,9 @@ let compile_unit (unit : Module.t) tmap target path options checked =
     let program = Analyses.apply_signatures unit.stmts in
     if Targets.family_of target = Targets.Python then
       ( Target_python.pprint_py_program
-          (Target_python.translate_program program
+          (Target_python.translate_program
+             ~external_fields:context.external_fields
+             ~externals:context.externals ~own:context.context_name program
              (Option.value tmap ~default:Syntax.IntMap.empty))
         ^ "\n",
         [] )
@@ -873,7 +879,7 @@ let compile_program checked target output_path options =
   let external_copies () =
     List.filter_map
       (fun ((unit : Module.t), _) ->
-        if not unit.is_external then None
+        if unit.declarations = [] then None
         else
           let source = external_implementation unit target in
           let destination =
@@ -894,14 +900,20 @@ let compile_program checked target output_path options =
         (* Every module's Pyking file, an external module's declaration
            included: the module system reads that to know what the
            module offers, and only the *implementation* is JavaScript. *)
-        (List.map (fun ((unit : Module.t), _) -> basename unit.path) checked)
+        (List.concat_map
+           (fun ((unit : Module.t), _) ->
+             List.map basename (Module.source_paths unit))
+           checked)
         (List.filter_map
            (fun ((unit : Module.t), _) ->
-             if unit.is_external then
+             (* Any module with a declaration half needs its
+                implementation on the page, whether or not it also has a
+                Pyking half. *)
+             if unit.declarations = [] then None
+             else
                Some
                  ( unit.name,
-                   Option.get (Module.implementation_name unit.name target) )
-             else None)
+                   Option.get (Module.implementation_name unit.name target) ))
            checked)
     in
     match output_path with
@@ -912,16 +924,19 @@ let compile_program checked target output_path options =
           let beside name = join (dirname output_path) name in
           ( [ (output_path, page) ]
             @ [ (beside Target_js_packaging.interpreter_module, interpreter_js ()) ]
-            @ List.filter_map
+            @ List.concat_map
                 (fun ((unit : Module.t), _) ->
                   (* The page reads the program's own Pyking, so every
                      module's source ships beside it. Compiling in the
                      directory the sources already sit in copies each
                      onto itself, which is nothing to do -- and must not
                      look like overwriting the input. *)
-                  let destination = beside (basename unit.path) in
-                  if absolute destination = absolute unit.path then None
-                  else Some (destination, Module.read_whole_file unit.path))
+                  List.filter_map
+                    (fun source ->
+                      let destination = beside (basename source) in
+                      if absolute destination = absolute source then None
+                      else Some (destination, Module.read_whole_file source))
+                    (Module.source_paths unit))
                 checked
             @ external_copies (),
             page )
@@ -938,9 +953,12 @@ let compile_program checked target output_path options =
         Target_js_packaging.package_program target
           (List.map
            (fun ((unit : Module.t), _) ->
+             let context = Module.context checked unit in
              let js_program, renames =
                try
                  Target_js_core.translate_program ~taken
+                   ~external_fields:context.external_fields
+                   ~externals:context.externals ~own:context.context_name
                    (Analyses.apply_signatures unit.stmts)
                with Target_js_core.Unsupported (info, message) ->
                  fail_unsupported target info message
@@ -1064,14 +1082,23 @@ let command_compile checked options =
       Execution.execute target
         (Option.get output_path)
         (List.filteri (fun i _ -> i < List.length checked - 1) checked
-        |> List.map (fun ((unit : Module.t), _) ->
-               match
-                 if unit.is_external then
-                   Module.implementation_name unit.name target
-                 else None
-               with
-               | Some file -> join directory file
-               | None -> join directory (default_name target unit.name)))
+        |> List.concat_map (fun ((unit : Module.t), _) ->
+               (* A module is up to two files, and the implementation
+                  comes first: the file generated for the module calls
+                  into it, and the targets that link a program are given
+                  their files in the order they must be built. *)
+               let implementation =
+                 if unit.declarations = [] then []
+                 else
+                   match Module.implementation_name unit.name target with
+                   | Some file -> [ join directory file ]
+                   | None -> []
+               in
+               let generated =
+                 if unit.is_external then []
+                 else [ join directory (default_name target unit.name) ]
+               in
+               implementation @ generated))
         options.arguments
     else 0)
 

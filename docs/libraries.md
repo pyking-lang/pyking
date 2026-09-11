@@ -8,71 +8,66 @@ that page's "What may cross the boundary".
 ## One folder per library
 
 A library is a folder under `lib/` named after the module a program
-imports, holding that module and anything it needs:
+imports. A module is up to two files and a library shows both shapes:
 
 ```
-lib/fs/     fs.external.pyk   fs.py  fs.js  fs.c  Fs.java  fs.ml
-lib/sys/    sys.pyk  sys_ext.external.pyk   sys_ext.py  sys_ext.js
-            sys_ext.ml
-lib/time/   time.pyk  time_ext.external.pyk   time_ext.py  time_ext.js
+lib/fs/     fs.external.pyk        fs_external.{py,js,c,ml}  FsExternal.java
+lib/sys/    sys.pyk  sys.external.pyk   sys_external.{py,js,ml}
+lib/time/   time.pyk  time.external.pyk  time_external.{py,js}
 ```
 
-`fs` is one module and nothing else: every type it names is a `String`
-or a `Bool`, and those cross an external boundary on every target, so
-there is nothing for a Pyking half to do. `sys` and `time` are two
-modules each — a declaration that reaches the host, and a Pyking module
-that is what a program imports. That split is the point, and the next
-section is why.
+`fs` is entirely the host's: every name it offers is declared, and there
+is no Pyking half because there would be nothing in it. `sys` and `time`
+have both halves -- what the host provides, and what is written in
+Pyking against it -- and a program importing either says `import sys`
+and reaches everything under that one name. See
+[modules.md](modules.md), "A module in two halves".
 
-A library's own imports are resolved *locally*: `time.pyk` says
-`import time_ext` and finds it beside itself, because the importing
-file's own directory is the first place a module is looked for.
+## What goes in which half
 
-## Keep the boundary scalar
+The rule is what the host has to answer and nothing more. A declaration
+is a call into the target's own source, so it belongs there when only
+the host can know the answer: the arguments the process was given, the
+contents of a file, what the clock says. Everything a *reader* sees is
+written in Pyking, so that every target agrees about it.
 
-`Int`, `String`, `Bool` and `()` cross an external boundary on every
-target. A tuple or a list does not: C and Java have no representation
-for either, and the declaration is refused there
-([modules.md](modules.md)). A library whose *declaration* answers with a
-list therefore reaches five targets instead of nine.
-
-So the declarations name scalars only, and everything list- or
-tuple-shaped is assembled on the Pyking side:
+`time` is the clearest case. `now` is declared, because only the host
+has a clock and a calendar; `format` is written in Pyking, so a date
+prints the same characters whichever target compiled it. And the six
+decomposers behind `of_instant` are declared **private** -- they are how
+`of_instant` is written, not something a program should call:
 
 ```pyking
-# sys_ext.external.pyk -- what the host provides
-public def argument_count : () -> Int
-public def argument : (Int) -> String
+# time.external.pyk
+public def now : () -> (Int, Int, Int, Int, Int, Int)
 
-# sys.pyk -- what a program imports
-public def arguments() -> [String]:
-    count = sys_ext.argument_count()
-    (_, collected) = loop i, out = 0, []:
-        if i >= count:
-            break
-        else:
-            (i + 1, out ++ [sys_ext.argument(i)])
-    return collected
+def year_of : (Int) -> Int
 ```
 
-The list is built by Pyking, so it never crosses the boundary at all.
+```pyking
+# time.pyk -- `year_of` is in scope here and nowhere else
+public def of_instant(t:Int) -> (Int, Int, Int, Int, Int, Int):
+    return (year_of(t), month_of(t), day_of(t), hour_of(t), minute_of(t), second_of(t))
+```
 
-What is in it comes from the invocation: everything after `--` on the
-command line for an interpreted program (`pyk prog.pyk -- a b`), and the
-host's own argv for a compiled one. The program's *name* is not among
-them — argument 0 differs on every host, so it is `sys.program()`
-instead, where a caller that wants it can ask.
+`sys` is the same shape the other way up: `args`, `env`, `prog_name` and
+`prog_path` are the host's and are declared directly, at the types a
+caller wants -- a `[String]`, a `[(String, String)]`. `env_get` and
+`env_has` are written in Pyking over `env()`, so every host answers them
+the same way rather than each reimplementing the same scan.
 
-The same reasoning fixes `time`'s shape. `time_ext.instant()` reads the
-clock once and answers with an `Int`; six `*_of` functions decompose
-one. Six separate clock readings could straddle a second and report a
-date that never happened, and splitting the reading from the
-decomposition makes that impossible — while also giving `time.format`
-an arbitrary instant to render rather than only the present.
+`now` is one call, which is what makes a reading atomic: six separate
+clock calls could straddle a second and report a date that never
+happened.
 
 Decomposition is **UTC** on every host. A local one would depend on the
-host's own zone database, which the five targets disagree about, and a
+host's own zone database, which the targets disagree about, and a
 library that formatted differently per target would be no use.
+
+A declared type has to be one the target can carry. A list or a tuple is
+refused on C and Java ([modules.md](modules.md), "What may cross the
+boundary"), which is why `sys` and `time` reach neither -- the shape a
+caller wants is worth more than two targets that could not carry it.
 
 ## Failure, where the language has none
 
@@ -80,17 +75,17 @@ Pyking has no exceptions, no option type and no result type, so a
 library cannot report that something went wrong. Two rules follow:
 
 - **Make the failure avoidable.** `fs.exists(name)` and
-  `sys.environment_has(name)` exist so a program can ask before it acts.
+  `sys.env_has(name)` exist so a program can ask before it acts.
 - **Everything else is undefined.** Reading a file that is not there, or
   writing where the host will not allow it, has no defined answer.
-  Each implementation returns something harmless — the empty string, or
-  nothing at all — but the *interpreter* would raise a clean Pyking
+  Each implementation returns something harmless -- the empty string, or
+  nothing at all -- but the *interpreter* would raise a clean Pyking
   runtime error where a compiled target dies host-style, so the two do
   not agree and neither is promised.
 
-`sys.environment_get` answers `""` for a variable that is not set, which
-is why `environment_has` is separate: it is the only way to tell an
-empty variable from a missing one.
+`sys.env_get` answers `""` for a variable that is not set, which is why
+`env_has` is separate: it is the only way to tell an empty variable from
+a missing one.
 
 ## The search path
 
@@ -170,14 +165,17 @@ half may.
 failed would be worse than an import that was never offered. `sys` is
 the same for arguments and an environment.
 
-`sys` and `time` do not reach C or Java because they answer with a list
-and a tuple, which those targets cannot represent — not at the boundary,
-where the declarations are scalar, but in the Pyking module itself.
+`sys` and `time` do not reach C or Java for two reasons at once: they
+answer with a list and a tuple, which neither target can carry across a
+boundary, and neither backend compiles a module in two halves yet --
+each refuses one with a message rather than emitting code that will not
+link.
+
 `time` does not reach `ocaml5.5` because `format` parses its format
-string with a text pattern, which that backend refuses. `sys` does
-reach it, but only because every program on that target is linked with
-`unix`: nothing in OCaml's `Stdlib` enumerates the environment, so
-`sys_ext.ml` needs it. See [target_ocaml.md](target_ocaml.md),
+string with a text pattern, which that backend refuses. `sys` does reach
+it, but only because every program on that target is linked with `unix`:
+nothing in OCaml's `Stdlib` enumerates the environment, so
+`sys_external.ml` needs it. See [target_ocaml.md](target_ocaml.md),
 "Linking unix".
 
 Two gaps that used to be here were compiler defects rather than
@@ -199,8 +197,9 @@ module and no library at all. Both are fixed:
 
 ## Testing a library
 
-A case names the library modules it needs under `libs`, in dependency
-order:
+A case names the libraries it needs under `libs`. Each expands to the
+files that library contributes, implementation first -- a module is up
+to two files and the generated half calls into the other:
 
 ```toml
 [[cases]]
@@ -209,8 +208,8 @@ libs = ["fs"]
 targets = ["python14", "node24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 ```
 
-`libs` is separate from `modules` because a library module is not a file
-in `tests/`: the compiler finds it on its own search path, and the
+`libs` is separate from `modules` because a library is not a file in
+`tests/`: the compiler finds it on its own search path, and the
 harness's "listed but does not exist" check would otherwise complain.
 The libraries come first in the order the linking targets are given
 their files, since a library never imports a module from `tests/`.
@@ -223,8 +222,9 @@ Three things make a library testable at all:
   reading the environment has one variable pinned to compare against.
   The environment as a whole differs per machine and can never be an
   expected output.
-- **Nothing host-specific is compared as a value.** `sys.program()` is a
-  path the host chooses, so only that it says *something* is checked,
+- **Nothing host-specific is compared as a value.** `sys.prog_name()` and
+  `sys.prog_path()` are what the host was asked to run and where it
+  sits, so only that each says *something* is checked,
   and `time` is rendered from a fixed instant rather than from the
   clock.
 - **A case may pass the program arguments**, with an `arguments` key,
@@ -234,7 +234,7 @@ Three things make a library testable at all:
   for all of them. `tests/lib_sys_arguments_passed.pyk` is that case,
   and one of its arguments holds a space, which is what checks the whole
   thing arrives as one argument rather than two. Without a key a case
-  passes none, so `sys.arguments()` is `[]` -- the same answer on every
+  passes none, so `sys.args()` is `[]` -- the same answer on every
   host.
 
 `tests/test_libpath.py` is a third suite, beside `test_script.py` and

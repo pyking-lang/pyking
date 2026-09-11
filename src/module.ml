@@ -84,11 +84,38 @@ type t = {
   path : string;
   tokens : Lexer.token list;
   stmts : stmt list;
+  declarations : stmt list;
+  declaration_path : string option;
   imports : string list;
   publics : (string * Lexer.info) list;
   sigmap : (string * typ) list option;
   is_external : bool;
 }
+
+(** Every file a module is written in, the declaration half first: a
+    module is up to two files, and a caller that ships or copies a
+    module's source has both to account for.
+    t -> [string] *)
+let source_paths unit =
+  (match unit.declaration_path with Some path -> [ path ] | None -> [])
+  @ if unit.stmts = [] && unit.declarations <> [] then [] else [ unit.path ]
+
+(** The module a qualified name is reached through. A module is up to
+    two files, and a name the target's own source provides lives in the
+    implementation rather than in the file this compiler generates -- so
+    `foo.g1` reaches `foo_external` where `g1` is declared, and `foo`
+    where it is written in Pyking. Every backend asks this rather than
+    deciding for itself, which is what keeps one module one module from
+    the import side (docs/modules.md, "A module in two halves").
+
+    C is the one target that needs no such distinction: a name there is
+    `<module>_<field>` whichever half provides it, and both halves are
+    linked into one program.
+    [(string, [string])] -> string -> string -> string *)
+let reached_module external_fields module_ field =
+  match List.assoc_opt module_ external_fields with
+  | Some fields when List.mem field fields -> module_ ^ "_external"
+  | _ -> module_
 
 (** What a backend needs to know about the module it is compiling beyond
     its statements -- everything that is true of it only as part of a
@@ -108,6 +135,7 @@ type context = {
   separate : bool;
   starts : string list;
   sigmaps : (string * (string * typ) list) list;
+  external_fields : (string * string list) list;
   externals : string list;
 }
 
@@ -211,6 +239,12 @@ type lib_entry = { lib_directory : string; lib_origin : string }
     library, named after the module. string -> string -> string *)
 let library_directory directory name = join directory name
 
+(** Where a module's files are. At least one is Some: a module written
+    in Pyking has `pyking`, one declared for a target has `declared`,
+    and one written in Pyking against a target's own source has both --
+    they are one module, not two. *)
+type found = { pyking : string option; declared : string option }
+
 (** Both files a module name could be in one directory, each with
     whether it is there. sources -> string -> string ->
     (string, bool, string, bool) *)
@@ -218,14 +252,6 @@ let candidates from directory name =
   let declared = external_module_path directory name in
   let plain = module_path directory name in
   (declared, from.exists declared, plain, from.exists plain)
-
-(** The refusal for a name that is both written in Pyking and declared
-    for a target. string -> string -> string -> string *)
-let declared_twice name declared plain =
-  Printf.sprintf
-    "module '%s' is declared twice: '%s' and '%s'. A module is either \
-     written in Pyking or implemented for a target, not both"
-    name declared plain
 
 (** The refusal for a name no level of the search found, naming every
     path tried in the order it was tried and where each came from. A
@@ -240,17 +266,21 @@ let not_found name tried =
     (String.concat ", "
        (List.map (fun (path, origin) -> Printf.sprintf "'%s' (%s)" path origin) tried))
 
-(** The file a module name means and whether it declares an external
-    module. The importing file's own directory is tried first, flat,
-    then each library directory in `libs` in order; a level with both
-    files is refused, since which of the two was meant would be a
-    guess. Raises Module_error naming every path tried where an import
-    asked for a module nothing has. The program's own file is not
-    resolved this way -- it was named on the command line -- so with no
-    import to blame the plain path is answered and reading it reports
-    the failure.
-    sources -> [lib_entry] -> string -> string -> info option
-    -> (string, bool) *)
+(** The files one module name means. A module is written in Pyking, or
+    declared for a target, or **both**: `foo.pyk` and `foo.external.pyk`
+    are one module `foo`, the second saying what the target's own source
+    provides and the first written in Pyking against it (see
+    docs/modules.md, "A module in two halves").
+
+    The importing file's own directory is tried first, flat, then each
+    library directory in `libs` in order, and the first level holding
+    *either* file answers with whatever it holds -- so the two halves
+    always come from one place and a library cannot be half shadowed.
+    Raises Module_error naming every path tried where an import asked
+    for a module nothing has. The program's own file is not resolved
+    this way -- it was named on the command line -- so with no import to
+    blame the plain path is answered and reading it reports the failure.
+    sources -> [lib_entry] -> string -> string -> info option -> found *)
 let module_file ?(from = disk) ?(libs = []) directory name info =
   let levels =
     (directory, "local")
@@ -265,26 +295,21 @@ let module_file ?(from = disk) ?(libs = []) directory name info =
     | (where, origin) :: rest -> (
         let declared, has_declared, plain, has_plain = candidates from where name in
         match (has_declared, has_plain) with
-        | true, true ->
-            let at =
-              match info with
-              | Some i -> i
-              (* The program's own file: no import asked for it, so the
-                 collision is reported against the file itself. *)
-              | None ->
-                  { Lexer.file = declared; row1 = 1; col1 = 0; row2 = 1; col2 = 0 }
-            in
-            raise (Module_error (at, declared_twice name declared plain))
-        | true, false -> (tried, Some (declared, true))
-        | false, true -> (tried, Some (plain, false))
         | false, false ->
-            search (tried @ [ (declared, origin); (plain, origin) ]) rest)
+            search (tried @ [ (declared, origin); (plain, origin) ]) rest
+        | _ ->
+            ( tried,
+              Some
+                {
+                  pyking = (if has_plain then Some plain else None);
+                  declared = (if has_declared then Some declared else None);
+                } ))
   in
   match search [] levels with
   | _, Some found -> found
   | tried, None -> (
       match info with
-      | None -> (module_path directory name, false)
+      | None -> { pyking = Some (module_path directory name); declared = None }
       | Some i -> raise (Module_error (i, not_found name tried)))
 
 (* --- reading one module --- *)
@@ -316,11 +341,48 @@ let read_file ?(from = disk) path info =
     path;
     tokens;
     stmts = Parser.parse tokens;
+    declarations = [];
+    declaration_path = None;
     imports = [];
     publics = [];
     sigmap = None;
     is_external = is_external_path path;
   }
+
+(** One module from the files it is in: the Pyking half in `stmts`, the
+    declaration half in `declarations`, and `is_external` saying there
+    is no Pyking half at all. The two are kept apart rather than joined
+    into one list because a pass over a module's statements must not see
+    a signature it would move or drop -- `Analyses.apply_signatures`
+    deletes every signature it does not fold onto a definition, which
+    would empty a declaration.
+    sources -> found -> info option -> t *)
+let read_module ?(from = disk) found info =
+  let half path = read_file ~from path info in
+  match (found.pyking, found.declared) with
+  | None, None -> invalid_arg "read_module: a module with no files"
+  | Some path, None -> half path
+  | None, Some path ->
+      let unit = half path in
+      {
+        unit with
+        stmts = [];
+        declarations = unit.stmts;
+        declaration_path = Some path;
+        is_external = true;
+      }
+  | Some path, Some declared ->
+      let unit = half path in
+      let other = half declared in
+      (* The Pyking half is the module's own file: its path is what an
+         error about the module names, and its tokens are what
+         `--tokens` prints. *)
+      {
+        unit with
+        declarations = other.stmts;
+        declaration_path = Some declared;
+        is_external = false;
+      }
 
 (** The modules a program imports, in source order and without repeats
     -- two imports of one module are one dependency. [stmt] -> [string] *)
@@ -475,34 +537,24 @@ let check_boundary_type type_ name info =
   in
   walk false type_
 
-(** Whether a statement list is a declaration file's -- signatures and
-    nothing else, which is what an external module holds. Asked of the
-    statements rather than the file name, so a caller that has only the
-    program (the interpreter) can tell. [stmt] -> bool *)
-let is_declaration stmts =
-  stmts <> []
-  && List.for_all
-       (fun statement ->
-         match statement with SFunctionSig _ -> true | _ -> false)
-       stmts
+(** Refuses anything but a signature in a declaration file: a body there
+    would have to be compiled into the very file the target's own
+    implementation already occupies.
 
-(** Refuses anything but a public signature in a declaration file: a
-    body there would have to be compiled into the very file the target's
-    own implementation already occupies, and a private signature names
-    something nothing could reach. [stmt] -> string -> () *)
+    A signature may be private. It is then reachable from the module's
+    own Pyking half and from nowhere else -- which is how a library
+    keeps a host function it needs but does not offer (see
+    docs/modules.md, "A module in two halves"). The boundary rule
+    applies to a private signature exactly as to a public one, because
+    what crosses the boundary is the *call*, and the Pyking half makes
+    it. [stmt] -> string -> () *)
 let check_declaration stmts path =
+  ignore path;
   List.iter
     (fun statement ->
       match statement with
-      | SFunctionSig (info, name, type_, _, true) ->
+      | SFunctionSig (info, name, type_, _, _) ->
           check_boundary_type type_ name info
-      | SFunctionSig (info, name, _, _, false) ->
-          raise
-            (Module_error
-               ( info,
-                 Printf.sprintf
-                   "'%s' is declared in '%s' but not marked 'public'. An                     external module is reached only through what it exports,                     so a signature that is not public names nothing"
-                   name path ))
       | statement ->
           raise
             (Module_error
@@ -544,6 +596,7 @@ let class_name stem =
     nothing is renamed. None for a target that cannot reach one.
     string -> string -> string option *)
 let implementation_name name target =
+  let name = name ^ "_external" in
   match Targets.family_of target with
   | Targets.Python -> Some (name ^ ".py")
   (* Every JavaScript target imports a module as `./<name>.js`, so that
@@ -571,13 +624,15 @@ let implementation_path directory name target info =
   | Some file ->
       (* Where the implementation is *read* from, which is not always
          what it is called in the output. A browser may need different
-         code from node, and `<name>.web.js` is where that goes -- but
-         most modules need none, so a plain `<name>.js` serves both.
-         Whichever is found is copied out as `<name>.js`, which is what
-         every generated import names. *)
+         code from node, and `<name>_external.web.js` is where that
+         goes -- but most modules need none, so a plain
+         `<name>_external.js` serves both. Whichever is found is copied
+         out as `<name>_external.js`, which is what every generated
+         import names. *)
       let browser =
         match Targets.family_of target with
-        | Targets.Web | Targets.Iweb -> [ join directory (name ^ ".web.js") ]
+        | Targets.Web | Targets.Iweb ->
+            [ join directory (name ^ "_external.web.js") ]
         | _ -> []
       in
       let candidates = browser @ [ join directory file ] in
@@ -728,20 +783,24 @@ let cycle_message name stack =
     followed, which is what a cycle is reported from.
     string -> string -> info option -> [(string, t)] -> [string] ->
     [(string, info option)] -> ([(string, t)], [string]) *)
-let rec visit ?(from = disk) ?(libs = []) name path info parsed order stack =
+let rec visit ?(from = disk) ?(libs = []) name found info parsed order stack =
   if List.exists (fun (held, _) -> held = name) stack then
     (* Only a recursive call has a non-empty stack, and every one of
        those carries the import that asked for the module. *)
     raise (Module_error (Option.get info, cycle_message name stack))
   else if List.mem_assoc name parsed then (parsed, order)
   else
-    let module_ = read_file ~from path info in
-    if module_.is_external then check_declaration module_.stmts module_.path;
+    let module_ = read_module ~from found info in
+    if module_.declarations <> [] then
+      check_declaration module_.declarations
+        (Option.value found.declared ~default:module_.path);
     let module_ =
       {
         module_ with
         imports = imported_modules module_.stmts;
-        publics = check_publics module_.stmts;
+        (* Over both halves: `public` says what the *module* offers, and
+           a module is its two files together. *)
+        publics = check_publics (module_.stmts @ module_.declarations);
       }
     in
     let parsed = parsed @ [ (name, module_) ] in
@@ -749,18 +808,18 @@ let rec visit ?(from = disk) ?(libs = []) name path info parsed order stack =
        made absolute: a module is beside the file that imports it (see
        docs/modules.md, "Finding a module"), and an error naming it
        should read the way the command that found it did. *)
-    let directory = dirname path in
+    let directory = dirname module_.path in
     let parsed, order =
       List.fold_left
         (fun (parsed, order) statement ->
           match statement with
           | SImport (import_info, imported_name, _, _, _, _) ->
-              let imported_path, _ =
+              let imported =
                 module_file ~from ~libs directory imported_name
                   (Some import_info)
               in
-              visit ~from ~libs imported_name imported_path (Some import_info)
-                parsed order
+              visit ~from ~libs imported_name imported (Some import_info) parsed
+                order
                 (stack @ [ (name, info) ])
           | _ -> (parsed, order))
         (parsed, order) module_.stmts
@@ -775,12 +834,16 @@ let load ?(from = disk) ?(libs = []) path =
   (* The program's own file is named on the command line rather than
      resolved, but a name with both files is still a name meaning two
      things, so it is refused here too. *)
-  let path, _ =
-    if is_external_path path then (path, true)
+  (* The program's own file is named on the command line, so it is taken
+     as given -- but a `foo.pyk` named there still has its `foo.external.pyk`
+     half beside it, which is what makes the two one module however the
+     module was reached. *)
+  let found =
+    if is_external_path path then { pyking = None; declared = Some path }
     else module_file ~from ~libs (dirname path) (module_name path) None
   in
   let parsed, order =
-    visit ~from ~libs (module_name path) path None [] [] []
+    visit ~from ~libs (module_name path) found None [] [] []
   in
   let _, _, modules =
     List.fold_left
@@ -823,6 +886,17 @@ let context units unit =
       List.map
         (fun (other, _) -> (other.name, Option.value other.sigmap ~default:[]))
         units;
+    (* Which of each module's names the target's own source provides,
+       rather than the file this compiler generates for it. A backend
+       rewrites a qualified name to reach the implementation where the
+       name is in this list -- see docs/modules.md, "A module in two
+       halves". *)
+    external_fields =
+      List.map
+        (fun ((other : t), _) ->
+          ( other.name,
+            List.map fst (external_signatures other.declarations) ))
+        units;
     externals =
       List.filter_map
         (fun ((other : t), _) -> if other.is_external then Some other.name else None)
@@ -844,10 +918,24 @@ let make_sigmap stmts tmap =
       else None)
     (bound_at_top_level stmts)
 
-(** An external module's exported names and their types, which are the
-    ones its declaration wrote: nothing was checked, because there is no
-    body here to check. [stmt] -> [(string, typ)] *)
-let external_sigmap stmts = external_signatures stmts
+(** A declaration half's *public* names and their types: what another
+    module sees of it. A private declaration is reachable from this
+    module's own Pyking half and from nowhere else.
+    [stmt] -> [(string, typ)] *)
+let public_declarations declarations =
+  List.filter_map
+    (function
+      | SFunctionSig (_, name, type_, _, true) -> Some (name, type_) | _ -> None)
+    declarations
+
+let external_sigmap declarations = public_declarations declarations
+
+(** What one module exports, both halves together: the public names of
+    its Pyking half at the types the checker worked out, and the public
+    names of its declaration half at the types it wrote down.
+    [stmt] -> [stmt] -> typ IntMap.t -> [(string, typ)] *)
+let module_sigmap stmts declarations tmap =
+  make_sigmap stmts tmap @ public_declarations declarations
 
 (** The signatures needed to check one module: its own imports', out of
     every module checked so far.

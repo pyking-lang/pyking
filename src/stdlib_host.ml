@@ -21,7 +21,7 @@
 (** The external modules implemented here, in the order the libraries
     are documented. Each is the declaration half of one library under
     lib/. [string] *)
-let modules = [ "fs"; "sys_ext"; "time_ext" ]
+let modules = [ "fs"; "sys"; "time" ]
 
 (** Whether an external module is one this host can answer for.
     string -> bool *)
@@ -66,14 +66,6 @@ let variables =
                  String.sub entry (at + 1) (String.length entry - at - 1) ))
        (Array.to_list (Unix.environment ())))
 
-(** The nth environment variable, or ("", "") past the end -- which
-    nothing asks for, since a caller reads `environment_count` first.
-    int -> (string, string) *)
-let variable index =
-  let held = Lazy.force variables in
-  if index >= 0 && index < List.length held then List.nth held index
-  else ("", "")
-
 (* --- the filesystem ---
    Reading a file that is not there is undefined
    (lib/fs/fs.external.pyk), and the empty string is this host's version
@@ -96,17 +88,24 @@ let file_exists path =
 
 (* --- the clock ---
    UTC on every host, which is what lets one program print the same
-   characters whichever target ran it (lib/time/time_ext.external.pyk).
+   characters whichever target ran it (lib/time/time.external.pyk).
    `gmtime`, never `localtime`. *)
 
 let parts instant = Unix.gmtime (float_of_int instant)
+
+(** The absolute directory a path names a file in, which is what
+    `sys.prog_path` answers with. string -> string *)
+let directory_of path =
+  let directory = Filename.dirname path in
+  if Filename.is_relative directory then
+    Filename.concat (Sys.getcwd ()) directory
+  else directory
 
 (** The implementations, as the interpreter's own record. `program` is
     the file `pyk` was asked to run, and `arguments` what followed `--`
     on the command line -- the program's own, never this compiler's.
     string -> [string] -> Interpreter.externals *)
 let externals program arguments =
-  let count = List.length arguments in
   let string_arg module_ field args =
     match args with
     | [ Interpreter.VString text ] -> text
@@ -128,6 +127,8 @@ let externals program arguments =
                field));
       call =
         (fun module_ field args ->
+          (* A call with no arguments arrives with none. *)
+          let none = args = [] || args = [ VUnit ] in
           match (module_, field) with
           | "fs", "read_text" ->
               VString (read_text (string_arg module_ field args))
@@ -139,33 +140,39 @@ let externals program arguments =
               | _ -> unknown module_ field args)
           | "fs", "exists" ->
               VBool (file_exists (string_arg module_ field args))
-          | "sys_ext", "argument_count" -> VInt count
-          | "sys_ext", "argument" ->
-              let index = int_arg module_ field args in
-              (* Past the end answers "", which nothing asks for: a
-                 caller reads `argument_count` first. *)
-              VString
-                (if index >= 0 && index < count then List.nth arguments index
-                 else "")
-          | "sys_ext", "program" -> VString program
-          | "sys_ext", "environment_count" ->
-              VInt (List.length (Lazy.force variables))
-          | "sys_ext", "environment_name" ->
-              VString (fst (variable (int_arg module_ field args)))
-          | "sys_ext", "environment_value" ->
-              VString (snd (variable (int_arg module_ field args)))
-          | "time_ext", "instant" -> VInt (int_of_float (Unix.time ()))
-          | "time_ext", "year_of" ->
+          | "sys", "args" when none ->
+              VList (List.map (fun a -> VString a) arguments)
+          | "sys", "env" when none ->
+              VList
+                (List.map
+                   (fun (name, value) -> VTuple [ VString name; VString value ])
+                   (Lazy.force variables))
+          | "sys", "prog_name" when none -> VString (Filename.basename program)
+          | "sys", "prog_path" when none ->
+              VString (directory_of program)
+          | "time", "instant" when none -> VInt (int_of_float (Unix.time ()))
+          | "time", "now" when none ->
+              let at = parts (int_of_float (Unix.time ())) in
+              VTuple
+                [
+                  VInt (at.tm_year + 1900);
+                  VInt (at.tm_mon + 1);
+                  VInt at.tm_mday;
+                  VInt at.tm_hour;
+                  VInt at.tm_min;
+                  VInt at.tm_sec;
+                ]
+          | "time", "year_of" ->
               VInt ((parts (int_arg module_ field args)).tm_year + 1900)
-          | "time_ext", "month_of" ->
+          | "time", "month_of" ->
               VInt ((parts (int_arg module_ field args)).tm_mon + 1)
-          | "time_ext", "day_of" ->
+          | "time", "day_of" ->
               VInt (parts (int_arg module_ field args)).tm_mday
-          | "time_ext", "hour_of" ->
+          | "time", "hour_of" ->
               VInt (parts (int_arg module_ field args)).tm_hour
-          | "time_ext", "minute_of" ->
+          | "time", "minute_of" ->
               VInt (parts (int_arg module_ field args)).tm_min
-          | "time_ext", "second_of" ->
+          | "time", "second_of" ->
               VInt (parts (int_arg module_ field args)).tm_sec
           | _ -> unknown module_ field args);
     }

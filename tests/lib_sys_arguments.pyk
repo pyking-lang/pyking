@@ -1,9 +1,10 @@
 # The sys library: the program's own arguments, and its name.
 #
-# Neither is compared as a value. `arguments` is empty because nothing
-# passes any, which is the same answer on every host; `program` is a
-# path the host chooses -- a script name, an absolute path, a binary --
-# so only that it says *something* is portable.
+# None is compared as a value. `args` is empty because nothing passes
+# any, which is the same answer on every host; `prog_name` is the file
+# the host was asked to run and `prog_path` the directory it sits in,
+# and both differ on every target -- so only that each says *something*
+# is portable.
 #
 # Emptiness is tested with `==` rather than `len`, which the JavaScript
 # backends have no translation for yet: a test should not narrow the
@@ -11,5 +12,6 @@
 
 import sys
 
-print(sys.arguments())
-print(sys.program() == "")
+print(sys.args())
+print(sys.prog_name() == "")
+print(sys.prog_path() == "")

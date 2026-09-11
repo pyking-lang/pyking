@@ -27,7 +27,12 @@ type pyprogram
     so needs formatting rather than printing as it stands.
     [stmt] -> typ IntMap.t -> pyprogram *)
 val translate_program :
-  Syntax.stmt list -> Syntax.typ Syntax.IntMap.t -> pyprogram
+  ?external_fields:(string * string list) list ->
+  ?externals:string list ->
+  ?own:string ->
+  Syntax.stmt list ->
+  Syntax.typ Syntax.IntMap.t ->
+  pyprogram
 
 (** A translated program as Python source text. pyprogram -> string *)
 val pprint_py_program : pyprogram -> string

@@ -41,16 +41,20 @@
       read_whole_file path -- the contents of a file.
       context units unit -- what a backend needs to know about one
         module of a program beyond its statements.
+      reached_module external_fields module field -- the module a
+        qualified name is reached through.
       make_sigmap stmts tmap -- a module's exported names and their types.
-      external_sigmap stmts -- the same, for an external module, which
-        has no body to work them out from.
+      external_sigmap declarations -- what a declaration half offers
+        another module: its public names and their declared types.
+      module_sigmap stmts declarations tmap -- what one module exports,
+        both halves together.
+      public_declarations declarations -- a declaration half's public
+        names and their types.
       sigmaps_for module sigmaps -- the signatures one module needs.
       public_names stmts -- the names a module exports, unchecked.
       check_publics stmts -- the names a module exports, checked.
       external_signatures stmts -- an external module's declared names
         and their types.
-      is_declaration stmts -- whether these statements declare an
-        external module rather than define an ordinary one.
       external_extension -- what an external module's declaration file
         is called.
       class_name stem -- the Java class (and file) name for a stem.
@@ -73,14 +77,23 @@ exception Module_error of Lexer.info * string
     statements; the modules it imports, in source order and without
     repeats; the names it exports, and where each was made public; and
     each of those names with the type the checker gave it -- filled in
-    after the module is checked, and None until then; and whether it is
-    an external module, declared here and implemented in the target's
-    own language. *)
+    after the module is checked, and None until then.
+
+    A module is up to *two* files. `stmts` is its Pyking half and
+    `declarations` the signatures of its external half, the names a
+    target's own source provides; either may be empty, and they are kept
+    apart because a pass over a module's statements must not see a
+    signature it would move or drop. `is_external` says there is no
+    Pyking half at all, which is what a backend asks when deciding
+    whether a file is generated for this module. See docs/modules.md,
+    "A module in two halves". *)
 type t = {
   name : string;
   path : string;
   tokens : Lexer.token list;
   stmts : stmt list;
+  declarations : stmt list;
+  declaration_path : string option;
   imports : string list;
   publics : (string * Lexer.info) list;
   sigmap : (string * typ) list option;
@@ -105,8 +118,27 @@ type context = {
   separate : bool;
   starts : string list;
   sigmaps : (string * (string * typ) list) list;
+  external_fields : (string * string list) list;
   externals : string list;
 }
+
+(** Every file a module is written in, the declaration half first: a
+    module is up to two files, and a caller that ships or copies a
+    module's source has both to account for. t -> [string] *)
+val source_paths : t -> string list
+
+(** The module a qualified name is reached through. A module is up to
+    two files, and a name the target's own source provides lives in the
+    implementation rather than in the file this compiler generates -- so
+    `foo.g1` reaches `foo_external` where `g1` is declared, and `foo`
+    where it is written in Pyking. Every backend asks this rather than
+    deciding for itself, which is what keeps one module one module from
+    the import side.
+
+    C needs no such distinction: a name there is `<module>_<field>`
+    whichever half provides it, and both are linked into one program.
+    [(string, [string])] -> string -> string -> string *)
+val reached_module : (string * string list) list -> string -> string -> string
 
 (** Where a program's files come from. The compiler reads a directory;
     the browser has none and is handed the sources instead, which is
@@ -192,6 +224,18 @@ val make_sigmap :
     [stmt] -> [(string, typ)] *)
 val external_sigmap : stmt list -> (string * typ) list
 
+(** A declaration half's *public* names and their types: what another
+    module sees of it. A private declaration is reachable from this
+    module's own Pyking half and from nowhere else.
+    [stmt] -> [(string, typ)] *)
+val public_declarations : stmt list -> (string * typ) list
+
+(** What one module exports, both halves together: the public names of
+    its Pyking half at the types the checker worked out, and the public
+    names of its declaration half at the types it wrote down.
+    [stmt] -> [stmt] -> typ IntMap.t -> [(string, typ)] *)
+val module_sigmap : stmt list -> stmt list -> typ IntMap.t -> (string * typ) list
+
 (** An external module's declared names and their types.
     [stmt] -> [(string, typ)] *)
 val external_signatures : stmt list -> (string * typ) list
@@ -200,10 +244,6 @@ val external_signatures : stmt list -> (string * typ) list
     imports, and nothing else. t -> [(string, 'a)] -> [(string, 'a)] *)
 val sigmaps_for : t -> (string * 'a) list -> (string * 'a) list
 
-(** Whether these statements declare an external module -- signatures
-    and nothing else -- rather than define an ordinary one.
-    [stmt] -> bool *)
-val is_declaration : stmt list -> bool
 
 (* --- what a backend is told --- *)
 

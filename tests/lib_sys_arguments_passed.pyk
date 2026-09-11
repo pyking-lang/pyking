@@ -2,7 +2,7 @@
 #
 # The manifest's `arguments` key is what passes them, and it is the only
 # place a run's arguments can be written down -- so this is the one case
-# that exercises `sys.arguments()` with anything in it. Each target gets
+# that exercises `sys.args()` with anything in it. Each target gets
 # them its own way: `--` on the command line for the interpreter, and
 # the host's own way of naming a program's arguments for the rest.
 #
@@ -13,4 +13,4 @@
 
 import sys
 
-print(sys.arguments())
+print(sys.args())

@@ -54,10 +54,28 @@ function pyk_external(module_, field, argsJson) {
   // An empty argument list means "this is a value, not a call": OCaml
   // passes a string, so the empty one is the sentinel.
   if (argsJson === "") {
-    return JSON.stringify(value === undefined ? null : value);
+    return pyk_encode(value);
   }
   var result = value.apply(null, JSON.parse(argsJson));
-  return JSON.stringify(result === undefined ? null : result);
+  return pyk_encode(result);
+}
+
+// A Pyking list and a Pyking tuple are both arrays here, told apart by
+// the `pykList` marker a list carries (docs/modules.md, "What may cross
+// the boundary"). `JSON.stringify` drops that marker, so a tuple would
+// reach the interpreter as a list -- this keeps the two apart by
+// writing a tuple as an object the reader knows.
+function pyk_encode(value) {
+  if (Array.isArray(value)) {
+    var parts = [];
+    for (var i = 0; i < value.length; i += 1) {
+      parts.push(pyk_encode(value[i]));
+    }
+    return value.pykList
+      ? "[" + parts.join(",") + "]"
+      : '{"pyk_tuple":[' + parts.join(",") + "]}";
+  }
+  return JSON.stringify(value === undefined ? null : value);
 }
 
 // The program's own files, for the `iweb` target and for a playground

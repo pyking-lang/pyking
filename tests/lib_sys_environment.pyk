@@ -12,10 +12,10 @@
 
 import sys
 
-print(sys.environment_get("PYKING_TEST_ENV"))
-print(sys.environment_has("PYKING_TEST_ENV"))
-print(sys.environment_has("PYKING_TEST_NOT_SET"))
-match sys.environment():
+print(sys.env_get("PYKING_TEST_ENV"))
+print(sys.env_has("PYKING_TEST_ENV"))
+print(sys.env_has("PYKING_TEST_NOT_SET"))
+match sys.env():
     case []:
         print(false)
     case _:

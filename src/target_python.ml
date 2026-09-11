@@ -435,6 +435,18 @@ type gen = {
   format_def : pystmt option;
   divide_def : pystmt option;
   import_def : pystmt option;
+  (* Which of each module's names the target's own source provides, and
+     which modules have no Pyking half at all. A qualified name reaches
+     the implementation where the field is one of the first. *)
+  external_fields : (string * string list) list;
+  externals : string list;
+  (* This module's own name, and the names it declared rather than
+     defined -- the host's half of it. *)
+  own_module : string;
+  own_external : string list;
+  (* What each name a module was imported under actually names, so that
+     a qualified name can be asked which half provides it. *)
+  module_aliases : (string * string) list;
 }
 
 (** Every identifier used anywhere in a program: what a generated name
@@ -1746,11 +1758,31 @@ let rec translate_expr e scope gen =
   | EInt (info, v, _) -> (PyInt (info, v), gen)
   | EString (info, s, _) -> (PyString (info, s), gen)
   | EBool (info, v, _) -> (PyBool (info, v), gen)
-  | EVar (info, name, _) -> (PyVar (info, lookup name scope), gen)
+  | EVar (info, name, _) ->
+      (* A name this module *declared* rather than defined is the host's,
+         and lives in the implementation beside this file -- the two
+         halves are one module, so it is written unqualified here and
+         reached through `<module>_external` in the output. *)
+      if List.mem name gen.own_external then
+        (PyAttr (info, PyVar (info, gen.own_module ^ "_external"), name), gen)
+      else (PyVar (info, lookup name scope), gen)
   | EQualified (info, module_name, name, _) ->
       (* `m.f` is Python's own attribute access on the imported module,
-         which is what an `import m` above binds. *)
-      (PyAttr (info, PyVar (info, lookup module_name scope), name), gen)
+         which is what an `import m` above binds -- and a module is up to
+         two modules here, since a name the target's own source provides
+         lives in the implementation. *)
+      let alias = lookup module_name scope in
+      let real =
+        Option.value
+          (List.assoc_opt module_name gen.module_aliases)
+          ~default:module_name
+      in
+      let reached =
+        if Module.reached_module gen.external_fields real name <> real then
+          alias ^ "_external"
+        else alias
+      in
+      (PyAttr (info, PyVar (info, reached), name), gen)
   | EAdd (info, l, r, _) -> binary (fun i a b -> PyAdd (i, a, b)) info l r
   (* Python's `+` concatenates strings and lists as well as adding, so
      both Pyking operators land on the same node. *)
@@ -2093,55 +2125,80 @@ and translate_stmt s scope gen =
          through a helper this puts in the prelude -- only here, so an
          ordinary program's output stays an ordinary program's. *)
       let gen =
-        if shadowed module_name then
+        if shadowed module_name && not (List.mem module_name gen.externals) then
           match gen.import_def with
           | Some _ -> gen
           | None -> { gen with import_def = Some (build_import_helper info) }
         else gen
       in
-      let loaded target =
+      let loaded from_module target =
         PyAssign
           ( info,
             PyTargetName (info, target),
             PyCall
               ( info,
                 PyVar (info, import_helper),
-                [ PyString (info, module_name) ] ) )
+                [ PyString (info, from_module) ] ) )
       in
-      if selected then
-        let taken held =
-          List.map
-            (fun (exported, local_name) ->
-              PyAssign
-                ( info,
-                  PyTargetName (info, lookup local_name scope),
-                  PyAttr (info, PyVar (info, held), exported) ))
-            fields
-        in
-        if shadowed module_name then
-          (* The module is bound once and its fields taken off it: one
-             load per `from` line, since loading per field would run the
-             module's top level once per field. *)
-          let held = shadowed_binding module_name in
-          ((loaded held :: taken held), scope, gen)
-        else
-          ( [
+      (* One `import` per half of the module the name reaches: the file
+         generated for it, the implementation the target's own source
+         provides, or both. *)
+      let external_here =
+        Option.value
+          (List.assoc_opt module_name gen.external_fields)
+          ~default:[]
+      in
+      let half wanted =
+        List.filter (fun (exported, _) -> List.mem exported external_here = wanted)
+          fields
+      in
+      let one from_module alias_name chosen =
+        if selected then
+          let taken held =
+            List.map
+              (fun (exported, local_name) ->
+                PyAssign
+                  ( info,
+                    PyTargetName (info, lookup local_name scope),
+                    PyAttr (info, PyVar (info, held), exported) ))
+              chosen
+          in
+          if shadowed from_module then
+            (* The module is bound once and its fields taken off it: one
+               load per `from` line, since loading per field would run
+               the module's top level once per field. *)
+            let held = shadowed_binding from_module in
+            loaded from_module held :: taken held
+          else
+            [
               PyFromImport
                 ( info,
-                  module_name,
+                  from_module,
                   List.map
                     (fun (exported, local_name) ->
                       (exported, lookup local_name scope))
-                    fields );
-            ],
-            scope,
-            gen )
-      else
-        let py_name = lookup local scope in
-        if shadowed module_name then ([ loaded py_name ], scope, gen)
+                    chosen );
+            ]
+        else if shadowed from_module then [ loaded from_module alias_name ]
         else
-          let alias = if py_name = module_name then None else Some py_name in
-          ([ PyImport (info, module_name, alias) ], scope, gen)
+          let alias =
+            if alias_name = from_module then None else Some alias_name
+          in
+          [ PyImport (info, from_module, alias) ]
+      in
+      let py_name = lookup local scope in
+      let own =
+        if List.mem module_name gen.externals then []
+        else if selected && half false = [] && fields <> [] then []
+        else one module_name py_name (half false)
+      in
+      let implementation =
+        if external_here = [] then []
+        else if selected && half true = [] then []
+        else
+          one (module_name ^ "_external") (py_name ^ "_external") (half true)
+      in
+      (own @ implementation, scope, gen)
   | SVar (info, name, e, _) ->
       let py_expr, gen = translate_expr e scope gen in
       (* A `var` is a mutable location: `:=` updates the one binding,
@@ -2513,7 +2570,8 @@ and translate_loop_case (MatchCase (info, pattern, body, _)) py_target scope gen
     prepended. `tmap` is the checker's symbol -> type table, which is
     what decides how a print argument is formatted.
     [stmt] -> typ IntMap.t -> pyprogram *)
-let translate_program stmts tmap =
+let translate_program ?(external_fields = []) ?(externals = []) ?(own = "")
+    stmts tmap =
   let gen =
     {
       used = StringSet.union (collect_identifiers stmts) (import_identifiers stmts);
@@ -2525,6 +2583,17 @@ let translate_program stmts tmap =
       format_def = None;
       divide_def = None;
       import_def = None;
+      external_fields;
+      externals;
+      own_module = own;
+      own_external =
+        Option.value (List.assoc_opt own external_fields) ~default:[];
+      module_aliases =
+        List.filter_map
+          (function
+            | SImport (_, module_, local, false, _, _) -> Some (local, module_)
+            | _ -> None)
+          stmts;
     }
   in
   let translated, _, gen =
@@ -2539,4 +2608,15 @@ let translate_program stmts tmap =
     List.filter_map (fun d -> d)
       [ gen.import_def; gen.divide_def; gen.format_def ]
   in
-  { prelude; formats = gen.format_def <> None; stmts = gen.pending @ translated }
+  (* The implementation of this module's own declaration half, imported
+     so that a name declared here can be called here. *)
+  let own_import =
+    if gen.own_external = [] then []
+    else [ PyImport (Lexer.{ file = ""; row1 = 1; col1 = 0; row2 = 1; col2 = 0 },
+                     gen.own_module ^ "_external", None) ]
+  in
+  {
+    prelude;
+    formats = gen.format_def <> None;
+    stmts = own_import @ gen.pending @ translated;
+  }

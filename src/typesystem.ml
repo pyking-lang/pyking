@@ -2911,12 +2911,19 @@ and check_pattern pattern type_ env store =
     this check can see (module.ml). Raises Type_error for the first thing
     that does not check out.
     [stmt] -> [(string, sigmap)] -> typ IntMap.t *)
-let type_check stmts sigmaps =
+let type_check ?(declared = []) stmts sigmaps =
   let store = empty_store sigmaps in
+  (* A module's own declaration half is in scope here, unqualified and
+     with no import: `foo.pyk` and `foo.external.pyk` are one module, so
+     a name the target's source provides is a name of this module (see
+     docs/modules.md, "A module in two halves"). It goes in before the
+     imports, since it is the module's own. *)
+  let start =
+    List.fold_left (fun env (name, type_) -> bind env name type_)
+      (builtin_env ()) declared
+  in
   let _, store =
-    check_stmts stmts
-      (import_env stmts (builtin_env ()) store)
-      No_function None store
+    check_stmts stmts (import_env stmts start store) No_function None store
   in
   check_exports stmts store;
   (* Every type is read back once the whole module has been checked,

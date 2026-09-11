@@ -1,0 +1,12 @@
+# The external half of the module `module_external_mixed_mod1`. Its
+# Pyking half is the .pyk beside this file, and the two are one module:
+# a program says `import module_external_mixed_mod1` and reaches both.
+#
+# `g1` is public, so a program that imports the module may call it.
+# `g2` is **not**: it is in scope in the Pyking half beside this file
+# and nowhere else, which is how a module keeps a host function it
+# needs but does not offer.
+
+public def g1 : (Int) -> Int
+
+def g2 : (Int) -> Int

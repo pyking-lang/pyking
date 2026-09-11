@@ -1,6 +1,10 @@
-# A declaration file is reached only through what it exports, so a
-# signature that is not `public` names something nothing can call -- and
-# nothing here could implement it either, since the implementation is in
-# a target language and this file has no bodies at all.
+# A declaration file with a signature that is not public.
+#
+# A private declaration is legal: it is in scope in the module's own
+# Pyking half and nowhere else, which is how a library keeps a host
+# function it needs but does not offer. What is refused is *reaching*
+# one from another module -- see fail_typecheck_external_private.pyk.
+
+public def shown : (Int) -> Int
 
 def hidden : (Int) -> Int

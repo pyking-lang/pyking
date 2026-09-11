@@ -3368,18 +3368,52 @@ print(sys.loadfile("notes.txt"))
 print(sys.start)
 ```
 
-Three rules hold of such a file, and each is refused where it is broken:
+Two rules hold of such a file, and each is refused where it is broken:
 
 - **Signatures and nothing else.** No bodies, no top-level bindings. The
   file says what the module offers; something else provides it.
-- **Every signature is `public`.** A module is reached only through what
-  it exports, so a signature nothing can import names nothing.
 - **No functions and no type variables in a signature.** A function
   cannot cross the boundary, and one implementation cannot be
   polymorphic.
 
 A plain `sys.pyk` is unaffected: a signature there still has to describe
 a `def` in the same file, exactly as before.
+
+**A module may be written in both.** `sys.pyk` and `sys.external.pyk`
+are one module `sys`, not two: the first is written in Pyking against
+what the second declares, and a program that imports `sys` reaches
+everything either half offers, under the one name.
+
+```pyking
+# clock.external.pyk -- what the host provides
+public def now : () -> Int
+
+def raw : () -> Int
+
+
+# clock.pyk -- written against it
+public def doubled() -> Int:
+    return raw() * 2
+```
+
+```pyking
+import clock
+
+print(clock.now())
+print(clock.doubled())
+```
+
+Two things follow, and both are the ordinary rules read across the two
+files rather than anything new:
+
+- **A declaration is in scope in the Pyking half**, unqualified and with
+  no import — `raw()` above is written as any other name of the module
+  is, because it *is* one.
+- **`public` means the same on either side.** `raw` is not public, so
+  `clock.raw()` from another module is refused exactly as a `def`
+  written without `public` would be. A name declared in one half and
+  defined in the other is refused too: a module offers one thing under
+  one name.
 
 Everything else about such a module — which file implements it for which
 target, what each Pyking type becomes on the other side, and why a

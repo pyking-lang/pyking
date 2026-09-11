@@ -107,8 +107,15 @@ type store = {
     this check can see (module.ml). Raises Type_error for the first thing
     that does not check out, and Analyses.Analysis_error for a name that
     is not in scope, since this pass is the one that checks names.
-    [stmt] -> [(string, sigmap)] -> typ IntMap.t *)
-val type_check : stmt list -> (string * sigmap) list -> typ IntMap.t
+    `declared` is the module's own declaration half -- the names a
+    target's own source provides -- which are in scope here unqualified,
+    since the two files are one module.
+    [(string, typ)] -> [stmt] -> [(string, sigmap)] -> typ IntMap.t *)
+val type_check :
+  ?declared:(string * typ) list ->
+  stmt list ->
+  (string * sigmap) list ->
+  typ IntMap.t
 
 (** The environment a program starts in: every name in
     Builtin.names, at its TBuiltin type. () -> env *)

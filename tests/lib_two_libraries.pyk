@@ -11,6 +11,6 @@
 import fs
 import sys
 
-fs.write_text("both.txt", sys.environment_get("PYKING_TEST_ENV"))
+fs.write_text("both.txt", sys.env_get("PYKING_TEST_ENV"))
 print(fs.read_text("both.txt"))
 print(fs.exists("both.txt"))

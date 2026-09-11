@@ -1,6 +1,5 @@
-# The Python implementation of the Pyking module declared in
-# time_ext.external.pyk. Decomposition is UTC: `gmtime`, never
-# `localtime`.
+# The Python implementation of the names declared in time.external.pyk.
+# Decomposition is UTC: `gmtime`, never `localtime`.
 
 import time as _time
 
@@ -11,6 +10,18 @@ def instant():
 
 def _parts(t):
     return _time.gmtime(t)
+
+
+def now():
+    parts = _time.gmtime(int(_time.time()))
+    return (
+        parts.tm_year,
+        parts.tm_mon,
+        parts.tm_mday,
+        parts.tm_hour,
+        parts.tm_min,
+        parts.tm_sec,
+    )
 
 
 def year_of(t):

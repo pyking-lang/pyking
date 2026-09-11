@@ -1,5 +1,2 @@
-'tests/fail_typecheck_external_private_mod1.external.pyk' 6:0-6:25
-  Module error: 'hidden' is declared in
-  'tests/fail_typecheck_external_private_mod1.external.pyk' but not
-  marked 'public'. An external module is reached only through what it
-  exports, so a signature that is not public names nothing
+'tests/fail_typecheck_external_private.pyk' 13:6-13:14 Name error:
+  module 'm' does not export 'hidden'
