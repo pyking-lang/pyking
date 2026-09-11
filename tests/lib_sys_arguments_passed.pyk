@@ -1,0 +1,16 @@
+# The sys library: the arguments a program was actually given.
+#
+# The manifest's `arguments` key is what passes them, and it is the only
+# place a run's arguments can be written down -- so this is the one case
+# that exercises `sys.arguments()` with anything in it. Each target gets
+# them its own way: `--` on the command line for the interpreter, and
+# the host's own way of naming a program's arguments for the rest.
+#
+# One argument holds a space, which is what checks that the whole thing
+# arrives as one argument rather than two. Printing the list is the
+# whole test: walking it would need a `loop ... for`, which the OCaml
+# backend has no translation for yet.
+
+import sys
+
+print(sys.arguments())

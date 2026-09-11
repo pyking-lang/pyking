@@ -166,6 +166,9 @@ goes on `make clean` but the cache itself only goes on `make distclean`.
 - **[docs/gap.md](docs/gap.md)** — how a `def` written inside a loop
   keeps its own turn's bindings: the mechanism, the shape that used to
   defeat it, and what it still costs in generated code.
+- **[docs/libraries.md](docs/libraries.md)** — the standard library
+  under `lib/`: what each library offers, how `pyk` finds one, and why
+  each reaches the targets it does.
 - **[docs/modules.md](docs/modules.md)** — the module system: how a file
   becomes a module and a program becomes a graph of them, what each one
   exports, in what order they are compiled and run, and what each target

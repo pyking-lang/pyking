@@ -1,0 +1,10 @@
+# The fs library: what write_text writes, read_text reads back.
+#
+# The file is named relatively, so it is written into the directory the
+# program runs in -- which for this suite is a temporary one of the
+# case's own, and never the repository.
+
+import fs
+
+fs.write_text("roundtrip.txt", "one\ntwo\n")
+print(fs.read_text("roundtrip.txt"))

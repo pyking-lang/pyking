@@ -118,7 +118,11 @@ and pystmt =
 
 (** A translated program: the host boilerplate (e.g. the Bool-printing
     helper; usually empty) and the translated program itself. *)
-type pyprogram = { prelude : pystmt list; stmts : pystmt list }
+type pyprogram = {
+  prelude : pystmt list;
+  formats : bool;  (* whether the prelude holds the Bool walker *)
+  stmts : pystmt list;
+}
 
 (* --- pretty printer: Python target AST -> Python source text ---
 
@@ -376,10 +380,14 @@ and pprint_py_stmt ?(level = 0) s =
 
 (* Markers around the prelude, separating host boilerplate from the
    translated source (docs/target_python.md, "Booleans"). *)
-let prelude_begin =
+let prelude_begin = "# --- prelude begins ---"
+
+(* The note belongs to the Bool walker rather than to the prelude, which
+   may also hold the division helper or the by-path module loader. It is
+   printed only where that walker is. *)
+let prelude_format_note =
   String.concat "\n"
     [
-      "# --- prelude begins ---";
       "# Pyking prints a Bool as `true`/`false`, not Python's own capitalised";
       "# `True`/`False`, wherever it sits -- on its own, or inside a list or";
       "# a tuple. This helper exists because at least one value printed below";
@@ -395,8 +403,12 @@ let pprint_py_program program =
   if program.prelude = [] then body
   else
     let prelude_body = String.concat "\n" (render_block program.prelude 0) in
+    let opening =
+      if program.formats then [ prelude_begin; prelude_format_note ]
+      else [ prelude_begin ]
+    in
     String.concat "\n"
-      [ prelude_begin; ""; prelude_body; ""; prelude_end; ""; body ]
+      (opening @ [ ""; prelude_body; ""; prelude_end; ""; body ])
 
 (* --- translation: Pyking AST (syntax.ml) -> Python target AST ---
 
@@ -422,6 +434,7 @@ type gen = {
   format_helper : string option;
   format_def : pystmt option;
   divide_def : pystmt option;
+  import_def : pystmt option;
 }
 
 (** Every identifier used anywhere in a program: what a generated name
@@ -1014,6 +1027,84 @@ let escaped info char =
       PyIfExp
         (info, PyEq (info, char, PyString (info, literal)), PyString (info, escape), result))
     char (List.rev escapes)
+
+(* Module names CPython has built into the interpreter. `import time`
+   finds the frozen `time` before any sibling `time.py`, and no
+   `sys.path` order changes it: the builtin importer sits ahead of the
+   path finder in `sys.meta_path`. A Pyking module with one of these
+   names is loaded by path instead (`build_import_helper`).
+
+   The list is a superset on purpose. Some of these are builtin only on
+   some platforms, and loading a Pyking module by path is right whether
+   or not the name would have collided -- so a name here that is not
+   builtin costs a helper and nothing else. See
+   docs/target_python.md, "Module names Python has already taken". *)
+let shadowed_modules =
+  [
+    "array"; "atexit"; "binascii"; "builtins"; "cmath"; "errno";
+    "faulthandler"; "fcntl"; "gc"; "grp"; "itertools"; "marshal"; "msvcrt";
+    "nt"; "posix"; "pwd"; "pyexpat"; "select"; "sys"; "syslog"; "time";
+    "unicodedata"; "winreg"; "zlib";
+  ]
+
+(** Whether Python has this module name already, so that an ordinary
+    `import` of it could never reach the file beside the program.
+    string -> bool *)
+let shadowed name = List.mem name shadowed_modules
+
+let import_helper = "__pyk_import"
+
+(** What a shadowed module is bound to before its fields are taken off
+    it: a `from` line needs the module itself somewhere, and loading it
+    once per field would run its top level once per field.
+    string -> string *)
+let shadowed_binding module_ = Printf.sprintf "__pyk_mod_%s" module_
+
+(** Synthesizes the loader a module whose name Python has built in
+     needs. Emitted only where a program imports such a name, the way
+    every other helper here is. info -> pystmt *)
+let build_import_helper info =
+  let var n = PyVar (info, n) in
+  let call f args = PyCall (info, f, args) in
+  let attr e n = PyAttr (info, e, n) in
+  let path =
+    call (var "join")
+      [
+        call (var "dirname") [ call (var "abspath") [ var "__file__" ] ];
+        PyAdd (info, var "name", PyString (info, ".py"));
+      ]
+  in
+  PyFunctionDef
+    ( info,
+      import_helper,
+      [ "name" ],
+      [
+        PyFromImport
+          ( info,
+            "importlib.util",
+            [
+              ("module_from_spec", "module_from_spec");
+              ("spec_from_file_location", "spec_from_file_location");
+            ] );
+        PyFromImport
+          ( info,
+            "os.path",
+            [ ("abspath", "abspath"); ("dirname", "dirname"); ("join", "join") ]
+          );
+        PyAssign
+          ( info,
+            PyTargetName (info, "spec"),
+            call (var "spec_from_file_location") [ var "name"; path ] );
+        PyAssign
+          ( info,
+            PyTargetName (info, "module"),
+            call (var "module_from_spec") [ var "spec" ] );
+        PyExprStmt
+          ( info,
+            call (attr (attr (var "spec") "loader") "exec_module") [ var "module" ]
+          );
+        PyReturn (info, var "module");
+      ] )
 
 let divide_helper = "__pyk_div"
 
@@ -1996,22 +2087,61 @@ and translate_stmt s scope gen =
          leave no trace in the output. The names were bound by
          `declare_functions`; where one had to be renamed, Python's own
          `as` says so. *)
-      if selected then
-        ( [
-            PyFromImport
+      (* A module whose name Python has built into the interpreter cannot
+         be reached by an ordinary `import`: the frozen one wins, however
+         `sys.path` is ordered. Such a module is loaded by path instead,
+         through a helper this puts in the prelude -- only here, so an
+         ordinary program's output stays an ordinary program's. *)
+      let gen =
+        if shadowed module_name then
+          match gen.import_def with
+          | Some _ -> gen
+          | None -> { gen with import_def = Some (build_import_helper info) }
+        else gen
+      in
+      let loaded target =
+        PyAssign
+          ( info,
+            PyTargetName (info, target),
+            PyCall
               ( info,
-                module_name,
-                List.map
-                  (fun (exported, local_name) ->
-                    (exported, lookup local_name scope))
-                  fields );
-          ],
-          scope,
-          gen )
+                PyVar (info, import_helper),
+                [ PyString (info, module_name) ] ) )
+      in
+      if selected then
+        let taken held =
+          List.map
+            (fun (exported, local_name) ->
+              PyAssign
+                ( info,
+                  PyTargetName (info, lookup local_name scope),
+                  PyAttr (info, PyVar (info, held), exported) ))
+            fields
+        in
+        if shadowed module_name then
+          (* The module is bound once and its fields taken off it: one
+             load per `from` line, since loading per field would run the
+             module's top level once per field. *)
+          let held = shadowed_binding module_name in
+          ((loaded held :: taken held), scope, gen)
+        else
+          ( [
+              PyFromImport
+                ( info,
+                  module_name,
+                  List.map
+                    (fun (exported, local_name) ->
+                      (exported, lookup local_name scope))
+                    fields );
+            ],
+            scope,
+            gen )
       else
         let py_name = lookup local scope in
-        let alias = if py_name = module_name then None else Some py_name in
-        ([ PyImport (info, module_name, alias) ], scope, gen)
+        if shadowed module_name then ([ loaded py_name ], scope, gen)
+        else
+          let alias = if py_name = module_name then None else Some py_name in
+          ([ PyImport (info, module_name, alias) ], scope, gen)
   | SVar (info, name, e, _) ->
       let py_expr, gen = translate_expr e scope gen in
       (* A `var` is a mutable location: `:=` updates the one binding,
@@ -2394,6 +2524,7 @@ let translate_program stmts tmap =
       format_helper = None;
       format_def = None;
       divide_def = None;
+      import_def = None;
     }
   in
   let translated, _, gen =
@@ -2405,6 +2536,7 @@ let translate_program stmts tmap =
       gen
   in
   let prelude =
-    List.filter_map (fun d -> d) [ gen.divide_def; gen.format_def ]
+    List.filter_map (fun d -> d)
+      [ gen.import_def; gen.divide_def; gen.format_def ]
   in
-  { prelude; stmts = gen.pending @ translated }
+  { prelude; formats = gen.format_def <> None; stmts = gen.pending @ translated }

@@ -1,0 +1,13 @@
+# The fs library: `exists` before and after a write, and for a name
+# nothing has written.
+#
+# `exists` is the whole of the library's error handling: reading a file
+# that is not there is undefined (lib/fs/fs.external.pyk), so asking
+# first is how a program stays inside what Pyking can say.
+
+import fs
+
+print(fs.exists("written_by_the_test.txt"))
+fs.write_text("written_by_the_test.txt", "here\n")
+print(fs.exists("written_by_the_test.txt"))
+print(fs.exists("never_written_at_all.txt"))

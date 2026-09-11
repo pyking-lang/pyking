@@ -965,17 +965,27 @@ and translate_loop_tail s js_target scope =
     -- the one it calls a module's `init` by -- so a Pyking binding of
     that name is renamed rather than shadowing it, exactly as `reserved`
     does for the names written here.
-    [stmt] -> [string] -> [jsstmt] *)
+    Answers the statements and every top-level name this module had to
+    rename -- a Pyking name that is a word JavaScript reserves is bound
+    under another one, and a packaging that exports it has to say which
+    (`export { arguments2 as arguments }`), or it writes a name nothing
+    declared.
+    [stmt] -> [string] -> ([jsstmt], [(string, string)]) *)
 let translate_program ?(taken = []) stmts =
-  fst
-    (translate_stmts stmts
-       {
-         names = SMap.empty;
-         block = StringSet.empty;
-         taken =
-           List.fold_left (fun set name -> StringSet.add name set) StringSet.empty
-             taken;
-       })
+  let statements, scope =
+    translate_stmts stmts
+      {
+        names = SMap.empty;
+        block = StringSet.empty;
+        taken =
+          List.fold_left (fun set name -> StringSet.add name set) StringSet.empty
+            taken;
+      }
+  in
+  ( statements,
+    List.filter
+      (fun (pyking, js) -> pyking <> js)
+      (SMap.bindings scope.names) )
 
 (* --- printer: JavaScript AST -> JavaScript source text ---
 

@@ -1,0 +1,122 @@
+# Dates and times: reading the clock, and rendering an instant.
+#
+# The rendering is written in Pyking rather than per target, so every
+# host that compiles this library prints a date the same way. That is
+# the whole reason the library is split: time_ext reaches the host's
+# clock and calendar, and everything a reader sees is decided here.
+#
+# All of it is UTC (see time_ext.external.pyk).
+#
+# `format` recognises the six field tokens below and a fixed set of
+# separators. It cannot pass an arbitrary character through, because
+# Pyking has no way to read one character out of a string -- a text
+# pattern matches a known prefix, not an unknown one -- so a character
+# `format` does not know ends the output there. See docs/libraries.md.
+
+import time_ext
+
+
+public ISO8601 = "yyyy-MM-ddTHH:mm:ssZ"
+
+public DATE = "yyyy-MM-dd"
+
+public TIME = "HH:mm:ss"
+
+public DATETIME = "yyyy-MM-dd HH:mm:ss"
+
+public COMPACT = "yyyyMMddHHmmss"
+
+
+# One digit as text. `str` would do it, but the JavaScript backends have
+# no `str` yet, and a library that cannot be compiled everywhere its
+# types allow is worth less than ten lines of match.
+def digit(n:Int) -> String:
+    match n:
+        case 0:
+            return "0"
+        case 1:
+            return "1"
+        case 2:
+            return "2"
+        case 3:
+            return "3"
+        case 4:
+            return "4"
+        case 5:
+            return "5"
+        case 6:
+            return "6"
+        case 7:
+            return "7"
+        case 8:
+            return "8"
+        case 9:
+            return "9"
+        case _:
+            return "?"
+
+
+# Two digits, zero-padded: 0..99.
+def pad2(n:Int) -> String:
+    return digit(n / 10) ++ digit(n - n / 10 * 10)
+
+
+# Four digits, zero-padded: 0..9999.
+def pad4(n:Int) -> String:
+    return pad2(n / 100) ++ pad2(n - n / 100 * 100)
+
+
+# The instant this was called at, in seconds since the Unix epoch.
+public def instant() -> Int:
+    return time_ext.instant()
+
+
+# One instant as (year, month, day, hour, minute, second), in UTC.
+# Month is 1..12 and day is 1..31, as a reader writes them.
+public def of_instant(t:Int) -> (Int, Int, Int, Int, Int, Int):
+    return (time_ext.year_of(t), time_ext.month_of(t), time_ext.day_of(t), time_ext.hour_of(t), time_ext.minute_of(t), time_ext.second_of(t))
+
+
+# The current time, read once and decomposed.
+public def now() -> (Int, Int, Int, Int, Int, Int):
+    return of_instant(time_ext.instant())
+
+
+# One time rendered by a format: `yyyy` `MM` `dd` `HH` `mm` `ss`, with
+# anything else in the format taken literally, from the separators
+# listed here.
+public def format(t:(Int, Int, Int, Int, Int, Int), fmt:String) -> String:
+    (year, month, day, hour, minute, second) = t
+    (_, rendered) = loop rest, out = fmt, "":
+        match rest:
+            case "yyyy" ++ tail:
+                (tail, out ++ pad4(year))
+            case "MM" ++ tail:
+                (tail, out ++ pad2(month))
+            case "dd" ++ tail:
+                (tail, out ++ pad2(day))
+            case "HH" ++ tail:
+                (tail, out ++ pad2(hour))
+            case "mm" ++ tail:
+                (tail, out ++ pad2(minute))
+            case "ss" ++ tail:
+                (tail, out ++ pad2(second))
+            case "-" ++ tail:
+                (tail, out ++ "-")
+            case ":" ++ tail:
+                (tail, out ++ ":")
+            case "/" ++ tail:
+                (tail, out ++ "/")
+            case "." ++ tail:
+                (tail, out ++ ".")
+            case "," ++ tail:
+                (tail, out ++ ",")
+            case " " ++ tail:
+                (tail, out ++ " ")
+            case "T" ++ tail:
+                (tail, out ++ "T")
+            case "Z" ++ tail:
+                (tail, out ++ "Z")
+            case _:
+                break
+    return rendered

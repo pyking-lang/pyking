@@ -1,0 +1,21 @@
+# The time library: reading the clock.
+#
+# What `now` answers cannot be pinned, so what is checked is that each
+# field is in the range a reader expects -- which is also the check that
+# `month` is 1..12 rather than JavaScript's 0..11, the one field where a
+# host and Pyking disagree.
+
+import time
+
+(year, month, day, hour, minute, second) = time.now()
+print(year > 2000)
+print(month >= 1)
+print(month <= 12)
+print(day >= 1)
+print(day <= 31)
+print(hour >= 0)
+print(hour <= 23)
+print(minute >= 0)
+print(minute <= 59)
+print(second >= 0)
+print(second <= 60)

@@ -1,0 +1,9 @@
+# A module exporting two names JavaScript reserves. Both are legal
+# Pyking identifiers: see module_reserved_export.pyk.
+
+public def arguments() -> Int:
+    return 7
+
+
+public def typeof(n:Int) -> Int:
+    return n * 3

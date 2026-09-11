@@ -1,0 +1,11 @@
+# A module exporting a name JavaScript reserves. The module's body binds
+# it under another name, so the export clause has to say which --
+# `export { arguments2 as arguments }` -- or it names something the file
+# never declared. An export clause is the one place JavaScript allows a
+# reserved word. See docs/target_js.md, "Names that are keywords in
+# JavaScript".
+
+import module_reserved_export_mod1 as reserved
+
+print(reserved.arguments())
+print(reserved.typeof(2))

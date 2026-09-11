@@ -36,11 +36,12 @@ val format_js : string
 (** Every file a whole program compiles to, as (path, contents), and the
     text `--stdout` prints -- the program's own module, since the
     modules it imports are files and `--stdout` writes none.
-    string -> [(Module.t, [jsstmt])] -> string option -> bool
+    string -> [(Module.t, [jsstmt], [(string, string)])] -> string option
+    -> bool
     -> ([(string, string)], string) *)
 val package_program :
   string ->
-  (Module.t * Target_js_core.jsstmt list) list ->
+  (Module.t * Target_js_core.jsstmt list * (string * string) list) list ->
   string option ->
   bool ->
   (string * string) list * string

@@ -209,6 +209,44 @@ The list comes from the standard `keyword` module (`kwlist` plus
 against the Python this compiler runs on. Renaming picks `lambda2`,
 `lambda3`, … — skipping any that is itself taken or reserved.
 
+### Module names Python has already taken
+
+A *module* name can collide too, and worse: `sys`, `time`, `math`,
+`array` and about twenty others are built into the CPython interpreter,
+so `import time` finds the frozen one before any sibling `time.py`. No
+ordering of `sys.path` changes that — the builtin importer sits ahead of
+the path finder in `sys.meta_path` — so a Pyking module with such a name
+could never be reached at all.
+
+A program importing one loads it by path instead, through a helper this
+backend puts in the prelude:
+
+```pyking                  # generated Python
+import time               time = __pyk_import('time')
+```
+
+```python
+def __pyk_import(name):
+    from importlib.util import module_from_spec, spec_from_file_location
+    from os.path import abspath, dirname, join
+    spec = spec_from_file_location(name, join(dirname(abspath(__file__)), name + '.py'))
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+```
+
+A `from` line binds the module once under `__pyk_mod_<name>` and takes
+its fields off that, since loading it per field would run its top level
+once per field.
+
+The helper is emitted **only** where a program imports such a name, the
+way every other helper here is: an ordinary program's output stays an
+ordinary program's. `shadowed_modules` in `src/target_python.ml` is the
+list, and it is a deliberate superset — some of those names are builtin
+only on some platforms, and loading a Pyking module by path is right
+either way, so a name in it that would not have collided costs a helper
+and nothing else.
+
 ### Blocks are scopes; Python's are not
 
 Pyking makes every block a scope. Python scopes at function boundaries

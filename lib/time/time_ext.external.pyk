@@ -1,0 +1,30 @@
+# The host's clock and calendar. Declared as scalars only -- an Int
+# crosses the boundary on every target where a tuple does not
+# (docs/modules.md, "What may cross the boundary") -- so the tuple
+# `time.now` answers with is assembled on the Pyking side, in time.pyk.
+#
+# `instant` is one reading of the clock, in seconds since the Unix
+# epoch, and the six `*_of` functions decompose one. Splitting them is
+# what makes a reading atomic: six separate clock readings could
+# straddle a second and report a date that never happened.
+#
+# The decomposition is **UTC** on every host. A local one would depend
+# on the host's own zone database, which these five disagree about, and
+# a library that formatted differently per target would be no use.
+#
+# Nothing here is meant to be imported directly. `time` is the library;
+# this is how it reaches the host. See docs/libraries.md.
+
+public def instant : () -> Int
+
+public def year_of : (Int) -> Int
+
+public def month_of : (Int) -> Int
+
+public def day_of : (Int) -> Int
+
+public def hour_of : (Int) -> Int
+
+public def minute_of : (Int) -> Int
+
+public def second_of : (Int) -> Int

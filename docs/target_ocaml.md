@@ -579,8 +579,51 @@ named ahead of it on the command line, as a compiled module would be.
 OCaml's own module name comes from the file name, which is exactly what
 the generated `Sys.loadfile` refers to -- so nothing is renamed.
 
+**An implementation must qualify every standard-library name it uses.**
+A Pyking module compiles to an OCaml module of the same name, and the
+generated files sit in the same directory as the copied implementation,
+so a program importing a Pyking module named `sys` puts a module `Sys`
+on the include path. An unqualified `Sys.argv` in an implementation then
+resolves to *that* one and fails to compile — and only once the other
+module's `.cmi` is there, so it can compile on a first build and break
+on a second, or break only when a program happens to import both.
+`Stdlib.Sys.argv` is unambiguous, and `lib/sys/sys_ext.ml` and
+`lib/fs/fs.ml` are written that way throughout; `Array`, `List` and
+`String` are shadowable in exactly the same way.
+
+Build it in the directory the output is in. Passing `-I <dir>` and an
+absolute source path from somewhere else lets `ocamlopt` reach one
+module by two routes, and it refuses the pair as making "inconsistent
+assumptions" over an interface. `src/execution.ml` and the test harness
+both run the build in that directory.
+
 An external module has no Pyking top level, so nothing of it runs before
 the program's own.
 
 The boundary carries everything this backend does: `Int`, `String`,
 `Bool`, unit, tuples and lists, each as OCaml's own.
+
+## Linking unix
+
+Every program on this target is linked with OCaml's `unix` library:
+
+```
+ocamlopt -I +unix unix.cmxa -I <dir> -o prog <modules> prog.ml
+```
+
+Nothing the compiler *generates* needs it. An external module's own
+implementation may: `lib/sys/sys_ext.ml` does, because nothing in
+OCaml's `Stdlib` enumerates the environment, and without it the whole
+`sys` library would be unavailable here. `unix` ships with the compiler,
+so this adds no dependency to install — and it is named before the
+modules that use it, since OCaml links in the order it is given.
+
+It is unconditional rather than worked out per program. Deciding would
+mean the driver knowing which external implementations need which
+libraries, and there is nothing in a declaration file that could say so;
+linking a library the program never calls costs a little size and
+nothing else.
+
+Passing the flags explicitly also matters for `-w +a`: OCaml 5 moved the
+`unix` directory, and a plain `ocamlopt` that finds it anyway does so
+through a deprecated auto-include whose alert would fail the suite.

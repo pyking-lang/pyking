@@ -428,7 +428,7 @@ let compile_source source target name =
               ]
           else if List.mem (Targets.family_of target) [ Targets.Node; Targets.Web ]
           then
-            let js = Target_js_core.translate_program program in
+            let js, renames = Target_js_core.translate_program program in
             let out = stem ^ Targets.extension target in
             let unit =
               Module.
@@ -444,7 +444,8 @@ let compile_source source target name =
                 }
             in
             let files, _ =
-              Target_js_packaging.package_program target [ (unit, js) ]
+              Target_js_packaging.package_program target
+                [ (unit, js, renames) ]
                 (Some out) false
             in
             done_ files

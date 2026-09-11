@@ -1,0 +1,15 @@
+# The filesystem, as the host provides it. Every type here is an Int, a
+# String or a Bool, so the boundary carries all of it on every target
+# (docs/modules.md, "What may cross the boundary") -- which is why this
+# library needs no Pyking half at all.
+#
+# Reading a file that is not there, or writing where the host will not
+# let you, is *undefined*: Pyking has no exceptions and no option type,
+# so there is nothing this module could answer with. Ask `exists`
+# first. See docs/libraries.md.
+
+public def read_text : (String) -> String
+
+public def write_text : (String, String) -> ()
+
+public def exists : (String) -> Bool

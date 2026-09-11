@@ -101,11 +101,26 @@ let selected fields =
          if name = local then name else Printf.sprintf "%s as %s" name local)
        fields)
 
-(** A module's public names, as an export clause's body. Each is a
-    binding of that very name in the module, so the shorthand says it.
-    [string] -> string *)
-let exported names =
-  if names = [] then "{}" else "{ " ^ String.concat ", " names ^ " }"
+(** A module's public names, as an export clause's body. Each is
+    usually a binding of that very name, so the shorthand says it; a
+    name the translation had to rename is exported *as* the name a
+    program imports it by, which is what `as` is for. An export name may
+    be a word JavaScript reserves even where a binding may not, so
+    `export { arguments2 as arguments }` is legal where
+    `const arguments` is not.
+    [(string, string)] -> [string] -> string *)
+let exported renames names =
+  if names = [] then "{}"
+  else
+    "{ "
+    ^ String.concat ", "
+        (List.map
+           (fun name ->
+             match List.assoc_opt name renames with
+             | Some local -> Printf.sprintf "%s as %s" local name
+             | None -> name)
+           names)
+    ^ " }"
 
 (** One import, as the ES module it is. A module reached under its own
     name is a namespace import; a `from` line names what it takes.
@@ -190,7 +205,7 @@ let shared_runtime () =
     it needs it, its imports, and -- unless it is the program's own
     module, which nothing imports -- its public names handed out.
     Module.t -> [jsstmt] -> bool -> string -> string *)
-let js_module (unit : Module.t) js_program main target =
+let js_module (unit : Module.t) js_program renames main target =
   let lines =
     [
       header (source_of unit);
@@ -212,7 +227,9 @@ let js_module (unit : Module.t) js_program main target =
   let lines = lines @ [ pprint_js_program js_program runtime_host ] in
   let lines =
     if main then lines
-    else lines @ [ ""; Printf.sprintf "export %s;" (exported (publics_of unit)) ]
+    else
+      lines
+      @ [ ""; Printf.sprintf "export %s;" (exported renames (publics_of unit)) ]
   in
   String.concat "\n" (lines @ [ "" ])
 
@@ -238,14 +255,14 @@ let web_page module_name source =
 let package_program target units output_path stdout =
   let externals =
     List.filter_map
-      (fun ((unit : Module.t), _) ->
+      (fun ((unit : Module.t), _, _) ->
         if unit.is_external then Some unit.name else None)
       units
   in
   ignore externals;
   let count = List.length units in
-  let main_unit, main_program = List.nth units (count - 1) in
-  let main_text = js_module main_unit main_program true target in
+  let main_unit, main_program, main_renames = List.nth units (count - 1) in
+  let main_text = js_module main_unit main_program main_renames true target in
   match output_path with
   | None -> ([], main_text)
   | Some output_path ->
@@ -256,14 +273,14 @@ let package_program target units output_path stdout =
         let files =
           [ (main_js, main_text) ]
           @ List.filter_map
-              (fun ((unit : Module.t), js_program) ->
+              (fun ((unit : Module.t), js_program, renames) ->
                 (* An external module's file is its own implementation,
                    copied by the driver; nothing is generated for it. *)
                 if unit.is_external then None
                 else
                   Some
                     ( beside output_path (unit.name ^ ".js"),
-                      js_module unit js_program false target ))
+                      js_module unit js_program renames false target ))
               (List.filteri (fun i _ -> i < count - 1) units)
           @ [ (beside output_path runtime_module, shared_runtime ()) ]
           (* The manifest is node's alone: it is what makes node read a

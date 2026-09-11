@@ -20,8 +20,10 @@
   (`src/builtin.ml`), and the three targets bind it three
   ways: `console.log`, a page element, or a function the embedder passes
   in.
-- Least optimal at: float display (`6` where Python prints `6.0`), and
-  renaming more shadowed bindings than JavaScript strictly requires.
+- Least optimal at: integer range — a JavaScript number is a double, so
+  a program past the signed 32-bit range prints what double arithmetic
+  gives — and renaming more shadowed bindings than JavaScript strictly
+  requires.
 
 ## The three targets
 
@@ -416,6 +418,15 @@ The list (`RESERVED` in `src/target_js_core.ml`) also holds a few
 globals a generated file leans on -- `undefined`, `console`, `String` --
 because shadowing one of those would break the prelude rather than the
 program's own syntax, which is harder to spot.
+
+A renamed name still has to be *exported* under the name a program
+imports it by, and an export clause is the one place JavaScript allows a
+reserved word: `export { arguments2 as arguments }` is legal where
+`const arguments` is not. So `translate_program` answers with the
+top-level names it had to rename, and the packaging writes the `as`
+form for each of them. Without it a module exporting one would emit
+`export { arguments };` — a name nothing in the file declares, which is
+a `SyntaxError` rather than a wrong answer.
 
 It holds the generated program's **own** runtime beside them:
 `pykFormat`, `pykQuote`, `pykConcat`, `pykList`, `pykOutput`, `pykWrite`

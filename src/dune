@@ -23,7 +23,7 @@
 
 (executable
  (name pyk)
- (modules pyk execution repl)
+ (modules pyk execution repl stdlib_host)
  (libraries pyking unix)
  (flags
   (:standard -warn-error -a)))

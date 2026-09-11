@@ -1,0 +1,20 @@
+# The host's own view of the process: its arguments, its name, and its
+# environment. Declared as scalars only -- an Int or a String crosses
+# the boundary on every target where a list does not (docs/modules.md,
+# "What may cross the boundary") -- so the list-shaped answers are built
+# on the Pyking side, in sys.pyk.
+#
+# Nothing here is meant to be imported directly. `sys` is the library;
+# this is how it reaches the host. See docs/libraries.md.
+
+public def argument_count : () -> Int
+
+public def argument : (Int) -> String
+
+public def program : () -> String
+
+public def environment_count : () -> Int
+
+public def environment_name : (Int) -> String
+
+public def environment_value : (Int) -> String

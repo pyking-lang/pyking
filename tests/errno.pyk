@@ -1,0 +1,6 @@
+# Named for one of the modules CPython builds into its own interpreter,
+# on purpose: see module_shadow_builtin.pyk. Nothing else about this
+# module is unusual.
+
+public def doubled(n:Int) -> Int:
+    return n * 2

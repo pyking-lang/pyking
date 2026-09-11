@@ -32,6 +32,7 @@
       context -- what a backend is told about the module it is compiling
         beyond its statements.
       sources -- where a program's files come from.
+      lib_entry -- one directory of the library search path.
 
     Functions:
       load path -- every module the program at path needs, dependencies
@@ -113,6 +114,18 @@ type context = {
     docs/target_js.md, "The interpreted target"). *)
 type sources = { exists : string -> bool; contents : string -> string }
 
+(** A directory libraries may be found in, beyond the importing file's
+    own. Such a directory holds one folder per library, named after the
+    module it holds, so `sys` is `<directory>/sys/sys.pyk`. `origin`
+    says which level of the search the entry came from -- `-L`,
+    `PYKING_LIB_PATH`, `built-in` -- which is what a failed import names
+    it by.
+
+    The entries are assembled by the caller and handed in: reading an
+    environment variable, or asking where the executable is, is
+    something only src/pyk.ml may do (see docs/build.md). *)
+type lib_entry = { lib_directory : string; lib_origin : string }
+
 (** An external module's declaration file: `sys.external.pyk` says what
     `sys` offers and at what type, and only the declaration is Pyking.
     string *)
@@ -140,11 +153,14 @@ val read_whole_file : string -> string
     one lexed, parsed, symbolized with one numbering across the whole
     program, and with every import resolved against what the module it
     names exports. `from` says where the files come from, and defaults
-    to the disk. Raises Module_error for a missing module, a cycle, a
-    name that is not exported, or a collision, and the front end's own
+    to the disk. `libs` is the library search path, tried in order
+    after the importing file's own directory. Raises Module_error for a
+    missing module -- naming every path it looked in -- and for a cycle,
+    a name that is not exported, or a collision, and the front end's own
     errors for a module that does not lex or parse.
-    sources -> string -> [t] *)
-val load : ?from:sources -> string -> t list
+    sources -> [lib_entry] -> string -> [t] *)
+val load : ?from:sources -> ?libs:lib_entry list -> string -> t list
+
 
 (** One file, lexed and parsed, and nothing else: no import resolved and
     nothing checked, which is where `--no-typechecking` stops. `info` is

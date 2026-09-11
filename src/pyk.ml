@@ -17,7 +17,7 @@
       front_end options -- loads the program's modules, then checks and
         analyses each of them.
       format_error error -- formats any front-end error as one line.
-      command_interpret checked -- `pyk <file>`.
+      command_interpret checked arguments -- `pyk <file>`.
       command_compile checked options -- `pyk compile`.
       wrap text -- reflows text to the driver's line width. *)
 
@@ -125,15 +125,19 @@ let target_table () =
    explaining what the commands actually do. *)
 
 let synopsis =
-  "Usage: pyk [options] <filename>          run it with the interpreter\n\
-  \       pyk repl                          start the REPL\n\
-  \       pyk compile [options] <filename>  compile it (alias: pyk c)\n\n\
+  "Usage: pyk [options] <filename> [-- args]   run it with the interpreter\n\
+  \       pyk repl                             start the REPL\n\
+  \       pyk compile [options] <filename>     compile it (alias: pyk c)\n\n\
    Options:\n\
   \  -t, --target <name>   compile for <name> (default: python)\n\
   \  -o, --output <file>   write the output to <file>\n\
+  \  -L, --lib-path <dir>  a directory of libraries to import from; repeat\n\
+  \                        for several\n\
   \  --stdout              print the generated code instead of writing it\n\
   \  --run                 build and run what was compiled, with the\n\
   \                        target's own commands\n\
+  \  --                    everything after it is the program's own\n\
+  \                        arguments, read by sys.arguments()\n\
   \  --help                this, in full: the rest of the flags, what each\n\
   \                        command does, and what each target writes"
 
@@ -204,11 +208,22 @@ let usage_full () =
     \  c89, c99, c23    cc -std=<standard> -o prog prog.c, then prog\n\
     \  java8, java17,   javac --release <version> prog.java, then java prog\n\
     \  java21\n\
-    \  ocaml5.5         ocamlopt -o prog prog.ml, then prog\n\
+    \  ocaml5.5         ocamlopt -I +unix unix.cmxa -o prog prog.ml,\n\
+  \                   then prog\n\
     \  pyking           pyk prog.pyk\n\n\
      $CC, $JAVAC, $JAVA and $OCAMLOPT say which tool to use where there is a\n\
      choice. --run needs a file to run, so it cannot be combined with\n\
-     --stdout."
+     --stdout.\n\n\
+     Everything after `--` is passed to the program rather than read as a\n\
+     flag, which is what `sys.arguments()` answers with. It applies to a\n\
+     program being *run*: `pyk prog.pyk -- a b`, or `pyk compile --run` for\n\
+     a target whose host takes arguments. `pyk compile` on its own writes a\n\
+     file and runs nothing, so it refuses them.\n\n\
+     A module is looked for beside the file that imports it, then in each\n\
+     -L directory, then in each entry of $PYKING_LIB_PATH (separated by ':'\n\
+     here), then in the lib/ beside this executable -- which is where the\n\
+     standard library is found with no flag at all. A -L directory holds one\n\
+     folder per library: -L libs finds libs/fs/fs.external.pyk for `fs`."
     synopsis more_options (target_table ())
     (wrap ("An unversioned name is the family's latest: " ^ alias_line () ^ "."))
 
@@ -234,6 +249,8 @@ type options = {
   tail_calls : bool;
   typecheck : bool;
   type_experiment : bool;
+  lib_paths : string list;
+  arguments : string list;
 }
 
 let default_options command =
@@ -249,7 +266,54 @@ let default_options command =
     tail_calls = true;
     typecheck = true;
     type_experiment = false;
+    lib_paths = [];
+    arguments = [];
   }
+
+(* --- the library search path ---
+   Three levels a caller can set and one this executable knows, tried in
+   that order after the importing file's own directory. Reading an
+   environment variable and asking where the executable is are done
+   here rather than in module.ml: the browser build compiles that
+   module too, and it may do neither (see docs/build.md). *)
+
+(** The separator a path list uses inside an environment variable: the
+    platform's own, since every other tool on it uses that one. char *)
+let path_separator = if Sys.win32 then ';' else ':'
+
+(** The directories PYKING_LIB_PATH names, in order. An empty entry is
+    dropped rather than read as the current directory, which is what a
+    trailing separator would otherwise mean. () -> [string] *)
+let environment_libs () =
+  match Sys.getenv_opt "PYKING_LIB_PATH" with
+  | None -> []
+  | Some text ->
+      List.filter
+        (fun entry -> entry <> "")
+        (String.split_on_char path_separator text)
+
+(** The library directory shipped beside the executable: `lib` next to
+    the `pyk` that is running. It is what makes the standard library
+    work with no flag set and no variable exported, and it is last, so
+    anything a caller says overrides it. () -> [string] *)
+let builtin_libs () =
+  let beside = join (dirname (absolute Sys.executable_name)) "lib" in
+  if Sys.file_exists beside then [ beside ] else []
+
+(** The whole search path, in the order a module name is looked for:
+    every `-L` as it was written, then every PYKING_LIB_PATH entry, then
+    the one beside the executable. The importing file's own directory
+    comes before all of them and is module.ml's own business.
+    options -> [Module.lib_entry] *)
+let library_path options =
+  let at origin directories =
+    List.map
+      (fun directory -> { Module.lib_directory = directory; lib_origin = origin })
+      directories
+  in
+  at "-L" options.lib_paths
+  @ at "PYKING_LIB_PATH" (environment_libs ())
+  @ at "built-in" (builtin_libs ())
 
 (** Whether this run hands the program to a backend whose own host
     eliminates tail calls, in which case the pass would only be undone
@@ -312,11 +376,67 @@ let parse_args argv =
         match rest with
         | [] -> usage_error "--output requires a <file> argument"
         | output :: rest -> go { options with output = Some output } positional rest)
+    (* `-Lpath` and `--lib-path=path` as well as the separated forms:
+       this flag borrows its spelling from every other compiler's, so it
+       borrows the shapes people type it in too. *)
+    | argument :: rest
+      when String.starts_with ~prefix:"-L" argument && String.length argument > 2
+      ->
+        go
+          {
+            options with
+            lib_paths =
+              options.lib_paths
+              @ [ String.sub argument 2 (String.length argument - 2) ];
+          }
+          positional rest
+    | argument :: rest when String.starts_with ~prefix:"--lib-path=" argument ->
+        let at = String.length "--lib-path=" in
+        go
+          {
+            options with
+            lib_paths =
+              options.lib_paths @ [ String.sub argument at (String.length argument - at) ];
+          }
+          positional rest
+    | ("--lib-path" | "-L") :: rest -> (
+        (* Repeated rather than separated: a list would need a
+           separator, and the separator is what differs between
+           platforms. The environment variable has no such choice and
+           takes the platform's own (see `environment_libs`). *)
+        match rest with
+        | [] -> usage_error "--lib-path requires a <path> argument"
+        | path :: rest ->
+            go { options with lib_paths = options.lib_paths @ [ path ] }
+              positional rest)
+    (* Everything after `--` belongs to the program being run, not to
+       this compiler: it is how a Pyking program is given arguments of
+       its own (`sys.arguments`), and it stops a program's `-t` or
+       `--run` being read as ours. *)
+    | "--" :: rest -> ({ options with arguments = rest }, List.rev positional)
     | argument :: rest -> go options (argument :: positional) rest
   in
   let options, positional = go (default_options command) [] argv in
   if options.run && options.stdout then
     usage_error "--run needs a file to run, so it cannot be used with --stdout";
+  if options.arguments <> [] then
+    if command = "repl" then
+      usage_error
+        "everything after -- is passed to a program being run, and 'pyk repl' \
+         runs none"
+    else if command = "compile" && not options.run then
+      usage_error
+        "everything after -- is passed to a program being run; 'pyk compile' \
+         writes a file, so add --run or drop the --"
+    else if
+      options.run
+      && List.mem (Targets.family_of options.target) [ Targets.Web; Targets.Iweb ]
+    then
+      usage_error
+        (Printf.sprintf
+           "--run on '%s' starts a server for the page to be fetched from, so \
+            there is no program invocation to pass arguments to"
+           options.target);
   if (not options.typecheck) && (command <> "compile" || options.target <> pyking_target)
   then
     (* Every backend but this one reads the types, and so does the
@@ -463,7 +583,7 @@ let front_end options =
     [ ({ unit with stmts = Analyses.symbolize unit.stmts }, None) ])
   else
     let units =
-      try Module.load filename with
+      try Module.load ~libs:(library_path options) filename with
       | Lexer.Lex_error _ as e -> fail e
       | Parser.Parse_error _ as e -> fail e
       | Analyses.Analysis_error _ as e -> fail e
@@ -524,20 +644,27 @@ let trace_limit = 10
     a truncated stack trace) if one occurs. Every module of the program
     runs, in the order it was checked in, each in a top level of its
     own. [(Module.t, typ IntMap.t option)] -> int *)
-let command_interpret checked =
+let command_interpret checked arguments =
   (* The interpreter runs the AST, and an external module has none: what
-     it exports is written in a target language, which only a compiled
-     program can reach. *)
+     it exports is written in a target language. A compiled program
+     reaches that language's own file; an interpreted one reaches
+     src/stdlib_host.ml, which implements the standard library's
+     externals and nothing else -- so a library under lib/ runs here
+     too, and any *other* external module is still refused. Keeping the
+     list closed is deliberate: a folder named `fs` on a `-L` path must
+     not be answered by this executable instead of by the file that
+     resolved. *)
   List.iter
     (fun ((unit : Module.t), _) ->
       List.iter
         (fun statement ->
           match statement with
           | Syntax.SImport (info, name, _, _, _, _)
-            when List.exists
-                   (fun ((other : Module.t), _) ->
-                     other.name = name && other.is_external)
-                   checked ->
+            when (not (Stdlib_host.implements name))
+                 && List.exists
+                      (fun ((other : Module.t), _) ->
+                        other.name = name && other.is_external)
+                      checked ->
               fail
                 (Module.Module_error
                    ( info,
@@ -552,10 +679,32 @@ let command_interpret checked =
   let units =
     List.map
       (fun ((unit : Module.t), _) ->
-        (unit.name, Analyses.apply_signatures unit.stmts))
+        (* A declaration file is nothing but signatures, and they are its
+           content rather than annotations to fold onto a definition --
+           `apply_signatures` drops every one it does not move, which
+           would leave an external module with no exports at all. *)
+        ( unit.name,
+          if unit.is_external then unit.stmts
+          else Analyses.apply_signatures unit.stmts ))
       checked
   in
-  let state = Interpreter.run_modules units Interpreter.console_host in
+  (* The program's own module is last, since the modules are in
+     dependency order, and its path is what `sys_ext.program` answers
+     with; `arguments` is what followed `--`, which is what
+     `sys_ext.argument` answers from. *)
+  let program =
+    match List.rev checked with
+    | ((unit : Module.t), _) :: _ -> unit.path
+    | [] -> ""
+  in
+  let host =
+    Interpreter.callback_host
+      ~externals:(Stdlib_host.externals program arguments)
+      (fun line ->
+        print_string line;
+        print_newline ())
+  in
+  let state = Interpreter.run_modules units host in
   match Interpreter.failure state with
   | None -> 0
   | Some error ->
@@ -789,12 +938,14 @@ let compile_program checked target output_path options =
         Target_js_packaging.package_program target
           (List.map
            (fun ((unit : Module.t), _) ->
-             ( unit,
+             let js_program, renames =
                try
                  Target_js_core.translate_program ~taken
                    (Analyses.apply_signatures unit.stmts)
                with Target_js_core.Unsupported (info, message) ->
-                   fail_unsupported target info message ))
+                 fail_unsupported target info message
+             in
+             (unit, js_program, renames))
              checked)
           output_path options.stdout
       in
@@ -921,6 +1072,7 @@ let command_compile checked options =
                with
                | Some file -> join directory file
                | None -> join directory (default_name target unit.name)))
+        options.arguments
     else 0)
 
 (** Runs pyk. [string] -> int *)
@@ -930,6 +1082,6 @@ let main argv =
   else
     let checked = front_end options in
     if options.command = "compile" then command_compile checked options
-    else command_interpret checked
+    else command_interpret checked options.arguments
 
 let () = exit (main (List.tl (Array.to_list Sys.argv)))

@@ -1,0 +1,13 @@
+# A module whose name Python has built into its own interpreter. An
+# ordinary `import errno` in the generated Python would find the frozen
+# module rather than the file beside the program, and no `sys.path`
+# order would change it, so that backend loads this one by path instead
+# -- see docs/target_python.md, "Module names Python has already taken".
+#
+# `time` would be the natural name to test with and is deliberately not
+# used: a tests/time.pyk would resolve ahead of lib/time/ for every
+# other case here, since a module beside the importing file wins.
+
+import errno
+
+print(errno.doubled(21))

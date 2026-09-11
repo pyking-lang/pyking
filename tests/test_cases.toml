@@ -1211,3 +1211,88 @@ targets = ["pyking"]
 file = "external_web.pyk"
 modules = ["external_web_mod1.external.pyk"]
 targets = ["node24", "web24", "iweb24"]
+
+# The standard library under lib/. A `libs` entry is a library module,
+# not a file in tests/: the compiler finds it on its own search path and
+# writes it beside the program's output, and the targets that link a
+# program are given it in this order. Libraries come before a program's
+# own `modules`, since a library never imports one of those.
+#
+# `fs` is the one library whose whole boundary is scalar -- a String and
+# a Bool cross on every target -- so it is the one that reaches the C
+# and Java targets. It claims no web24/iweb24: a browser has no
+# filesystem, and an implementation that always failed would be worse
+# than an import that was never offered.
+
+[[cases]]
+file = "lib_fs_roundtrip.pyk"
+libs = ["fs"]
+targets = ["python14", "node24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "lib_fs_exists.pyk"
+libs = ["fs"]
+targets = ["python14", "node24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+
+# `sys` and `time` build a list and a tuple, which the C and Java
+# targets have no representation for, so neither library reaches them.
+# `time` skips ocaml5.5 for a reason of its own -- `format` parses its
+# format string with a text pattern, which that backend refuses.
+# See docs/libraries.md.
+
+[[cases]]
+file = "lib_sys_arguments.pyk"
+libs = ["sys_ext", "sys"]
+targets = ["python14", "node24", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "lib_sys_environment.pyk"
+libs = ["sys_ext", "sys"]
+targets = ["python14", "node24", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "lib_time_format.pyk"
+libs = ["time_ext", "time"]
+targets = ["python14", "node24", "web24", "iweb24", "interpret"]
+
+[[cases]]
+file = "lib_time_now.pyk"
+libs = ["time_ext", "time"]
+targets = ["python14", "node24", "web24", "iweb24", "interpret"]
+
+# Two regression cases for collisions between a Pyking module's name, or
+# an exported name, and something the host has already taken. Both are
+# about the *compiler* rather than about any library, which is why they
+# are here rather than among the lib_* cases -- each reproduced with an
+# ordinary module before it was fixed.
+
+[[cases]]
+file = "module_shadow_builtin.pyk"
+modules = ["errno.pyk"]
+targets = ["python14", "node24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "module_reserved_export.pyk"
+modules = ["module_reserved_export_mod1.pyk"]
+targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+
+# The one case with arguments. `arguments` is passed to the program
+# itself -- after `--` for the interpreter, and the host's own way for
+# each compiled target -- and it is the only way a run's arguments can
+# be written down, since a program cannot ask for its own.
+
+[[cases]]
+file = "lib_sys_arguments_passed.pyk"
+libs = ["sys_ext", "sys"]
+arguments = ["alpha", "beta gamma"]
+targets = ["python14", "node24", "ocaml5.5", "interpret"]
+
+# Two libraries at once. `sys` is named before `fs` on purpose: it puts
+# a module `Sys` on the OCaml include path before fs.ml is compiled,
+# which is what an external implementation using an unqualified
+# `Sys.file_exists` would break on.
+
+[[cases]]
+file = "lib_two_libraries.pyk"
+libs = ["sys_ext", "sys", "fs"]
+targets = ["python14", "node24", "ocaml5.5", "interpret"]

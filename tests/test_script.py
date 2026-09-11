@@ -87,6 +87,18 @@ from concurrent.futures import ThreadPoolExecutor
 PYK = os.path.join(".", "pyk")
 DEFAULT_COMPILER = [PYK]
 COMPILER = list(DEFAULT_COMPILER)
+
+
+def runnable_anywhere(command):
+    """`command` with its executable made absolute, where that executable
+    is a path to a file. A program is run in a workdir of its own, so a
+    command naming `./pyk` would not be found from there -- and the
+    compiler's own built-in library path is derived from where its
+    executable is, so absolute is also what makes `lib/` resolve.
+    [String] -> [String]"""
+    if command and os.path.exists(command[0]):
+        return [os.path.abspath(command[0])] + list(command[1:])
+    return list(command)
 CASES_FILE = os.path.join("tests", "test_cases.toml")
 # The `pyking` target compiles Pyking to Pyking: it runs the front end
 # and prints the program back, with the types the checker inferred. That
@@ -124,6 +136,13 @@ NOTAIL_FLAG = "--no-tail-call-opt"
 # What the `pyking` target compares against, beside the `.out` every
 # backend shares.
 AST_SUFFIX = ".ast.out"
+# One variable every run's environment carries, so that a case reading
+# the environment has something pinned to compare against. The whole
+# environment differs per machine and cannot be an expected output; one
+# known variable in it can be. See tests/lib_sys_environment.pyk.
+TEST_ENVIRONMENT = {"PYKING_TEST_ENV": "hello"}
+os.environ.update(TEST_ENVIRONMENT)
+
 # How many runs to keep in flight, when neither `--jobs` nor this says.
 # See `default_jobs`.
 JOBS_VARIABLE = "PYK_TEST_JOBS"
@@ -249,10 +268,10 @@ SCRIPT_RE = re.compile(r'<script type="module">\n(.*?)\n</script>', re.S)
 STEP_TIMEOUT = 300
 
 
-def run(cmd):
+def run(cmd, cwd=None):
     try:
         return subprocess.run(
-            cmd, capture_output=True, text=True, timeout=STEP_TIMEOUT
+            cmd, capture_output=True, text=True, timeout=STEP_TIMEOUT, cwd=cwd
         )
     except subprocess.TimeoutExpired as expired:
         return subprocess.CompletedProcess(
@@ -328,11 +347,11 @@ def has_def_inside_loop(source):
     return False
 
 
-def run_python(source, workdir, modules):
-    return _run_python(source, workdir, [])
+def run_python(source, workdir, modules, arguments):
+    return _run_python(source, workdir, [], arguments)
 
 
-def _run_python(source, workdir, flags):
+def _run_python(source, workdir, flags, arguments):
     generated = os.path.join(workdir, "program.py")
     compiled = compile_to(source, "python14", generated, flags)
     if compiled.returncode != 0:
@@ -345,10 +364,10 @@ def _run_python(source, workdir, flags):
             "with no `def` inside a loop -- ordinary programs must compile to "
             "ordinary Python"
         )
-    return executed(run([sys.executable, generated]))
+    return executed(run([sys.executable, generated] + arguments, cwd=workdir))
 
 
-def run_node(source, workdir, modules):
+def run_node(source, workdir, modules, arguments):
     """Runs the compiled ES module under node.
 
     The generated package.json beside it is what makes a plain `.js` an
@@ -358,10 +377,10 @@ def run_node(source, workdir, modules):
     compiled = compile_to(source, "node24", generated)
     if compiled.returncode != 0:
         return None, compiled.stderr
-    return executed(run(NODE + [generated]))
+    return executed(run(NODE + [generated] + arguments, cwd=workdir))
 
 
-def run_web(source, workdir, modules):
+def run_web(source, workdir, modules, arguments):
     """Compiles the page, then runs the module it loads, under node.
 
     The `web` target emits the same ES modules `node` does and prints to
@@ -382,7 +401,8 @@ def run_web(source, workdir, modules):
     # what a browser would have taken for granted.
     with open(os.path.join(workdir, "package.json"), "w") as f:
         f.write('{\n  "type": "module"\n}\n')
-    return executed(run(NODE + [os.path.join(workdir, "program.js")]))
+    return executed(
+        run(NODE + [os.path.join(workdir, "program.js")] + arguments, cwd=workdir))
 
 
 # The driver that runs an `iweb` page's program outside a browser: the
@@ -422,7 +442,7 @@ if (!result.ok) {
 """
 
 
-def run_iweb(source, workdir, modules):
+def run_iweb(source, workdir, modules, arguments):
     """Runs an `iweb` program the way its page does, under node.
 
     Nothing is compiled for this target: the page ships the Pyking
@@ -437,10 +457,11 @@ def run_iweb(source, workdir, modules):
     driver = os.path.join(workdir, "run-iweb.mjs")
     with open(driver, "w") as f:
         f.write(IWEB_DRIVER)
-    return executed(run(NODE + [driver, workdir, os.path.basename(source)]))
+    return executed(
+        run(NODE + [driver, workdir, os.path.basename(source)], cwd=workdir))
 
 
-def run_c(source, workdir, modules, standard):
+def run_c(source, workdir, modules, arguments, standard):
     """Compiles to C, builds it with the system compiler, runs the binary.
     `-pedantic` is on: the point of having a `c89` target at all is that
     its output really is C89, and a compiler that merely tolerates it
@@ -457,10 +478,10 @@ def run_c(source, workdir, modules, standard):
     )
     if built.returncode != 0:
         return None, built.stderr
-    return executed(run([binary]))
+    return executed(run([binary] + arguments, cwd=workdir))
 
 
-def run_java(source, workdir, modules, version):
+def run_java(source, workdir, modules, arguments, version):
     """Compiles to Java, builds it with `javac --release <version>`, runs
     the class with `java`. The class is named `Program` here rather than
     whatever the backend would pick by default -- `--output` always names
@@ -479,10 +500,11 @@ def run_java(source, workdir, modules, version):
     )
     if built.returncode != 0:
         return None, built.stderr
-    return executed(run([JAVA_RUNTIME, "-cp", workdir, "Program"]))
+    return executed(
+        run([JAVA_RUNTIME, "-cp", workdir, "Program"] + arguments, cwd=workdir))
 
 
-def run_ocaml(source, workdir, modules):
+def run_ocaml(source, workdir, modules, arguments):
     """Compiles to OCaml, builds it with `ocamlopt`, runs the binary.
 
     The bytecode compiler would do as well, but the native one is the
@@ -515,9 +537,16 @@ def run_ocaml(source, workdir, modules):
         if os.path.exists(interface):
             sources.append(interface)
         sources.append(os.path.join(workdir, name + ".ml"))
+    # Built *in* the workdir, as src/execution.ml builds in the output
+    # directory. From anywhere else, `-I workdir` and an absolute source
+    # path let ocamlopt reach one module by two routes, and it refuses
+    # the pair as making "inconsistent assumptions" over an interface.
     built = run(
-        OCAML_COMPILER + ["-w", "+a-70", "-I", workdir, "-o", binary]
-        + sources + [generated]
+        OCAML_COMPILER
+        + ["-w", "+a-70", "-I", "+unix", "unix.cmxa", "-I", workdir,
+           "-o", binary]
+        + sources + [generated],
+        cwd=workdir,
     )
     if built.returncode != 0:
         return None, built.stderr
@@ -529,7 +558,7 @@ def run_ocaml(source, workdir, modules):
     complaints = about_the_code(built.stderr)
     if complaints:
         return None, f"the OCaml compiler warned about generated code:\n{complaints}"
-    return executed(run([binary]))
+    return executed(run([binary] + arguments, cwd=workdir))
 
 
 # `$OCAMLOPT` may name a wrapper rather than the compiler, and
@@ -554,7 +583,7 @@ def about_the_code(stderr):
     )
 
 
-def run_interpret(source, _workdir, modules):
+def run_interpret(source, workdir, modules, arguments):
     """Runs the program with the interpreter, and compares what it
     printed against the same `.out` every compiling target is compared
     against.
@@ -564,10 +593,16 @@ def run_interpret(source, _workdir, modules):
     targets above it. The exit status still goes through `executed`, so
     a program that prints its output and *then* hits a runtime error is a
     failure rather than a pass."""
-    return executed(run(COMPILER + [source]))
+    # The program runs in the workdir, so that one writing a file
+    # writes it there; the path it is named by therefore has to be
+    # absolute.
+    # `--` so the program's arguments are not read as this compiler's.
+    passed = ["--"] + arguments if arguments else []
+    return executed(
+        run(COMPILER + [os.path.abspath(source)] + passed, cwd=workdir))
 
 
-def run_pyking(source, workdir, modules):
+def run_pyking(source, workdir, modules, arguments):
     """Compiles `source` to Pyking. Nothing is executed.
 
     For a `typecheck_*` program the result is its pretty-printed AST:
@@ -605,15 +640,15 @@ def _pyking(source, flags, expect_failure):
     return result.stdout, None
 
 
-def run_python_notail(source, workdir, modules):
+def run_python_notail(source, workdir, modules, arguments):
     """Runs the program with the tail-call pass off. Its output is
     compared against `.notail.out`, which must hold exactly what the
     `.out` does: the pass may make a program run in less space, never
     make it mean something else."""
-    return _run_python(source, workdir, [NOTAIL_FLAG])
+    return _run_python(source, workdir, [NOTAIL_FLAG], arguments)
 
 
-def run_pyking_notail(source, _workdir, modules):
+def run_pyking_notail(source, _workdir, modules, arguments):
     """Prints the program with the tail-call pass off, so the
     `.notail.ast.out` holds the program as it was written.
 
@@ -634,15 +669,12 @@ RUNNERS = {
     "node24": run_node,
     "web24": run_web,
     "iweb24": run_iweb,
-    "c89": lambda source, workdir, modules: run_c(source, workdir, modules, "c89"),
-    "c99": lambda source, workdir, modules: run_c(source, workdir, modules, "c99"),
-    "c23": lambda source, workdir, modules: run_c(source, workdir, modules, "c23"),
-    "java8": lambda source, workdir, modules: run_java(
-        source, workdir, modules, "java8"),
-    "java17": lambda source, workdir, modules: run_java(
-        source, workdir, modules, "java17"),
-    "java21": lambda source, workdir, modules: run_java(
-        source, workdir, modules, "java21"),
+    "c89": lambda s, w, m, a: run_c(s, w, m, a, "c89"),
+    "c99": lambda s, w, m, a: run_c(s, w, m, a, "c99"),
+    "c23": lambda s, w, m, a: run_c(s, w, m, a, "c23"),
+    "java8": lambda s, w, m, a: run_java(s, w, m, a, "java8"),
+    "java17": lambda s, w, m, a: run_java(s, w, m, a, "java17"),
+    "java21": lambda s, w, m, a: run_java(s, w, m, a, "java21"),
     "ocaml5.5": run_ocaml,
 }
 
@@ -663,6 +695,14 @@ def load_cases():
         print(f"WARNING: tests/{missing} is not listed in {CASES_FILE}")
     for missing in sorted((listed | imported) - on_disk):
         print(f"WARNING: {CASES_FILE} lists {missing}, which does not exist")
+    # A library module is not in tests/ and is not a case: it lives
+    # under lib/, and the compiler finds it on its own search path. It is
+    # still named in the manifest, so it is still checked.
+    for case in cases:
+        for name in case.get("libs", []):
+            if library_module_missing(name):
+                print(f"WARNING: {CASES_FILE} lists library module {name} "
+                      "for {}, and no lib/*/ holds it".format(case["file"]))
     for name in sorted(listed & imported):
         print(
             f"WARNING: {name} is both a program of its own and a module "
@@ -763,9 +803,15 @@ def load_cases():
 
 def plan(cases):
     """Every (target, program) run the manifest declares, in the order
-    their results are reported. [Case] -> [(String, String, [String])]"""
+    their results are reported.
+    [Case] -> [(String, String, [String], [String])]"""
     return [
-        (target, os.path.join("tests", case["file"]), module_names(case))
+        (
+            target,
+            os.path.join("tests", case["file"]),
+            module_names(case),
+            list(case.get("arguments", [])),
+        )
         for target in TARGETS
         for case in cases
         if target in case["targets"]
@@ -773,14 +819,25 @@ def plan(cases):
 
 
 def module_names(case):
-    """The modules one program imports, as module names, dependencies
-    first -- the order the manifest lists them in, which is the order
-    they must be built and run in. Case -> [String]"""
+    """Every module one program is built from besides its own, as module
+    names, dependencies first -- the order they must be compiled, linked
+    and run in. The `libs` come first: a library never imports a module
+    from tests/, and a module in tests/ may import a library.
+    Case -> [String]"""
     # `sys.external.pyk` is module `sys`: the marker is part of the file
     # name, not of the name another module imports it by.
-    return [os.path.splitext(os.path.splitext(name)[0])[0]
-            if name.endswith(".external.pyk") else os.path.splitext(name)[0]
-            for name in case.get("modules", [])]
+    return list(case.get("libs", [])) + [
+        os.path.splitext(os.path.splitext(name)[0])[0]
+        if name.endswith(".external.pyk") else os.path.splitext(name)[0]
+        for name in case.get("modules", [])]
+
+
+def library_module_missing(name):
+    """Whether no library under lib/ holds the module `name`. A library
+    is one folder per library, and a folder may hold more than one
+    module, so the folder is not named by the module. String -> Bool"""
+    return not (glob.glob(os.path.join("lib", "*", name + ".pyk"))
+                or glob.glob(os.path.join("lib", "*", name + ".external.pyk")))
 
 
 def java_class_name(module_name):
@@ -792,18 +849,20 @@ def java_class_name(module_name):
     )
 
 
-def run_case(target, source, modules):
+def run_case(target, source, modules, arguments):
     """Runs one program on one target and words the result, rather than
     printing it: a run this far from the reporting loop is one that can
     happen on any thread. `modules` names the modules the program
     imports, dependencies first, which the compiler writes beside the
     program's own output and which the targets that link a program have
-    to be given in that order.
-    String -> String -> [String] -> (String, Bool)"""
+    to be given in that order. `arguments` is what the program itself is
+    passed, which is how `sys.arguments()` is tested at all -- the
+    manifest is the only place a run's arguments can be written down.
+    String -> String -> [String] -> [String] -> (String, Bool)"""
     with open(expected_path(source, target)) as f:
         expected = f.read()
     with tempfile.TemporaryDirectory() as workdir:
-        actual, error = RUNNERS[target](source, workdir, modules)
+        actual, error = RUNNERS[target](source, workdir, modules, arguments)
 
     label = f"target {target}: {source}"
     if error is not None:
@@ -823,7 +882,7 @@ def outcomes(tasks, jobs):
     listed. With `jobs` above one they are run by a pool and a finished
     result waits for the ones before it, so what the suite prints does
     not depend on how the work happened to be scheduled.
-    [(String, String, [String])] -> Int
+    [(String, String, [String], [String])] -> Int
     -> iterator of (String, String, Bool)"""
     if jobs == 1:
         for task in tasks:
@@ -833,7 +892,7 @@ def outcomes(tasks, jobs):
     pool = ThreadPoolExecutor(max_workers=jobs)
     try:
         futures = [pool.submit(run_case, *task) for task in tasks]
-        for (target, _, _), future in zip(tasks, futures):
+        for (target, _, _, _), future in zip(tasks, futures):
             report, failed = future.result()
             yield target, report, failed
     finally:
@@ -899,7 +958,8 @@ def parse_args(argv):
     arguments = parser.parse_args(argv)
     jobs = arguments.jobs if arguments.jobs is not None else default_jobs()
     compiler = (
-        arguments.compiler.split() if arguments.compiler else DEFAULT_COMPILER
+        runnable_anywhere(
+            arguments.compiler.split() if arguments.compiler else DEFAULT_COMPILER)
     )
     only = None
     if arguments.target:

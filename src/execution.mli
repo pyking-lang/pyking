@@ -14,8 +14,9 @@
     built.
 
     Functions:
-      execute target path modules -- builds and runs what was compiled;
-        answers the program's status.
+      execute target path modules arguments -- builds and runs what was
+        compiled, passing the program its own arguments; answers its
+        status.
       pyking_target -- the target that is run by this compiler itself. *)
 
 (** The target whose "host" is this compiler: what runs a Pyking program
@@ -25,6 +26,8 @@ val pyking_target : string
 (** Builds and runs what was compiled to path, printing each command
     before it runs. `modules` names the program's other files, in the
     order they must be built. Answers the program's exit status, or that
-    of the build step that failed.
-    string -> string -> [string] -> int *)
-val execute : string -> string -> string list -> int
+    of the build step that failed. `arguments` is what the program
+    itself is passed -- after `--` where the host is this compiler,
+    which would otherwise read them as its own.
+    string -> string -> [string] -> [string] -> int *)
+val execute : string -> string -> string list -> string list -> int

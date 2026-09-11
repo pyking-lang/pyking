@@ -1,0 +1,16 @@
+# Two libraries in one program.
+#
+# The manifest names `sys` before `fs`, deliberately: that is what puts
+# a compiled module `Sys` on the include path before fs.ml is compiled
+# on the OCaml target. A Pyking module becomes an OCaml module of the
+# same name, so an external implementation writing an unqualified
+# `Sys.file_exists` would resolve it to the Pyking module and fail --
+# which is why lib/fs/fs.ml and lib/sys/sys_ext.ml qualify every
+# standard-library name.
+
+import fs
+import sys
+
+fs.write_text("both.txt", sys.environment_get("PYKING_TEST_ENV"))
+print(fs.read_text("both.txt"))
+print(fs.exists("both.txt"))

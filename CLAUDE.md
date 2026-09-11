@@ -1184,15 +1184,37 @@ covers what the page does with the bundle.
 ## Running
 
 ```
-pyk [options] <filename>          run it with the interpreter
-pyk repl                          start the REPL
-pyk compile [options] <filename>  compile it (alias: pyk c)
+pyk [options] <filename> [-- args]   run it with the interpreter
+pyk repl                             start the REPL
+pyk compile [options] <filename>     compile it (alias: pyk c)
 
 options: [--tokens] [--symbols] [--no-tail-call-opt]
          [--no-typechecking] [--type-experiment] [--run]
          [--target|-t <target>]
+         [--lib-path|-L <dir>] (repeatable)
          [--stdout | --output|-o <file>]
+         [-- <the program's own arguments>]
 ```
+
+**Everything after `--` belongs to the program**, not to the compiler:
+it is what `sys.arguments()` answers with, and it is why a program's own
+`-t` or `--run` is not read as ours. It applies where a program is
+*run* -- `pyk prog.pyk -- a b`, or `pyk compile --run` for a target
+whose host takes arguments -- and is refused for `pyk repl`, for
+`pyk compile` without `--run`, and for `--run` on a page target, whose
+"run" starts a server rather than invoking a program. `src/execution.ml`
+appends them to each target's run command, putting a `--` of its own
+in front for the `pyking` target, whose host is this compiler.
+
+**`-L`/`--lib-path` adds a directory of libraries**, repeated rather
+than separated since the separator is what differs between platforms;
+`$PYKING_LIB_PATH` takes the platform's own (`:` here, `;` on Windows).
+A module is looked for beside the file that imports it, then in each
+`-L`, then in each environment entry, then in the `lib/` beside the
+executable -- which is how the standard library is found with no flag
+at all. `src/pyk.ml` assembles that list and hands it to `Module.load`,
+because `module.ml` is in the browser build and may read neither the
+environment nor its own path. See `docs/libraries.md`.
 
 `pyk --help` prints the long help: the short one that a bare `pyk`
 prints stops at the flags that change what is *produced*, and
@@ -1497,7 +1519,10 @@ the JavaScript targets, a C compiler (`$CC`, default `cc`) for the C
 ones, a JDK (`$JAVAC`/`$JAVA`) for the Java ones and an OCaml compiler
 (`$OCAMLOPT`, default `ocamlopt`) for `ocaml5.5` — none of them
 is needed to *produce* the code, and none at all to run a program with
-`pyk <file>`. The OCaml cases are built with `-w +a`: that target's
+`pyk <file>`. The OCaml cases are built with `-w +a` and linked with
+`-I +unix unix.cmxa` (an external implementation may need `unix`, and
+`lib/sys/sys_ext.ml` does; see `docs/target_ocaml.md`, "Linking unix"):
+that target's
 promise is clean OCaml, so a warning about generated code fails the
 test. (That is the *generated* OCaml. The compiler's own build sets
 `-warn-error -a`, so a warning there does not fail a build.)

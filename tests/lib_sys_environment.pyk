@@ -1,0 +1,22 @@
+# The sys library: reading the environment.
+#
+# PYKING_TEST_ENV is set by the test harness for every run, so its value
+# is pinned here; the environment as a whole is not, since it differs on
+# every machine, and only that it holds something is checked.
+#
+# That check is a `match` on the list rather than `len`, and rather than
+# a `loop ... for`: the JavaScript backends have no `len` yet and the
+# OCaml one has no `for` clause on a loop, and a test should not narrow
+# the targets a library reaches. Matching it still walks the list of
+# pairs the Pyking half assembles, which is the part worth exercising.
+
+import sys
+
+print(sys.environment_get("PYKING_TEST_ENV"))
+print(sys.environment_has("PYKING_TEST_ENV"))
+print(sys.environment_has("PYKING_TEST_NOT_SET"))
+match sys.environment():
+    case []:
+        print(false)
+    case _:
+        print(true)

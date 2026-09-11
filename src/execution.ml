@@ -60,8 +60,10 @@ type plan = {
     names the other files the program was compiled to, in the order they
     must be built and run -- dependencies first -- which is what the
     targets that link a program rather than importing at run time need.
-    string -> string -> [string] -> plan *)
-let plan_for target path modules =
+    `arguments` is what the program itself is passed, after any the host
+    needs to be told.
+    string -> string -> [string] -> [string] -> plan *)
+let plan_for target path modules arguments =
   (* Everything is made absolute, since the commands run in the output
      file's own directory rather than the one `pyk` was called from. *)
   let path = Module.absolute path in
@@ -69,13 +71,16 @@ let plan_for target path modules =
   let binary = Filename.remove_extension path in
   let others = List.map Module.absolute modules in
   if Targets.family_of target = Targets.Python then
-    { build = []; run = [ "python3"; path ]; directory; note = None }
+    { build = []; run = ([ "python3"; path ] @ arguments); directory; note = None }
   else if target = pyking_target then
     (* The interpreter, reached the way this process was: `pyking`
        compiles to Pyking, and what runs Pyking is this compiler. *)
-    { build = []; run = [ Sys.executable_name; path ]; directory; note = None }
+    (* `--` before the program's own arguments, since this host is a
+       compiler and would otherwise read them as its own. *)
+    let passed = if arguments = [] then [] else "--" :: arguments in
+    { build = []; run = ([ Sys.executable_name; path ] @ passed); directory; note = None }
   else if Targets.family_of target = Targets.Node then
-    { build = []; run = [ "node"; path ]; directory; note = None }
+    { build = []; run = ([ "node"; path ] @ arguments); directory; note = None }
   else if List.mem (Targets.family_of target) [ Targets.Web; Targets.Iweb ] then
     (* A page of ES modules has to be *served*: a browser refuses a
        module fetched over file://. So `--run` starts a static server in
@@ -99,7 +104,7 @@ let plan_for target path modules =
         [
           [ c_compiler (); "-std=" ^ target; "-o"; binary ] @ others @ [ path ];
         ];
-      run = [ binary ];
+      run = ([ binary ] @ arguments);
       directory;
       note = None;
     }
@@ -116,7 +121,7 @@ let plan_for target path modules =
           [ java_compiler (); "--release"; release; "-d"; directory ]
           @ others @ [ path ];
         ];
-      run = [ java_runtime (); "-cp"; directory; class_name ];
+      run = ([ java_runtime (); "-cp"; directory; class_name ] @ arguments);
       directory;
       note = None;
     }
@@ -137,9 +142,18 @@ let plan_for target path modules =
     {
       build =
         [
-          ocaml_compiler () @ [ "-I"; directory; "-o"; binary ] @ sources @ [ path ];
+          (* `unix` is linked for every program on this target. Nothing
+             the compiler *generates* needs it, but an external module's
+             implementation may -- lib/sys/sys_ext.ml does, since
+             nothing in OCaml's Stdlib enumerates the environment -- and
+             it ships with the compiler, so there is no dependency to
+             install. It is named before the modules that use it,
+             because OCaml links in the order it is given. *)
+          ocaml_compiler ()
+          @ [ "-I"; "+unix"; "unix.cmxa"; "-I"; directory; "-o"; binary ]
+          @ sources @ [ path ];
         ];
-      run = [ binary ];
+      run = ([ binary ] @ arguments);
       directory;
       note = None;
     }
@@ -206,9 +220,10 @@ let run_command command directory =
     before it runs. `modules` names the program's other files, in the
     order they must be built. Answers the program's exit status, or that
     of the build step that failed.
-    string -> string -> [string] -> int *)
-let execute target path modules =
-  let plan = plan_for target path modules in
+    `arguments` is passed to the program itself.
+    string -> string -> [string] -> [string] -> int *)
+let execute target path modules arguments =
+  let plan = plan_for target path modules arguments in
   (* Printed before the command, on stderr like the commands themselves,
      since a served page's address is not something the server says. *)
   (match plan.note with

@@ -1,0 +1,15 @@
+# The sys library: the program's own arguments, and its name.
+#
+# Neither is compared as a value. `arguments` is empty because nothing
+# passes any, which is the same answer on every host; `program` is a
+# path the host chooses -- a script name, an absolute path, a binary --
+# so only that it says *something* is portable.
+#
+# Emptiness is tested with `==` rather than `len`, which the JavaScript
+# backends have no translation for yet: a test should not narrow the
+# targets a library reaches.
+
+import sys
+
+print(sys.arguments())
+print(sys.program() == "")

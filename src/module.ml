@@ -200,31 +200,92 @@ let read_whole_file path =
 (** The files on disk: what `pyk` compiles from. sources *)
 let disk = { exists = Sys.file_exists; contents = read_whole_file }
 
-(** The file a module name means and whether it declares an external
-    module. A name with both files is refused: a module is one thing,
-    and which of the two was meant would be a guess.
-    string -> string -> info option -> (string, bool) *)
-let module_file ?(from = disk) directory name info =
-  let plain = module_path directory name in
+(** A directory libraries may be found in, beyond the importing file's
+    own. Such a directory holds one folder per library, named after the
+    module it holds, so `sys` is `<directory>/sys/sys.pyk`. `origin`
+    says which level of the search the entry came from, which is what a
+    failed import names it by. *)
+type lib_entry = { lib_directory : string; lib_origin : string }
+
+(** The folder one library occupies in a search-path directory: one per
+    library, named after the module. string -> string -> string *)
+let library_directory directory name = join directory name
+
+(** Both files a module name could be in one directory, each with
+    whether it is there. sources -> string -> string ->
+    (string, bool, string, bool) *)
+let candidates from directory name =
   let declared = external_module_path directory name in
-  match (from.exists declared, from.exists plain) with
-  | true, true ->
-      let where =
-        match info with
-        | Some i -> i
-        (* The program's own file: no import asked for it, so the
-           collision is reported against the file itself. *)
-        | None ->
-            { Lexer.file = declared; row1 = 1; col1 = 0; row2 = 1; col2 = 0 }
-      in
-      raise
-        (Module_error
-           ( where,
-             Printf.sprintf
-               "module '%s' is declared twice: '%s' and '%s'. A module is                 either written in Pyking or implemented for a target, not                 both"
-               name declared plain ))
-  | true, false -> (declared, true)
-  | false, _ -> (plain, false)
+  let plain = module_path directory name in
+  (declared, from.exists declared, plain, from.exists plain)
+
+(** The refusal for a name that is both written in Pyking and declared
+    for a target. string -> string -> string -> string *)
+let declared_twice name declared plain =
+  Printf.sprintf
+    "module '%s' is declared twice: '%s' and '%s'. A module is either \
+     written in Pyking or implemented for a target, not both"
+    name declared plain
+
+(** The refusal for a name no level of the search found, naming every
+    path tried in the order it was tried and where each came from. A
+    search path that will not say where it looked is the hardest kind to
+    fix. string -> [(string, string)] -> string *)
+let not_found name tried =
+  Printf.sprintf
+    "cannot read module '%s': looked for %s. A module is beside the file \
+     that imports it, or in a library folder on the search path (-L, \
+     PYKING_LIB_PATH)"
+    name
+    (String.concat ", "
+       (List.map (fun (path, origin) -> Printf.sprintf "'%s' (%s)" path origin) tried))
+
+(** The file a module name means and whether it declares an external
+    module. The importing file's own directory is tried first, flat,
+    then each library directory in `libs` in order; a level with both
+    files is refused, since which of the two was meant would be a
+    guess. Raises Module_error naming every path tried where an import
+    asked for a module nothing has. The program's own file is not
+    resolved this way -- it was named on the command line -- so with no
+    import to blame the plain path is answered and reading it reports
+    the failure.
+    sources -> [lib_entry] -> string -> string -> info option
+    -> (string, bool) *)
+let module_file ?(from = disk) ?(libs = []) directory name info =
+  let levels =
+    (directory, "local")
+    :: List.map
+         (fun entry ->
+           (library_directory entry.lib_directory name, entry.lib_origin))
+         libs
+  in
+  let rec search tried levels =
+    match levels with
+    | [] -> (tried, None)
+    | (where, origin) :: rest -> (
+        let declared, has_declared, plain, has_plain = candidates from where name in
+        match (has_declared, has_plain) with
+        | true, true ->
+            let at =
+              match info with
+              | Some i -> i
+              (* The program's own file: no import asked for it, so the
+                 collision is reported against the file itself. *)
+              | None ->
+                  { Lexer.file = declared; row1 = 1; col1 = 0; row2 = 1; col2 = 0 }
+            in
+            raise (Module_error (at, declared_twice name declared plain))
+        | true, false -> (tried, Some (declared, true))
+        | false, true -> (tried, Some (plain, false))
+        | false, false ->
+            search (tried @ [ (declared, origin); (plain, origin) ]) rest)
+  in
+  match search [] levels with
+  | _, Some found -> found
+  | tried, None -> (
+      match info with
+      | None -> (module_path directory name, false)
+      | Some i -> raise (Module_error (i, not_found name tried)))
 
 (* --- reading one module --- *)
 
@@ -667,7 +728,7 @@ let cycle_message name stack =
     followed, which is what a cycle is reported from.
     string -> string -> info option -> [(string, t)] -> [string] ->
     [(string, info option)] -> ([(string, t)], [string]) *)
-let rec visit ?(from = disk) name path info parsed order stack =
+let rec visit ?(from = disk) ?(libs = []) name path info parsed order stack =
   if List.exists (fun (held, _) -> held = name) stack then
     (* Only a recursive call has a non-empty stack, and every one of
        those carries the import that asked for the module. *)
@@ -695,10 +756,11 @@ let rec visit ?(from = disk) name path info parsed order stack =
           match statement with
           | SImport (import_info, imported_name, _, _, _, _) ->
               let imported_path, _ =
-                module_file ~from directory imported_name (Some import_info)
+                module_file ~from ~libs directory imported_name
+                  (Some import_info)
               in
-              visit ~from imported_name imported_path (Some import_info) parsed
-                order
+              visit ~from ~libs imported_name imported_path (Some import_info)
+                parsed order
                 (stack @ [ (name, info) ])
           | _ -> (parsed, order))
         (parsed, order) module_.stmts
@@ -709,15 +771,17 @@ let rec visit ?(from = disk) name path info parsed order stack =
     program itself last: read, parsed, symbolized with one numbering
     across the whole program, and with every import resolved. Raises
     Module_error for a missing module or a cycle. string -> [t] *)
-let load ?(from = disk) path =
+let load ?(from = disk) ?(libs = []) path =
   (* The program's own file is named on the command line rather than
      resolved, but a name with both files is still a name meaning two
      things, so it is refused here too. *)
   let path, _ =
     if is_external_path path then (path, true)
-    else module_file ~from (dirname path) (module_name path) None
+    else module_file ~from ~libs (dirname path) (module_name path) None
   in
-  let parsed, order = visit ~from (module_name path) path None [] [] [] in
+  let parsed, order =
+    visit ~from ~libs (module_name path) path None [] [] []
+  in
   let _, _, modules =
     List.fold_left
       (fun (highest, loaded, modules) name ->

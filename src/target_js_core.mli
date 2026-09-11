@@ -21,7 +21,8 @@
       jshost -- everything the packager decides and the core only names.
 
     Functions:
-      translate_program stmts taken -- translates a whole module.
+      translate_program stmts taken -- translates a whole module, and
+        says which top-level names it had to rename.
       pprint_js_program stmts runtime -- the AST as JavaScript source
         text; runtime is the jshost the packager supplies.
       uses p stmts -- whether any expression in a module satisfies p,
@@ -103,9 +104,17 @@ type jshost = {
 (** Translates one module to JavaScript statements. `taken` is the
     names the packaging writes around the program, which a Pyking
     binding may therefore not keep.
-    [string] -> [stmt] -> [jsstmt] *)
+
+    Answers the statements and every top-level name this module had to
+    rename: a Pyking name that is a word JavaScript reserves is bound
+    under another one, and a packaging that exports it has to say which
+    (`export { arguments2 as arguments }`) rather than write a name
+    nothing declared.
+    [string] -> [stmt] -> ([jsstmt], [(string, string)]) *)
 val translate_program :
-  ?taken:Syntax.StringSet.elt list -> Syntax.stmt list -> jsstmt list
+  ?taken:Syntax.StringSet.elt list ->
+  Syntax.stmt list ->
+  jsstmt list * (string * string) list
 
 (** The AST as JavaScript source text, with the generated program's own
     runtime helpers where it needs them. `runtime` is the jshost the

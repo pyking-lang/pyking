@@ -40,7 +40,8 @@ help:
 	@echo "make test         the compiler's own suite: every tests/*.pyk on every"
 	@echo "                  target tests/test_cases.toml lists it for, run in"
 	@echo "                  parallel (JOBS=n to say how parallel), then the"
-	@echo "                  REPL's own cases in tests/repl/"
+	@echo "                  REPL's own cases in tests/repl/, then the"
+	@echo "                  library search path's in tests/test_libpath.py"
 	@echo "                  TARGET=c23 runs one target; TARGET=c runs every"
 	@echo "                  version of that family"
 	@echo "make stest        the same suite, one test at a time"
@@ -68,6 +69,8 @@ test: build
 		$(if $(TARGET),--target $(TARGET))
 	@if [ -z "$(TARGET)" ]; then python3 tests/test_repl.py; \
 	else echo "repl: skipped (TARGET=$(TARGET) selected)"; fi
+	@if [ -z "$(TARGET)" ]; then python3 tests/test_libpath.py; \
+	else echo "libpath: skipped (TARGET=$(TARGET) selected)"; fi
 
 # The same suite with no pool at all, for when a parallel run's timing is
 # itself in question.
@@ -75,6 +78,8 @@ stest: build
 	python3 tests/test_script.py --jobs 1 $(if $(TARGET),--target $(TARGET))
 	@if [ -z "$(TARGET)" ]; then python3 tests/test_repl.py; \
 	else echo "repl: skipped (TARGET=$(TARGET) selected)"; fi
+	@if [ -z "$(TARGET)" ]; then python3 tests/test_libpath.py; \
+	else echo "libpath: skipped (TARGET=$(TARGET) selected)"; fi
 
 # Delegates entirely to tools/playground's own Makefile (its default
 # target: vendor, build, check, then serve and print a URL). `-C` runs

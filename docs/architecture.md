@@ -648,15 +648,25 @@ own page:
   type-checks, compiled with no annotations.
 - **[target_java.md](target_java.md)** — `java8`, `java17`, `java21`.
 
-Three differences are worth knowing before reading further, because they
-are the only cases where one Pyking program does not mean the same thing
-everywhere: JavaScript prints an integral float as `6` where Python
-prints `6.0`; the C, Java and OCaml targets refuse `/` outright, since
-integer division there would produce a different *value* rather than a
-different rendering; and the Java targets additionally refuse a function
-whose control can fall off the end without returning, since `javac` —
-unlike Python, and unlike C — treats that as a compile error rather than
-implicitly returning `None`.
+Two differences are worth knowing before reading further, and neither is
+a case of one Pyking program *meaning* two things:
+
+- **Integer overflow is the host's.** An `Int` holds at least the signed
+  32-bit range and past it the result is undefined (PYKING.md, "Integer
+  and string literals"), so each host answers with whatever its own
+  arithmetic gives — a JavaScript number is a double, and the
+  interpreter under js_of_ocaml is 32 bits where the native one is 63.
+  [targets.md](targets.md) has the table.
+- **The Java targets refuse a function whose control can fall off the
+  end** without returning, since `javac` — unlike Python, and unlike C
+  — treats that as a compile error rather than implicitly returning
+  `None`.
+
+Division is not one of them. `/` is integer division truncating toward
+zero, and every target implements it: the host's own `/` in C, Java and
+OCaml, `//` with Python's floor corrected, and `Math.trunc` around the
+quotient in JavaScript, whose `/` is float division. No target refuses
+it, and all of them answer `-3` for `-7 / 2`.
 
 The `ocaml5.5` target is the odd one out in a more interesting way: its
 subset is not a list this backend maintains but the type checker's, run
