@@ -24,7 +24,7 @@
 
 [[cases]]
 file = "arithmetic.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "iweb24", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "arithmetic_division.pyk"
@@ -32,11 +32,11 @@ targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17"
 
 [[cases]]
 file = "boolean_literals.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "iweb24", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "boolean_literals_patterns.pyk"
-targets = ["python14", "iweb24", "interpret"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "concatenation.pyk"
@@ -44,7 +44,7 @@ targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17"
 
 [[cases]]
 file = "else_if.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "iweb24", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "else_if_nested.pyk"
@@ -252,11 +252,11 @@ targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "ifelse.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "iweb24", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "indent.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "iweb24", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "lexical_capture.pyk"
@@ -276,23 +276,23 @@ targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "list_complex.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "interpret"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "list_comprehension_basic.pyk"
-targets = ["python14", "iweb24", "interpret"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "list_comprehension_filter.pyk"
-targets = ["python14", "iweb24", "interpret"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "list_comprehension_nested.pyk"
-targets = ["python14", "iweb24", "interpret"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "list_comprehension_pattern_helper.pyk"
-targets = ["python14", "iweb24", "interpret"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "list_literals.pyk"
@@ -304,15 +304,15 @@ targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "list_pattern_recursive.pyk"
-targets = ["python14", "iweb24", "interpret"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "list_pattern_recursive_short.pyk"
-targets = ["python14", "iweb24", "interpret"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "loop_corner_cases.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "iweb24", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "loop_def_capture.pyk"
@@ -324,7 +324,7 @@ targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "loop_unit.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "interpret"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "match_int_simple.pyk"
@@ -380,7 +380,7 @@ targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "shadowing.pyk"
-targets = ["python14", "iweb24", "interpret"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "shadowing_blocks.pyk"
@@ -396,7 +396,7 @@ targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "short_function.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "iweb24", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "short_function_values.pyk"
@@ -412,11 +412,11 @@ targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17"
 
 [[cases]]
 file = "subset_values.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "iweb24", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "test1.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "iweb24", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "tail_return_boundaries.pyk"
@@ -424,7 +424,7 @@ targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "tail_return_nested.pyk"
-targets = ["python14", "iweb24", "interpret"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "tail_return_subset.pyk"
@@ -436,7 +436,7 @@ targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "tuples_assign_destructure.pyk"
-targets = ["python14", "iweb24", "interpret"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "tuples_complex.pyk"
@@ -452,11 +452,11 @@ targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "tuples_literals.pyk"
-targets = ["python14", "iweb24", "interpret"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "tuples_match_destructure.pyk"
-targets = ["python14", "iweb24", "interpret"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "typecheck_builtins.pyk"
@@ -648,7 +648,7 @@ targets = ["pyking"]
 
 [[cases]]
 file = "typecheck_infer_reuse.pyk"
-targets = ["python14", "iweb24", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_infer_tail.pyk"
@@ -873,11 +873,11 @@ targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "types_mixed.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "iweb24", "interpret"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "types_tuples.pyk"
-targets = ["python14", "iweb24", "interpret"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "unit_values.pyk"
@@ -885,15 +885,15 @@ targets = ["python14", "iweb24", "interpret"]
 
 [[cases]]
 file = "value_if.pyk"
-targets = ["python14", "iweb24", "interpret"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "value_match.pyk"
-targets = ["python14", "iweb24", "interpret"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "value_next_line.pyk"
-targets = ["python14", "iweb24", "interpret"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "variables.pyk"
@@ -921,7 +921,7 @@ targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "inline_match.pyk"
-targets = ["python14", "iweb24", "interpret"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "fail_typecheck_inline_two_statements.pyk"
@@ -1045,7 +1045,7 @@ targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_lists.pyk"
-targets = ["python14", "iweb24", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_loop_basic.pyk"
@@ -1089,7 +1089,7 @@ targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "py
 
 [[cases]]
 file = "typecheck_noann_string_recursion.pyk"
-targets = ["python14", "iweb24", "interpret", "pyking"]
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_tco_mutual.pyk"
