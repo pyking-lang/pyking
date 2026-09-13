@@ -22,7 +22,8 @@
       names -- every builtin's name, in the order the table lists them.
       pure_names -- the names that do not cross the host boundary.
       lookup name -- the builtin a name denotes, or None.
-      crosses_host name -- whether calling name leaves the program. *)
+      crosses_host name -- whether calling name leaves the program.
+      float_text x -- a Float as print and str write it. *)
 
 (** One builtin. `max_args` is None for a variadic one, which is the
     whole of what makes `print` take any number of arguments. *)
@@ -88,6 +89,27 @@ let all =
         "Answer how many items a list holds, or how many characters a \
          String holds.";
     };
+    {
+      name = "float";
+      min_args = 1;
+      max_args = Some 1;
+      crosses_host = false;
+      doc =
+        "Answer an Int as a Float. Exact for a magnitude below 2^53; above \
+         it, the nearest double. Pyking converts nothing on its own, so \
+         this and `int` are the only way an Int and a Float meet.";
+    };
+    {
+      name = "int";
+      min_args = 1;
+      max_args = Some 1;
+      crosses_host = false;
+      doc =
+        "Answer a Float as an Int, truncating toward zero -- the rounding \
+         `/` already does. A value with no Int to truncate to (a NaN, an \
+         infinity, one past the Int range) is undefined, as an Int \
+         overflow is.";
+    };
   ]
 
 (** Every builtin's name, in the order the table lists them. [string] *)
@@ -109,3 +131,57 @@ let pure_names =
     string -> bool *)
 let crosses_host name =
   match lookup name with Some builtin -> builtin.crosses_host | None -> false
+
+(* --- how a Float is written ---
+
+   The shortest decimal that reads back as the same double, presented so
+   that it is always visibly a Float. Every backend implements this same
+   algorithm in its own host language, because no two hosts spell a
+   double alike and one .out file is compared against all of them (see
+   docs/builtin.md, "The formatting rules"). *)
+
+(** The shortest `%.pe` for a positive, finite a that reads back as a.
+    Seventeen significant digits always do, so the search ends.
+    float -> string *)
+let shortest_digits a =
+  let rec search p =
+    let s = Printf.sprintf "%.*e" p a in
+    if p >= 16 || float_of_string s = a then s else search (p + 1)
+  in
+  search 0
+
+(** A Float as `print` and `str` write it. float -> string *)
+let float_text x =
+  if x <> x then "nan"
+  else if x = infinity then "inf"
+  else if x = neg_infinity then "-inf"
+  else
+    (* 1.0 /. x separates the two zeros, which compare equal. *)
+    let negative = x < 0.0 || (x = 0.0 && 1.0 /. x < 0.0) in
+    let sign = if negative then "-" else "" in
+    let a = abs_float x in
+    if a = 0.0 then sign ^ "0.0"
+    else
+      let s = shortest_digits a in
+      let at = String.index s 'e' in
+      let digits = String.concat "" (String.split_on_char '.' (String.sub s 0 at)) in
+      let rec trim n = if n > 1 && digits.[n - 1] = '0' then trim (n - 1) else n in
+      let digits = String.sub digits 0 (trim (String.length digits)) in
+      let len = String.length digits in
+      (* Where the point falls: a = 0.digits x 10^decpt. The thresholds
+         are the ones that keep 100.0 from printing as 1e2. *)
+      let decpt =
+        int_of_string (String.sub s (at + 1) (String.length s - at - 1)) + 1
+      in
+      let zeros n = String.make (max 0 n) '0' in
+      if decpt <= -4 || decpt > 16 then
+        let mantissa =
+          if len = 1 then digits
+          else String.sub digits 0 1 ^ "." ^ String.sub digits 1 (len - 1)
+        in
+        sign ^ mantissa ^ "e" ^ string_of_int (decpt - 1)
+      else if decpt <= 0 then sign ^ "0." ^ zeros (-decpt) ^ digits
+      else if decpt >= len then sign ^ digits ^ zeros (decpt - len) ^ ".0"
+      else
+        sign ^ String.sub digits 0 decpt ^ "."
+        ^ String.sub digits decpt (len - decpt)

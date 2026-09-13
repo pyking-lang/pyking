@@ -1,0 +1,39 @@
+# typecheck_float.pyk with every annotation taken off.
+#
+# It prints the same characters, and .out is shared with that file: an
+# annotation says what a program means to a reader and to the checker,
+# never what it does. What settles each of these is a Float *literal*
+# reaching the body -- `3.14159`, `2.0` -- or a builtin that names the
+# type, which is what `float` and `int` do.
+#
+# `taller` is the one worth looking at. Its operands are left open, as
+# `==`'s already were: `<` answers Bool whichever type it compares, so
+# nothing in the body decides, and the first call does
+# (docs/type_inference.md).
+
+def area(radius):
+    return 3.14159 * radius * radius
+
+
+def half(x):
+    return x / 2.0
+
+
+def taller(a, b):
+    return a > b
+
+
+def widen(n):
+    return float(n)
+
+
+def narrow(x):
+    return int(x)
+
+
+r = 2.0
+print(area(r))
+print(half(r))
+print(taller(r, 1.0))
+print(widen(3))
+print(narrow(2.75))

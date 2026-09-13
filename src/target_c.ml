@@ -65,7 +65,7 @@ let unsupported info message =
    the C spelling of a boolean is one of the things the standards
    disagree about. *)
 
-type ctype = Int | Bool | String | Unit
+type ctype = Int | Float | Bool | String | Unit
 
 (** What a module implemented in C exports, as this translation unit has
     to declare it: a function with its parameter and return types, or a
@@ -75,11 +75,17 @@ type cextern =
   | CExternValue of string * ctype
 
 let ctype_name t =
-  match t with Int -> "Int" | Bool -> "Bool" | String -> "String" | Unit -> "Unit"
+  match t with
+  | Int -> "Int"
+  | Float -> "Float"
+  | Bool -> "Bool"
+  | String -> "String"
+  | Unit -> "Unit"
 
 let c_type_text standard t =
   match (standard, t) with
   | _, Int -> "int"
+  | _, Float -> "double"
   (* C89 has no boolean type; C99 gained `bool` through <stdbool.h>,
      which `headers` adds, and C23 made it a keyword. *)
   | "c89", Bool -> "int"
@@ -91,7 +97,14 @@ let c_type_text standard t =
    argument becomes a conditional expression, since neither standard's
    spelling prints directly with %d/%s. *)
 let format_of t =
-  match t with Int -> "%d" | Bool -> "%s" | String -> "%s" | Unit -> "%s"
+  match t with
+  | Int -> "%d"
+  (* A double is written by pyk_float_str rather than by a conversion:
+     no printf format spells a Float the way Pyking does. *)
+  | Float -> "%s"
+  | Bool -> "%s"
+  | String -> "%s"
+  | Unit -> "%s"
 
 (** The type an annotation names, or None for one C cannot represent
     (docs/target_c.md, "How types are inferred"). typ option -> ctype
@@ -99,6 +112,7 @@ let format_of t =
 let annotated_type annotation =
   match annotation with
   | Some (TInt _) -> Some Int
+  | Some (TFloat _) -> Some Float
   | Some (TString _) -> Some String
   | Some (TBool _) -> Some Bool
   | _ -> None
@@ -141,6 +155,7 @@ let reject_type_variables node =
 
 type cexpr =
   | CInt of info * int
+  | CFloat of info * float
   | CStr of info * string
   | CBool of info * bool
   | CVar of info * string * ctype
@@ -155,6 +170,8 @@ type cexpr =
          they are written, then result, which is what the whole
          expression is worth. See docs/target_c.md, "Evaluation
          order". *)
+  | CCast of info * ctype * cexpr (* (type)operand *)
+  | CFloatStr of info * cexpr (* pyk_float_str(operand) *)
 
 type cstmt =
   | CDecl of info * ctype * string * cexpr (* <type> name = init; *)
@@ -197,6 +214,8 @@ type cprogram = {
   uses_print : bool;
   uses_concat : bool;
   uses_strcmp : bool;
+  uses_float : bool;
+  uses_infinity : bool;
   program_name : string;
   main : bool;
   separate : bool;
@@ -213,6 +232,7 @@ type cprogram = {
 let ctype_of e =
   match e with
   | CInt _ -> Int
+  | CFloat _ -> Float
   | CStr _ -> String
   | CBool _ -> Bool
   | CVar (_, _, t) -> t
@@ -223,11 +243,14 @@ let ctype_of e =
   | CConcat _ -> String
   | CStrEq _ -> Bool
   | CSeq (_, _, _, t) -> t
+  | CCast (_, t, _) -> t
+  | CFloatStr _ -> String
 
 (** The source position a C expression carries. cexpr -> info *)
 let cexpr_info e =
   match e with
-  | CInt (i, _) | CStr (i, _) | CBool (i, _) -> i
+  | CInt (i, _) | CFloat (i, _) | CStr (i, _) | CBool (i, _) -> i
+  | CCast (i, _, _) | CFloatStr (i, _) -> i
   | CVar (i, _, _) -> i
   | CUnary (i, _, _, _) -> i
   | CBinary (i, _, _, _, _) -> i
@@ -428,6 +451,7 @@ let stmt_kind_name s =
 let expr_kind_name e =
   match e with
   | EInt _ -> "EInt"
+  | EFloat _ -> "EFloat"
   | EString _ -> "EString"
   | EBool _ -> "EBool"
   | EVar _ -> "EVar"
@@ -466,6 +490,8 @@ type state = {
   uses_print : bool;
   uses_concat : bool;
   uses_strcmp : bool;
+  uses_float : bool;
+  uses_infinity : bool;
   (* The enclosing `loop`s, innermost last. *)
   loops : cloop list;
   temporaries : int;
@@ -518,6 +544,14 @@ let require node ctype what =
     unsupported (cexpr_info node)
       (Printf.sprintf "%s needs %s operands here, not %s" what
          (ctype_name ctype)
+         (ctype_name (ctype_of node)))
+
+(** Raises Unsupported if node is neither an Int nor a Float, which is
+    what every arithmetic operator takes. cexpr -> string -> () *)
+let require_numeric node what =
+  if ctype_of node <> Int && ctype_of node <> Float then
+    unsupported (cexpr_info node)
+      (Printf.sprintf "%s needs Int or Float operands here, not %s" what
          (ctype_name (ctype_of node)))
 
 (** One name per accumulator slot, or None if the target is nested
@@ -655,6 +689,21 @@ let used_as_string name stmts =
       | _ -> false)
     stmts
 
+(** Whether name is combined with a float literal anywhere in these
+    statements, which is what an arithmetic operator or a comparison
+    does with two numbers. string -> [stmt] -> bool *)
+let used_as_float name stmts =
+  Walk.exists_stmts
+    (fun node ->
+      match node with
+      | Walk.NExpr e -> (
+          match Interpreter.binary_operands e with
+          | Some (EVar (_, n, _), EFloat _) | Some (EFloat _, EVar (_, n, _)) ->
+              n = name
+          | _ -> false)
+      | _ -> false)
+    stmts
+
 (** A parameter's type: its annotation when C can represent it, else what
     the body's use of it suggests, else Int (docs/target_c.md, "How types
     are inferred"). stmt -> param -> ctype *)
@@ -666,7 +715,9 @@ let param_type func (Param (_, name, annotation, _)) =
         | SFunctionDef (_, _, _, body, _, _, _) -> body
         | _ -> []
       in
-      if used_as_string name body then String else Int
+      if used_as_string name body then String
+      else if used_as_float name body then Float
+      else Int
 
 (** What a module's own top level is called once it is a function: every
     module of a C program is started by name, in the order the program's
@@ -691,6 +742,16 @@ let is_function_value state name scope =
 let rec expr state e scope allow_unit =
   match e with
   | EInt (info, v, _) -> (CInt (info, v), state)
+  | EFloat (info, v, _) ->
+      (* A literal is finite unless the source wrote an exponent past
+         what a double holds, which overflows to an infinity. *)
+      let infinite = v = infinity || v = neg_infinity in
+      ( CFloat (info, v),
+        {
+          state with
+          uses_float = true;
+          uses_infinity = state.uses_infinity || infinite;
+        } )
   | EString (info, s, _) -> (CStr (info, s), state)
   | EBool (info, v, _) -> (CBool (info, v), state)
   | EVar (info, name, _) when is_function_value state name scope ->
@@ -706,22 +767,23 @@ let rec expr state e scope allow_unit =
       (CVar (info, c_name, ctype), state)
   | ENeg (info, operand, _) ->
       let inner, state = expr state operand scope false in
-      require inner Int "negation";
-      (CUnary (info, "-", inner, Int), state)
+      require_numeric inner "negation";
+      (CUnary (info, "-", inner, ctype_of inner), state)
   | EDiv (info, l, r, _) ->
-      (* C99 onward truncates toward zero, which is Pyking's own rule, so
-         this is the host's `/` unchanged. *)
+      (* C99 onward truncates an int quotient toward zero, which is
+         Pyking's own rule, and a double quotient is IEEE's, which is
+         Pyking's other one. Either way this is the host's `/`. *)
       let pieces, steps, state = in_order state [ l; r ] scope in
       let left, right = (List.nth pieces 0, List.nth pieces 1) in
-      require left Int "`/`";
-      require right Int "`/`";
-      (sequenced steps (CBinary (info, "/", left, right, Int)), state)
+      require_numeric left "`/`";
+      require right (ctype_of left) "`/`";
+      (sequenced steps (CBinary (info, "/", left, right, ctype_of left)), state)
   | EAdd (info, l, r, _) ->
       let pieces, steps, state = in_order state [ l; r ] scope in
       let left, right = (List.nth pieces 0, List.nth pieces 1) in
-      require left Int "`+`";
-      require right Int "`+`";
-      (sequenced steps (CBinary (info, "+", left, right, Int)), state)
+      require_numeric left "`+`";
+      require right (ctype_of left) "`+`";
+      (sequenced steps (CBinary (info, "+", left, right, ctype_of left)), state)
   | EConcat (info, l, r, _) ->
       let pieces, steps, state = in_order state [ l; r ] scope in
       let left, right = (List.nth pieces 0, List.nth pieces 1) in
@@ -755,6 +817,19 @@ let rec expr state e scope allow_unit =
          under the C name that module gives it. *)
       let c_name, ctype = lookup (reached alias field) scope info in
       (CVar (info, c_name, ctype), state)
+  (* C's own conversions: widening an int is exact within the range a
+     double holds, and narrowing a double truncates toward zero, which
+     is the rounding Pyking's `int` and `/` both do. *)
+  | ECall (info, EVar (_, "float", _), [ argument ], _)
+    when not (List.mem_assoc "float" state.signatures) ->
+      let inner, state = expr state argument scope false in
+      require inner Int "`float`";
+      (CCast (info, Float, inner), { state with uses_float = true })
+  | ECall (info, EVar (_, "int", _), [ argument ], _)
+    when not (List.mem_assoc "int" state.signatures) ->
+      let inner, state = expr state argument scope false in
+      require inner Float "`int`";
+      (CCast (info, Int, inner), state)
   | ECall (info, EQualified (_, alias, field, _), args, _) ->
       call state e (reached alias field) args scope allow_unit info
   | ECall (info, EVar (_, name, _), args, _) ->
@@ -765,9 +840,11 @@ let rec expr state e scope allow_unit =
       | Some op, Some (l, r) ->
           let pieces, steps, state = in_order state [ l; r ] scope in
           let left, right = (List.nth pieces 0, List.nth pieces 1) in
-          require left Int (Printf.sprintf "`%s`" op);
-          require right Int (Printf.sprintf "`%s`" op);
-          let ctype = if List.mem op [ "+"; "-"; "*" ] then Int else Bool in
+          require_numeric left (Printf.sprintf "`%s`" op);
+          require right (ctype_of left) (Printf.sprintf "`%s`" op);
+          let ctype =
+            if List.mem op [ "+"; "-"; "*" ] then ctype_of left else Bool
+          in
           ( sequenced steps (CBinary (expr_info e, op, left, right, ctype)),
             state )
       | _ -> unsupported (expr_info e) (expr_kind_name e))
@@ -797,6 +874,23 @@ and call state e name args scope allow_unit info =
               as one; call it as a statement of its own"
              name);
       let ordered, steps, state = in_order state args scope in
+      (* C converts between an int and a double without a word, so an
+         argument at the wrong type would compile and be quietly wrong.
+         This backend infers each function's parameter types from its
+         own body, so a mismatch is a type it could not work out rather
+         than a program error -- it is refused here, with the position
+         of the call. *)
+      List.iteri
+        (fun index argument ->
+          let wanted = List.nth param_types index in
+          if ctype_of argument <> wanted then
+            unsupported (cexpr_info argument)
+              (Printf.sprintf
+                 "argument %d of `%s` is %s where this backend worked out %s"
+                 (index + 1) name
+                 (ctype_name (ctype_of argument))
+                 (ctype_name wanted)))
+        ordered;
       (sequenced steps (CCall (info, c_name, ordered, ret)), state)
 
 (** The expressions translated, plus the assignments that pin their
@@ -1238,6 +1332,11 @@ and stmt state s scope =
          them in front of itself rather than in a comma expression. *)
       let state = { state with uses_print = true } in
       let ordered, steps, state = in_order state args scope in
+      let state =
+        if List.exists (fun a -> ctype_of a = Float) ordered then
+          { state with uses_float = true }
+        else state
+      in
       ( List.map (fun (temp, value) -> CAssign (info, temp, value)) steps
         @ [ CPrint (info, ordered) ],
         scope,
@@ -1571,6 +1670,8 @@ let translate_program stmts context =
       uses_print = false;
       uses_concat = false;
       uses_strcmp = false;
+      uses_float = false;
+      uses_infinity = false;
       loops = [];
       temporaries = 0;
       printing = Analyses.effects stmts;
@@ -1637,6 +1738,8 @@ let translate_program stmts context =
     uses_print = state.uses_print;
     uses_concat = state.uses_concat;
     uses_strcmp = state.uses_strcmp;
+    uses_float = state.uses_float;
+    uses_infinity = state.uses_infinity;
     program_name = context.context_name;
     main = context.main;
     separate = context.separate;
@@ -1694,6 +1797,18 @@ let rec pprint_c_expr ?(min_prec = 0) e standard =
   let plain e = pprint_c_expr e standard in
   match e with
   | CInt (_, v) -> string_of_int v
+  (* C reads back every text Builtin.float_text writes but three, and
+     only one of those can come from a literal: an exponent past the
+     range overflows, which is HUGE_VAL here. *)
+  | CFloat (_, v) ->
+      if v = infinity then "HUGE_VAL"
+      else if v = neg_infinity then "(-HUGE_VAL)"
+      else Builtin.float_text v
+  | CCast (_, ctype, operand) ->
+      parens unary_precedence min_prec
+        (Printf.sprintf "(%s)%s" (c_type_text standard ctype)
+           (at (unary_precedence + 1) operand))
+  | CFloatStr (_, operand) -> Printf.sprintf "pyk_float_str(%s)" (plain operand)
   | CStr (_, s) -> quote s
   | CBool (_, v) -> bool_literal v standard
   | CVar (_, name, _) -> name
@@ -1735,6 +1850,8 @@ let print_argument arg standard =
   if ctype_of arg = Bool then
     Printf.sprintf "%s ? \"true\" : \"false\""
       (pprint_c_expr ~min_prec:(conditional_precedence + 1) arg standard)
+  else if ctype_of arg = Float then
+    pprint_c_expr (CFloatStr (cexpr_info arg, arg)) standard
   else pprint_c_expr arg standard
 
 (** A variable declaration, e.g. `int x` or `const char *s`.
@@ -1860,6 +1977,71 @@ let concat_helper =
       "}";
     ]
 
+(* builtin.ml's rule, in the subset both standards accept, so one copy
+   serves both. C89 has neither isnan nor isinf, so a NaN is found with
+   `x != x` and an infinity against DBL_MAX. The result is malloc'd
+   rather than written into one static buffer: a printf with two Floats
+   in it calls this twice before printing either, and one buffer would
+   hand back the same text twice. Like pyk_concat, it is never freed
+   (docs/target_c.md, "Strings"). *)
+let float_helper =
+  String.concat "\n"
+    [
+      "static const char *pyk_float_str(double x)";
+      "{";
+      "    char buf[64];";
+      "    char digits[32];";
+      "    char *out = malloc(64);";
+      "    double a;";
+      "    int negative, p, at, i, n, decpt, k;";
+      "    const char *e;";
+      "    if (x != x) { strcpy(out, \"nan\"); return out; }";
+      "    if (x > DBL_MAX) { strcpy(out, \"inf\"); return out; }";
+      "    if (x < -DBL_MAX) { strcpy(out, \"-inf\"); return out; }";
+      "    negative = x < 0.0 || (x == 0.0 && 1.0 / x < 0.0);";
+      "    a = negative ? -x : x;";
+      "    if (a == 0.0) { strcpy(out, negative ? \"-0.0\" : \"0.0\"); return out; }";
+      "    for (p = 0; p < 16; p++) {";
+      "        sprintf(buf, \"%.*e\", p, a);";
+      "        if (strtod(buf, NULL) == a) break;";
+      "    }";
+      "    if (p == 16) sprintf(buf, \"%.*e\", 16, a);";
+      "    e = strchr(buf, 'e');";
+      "    at = (int)(e - buf);";
+      "    n = 0;";
+      "    for (i = 0; i < at; i++) if (buf[i] != '.') digits[n++] = buf[i];";
+      "    while (n > 1 && digits[n - 1] == '0') n--;";
+      "    digits[n] = '\\0';";
+      "    decpt = atoi(e + 1) + 1;";
+      "    k = 0;";
+      "    if (negative) out[k++] = '-';";
+      "    if (decpt <= -4 || decpt > 16) {";
+      "        out[k++] = digits[0];";
+      "        if (n > 1) { out[k++] = '.'; strcpy(out + k, digits + 1); k += n - 1; }";
+      "        sprintf(out + k, \"e%d\", decpt - 1);";
+      "        return out;";
+      "    }";
+      "    if (decpt <= 0) {";
+      "        out[k++] = '0';";
+      "        out[k++] = '.';";
+      "        for (i = 0; i < -decpt; i++) out[k++] = '0';";
+      "        strcpy(out + k, digits);";
+      "        return out;";
+      "    }";
+      "    if (decpt >= n) {";
+      "        strcpy(out + k, digits);";
+      "        k += n;";
+      "        for (i = 0; i < decpt - n; i++) out[k++] = '0';";
+      "        strcpy(out + k, \".0\");";
+      "        return out;";
+      "    }";
+      "    for (i = 0; i < decpt; i++) out[k++] = digits[i];";
+      "    out[k++] = '.';";
+      "    strcpy(out + k, digits + decpt);";
+      "    return out;";
+      "}";
+    ]
+
 (** Whether a statement declares a boolean anywhere inside it -- what
     decides, under C99, whether <stdbool.h> is needed.
     cstmt -> bool *)
@@ -1905,10 +2087,25 @@ let headers (program : cprogram) standard =
     if standard = "c99" && declares_bool program then [ "stdbool.h" ] else []
   in
   let needed = needed @ if program.uses_print then [ "stdio.h" ] else [] in
-  let needed = needed @ if program.uses_concat then [ "stdlib.h" ] else [] in
   let needed =
-    needed @ if program.uses_concat || program.uses_strcmp then [ "string.h" ] else []
+    needed @ if program.uses_concat || program.uses_float then [ "stdlib.h" ] else []
   in
+  let needed =
+    needed
+    @
+    if program.uses_concat || program.uses_strcmp || program.uses_float then
+      [ "string.h" ]
+    else []
+  in
+  (* DBL_MAX, which is how the helper finds an infinity without C99's
+     isinf. <float.h> declares no functions, so nothing a program of its
+     own defines can collide with it. *)
+  let needed = needed @ if program.uses_float then [ "float.h" ] else [] in
+  (* HUGE_VAL, which is the only thing <math.h> is here for -- and it is
+     kept out otherwise because that header declares a great many
+     functions with short names (glibc's `fadd` among them) that a
+     Pyking `def` is free to be called. *)
+  let needed = needed @ if program.uses_infinity then [ "math.h" ] else [] in
   let unique =
     List.fold_left
       (fun found h -> if List.mem h found then found else found @ [ h ])
@@ -2067,6 +2264,21 @@ let pprint_c_program (program : cprogram) standard source =
            compile into a free."
           standard;
         concat_helper;
+      ]
+    else []
+  in
+  let parts =
+    parts
+    @
+    if program.uses_float && program.uses_print then
+      [
+        "";
+        comment
+          "A Float is written by this rather than by a printf conversion: no \
+           host spells a double the way Pyking does. It allocates and never \
+           frees, as concatenation does."
+          standard;
+        float_helper;
       ]
     else []
   in

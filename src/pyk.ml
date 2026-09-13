@@ -952,7 +952,7 @@ let compile_program checked target output_path options =
       let files, primary =
         Target_js_packaging.package_program target
           (List.map
-           (fun ((unit : Module.t), _) ->
+           (fun ((unit : Module.t), tmap) ->
              let context = Module.context checked unit in
              let js_program, renames =
                try
@@ -960,6 +960,7 @@ let compile_program checked target output_path options =
                    ~external_fields:context.external_fields
                    ~externals:context.externals ~own:context.context_name
                    (Analyses.apply_signatures unit.stmts)
+                   (Option.value tmap ~default:Syntax.IntMap.empty)
                with Target_js_core.Unsupported (info, message) ->
                  fail_unsupported target info message
              in

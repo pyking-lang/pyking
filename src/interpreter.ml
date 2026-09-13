@@ -65,6 +65,7 @@ let unsupported_message = "Construct is not supported"
     the representation has to survive the rewrite into Pyking. *)
 type value =
   | VInt of int (* always within 32 signed bits *)
+  | VFloat of float (* IEEE 754 binary64 *)
   | VString of string
   | VBool of bool
   | VUnit (* `()`: what a statement, a print and a program produce *)
@@ -139,6 +140,9 @@ let display_value value =
         | VInt n ->
             Buffer.add_string out (string_of_int n);
             go rest
+        | VFloat x ->
+            Buffer.add_string out (Builtin.float_text x);
+            go rest
         | VString text ->
             Buffer.add_string out (quote text);
             go rest
@@ -183,6 +187,7 @@ let format_value value =
 let describe value =
   match value with
   | VInt _ -> "Int"
+  | VFloat _ -> "Float"
   | VString _ -> "String"
   | VBool _ -> "Bool"
   | VUnit -> "()"
@@ -505,14 +510,20 @@ let call_free_symbols stmts =
    None and lets the operand message below do the reporting. *)
 let divide_info = { file = "<division>"; row1 = 0; col1 = 0; row2 = 0; col2 = 0 }
 
-let arith op left right =
+let arith op float_op left right =
   match (left, right) with
   | VInt a, VInt b -> Some (VInt (op a b))
+  | VFloat a, VFloat b -> Some (VFloat (float_op a b))
   | _ -> None
 
-let compare_with op left right =
+(* Every Float comparison unwraps to two floats first. OCaml's
+   polymorphic `=` on a value that holds one is `compare`, which reports
+   two NaNs equal; the primitive on two floats is IEEE's, which does
+   not. *)
+let compare_with op float_op left right =
   match (left, right) with
   | VInt a, VInt b -> Some (boolean (op a b))
+  | VFloat a, VFloat b -> Some (boolean (float_op a b))
   | _ -> None
 
 (** Integer division, truncating toward zero. Division by zero is a
@@ -524,6 +535,9 @@ let divide left right =
   | VInt a, VInt b ->
       let quotient = abs a / abs b in
       Some (VInt (if a < 0 = (b < 0) then quotient else -quotient))
+  (* Float division never traps: dividing by zero is an infinity or a
+     NaN, which is IEEE's own answer (PYKING.md, "Floats"). *)
+  | VFloat a, VFloat b -> Some (VFloat (a /. b))
   | _ -> None
 
 let concat left right =
@@ -535,6 +549,8 @@ let concat left right =
 let equals left right =
   match (left, right) with
   | VInt a, VInt b -> Some (boolean (a = b))
+  (* IEEE's, so two NaNs are not equal and the two zeros are. *)
+  | VFloat a, VFloat b -> Some (boolean (a = b))
   | VString a, VString b -> Some (boolean (a = b))
   | VBool a, VBool b -> Some (boolean (a = b))
   | _ -> None
@@ -544,15 +560,19 @@ let equals left right =
     expr -> (string, value -> value -> value option) option *)
 let operator_rule e =
   match e with
-  | EAdd _ -> Some ("+", arith (fun a b -> a + b))
+  | EAdd _ -> Some ("+", arith (fun a b -> a + b) (fun a b -> a +. b))
   | EConcat _ -> Some ("++", concat)
-  | ESub _ -> Some ("-", arith (fun a b -> a - b))
-  | EMul _ -> Some ("*", arith (fun a b -> a * b))
+  | ESub _ -> Some ("-", arith (fun a b -> a - b) (fun a b -> a -. b))
+  | EMul _ -> Some ("*", arith (fun a b -> a * b) (fun a b -> a *. b))
   | EDiv _ -> Some ("/", divide)
-  | ELessThan _ -> Some ("<", compare_with (fun a b -> a < b))
-  | ELessThanEq _ -> Some ("<=", compare_with (fun a b -> a <= b))
-  | EGreatThan _ -> Some (">", compare_with (fun a b -> a > b))
-  | EGreatThanEq _ -> Some (">=", compare_with (fun a b -> a >= b))
+  | ELessThan _ ->
+      Some ("<", compare_with (fun a b -> a < b) (fun a b -> a < b))
+  | ELessThanEq _ ->
+      Some ("<=", compare_with (fun a b -> a <= b) (fun a b -> a <= b))
+  | EGreatThan _ ->
+      Some (">", compare_with (fun a b -> a > b) (fun a b -> a > b))
+  | EGreatThanEq _ ->
+      Some (">=", compare_with (fun a b -> a >= b) (fun a b -> a >= b))
   | EEq _ -> Some ("==", equals)
   | _ -> None
 
@@ -597,6 +617,7 @@ let apply_binary node left right =
 let apply_unary node operand =
   match (node, operand) with
   | ENeg _, VInt a -> VInt (-a)
+  | ENeg _, VFloat a -> VFloat (-.a)
   | _ ->
       raise
         (Trap
@@ -624,6 +645,8 @@ let apply_builtin name args info host =
       host.print_line (String.concat " " (List.map format_value args));
       unit_value
   | "str", [ value ] -> VString (format_value value)
+  | "float", [ VInt n ] -> VFloat (float_of_int n)
+  | "int", [ VFloat x ] -> VInt (int_of_float (Float.trunc x))
   | "len", [ VString text ] -> VInt (String.length text)
   | "len", [ VList elements ] -> VInt (List.length elements)
   | "range", [ VInt stop ] -> range_list 0 stop 1 info
@@ -760,6 +783,7 @@ let rec bind_target env target value =
 let rec evaluate e env =
   match e with
   | EInt (_, value, _) -> VInt value
+  | EFloat (_, value, _) -> VFloat value
   | EString (_, value, _) -> VString value
   | EBool (_, value, _) -> boolean value
   | EQualified (info, module_, name, _) -> (

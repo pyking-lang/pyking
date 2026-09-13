@@ -1,0 +1,16 @@
+def area(radius:Float) -> Float:
+    return 3.14159 * radius * radius
+def half(x:Float) -> Float:
+    return x / 2.0
+def taller(a:Float, b:Float) -> Bool:
+    return a > b
+def widen(n:Int) -> Float:
+    return float(n)
+def narrow(x:Float) -> Int:
+    return int(x)
+r: Float = 2.0
+print(area(r))
+print(half(r))
+print(taller(r, 1.0))
+print(widen(3))
+print(narrow(2.75))

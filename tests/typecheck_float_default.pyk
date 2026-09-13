@@ -1,0 +1,42 @@
+# What an arithmetic operator means when nothing has decided its type.
+#
+# `+ - * /` each take two Ints or two Floats. In a body where nothing
+# says which -- an unannotated `def` whose parameters no literal and no
+# call pins down -- the operator falls back to **Int**. That keeps every
+# program that compiled before Float existed compiling and meaning the
+# same thing; a Float one says so, with an annotation or with a Float
+# reaching the body (PYKING.md, "Numbers").
+#
+# The comparisons behave differently and that is not an accident: `<`
+# answers Bool whichever type it compares, so it has nothing to decide
+# and leaves its operands open. See docs/type_inference.md, "Two
+# numeric types, no type classes".
+
+# Nothing here mentions a type, so all three are Int functions.
+def add(a, b):
+    return a + b
+
+
+def scale(x):
+    return x * 2
+
+
+def average(a, b):
+    return (a + b) / 2
+
+
+# One annotation is all it takes to get the Float reading instead.
+def fadd(a:Float, b:Float) -> Float:
+    return a + b
+
+
+# So is a Float literal in the body.
+def twice(x):
+    return x * 2.0
+
+
+print(add(3, 4))
+print(scale(5))
+print(average(7, 2))
+print(fadd(1.5, 2.25))
+print(twice(1.5))

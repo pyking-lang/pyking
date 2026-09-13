@@ -321,19 +321,32 @@ they are not the same everywhere:
 | Pyking | python | node24, web24, iweb24 | c89, c99, c23 | java | ocaml |
 |---|---|---|---|---|---|
 | `Int` | `int` | `number` | `int` | `int` | `int` |
+| `Float` | `float` | `number` | `double` | `double` | `float` |
 | `String` | `str` | `string` | `const char *` | `String` | `string` |
 | `Bool` | `bool` | `boolean` | `bool` / `int` | `boolean` | `bool` |
 | `()` | `()` | `undefined` | `void` | `void` | `unit` |
 | `(A, B)` | `tuple` | `Array` | refused | refused | tuple |
 | `[A]` | `list` | `Array` + marker | refused | refused | `list` |
 
-Two of these need care from whoever writes the implementation.
+Three of these need care from whoever writes the implementation.
 
 **An `Int` holds at least the signed 32-bit range, and past it the
 result is undefined** (PYKING.md, "Integer and string literals"). An
 implementation therefore has nothing to normalise: return whatever the
 host computes. What it must not do is narrow the range *below* 32 bits —
 a value inside it has to survive the round trip on every host.
+
+**A `Float` needs no care at all on four of the five, and one caveat on
+JavaScript.** It is IEEE 754 binary64 everywhere, so nothing is
+converted at the boundary — but a JavaScript number cannot say whether
+it is an Int or a Float, so an implementation is free to answer `2`
+where the declaration says `Float` and the value is right either way.
+What makes it *print* as `2.0` is the declared type, which the importing
+module compiles from. The one gap is the `iweb` target, where the
+interpreter runs in the page: a value coming back through JSON has only
+its own shape to go on, so an external module cannot yet return a Float
+there. Nothing under `lib/` declares one, and every compiled target
+carries it (`tests/external_float.pyk`).
 
 **A `.web.js` may differ from a `.js`.** The `web` and `iweb` targets
 look for `sys_external.web.js` before `sys_external.js`, so a module

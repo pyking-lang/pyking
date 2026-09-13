@@ -53,3 +53,8 @@ val lookup : string -> t option
     emit host output for it. False for a name that is not a builtin.
     string -> bool *)
 val crosses_host : string -> bool
+
+(** A Float as `print` and `str` write it: the shortest decimal that
+    reads back as the same double, always with a point or an exponent.
+    float -> string *)
+val float_text : float -> string

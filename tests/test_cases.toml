@@ -1309,3 +1309,60 @@ targets = ["python14", "node24", "ocaml5.5", "interpret"]
 file = "module_external_mixed.pyk"
 modules = ["module_external_mixed_mod1.external.pyk", "module_external_mixed_mod1.pyk"]
 targets = ["python14", "node24", "web24", "ocaml5.5"]
+
+[[cases]]
+file = "float_arithmetic.pyk"
+targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "float_compare.pyk"
+targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "float_convert.pyk"
+targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "float_printing.pyk"
+targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "float_shapes.pyk"
+targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "float_str.pyk"
+targets = ["python14", "iweb24", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "float_var.pyk"
+targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "typecheck_float.pyk"
+targets = ["pyking", "python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "typecheck_float_default.pyk"
+targets = ["pyking", "python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "typecheck_noann_float.pyk"
+targets = ["pyking", "python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "fail_typecheck_float_literal.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_float_mixed.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_float_pattern.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "external_float.pyk"
+modules = ["external_float_mod1.external.pyk"]
+targets = ["python14", "node24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5"]

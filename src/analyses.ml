@@ -383,6 +383,9 @@ let rec sym_expr counter e =
   | EInt (i, v, s) ->
       let s, counter = assign s counter in
       (EInt (i, v, s), counter)
+  | EFloat (i, v, s) ->
+      let s, counter = assign s counter in
+      (EFloat (i, v, s), counter)
   | EString (i, v, s) ->
       let s, counter = assign s counter in
       (EString (i, v, s), counter)
@@ -479,6 +482,9 @@ and sym_type counter t =
   | TInt (i, s) ->
       let s, counter = assign s counter in
       (TInt (i, s), counter)
+  | TFloat (i, s) ->
+      let s, counter = assign s counter in
+      (TFloat (i, s), counter)
   | TString (i, s) ->
       let s, counter = assign s counter in
       (TString (i, s), counter)
@@ -682,7 +688,7 @@ let high_option f item = match item with None -> 0 | Some x -> f x
 let rec high_expr e =
   let children =
     match e with
-    | EInt _ | EString _ | EBool _ | EVar _ | EQualified _ -> 0
+    | EInt _ | EFloat _ | EString _ | EBool _ | EVar _ | EQualified _ -> 0
     | EAdd (_, l, r, _)
     | ESub (_, l, r, _)
     | EMul (_, l, r, _)
@@ -707,7 +713,9 @@ let rec high_expr e =
 and high_type t =
   let children =
     match t with
-    | TInt _ | TString _ | TBool _ | TUnknown _ | TBuiltin _ | TVar _ -> 0
+    | TInt _ | TFloat _ | TString _ | TBool _ | TUnknown _ | TBuiltin _
+    | TVar _ ->
+        0
     | TList (_, element, _) -> high_type element
     | TTuple (_, elements, _) -> high_list high_type elements
     | TFunction (_, params, result, _, _, definition) ->

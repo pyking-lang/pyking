@@ -56,6 +56,7 @@ type opattern = OPatName of string | OPatTuple of opattern list
 
 type oexpr =
   | OInt of int
+  | OFloat of float
   | OStr of string
   | OBool of bool
   | OUnit
@@ -63,7 +64,7 @@ type oexpr =
   | OApp of oexpr * oexpr list (* f x y *)
   | OTuple of oexpr list
   | OList of oexpr list
-  | ONeg of oexpr
+  | ONeg of string * oexpr (* `-` on an int, `-.` on a float *)
   | OMatch of oexpr * (string * oexpr) list
       (* the arms are (pattern text, body), in source order *)
   | OFun of (string * oexpr) list
@@ -91,6 +92,7 @@ type oprogram = {
   items : oitem list;
   needs_list_printer : bool;
   needs_quote : bool;
+  needs_float : bool;
   program_name : string;
   main : bool;
   interface : (string * string) list;
@@ -245,6 +247,7 @@ let unused_prefix stmts =
 (* --- reading the checker's types --- *)
 
 let is_int t = match t with TInt _ -> true | _ -> false
+let is_float t = match t with TFloat _ -> true | _ -> false
 let is_string t = match t with TString _ -> true | _ -> false
 let is_bool t = match t with TBool _ -> true | _ -> false
 let is_unit t = match t with TTuple (_, [], _) -> true | _ -> false
@@ -316,14 +319,14 @@ let union_all sets = List.fold_left StringSet.union StringSet.empty sets
 (** Every name e reads from outside itself. oexpr -> StringSet.t *)
 let rec free e =
   match e with
-  | OInt _ | OStr _ | OBool _ | OUnit -> StringSet.empty
+  | OInt _ | OFloat _ | OStr _ | OBool _ | OUnit -> StringSet.empty
   | OVar name -> StringSet.singleton name
   | OIgnore e | ORef e -> free e
   | ODeref name -> StringSet.singleton name
   | OAssign (name, value) -> StringSet.add name (free value)
   | OApp (func, args) -> union_all (free func :: List.map free args)
   | OTuple elements | OList elements -> union_all (List.map free elements)
-  | ONeg operand -> free operand
+  | ONeg (_, operand) -> free operand
   | OMatch (subject, arms) ->
       (* An arm's own bindings are its pattern's, and a pattern is
          printed text by the time it is here -- so what an arm reads from
@@ -415,6 +418,7 @@ type acc = {
   temporaries : int;
   needs_quote : bool;
   needs_list_printer : bool;
+  needs_float : bool;
 }
 
 (** The OCaml name a Pyking name is translated to, as `plan_names`
@@ -563,6 +567,55 @@ let list_printer_def =
     "let %s xs =\n  \"[\" ^ String.concat \", \" (List.map string_of_int xs) ^ \"]\""
     list_printer
 
+let float_helper = "pyk_float_str"
+
+(* builtin.ml's rule, in OCaml. The same algorithm every other backend
+   emits, so one .out file holds for all of them. *)
+let float_helper_def =
+  String.concat "\n"
+    [
+      Printf.sprintf "let %s x =" float_helper;
+      "  if x <> x then \"nan\"";
+      "  else if x = infinity then \"inf\"";
+      "  else if x = neg_infinity then \"-inf\"";
+      "  else";
+      "    let negative = x < 0.0 || (x = 0.0 && 1.0 /. x < 0.0) in";
+      "    let sign = if negative then \"-\" else \"\" in";
+      "    let a = abs_float x in";
+      "    if a = 0.0 then sign ^ \"0.0\"";
+      "    else";
+      "      let rec shortest p =";
+      "        let s = Printf.sprintf \"%.*e\" p a in";
+      "        if p >= 16 || float_of_string s = a then s else shortest (p + 1)";
+      "      in";
+      "      let s = shortest 0 in";
+      "      let at = String.index s 'e' in";
+      "      let digits =";
+      "        String.concat \"\" (String.split_on_char '.' (String.sub s 0 at))";
+      "      in";
+      "      let rec trim n =";
+      "        if n > 1 && digits.[n - 1] = '0' then trim (n - 1) else n";
+      "      in";
+      "      let digits = String.sub digits 0 (trim (String.length digits)) in";
+      "      let len = String.length digits in";
+      "      let decpt =";
+      "        int_of_string (String.sub s (at + 1) (String.length s - at - 1))";
+      "        + 1";
+      "      in";
+      "      let zeros n = String.make (max 0 n) '0' in";
+      "      if decpt <= -4 || decpt > 16 then";
+      "        let mantissa =";
+      "          if len = 1 then digits";
+      "          else String.sub digits 0 1 ^ \".\" ^ String.sub digits 1 (len - 1)";
+      "        in";
+      "        sign ^ mantissa ^ \"e\" ^ string_of_int (decpt - 1)";
+      "      else if decpt <= 0 then sign ^ \"0.\" ^ zeros (-decpt) ^ digits";
+      "      else if decpt >= len then sign ^ digits ^ zeros (decpt - len) ^ \".0\"";
+      "      else";
+      "        sign ^ String.sub digits 0 decpt ^ \".\"";
+      "        ^ String.sub digits decpt (len - decpt)";
+    ]
+
 let quote_helper = "pyk_quote"
 
 let quote_helper_def =
@@ -585,10 +638,24 @@ let quote_helper_def =
       "  Buffer.contents out";
     ]
 
+(** The OCaml spelling of an arithmetic operator, which OCaml gives one
+    set of for ints and another for floats. The comparisons need no such
+    choice: OCaml's are polymorphic and, on two floats, IEEE's.
+    ctx -> expr -> string -> string *)
+let numeric ctx operand spelling =
+  (* A node the tail-call pass synthesized carries no type -- it was not
+     in the tree the checker walked -- and only an Int one can be, since
+     that pass rewrites calls and never introduces arithmetic of its
+     own. *)
+  match IntMap.find_opt (expr_sym operand) ctx.tmap with
+  | Some (TFloat _) -> spelling ^ "."
+  | _ -> spelling
+
 (** Translates one expression. ctx -> acc -> expr -> (oexpr, acc) *)
 let rec expr ctx acc e =
   match e with
   | EInt (_, value, _) -> (OInt value, acc)
+  | EFloat (_, value, _) -> (OFloat value, acc)
   | EString (_, value, _) -> (OStr value, acc)
   | EBool (_, value, _) -> (OBool value, acc)
   | EVar (_, name, _) ->
@@ -630,13 +697,13 @@ let rec expr ctx acc e =
       ( sequence
           (OApp (func_piece, if arg_pieces = [] then [ OUnit ] else arg_pieces)),
         acc )
-  | EAdd (_, left, right, _) -> binary ctx acc "+" left right
+  | EAdd (_, left, right, _) -> binary ctx acc (numeric ctx left "+") left right
   | EList (_, elements, _) ->
       let pieces, sequence, acc = in_order ctx acc elements in
       (sequence (OList pieces), acc)
   | ENeg (_, operand, _) ->
       let o_operand, acc = expr ctx acc operand in
-      (ONeg o_operand, acc)
+      (ONeg (numeric ctx operand "-", o_operand), acc)
   | EListComp (_, element, clauses_list, _) -> clauses ctx acc clauses_list element
   | EConcat (_, left, right, _) -> (
       (* OCaml joins lists with `@` and strings with `^`; the checker has
@@ -644,11 +711,11 @@ let rec expr ctx acc e =
       match type_of ctx e with
       | TList _ -> binary ctx acc "@" left right
       | _ -> binary ctx acc "^" left right)
-  | ESub (_, left, right, _) -> binary ctx acc "-" left right
-  | EMul (_, left, right, _) -> binary ctx acc "*" left right
+  | ESub (_, left, right, _) -> binary ctx acc (numeric ctx left "-") left right
+  | EMul (_, left, right, _) -> binary ctx acc (numeric ctx left "*") left right
   (* OCaml's `/` on ints truncates toward zero, which is Pyking's own
-     rule. *)
-  | EDiv (_, left, right, _) -> binary ctx acc "/" left right
+     rule, and `/.` on floats is IEEE's, which is Pyking's other one. *)
+  | EDiv (_, left, right, _) -> binary ctx acc (numeric ctx left "/") left right
   | ELessThan (_, left, right, _) -> binary ctx acc "<" left right
   | ELessThanEq (_, left, right, _) -> binary ctx acc "<=" left right
   | EGreatThan (_, left, right, _) -> binary ctx acc ">" left right
@@ -775,6 +842,9 @@ and string_of ctx acc type_ translated info top =
       ( OApp (OVar quote_helper, [ translated ]),
         { acc with needs_quote = true } )
   else if is_int type_ then (OApp (OVar "string_of_int", [ translated ]), acc)
+  else if is_float type_ then
+    ( OApp (OVar float_helper, [ translated ]),
+      { acc with needs_float = true } )
   else if is_bool type_ then (OApp (OVar "string_of_bool", [ translated ]), acc)
   else if is_unit type_ then
     (* Unit prints as `()`, and the expression still has to run:
@@ -848,6 +918,14 @@ and tuple_string ctx acc element_types translated info =
 and builtin_call ctx acc call name args =
   match (name, args) with
   | "str", [ value ] -> as_string ctx acc value None
+  | "float", [ value ] ->
+      let o_value, acc = expr ctx acc value in
+      (OApp (OVar "float_of_int", [ o_value ]), acc)
+  | "int", [ value ] ->
+      (* OCaml's own conversion truncates toward zero, which is the
+         rounding Pyking's `int` and `/` both do. *)
+      let o_value, acc = expr ctx acc value in
+      (OApp (OVar "int_of_float", [ o_value ]), acc)
   | "len", [ value ] -> (
       let type_ = type_of ctx value in
       let o_value, acc = expr ctx acc value in
@@ -1492,7 +1570,7 @@ and items ctx acc stmts =
 (** e with every unread let binding renamed _name. oexpr -> oexpr *)
 let rec polish e =
   match e with
-  | OInt _ | OStr _ | OBool _ | OUnit | OVar _ | ODeref _ -> e
+  | OInt _ | OFloat _ | OStr _ | OBool _ | OUnit | OVar _ | ODeref _ -> e
   | OIgnore inner -> OIgnore (polish inner)
   | ORef value -> ORef (polish value)
   | OAssign (name, value) -> OAssign (name, polish value)
@@ -1502,7 +1580,7 @@ let rec polish e =
       OIf (polish cond, polish then_, Option.map polish else_)
   | OTuple elements -> OTuple (List.map polish elements)
   | OList elements -> OList (List.map polish elements)
-  | ONeg operand -> ONeg (polish operand)
+  | ONeg (spelling, operand) -> ONeg (spelling, polish operand)
   | OMatch (subject, made) ->
       OMatch (polish subject, List.map (fun (p, b) -> (p, polish b)) made)
   | OFun made -> OFun (List.map (fun (p, b) -> (p, polish b)) made)
@@ -1649,8 +1727,8 @@ let op_level op =
   (* `@` joins lists and `^` joins strings; both associate to the right
      at the same level in OCaml. *)
   | "^" | "@" -> p_concat
-  | "+" | "-" -> p_add
-  | "*" | "/" -> p_mul
+  | "+" | "-" | "+." | "-." -> p_add
+  | "*" | "/" | "*." | "/." -> p_mul
   | _ -> p_cmp
 
 (* Where a refusal that belongs to no node in the source points. *)
@@ -1662,6 +1740,7 @@ let builtin_info = { file = "<ocaml>"; row1 = 1; col1 = 0; row2 = 1; col2 = 0 }
 let rec type_text type_ name top =
   match type_ with
   | TInt _ -> "int"
+  | TFloat _ -> "float"
   | TString _ -> "string"
   | TBool _ -> "bool"
   | TList (_, element, _) -> Printf.sprintf "%s list" (type_text element name false)
@@ -1725,6 +1804,16 @@ and pprint_bare e level =
   (* A negative literal has to be parenthesized wherever it is used, so
      it is given the loosest level and the rule above does the rest. *)
   | OInt value -> (string_of_int value, if value >= 0 then p_atom else p_cmp)
+  | OFloat value ->
+      (* OCaml reads back every text Builtin.float_text writes but three:
+         its own spellings for the two infinities and a NaN. *)
+      let text =
+        if value <> value then "Stdlib.nan"
+        else if value = infinity then "Stdlib.infinity"
+        else if value = neg_infinity then "Stdlib.neg_infinity"
+        else Builtin.float_text value
+      in
+      (text, if value >= 0.0 then p_atom else p_cmp)
   | OStr value -> (quote value, p_atom)
   | OBool value -> ((if value then "true" else "false"), p_atom)
   | OUnit -> ("()", p_atom)
@@ -1746,7 +1835,7 @@ and pprint_bare e level =
           (String.concat "; "
              (List.map (fun el -> pprint el (p_seq + 1) level) elements)),
         p_atom )
-  | ONeg operand ->
+  | ONeg (spelling, operand) ->
       (* OCaml's unary minus on an application needs no parentheses
          (`-f x` is `-(f x)`), but on anything looser it does. *)
       let inner = pprint operand p_app level in
@@ -1754,8 +1843,8 @@ and pprint_bare e level =
          `--`, whatever the precedence says, so an operand that starts
          with one is parenthesized to break them apart. *)
       if String.length inner > 0 && inner.[0] = '-' then
-        (Printf.sprintf "-(%s)" inner, p_app)
-      else (Printf.sprintf "-%s" inner, p_app)
+        (Printf.sprintf "%s(%s)" spelling inner, p_app)
+      else (Printf.sprintf "%s%s" spelling inner, p_app)
   | OMatch (subject, made) ->
       let pad = String.concat "" (List.init level (fun _ -> "  ")) in
       let head = Printf.sprintf "match %s with" (pprint subject (p_seq + 1) level) in
@@ -1956,6 +2045,9 @@ let pprint_ocaml_program program source =
   in
   let parts = parts @ if program.needs_quote then [ ""; quote_helper_def ] else [] in
   let parts =
+    parts @ if program.needs_float then [ ""; float_helper_def ] else []
+  in
+  let parts =
     parts @ List.concat_map (fun item -> [ ""; pprint_item item ]) program.items
   in
   String.concat "\n" parts ^ "\n"
@@ -2017,7 +2109,14 @@ let translate_program stmts tmap (context : Module.context) =
       names;
     }
   in
-  let acc = { temporaries = 0; needs_quote = false; needs_list_printer = false } in
+  let acc =
+    {
+      temporaries = 0;
+      needs_quote = false;
+      needs_list_printer = false;
+      needs_float = false;
+    }
+  in
   let built, acc = items ctx acc stmts in
   let keep =
     List.fold_left
@@ -2028,6 +2127,7 @@ let translate_program stmts tmap (context : Module.context) =
     items = polish_items built keep ((not context.main) && context.separate);
     needs_list_printer = acc.needs_list_printer;
     needs_quote = acc.needs_quote;
+    needs_float = acc.needs_float;
     program_name = context.context_name;
     main = context.main;
     interface =

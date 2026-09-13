@@ -470,6 +470,38 @@ The same goes for a top-level binding a later one rebinds: it is neither
 read nor exported, which is the one case OCaml complains about at the
 top level.
 
+## Floats
+
+OCaml is the closest fit of the five, because it also has one number
+type per width and refuses to mix them. A `Float` is an OCaml `float`,
+which is the same binary64, and the comparisons and `=` are OCaml's own
+polymorphic ones, which on two floats compile to the IEEE primitives —
+so `nan = nan` is false there as it is here.
+
+What OCaml *does* spell differently is arithmetic: `+. -. *. /.` for
+floats where the plain forms are for ints. This backend already reads
+the checker's types, so it picks the spelling from the operand's type
+rather than guessing, and `-.` for unary minus by the same rule. Both
+sets sit at their usual precedence in the printer, which is what stops
+`(a +. b) *. b` losing its parentheses.
+
+`float(n)` and `int(x)` are `float_of_int` and `int_of_float`, and the
+second truncates toward zero, which is what Pyking's `int` means.
+
+Printing needs a `pyk_float_str` in the preamble, emitted only where a
+Float is printed, implementing `docs/builtin.md`'s rule —
+`string_of_float 1.0` is `"1."`, which is not it. A literal is written
+by that same rule, since OCaml reads back every text it produces except
+the three it spells by name: `nan`, `infinity` and `neg_infinity`, all
+`Stdlib.`-qualified so a Pyking module named `Stdlib` could not shadow
+them.
+
+One thing to keep in mind when changing this backend: the tail-call pass
+synthesizes nodes the checker never saw, so they have no entry in
+`tmap`. Asking for the type of an operand must therefore be a total
+lookup — an absent entry means an Int, because that pass rewrites calls
+and introduces no arithmetic of its own.
+
 ## Modules
 
 OCaml names a module after its file and capitalises it, which is Pyking's

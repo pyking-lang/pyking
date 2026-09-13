@@ -66,6 +66,7 @@ type sigmap = (string * typ) list
    fields, to the dataclass defaults. These say the same thing once. *)
 
 let t_int info = TInt (info, 0)
+let t_float info = TFloat (info, 0)
 let t_string info = TString (info, 0)
 let t_bool info = TBool (info, 0)
 let t_list info element = TList (info, element, 0)
@@ -454,7 +455,11 @@ let shown_nested type_ store =
     also differ. typ -> typ -> bool *)
 let rec same_type a b =
   match (a, b) with
-  | TInt _, TInt _ | TString _, TString _ | TBool _, TBool _ -> true
+  | TInt _, TInt _
+  | TFloat _, TFloat _
+  | TString _, TString _
+  | TBool _, TBool _ ->
+      true
   | TBuiltin (_, x, _), TBuiltin (_, y, _) ->
       (* Each host operation is its own type, and no two of them are the
          same one. *)
@@ -749,13 +754,14 @@ let record store sym type_ =
 (* --- ground types, and the tables that name them --- *)
 
 (** The ground types the operator and builtin tables name. *)
-type kind = KInt | KString | KBool | KList | KTuple
+type kind = KInt | KFloat | KString | KBool | KList | KTuple
 
 (** Whether a type is of this kind, deciding nothing.
     kind -> typ -> bool *)
 let kind_matches kind type_ =
   match (kind, type_) with
   | KInt, TInt _
+  | KFloat, TFloat _
   | KString, TString _
   | KBool, TBool _
   | KList, TList _
@@ -763,12 +769,13 @@ let kind_matches kind type_ =
       true
   | _ -> false
 
-(** The type a kind names. Only the three atoms are ever built: KList and
+(** The type a kind names. Only the atoms are ever built: KList and
     KTuple appear in the builtins' rules, which compare rather than
     construct. kind -> info -> typ *)
 let kind_type kind info =
   match kind with
   | KInt -> t_int info
+  | KFloat -> t_float info
   | KString -> t_string info
   | KBool -> t_bool info
   | KList -> t_list info (t_unknown info)
@@ -782,20 +789,33 @@ let every type_ kinds =
 (* One row per operand type an operator accepts, paired with what it is
    then worth. PYKING.md, "Operators", is the table this implements. *)
 
+(** The rows `+ - * /` share. Int comes first, and being first is what
+    decides an operand nothing else has: see docs/type_inference.md,
+    "Two numeric types, no type classes". [(kind, kind)] *)
+let arithmetic = [ (KInt, KInt); (KFloat, KFloat) ]
+
+(** The rows `< <= > >=` share. Both answer Bool, so an operand nothing
+    has decided is left open rather than defaulted -- which is what `==`
+    already does. [(kind, kind)] *)
+let ordering = [ (KInt, KBool); (KFloat, KBool) ]
+
 (** An operator's spelling and its rows, or None for an expression that
     is not one. expr -> (string, [(kind, kind)]) option *)
 let operator_of expr =
   match expr with
-  | EAdd _ -> Some ("+", [ (KInt, KInt) ])
+  | EAdd _ -> Some ("+", arithmetic)
   | EConcat _ -> Some ("++", [ (KString, KString) ])
-  | ESub _ -> Some ("-", [ (KInt, KInt) ])
-  | EMul _ -> Some ("*", [ (KInt, KInt) ])
-  | EDiv _ -> Some ("/", [ (KInt, KInt) ])
-  | ELessThan _ -> Some ("<", [ (KInt, KBool) ])
-  | ELessThanEq _ -> Some ("<=", [ (KInt, KBool) ])
-  | EGreatThan _ -> Some (">", [ (KInt, KBool) ])
-  | EGreatThanEq _ -> Some (">=", [ (KInt, KBool) ])
-  | EEq _ -> Some ("==", [ (KInt, KBool); (KString, KBool); (KBool, KBool) ])
+  | ESub _ -> Some ("-", arithmetic)
+  | EMul _ -> Some ("*", arithmetic)
+  | EDiv _ -> Some ("/", arithmetic)
+  | ELessThan _ -> Some ("<", ordering)
+  | ELessThanEq _ -> Some ("<=", ordering)
+  | EGreatThan _ -> Some (">", ordering)
+  | EGreatThanEq _ -> Some (">=", ordering)
+  | EEq _ ->
+      Some
+        ( "==",
+          [ (KInt, KBool); (KFloat, KBool); (KString, KBool); (KBool, KBool) ] )
   | _ -> None
 
 (** The two operands of a binary operator application.
@@ -834,10 +854,19 @@ let alternative expr left_type right_type =
     then Printf.sprintf ". Did you mean %s?" description
     else ""
   in
-  match expr with
-  | EAdd _ -> suggest [ (KString, KString) ] "`++`, the concatenation operator"
-  | EConcat _ -> suggest [ (KInt, KInt) ] "`+`"
-  | _ -> ""
+  let mixed_numbers =
+    (kind_matches KInt left_type && kind_matches KFloat right_type)
+    || (kind_matches KFloat left_type && kind_matches KInt right_type)
+  in
+  if mixed_numbers then
+    ". Pyking mixes no numbers on its own: `float(n)` makes an Int a Float, \
+     and `int(x)` truncates a Float to an Int"
+  else
+    match expr with
+    | EAdd _ ->
+        suggest [ (KString, KString) ] "`++`, the concatenation operator"
+    | EConcat _ -> suggest [ (KInt, KInt) ] "`+`"
+    | _ -> ""
 
 (** The Type_error for an operator applied to what it does not accept,
     naming what it does.
@@ -918,15 +947,15 @@ let satisfies expected actual store =
     type is known. typ -> info -> string -> () *)
 let check_mutable type_ info name =
   match type_ with
-  | TInt _ | TBool _ | TUnknown _ -> ()
+  | TInt _ | TFloat _ | TBool _ | TUnknown _ -> ()
   | _ when is_meta type_ -> ()
   | _ ->
       raise
         (Type_error
            ( info,
              Printf.sprintf
-               "a mutable variable must be Int or Bool, but '%s' is %s" name
-               (printed type_) ))
+               "a mutable variable must be Int, Float or Bool, but '%s' is %s"
+               name (printed type_) ))
 
 (** Raises Type_error if an if yields one of two different unannotated
     functions (see docs/type_inference.md). typ option -> typ option ->
@@ -1787,7 +1816,15 @@ let operator_result expr common rows store =
            worth that whichever row it turns out to be, and nothing here
            has to decide which. *)
         | _, [ result ] -> (Some (kind_type result info), store)
-        | _ -> (None, store)
+        (* Several rows disagreeing about the result -- the arithmetic
+           operators, once Float joined them. Nothing here has decided
+           the operand, so the table's first row does: an unannotated
+           `a + b` is Int arithmetic, and a Float one says so. *)
+        | (operand, result) :: _, _ -> (
+            match unify (kind_type operand info) common store with
+            | Some after -> (Some (kind_type result info), after)
+            | None -> (None, store))
+        | [], _ -> (None, store)
       else
         match
           List.find_opt (fun (operand, _) -> kind_matches operand common) rows
@@ -2188,6 +2225,7 @@ and check_expr e env store =
 and expr_type e env store =
   match e with
   | EInt (info, _, _) -> (t_int info, store)
+  | EFloat (info, _, _) -> (t_float info, store)
   | EString (info, _, _) -> (t_string info, store)
   | EBool (info, _, _) -> (t_bool info, store)
   | ETuple (info, elements, _) ->
@@ -2257,15 +2295,24 @@ and expr_type e env store =
       check_not_conflated (Some then_type) (Some else_type) info;
       (Option.get both, else_store)
   | ENeg (info, operand, _) -> (
+      (* Negation follows the arithmetic table: a Float negates to a
+         Float, and an operand nothing has decided is an Int, which is
+         the table's first row. *)
       let operand_type, store = check_expr operand env store in
-      match unify (t_int info) operand_type store with
-      | Some answer -> (t_int info, answer)
+      let settled = prune operand_type store in
+      match
+        if is_meta settled then unify (t_int info) settled store
+        else if kind_matches KInt settled || kind_matches KFloat settled then
+          Some store
+        else None
+      with
+      | Some answer -> (zonk (prune operand_type answer) answer, answer)
       | None ->
           raise
             (Type_error
                ( info,
                  Printf.sprintf
-                   "`-` cannot be applied to %s; it negates an Int"
+                   "`-` cannot be applied to %s; it negates an Int or a Float"
                    (shown operand_type store) )))
   | EList (info, elements, _) ->
       (* Every element is one of the same list, so they agree on one type
@@ -2389,11 +2436,21 @@ and check_builtin_call name call env store =
   | "print", _ -> (unit_type info, store)
   | "str", [ value ] ->
       check_builtin_arity name info given;
-      if not (every value [ KInt; KString; KBool; KList; KTuple ]) then
+      if not (every value [ KInt; KFloat; KString; KBool; KList; KTuple ]) then
         raise
           (builtin_argument_error name (List.hd args) value
-             "Int, String, Bool, a list or a tuple");
+             "Int, Float, String, Bool, a list or a tuple");
       (t_string info, store)
+  | "float", [ value ] ->
+      check_builtin_arity name info given;
+      if not (every value [ KInt ]) then
+        raise (builtin_argument_error name (List.hd args) value "Int");
+      (t_float info, store)
+  | "int", [ value ] ->
+      check_builtin_arity name info given;
+      if not (every value [ KFloat ]) then
+        raise (builtin_argument_error name (List.hd args) value "Float");
+      (t_int info, store)
   | "len", [ value ] ->
       check_builtin_arity name info given;
       if not (every value [ KList; KString ]) then

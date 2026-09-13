@@ -267,17 +267,47 @@ order they are written in and nothing has to be declared ahead.
 
 ## How types are inferred
 
-Identical to [the C targets](target_c.md#how-types-are-inferred): three
-types -- `Int`, `String`, `Bool` -- and three rules (a binding takes its
+Identical to [the C targets](target_c.md#how-types-are-inferred): four
+types -- `Int`, `Float`, `String`, `Bool` -- and three rules (a binding
+takes its
 initializer's type; a parameter takes its annotation when Java can
 represent it, else a guess from whether the body concatenates or compares
-it with a string, else `Int`; a function's return type is read back off
+it with a string or combines it with a float literal, else `Int`; a
+function's return type is read back off
 its translated body). The same caveat applies: rule 2 is a guess, and an
 unannotated parameter the body only ever returns unchanged will infer
 `Int` and refuse a call site that passes a string. Annotations naming a
 tuple, list or function type are ignored here too — for a function type
 what refuses the program is the *call* through the parameter, `call to
 unknown function`, since a `def` is not a value this backend can pass.
+
+**Every argument is checked against the parameter type this backend
+worked out**, and a mismatch is refused with the position of the call,
+as it is in C and for the same reason: Java widens an `int` to a
+`double` silently, so an argument at the wrong type would compile and be
+quietly wrong. A refusal there means this backend could not work the
+type out, not that the program is ill-typed.
+
+## Floats
+
+A `Float` is a `double`. Arithmetic and `/` are Java's own, which are
+IEEE's, and equality is `==` rather than `.equals()` — the two differ
+exactly on the values Pyking cares about, since `Double.equals` reports
+two NaNs equal and `==` does not. `float(n)` and `int(x)` are casts, and
+Java's narrowing cast truncates toward zero.
+
+`System.out.println` builds its line by string concatenation, so a
+`double` joining it would be written by `Double.toString`. It is wrapped
+in a generated `pykFloatStr` instead, implementing `docs/builtin.md`'s
+rule. Two things about that helper are not optional:
+
+- **`String.format` takes `Locale.ROOT`.** The default locale writes
+  `1,0e+00` wherever the decimal separator is a comma, and one `.out`
+  file is compared against every target.
+- **`Double.toString` is not used.** It was not the shortest round trip
+  before JDK 19, and `java8` is the floor here — so the digits are found
+  by formatting at increasing precision until the text reads back as the
+  same double.
 
 ## Naming the class
 

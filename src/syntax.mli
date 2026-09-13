@@ -42,6 +42,7 @@ open Lexer
 
 type expr =
   | EInt of info * int * int
+  | EFloat of info * float * int
   | EString of info * string * int
   | EBool of info * bool * int (* 'true' / 'false' *)
   | EVar of info * string * int
@@ -69,6 +70,7 @@ type expr =
 
 and typ =
   | TInt of info * int (* Int *)
+  | TFloat of info * int (* Float *)
   | TString of info * int (* String *)
   | TBool of info * int (* Bool *)
   | TList of info * typ * int (* [element] *)

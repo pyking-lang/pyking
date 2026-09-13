@@ -676,6 +676,44 @@ Division by zero falls through it to Python's own `ZeroDivisionError`,
 which is what this target is documented as doing (see
 [targets.md](targets.md)).
 
+## Floats, where Python nearly agrees
+
+Python has a real `float`, and it is the same IEEE 754 binary64 Pyking
+means, so a value knows what it is at run time and arithmetic needs
+nothing. Two things still do.
+
+**Printing.** Python's `repr` follows the same thresholds Pyking's rule
+does — that is where they came from — but writes an exponent with a sign
+and a leading zero: `1e+300` where Pyking writes `1e300`, `1e-05` where
+Pyking writes `1e-5`. So a Float is written by `__pyk_float`, the
+prelude helper implementing `docs/builtin.md`'s rule, rather than by
+`str`.
+
+A bare Float is wrapped at the print site, as a `Bool` already is. One
+nested inside a list or a tuple goes through the `__pyk_str` walker,
+which gains an `isinstance(v, float)` arm — and gains it **only where
+the module has a Float at all**, so a program without one carries
+exactly the prelude it carried before.
+
+**Division.** Python is the one host that *raises* where IEEE answers:
+`1.0 / 0.0` is a `ZeroDivisionError` rather than `inf`. So a Float
+division goes through `__pyk_fdiv`, beside the `__pyk_div` an Int
+division already needs — for the opposite reason, but the same shape.
+
+```python
+def __pyk_fdiv(a, b):
+    if b == 0.0:
+        # Python raises where IEEE answers. Pyking follows IEEE.
+        if a != a or a == 0.0:
+            return float('nan')
+        below = (a < 0.0) != (repr(b)[0] == '-')
+        return float('-inf') if below else float('inf')
+    return a / b
+```
+
+`float(n)` and `int(x)` are Python's own, which truncates toward zero
+exactly as Pyking's `int` does.
+
 ## A loop's value needs no loop `else`
 
 Python's `for`/`while` take an `else` clause that runs exactly when the

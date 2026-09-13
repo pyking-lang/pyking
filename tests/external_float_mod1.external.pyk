@@ -1,0 +1,11 @@
+# An external module offering Floats, which cross the boundary on every
+# target an Int does: a Float is a double in each of the five host
+# languages, and nothing about it is Pyking's own representation.
+
+public def halve : (Float) -> Float
+
+public def hypot_sq : (Float, Float) -> Float
+
+public def widen : (Int) -> Float
+
+public def epsilon : Float

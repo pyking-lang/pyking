@@ -39,6 +39,7 @@ exception Unsupported of info * string
 
 type jsexpr =
   | JsNum of info * int
+  | JsFloat of info * float
   | JsStr of info * string
   | JsBool of info * bool
   | JsVar of info * string
@@ -117,6 +118,7 @@ val translate_program :
   ?externals:string list ->
   ?own:string ->
   Syntax.stmt list ->
+  Syntax.typ Syntax.IntMap.t ->
   jsstmt list * (string * string) list
 
 (** The AST as JavaScript source text, with the generated program's own

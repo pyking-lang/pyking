@@ -1,0 +1,9 @@
+# A float literal needs a digit on each side of the point.
+#
+# `1.` is not one: the point needs a digit after it, which is what
+# keeps `x.field` and a trailing point unambiguous for the lexer. The
+# `.` is therefore read as its own token, and nothing in the grammar
+# takes it there.
+
+x = 1.
+print(x)

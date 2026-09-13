@@ -10,9 +10,9 @@ boundary".
 
 ## Four readers, one table
 
-`print`, `range`, `str` and `len` are in scope in every program and are
-bound by nothing. Four parts of the compiler need that fact, and each
-needs something different about it:
+`print`, `range`, `str`, `len`, `float` and `int` are in scope in every
+program and are bound by nothing. Four parts of the compiler need that
+fact, and each needs something different about it:
 
 - `typesystem.ml` puts the names in the environment before the first
   statement is checked, and checks each call's arity against the one it
@@ -48,8 +48,8 @@ type t = {
 
 `max_args` is an option, and `None` *is* variadic — there is no separate
 flag that could disagree with the bounds. `print` is `(0, None)`, which
-is why it never fails an arity check; `str` and `len` are `(1, Some 1)`;
-`range` is `(1, Some 3)`.
+is why it never fails an arity check; `str`, `len`, `float` and `int`
+are `(1, Some 1)`; `range` is `(1, Some 3)`.
 
 The order of the table is the order the playground publishes as its word
 list (`pykBuiltins`), so it is the order someone writing Pyking sees.
@@ -140,6 +140,8 @@ rather than any host's:
 - arguments are formatted individually and joined with single spaces,
   then a newline;
 - an integer prints in base 10;
+- a Float prints by the rule below, which is the one thing here no host
+  does the same way;
 - a string prints **bare** on its own, and **quoted** inside a list or a
   tuple — `print("hi")` writes `hi`, and `print(["hi"])` writes
   `['hi']`;
@@ -147,6 +149,74 @@ rather than any host's:
   Python's `None`, not JavaScript's `undefined`;
 - a boolean prints as `true`/`false`, Pyking's own spelling rather than
   any host language's.
+
+### How a Float is written
+
+Every host spells a double differently — JavaScript's `String(1.0)` is
+`"1"`, Python's `repr(1e300)` is `"1e+300"`, OCaml's `string_of_float
+1.0` is `"1."`, Java's `Double.toString(1e300)` is `"1.0E300"`, C's
+`%g` drops the point — so no backend delegates. Each implements this
+algorithm in its own host language, and one `.out` file is compared
+against all of them.
+
+```
+pyk_float_str(x):
+    if x != x:               return "nan"
+    if x = +infinity:        return "inf"
+    if x = -infinity:        return "-inf"
+    sign = "-" if x is negative or negative zero else ""
+    a = |x|
+    if a = 0:                return sign + "0.0"
+    for p in 0 .. 16:                      # p digits after the point
+        s = format(a, "%.{p}e")
+        if parse_float(s) = a: break
+    digits = mantissa of s, point removed, trailing zeros stripped
+    decpt  = exponent of s + 1             # a = 0.digits x 10^decpt
+    if decpt <= -4 or decpt > 16:
+        mant = digits[0] + ("." + digits[1:] if more than one digit)
+        return sign + mant + "e" + (decpt - 1)
+    if decpt <= 0:            return sign + "0." + "0"*(-decpt) + digits
+    if decpt >= len(digits):  return sign + digits
+                                     + "0"*(decpt-len(digits)) + ".0"
+    return sign + digits[:decpt] + "." + digits[decpt:]
+```
+
+It needs two host primitives, `%.{p}e` and a parse back, and every
+target has both. The round-trip check is what makes the digit count
+correct even where a host's own formatter is not: `Double.toString` was
+not the shortest round trip before JDK 19, and `java8` is the floor
+here.
+
+The `decpt` thresholds are Python's `repr`, and they are what keeps
+`100.0` from printing as `1e2` — the naive "shortest `%g`" does exactly
+that. Python's own `repr` therefore agrees with this rule on every value
+but the exponent's punctuation, which it writes with a `+` and a leading
+zero.
+
+| value | text | |
+|---|---|---|
+| `1.0` | `1.0` | no point in the digits, so one is added |
+| `0.1` | `0.1` | shortest, not the exact binary value |
+| `100.0` | `100.0` | *not* `1e2` — the `decpt` rule |
+| `0.0001` | `0.0001` | `decpt` -3, positional |
+| `1e-5` | `1e-5` | `decpt` -4, exponential; no leading zero |
+| `1e15` | `1000000000000000.0` | `decpt` 16 |
+| `1e16` | `1e16` | `decpt` 17; no `+` |
+| `1.0/3.0` | `0.3333333333333333` | 16 digits |
+| `-0.0` | `-0.0` | the two zeros print differently |
+| `1.0/0.0` | `inf` | |
+| `0.0/0.0` | `nan` | |
+
+`Builtin.float_text` is this in OCaml, and is the one the interpreter
+and the `-t pyking` printer use. Two traps are worth naming because they
+are silent: **Java's `String.format` must take `Locale.ROOT`**, or a
+comma-decimal locale writes `1,0e+00`; and **C's `sprintf` respects
+`LC_NUMERIC`**, which the generated C is safe from only because it never
+calls `setlocale`.
+
+A target whose values cannot say at run time whether they are an Int or
+a Float has one more problem, and only JavaScript has it: see
+[target_js.md](target_js.md), "Floats".
 
 `interpreter.ml`'s `format_value` and `display_value` are these rules
 implemented for real — the second is the quoted form, and the first is

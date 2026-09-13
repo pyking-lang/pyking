@@ -71,6 +71,7 @@ exception Trap of info * string
     the representation survives the rewrite into Pyking. *)
 type value =
   | VInt of int (* at least 32 signed bits; overflow is undefined *)
+  | VFloat of float (* IEEE 754 binary64 *)
   | VString of string
   | VBool of bool
   | VUnit (* `()`: what a statement, a print and a program produce *)

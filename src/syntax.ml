@@ -30,6 +30,7 @@ open Lexer
 
 type expr =
   | EInt of info * int * int
+  | EFloat of info * float * int
   | EString of info * string * int
   | EBool of info * bool * int (* 'true' / 'false' *)
   | EVar of info * string * int
@@ -57,6 +58,7 @@ type expr =
 
 and typ =
   | TInt of info * int (* Int *)
+  | TFloat of info * int (* Float *)
   | TString of info * int (* String *)
   | TBool of info * int (* Bool *)
   | TList of info * typ * int (* [element] *)
@@ -159,6 +161,7 @@ and stmt =
 let expr_info e =
   match e with
   | EInt (i, _, _) -> i
+  | EFloat (i, _, _) -> i
   | EString (i, _, _) -> i
   | EBool (i, _, _) -> i
   | EVar (i, _, _) -> i
@@ -184,6 +187,7 @@ let expr_info e =
 let expr_sym e =
   match e with
   | EInt (_, _, s) -> s
+  | EFloat (_, _, s) -> s
   | EString (_, _, s) -> s
   | EBool (_, _, s) -> s
   | EVar (_, _, s) -> s
@@ -209,6 +213,7 @@ let expr_sym e =
 let type_info t =
   match t with
   | TInt (i, _) -> i
+  | TFloat (i, _) -> i
   | TString (i, _) -> i
   | TBool (i, _) -> i
   | TList (i, _, _) -> i
@@ -223,6 +228,7 @@ let type_info t =
 let type_sym t =
   match t with
   | TInt (_, s) -> s
+  | TFloat (_, s) -> s
   | TString (_, s) -> s
   | TBool (_, s) -> s
   | TList (_, _, s) -> s
@@ -342,6 +348,7 @@ let stmt_sym s =
 let set_expr_info i e =
   match e with
   | EInt (_, v, s) -> EInt (i, v, s)
+  | EFloat (_, v, s) -> EFloat (i, v, s)
   | EString (_, v, s) -> EString (i, v, s)
   | EBool (_, v, s) -> EBool (i, v, s)
   | EVar (_, n, s) -> EVar (i, n, s)
@@ -367,6 +374,7 @@ let set_expr_info i e =
 let set_type_info i t =
   match t with
   | TInt (_, s) -> TInt (i, s)
+  | TFloat (_, s) -> TFloat (i, s)
   | TString (_, s) -> TString (i, s)
   | TBool (_, s) -> TBool (i, s)
   | TList (_, e, s) -> TList (i, e, s)
@@ -433,14 +441,14 @@ let with_sym cfg sym self_delimited text =
 
 let expr_self_delimited e =
   match e with
-  | EInt _ | EString _ | EBool _ | EVar _ | EQualified _ | EList _ | ETuple _
-  | EListComp _ ->
+  | EInt _ | EFloat _ | EString _ | EBool _ | EVar _ | EQualified _ | EList _
+  | ETuple _ | EListComp _ ->
       true
   | _ -> false
 
 let type_self_delimited t =
   match t with
-  | TInt _ | TString _ | TBool _ | TList _ | TTuple _ -> true
+  | TInt _ | TFloat _ | TString _ | TBool _ | TList _ | TTuple _ -> true
   | _ -> false
 
 let pattern_self_delimited p =
@@ -502,6 +510,7 @@ and grouped cfg t =
 and pprint_type_body cfg t =
   match t with
   | TInt _ -> "Int"
+  | TFloat _ -> "Float"
   | TString _ -> "String"
   | TBool _ -> "Bool"
   | TList (_, element, _) -> "[" ^ grouped cfg element ^ "]"
@@ -584,6 +593,9 @@ and pprint_expr_body cfg e min_prec =
      parenthesized so re-parsing reproduces the same AST. *)
   match e with
   | EInt (_, v, _) -> string_of_int v
+  (* The canonical text, so `-t pyking` output re-parses to the same
+     double and an .ast.out stays stable (docs/builtin.md). *)
+  | EFloat (_, v, _) -> Builtin.float_text v
   | EString (_, s, _) -> quote_string s
   | EBool (_, v, _) -> if v then "true" else "false"
   | EVar (_, name, _) -> name

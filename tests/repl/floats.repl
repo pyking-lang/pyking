@@ -1,0 +1,17 @@
+1.5
+0.1
+1e16
+-0.0
+1.0 / 0.0
+0.0 / 0.0
+x: Float = 2.5
+x * 4.0
+float(3)
+int(2.9)
+1 + 1.0
+def add(a, b): a + b
+add(1, 2)
+:type add
+def fadd(a:Float, b:Float) -> Float: a + b
+:type fadd
+fadd(1.5, 2.25)

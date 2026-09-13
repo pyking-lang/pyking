@@ -1,0 +1,54 @@
+# How a Float is written, which every target has to agree about.
+#
+# The rule is the shortest decimal that reads back as the same double,
+# always visibly a Float -- so `1.0` rather than `1`, and `0.1` rather
+# than the exact binary value. Positional notation is used unless the
+# exponent is extreme, which is what keeps `100.0` from printing as
+# `1e2` (docs/builtin.md, "The formatting rules").
+#
+# No host spells a double this way on its own: JavaScript writes `1`,
+# Python `1e+300`, OCaml `1.`, Java `1.0E300`. Each backend implements
+# this rule instead, which is what lets one .out file hold for all of
+# them.
+
+print(1.0)
+print(0.5)
+print(0.1)
+print(100.0)
+print(123456789.0)
+print(-2.5)
+
+# A point is added where the digits have none, and dropped where an
+# exponent carries the value instead.
+print(0.0001)
+print(1e-5)
+print(1e15)
+print(1e16)
+print(1e300)
+print(1e-300)
+print(1.5e-3)
+
+# The extremes of the format, written back exactly.
+print(2.2250738585072014e-308)
+print(1.7976931348623157e308)
+
+# A value with no short decimal at all: seventeen digits at most.
+third: Float = 1.0 / 3.0
+print(third)
+
+# The two zeros are different values and print differently, though they
+# compare equal.
+zero: Float = 0.0
+print(zero)
+print(-zero)
+print(zero == -zero)
+
+# The three IEEE values no host spells alike.
+one: Float = 1.0
+print(one / zero)
+print(-one / zero)
+print(zero / zero)
+
+# Several on one line, since a backend that formats into one buffer
+# would print the last one three times.
+print(1.0, 0.5, 1e300)

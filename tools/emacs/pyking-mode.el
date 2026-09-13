@@ -105,7 +105,7 @@ and `import'/`from'/`as' are how another module reaches it.")
   "Regexp matching any Pyking keyword as a whole symbol.")
 
 (defconst pyking-mode-types
-  '("Int" "String" "Bool")
+  '("Int" "Float" "String" "Bool")
   "Reserved type names usable in type annotations.
 Annotations appear on a parameter, on a `def' return value, and on an
 immutable binding (`x: Int = 1' -- see `assignment' in PYKING.md's
@@ -140,7 +140,7 @@ much a literal value as `123' is, not a keyword like `if' or `return'.")
   "Regexp matching any name in `pyking-mode-constants' as a whole symbol.")
 
 (defconst pyking-mode-builtins
-  '("print" "range" "str" "len")
+  '("print" "range" "str" "len" "float" "int")
   "Well-known Python builtin function names used in Pyking source.
 
 Pyking's own grammar has no notion of a builtin -- any identifier can be

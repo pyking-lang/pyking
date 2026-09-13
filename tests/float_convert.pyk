@@ -1,0 +1,29 @@
+# `float` and `int`, which are the only way an Int and a Float meet.
+#
+# Pyking converts nothing on its own: `1 + 1.0` is refused, and these
+# two builtins are what a program writes instead. `int` truncates
+# toward zero, which is the rounding `/` already does on two Ints
+# (docs/builtin.md).
+
+print(float(3))
+print(float(0))
+print(float(-7))
+
+print(int(2.9))
+print(int(-2.9))
+print(int(2.0))
+print(int(0.5))
+print(int(-0.5))
+
+# Round trips, in both directions.
+n: Int = 42
+print(int(float(n)) == n)
+x: Float = 1.5
+print(float(int(x)))
+
+# What conversion is for: an average, which integer division would get
+# wrong.
+total: Int = 7
+count: Int = 2
+print(total / count)
+print(float(total) / float(count))

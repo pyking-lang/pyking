@@ -1,0 +1,19 @@
+Pyking REPL.  :help for commands, :quit to leave.
+> 1.5 : Float
+> 0.1 : Float
+> 1e16 : Float
+> -0.0 : Float
+> inf : Float
+> nan : Float
+> > 10.0 : Float
+> 3.0 : Float
+> 2 : Int
+> '<repl>' 1:0-1:7 Type error: `+` cannot be applied to Int and Float;
+  it accepts Int + Int or Float + Float. Pyking mixes no numbers on
+  its own: `float(n)` makes an Int a Float, and `int(x)` truncates a
+  Float to an Int
+> > 3 : Int
+> (Int, Int) -> Int
+> > (Float, Float) -> Float
+> 3.75 : Float
+> 

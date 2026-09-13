@@ -102,7 +102,7 @@ repl`) rather than a `--target`.
 | `src/execution.ml` | What `--run` runs: the commands each target's host uses to build and run what was compiled. One table, so the driver stays a sequencer. |
 | `src/opt_tailcall.ml` | Tail calls into loops: a function that calls itself in tail position becomes a `loop` carrying its parameters, and a group that tail-calls each other becomes one loop they share. AST in, AST out, after the checker and only for a program it accepted — the types decide which groups can share a loop, and what a slot a narrower member does not fill is entered with. `--no-tail-call-opt` turns it off. |
 | `src/target_python.ml` | Python backend: its own `Py*` AST, translation, printer. |
-| `src/target_js_core.ml` | JavaScript AST, translation, printer — with no knowledge of packaging. |
+| `src/target_js_core.ml` | JavaScript AST, translation, printer — with no knowledge of packaging. Reads `tmap` for one thing only: a JavaScript number cannot say whether Pyking called it an Int or a Float, so the type decides how a printed value is written. |
 | `src/target_js_packaging.ml` | Wraps that output into the files each JS target delivers, and supplies the JavaScript side of the runtime interface. |
 | `src/target_c.ml` | C AST, translation, printer, for both `c89` and `c23` — one backend with a `standard` parameter. Infers types, which C needs and Pyking does not have. |
 | `src/target_java.ml` | Java AST, translation, printer, for `java8`, `java17` and `java21` — one backend with a `version` parameter, the same shape as `target_c.ml`. Infers types the same way; also checks that every function provably returns, since `javac` (unlike C) refuses one that doesn't. |
@@ -114,7 +114,8 @@ repl`) rather than a `--target`.
 
 ## The builtins and the host boundary
 
-`print`, `range`, `str` and `len` are in scope in every program and are
+`print`, `range`, `str`, `len`, `float` and `int` are in scope in every
+program and are
 bound by nothing. `src/builtin.ml` is the one table that says so: each
 one's name, how many arguments it takes, whether calling it can be
 observed outside the program, and what it does. See
@@ -294,7 +295,7 @@ error` whichever pass caught it.
 the checker found.
 
 The builtins are in it like anything else, at a type of their own.
-`print`, `range`, `str` and `len` are bound to a `TBuiltin`, because
+Each of them is bound to a `TBuiltin`, because
 none of them fits a `TFunction` — `print` takes any number of arguments
 of any type — and because they are not values: `builtin.ml`
 calls them builtins rather than functions, and the C and Java backends already refuse

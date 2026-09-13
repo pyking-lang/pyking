@@ -206,13 +206,13 @@ to be in — which is what the language says does not matter.
 
 ## How types are inferred
 
-Three types — `Int`, `String`, `Bool` — and three rules:
+Four types — `Int`, `Float`, `String`, `Bool` — and three rules:
 
 1. A **binding** takes the type of its initializer.
 2. A **parameter** takes its annotation when that annotation names a type
    C can represent; otherwise it is inferred from whether the body
-   concatenates or compares it with a string, and failing that it is
-   `Int`.
+   concatenates or compares it with a string, or combines it with a
+   float literal, and failing both of those it is `Int`.
 3. A **function's return type** is read back off its translated body.
 
 Annotations naming a tuple, list or function type are *ignored* rather
@@ -229,6 +229,43 @@ unannotated parameter which the body only ever returns unchanged will
 infer `Int` and emit C that does not compile. Annotating the parameter
 fixes it, and a real inference pass (unifying uses across call sites)
 would remove the guess entirely.
+
+Because the guess can be wrong, **every argument is checked against the
+parameter type this backend worked out**, and a mismatch is refused with
+the position of the call. That matters most for numbers: C converts
+between an `int` and a `double` without a word, so an argument at the
+wrong type would compile and be quietly wrong, where an `Int` passed
+where a `String` was inferred at least fails to build. A refusal here
+means this backend could not work the type out, not that the program is
+ill-typed — the checker accepted it, and every other target compiles it.
+
+## Floats
+
+A `Float` is a `double`, which both standards spell the same way — so
+unlike a `Bool` it needs nothing to serve `c89` and `c23` alike.
+Arithmetic, the comparisons and `==` are C's own, which are IEEE's, and
+`/` is C's `/` unchanged: on two doubles it is not truncated, and a zero
+divisor gives an infinity or a NaN rather than failing. `float(n)` and
+`int(x)` are casts, and C's narrowing cast truncates toward zero, which
+is the rounding Pyking's `int` means.
+
+Printing is the part with no host answer. No `printf` conversion writes
+a double the way Pyking does, so a `%s` is emitted and the value goes
+through a generated `pyk_float_str` implementing `docs/builtin.md`'s
+rule. Three things about it are worth knowing:
+
+- It is written to **C89**, which has neither `isnan` nor `isinf`: a NaN
+  is found with `x != x` and an infinity against `DBL_MAX` from
+  `<float.h>`.
+- It **allocates and never frees**, exactly as `pyk_concat` does. One
+  static buffer would be shorter and wrong: `printf` with two Floats in
+  it calls this twice before printing either, and both calls would hand
+  back the same text.
+- `<math.h>` is included **only** for a literal that overflowed to an
+  infinity, which needs `HUGE_VAL`. It is kept out otherwise because
+  that header declares a great many functions with short names — glibc's
+  `fadd` among them — that an ordinary Pyking `def` is free to be
+  called.
 
 ## How things compile
 

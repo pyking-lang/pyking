@@ -44,6 +44,7 @@ module SMap = Map.Make (String)
 
 type jsexpr =
   | JsNum of info * int
+  | JsFloat of info * float
   | JsStr of info * string
   | JsBool of info * bool
   | JsVar of info * string
@@ -124,6 +125,10 @@ type scope = {
   names : string SMap.t;
   block : StringSet.t;
   taken : StringSet.t;
+  (* The types the checker worked out, by symbol. JavaScript has one
+     number type, so nothing at run time separates an Int from a Float
+     and only these can say which a printed value is. *)
+  types : typ IntMap.t;
   (* Which of each module's names the target's own source provides, and
      which modules have no Pyking half at all. A qualified name reaches
      the implementation where the field is one of the first, and a
@@ -143,6 +148,35 @@ type scope = {
     binds is dropped when the caller carries on with its own scope.
     scope -> scope *)
 let block_scope scope = { scope with block = StringSet.empty }
+
+(** The type the checker settled for an expression, where it has one.
+    expr -> scope -> typ? *)
+let type_of e scope = IntMap.find_opt (expr_sym e) scope.types
+
+(** Whether the checker settled this expression's type as Float, which
+    is what picks IEEE division over the truncating one.
+    expr -> scope -> bool *)
+let is_float_expr e scope =
+  match type_of e scope with Some (TFloat _) -> true | _ -> false
+
+(** Whether a Float sits anywhere inside a type. typ -> bool *)
+let rec holds_float type_ =
+  match type_ with
+  | TFloat _ -> true
+  | TList (_, element, _) -> holds_float element
+  | TTuple (_, elements, _) -> List.exists holds_float elements
+  | _ -> false
+
+(** Which positions of a value are Floats, as the descriptor `pykShaped`
+    reads: `f` a Float, `.` anything else, `[s]` a list, `(s,s)` a
+    tuple. typ -> string *)
+let rec float_shape type_ =
+  match type_ with
+  | TFloat _ -> "f"
+  | TList (_, element, _) -> "[" ^ float_shape element ^ "]"
+  | TTuple (_, elements, _) ->
+      "(" ^ String.concat "," (List.map float_shape elements) ^ ")"
+  | _ -> "."
 
 (** The JavaScript name a Pyking name reads as. Names bound nowhere are
     runtime operations or builtins, and pass through unchanged.
@@ -319,6 +353,7 @@ let expr_kind_name e =
 let rec translate_expr e scope =
   match e with
   | EInt (info, v, _) -> JsNum (info, v)
+  | EFloat (info, v, _) -> JsFloat (info, v)
   | EString (info, s, _) -> JsStr (info, s)
   | EBool (info, v, _) -> JsBool (info, v)
   | EVar (info, name, _) ->
@@ -344,10 +379,13 @@ let rec translate_expr e scope =
          `++` means is decided at run time by `pykConcat` -- the same
          answer `pykFormat` gives for printing. *)
       JsConcat (info, translate_expr left scope, translate_expr right scope)
+  (* JavaScript's `/` is IEEE division, which is what Pyking's `/` means
+     on two Floats -- including the infinities a zero divisor gives. *)
+  | EDiv (info, l, r, _) when is_float_expr l scope ->
+      JsBinary (info, "/", translate_expr l scope, translate_expr r scope)
   | EDiv (info, l, r, _) ->
-      (* JavaScript's `/` is float division, so the quotient is truncated
-         toward zero -- Pyking's rule, and what `Math.trunc` does for
-         either sign. *)
+      (* On two Ints the quotient is truncated toward zero -- Pyking's
+         rule, and what `Math.trunc` does for either sign. *)
       JsCall
         ( info,
           JsMember (info, JsVar (info, "Math"), "trunc"),
@@ -386,7 +424,20 @@ let rec translate_expr e scope =
   | ECall (info, EVar (_, name, _), args, _)
     when Builtin.crosses_host name ->
       (* A call that leaves the program: see builtin.ml. *)
-      JsRuntimeCall (info, name, List.map (fun a -> translate_expr a scope) args)
+      JsRuntimeCall
+        (info, name, List.map (fun a -> printed_argument a scope) args)
+  (* A JavaScript number is already a double, so widening an Int is the
+     value itself; what makes it print as a Float is its type, which the
+     print site reads. *)
+  | ECall (_, EVar (_, "float", _), [ argument ], _)
+    when lookup "float" scope = "float" ->
+      translate_expr argument scope
+  | ECall (info, EVar (_, "int", _), [ argument ], _)
+    when lookup "int" scope = "int" ->
+      JsCall
+        ( info,
+          JsMember (info, JsVar (info, "Math"), "trunc"),
+          [ translate_expr argument scope ] )
   | ECall (info, EVar (_, name, _), _, _)
     when List.mem name Builtin.pure_names && lookup name scope = name ->
       ignore info;
@@ -404,6 +455,26 @@ let rec translate_expr e scope =
       | Some op, Some (left, right) ->
           JsBinary (expr_info e, op, translate_expr left scope, translate_expr right scope)
       | _ -> unsupported (expr_info e) (expr_kind_name e))
+
+(** One argument of a print, formatted where its type says so. A
+    JavaScript number cannot say whether it is an Int or a Float, so the
+    checker's type decides: a Float becomes its text here, and a value
+    holding one somewhere inside is walked with a descriptor saying
+    where. Everything else is left for `pykFormat`, so a program with no
+    Float compiles to what it compiled to before.
+    expr -> scope -> jsexpr *)
+and printed_argument argument scope =
+  let translated = translate_expr argument scope in
+  match type_of argument scope with
+  | Some (TFloat _) ->
+      JsCall (expr_info argument, JsVar (expr_info argument, "pykFloatStr"),
+              [ translated ])
+  | Some type_ when holds_float type_ ->
+      JsCall
+        ( expr_info argument,
+          JsVar (expr_info argument, "pykShaped"),
+          [ translated; JsStr (expr_info argument, float_shape type_) ] )
+  | _ -> translated
 
 (** `[e for p in seq if c ...]` as a chain of `flatMap`s: each `for`
     maps its sequence and flattens, each `if` and each pattern that does
@@ -1027,12 +1098,13 @@ and translate_loop_tail s js_target scope =
     declared.
     [stmt] -> [string] -> ([jsstmt], [(string, string)]) *)
 let translate_program ?(taken = []) ?(external_fields = []) ?(externals = [])
-    ?(own = "") stmts =
+    ?(own = "") stmts tmap =
   let statements, scope =
     translate_stmts stmts
       {
         names = SMap.empty;
         block = StringSet.empty;
+        types = tmap;
         taken =
           List.fold_left
             (fun set name -> StringSet.add name set)
@@ -1135,6 +1207,13 @@ let rec pprint_js_expr ?(min_prec = 0) e runtime =
   let plain e = pprint_js_expr e runtime in
   match e with
   | JsNum (_, v) -> string_of_int v
+  (* JavaScript reads back every text Builtin.float_text writes but
+     three: it spells the two infinities and a NaN by name. *)
+  | JsFloat (_, v) ->
+      if v <> v then "NaN"
+      else if v = infinity then "Infinity"
+      else if v = neg_infinity then "-Infinity"
+      else Builtin.float_text v
   | JsStr (_, s) -> quote s
   | JsBool (_, v) -> if v then "true" else "false"
   | JsVar (_, name) -> name
@@ -1294,7 +1373,7 @@ let uses p stmts =
     p e
     ||
     match e with
-    | JsNum _ | JsStr _ | JsBool _ | JsVar _ -> false
+    | JsNum _ | JsFloat _ | JsStr _ | JsBool _ | JsVar _ -> false
     | JsUnary (_, _, operand) -> in_expr operand
     | JsBinary (_, _, left, right) | JsConcat (_, left, right) ->
         in_expr left || in_expr right

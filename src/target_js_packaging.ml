@@ -65,6 +65,73 @@ let format_js =
       "}";
     ]
 
+(* builtin.ml's rule, in JavaScript, and the walk that goes with it. A
+   JavaScript number is one type, so a value's own form never says
+   whether Pyking called it an Int or a Float: the compiler reads that
+   off the checker's types and hands `pykShaped` a descriptor saying
+   which positions are Floats (see target_js.md, "Floats"). *)
+let float_js =
+  String.concat "\n"
+    [
+      "function pykFloatStr(x) {";
+      "  if (Number.isNaN(x)) return 'nan';";
+      "  if (x === Infinity) return 'inf';";
+      "  if (x === -Infinity) return '-inf';";
+      "  const sign = x < 0 || Object.is(x, -0) ? '-' : '';";
+      "  const a = Math.abs(x);";
+      "  if (a === 0) return sign + '0.0';";
+      "  let s = '';";
+      "  for (let p = 0; p <= 16; p++) {";
+      "    s = a.toExponential(p);";
+      "    if (Number(s) === a) break;";
+      "  }";
+      "  const at = s.indexOf('e');";
+      "  let digits = s.slice(0, at).replace('.', '').replace(/0+$/, '');";
+      "  if (digits === '') digits = '0';";
+      "  const decpt = Number(s.slice(at + 1)) + 1;";
+      "  const n = digits.length;";
+      "  if (decpt <= -4 || decpt > 16) {";
+      "    const mantissa = n === 1 ? digits : digits[0] + '.' + digits.slice(1);";
+      "    return sign + mantissa + 'e' + (decpt - 1);";
+      "  }";
+      "  if (decpt <= 0) return sign + '0.' + '0'.repeat(-decpt) + digits;";
+      "  if (decpt >= n) return sign + digits + '0'.repeat(decpt - n) + '.0';";
+      "  return sign + digits.slice(0, decpt) + '.' + digits.slice(decpt);";
+      "}";
+      "";
+      "// The comma-separated parts of a tuple descriptor, split at the";
+      "// top level so a nested list or tuple stays whole.";
+      "function pykShapeParts(body) {";
+      "  const parts = [];";
+      "  let depth = 0;";
+      "  let start = 0;";
+      "  for (let i = 0; i < body.length; i++) {";
+      "    const c = body[i];";
+      "    if (c === '[' || c === '(') depth++;";
+      "    else if (c === ']' || c === ')') depth--;";
+      "    else if (c === ',' && depth === 0) {";
+      "      parts.push(body.slice(start, i));";
+      "      start = i + 1;";
+      "    }";
+      "  }";
+      "  if (body.length > 0) parts.push(body.slice(start));";
+      "  return parts;";
+      "}";
+      "";
+      "// `f` is a Float, `.` anything pykFormat already prints right,";
+      "// `[s]` a list of s and `(s,s)` a tuple.";
+      "function pykShaped(value, shape, inner) {";
+      "  if (shape === 'f') return pykFloatStr(value);";
+      "  if (shape === '.') return pykFormat(value, inner);";
+      "  const body = shape.slice(1, -1);";
+      "  if (shape[0] === '[') {";
+      "    return '[' + value.map((e) => pykShaped(e, body, true)).join(', ') + ']';";
+      "  }";
+      "  const parts = pykShapeParts(body).map((s, i) => pykShaped(value[i], s, true));";
+      "  return parts.length === 1 ? '(' + parts[0] + ',)' : '(' + parts.join(', ') + ')';";
+      "}";
+    ]
+
 let header source =
   Printf.sprintf "// Generated from %s by the Pyking compiler. Do not edit."
     source
@@ -154,6 +221,11 @@ let source_of (unit : Module.t) = Filename.basename unit.path
 let prints js_program =
   uses (function JsRuntimeCall _ -> true | _ -> false) js_program
 
+(** Whether a module calls one of the runtime's formatters, which is how
+    it says it needs that one imported. [jsstmt] -> string -> bool *)
+let uses_name js_program name =
+  uses (function JsVar (_, used) -> used = name | _ -> false) js_program
+
 (** The public names the *generated* file holds. A module is up to two
     files, and the names its declaration half offers are the
     implementation's -- an importer reaches those directly, so exporting
@@ -200,9 +272,11 @@ let shared_runtime () =
       "";
       format_js;
       "";
+      float_js;
+      "";
       print_via "console.log";
       "";
-      "export { print };";
+      "export { print, pykFloatStr, pykShaped };";
       "";
     ]
 
@@ -223,11 +297,20 @@ let js_module (unit : Module.t) js_program renames main target =
       "";
     ]
   in
+  let wanted =
+    (if prints js_program then [ "print" ] else [])
+    @ (if uses_name js_program "pykFloatStr" then [ "pykFloatStr" ] else [])
+    @ if uses_name js_program "pykShaped" then [ "pykShaped" ] else []
+  in
   let lines =
-    if prints js_program then
+    if wanted = [] then lines
+    else
       lines
-      @ [ Printf.sprintf "import { print } from './%s';" runtime_module; "" ]
-    else lines
+      @ [
+          Printf.sprintf "import { %s } from './%s';"
+            (String.concat ", " wanted) runtime_module;
+          "";
+        ]
   in
   let lines = lines @ [ pprint_js_program js_program runtime_host ] in
   let lines =

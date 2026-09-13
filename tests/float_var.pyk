@@ -1,0 +1,24 @@
+# A mutable Float, which is what a running total needs.
+#
+# `var` accepts Int, Float and Bool; the type is fixed by the
+# declaration and `:=` has to give that same type (PYKING.md, "Type
+# checking").
+
+var total = 0.0
+total := total + 1.5
+total := total + 2.25
+total := total * 2.0
+print(total)
+
+var scale = 1.0
+scale := scale / 4.0
+print(scale)
+
+# A `var` written from inside a function names the same location.
+def add(amount:Float) -> ():
+    total := total + amount
+
+
+add(0.5)
+add(-1.0)
+print(total)

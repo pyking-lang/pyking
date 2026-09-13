@@ -129,11 +129,15 @@ Expressions:
 
 - Comments
 - Integer and string literals (with backslash escapes)
+- Float literals (`1.0`, `0.5`, `1e9`, `1.5e-3`) — IEEE 754 binary64,
+  with a digit required on each side of the point
 - Boolean literals (`true`, `false`) — Pyking extension; spelled
   lowercase, unlike Python's `True`/`False`
 - Variables (identifier references)
-- Arithmetic operators (`+`, `-`, `*`, `/`), unary minus (`-x`, and
-  negative literals like `-5`), and parenthesized expressions
+- Arithmetic operators (`+`, `-`, `*`, `/`), overloaded over `Int` and
+  `Float`, unary minus (`-x`, and negative literals like `-5`), and
+  parenthesized expressions. Nothing is converted implicitly: `float(n)`
+  and `int(x)` are how the two numeric types meet
 - Concatenation (`++`) for strings and lists — Pyking extension; a
   separate operator from `+`, which only ever adds
 - Comparison operators (`<`, `<=`, `>`, `>=`, `==`)
@@ -165,7 +169,7 @@ Statements:
   form (`x = if cond:` / `x = match e:`) — Pyking extension
 - Mutable variables (`var` and `:=`) — Pyking extension
 - Function definitions (`def`), with optional parameter and return type
-  annotations (`Int`, `String`, `Bool`, list types `[T]`, tuple types
+  annotations (`Int`, `Float`, `String`, `Bool`, list types `[T]`, tuple types
   `(T1, T2, ...)` including the singleton `(T,)` and the unit type `()`,
   function types
   `(T1, T2, ...) -> T`, and nesting of any of these) — annotations are
@@ -266,7 +270,7 @@ params       = param , { "," , param } ;
 param        = ident , [ ":" , type ] ;
 
 type         = type_atom , [ "->" , type ] ;
-type_atom    = "Int" | "String" | "Bool"
+type_atom    = "Int" | "Float" | "String" | "Bool"
              | type_var
              | "all" , type_var , { type_var } , "." , type
              | "[" , type , "]"
@@ -350,7 +354,8 @@ additive    = multiplicative , { ( "+" | "++" | "-" ) , multiplicative } ;
 multiplicative = unary , { ( "*" | "/" ) , unary } ;
 unary       = "-" , unary | atom ;
 
-atom        = ( int | string | bool | ident | list_lit | list_comp | tuple_lit
+atom        = ( float | int | string | bool | ident | list_lit | list_comp
+              | tuple_lit
               | "(" , expr , ")" ) ,
               { call_tail } ;
 call_tail   = "(" , [ args ] , ")" ;
@@ -368,6 +373,12 @@ tuple_lit   = "(" , ")"
 
 ident       = letter , { letter | digit } ;
 int         = digit , { digit } ;
+(* A point needs a digit on each side, so `1.` and `.5` are not floats.
+   An exponent alone makes one: `1e9` is a Float. *)
+float       = digits , "." , digits , [ exponent ]
+            | digits , exponent ;
+digits      = digit , { digit } ;
+exponent    = ( "e" | "E" ) , [ "+" | "-" ] , digits ;
 bool        = "true" | "false" ;
 string      = "'" , { string_char } , "'"
             | '"' , { string_char } , '"' ;
@@ -780,6 +791,78 @@ print(count, message)
 print(quoted)
 ```
 
+### Float literals
+
+A `Float` is **IEEE 754 binary64**, double precision, and it means
+exactly that on every implementation. Unlike an `Int`, whose width the
+language leaves open past 32 bits, a Float is the same 64 bits
+everywhere, so a Float program means one thing wherever it runs.
+
+A literal is a digit run with a point that has **digits on both sides**,
+an exponent, or both:
+
+```pyking
+half = 0.5
+one = 1.0
+billion = 1e9
+tiny = 1.5e-3
+huge = 2E+10
+```
+
+Neither `1.` nor `.5` is a literal — a point needs a digit after it,
+which is what keeps `1.` and a name written after a value unambiguous.
+Write `1.0` and `0.5`.
+
+There is no bound on the magnitude the way there is on an integer
+literal. A literal past what a double holds is an **infinity**, which is
+IEEE's own answer and the same on every host:
+
+```pyking
+print(1e400)              # inf
+```
+
+**The infinities and NaN are ordinary values.** Division never fails:
+
+```pyking
+zero = 0.0
+print(1.0 / zero)         # inf
+print(-1.0 / zero)        # -inf
+print(zero / zero)        # nan
+```
+
+NaN brings IEEE's one surprise with it, and Pyking does not hide it:
+**a NaN is equal to nothing, itself included**, and every ordering
+against one is false.
+
+```pyking
+nan = 0.0 / 0.0
+print(nan == nan)         # false
+print(nan < 1.0)          # false
+print(nan >= 1.0)         # false
+```
+
+The two zeros are different values that compare equal, and print
+differently:
+
+```pyking
+print(0.0)                # 0.0
+print(-0.0)               # -0.0
+print(0.0 == -0.0)        # true
+```
+
+**How a Float is written** is part of the language, since one program
+prints the same characters wherever it runs: the shortest decimal that
+reads back as the same double, always with a point or an exponent, so a
+Float is always visibly one.
+
+```pyking
+print(1.0)                # 1.0, not 1
+print(0.1)                # 0.1, not the exact binary value
+print(100.0)              # 100.0, not 1e2
+print(1e16)               # 1e16
+print(1.0 / 3.0)          # 0.3333333333333333
+```
+
 ### Boolean literals
 
 `true` and `false` are literals for the two `Bool` values — Pyking
@@ -830,8 +913,13 @@ print(x, y)
 precedence (`*`/`/` bind tighter than `+`/`-`). Parentheses override the
 default precedence.
 
-`/` is **integer division, truncating toward zero**: Pyking has no
-floating-point type, so it answers an `Int` like the other three.
+**All four are overloaded over `Int` and `Float`**: each takes two
+operands of one type and answers that same type. There is no third
+possibility — an `Int` beside a `Float` is refused, not widened, and
+`float(n)` and `int(x)` are what a program writes instead. See "Numbers,
+and what the checker defaults to" under "Type checking".
+
+On two Ints, `/` is **integer division, truncating toward zero**.
 Truncation is toward zero rather than downward, so `-7 / 2` is `-3` and
 not `-4`:
 
@@ -841,8 +929,18 @@ print(7 / (0 - 2))            # -3
 print((0 - 7) / (0 - 2))      # 3
 ```
 
-Dividing by zero is left to whatever the target does with it, and the
-targets differ — see `docs/targets.md`.
+Dividing an Int by zero is left to whatever the target does with it, and
+the targets differ — see `docs/targets.md`.
+
+On two Floats, `/` is **IEEE division**: not truncated, and never a
+failure. Dividing by zero answers an infinity or a NaN, the same way on
+every target (see "Float literals" above).
+
+```pyking
+print(7.0 / 2.0)              # 3.5
+print(-7.0 / 2.0)             # -3.5
+print(1.0 / 0.0)              # inf
+```
 
 ```python
 a = 2 + 3 * 4
@@ -852,9 +950,10 @@ print(a, b, c)
 ```
 
 A `-` written where an expression is expected is instead unary minus,
-which negates what follows it. That covers negative literals (`-5`) and
-negation of anything else — a variable, a call's result, a parenthesized
-expression — and it may be repeated (`- -x`).
+which negates what follows it, an `Int` or a `Float` alike. That covers
+negative literals (`-5`, `-2.5`) and negation of anything else — a
+variable, a call's result, a parenthesized expression — and it may be
+repeated (`- -x`).
 
 ```python
 x = 5
@@ -877,6 +976,12 @@ A `case` pattern may use a negative integer literal too — `case -1:` —
 matching Python. That is a literal only: patterns are matched, not
 evaluated, so `case -x:` is not a negation of anything.
 
+**A Float is not a pattern.** `case 1.5:` is refused, because matching
+on one means comparing a double for equality, and IEEE equality is not
+the relation a reader of a `match` expects — a NaN matches no case, its
+own spelling included. A program that wants that comparison writes `==`
+and says so.
+
 ### Concatenation (`++`) — Pyking extension
 
 `++` joins two strings, or two lists, into one. It is left-associative
@@ -891,7 +996,7 @@ print([1, 2] ++ [3, 4])
 
 Concatenation has an operator of its own because `+` does not do it.
 Where Python writes `+` for both, Pyking keeps them apart: `+` adds two
-`Int`s and nothing else, `++` joins and never adds. Nothing is both, so
+numbers and nothing else, `++` joins and never adds. Nothing is both, so
 the two never meet in one expression, and neither one has to be read as
 the other.
 
@@ -907,6 +1012,15 @@ produce a single comparison expression (comparisons do not chain).
 
 ```python
 print(1 < 2, 2 <= 2, 3 > 4, 3 >= 3, 2 == 2)
+```
+
+All five take two operands of one type, as the arithmetic operators do:
+two `Int`s or two `Float`s, and `==` additionally two `String`s or two
+`Bool`s. On Floats the comparison is IEEE's, which is where NaN's
+behaviour comes from (see "Float literals" above).
+
+```pyking
+print(1.5 < 2.5, 1.5 == 1.5)
 ```
 
 ### Function calls
@@ -1101,12 +1215,12 @@ total := total + 1
 print(total)
 ```
 
-**A mutable variable is `Int` or `Bool`.** Those are the two types
+**A mutable variable is `Int`, `Float` or `Bool`.** Those are the types
 mutation reaches so far; a `var` of any other type is refused:
 
 ```
-'prog.pyk' 3:0-3:22 Type error: a mutable variable must be Int or Bool,
-  but 'greeting' is String
+'prog.pyk' 3:0-3:22 Type error: a mutable variable must be Int, Float or
+  Bool, but 'greeting' is String
 ```
 
 Its type is its initializer's, decided once, and every `:=` must give
@@ -1395,7 +1509,8 @@ print(top(1))
 **Checking.** All of this is checked statically, before any code is
 generated, and reported as a `Name error` against the offending source
 position. A handful of names are predefined and count as bound
-everywhere — `print`, `range`, `str` and `len` — since no Pyking program
+everywhere — `print`, `range`, `str`, `len`, `float` and `int` — since no
+Pyking program
 declares them; every other unbound name is an error. They are host
 *operations*, not values: each may be called, and using one as a value
 (`f = print`) is an error. `range(n)` yields a list of `Int`, which is
@@ -1471,7 +1586,7 @@ total: Int = count + 1
 ```
 
 Parameters and the return value may optionally be annotated with a type:
-`Int`, `String`, `Bool`, a list type `[T]`, a tuple type `(T1, T2, ...)`
+`Int`, `Float`, `String`, `Bool`, a list type `[T]`, a tuple type `(T1, T2, ...)`
 or `(T,)`, or a function type `(T1, T2, ...) -> T` (all nesting freely,
 e.g. `[(Int, Bool)]` or `[(Int) -> Bool]`). `()`, the zero-element tuple
 type, is the Unit type, and `(T)` with no comma is grouping rather than
@@ -2436,7 +2551,8 @@ always be refused.
 ### Types
 
 The checker works in the types "Type annotations" lists, and no others:
-`Int`, `String`, `Bool`, list types `[T]`, tuple types `(T1, T2, ...)`
+`Int`, `Float`, `String`, `Bool`, list types `[T]`, tuple types
+`(T1, T2, ...)`
 — with `(T,)` the one-element one and `()`, the zero-element tuple, the
 unit type — function types `(T1, T2, ...) -> T`, and type *variables*
 (see "Type variables" below).
@@ -2471,6 +2587,68 @@ Two types are the same type when they have the same structure; where
 they were written, and whether one was written at all, does not enter
 into it. So a parameter annotated `(Int) -> Int` accepts any function of
 that shape, and rejects `(Int) -> Bool`.
+
+### Numbers, and what the checker defaults to
+
+`Int` and `Float` are two types and nothing converts between them on its
+own. `+`, `-`, `*`, `/` and the five comparisons each take two operands
+of **one** type, so one of each is refused where it is written:
+
+```pyking
+print(1 + 1.0)
+# Type error: `+` cannot be applied to Int and Float; it accepts
+# Int + Int or Float + Float. Pyking mixes no numbers on its own:
+# `float(n)` makes an Int a Float, and `int(x)` truncates a Float to an
+# Int
+```
+
+Two builtins are what a program writes instead. `float(n)` widens an
+`Int`; `int(x)` truncates a `Float` toward zero, the rounding `/`
+already does on two Ints.
+
+```pyking
+total = 7
+count = 2
+print(total / count)                      # 3
+print(float(total) / float(count))        # 3.5
+```
+
+Implicit widening is deliberately absent. It would mean `1 / 2` changed
+meaning depending on what surrounded it, which is the thing about a
+numeric tower that costs the most and is hardest to see.
+
+**Where nothing has decided, an arithmetic operator means `Int`.** An
+unannotated `def` whose parameters no literal and no call pins down is
+an `Int` function:
+
+```pyking
+def add(a, b):
+    return a + b          # add : (Int, Int) -> Int
+```
+
+That keeps every program written before Float existed compiling and
+meaning what it did. A Float one says so — with an annotation, or with a
+Float reaching the body:
+
+```pyking
+def fadd(a:Float, b:Float) -> Float:
+    return a + b
+
+def twice(x):
+    return x * 2.0        # twice : (Float) -> Float
+```
+
+**The comparisons behave differently, and that is not an oversight.**
+`<` answers `Bool` whichever type it compares, so it has nothing to
+decide and leaves its operands open — exactly as `==` already did:
+
+```pyking
+def taller(a, b):
+    return a > b          # settled by the first call, at either type
+```
+
+A `var` may hold a `Float`, as it may hold an `Int` or a `Bool`, which
+is what a running total needs.
 
 ### What is checked
 
@@ -2700,24 +2878,28 @@ Nothing is taken on faith: the declared type is what the body is checked
 *against*, and a body that does not honour it is refused. The same
 applies to nested functions, per block.
 
-**Builtins.** `print`, `range`, `str` and `len` are checked at the call,
-each by its own rule, because none of them is a function *value*: a
-builtin is a host operation (see "Names and scoping"), it has no type
-that can be written down, and it may be called and nothing else.
+**Builtins.** `print`, `range`, `str`, `len`, `float` and `int` are
+checked at the call, each by its own rule, because none of them is a
+function *value*: a builtin is a host operation (see "Names and
+scoping"), it has no type that can be written down, and it may be called
+and nothing else.
 
 | call | accepts | gives |
 |---|---|---|
 | `print(…)` | any number of arguments, of any type | `()` |
-| `str(x)` | one `Int`, `String`, `Bool`, list or tuple | `String` |
+| `str(x)` | one `Int`, `Float`, `String`, `Bool`, list or tuple | `String` |
 | `len(x)` | one list or `String` | `Int` |
 | `range(n)` | one to three `Int`s | `[Int]` |
+| `float(n)` | one `Int` | `Float` |
+| `int(x)` | one `Float` | `Int` |
 
 ```pyking
 count = len("hello")          # Int
 label = "n = " ++ str(count)   # String
 numbers = range(4)            # [Int]
+ratio = float(count) / 2.0    # Float
 
-print(label, numbers, count)  # anything, any number of them
+print(label, numbers, count, ratio)  # anything, any number of them
 ```
 
 Using one as a value rather than calling it is an error — `shout = print`
@@ -3118,7 +3300,7 @@ is:
 'prog.pyk' 14:16-14:23 Name error: unbound name 'missing'
 ```
 
-**Mutability is not a type.** A `var` is Int or Bool, which the checker
+**Mutability is not a type.** A `var` is Int, Float or Bool, which the checker
 does say; *which* names may be written to is a separate question, and
 one a type cannot answer — the same `Int` is a `var` in one scope and an
 `=` binding in another. So a pass of its own applies the two rules under

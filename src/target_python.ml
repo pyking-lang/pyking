@@ -38,6 +38,7 @@ open Syntax
 
 type pyexpr =
   | PyInt of info * int
+  | PyFloat of info * float
   | PyString of info * string
   | PyBool of info * bool (* True / False *)
   | PyVar of info * string
@@ -121,6 +122,8 @@ and pystmt =
 type pyprogram = {
   prelude : pystmt list;
   formats : bool;  (* whether the prelude holds the Bool walker *)
+  floats : bool;  (* whether the prelude holds the Float formatter *)
+  float_helper : string;  (* what that formatter is called *)
   stmts : pystmt list;
 }
 
@@ -167,6 +170,13 @@ let rec pprint_py_expr ?(min_prec = 0) e =
   in
   match e with
   | PyInt (_, v) -> string_of_int v
+  (* Python reads back every text Builtin.float_text writes but three:
+     it spells the two infinities and a NaN as calls. *)
+  | PyFloat (_, v) ->
+      if v <> v then "float('nan')"
+      else if v = infinity then "float('inf')"
+      else if v = neg_infinity then "float('-inf')"
+      else Builtin.float_text v
   | PyString (_, s) -> quote_string s
   | PyBool (_, v) -> if v then "True" else "False"
   | PyVar (_, name) -> name
@@ -397,12 +407,80 @@ let prelude_format_note =
 
 let prelude_end = "# --- prelude ends; the compiled program follows ---"
 
+(** The name of the Float division helper that goes with a Float
+    formatter called `name`. string -> string *)
+let float_divide_helper name =
+  "__pyk_fdiv" ^ String.sub name (String.length "__pyk_float")
+                   (String.length name - String.length "__pyk_float")
+
+(** builtin.ml's rule, in Python, and the division that goes with it.
+    Python's own `repr` follows the same thresholds but writes the
+    exponent with a sign and a leading zero, so the digits are found
+    here rather than read off it; and Python raises where IEEE answers,
+    so dividing by zero is spelled out. string -> string *)
+let float_helper_def name =
+  String.concat "\n"
+    [
+      Printf.sprintf "def %s(a, b):" (float_divide_helper name);
+      "    if b == 0.0:";
+      "        # Python raises where IEEE answers. Pyking follows IEEE.";
+      "        if a != a or a == 0.0:";
+      "            return float('nan')";
+      "        below = (a < 0.0) != (repr(b)[0] == '-')";
+      "        return float('-inf') if below else float('inf')";
+      "    return a / b";
+      "";
+      "";
+      Printf.sprintf "def %s(x):" name;
+      "    if x != x:";
+      "        return 'nan'";
+      "    if x == float('inf'):";
+      "        return 'inf'";
+      "    if x == float('-inf'):";
+      "        return '-inf'";
+      "    if x == 0.0:";
+      "        # The two zeros compare equal; repr tells them apart.";
+      "        return '-0.0' if repr(x)[0] == '-' else '0.0'";
+      "    sign = '-' if x < 0.0 else ''";
+      "    a = abs(x)";
+      "    p = 0";
+      "    while p < 16:";
+      "        s = '%.*e' % (p, a)";
+      "        if float(s) == a:";
+      "            break";
+      "        p = p + 1";
+      "    else:";
+      "        s = '%.*e' % (16, a)";
+      "    at = s.index('e')";
+      "    digits = s[:at].replace('.', '')";
+      "    decpt = int(s[at + 1:]) + 1";
+      "    digits = digits.rstrip('0') or '0'";
+      "    n = len(digits)";
+      "    if decpt <= -4 or decpt > 16:";
+      "        mantissa = digits if n == 1 else digits[0] + '.' + digits[1:]";
+      "        return sign + mantissa + 'e' + str(decpt - 1)";
+      "    if decpt <= 0:";
+      "        return sign + '0.' + '0' * (-decpt) + digits";
+      "    if decpt >= n:";
+      "        return sign + digits + '0' * (decpt - n) + '.0'";
+      "    return sign + digits[:decpt] + '.' + digits[decpt:]";
+    ]
+
 (** program as Python source text. pyprogram -> string *)
 let pprint_py_program program =
   let body = String.concat "\n" (render_block program.stmts 0) in
-  if program.prelude = [] then body
+  if program.prelude = [] && not program.floats then body
   else
-    let prelude_body = String.concat "\n" (render_block program.prelude 0) in
+    let rendered = render_block program.prelude 0 in
+    (* The Float formatter is a fixed block of host text, like every
+       other backend's, rather than a tree built out of Py* nodes. *)
+    let rendered =
+      if program.floats then
+        rendered @ (if rendered = [] then [] else [ "" ])
+        @ [ float_helper_def program.float_helper ]
+      else rendered
+    in
+    let prelude_body = String.concat "\n" rendered in
     let opening =
       if program.formats then [ prelude_begin; prelude_format_note ]
       else [ prelude_begin ]
@@ -433,6 +511,8 @@ type gen = {
   pending : pystmt list;
   format_helper : string option;
   format_def : pystmt option;
+  floats : bool;  (* whether any type in this module holds a Float *)
+  float_name : string;  (* what the Float formatter is called *)
   divide_def : pystmt option;
   import_def : pystmt option;
   (* Which of each module's names the target's own source provides, and
@@ -1152,8 +1232,8 @@ let build_divide_helper info =
     spelled `true`/`false` wherever it sits, including inside a list or
     a tuple, which is why this walks a value instead of merely testing
     it. Everything else is left to Python's own spelling, which already
-    agrees (builtin.ml's rules). info -> string -> pystmt *)
-let build_format_helper info name =
+    agrees (builtin.ml's rules). info -> string -> string? -> pystmt *)
+let build_format_helper info name floats =
   let var n = PyVar (info, n) in
   let text s = PyString (info, s) in
   let call fn args = PyCall (info, var fn, args) in
@@ -1186,6 +1266,21 @@ let build_format_helper info name =
           isa v "bool",
           [ PyReturn (info, PyIfExp (info, v, text "true", text "false")) ],
           None );
+    ]
+    (* A Float, where a module has one at all: Python's own spelling of
+       a double is not Pyking's. The arm is left out otherwise, so a
+       program with no Float carries no Float formatter. *)
+    @ (match floats with
+      | None -> []
+      | Some float_name ->
+          [
+            PyIf
+              ( info,
+                isa v "float",
+                [ PyReturn (info, call float_name [ v ]) ],
+                None );
+          ])
+    @ [
       (* A string prints bare on its own and quoted inside something --
          quoted the way Pyking quotes, which is not always the way
          Python's own repr does. *)
@@ -1259,7 +1354,10 @@ let format_helper_name info gen =
         {
           gen with
           format_helper = Some name;
-          format_def = Some (build_format_helper info name);
+          format_def =
+            Some
+              (build_format_helper info name
+                 (if gen.floats then Some gen.float_name else None));
         } )
 
 (* Pyking's checker gives every expression a type, so whether a given
@@ -1270,6 +1368,31 @@ let format_helper_name info gen =
    (a `[Bool]`, a `(Int, Bool)`, a type nothing has pinned down) needs
    the runtime walk. That is what keeps an ordinary program's output
    free of a prelude it has no use for. *)
+
+(** Whether the checker settled this expression's type as Float, which
+    is what picks Python's `/` over the truncating helper.
+    expr -> gen -> bool *)
+let is_float_expr e gen =
+  match IntMap.find_opt (expr_sym e) gen.types with
+  | Some (TFloat _) -> true
+  | _ -> false
+
+(** Whether a type is exactly Float, which is the one case a bare
+    Python `str` gets wrong. typ option -> bool *)
+let is_float_type type_ =
+  match type_ with Some (TFloat _) -> true | _ -> false
+
+(** Whether a Float sits anywhere inside a type -- what decides whether
+    the runtime walker needs its Float arm at all. typ -> bool *)
+let rec holds_float type_ =
+  match type_ with
+  | TFloat _ -> true
+  | TList (_, element, _) -> holds_float element
+  | TTuple (_, elements, _) -> List.exists holds_float elements
+  | TFunction (_, params, result, _, _, _) ->
+      List.exists holds_float params || holds_float result
+  | TForall (_, _, body, _) -> holds_float body
+  | _ -> false
 
 (** "bool" for a Bool, "not-bool" for a type with no Bool anywhere
     inside it, "unknown" otherwise. typ option -> string *)
@@ -1756,6 +1879,7 @@ let rec translate_expr e scope gen =
   in
   match e with
   | EInt (info, v, _) -> (PyInt (info, v), gen)
+  | EFloat (info, v, _) -> (PyFloat (info, v), gen)
   | EString (info, s, _) -> (PyString (info, s), gen)
   | EBool (info, v, _) -> (PyBool (info, v), gen)
   | EVar (info, name, _) ->
@@ -1789,6 +1913,17 @@ let rec translate_expr e scope gen =
   | EConcat (info, l, r, _) -> binary (fun i a b -> PyAdd (i, a, b)) info l r
   | ESub (info, l, r, _) -> binary (fun i a b -> PySub (i, a, b)) info l r
   | EMul (info, l, r, _) -> binary (fun i a b -> PyMul (i, a, b)) info l r
+  | EDiv (info, l, r, _) when is_float_expr l gen ->
+      (* Python is the one host that raises on a zero divisor rather
+         than answering with an infinity or a NaN, so a Float division
+         goes through a helper as an Int one does. *)
+      let py_l, gen = translate_expr l scope gen in
+      let py_r, gen = translate_expr r scope gen in
+      ( PyCall
+          ( info,
+            PyVar (info, float_divide_helper gen.float_name),
+            [ py_l; py_r ] ),
+        gen )
   | EDiv (info, l, r, _) ->
       (* Pyking's `/` truncates toward zero; Python's `//` rounds down,
          so they part company on a negative operand. A helper in the
@@ -1905,6 +2040,10 @@ and wrap_print_argument pyking_expr translated info gen =
   let kind = bool_kind type_ in
   if kind = "bool" then
     (PyIfExp (info, translated, PyString (info, "true"), PyString (info, "false")), gen)
+  else if is_float_type type_ then
+    (* Python spells a float its own way -- `1e+300` where Pyking writes
+       `1e300` -- so even a bare one goes through the formatter. *)
+    (PyCall (info, PyVar (info, gen.float_name), [ translated ]), gen)
   else if kind = "not-bool" && not (nests_a_string type_ false) then
     (translated, gen)
   else
@@ -2572,15 +2711,39 @@ and translate_loop_case (MatchCase (info, pattern, body, _)) py_target scope gen
     [stmt] -> typ IntMap.t -> pyprogram *)
 let translate_program ?(external_fields = []) ?(externals = []) ?(own = "")
     stmts tmap =
+  let used =
+    StringSet.union (collect_identifiers stmts) (import_identifiers stmts)
+  in
+  (* Whether this module has a Float at all decides whether any of the
+     Float formatting is emitted, so a program without one is compiled
+     to exactly what it was compiled to before. *)
+  let module_floats =
+    IntMap.exists (fun _ type_ -> holds_float type_) tmap
+  in
+  (* Both halves are found together, so the two names always agree about
+     which suffix they took. *)
+  let float_name =
+    let rec go n =
+      let suffix = if n = 0 then "" else string_of_int n in
+      if
+        StringSet.mem ("__pyk_float" ^ suffix) used
+        || StringSet.mem ("__pyk_fdiv" ^ suffix) used
+      then go (n + 1)
+      else "__pyk_float" ^ suffix
+    in
+    go 0
+  in
   let gen =
     {
-      used = StringSet.union (collect_identifiers stmts) (import_identifiers stmts);
+      used;
       types = tmap;
       comp_counter = 0;
       turn_counter = 0;
       pending = [];
       format_helper = None;
       format_def = None;
+      floats = module_floats;
+      float_name = float_name;
       divide_def = None;
       import_def = None;
       external_fields;
@@ -2618,5 +2781,7 @@ let translate_program ?(external_fields = []) ?(externals = []) ?(own = "")
   {
     prelude;
     formats = gen.format_def <> None;
+    floats = gen.floats;
+    float_helper = gen.float_name;
     stmts = own_import @ gen.pending @ translated;
   }

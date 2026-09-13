@@ -36,6 +36,7 @@ exception Lex_error of info * string
 (* One constructor per token kind, each carrying its source info. *)
 type token =
   | TokInt of info * int
+  | TokFloat of info * float
   | TokString of info * string
   | TokAdd of info (* '+' user defined *)
   | TokConcat of info (* '++' (string and list concatenation) *)
@@ -79,6 +80,7 @@ type token =
   | TokCase of info (* 'case' *)
   | TokAssign of info (* ':=' (mutation of a `var`) *)
   | TokTypeInt of info (* 'Int' (type annotation) *)
+  | TokTypeFloat of info (* 'Float' (type annotation) *)
   | TokTypeString of info (* 'String' (type annotation) *)
   | TokTypeBool of info (* 'Bool' (type annotation) *)
   | TokTrue of info (* 'true' (boolean literal) *)

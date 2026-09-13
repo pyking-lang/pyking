@@ -351,6 +351,49 @@ classes or implicit arguments; `tests/fail_typecheck_infer_pinned.pyk`
 pins the current refusal so whatever fills the gap has something to
 change.
 
+## 9a. Two numeric types, no type classes
+
+`Int` and `Float` make `+ - * /` overloaded as well, and they are the
+case §9's mechanism does *not* cover. The difference is what the
+operator answers: `str` and `==` give one type whichever argument they
+take, so the answer can be reported while the argument stays open. `+`
+gives back what it was given, so it cannot.
+
+`operator_result` is where that shows, and it has three cases:
+
+1. the operand type is settled — find its row in the table, or refuse;
+2. still open, and every row agrees on the result — answer that result
+   and leave the operand open. This is `==`, `<`, `<=`, `>` and `>=`,
+   all of which answer `Bool`;
+3. still open, and the rows disagree — **unify the operand with the
+   first row's type**. `+ - * /` list `Int` first, so an undecided one
+   is Int arithmetic.
+
+Case 3 is a default, and defaults are what this inference otherwise
+avoids: the type it reports is no longer the *principal* one, because
+`def add(a, b): a + b` could as well have been `(Float, Float) ->
+Float`. That is the price, and three alternatives were weighed against
+it:
+
+- **Refuse as ambiguous, requiring an annotation.** Principal, and it
+  breaks every unannotated arithmetic program — the whole
+  `typecheck_noann_*` family included. A type system that takes working
+  programs away to gain a property nobody asked for is the wrong trade.
+- **A numeric type variable, resolved later.** Type classes without the
+  name: it needs a constraint store, a solver pass and a defaulting rule
+  of its own, and §12's "unify is eager and local, there is no
+  constraint store" stops being true. Every error message gets worse.
+- **Widen an Int to a Float implicitly.** Then `check_binary` no longer
+  unifies its operands before consulting the table, which is the
+  assumption the table rests on — and `1 / 2` changes meaning with
+  context.
+
+Case 3 costs one line of principality in a corner, and takes nothing
+away. The asymmetry it leaves is real and worth stating plainly: an
+unannotated `a + b` is Int, and an unannotated `a > b` is open. Both are
+consequences of the same three cases, and `tests/typecheck_float_default.pyk`
+pins them.
+
 ## 10. What the design gives up
 
 - **Rank-2 types are written, not inferred** (§5).

@@ -43,6 +43,7 @@ let pprint_info i =
 (* One constructor per token kind, each carrying its source info. *)
 type token =
   | TokInt of info * int
+  | TokFloat of info * float
   | TokString of info * string
   | TokAdd of info (* '+' user defined *)
   | TokConcat of info (* '++' (string and list concatenation) *)
@@ -86,6 +87,7 @@ type token =
   | TokCase of info (* 'case' *)
   | TokAssign of info (* ':=' (mutation of a `var`) *)
   | TokTypeInt of info (* 'Int' (type annotation) *)
+  | TokTypeFloat of info (* 'Float' (type annotation) *)
   | TokTypeString of info (* 'String' (type annotation) *)
   | TokTypeBool of info (* 'Bool' (type annotation) *)
   | TokTrue of info (* 'true' (boolean literal) *)
@@ -96,6 +98,7 @@ type token =
 let token_info tok =
   match tok with
   | TokInt (i, _) -> i
+  | TokFloat (i, _) -> i
   | TokString (i, _) -> i
   | TokAdd i -> i
   | TokConcat i -> i
@@ -139,6 +142,7 @@ let token_info tok =
   | TokCase i -> i
   | TokAssign i -> i
   | TokTypeInt i -> i
+  | TokTypeFloat i -> i
   | TokTypeString i -> i
   | TokTypeBool i -> i
   | TokTrue i -> i
@@ -149,6 +153,7 @@ let token_info tok =
 let pprint_token tok =
   match tok with
   | TokInt (_, x) -> Printf.sprintf "TokInt(%d)" x
+  | TokFloat (_, x) -> Printf.sprintf "TokFloat(%s)" (Builtin.float_text x)
   | TokString (_, s) -> Printf.sprintf "TokString('%s')" s
   | TokAdd _ -> "TokAdd"
   | TokConcat _ -> "TokConcat"
@@ -192,6 +197,7 @@ let pprint_token tok =
   | TokCase _ -> "TokCase"
   | TokAssign _ -> "TokAssign"
   | TokTypeInt _ -> "TokTypeInt"
+  | TokTypeFloat _ -> "TokTypeFloat"
   | TokTypeString _ -> "TokTypeString"
   | TokTypeBool _ -> "TokTypeBool"
   | TokTrue _ -> "TokTrue"
@@ -220,7 +226,7 @@ let keywords =
   [
     "for"; "in"; "if"; "while"; "loop"; "break"; "continue"; "then";
     "else"; "var"; "def"; "return"; "match"; "case"; "public"; "import";
-    "from"; "as"; "Int"; "String"; "Bool"; "true"; "false";
+    "from"; "as"; "Int"; "Float"; "String"; "Bool"; "true"; "false";
   ]
 
 (** The keyword token `name` denotes, or None where it names no keyword.
@@ -246,6 +252,7 @@ let keyword_token name i =
   | "from" -> Some (TokFrom i)
   | "as" -> Some (TokAs i)
   | "Int" -> Some (TokTypeInt i)
+  | "Float" -> Some (TokTypeFloat i)
   | "String" -> Some (TokTypeString i)
   | "Bool" -> Some (TokTypeBool i)
   | "true" -> Some (TokTrue i)
@@ -267,6 +274,33 @@ let string_until pred chars =
     | _ -> (string_of_chars (List.rev taken), rest)
   in
   take [] chars
+
+(** The fractional part of a float literal, or "" where there is none.
+    A point needs a digit on each side, so `1.` is an Int followed by a
+    point and `x.field` is never read as a number.
+    [char] -> (string, [char]) *)
+let scan_fraction chars =
+  match chars with
+  | '.' :: y :: _ when is_digit y ->
+      let digits, rest = string_until is_digit (List.tl chars) in
+      ("." ^ digits, rest)
+  | _ -> ("", chars)
+
+(** The exponent of a float literal, or "" where there is none. An `e`
+    with no digits after it is not one, so `1e` is an Int followed by a
+    name. [char] -> (string, [char]) *)
+let scan_exponent chars =
+  match chars with
+  | (('e' | 'E') as marker) :: after -> (
+      match after with
+      | (('+' | '-') as sign) :: y :: _ when is_digit y ->
+          let digits, rest = string_until is_digit (List.tl after) in
+          (Printf.sprintf "%c%c%s" marker sign digits, rest)
+      | y :: _ when is_digit y ->
+          let digits, rest = string_until is_digit after in
+          (Printf.sprintf "%c%s" marker digits, rest)
+      | _ -> ("", chars))
+  | _ -> ("", chars)
 
 (** The character a backslash escape denotes, or None where it denotes
     none. char -> char option *)
@@ -351,26 +385,37 @@ let lexing file chars =
                        "unindent does not match any outer indentation level" ));
               lex ys r (c + width) stack false tokens
         | _ -> lex ys r (c + width) stack line_start tokens)
-    (* Integer *)
+    (* Integer, or float *)
     | x :: _ when is_digit x ->
         let y, ys = string_until is_digit rest in
-        let width = String.length y in
-        (* What a program may write down is fixed at the signed 32-bit
-           range, whatever the host's own int is, so the front end
-           refuses the same literals wherever it runs. What arithmetic
-           may *produce* is a separate question the language leaves
-           undefined (see PYKING.md, "Integers"). *)
-        let value =
-          match int_of_string_opt y with
-          | Some value when value <= max_int_literal -> value
-          | _ ->
-              raise
-                (Lex_error
-                   ( fi r c width,
-                     Printf.sprintf "integer literal '%s' is too large" y ))
-        in
-        lex ys r (c + width) stack line_start
-          (TokInt (fi r c width, value) :: tokens)
+        let fraction, after_fraction = scan_fraction ys in
+        let exponent, after_exponent = scan_exponent after_fraction in
+        if fraction = "" && exponent = "" then
+          let width = String.length y in
+          (* What a program may write down is fixed at the signed 32-bit
+             range, whatever the host's own int is, so the front end
+             refuses the same literals wherever it runs. What arithmetic
+             may *produce* is a separate question the language leaves
+             undefined (see PYKING.md, "Integers"). *)
+          let value =
+            match int_of_string_opt y with
+            | Some value when value <= max_int_literal -> value
+            | _ ->
+                raise
+                  (Lex_error
+                     ( fi r c width,
+                       Printf.sprintf "integer literal '%s' is too large" y ))
+          in
+          lex ys r (c + width) stack line_start
+            (TokInt (fi r c width, value) :: tokens)
+        else
+          let text = y ^ fraction ^ exponent in
+          let width = String.length text in
+          (* No bound the way an integer literal has one: a literal past
+             binary64's range is an infinity, which is IEEE's own answer
+             and the same on every host and in both builds. *)
+          lex after_exponent r (c + width) stack line_start
+            (TokFloat (fi r c width, float_of_string text) :: tokens)
     (* Line comment *)
     | '#' :: xs ->
         let text, ys = string_until (fun ch -> ch <> '\n') xs in

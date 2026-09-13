@@ -1,0 +1,38 @@
+# The four arithmetic operators on Float, which is IEEE 754 binary64.
+#
+# `+`, `-`, `*` and `/` are overloaded: each takes two Ints or two
+# Floats, and never one of each (PYKING.md, "Numbers"). Division is the
+# one that differs most from the Int case -- it is not truncated, and
+# dividing by zero answers rather than failing.
+
+a: Float = 7.5
+b: Float = 2.0
+
+print(a + b)
+print(a - b)
+print(a * b)
+print(a / b)
+
+# Precedence is the same as it is for Ints.
+print(a + b * b)
+print((a + b) * b)
+print(-a + b)
+print(-(a + b))
+
+# A negative operand, and a result that is not exact in binary.
+c: Float = -0.3
+print(a * c)
+print(c - a)
+
+# IEEE says what a zero divisor gives, and Pyking says the same on every
+# target: an infinity from a non-zero numerator, a NaN from zero.
+zero: Float = 0.0
+one: Float = 1.0
+print(one / zero)
+print(-one / zero)
+print(zero / zero)
+
+# Overflow is an infinity rather than an error, which is IEEE's answer
+# too.
+big: Float = 1e308
+print(big * 10.0)

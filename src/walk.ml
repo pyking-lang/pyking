@@ -50,7 +50,7 @@ let children n =
   match n with
   | NExpr e -> (
       match e with
-      | EInt _ | EString _ | EBool _ | EVar _ | EQualified _ -> []
+      | EInt _ | EFloat _ | EString _ | EBool _ | EVar _ | EQualified _ -> []
       | EAdd (_, l, r, _)
       | ESub (_, l, r, _)
       | EMul (_, l, r, _)
@@ -71,7 +71,9 @@ let children n =
           NExpr element :: List.map (fun c -> NCompClause c) clauses)
   | NType t -> (
       match t with
-      | TInt _ | TString _ | TBool _ | TUnknown _ | TBuiltin _ | TVar _ -> []
+      | TInt _ | TFloat _ | TString _ | TBool _ | TUnknown _ | TBuiltin _
+      | TVar _ ->
+          []
       | TList (_, element, _) -> [ NType element ]
       | TTuple (_, elements, _) -> List.map (fun t -> NType t) elements
       | TFunction (_, params, result, _, _, definition) ->

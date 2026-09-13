@@ -87,6 +87,12 @@ let json_bool b = if b then "true" else "false"
 let rec json_of_value value =
   match value with
   | Interpreter.VInt n -> string_of_int n
+  (* A JavaScript number cannot say whether Pyking called it an Int or a
+     Float, and JSON has no NaN and no infinity, so a Float crosses as
+     its own text under a marker -- the arrangement a tuple already
+     uses. The text reads back as the same double by construction. *)
+  | Interpreter.VFloat x ->
+      Printf.sprintf "{\"pyk_float\":%s}" (json_string (Builtin.float_text x))
   | Interpreter.VString text -> json_string text
   | Interpreter.VBool b -> json_bool b
   | Interpreter.VUnit -> "null"
@@ -132,8 +138,9 @@ let value_of_json text =
       | '[' -> array_at (skip (i + 1)) []
       (* A tuple, which an array cannot say it is: stub.js writes one as
          {"pyk_tuple":[...]} so that the marker a list carries in
-         JavaScript is not lost to JSON. *)
-      | '{' -> tuple_at (i + 1)
+         JavaScript is not lost to JSON. A Float arrives the same way,
+         for the reason json_of_value gives. *)
+      | '{' -> marked_at (i + 1)
       | c when c = '-' || (c >= '0' && c <= '9') -> number_at i
       | _ -> fail ()
   and number_at i =
@@ -170,6 +177,25 @@ let value_of_json text =
       | c ->
           Buffer.add_char out c;
           string_at (i + 1) out
+  and marked_at i =
+    let i = skip i in
+    if literal i "\"pyk_float\":" then float_at (skip (i + 12))
+    else tuple_at i
+  and float_at i =
+    match value i with
+    | Interpreter.VString text, j -> (
+        let j = skip j in
+        if j >= length || text.[j] <> '}' then fail ()
+        else
+          match text with
+          | "nan" -> (Interpreter.VFloat Stdlib.nan, j + 1)
+          | "inf" -> (Interpreter.VFloat Stdlib.infinity, j + 1)
+          | "-inf" -> (Interpreter.VFloat Stdlib.neg_infinity, j + 1)
+          | _ -> (
+              match float_of_string_opt text with
+              | Some x -> (Interpreter.VFloat x, j + 1)
+              | None -> fail ()))
+    | _ -> fail ()
   and tuple_at i =
     let marker = "\"pyk_tuple\":" in
     let i = skip i in
@@ -453,7 +479,7 @@ let compile_source source target name =
             let js, renames =
               Target_js_core.translate_program
                 ~external_fields:(lone_context ()).external_fields
-                ~externals:(lone_context ()).externals program
+                ~externals:(lone_context ()).externals program tmap
             in
             let out = stem ^ Targets.extension target in
             let unit =

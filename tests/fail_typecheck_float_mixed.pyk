@@ -1,0 +1,10 @@
+# Pyking mixes no numbers on its own.
+#
+# `+ - * /` and the comparisons each take two operands of one type, so
+# an Int beside a Float is refused rather than widened. Implicit
+# widening would mean the operands were no longer unified before the
+# operator table was asked, which is the assumption the whole table
+# rests on -- and it would make `1 / 2` change meaning with context.
+# The refusal names the way out.
+
+print(1 + 1.0)

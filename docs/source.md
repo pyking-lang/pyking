@@ -96,7 +96,8 @@ imported by every other one.
   `pprint_info` renders it as `'file' row:col-row:col`, the form every
   error message in the compiler begins with.
 - **`token`** — one variant type, one constructor per kind:
-  `TokInt of info * int`, `TokString of info * string`,
+  `TokInt of info * int`, `TokFloat of info * float`,
+  `TokString of info * string`,
   `TokIdent of info * string`, the operators (`TokAdd`, `TokConcat`,
   `TokSub`, `TokMul`, `TokDiv`, `TokEqEq`, `TokLessThan`, …), the punctuation (`TokColon`,
   `TokComma`, `TokLParen`, `TokArrow`, `TokDotDot`, …), the keywords
@@ -104,7 +105,7 @@ imported by every other one.
   and the two that carry the block structure, **`TokIndent`** and
   **`TokDedent`**.
 - **`keywords`** — the reserved words, as one list: control flow and
-  declarations, the type names `Int`/`String`/`Bool`, and the literals
+  declarations, the type names `Int`/`Float`/`String`/`Bool`, and the literals
   `true`/`false`. `tools/emacs/pyking-mode.el` mirrors this list split
   three ways, and must be kept in step with it.
 - **`Lex_error (info, message)`** — raised for a lexical error.
@@ -757,6 +758,12 @@ from the interpreter.
 - **`crosses_host(name)`** — whether the call leaves the program. Every
   backend has one arm gated on this; `interpreter.ml` performs the
   operation through its host there instead.
+- **`float_text(x)`** — a Float as `print` and `str` write it: the
+  shortest decimal that reads back as the same double, always with a
+  point or an exponent. It is here rather than in a backend because
+  every backend has to agree about it, and each emits the same algorithm
+  in its own host language — no two hosts spell a double alike. See
+  [builtin.md](builtin.md), "How a Float is written".
 
 The formatting rules pinned here: arguments formatted individually and
 joined with single spaces, then a newline; a string bare on its own and
@@ -810,7 +817,7 @@ three are design rather than accident:
 
 ### Data structures
 
-- **`Value`** — `VInt`, `VString`, `VBool`, `VUnit`, `VList`, `VTuple`,
+- **`Value`** — `VInt`, `VFloat`, `VString`, `VBool`, `VUnit`, `VList`, `VTuple`,
   `VClosure(name, params, body, env)`, `VBuiltin(name)`, and
   `VUndefined(name)` (a hoisted `def` whose definition has not run yet).
   No host objects and no host dictionaries inside a value: the
@@ -1155,8 +1162,13 @@ all three JS targets).
 - **`Scope`** — like the Python backend's, but far less busy:
   JavaScript's `const`/`let` are Pyking's `=`/`var` and `{ }` blocks are
   scopes, so it renames only where JavaScript forces it (`const`
-  redeclaration, and the temporal dead zone), not on every shadow.
-- **`translate_program(stmts, taken=())` / `translate_stmts` /
+  redeclaration, and the temporal dead zone), not on every shadow. It
+  also carries the checker's **`tmap`**, which is what a `Float` needs:
+  a JavaScript number cannot say whether Pyking called it an Int or a
+  Float, so the type decides at the print site
+  (`printed_argument`, `float_shape`; see
+  [target_js.md](target_js.md), "Floats").
+- **`translate_program(stmts, tmap, taken=())` / `translate_stmts` /
   `translate_stmt` /
   `translate_expr`**, plus `translate_tail_stmts` for tail position,
   `translate_loop` and friends for a `loop` (a `while (true)` over a
@@ -1195,7 +1207,9 @@ instead.
   ES module: its body, `print` imported where it prints, its imports,
   and an `export` clause unless it is the program's own.
 - **`shared_runtime ()`** — `pyk-runtime.js`: `print` and the value
-  formatting every module of the program imports rather than repeating.
+  formatting every module of the program imports rather than repeating,
+  including `pykFloatStr` and `pykShaped`, which are how a Float is
+  written where the value itself cannot say it is one.
 - **`web_page module source`** — a `web` program's HTML: a loader and
   nothing else, since the program prints to the console.
 - **`interpreted_page main sources externals`** — an `iweb` program's

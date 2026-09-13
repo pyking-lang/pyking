@@ -1,0 +1,2 @@
+'tests/fail_typecheck_float_literal.pyk' 8:5-8:6 Parsing error:
+  unexpected token in expression

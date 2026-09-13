@@ -63,6 +63,7 @@ let join_error =
 let rec parse_atom eof tokens =
   match tokens with
   | TokInt (i, v) :: rest -> parse_call_tail eof (EInt (i, v, 0)) rest
+  | TokFloat (i, v) :: rest -> parse_call_tail eof (EFloat (i, v, 0)) rest
   | TokString (i, s) :: rest -> parse_call_tail eof (EString (i, s, 0)) rest
   | TokTrue i :: rest -> parse_call_tail eof (EBool (i, true, 0)) rest
   | TokFalse i :: rest -> parse_call_tail eof (EBool (i, false, 0)) rest
@@ -393,6 +394,7 @@ and parse_type eof tokens =
 and parse_type_atom eof tokens =
   match tokens with
   | TokTypeInt i :: rest -> (TInt (i, 0), rest)
+  | TokTypeFloat i :: rest -> (TFloat (i, 0), rest)
   | TokTypeString i :: rest -> (TString (i, 0), rest)
   | TokTypeBool i :: rest -> (TBool (i, 0), rest)
   | TokIdent (i, "all") :: rest ->

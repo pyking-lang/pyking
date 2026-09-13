@@ -541,14 +541,22 @@ The bootstrap is split into one module per compiler stage:
    depend on which pass ran. **The value type is `Type`, with no option
    and no second inhabitant**: a name is in the map with a type, or it is
    not in scope, and there is no third state to ask about. A builtin is
-   in it like anything else, at a type of its own: `env` maps
-   `print`/`range`/`str`/`len` to a `TBuiltin`, checked at the call by
+   in it like anything else, at a type of its own: `env` maps every
+   builtin to a `TBuiltin`, checked at the call by
    `check_builtin_call` and refused as a value, because none of them
    fits a `TFunction` (a variadic `print` is not a `(T) -> ()`) and
    `builtin.ml` records them as builtins rather than functions. A
    new builtin needs a case in `check_builtin_call` as well as an entry
-   in `builtin.ml`'s table. **`var` and `:=` are checked here**, and only
-   for *types*: a `var` is `Int` or `Bool` (`check_mutable`), and a `:=`
+   in `builtin.ml`'s table. **The operator table** (`operator_of`) is
+   the other thing to know here: each operator is a list of
+   `(operand kind, result kind)` rows, and `operator_result` decides
+   between them in three cases -- a settled operand, several rows
+   agreeing on the result (`==` and the orderings, which leave the
+   operand open), and several rows disagreeing, where the **first row
+   wins** and an undecided `+ - * /` is therefore Int arithmetic. See
+   `docs/type_inference.md`, "Two numeric types, no type classes".
+   **`var` and `:=` are checked here**, and only
+   for *types*: a `var` is `Int`, `Float` or `Bool` (`check_mutable`), and a `:=`
    must give the type the declaration fixed. Which names may be written
    to is not a type question — the same `Int` is a `var` in one scope and
    an `=` binding in another — so `analyses.analyze_mutability` answers
@@ -736,7 +744,8 @@ The bootstrap is split into one module per compiler stage:
    further down.
 
 8. **`src/builtin.ml`** — the builtins: the names a Pyking program may
-   call without binding them (`print`, `range`, `str`, `len`), and what
+   call without binding them (`print`, `range`, `str`, `len`, `float`,
+   `int`), and what
    every stage has to agree about each one — its arity, whether calling
    it can be observed outside the program (`crosses_host`), and what it
    does. One table, read by the checker, the interpreter and every
@@ -753,7 +762,12 @@ The bootstrap is split into one module per compiler stage:
    a `Js*` AST, translation from `syntax.ml`, and a printer. Knows nothing
    about packaging. Calls that cross the host boundary become
    `JsRuntimeCall`, whose spelling is supplied by the packager, so the
-   same core output serves all three JS targets. JavaScript fits Pyking
+   same core output serves all three JS targets. It takes the checker's
+   `tmap` for one reason: a JavaScript number is one type, so nothing at
+   run time separates an `Int` from a `Float`, and only the type can say
+   how a printed value is written (`printed_argument`; see
+   `docs/target_js.md`, "Floats"). Nothing else in the translation reads
+   it, and a program with no Float compiles to what it did before. JavaScript fits Pyking
    better than Python does — `const`/`let` are Pyking's `=`/`var`, and
    `{ }` blocks are scopes — so it renames only where JavaScript forces
    it (`const` redeclaration, and the temporal dead zone), not on every
@@ -784,7 +798,7 @@ The bootstrap is split into one module per compiler stage:
    declarations may follow statements, whether `bool` exists — so the
    `standard` reaches only `pprint_c_program` and its helpers. Its real
    work is the type inference C forces and Pyking never needed: every
-   expression node carries an `Int`/`String`/`Bool` type, bindings take
+   expression node carries an `Int`/`Float`/`String`/`Bool` type, bindings take
    their initializer's, parameters their annotation (when C can represent
    it) or a guess from the body, and a function's return type is read off
    its translated body. When inference cannot answer, raise
@@ -805,7 +819,7 @@ The bootstrap is split into one module per compiler stage:
    — one backend because the three versions disagree only in whether a
    local declaration writes `var` (Java 10's local-variable type
    inference, absent from java8) or spells its type out. Infers types the
-   same way `target_c.ml` does (`Int`/`String`/`Bool`, from initializers,
+   same way `target_c.ml` does (`Int`/`Float`/`String`/`Bool`, from initializers,
    annotations, and translated return bodies), and additionally checks
    that every function provably returns on every path
    (`_definitely_returns`) and that no statement follows one that always

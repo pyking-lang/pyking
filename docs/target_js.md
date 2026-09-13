@@ -513,6 +513,57 @@ built for: output that reads like the source. See
 [targets.md](targets.md) for the same difference measured across all the
 backends.
 
+## Floats
+
+This is the one place the JavaScript backends need something no other
+target does, and the reason `translate_program` takes the checker's
+`tmap` at all.
+
+**A JavaScript number is one type.** `1.0 === 1` and `String(1.0)` is
+`"1"`, so nothing about a value at run time says whether Pyking called
+it an `Int` or a `Float`. Every other backend can tell: Python has a
+real `float`, C and Java carry a `double`, OCaml reads the type off
+`tmap`, and the interpreter holds a `VFloat`. Here the value cannot
+answer, so the *type* does.
+
+Arithmetic needs nothing — a JavaScript `/` is already IEEE division,
+and the `Math.trunc` wrapper the Int case needs is simply left off.
+Printing is where the type is consulted:
+
+- an argument the checker typed `Float` becomes `pykFloatStr(x)`;
+- one whose type holds a Float somewhere inside becomes
+  `pykShaped(x, "<descriptor>")`;
+- anything else is emitted exactly as it was before Float existed, so an
+  ordinary program's output is unchanged to the byte.
+
+Both answer a String, and a String at the top level prints bare, so
+`print` and `pykFormat` need no third case.
+
+**The descriptor** says which positions of a value are Floats, which is
+all `pykFormat` is missing: `f` a Float, `.` anything it already prints
+correctly, `[s]` a list of `s`, and `(s,s)` a tuple. It nests:
+
+```javascript
+print(pykShaped(xs, '[f]'));           // xs : [Float]
+print(pykShaped(pair, '(f,.)'));       // pair : (Float, Int)
+print(pykShaped(points, '[(f,f)]'));   // points : [(Float, Float)]
+```
+
+A descriptor rather than a generated walker per shape, which is what
+`target_python.ml` does for Bools: there the type settles a *spelling*
+and one walker serves every shape, here it settles which of two
+representations a number is, and a string argument says that in one
+token.
+
+`pykFloatStr` and `pykShaped` live in `pyk-runtime.js` beside
+`pykFormat` — `pykShaped` calls it for every non-Float position — and a
+module imports whichever of them it uses, the same way it imports
+`print`.
+
+`float(n)` compiles to the operand and nothing else: a JavaScript number
+is already a double, so widening has nothing to do, and it is the print
+site that makes the result read as `3.0`. `int(x)` is `Math.trunc(x)`.
+
 ## Modules
 
 A Pyking module is a JavaScript module — one `.js` file each, on every

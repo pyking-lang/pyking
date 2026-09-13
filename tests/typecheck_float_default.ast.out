@@ -1,0 +1,15 @@
+def add(a:Int, b:Int) -> Int:
+    return a + b
+def scale(x:Int) -> Int:
+    return x * 2
+def average(a:Int, b:Int) -> Int:
+    return (a + b) / 2
+def fadd(a:Float, b:Float) -> Float:
+    return a + b
+def twice(x:Float) -> Float:
+    return x * 2.0
+print(add(3, 4))
+print(scale(5))
+print(average(7, 2))
+print(fadd(1.5, 2.25))
+print(twice(1.5))

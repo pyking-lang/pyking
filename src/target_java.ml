@@ -70,14 +70,20 @@ let unsupported info message =
    The three kinds of value a Pyking program in this subset can hold,
    plus Pyking's unit type (), spelled void in Java. *)
 
-type jtype = Int | Bool | String | Unit
+type jtype = Int | Float | Bool | String | Unit
 
 let jtype_name t =
-  match t with Int -> "Int" | Bool -> "Bool" | String -> "String" | Unit -> "Unit"
+  match t with
+  | Int -> "Int"
+  | Float -> "Float"
+  | Bool -> "Bool"
+  | String -> "String"
+  | Unit -> "Unit"
 
 let java_type t =
   match t with
   | Int -> "int"
+  | Float -> "double"
   | Bool -> "boolean"
   | String -> "String"
   | Unit -> "void"
@@ -89,6 +95,7 @@ let java_type t =
 let annotated_type annotation =
   match annotation with
   | Some (TInt _) -> Some Int
+  | Some (TFloat _) -> Some Float
   | Some (TString _) -> Some String
   | Some (TBool _) -> Some Bool
   | _ -> None
@@ -129,6 +136,7 @@ let reject_type_variables node =
 
 type jexpr =
   | JInt of info * int
+  | JFloat of info * float
   | JStr of info * string
   | JBool of info * bool
   | JVar of info * string * jtype
@@ -137,6 +145,8 @@ type jexpr =
   | JCall of info * string * jexpr list * jtype (* name(args...) *)
   | JCond of info * jexpr * jexpr * jexpr * jtype (* cond ? a : b *)
   | JEquals of info * jexpr * jexpr (* left.equals(right) *)
+  | JCast of info * jtype * jexpr (* (type) operand *)
+  | JFloatStr of info * jexpr (* pykFloatStr(operand) *)
 
 type jstmt =
   | JDecl of info * jtype * string * jexpr * bool
@@ -179,6 +189,7 @@ type jprogram = {
   functions : jfunc list;
   main_body : jstmt list;
   program_name : string;
+  uses_float : bool;
   main : bool;
   separate : bool;
   starts : string list;
@@ -189,6 +200,7 @@ type jprogram = {
 let jtype_of e =
   match e with
   | JInt _ -> Int
+  | JFloat _ -> Float
   | JStr _ -> String
   | JBool _ -> Bool
   | JVar (_, _, t) -> t
@@ -197,11 +209,14 @@ let jtype_of e =
   | JCall (_, _, _, t) -> t
   | JCond (_, _, _, _, t) -> t
   | JEquals _ -> Bool
+  | JCast (_, t, _) -> t
+  | JFloatStr _ -> String
 
 (** The source position a Java expression carries. jexpr -> info *)
 let jexpr_info e =
   match e with
-  | JInt (i, _) | JStr (i, _) | JBool (i, _) -> i
+  | JInt (i, _) | JFloat (i, _) | JStr (i, _) | JBool (i, _) -> i
+  | JCast (i, _, _) | JFloatStr (i, _) -> i
   | JVar (i, _, _) -> i
   | JUnary (i, _, _, _) -> i
   | JBinary (i, _, _, _, _) -> i
@@ -362,6 +377,7 @@ let stmt_kind_name s =
 let expr_kind_name e =
   match e with
   | EInt _ -> "EInt"
+  | EFloat _ -> "EFloat"
   | EString _ -> "EString"
   | EBool _ -> "EBool"
   | EVar _ -> "EVar"
@@ -423,6 +439,21 @@ let used_as_string name stmts =
       | _ -> false)
     stmts
 
+(** Whether name is combined with a float literal anywhere in these
+    statements, which is what an arithmetic operator or a comparison
+    does with two numbers. string -> [stmt] -> bool *)
+let used_as_float name stmts =
+  Walk.exists_stmts
+    (fun node ->
+      match node with
+      | Walk.NExpr e -> (
+          match Interpreter.binary_operands e with
+          | Some (EVar (_, n, _), EFloat _) | Some (EFloat _, EVar (_, n, _)) ->
+              n = name
+          | _ -> false)
+      | _ -> false)
+    stmts
+
 (** A parameter's type: its annotation when Java can represent it, else
     what the body's use of it suggests, else Int (docs/target_java.md,
     "How types are inferred"). stmt -> param -> jtype *)
@@ -433,7 +464,9 @@ let param_type func (Param (_, name, annotation, _)) =
       let body =
         match func with SFunctionDef (_, _, _, body, _, _, _) -> body | _ -> []
       in
-      if used_as_string name body then String else Int
+      if used_as_string name body then String
+      else if used_as_float name body then Float
+      else Int
 
 (** Every jtype returned anywhere in body, without repeats.
     [jstmt] -> [jtype] *)
@@ -586,7 +619,12 @@ let breakable node =
     single spaces via Java's own +; None for no arguments.
     [jexpr] -> jexpr option *)
 let build_print_expr args =
-  match args with
+  (* Java writes a double its own way, so a Float becomes its Pyking
+     text before it joins the line. *)
+  let printed part =
+    if jtype_of part = Float then JFloatStr (jexpr_info part, part) else part
+  in
+  match List.map printed args with
   | [] -> None
   | first :: rest ->
       Some
@@ -614,6 +652,7 @@ type state = {
   called_early : StringSet.t;
   loops : jloop list;
   temporaries : int;
+  uses_float : bool;
 }
 
 let rec set_assoc key value = function
@@ -628,6 +667,12 @@ let temporary state =
 
 (** Raises Unsupported if node's jtype is not jtype.
     jexpr -> jtype -> string -> () *)
+let require_numeric node what =
+  if jtype_of node <> Int && jtype_of node <> Float then
+    unsupported (jexpr_info node)
+      (Printf.sprintf "%s needs Int or Float operands here, not %s" what
+         (jtype_name (jtype_of node)))
+
 let require node jtype what =
   if jtype_of node <> jtype then
     unsupported (jexpr_info node)
@@ -650,6 +695,7 @@ let is_function_value state name scope =
 let rec expr state e scope allow_unit =
   match e with
   | EInt (info, v, _) -> (JInt (info, v), state)
+  | EFloat (info, v, _) -> (JFloat (info, v), state)
   | EString (info, s, _) -> (JStr (info, s), state)
   | EBool (info, v, _) -> (JBool (info, v), state)
   | EVar (info, name, _) when is_function_value state name scope ->
@@ -665,22 +711,36 @@ let rec expr state e scope allow_unit =
       (JVar (info, java_name, jtype), state)
   | ENeg (info, operand, _) ->
       let inner, state = expr state operand scope false in
-      require inner Int "negation";
-      (JUnary (info, "-", inner, Int), state)
+      require_numeric inner "negation";
+      (JUnary (info, "-", inner, jtype_of inner), state)
   | EDiv (info, l, r, _) ->
       (* Java's `/` on ints truncates toward zero, which is Pyking's own
-         rule. *)
+         rule, and on doubles it is IEEE's, which is Pyking's other
+         one. *)
       let left, state = expr state l scope false in
       let right, state = expr state r scope false in
-      require left Int "`/`";
-      require right Int "`/`";
-      (JBinary (info, "/", left, right, Int), state)
+      require_numeric left "`/`";
+      require right (jtype_of left) "`/`";
+      (JBinary (info, "/", left, right, jtype_of left), state)
   | EAdd (info, l, r, _) ->
       let left, state = expr state l scope false in
       let right, state = expr state r scope false in
-      require left Int "`+`";
-      require right Int "`+`";
-      (JBinary (info, "+", left, right, Int), state)
+      require_numeric left "`+`";
+      require right (jtype_of left) "`+`";
+      (JBinary (info, "+", left, right, jtype_of left), state)
+  (* Java's own conversions: widening an int is exact within the range a
+     double holds, and narrowing a double truncates toward zero, which
+     is the rounding Pyking's `int` and `/` both do. *)
+  | ECall (info, EVar (_, "float", _), [ argument ], _)
+    when not (List.mem_assoc "float" state.signatures) ->
+      let inner, state = expr state argument scope false in
+      require inner Int "`float`";
+      (JCast (info, Float, inner), state)
+  | ECall (info, EVar (_, "int", _), [ argument ], _)
+    when not (List.mem_assoc "int" state.signatures) ->
+      let inner, state = expr state argument scope false in
+      require inner Float "`int`";
+      (JCast (info, Int, inner), state)
   | EConcat (info, l, r, _) ->
       (* Java spells concatenation `+` too, so the two Pyking operators
          differ here only in the type they demand. *)
@@ -724,9 +784,9 @@ let rec expr state e scope allow_unit =
       | Some op, Some (l, r) ->
           let left, state = expr state l scope false in
           let right, state = expr state r scope false in
-          require left Int (Printf.sprintf "`%s`" op);
-          require right Int (Printf.sprintf "`%s`" op);
-          let jtype = if op = "-" || op = "*" then Int else Bool in
+          require_numeric left (Printf.sprintf "`%s`" op);
+          require right (jtype_of left) (Printf.sprintf "`%s`" op);
+          let jtype = if op = "-" || op = "*" then jtype_of left else Bool in
           (JBinary (expr_info e, op, left, right, jtype), state)
       | _ -> unsupported (expr_info e) (expr_kind_name e))
 
@@ -761,6 +821,23 @@ and call state e name args scope allow_unit info =
             (out @ [ j ], state))
           ([], state) args
       in
+      (* Java widens an int to a double without a word, so an argument
+         at the wrong type would compile and be quietly wrong. This
+         backend infers each method's parameter types from its own body,
+         so a mismatch is a type it could not work out rather than a
+         program error -- it is refused here, with the position of the
+         call. *)
+      List.iteri
+        (fun index argument ->
+          let wanted = List.nth param_types index in
+          if jtype_of argument <> wanted then
+            unsupported (jexpr_info argument)
+              (Printf.sprintf
+                 "argument %d of `%s` is %s where this backend worked out %s"
+                 (index + 1) name
+                 (jtype_name (jtype_of argument))
+                 (jtype_name wanted)))
+        translated;
       (JCall (info, java_name, translated, ret), state)
 
 (** Translates a statement sequence, threading the scope through it;
@@ -1124,6 +1201,11 @@ and stmt state s scope =
             (out @ [ j ], state))
           ([], state) args
       in
+      let state =
+        if List.exists (fun a -> jtype_of a = Float) translated then
+          { state with uses_float = true }
+        else state
+      in
       ([ JPrint (info, build_print_expr translated) ], scope, state)
   | SExprStmt (info, e, _) -> (
       (* docs/target_java.md, "An expression statement that is not a
@@ -1446,6 +1528,7 @@ let translate_program stmts context =
       called_early = StringSet.empty;
       loops = [];
       temporaries = 0;
+      uses_float = false;
     }
   in
   let scope = empty_scope in
@@ -1486,6 +1569,7 @@ let translate_program stmts context =
     functions;
     main_body;
     program_name = context.context_name;
+    uses_float = state.uses_float;
     main = context.main;
     separate = context.separate;
     starts = List.map default_class_name context.starts;
@@ -1532,6 +1616,19 @@ let rec pprint_java_expr ?(min_prec = 0) e version =
   let plain e = pprint_java_expr e version in
   match e with
   | JInt (_, v) -> string_of_int v
+  (* Java reads back every text Builtin.float_text writes but three, and
+     only one of those can come from a literal: an exponent past the
+     range overflows to an infinity. *)
+  | JFloat (_, v) ->
+      if v <> v then "Double.NaN"
+      else if v = infinity then "Double.POSITIVE_INFINITY"
+      else if v = neg_infinity then "Double.NEGATIVE_INFINITY"
+      else Builtin.float_text v
+  | JCast (_, jtype, operand) ->
+      parens unary_precedence min_prec
+        (Printf.sprintf "(%s) %s" (java_type jtype)
+           (at (unary_precedence + 1) operand))
+  | JFloatStr (_, operand) -> Printf.sprintf "pykFloatStr(%s)" (plain operand)
   | JStr (_, s) -> quote s
   | JBool (_, v) -> if v then "true" else "false"
   | JVar (_, name, _) -> name
@@ -1676,6 +1773,53 @@ let pprint_main (program : jprogram) version level =
     (lines
     @ [ emit_block program.main_body version (level + 1); Printf.sprintf "%s}" pad ])
 
+(* builtin.ml's rule, in Java. Locale.ROOT is not optional: the default
+   locale writes `1,0e+00` wherever the decimal separator is a comma,
+   and one .out file is compared against every target. Double.toString
+   is not used either -- it was not the shortest round trip before
+   JDK 19, and java8 is the floor here. *)
+let float_helper =
+  String.concat "\n"
+    [
+      "    private static String pykFloatStr(double x) {";
+      "        if (Double.isNaN(x)) return \"nan\";";
+      "        if (x == Double.POSITIVE_INFINITY) return \"inf\";";
+      "        if (x == Double.NEGATIVE_INFINITY) return \"-inf\";";
+      "        String sign = (x < 0.0 || (x == 0.0 && 1.0 / x < 0.0)) ? \"-\" : \"\";";
+      "        double a = Math.abs(x);";
+      "        if (a == 0.0) return sign + \"0.0\";";
+      "        String s = \"\";";
+      "        for (int p = 0; p <= 16; p++) {";
+      "            s = String.format(java.util.Locale.ROOT, \"%.\" + p + \"e\", a);";
+      "            if (Double.parseDouble(s) == a) break;";
+      "        }";
+      "        int at = s.indexOf('e');";
+      "        String digits = s.substring(0, at).replace(\".\", \"\");";
+      "        int decpt = Integer.parseInt(s.substring(at + 1)) + 1;";
+      "        int n = digits.length();";
+      "        while (n > 1 && digits.charAt(n - 1) == '0') n--;";
+      "        digits = digits.substring(0, n);";
+      "        if (decpt <= -4 || decpt > 16) {";
+      "            String mantissa =";
+      "                n == 1 ? digits : digits.charAt(0) + \".\" + digits.substring(1);";
+      "            return sign + mantissa + \"e\" + (decpt - 1);";
+      "        }";
+      "        StringBuilder out = new StringBuilder(sign);";
+      "        if (decpt <= 0) {";
+      "            out.append(\"0.\");";
+      "            for (int i = 0; i < -decpt; i++) out.append('0');";
+      "            return out.append(digits).toString();";
+      "        }";
+      "        if (decpt >= n) {";
+      "            out.append(digits);";
+      "            for (int i = 0; i < decpt - n; i++) out.append('0');";
+      "            return out.append(\".0\").toString();";
+      "        }";
+      "        return out.append(digits, 0, decpt).append('.')";
+      "            .append(digits.substring(decpt)).toString();";
+      "    }";
+    ]
+
 (** The whole compilation unit: the class holding every function as a
     private static method, and main.
     jprogram -> string -> string -> string -> string *)
@@ -1703,6 +1847,19 @@ let pprint_java_program (program : jprogram) version class_name source =
       ]
   in
   let parts = parts @ [ ""; Printf.sprintf "public final class %s {" class_name ] in
+  let parts =
+    parts
+    @
+    if program.uses_float then
+      [
+        "";
+        "    // A Float written the way Pyking writes one, which is not the \
+         way";
+        "    // Java writes a double.";
+        float_helper;
+      ]
+    else []
+  in
   let parts =
     parts
     @

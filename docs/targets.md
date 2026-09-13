@@ -211,9 +211,11 @@ testing — could be built end to end before the language surface grew:
 | tail calls run in constant space | ✅ | ✅ | ✅ | ✅ | ✅ (natively; the pass is skipped) |
 | … for a program the type checker accepts | always: every program is checked | same | same | same | n/a |
 | `=`, `var`, `:=` | ✅ | ✅ | ✅ | ✅ | ✅ (`var` is a `ref`) |
-| … a `var` of any type but `Int`/`Bool` | ❌ (refused by the checker) | ❌ (same) | ❌ (same) | ❌ (same) | ❌ (same) |
+| … a `var` of any type but `Int`/`Float`/`Bool` | ❌ (refused by the checker) | ❌ (same) | ❌ (same) | ❌ (same) | ❌ (same) |
 | `if … then … else …` expressions | ✅ | ✅ | ✅ (branches must agree in type) | ✅ (branches must agree in type) | ✅ (same) |
 | integers, strings, booleans | ✅ | ✅ | ✅ | ✅ | ✅ |
+| floats (IEEE 754 binary64) | ✅ | ✅ (typed at the print site: a JS number cannot say which it is) | ✅ (`double`) | ✅ (`double`) | ✅ (`+. -. *. /.`) |
+| `float(n)` / `int(x)` | ✅ | ✅ | ✅ (casts) | ✅ (casts) | ✅ |
 | `+ - *`, unary minus, comparisons | ✅ | ✅ | ✅ | ✅ | ✅ (no unary minus) |
 | `++` (string concatenation) | ✅ | ✅ | ✅ (a generated `pyk_concat`) | ✅ (Java's own `+`) | ✅ (`^`) |
 | type variables (`def id(x:a) -> a`) | ✅ | ✅ | ❌ (one concrete type per function) | ❌ (same) | ✅ (OCaml generalizes a `let` itself) |
@@ -226,7 +228,8 @@ testing — could be built end to end before the language surface grew:
 | … a list pattern with elements after `..` | ✅ | ✅ | ❌ | ❌ | ❌ (`::` matches from the front) |
 | operands and arguments evaluate left to right | ✅ (the host's own rule) | ✅ (same) | ✅ (unspecified in C: temporaries and the comma operator pin it down where two operands can print) | ✅ (the host's own rule) | ✅ (unspecified in OCaml: `let` pins it down, same rule) |
 | `/` (integer division, truncating) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| type annotations | erased | erased | used, when they name `Int`/`String`/`Bool` | used, when they name `Int`/`String`/`Bool` | checked, then erased — the output has none |
+| `/` (IEEE float division) | ✅ (a helper: Python raises on a zero divisor where IEEE answers) | ✅ | ✅ | ✅ | ✅ |
+| type annotations | erased | erased | used, when they name `Int`/`Float`/`String`/`Bool` | used, when they name `Int`/`Float`/`String`/`Bool` | checked, then erased — the output has none |
 | functions as values (passing a `def`, calling a parameter) | ✅ | ✅ | ❌ (refused: a function used as a value, or a call to an unknown one) | ❌ (same) | ✅ |
 | a function reading a binding from around it (a closure) | ✅ | ✅ | ❌ (no closures) | ❌ (no closures) | ✅ |
 | a function *writing* a `var` from around it | ✅ (`global`/`nonlocal`) | ✅ | ❌ (same) | ❌ (same) | ✅ (the `ref` it closes over) |
@@ -319,6 +322,31 @@ literal outside the signed 32-bit range is a lexical error on every
 target. A program that stays inside that range means the same thing
 everywhere; one that leaves it is relying on a width the language does
 not promise.
+
+### A Float has no such caveat
+
+`Float` is IEEE 754 binary64 on every target and in both builds of the
+interpreter. Unlike `Int`, there is no width the language leaves open,
+no host that carries more, and no row above to fill in: a double is a
+double. So a Float program means one thing everywhere, including past
+the range where an Int program stops meaning one.
+
+Two things follow. There is no bound on a float *literal* the way there
+is on an integer one — a literal past the range is an infinity, which is
+IEEE's answer and the same everywhere. And a zero divisor is not
+undefined: it answers `inf`, `-inf` or `nan`, where an Int zero divisor
+still is (the row above).
+
+What the targets *would* have disagreed about is how a double is
+written, and every host writes one differently. Nothing is delegated:
+each backend emits the same formatter, which is `docs/builtin.md`, "How
+a Float is written". Two hosts needed more than that:
+
+- **Python raises on a zero divisor** where IEEE answers, so a Float
+  division goes through a helper there as an Int one already does.
+- **JavaScript has one number type**, so no value can say whether Pyking
+  called it an Int or a Float. That backend reads the checker's types at
+  the print site instead — see [target_js.md](target_js.md), "Floats".
 
 Everything else is expected to agree exactly, and the test suite enforces
 it: `tests/test_cases.toml` lists which targets each program supports, and

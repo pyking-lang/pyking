@@ -1,0 +1,31 @@
+# A Float inside a list and inside a tuple.
+#
+# This is the case a target with one number type cannot answer from the
+# value alone: JavaScript holds `1.0` and `1` identically, so the
+# compiler reads the shape off the checker's types and tells the
+# formatter which positions are Floats (docs/target_js.md, "Floats").
+
+xs: [Float] = [1.0, 0.5, 1e16]
+print(xs)
+
+pair: (Float, Int) = (2.5, 3)
+print(pair)
+
+mixed: (Int, Float, Bool, String) = (1, 1.0, true, "s")
+print(mixed)
+
+# A list of tuples, so the descriptor has to nest.
+points: [(Float, Float)] = [(1.0, 2.0), (-0.5, 1e300)]
+print(points)
+
+# A tuple holding a list of Floats, nesting the other way.
+grouped: (String, [Float]) = ("xs", [0.25, 100.0])
+print(grouped)
+
+# A list with no Float in it prints as it always did.
+ns: [Int] = [1, 2, 3]
+print(ns)
+
+# A one-element tuple keeps its comma.
+single: (Float,) = (0.1,)
+print(single)

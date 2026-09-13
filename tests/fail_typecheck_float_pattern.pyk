@@ -1,0 +1,14 @@
+# A Float is not a pattern.
+#
+# `case 1.5:` is refused: matching on a double means comparing one for
+# equality, and IEEE equality is not the relation a reader of a `match`
+# expects -- a NaN matches no case, itself included. A program that
+# really wants the comparison writes `==` and says so.
+
+x: Float = 1.5
+y = match x:
+    case 1.5:
+        "one and a half"
+    case _:
+        "something else"
+print(y)

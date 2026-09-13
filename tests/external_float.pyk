@@ -1,0 +1,29 @@
+# A Float crossing into and out of a module implemented in a target
+# language.
+#
+# Nothing about the boundary is special for a Float: it is a scalar, so
+# it crosses wherever an Int does, and each host spells it `double`
+# (docs/modules.md, "What may cross the boundary"). What the host
+# computes comes back as an ordinary Float and prints by Pyking's rule
+# rather than the host's, which is the part worth checking -- a
+# JavaScript implementation answering `2` and one answering `2.0` are
+# the same value there, and both have to print `2.0` here.
+
+import external_float_mod1 as host
+
+print(host.halve(5.0))
+print(host.halve(1.0))
+print(host.halve(host.halve(8.0)))
+print(host.halve(-3.0))
+
+print(host.hypot_sq(3.0, 4.0))
+print(host.hypot_sq(0.0, 0.0))
+print(host.hypot_sq(0.5, host.epsilon))
+
+print(host.widen(7))
+print(host.widen(0))
+print(host.widen(-2))
+
+print(host.epsilon)
+print(host.epsilon * 4.0)
+print(host.halve(host.widen(9)))
