@@ -3106,8 +3106,8 @@ being an error, matching what the construct already means.
 ### Functions without annotations
 
 A `def` that did not write its type down is not checked where it is
-written. It is worked out the first time something **calls** it — but
-not *from* that call. Its parameters start as types nothing has decided,
+written. It is worked out the first time something **uses** it —
+calling it, or reading its name as a value — but not *from* that use. Its parameters start as types nothing has decided,
 and what the **body** does with them is what decides them:
 
 ```pyking
@@ -3159,8 +3159,8 @@ offset = 10
 print(f(1))
 ```
 
-**A definition is worked out once**, at its first call, and every later
-call uses what came out. A parameter the body never asks about becomes a
+**A definition is worked out once**, at its first use, and every later
+one uses what came out. A parameter the body never asks about becomes a
 **type variable**, which is what lets one definition serve every later
 call, at a different type each time:
 
@@ -3364,10 +3364,10 @@ Two restrictions hold:
 ### What a module may export
 
 **A module says what it exports, in the file that exports it.** A `def`
-that writes no annotations has no type of its own until something calls
+that writes no annotations has no type of its own until something uses
 it — inference reads a definition off its own module's use of it (see
 "Functions without annotations") — so an exported one has to be *either*
-fully annotated *or* called somewhere in the module that exports it:
+fully annotated *or* used somewhere in the module that exports it:
 
 ```pyking
 # Both of these are exported with a type this module worked out.

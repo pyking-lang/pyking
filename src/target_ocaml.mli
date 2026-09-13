@@ -1,8 +1,10 @@
-(** The OCaml code-generation backend. Unlike the other backends, its
-    subset is exactly what typesystem.ml accepts: rather than inferring
-    types, this module reads translated expressions' types out of the
-    checker's tmap, which pyk.ml fills and hands it -- so a program that
-    does not type-check is refused before translation begins. It is also
+(** The OCaml code-generation backend. Unlike the other backends, it
+    infers no types of its own: it reads translated expressions' types
+    out of the checker's tmap, which pyk.ml fills and hands it -- so a
+    program that does not type-check is refused before translation
+    begins. Its subset is nearly all of what typesystem.ml accepts, less
+    a short list of shapes OCaml cannot be given, each refused with a
+    source position (docs/target_ocaml.md, "What is not supported"). It is also
     the one target compiled from the program as *written*: OCaml
     eliminates tail calls itself, so pyk.ml skips opt_tailcall.ml here
     rather than have a rewrite this module would only undo.

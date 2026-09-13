@@ -505,10 +505,13 @@ The bootstrap is split into one module per compiler stage:
    off its *own* module's use of it -- so exporting one this module
    never calls is **refused**, not inferred from nothing. An exported
    `def` is fully annotated or called in its own module; see PYKING.md,
-   "What a module may export". Two consumers now define their coverage as
-   "whatever this accepts" — `target_ocaml.ml` and `interpreter.ml` — so
-   widening the checker widens both, and each needs the corresponding
-   `case` or an explicit refusal.
+   "What a module may export". `interpreter.ml` defines its coverage as
+   "whatever this accepts", so widening the checker widens it, and it
+   needs the corresponding `case` or an explicit refusal.
+   `target_ocaml.ml` used to say the same and no longer can: it accepts
+   nearly all of the checker's fragment and keeps a short list of
+   refusals of its own, for shapes OCaml cannot be given (see
+   `docs/target_ocaml.md`, "What is not supported").
 
    Inside, **one function per AST datatype** — `check_stmts` ([Stmt]),
    `check_stmt` (Stmt), `check_expr` (Expr), `check_param` (Param),
@@ -834,9 +837,11 @@ The bootstrap is split into one module per compiler stage:
    target: an `O*` AST, translation, and a printer. The only backend
    that infers nothing — it *runs* `typesystem.type_check` and reads the
    types back out of `tmap` (which is why `check_expr` records an entry
-   for every expression, not just annotatable ones), so its supported
-   subset is exactly the checker's and a program that does not check is
-   refused with the checker's own message. OCaml fits Pyking closely
+   for every expression, not just annotatable ones), so a program that
+   does not check is refused with the checker's own message. Its subset
+   is nearly all of what the checker accepts, and the few shapes it
+   refuses are listed in `docs/target_ocaml.md` under "What is not
+   supported"; each raises `Unsupported` with a source position. OCaml fits Pyking closely
    enough that most of the translation is direct — `let ... in` is a
    block scope, a rebinding is a new binding, `let rec ... and ...` is
    Pyking's rule that every `def` in a block is visible throughout it,
@@ -1350,10 +1355,11 @@ parameter to `src/target_c.ml`'s printer, and the Java three only in a
 `version` parameter to `src/target_java.ml`'s printer; `ocaml5.5` is a
 family of one. All of them support a subset of the language, and
 anything outside it is refused at compile time with a source position
-rather than emitted as code that will not build. `ocaml5.5` is the one
-whose subset is not a list it maintains: it is whatever
-`src/typesystem.ml` accepts, checked by running it. See
-`docs/architecture.md` for the subsets and the target table.
+rather than emitted as code that will not build. `ocaml5.5`'s subset is
+the widest: it starts from whatever `src/typesystem.ml` accepts, checked
+by running it, and takes away the handful of shapes OCaml cannot be
+given, which `docs/target_ocaml.md` lists. See `docs/architecture.md`
+for the subsets and the target table.
 
 A program that imports an **external module** cannot be interpreted at
 all: what such a module exports is written in a target language, so

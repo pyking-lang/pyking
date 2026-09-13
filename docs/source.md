@@ -40,7 +40,7 @@ and which module calls which.
 | [`module.ml`](#moduleml) | ~520 | The module system: which modules a program is made of, in what order, what each exports, and what each import means. |
 | [`analyses.ml`](#analysesml) | ~1030 | Static analyses over the AST: mutability (`analyze_mutability`), `symbolize`, which numbers every node, and `effects`, which says what can print. |
 | [`walk.ml`](#walkml) | ~190 | One `children` function over every AST node, for the passes that ask a question of a whole subtree. |
-| [`typesystem.ml`](#typesystemml) | ~2930 | The type checker: one function per AST datatype, producing `tmap` (symbol → type). Also the type *inference*, which is the same machinery run at a call site rather than at a definition. Its fragment is the interpreter's and the OCaml backend's. |
+| [`typesystem.ml`](#typesystemml) | ~3010 | The type checker: one function per AST datatype, producing `tmap` (symbol → type). Also the type *inference*, which is the same machinery run at a call site rather than at a definition. Its fragment is the interpreter's, and nearly all of the OCaml backend's. |
 | [`type_experiment.ml`](#type_experimentml) | ~140 | An alternative checker, a fragment of one, run instead of the real one by `--type-experiment`. |
 | [`opt_tailcall.ml`](#opt_tailcallml) | ~1190 | Tail calls into loops: one AST-to-AST pass over a program the checker accepted, so every backend and the interpreter get tail recursion at once. |
 | [`builtin.ml`](#builtinml) | ~110 | The builtins (`print`, `range`, `str`, `len`): each one's name, arity, whether it crosses the host boundary, and what it does. One table, and no host code at all. |
@@ -51,7 +51,7 @@ and which module calls which.
 | [`target_js_packaging.ml`](#target_js_packagingml) | ~300 | Its packaging half: `node24`, `web24`, `iweb24`, and the JavaScript side of the runtime interface. |
 | [`target_c.ml`](#target_cml) | ~1990 | The C backend, for `c89` and `c23`. Infers the types C insists on, and pins down the evaluation order C leaves open. |
 | [`target_java.ml`](#target_javaml) | ~1690 | The Java backend, for `java8`/`java17`/`java21`. Also proves every function returns. |
-| [`target_ocaml.ml`](#target_ocamlml) | ~2030 | The OCaml backend. Infers nothing: it reads the checker's `tmap`. |
+| [`target_ocaml.ml`](#target_ocamlml) | ~2900 | The OCaml backend. Infers nothing: it reads the checker's `tmap`. |
 | [`execution.ml`](#executionml) | ~200 | What `--run` runs: the commands each target's host uses to build and run what was compiled. |
 | [`pyk.ml`](#pykml) | ~780 | The driver: argv, stage sequencing, error reporting, the three commands. |
 | [`web/pyking_web.ml`](#webpyking_webml) | ~320 | The browser entry point: the same library compiled to JavaScript, for the playground. |
@@ -1311,9 +1311,10 @@ that page focuses on the differences); [target_java.md](target_java.md)
 
 **The OCaml backend**, and the one that infers nothing: it *runs*
 `typesystem.type_check` and reads the types back out of `tmap`, which is
-why the checker records an entry for every expression. Its supported
-subset is therefore exactly the checker's, and a program that does not
-check is refused with the checker's own message.
+why the checker records an entry for every expression. A program that
+does not check is refused with the checker's own message; its supported
+subset is nearly all of the checker's, less a short list of shapes OCaml
+cannot be given, each refused with a source position.
 
 **Design, in depth:** [target_ocaml_internals.md](target_ocaml_internals.md)
 (this module — why it infers nothing, the block-as-expression
@@ -1337,9 +1338,33 @@ refused).
   Pyking evaluates left to right and OCaml does not promise to.
 - **`_Translator.loop`** — a `loop` as a local recursive function
   applied at once: the accumulator is its parameter, `continue` is a
-  tail call, `break` is the value it returns. `rec` is computed from the
-  translated body, never assumed, since a needless one is a warning and
-  the harness treats warnings as errors.
+  tail call, `break` is the value it returns. A `for` clause carries
+  what is left of the sequence as a second parameter, and running out of
+  it leaves the loop with the accumulator; a `while` clause asks its
+  test with the accumulator in scope, and a turn not taken leaves the
+  loop the same way. `rec` is computed from the translated body, never
+  assumed, since a needless one is a warning and the harness treats
+  warnings as errors.
+- **`regroup`** — the block's statements reordered so every group of
+  `def`s that name each other is consecutive, which is what
+  `let rec … and …` needs. Only `def`s move, and only down; a `def`
+  that would pass a rebinding of a name its body reads, or a use of its
+  own name, is refused instead.
+- **`matcher`** and **`arm_for`** — one Pyking pattern as an OCaml
+  pattern plus the two things OCaml cannot say there: the conditions
+  the arm tests with `when`, and the bindings its body opens with. That
+  is what compiles a `++` pattern over a string and a list pattern with
+  elements after `..`. A `when` hides an arm from OCaml's exhaustiveness
+  check, so the catch-all is decided from the unguarded arms alone.
+- **`escaping`** and **`OEscape`** — a `return` OCaml has no value
+  spelling for leaves by a local exception instead, with the value in a
+  cell. `function_binding` translates a body without one first and
+  builds one only when the attempt raises `Needs_escape`.
+- **`specialisations`** — what each definition's type variables turn out
+  to be, read off the call sites where every call in the module agrees
+  and the name is never handed anywhere as a value. It is what lets a
+  body that prints one of its parameters compile at all, since OCaml has
+  no runtime type to print from.
 - **`pprint_ocaml_program(program, source)`**, and
   **`pprint_ocaml_interface(program, source)`** — the `.mli` a module
   the program imports is seen through, which is the whole of privacy on

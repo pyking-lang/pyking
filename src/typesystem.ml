@@ -1561,16 +1561,26 @@ let monotypes_for group store =
   List.fold_left
     (fun (monotypes, store) node ->
       match node with
-      | SFunctionDef (info, _, params, _, _, _, _) ->
-          let metas, store =
-            fresh_metas (List.length params + 1) info store
+      | SFunctionDef (info, _, params, _, return_type, _, _) ->
+          (* A parameter the source annotated means what it says: a
+             metavariable stands only where nothing was written. *)
+          let params, store =
+            List.fold_left
+              (fun (types, store) param ->
+                match param with
+                | Param (_, _, Some written, _) -> (types @ [ written ], store)
+                | Param (at, _, None, _) ->
+                    let metas, store = fresh_metas 1 at store in
+                    (types @ metas, store))
+              ([], store) params
           in
-          let rec split seen = function
-            | [ last ] -> (List.rev seen, last)
-            | one :: rest -> split (one :: seen) rest
-            | [] -> ([], t_unknown info)
+          let result, store =
+            match return_type with
+            | Some written -> (written, store)
+            | None ->
+                let metas, store = fresh_metas 1 info store in
+                (match metas with [ meta ] -> (meta, store) | _ -> (t_unknown info, store))
           in
-          let params, result = split [] metas in
           (monotypes @ [ t_function info params result ], store)
       | _ -> (monotypes, store))
     ([], store) group
@@ -2255,7 +2265,11 @@ and expr_type e env store =
       | Some type_ ->
           (* A name standing for a definition something has already
              worked out means the scheme it turned out to be, not the
-             promise it was declared as. *)
+             promise it was declared as. One nothing has worked out yet
+             is worked out here: handing a definition somewhere is a
+             demand on its type as surely as calling it is, and its body
+             would otherwise never be checked at all. *)
+          let store = work_out type_ store in
           (settled_type type_ store, store))
   | EQualified (info, module_, name, _) -> (
       (* A public name of an imported module. `import_env` put it in the

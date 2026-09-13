@@ -580,8 +580,8 @@ caller's own frame and checking set.
                                               │
                         ┌─────────────────────┴─────────────────────┐
                         │                                           │
-             something CALLS it                     it is PASSED where a
-                        │                            type is written down
+             something CALLS it                      its NAME is read as
+                        │                                   a value
                    infer_call                                │
                         │                                work_out
                         └─────────────► infer_definition ◄──────┘
@@ -597,6 +597,14 @@ caller's own frame and checking set.
 a scheme — and from then on nothing downstream can tell which one made
 it. That is why `called_at` has no second code path.
 
+**A partly annotated `def` goes down the right-hand branch, and what it
+wrote still counts.** `fully_annotated` asks for every parameter *and*
+the return type, so `def f(n: Int):` is deferred; but `monotypes_for`
+then starts the body from the types the source wrote, with a
+metavariable only where nothing was. An annotation is a claim about the
+program wherever it is written, and one on a definition the checker
+infers the rest of is enforced like any other.
+
 ## 15. `infer_definition`, step by step
 
 The heart of the pass. Given a deferred `TFunction`:
@@ -604,7 +612,8 @@ The heart of the pass. Given a deferred `TFunction`:
 ```
  1  body_env   = environment_of(store, tmsym)     where it was WRITTEN
  2  group      = inference_group(node, store)     the SCC (§6)
- 3  monotypes  = monotypes_for(group, store)      (?a…) -> ?r each
+ 3  monotypes  = monotypes_for(group, store)      what the source wrote,
+                                                  ?a for what it did not
  4  mark every member `checking_now`
 
  5  for each member:
@@ -692,6 +701,12 @@ called_at(scheme, call, args, env, tmap, store)
 Step 2 is the one place a type is *built* by a demand rather than
 compared against one. It is what types `f(x)` inside a body where
 nothing has yet said what `f` is.
+
+`work_out` runs wherever a definition's name is read as a value --
+`check_expr`'s `EVar` case, and `fitted` below. Handing a definition
+somewhere is a demand on its type as surely as calling it is, and
+without it the body would never be checked at all: a `def` passed into
+a list, bound to a name, or returned would reach run time unchecked.
 
 ```
 fitted(expected, actual, arg, position, tmap, store)

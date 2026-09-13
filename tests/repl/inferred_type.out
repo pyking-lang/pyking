@@ -1,6 +1,6 @@
 Pyking REPL.  :help for commands, :quit to leave.
 > > id = <function> : (?) -> ?
-> (?) -> ?
+> (a) -> a
 > 5 : Int
 > id = <function> : (a) -> a
 > (a) -> a

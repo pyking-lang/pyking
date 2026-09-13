@@ -106,7 +106,7 @@ repl`) rather than a `--target`.
 | `src/target_js_packaging.ml` | Wraps that output into the files each JS target delivers, and supplies the JavaScript side of the runtime interface. |
 | `src/target_c.ml` | C AST, translation, printer, for both `c89` and `c23` — one backend with a `standard` parameter. Infers types, which C needs and Pyking does not have. |
 | `src/target_java.ml` | Java AST, translation, printer, for `java8`, `java17` and `java21` — one backend with a `version` parameter, the same shape as `target_c.ml`. Infers types the same way; also checks that every function provably returns, since `javac` (unlike C) refuses one that doesn't. |
-| `src/target_ocaml.ml` | OCaml AST, translation, printer. The one backend that infers nothing: it *runs* `typesystem.ml` and reads the types back out of `tmap`, so its subset is exactly what the checker accepts, and a program that does not check is refused with the checker's own message. Emits no type annotations. |
+| `src/target_ocaml.ml` | OCaml AST, translation, printer. The one backend that infers nothing: it *runs* `typesystem.ml` and reads the types back out of `tmap`, so a program that does not check is refused with the checker's own message. Its subset is nearly all of what the checker accepts, less a short list of shapes OCaml cannot be given (target_ocaml.md, "What is not supported"). Emits no type annotations. |
 | `src/interpreter.ml` | The interpreter: runtime values, environments, and a resumable small-step machine over the AST. Runs the fragment the checker accepts, and is the reference for what a program *means* at run time. |
 | `src/repl.ml` | `pyk repl`: a session as a program written one statement at a time — checked as one program, run one statement at a time. |
 | `src/builtin.ml` | The builtins: each one's name, arity, and whether it crosses the host/IO boundary. Backend-agnostic. |
@@ -645,8 +645,8 @@ own page:
 - **[target_python.md](target_python.md)** — `python`.
 - **[target_js.md](target_js.md)** — `node24`, `web24` and `iweb24`.
 - **[target_c.md](target_c.md)** — `c89`, `c23`.
-- **[target_ocaml.md](target_ocaml.md)** — `ocaml5.5`. The subset that
-  type-checks, compiled with no annotations.
+- **[target_ocaml.md](target_ocaml.md)** — `ocaml5.5`. Nearly the whole
+  subset that type-checks, compiled with no annotations.
 - **[target_java.md](target_java.md)** — `java8`, `java17`, `java21`.
 
 Two differences are worth knowing before reading further, and neither is
@@ -670,10 +670,12 @@ quotient in JavaScript, whose `/` is float division. No target refuses
 it, and all of them answer `-3` for `-7 / 2`.
 
 The `ocaml5.5` target is the odd one out in a more interesting way: its
-subset is not a list this backend maintains but the type checker's, run
-for real. A program it accepts is one `typesystem.ml` accepted, which
-also means the subset grows when the checker does, without the backend
-being touched.
+subset starts from the type checker's, run for real, rather than from a
+list this backend maintains. A program it accepts is one
+`typesystem.ml` accepted, which also means the subset grows when the
+checker does, without the backend being touched — unless the new
+construct is one of the few OCaml has no way to be given, which
+[target_ocaml.md](target_ocaml.md) lists.
 
 The interpreter (`pyk <file>`) shares that arrangement: it runs the checker
 and then the program, so its coverage grows with the checker's too. It is

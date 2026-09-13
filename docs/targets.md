@@ -40,7 +40,7 @@ test harness all read it from there.
 | `java8` | | [Java](target_java.md) | `Foo.java` | `javac --release 8 Foo.java && java Foo` | subset, minus `/` |
 | `java17` | | [Java](target_java.md) | `Foo.java` | `javac --release 17 Foo.java && java Foo` | subset, minus `/` |
 | `java21` | `java` | [Java](target_java.md) | `Foo.java` | `javac --release 21 Foo.java && java Foo` | subset, minus `/` |
-| `ocaml5.5` | `ocaml` | [OCaml](target_ocaml.md) | `foo.ml` | `ocamlopt foo.ml -o foo && ./foo` | whatever type-checks |
+| `ocaml5.5` | `ocaml` | [OCaml](target_ocaml.md) | `foo.ml` | `ocamlopt foo.ml -o foo && ./foo` | almost everything that type-checks |
 | `pyking` | | *(the front end itself)* | `foo.pyk` | `pyk foo.pyk` | everything |
 | *(none — `pyk foo.pyk`)* | | [the interpreter](source.md#interpreterml) | nothing | `pyk foo.pyk` | whatever type-checks |
 
@@ -125,10 +125,11 @@ always accept exactly the same programs:
   (`src/target_java.ml`) with a `version` parameter, the same shape as
   the C family. They differ only in how the same Java is printed.
 - **[OCaml](target_ocaml.md)** — `ocaml5.5`. One backend
-  (`src/target_ocaml.ml`), and the only family with one member. Its
-  subset is not a list of constructs but a *stage*: it compiles exactly
-  what the type checker accepts, by running it and reading the types
-  back.
+  (`src/target_ocaml.ml`), and the only family with one member. It
+  starts from a *stage* rather than a list of constructs — it runs the
+  type checker and reads the types back — and takes away a short list
+  of shapes OCaml cannot be given, which
+  [target_ocaml.md](target_ocaml.md) keeps.
 - **The interpreter** — `pyk <file>`, `pyk repl`. Not a family and not a
   backend: `src/interpreter.ml` runs the AST on a small-step machine
   instead of translating it. Like `ocaml5.5`, its subset is the type
@@ -196,18 +197,18 @@ testing — could be built end to end before the language surface grew:
 | feature | python | javascript | c | java | ocaml |
 |---|---|---|---|---|---|
 | `print` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `def`, parameters, `return`, recursion | ✅ | ✅ | ✅ | ✅ | ✅ (annotations required) |
+| `def`, parameters, `return`, recursion | ✅ | ✅ | ✅ | ✅ | ✅ |
 | forward references, mutual recursion | ✅ | ✅ | ✅ (prototypes emitted) | ✅ | ✅ (`let rec … and …`; the `def`s must be adjacent) |
 | a block on its header's own line (`def f(x): expr`) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | tail position (last statement is the value) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `return if c:` / `return match e:` | ✅ | ✅ (`if` only) | ✅ (`if` only) | ✅ (`if` only) | ✅ (`if` only) |
+| `return if c:` / `return match e:` | ✅ | ✅ (`if` only) | ✅ (`if` only) | ✅ (`if` only) | ✅ |
 | unit-returning functions (`void`) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `if` / `else if` / `else`, `while` | ✅ | ✅ | ✅ | ✅ | ✅ (`if` only) |
+| `if` / `else if` / `else`, `while` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `loop`, `break`, `continue` | ✅ | ✅ | ✅ | ✅ | ✅ (a local `let rec`, applied at once) |
-| `for x in e:` | ✅ | ✅ (`for…of`) | ❌ (needs lists) | ❌ (same) | ❌ (not built yet) |
-| `while c:` | ✅ | ✅ | ✅ | ✅ | ❌ |
-| … with an accumulator (`loop a = 0 while c:`) | ✅ | ✅ | ✅ | ✅ | ❌ |
-| a loop whose *value* is taken and is `()` or a tuple | ✅ | ✅ | ❌ (no value for either) | ❌ (same) | ✅ (unit only) |
+| `for x in e:` | ✅ | ✅ (`for…of`) | ❌ (needs lists) | ❌ (same) | ✅ (a local `let rec` walking the list) |
+| `while c:` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| … with an accumulator (`loop a = 0 while c:`) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| a loop whose *value* is taken and is `()` or a tuple | ✅ | ✅ | ❌ (no value for either) | ❌ (same) | ✅ |
 | tail calls run in constant space | ✅ | ✅ | ✅ | ✅ | ✅ (natively; the pass is skipped) |
 | … for a program the type checker accepts | always: every program is checked | same | same | same | n/a |
 | `=`, `var`, `:=` | ✅ | ✅ | ✅ | ✅ | ✅ (`var` is a `ref`) |
@@ -216,16 +217,18 @@ testing — could be built end to end before the language surface grew:
 | integers, strings, booleans | ✅ | ✅ | ✅ | ✅ | ✅ |
 | floats (IEEE 754 binary64) | ✅ | ✅ (typed at the print site: a JS number cannot say which it is) | ✅ (`double`) | ✅ (`double`) | ✅ (`+. -. *. /.`) |
 | `float(n)` / `int(x)` | ✅ | ✅ | ✅ (casts) | ✅ (casts) | ✅ |
-| `+ - *`, unary minus, comparisons | ✅ | ✅ | ✅ | ✅ | ✅ (no unary minus) |
+| `+ - *`, unary minus, comparisons | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `++` (string concatenation) | ✅ | ✅ | ✅ (a generated `pyk_concat`) | ✅ (Java's own `+`) | ✅ (`^`) |
 | type variables (`def id(x:a) -> a`) | ✅ | ✅ | ❌ (one concrete type per function) | ❌ (same) | ✅ (OCaml generalizes a `let` itself) |
 | … a polymorphic *parameter* (`all x. (x) -> x`) | ✅ | ✅ | ❌ | ❌ | ❌ (needs an explicit `'a.`) |
+| printing a value of a type variable | ✅ | ✅ | ❌ | ❌ | ✅ where every call in the module settles it, else ❌ (no runtime type) |
+| a `match` no arm takes, where its value is taken | ✅ (the arm's value, or unit) | ✅ (same) | ❌ | ❌ | ❌ (unit and the arm's type are two types) |
 | `def name : type` on a line of its own | ✅ | ✅ | ✅ | ✅ | ✅ |
 | unary minus | ✅ | ✅ | ✅ | ✅ | ✅ |
 | lists, list comprehensions | ✅ | ✅ | ❌ (no heap value model) | ❌ (same) | ✅ (OCaml's own lists) |
 | `match` over scalars | ✅ | ✅ | ✅ (an if/else chain) | ✅ (same) | ✅ (OCaml's own `match`) |
 | `match` over lists and tuples | ✅ | ✅ | ❌ | ❌ | ✅ |
-| … a list pattern with elements after `..` | ✅ | ✅ | ❌ | ❌ | ❌ (`::` matches from the front) |
+| … a list pattern with elements after `..` | ✅ | ✅ | ❌ | ❌ | ✅ (a `when` guard, bound by position) |
 | operands and arguments evaluate left to right | ✅ (the host's own rule) | ✅ (same) | ✅ (unspecified in C: temporaries and the comma operator pin it down where two operands can print) | ✅ (the host's own rule) | ✅ (unspecified in OCaml: `let` pins it down, same rule) |
 | `/` (integer division, truncating) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `/` (IEEE float division) | ✅ (a helper: Python raises on a zero divisor where IEEE answers) | ✅ | ✅ | ✅ | ✅ |
@@ -234,12 +237,9 @@ testing — could be built end to end before the language surface grew:
 | a function reading a binding from around it (a closure) | ✅ | ✅ | ❌ (no closures) | ❌ (no closures) | ✅ |
 | a function *writing* a `var` from around it | ✅ (`global`/`nonlocal`) | ✅ | ❌ (same) | ❌ (same) | ✅ (the `ref` it closes over) |
 | a `def` inside a loop, keeping that turn's values | ✅ (a per-turn factory) | ✅ (a per-turn `const`) | ❌ | ❌ | ✅ |
-| lists | ✅ | ❌ | ❌ | ❌ | ❌ |
 | tuples, destructuring | ✅ | ✅ (arrays) | ❌ | ❌ | ✅ |
-| `for`, `match`/`case`, patterns | ✅ | ❌ | ❌ | ❌ | ❌ |
-| list comprehensions | ✅ | ❌ | ❌ | ❌ | ❌ |
-| value-form `x = if c:` / `x = match e:` | ✅ | ❌ | ❌ | ❌ | ✅ (`if` only) |
-| `str`, `len`, `range` | ✅ | ❌ (refused at compile time) | ❌ | ❌ | ✅ (`range` takes one argument) |
+| value-form `x = if c:` / `x = match e:` | ✅ | ❌ | ❌ | ❌ | ✅ |
+| `str`, `len`, `range` | ✅ | ❌ (refused at compile time) | ❌ | ❌ | ✅ |
 | nested `def` | ✅ | ✅ | ❌ | ❌ | ✅ |
 | function must provably return on every path | n/a | n/a | n/a | ✅ (`javac` requires it; refused at compile time otherwise) | n/a |
 | modules: `import`, `from`, `public` | ✅ (Python's own `import`) | ✅ (one ES module each, `node` and `web` alike) | ✅ (one translation unit and a header each) | ✅ (one class each) | ✅ (one module and a `.mli` each) |
@@ -257,11 +257,14 @@ top level runs once, the first time something imports it, and imports
 resolve before the importing file runs. There is nothing for the program
 to arrange and no `init` to call.
 
-The `ocaml5.5` column is the type checker's coverage, not a list this
-backend maintains: it compiles what `src/typesystem.ml` accepts, so the
-two move together. That is also why it is the one target whose subset
-grows without touching the backend — and why a `def` there must be
-annotated, which no other target requires.
+The `ocaml5.5` column starts from the type checker's coverage: the
+backend runs `src/typesystem.ml` and reads the types back, so a program
+the checker refuses is refused here first, in the checker's own words.
+What it takes away is the short list in
+[target_ocaml.md](target_ocaml.md), "What is not supported" — five
+shapes OCaml has no way to be given. A construct the checker starts
+accepting therefore reaches this target without touching the backend,
+unless it is one of those.
 
 A program outside a target's subset is refused at compile time, with a
 source position, rather than emitted as code that will not build:

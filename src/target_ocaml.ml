@@ -1,11 +1,13 @@
-(** The OCaml code-generation backend. Unlike the other backends, its
-    subset is exactly what typesystem.ml accepts: rather than inferring
-    types, this module reads translated expressions' types out of the
-    checker's tmap, which pyk.ml fills and hands it -- so a program that
-    does not type-check is refused before translation begins. It is also
-    the one target compiled from the program as *written*: OCaml
+(** The OCaml code-generation backend. Unlike the other backends, it
+    infers no types of its own: it reads translated expressions' types
+    out of the checker's tmap, which pyk.ml fills and hands it -- so a
+    program that does not type-check is refused before translation
+    begins. Its subset is nearly all of what typesystem.ml accepts, less
+    a short list of shapes OCaml cannot be given, each refused with a
+    source position (docs/target_ocaml.md, "What is not supported"). It
+    is also the one target compiled from the program as *written*: OCaml
     eliminates tail calls itself, so pyk.ml skips opt_tailcall.ml here
-    rather than have a rewrite this module would only undo. Translated
+    rather than have a rewrite this module would only undo.
     See docs/target_ocaml.md.
 
     Data structures:
@@ -39,6 +41,12 @@ let interface_extension = ".mli"
     the source position, like the other stages' errors. *)
 exception Unsupported of info * string
 
+(* Raised where a `return` leaves a loop whose value is wanted where it
+   stands: `function_binding` answers it by translating the body again
+   with an escape in scope (docs/target_ocaml.md, "Leaving a function
+   early"). *)
+exception Needs_escape
+
 (** Raises Unsupported at info with message. info -> string -> 'a *)
 let unsupported info message = raise (Unsupported (info, message))
 
@@ -65,7 +73,7 @@ type oexpr =
   | OTuple of oexpr list
   | OList of oexpr list
   | ONeg of string * oexpr (* `-` on an int, `-.` on a float *)
-  | OMatch of oexpr * (string * oexpr) list
+  | OMatch of oexpr * (string * oexpr option * oexpr) list
       (* the arms are (pattern text, body), in source order *)
   | OFun of (string * oexpr) list
       (* OCaml's `function`: a lambda that matches its one argument *)
@@ -77,6 +85,10 @@ type oexpr =
   | ODeref of string (* !x -- reading one *)
   | OAssign of string * oexpr (* x := e -- writing one *)
   | OIgnore of oexpr (* ignore (expr) *)
+  | OEscape of string * string * string * oexpr
+      (* a function body a `return` leaves early: the exception it is
+         left by, the cell the value is put in, the name the value comes
+         back under, and the body *)
 
 and obinding = { bound : opattern; params : opattern list; value : oexpr }
 
@@ -93,6 +105,7 @@ type oprogram = {
   needs_list_printer : bool;
   needs_quote : bool;
   needs_float : bool;
+  needs_range : bool;
   program_name : string;
   main : bool;
   interface : (string * string) list;
@@ -252,8 +265,7 @@ let is_string t = match t with TString _ -> true | _ -> false
 let is_bool t = match t with TBool _ -> true | _ -> false
 let is_unit t = match t with TTuple (_, [], _) -> true | _ -> false
 
-let is_int_list t =
-  match t with TList (_, TInt _, _) -> true | _ -> false
+let is_list t = match t with TList _ -> true | _ -> false
 
 (** t as it would be written in source. typ -> string *)
 let name_of t = pprint_type default_config t
@@ -332,13 +344,21 @@ let rec free e =
          printed text by the time it is here -- so what an arm reads from
          outside is over-reported rather than under-reported, which is
          the safe direction for `let rec` grouping. *)
-      union_all (free subject :: List.map (fun (_, b) -> free b) arms)
+      union_all
+        (free subject
+        :: List.map
+             (fun (_, guard, b) ->
+               match guard with
+               | None -> free b
+               | Some guard -> StringSet.union (free guard) (free b))
+             arms)
   | OFun arms -> union_all (List.map (fun (_, b) -> free b) arms)
   | OBin (_, left, right) -> StringSet.union (free left) (free right)
   | OIf (cond, then_, else_) ->
       let found = StringSet.union (free cond) (free then_) in
       (match else_ with None -> found | Some e -> StringSet.union found (free e))
   | OSeq (first, rest) -> StringSet.union (free first) (free rest)
+  | OEscape (_, cell, _, inner) -> StringSet.remove cell (free inner)
   | OLet (bindings, body, recursive) ->
       let names =
         union_all
@@ -383,6 +403,9 @@ type oloop = {
   loop_accumulator : oexpr;
   carries : bool;
   returning : bool;
+  (* What is left of a `for`'s sequence, which the next turn walks on
+     from; nothing for a loop written without one. *)
+  walking : oexpr option;
 }
 
 (** Where a block's value goes: a function's, nowhere, or the
@@ -400,6 +423,14 @@ type ctx = {
   refs : StringSet.t;
   (* The `loop`s being translated, innermost last. *)
   loops : oloop list;
+  (* What each definition's type variables turned out to be, and those
+     of the one being translated now. *)
+  specialisations : (string * typ) list IntMap.t;
+  specialised : (string * typ) list;
+  (* The exception a `return` raises to leave the function it is in, and
+     the cell it leaves its value in; absent until a body is found to
+     need one. *)
+  escape : (string * string) option;
   (* What each name a module was imported under actually names, so that
      `nm.sum` finds the module `numerical`. *)
   modules : (string * string) list;
@@ -419,6 +450,7 @@ type acc = {
   needs_quote : bool;
   needs_list_printer : bool;
   needs_float : bool;
+  needs_range : bool;
 }
 
 (** The OCaml name a Pyking name is translated to, as `plan_names`
@@ -470,6 +502,132 @@ let later_functions ctx stmts =
           StringSet.add (mangle ctx name) found
       | _ -> found)
     StringSet.empty stmts
+
+(** The names a statement binds where the rest of its block can see
+    them, which is what makes moving a `def` past it change what that
+    `def` reads. stmt -> StringSet.t *)
+let bound_names stmt =
+  let rec target_names target =
+    match target with
+    | TargetName (_, name, _) -> [ name ]
+    | TargetTuple (_, parts, _) -> List.concat_map target_names parts
+  in
+  match stmt with
+  | SLet (_, target, _, _, _, _) | SLetStmt (_, target, _, _, _, _) ->
+      StringSet.of_list (target_names target)
+  | SVar (_, name, _, _) -> StringSet.singleton name
+  | SFunctionDef (_, name, _, _, _, _, _) -> StringSet.singleton name
+  | _ -> StringSet.empty
+
+(** stmts with every group of `def`s that name each other made
+    consecutive, which is what `let rec ... and ...` needs: a `def`
+    naming one written further down is moved to join it. A `def` binds
+    no value and runs nothing, so moving one changes nothing -- unless
+    something it moves past rebinds a name its body reads, which is
+    refused. Only this list is reordered; a nested block is its own.
+    [stmt] -> [stmt] *)
+let regroup stmts =
+  let all = Array.of_list stmts in
+  let count = Array.length all in
+  let def_name index =
+    match all.(index) with
+    | SFunctionDef (_, name, _, _, _, _, _) -> Some name
+    | _ -> None
+  in
+  let defs = List.filter (fun i -> def_name i <> None) (List.init count Fun.id) in
+  (* Over-reported on purpose: a name the body binds itself only puts two
+     definitions in one group, which is always safe to write together. *)
+  let reads = List.map (fun i -> (i, collect_identifiers [ all.(i) ])) defs in
+  (* Only a reference *forward* makes a group: one written further down
+     is already in scope where OCaml reads it, so a `def` naming an
+     earlier one needs nothing done to it. *)
+  let names_one_another i j =
+    let forward earlier later =
+      match def_name later with
+      | Some other -> StringSet.mem other (List.assoc earlier reads)
+      | None -> false
+    in
+    if i < j then forward i j else forward j i
+  in
+  let rec close group =
+    let grown =
+      List.filter
+        (fun d ->
+          List.mem d group || List.exists (fun g -> names_one_another d g) group)
+        defs
+    in
+    if List.length grown = List.length group then group else close grown
+  in
+  let rec components left made =
+    match left with
+    | [] -> made
+    | first :: _ ->
+        let group = close [ first ] in
+        components
+          (List.filter (fun d -> not (List.mem d group)) left)
+          (made @ [ group ])
+  in
+  let made = components defs [] in
+  let joins = List.filter (fun group -> List.length group > 1) made in
+  if joins = [] then stmts
+  else
+    let place =
+      List.concat_map
+        (fun group ->
+          let last = List.fold_left max 0 group in
+          List.map (fun index -> (index, last, group)) group)
+        joins
+    in
+    List.iter
+      (fun (index, last, group) ->
+        let between =
+          List.filter
+            (fun j -> j > index && j <= last && not (List.mem j group))
+            (List.init count Fun.id)
+        in
+        let passed =
+          List.fold_left
+            (fun found j -> StringSet.union found (bound_names all.(j)))
+            StringSet.empty between
+        in
+        let mine = Option.value (def_name index) ~default:"" in
+        let refuse reason =
+          unsupported (stmt_info all.(index))
+            (String.concat ""
+               [
+                 Printf.sprintf "`%s` names a `def` written further down: " mine;
+                 "OCaml binds a group of mutually recursive functions with ";
+                 "`let rec ... and ...`, which has to be written together, ";
+                 "and this one cannot be moved down to join it -- ";
+                 reason;
+               ])
+        in
+        (* Moved past something that names it, it would be read before it
+           is written; moved past something that binds a name its body
+           reads, it would be given the later binding. *)
+        if
+          List.exists
+            (fun j -> StringSet.mem mine (collect_identifiers [ all.(j) ]))
+            between
+        then refuse (Printf.sprintf "`%s` is named in between" mine);
+        let shadowed = StringSet.inter passed (List.assoc index reads) in
+        match StringSet.elements shadowed with
+        | [] -> ()
+        | first :: _ ->
+            refuse
+              (Printf.sprintf
+                 "`%s` is bound again in between, so moving it would give it the later one"
+                 first))
+      place;
+    let key index =
+      match List.find_opt (fun (i, _, _) -> i = index) place with
+      | Some (_, last, _) -> last
+      | None -> index
+    in
+    List.map snd
+      (List.stable_sort
+         (fun (a, _) (b, _) -> compare (key a) (key b))
+         (List.mapi (fun index stmt -> (index, stmt)) stmts))
 
 (** Raises Unsupported if a def in run names one in later with something
     other than a def in between (docs/target_ocaml.md, "A def naming one
@@ -554,8 +712,196 @@ let quote s =
   Buffer.add_char buffer '"';
   Buffer.contents buffer
 
+(** type_ with each named variable replaced by what it turned out to be.
+    (string, typ) list -> typ -> typ *)
+let rec substituted bindings type_ =
+  if bindings = [] then type_
+  else
+    match type_ with
+    | TVar (_, name, _, true) -> (
+        match List.assoc_opt name bindings with
+        | Some found -> found
+        | None -> type_)
+    | TList (info, element, sym) ->
+        TList (info, substituted bindings element, sym)
+    | TTuple (info, elements, sym) ->
+        TTuple (info, List.map (substituted bindings) elements, sym)
+    | TFunction (info, params, result, sym, tmsym, node) ->
+        TFunction
+          ( info,
+            List.map (substituted bindings) params,
+            substituted bindings result,
+            sym,
+            tmsym,
+            node )
+    | TForall (info, vars, inner, sym) ->
+        TForall (info, vars, substituted bindings inner, sym)
+    | type_ -> type_
+
 (** The type the checker gave this expression. ctx -> expr -> typ *)
-let type_of ctx e = IntMap.find (expr_sym e) ctx.tmap
+let type_of ctx e =
+  let found = IntMap.find (expr_sym e) ctx.tmap in
+  substituted ctx.specialised found
+
+(* --- specialising a definition that prints a type variable ---
+
+   OCaml has no runtime type, so a value of a type variable cannot be
+   printed there at all. A definition every caller in this module uses at
+   one type is compiled at that type instead, which is what the four
+   `print`s of a parameter in the suite need. See
+   docs/target_ocaml.md, "Printing a polymorphic value". *)
+
+(** every variable in type_, in order of first appearance.
+    typ -> [string] *)
+let rec variables_in type_ =
+  match type_ with
+  | TVar (_, name, _, true) -> [ name ]
+  | TList (_, element, _) -> variables_in element
+  | TTuple (_, elements, _) -> List.concat_map variables_in elements
+  | TFunction (_, params, result, _, _, _) ->
+      List.concat_map variables_in params @ variables_in result
+  | TForall (_, _, inner, _) -> variables_in inner
+  | _ -> []
+
+(** What declared's variables have to be for it to be actual. `None`
+    where the two disagree about one of them.
+    typ -> typ -> (string, typ) list -> (string, typ) list option *)
+let rec matched declared actual found =
+  match (declared, actual) with
+  | TForall (_, _, inner, _), _ -> matched inner actual found
+  | _, TForall (_, _, inner, _) -> matched declared inner found
+  | TVar (_, name, _, true), _ -> (
+      match List.assoc_opt name found with
+      | None -> Some (found @ [ (name, actual) ])
+      | Some already ->
+          if Typesystem.same_type already actual then Some found else None)
+  | TList (_, mine, _), TList (_, theirs, _) -> matched mine theirs found
+  | TTuple (_, mine, _), TTuple (_, theirs, _)
+    when List.length mine = List.length theirs ->
+      List.fold_left2
+        (fun found mine theirs ->
+          match found with None -> None | Some found -> matched mine theirs found)
+        (Some found) mine theirs
+  | TFunction (_, mine, my_result, _, _, _),
+    TFunction (_, theirs, their_result, _, _, _)
+    when List.length mine = List.length theirs ->
+      let found =
+        List.fold_left2
+          (fun found mine theirs ->
+            match found with
+            | None -> None
+            | Some found -> matched mine theirs found)
+          (Some found) mine theirs
+      in
+      (match found with
+      | None -> None
+      | Some found -> matched my_result their_result found)
+  | _ -> Some found
+
+(** One `def` per name in stmts, and only where that name is never used
+    except as the callee of a call -- the two things that make reading
+    a definition's instantiations off its call sites safe.
+    [stmt] -> IntMap key is the def's symbol.
+    [stmt] -> (string, stmt) list *)
+let callable_definitions stmts =
+  let counted =
+    Walk.fold_stmts
+      (fun found node ->
+        match node with
+        | Walk.NStmt (SFunctionDef (_, name, _, _, _, _, _) as node) ->
+            (name, node) :: found
+        | _ -> found)
+      [] stmts
+  in
+  let names = List.map fst counted in
+  let once name = List.length (List.filter (fun n -> n = name) names) = 1 in
+  List.filter (fun (name, _) -> once name) counted
+
+(** Every call in stmts, as (callee name, arguments).
+    [stmt] -> (string, [expr]) list *)
+let calls_in stmts =
+  Walk.fold_stmts
+    (fun found node ->
+      match node with
+      | Walk.NExpr (ECall (_, EVar (_, name, _), args, _)) -> found @ [ (name, args) ]
+      | _ -> found)
+    [] stmts
+
+(** Whether name is read anywhere but as the callee of a call: a
+    definition handed somewhere is used at whatever type that place
+    wants, which its call sites do not say. [stmt] -> string -> bool *)
+let used_as_value stmts name =
+  let callees =
+    Walk.fold_stmts
+      (fun found node ->
+        match node with
+        | Walk.NExpr (ECall (_, (EVar (_, called, _) as callee), _, _))
+          when called = name ->
+            expr_sym callee :: found
+        | _ -> found)
+      [] stmts
+  in
+  Walk.exists_stmts
+    (fun node ->
+      match node with
+      | Walk.NExpr (EVar (_, read, sym)) ->
+          read = name && not (List.mem sym callees)
+      | _ -> false)
+    stmts
+
+(** What each definition's type variables turn out to be, where every
+    call in the module agrees and nothing else uses the name. A
+    definition no entry names is compiled as written.
+    [stmt] -> typ IntMap.t -> (string, typ) list IntMap.t *)
+let specialisations stmts tmap =
+  let calls = calls_in stmts in
+  List.fold_left
+    (fun found (name, node) ->
+      let sym = stmt_sym node in
+      match IntMap.find_opt sym tmap with
+      | None -> found
+      | Some declared ->
+          if variables_in declared = [] || used_as_value stmts name then found
+          else
+            let params =
+              match declared with
+              | TForall (_, _, TFunction (_, params, _, _, _, _), _)
+              | TFunction (_, params, _, _, _, _) ->
+                  params
+              | _ -> []
+            in
+            let mine = List.filter (fun (called, _) -> called = name) calls in
+            if mine = [] then found
+            else
+              let settled =
+                List.fold_left
+                  (fun settled (_, args) ->
+                    match settled with
+                    | None -> None
+                    | Some settled ->
+                        if List.length args <> List.length params then None
+                        else
+                          List.fold_left2
+                            (fun settled param arg ->
+                              match (settled, IntMap.find_opt (expr_sym arg) tmap) with
+                              | None, _ -> None
+                              | Some settled, None -> Some settled
+                              | Some settled, Some actual ->
+                                  matched param actual settled)
+                            (Some settled) params args)
+                  (Some []) mine
+              in
+              (match settled with
+              | None -> found
+              | Some settled ->
+                  if
+                    List.for_all
+                      (fun v -> List.mem_assoc v settled)
+                      (variables_in declared)
+                  then IntMap.add sym settled found
+                  else found))
+    IntMap.empty (callable_definitions stmts)
+
 
 (* The prelude this backend has (docs/target_ocaml.md, "Builtins"): two
    printers for what OCaml has no printing of its own for. *)
@@ -614,6 +960,24 @@ let float_helper_def =
       "      else";
       "        sign ^ String.sub digits 0 decpt ^ \".\"";
       "        ^ String.sub digits decpt (len - decpt)";
+    ]
+
+let range_helper = "pyk_range"
+
+(* builtin.ml's rule, in OCaml: the Ints from start up to but not
+   including stop, stepping by step. `List.init` covers the one-argument
+   form on its own, so only the other two reach this. *)
+let range_helper_def =
+  String.concat "\n"
+    [
+      Printf.sprintf "let %s start stop step =" range_helper;
+      "  if step = 0 then failwith \"'range' step must not be zero\";";
+      "  let rec go n out =";
+      "    if (step > 0 && n >= stop) || (step < 0 && n <= stop) then";
+      "      List.rev out";
+      "    else go (n + step) (n :: out)";
+      "  in";
+      "  go start []";
     ]
 
 let quote_helper = "pyk_quote"
@@ -855,6 +1219,12 @@ and string_of ctx acc type_ translated info top =
     match type_ with
     | TList (_, element, _) -> list_string ctx acc element translated info
     | TTuple (_, elements, _) -> tuple_string ctx acc elements translated info
+    | TVar (_, _, _, false) ->
+        (* Nothing ever constrained this type, so no value of it was
+           made and this formatter is never reached. Answering without
+           naming a type leaves the generated OCaml as polymorphic as
+           the Pyking it came from. *)
+        (OSeq (OIgnore translated, OStr ""), acc)
     | type_ ->
         unsupported info
           (Printf.sprintf "printing a value of type %s" (name_of type_))
@@ -930,64 +1300,253 @@ and builtin_call ctx acc call name args =
       let type_ = type_of ctx value in
       let o_value, acc = expr ctx acc value in
       if is_string type_ then (OApp (OVar "String.length", [ o_value ]), acc)
-      else if is_int_list type_ then
+      else if is_list type_ then
         (OApp (OVar "List.length", [ o_value ]), acc)
       else
         unsupported (expr_info call)
           (Printf.sprintf "`len` of a value of type %s" (name_of type_)))
   | "range", [ count ] ->
+      (* `List.init` refuses a negative length where `range` answers with
+         nothing, so the count is floored here. *)
       let o_count, acc = expr ctx acc count in
-      (OApp (OVar "List.init", [ o_count; OVar "Fun.id" ]), acc)
-  | "range", _ ->
-      unsupported (expr_info call)
-        "`range` with more than one argument is not supported yet"
+      ( OApp
+          (OVar "List.init", [ OApp (OVar "max", [ OInt 0; o_count ]); OVar "Fun.id" ]),
+        acc )
+  | "range", ([ _; _ ] | [ _; _; _ ]) ->
+      let ordered, pin, acc = in_order ctx acc args in
+      let start, stop, step =
+        match ordered with
+        | [ start; stop ] -> (start, stop, OInt 1)
+        | [ start; stop; step ] -> (start, stop, step)
+        | _ -> (OUnit, OUnit, OUnit)
+      in
+      ( pin (OApp (OVar range_helper, [ start; stop; step ])),
+        { acc with needs_range = true } )
   | _ ->
       unsupported (expr_info call)
         (Printf.sprintf "the builtin `%s` is not supported yet" name)
 
-(** One Pyking pattern as OCaml pattern text. OCaml's own patterns line
-    up with Pyking's, so this is a spelling change rather than a
-    translation: `..` is `_`, `..name` is `name`, and a list is written
-    with `::` where a rest marker splits it. `used` is what the arm
-    reads; a name it does not is written `_name`, the same convention an
-    unread `let` binding follows, since this target is built
-    warning-free. ctx -> pattern -> StringSet.t option -> string *)
-and pattern ctx p used =
+(** One Pyking pattern as OCaml pattern text, plus the two things OCaml
+    cannot say there: the conditions the arm has to test with `when`,
+    and the bindings its body has to open with. OCaml's own patterns
+    line up with Pyking's for everything else, so that part is a
+    spelling change rather than a translation: `..` is `_`, `..name` is
+    `name`, and a list is written with `::` where a rest marker splits
+    it. `used` is what the arm reads; a name it does not is written
+    `_name`, the same convention an unread `let` binding follows, since
+    this target is built warning-free.
+    ctx -> acc -> pattern -> StringSet.t option
+    -> ((string, [oexpr], [(string, oexpr)]), acc) *)
+and matcher ctx acc p used =
+  let plain text = ((text, [], []), acc) in
   match p with
-  | PWildcard _ -> "_"
-  | PCapture (_, name, _) -> unread (mangle ctx name) used
+  | PWildcard _ -> plain "_"
+  | PCapture (_, name, _) -> plain (unread (mangle ctx name) used)
   | PInt (_, value, _) ->
-      if value >= 0 then string_of_int value else Printf.sprintf "(%d)" value
-  | PString (_, value, _) -> quote value
-  | PBool (_, value, _) -> if value then "true" else "false"
+      plain
+        (if value >= 0 then string_of_int value
+         else Printf.sprintf "(%d)" value)
+  | PString (_, value, _) -> plain (quote value)
+  | PBool (_, value, _) -> plain (if value then "true" else "false")
   | PTuple (_, elements, _) ->
-      Printf.sprintf "(%s)"
-        (String.concat ", " (List.map (fun e -> pattern ctx e used) elements))
-  | PText _ ->
-      unsupported (pattern_info p)
-        "a `++` pattern over a string -- OCaml's patterns do not split a \
-         string, and doing it with a guard would need a `when` clause this \
-         backend does not build"
+      let parts, guards, extracts, acc =
+        List.fold_left
+          (fun (parts, guards, extracts, acc) element ->
+            let (text, element_guards, element_extracts), acc =
+              matcher ctx acc element used
+            in
+            ( parts @ [ text ],
+              guards @ element_guards,
+              extracts @ element_extracts,
+              acc ))
+          ([], [], [], acc) elements
+      in
+      ( ( Printf.sprintf "(%s)" (String.concat ", " parts),
+          guards,
+          extracts ),
+        acc )
+  | PText (_, prefix, middle, suffix, _) ->
+      (* OCaml's patterns do not split a string, so the whole subject is
+         bound and taken apart by the guard and the body: the length
+         test comes first, which is what makes the `String.sub`s below
+         it safe. *)
+      let name, acc = fresh_name ctx acc in
+      let subject = OVar name in
+      let length = OApp (OVar "String.length", [ subject ]) in
+      let front = String.length prefix and back = String.length suffix in
+      let guards =
+        [ OBin (">=", length, OInt (front + back)) ]
+        @ (if front = 0 then []
+           else
+             [ OBin
+                 ( "=",
+                   OApp (OVar "String.sub", [ subject; OInt 0; OInt front ]),
+                   OStr prefix ) ])
+        @
+        if back = 0 then []
+        else
+          [ OBin
+              ( "=",
+                OApp
+                  ( OVar "String.sub",
+                    [ subject; OBin ("-", length, OInt back); OInt back ] ),
+                OStr suffix ) ]
+      in
+      let extracts =
+        match middle with
+        | None -> []
+        | Some middle ->
+            [ ( unread (mangle ctx middle) used,
+                OApp
+                  ( OVar "String.sub",
+                    [
+                      subject;
+                      OInt front;
+                      OBin ("-", OBin ("-", length, OInt back), OInt front);
+                    ] ) );
+            ]
+      in
+      ((name, guards, extracts), acc)
   | PList (_, prefix, rest, suffix, _) -> (
       match rest with
       | None ->
-          Printf.sprintf "[%s]"
-            (String.concat "; " (List.map (fun e -> pattern ctx e used) prefix))
-      | Some (ListRest (_, rest_name, _)) ->
-          if suffix <> [] then
-            unsupported (pattern_info p)
-              "a list pattern with elements after `..` -- OCaml matches a \
-               list from the front only";
+          let parts, guards, extracts, acc =
+            List.fold_left
+              (fun (parts, guards, extracts, acc) element ->
+                let (text, element_guards, element_extracts), acc =
+                  matcher ctx acc element used
+                in
+                ( parts @ [ text ],
+                  guards @ element_guards,
+                  extracts @ element_extracts,
+                  acc ))
+              ([], [], [], acc) prefix
+          in
+          ( ( Printf.sprintf "[%s]" (String.concat "; " parts),
+              guards,
+              extracts ),
+            acc )
+      | Some (ListRest (_, rest_name, _)) when suffix = [] ->
           let tail =
             match rest_name with
             | None -> "_"
             | Some name -> unread (mangle ctx name) used
           in
-          let heads =
-            String.concat ""
-              (List.map (fun e -> pattern ctx e used ^ " :: ") prefix)
+          let heads, guards, extracts, acc =
+            List.fold_left
+              (fun (heads, guards, extracts, acc) element ->
+                let (text, element_guards, element_extracts), acc =
+                  matcher ctx acc element used
+                in
+                ( heads @ [ text ],
+                  guards @ element_guards,
+                  extracts @ element_extracts,
+                  acc ))
+              ([], [], [], acc) prefix
           in
-          if heads <> "" then Printf.sprintf "(%s%s)" heads tail else tail)
+          let heads = String.concat "" (List.map (fun t -> t ^ " :: ") heads) in
+          ( ( (if heads <> "" then Printf.sprintf "(%s%s)" heads tail else tail),
+              guards,
+              extracts ),
+            acc )
+      | Some (ListRest (_, rest_name, _)) ->
+          (* Elements after `..`: OCaml matches a list from the front
+             only, so the whole subject is bound and every element is
+             taken by position, which needs a pattern a `let` can
+             take. *)
+          let bindable element =
+            match element with
+            | PWildcard _ | PCapture _ -> true
+            | _ -> false
+          in
+          List.iter
+            (fun element ->
+              if not (bindable element) then
+                unsupported (pattern_info element)
+                  "an element of a list pattern with elements after `..`: \
+                   this backend binds those by position, so each one has to \
+                   be a plain name")
+            (prefix @ suffix);
+          let name, acc = fresh_name ctx acc in
+          let subject = OVar name in
+          let count = OApp (OVar "List.length", [ subject ]) in
+          let front = List.length prefix and back = List.length suffix in
+          let at index element extracts =
+            match element with
+            | PCapture (_, bound, _) ->
+                extracts
+                @ [
+                    ( unread (mangle ctx bound) used,
+                      OApp (OVar "List.nth", [ subject; index ]) );
+                  ]
+            | _ -> extracts
+          in
+          let extracts =
+            List.fold_left
+              (fun extracts (index, element) -> at index element extracts)
+              []
+              (List.mapi (fun i element -> (OInt i, element)) prefix)
+          in
+          let extracts =
+            List.fold_left
+              (fun extracts (index, element) -> at index element extracts)
+              extracts
+              (List.mapi
+                 (fun i element ->
+                   (OBin ("-", count, OInt (back - i)), element))
+                 suffix)
+          in
+          let extracts =
+            match rest_name with
+            | None -> extracts
+            | Some bound ->
+                extracts
+                @ [
+                    ( unread (mangle ctx bound) used,
+                      OApp
+                        ( OVar "List.take",
+                          [
+                            OBin ("-", OBin ("-", count, OInt front), OInt back);
+                            OApp (OVar "List.drop", [ OInt front; subject ]);
+                          ] ) );
+                  ]
+          in
+          ((name, [ OBin (">=", count, OInt (front + back)) ], extracts), acc))
+
+(** One `case` as an OCaml arm: its pattern, what it has to test with
+    `when`, and its body with the bindings the pattern could not make
+    itself opened in front of it.
+    ctx -> acc -> pattern -> oexpr -> ((string, oexpr?, oexpr), acc) *)
+and arm_for ctx acc p body =
+  let (text, guards, extracts), acc = matcher ctx acc p (Some (free body)) in
+  let body =
+    List.fold_left
+      (fun body (name, value) ->
+        OLet ([ { bound = OPatName name; params = []; value } ], body, false))
+      body (List.rev extracts)
+  in
+  let guard =
+    match guards with
+    | [] -> None
+    | first :: rest ->
+        Some (List.fold_left (fun found one -> OBin ("&&", found, one)) first rest)
+  in
+  ((text, guard, body), acc)
+
+(** Whether any arm tests something OCaml's own pattern matching cannot
+    see, which is what makes a catch-all necessary however well the
+    clauses cover. [(string, oexpr?, oexpr)] -> bool *)
+and any_guard arms = List.exists (fun (_, guard, _) -> guard <> None) arms
+
+(** The patterns of the arms OCaml can see: a `when` makes an arm
+    invisible to its exhaustiveness check, so those are the only ones a
+    catch-all has to be decided from.
+    [match_case] -> [(string, oexpr?, oexpr)] -> [pattern] *)
+and unguarded_patterns cases arms =
+  List.filteri
+    (fun index _ ->
+      match List.nth_opt arms index with Some (_, None, _) -> true | _ -> false)
+    (List.map (fun (MatchCase (_, p, _, _)) -> p) cases)
 
 (** The fold for the clauses that are left: `[expr for p in seq if c
     ...]` as nested folds. Each `for` becomes a `List.concat_map` over
@@ -1001,13 +1560,25 @@ and clauses ctx acc clause_list element =
       (OList [ o_element ], acc)
   | CompFor (_, p, sequence, _) :: rest ->
       let inner, acc = clauses ctx acc rest element in
-      let text = pattern ctx p (Some (free inner)) in
-      let arms = [ (text, inner) ] in
+      let (text, guard, inner), acc = arm_for ctx acc p inner in
+      let arms = [ (text, guard, inner) ] in
       let arms =
-        if Typesystem.covers [ p ] then arms else arms @ [ ("_", OList []) ]
+        if guard = None && Typesystem.covers [ p ] then arms
+        else arms @ [ ("_", None, OList []) ]
       in
       let o_sequence, acc = expr ctx acc sequence in
-      (OApp (OVar "List.concat_map", [ OFun arms; o_sequence ]), acc)
+      (* A `function` takes no `when`, so a guarded pattern is matched
+         inside the body instead. *)
+      let taking, acc =
+        match arms with
+        | [ (text, None, inner) ] -> ([ (text, inner) ], acc)
+        | _ when not (any_guard arms) ->
+            (List.map (fun (text, _, inner) -> (text, inner)) arms, acc)
+        | _ ->
+            let name, acc = fresh_name ctx acc in
+            ([ (name, OMatch (OVar name, arms)) ], acc)
+      in
+      (OApp (OVar "List.concat_map", [ OFun taking; o_sequence ]), acc)
   | CompIf (_, condition, _) :: rest ->
       let o_condition, acc = expr ctx acc condition in
       let inner, acc = clauses ctx acc rest element in
@@ -1020,7 +1591,8 @@ and arms ctx acc cases =
   List.fold_left
     (fun (built, acc) (MatchCase (_, p, case_body, _)) ->
       let o_body, acc = body ctx acc case_body in
-      (built @ [ (pattern ctx p (Some (free o_body)), o_body) ], acc))
+      let arm, acc = arm_for ctx acc p o_body in
+      (built @ [ arm ], acc))
     ([], acc) cases
 
 (** A `match` whose value is taken. OCaml requires every value to exist,
@@ -1031,6 +1603,12 @@ and match_value ctx acc stmt =
   | SMatch (_, subject, cases, _) ->
       let o_subject, acc = expr ctx acc subject in
       let o_arms, acc = arms ctx acc cases in
+      (* A `when` hides coverage from OCaml, which then wants an arm for
+         what the checker already proved cannot arrive. *)
+      let o_arms =
+        if Typesystem.covers (unguarded_patterns cases o_arms) then o_arms
+        else o_arms @ [ ("_", None, OApp (OVar "assert", [ OBool false ])) ]
+      in
       (OMatch (o_subject, o_arms), acc)
   | _ -> (OUnit, acc)
 
@@ -1044,13 +1622,13 @@ and match_effects ctx acc stmt =
         List.fold_left
           (fun (built, acc) (MatchCase (_, p, case_body, _)) ->
             let o_body, acc = effects ctx acc case_body in
-            (built @ [ (pattern ctx p (Some (free o_body)), o_body) ], acc))
+            let arm, acc = arm_for ctx acc p o_body in
+            (built @ [ arm ], acc))
           ([], acc) cases
       in
       let o_arms =
-        if Typesystem.covers (List.map (fun (MatchCase (_, p, _, _)) -> p) cases)
-        then o_arms
-        else o_arms @ [ ("_", OUnit) ]
+        if Typesystem.covers (unguarded_patterns cases o_arms) then o_arms
+        else o_arms @ [ ("_", None, OUnit) ]
       in
       let o_subject, acc = expr ctx acc subject in
       (OMatch (o_subject, o_arms), acc)
@@ -1069,6 +1647,7 @@ and effects ctx acc stmts = block ctx acc stmts Effect
     loop body whose value is the next accumulator.
     ctx -> acc -> [stmt] -> position -> (oexpr, acc) *)
 and block ctx acc stmts where =
+  let stmts = regroup stmts in
   match stmts with
   | [] -> (OUnit, acc)
   | first :: rest -> (
@@ -1148,10 +1727,9 @@ and block ctx acc stmts where =
                     o_body (List.rev built),
                   acc )
             | SReturn _ | SReturnStmt _ ->
-                unsupported (stmt_info first)
-                  "a `return` with statements after it: OCaml has no early \
-                   exit, so only a `return` in tail position -- or one \
-                   guarding the rest of the body -- can be compiled"
+                (* Everything after it is unreachable, so the escape is
+                   the whole of what this block is worth. *)
+                escaping ctx acc first
             | SBreak _ | SContinue _ ->
                 unsupported (stmt_info first) no_early_exit
             | _ ->
@@ -1170,18 +1748,46 @@ and last ctx acc statement where =
       | SExprStmt (_, e, _) when tail -> expr ctx acc e
       | SReturn (_, e, _) -> expr ctx acc e
       | SReturnStmt (_, stmt, _) -> value_stmt ctx acc stmt
-      | SIf (_, cond, then_body, else_body, _) ->
+      | SIf (_, cond, then_body, else_body, _) -> (
           let o_cond, acc = expr ctx acc cond in
-          let o_then, acc = block ctx acc then_body where in
-          let o_else, acc =
-            match else_body with
-            | None -> (None, acc)
-            | Some else_body ->
-                let o, acc = block ctx acc else_body where in
-                (Some o, acc)
-          in
-          (OIf (o_cond, o_then, o_else), acc)
-      | SMatch _ when tail -> match_value ctx acc statement
+          match else_body with
+          | None ->
+              (* An `if` with no `else` supplies unit whatever its one
+                 branch ends in, so the branch runs for what it does
+                 (PYKING.md, "Type checking"). *)
+              let o_then, acc = effects ctx acc then_body in
+              (OIf (o_cond, o_then, None), acc)
+          | Some else_body ->
+              let o_then, acc = block ctx acc then_body where in
+              let o_else, acc = block ctx acc else_body where in
+              (OIf (o_cond, o_then, Some o_else), acc))
+      | SMatch (_, _, cases, _)
+        when tail
+             && Typesystem.covers
+                  (List.map (fun (MatchCase (_, p, _, _)) -> p) cases) ->
+          match_value ctx acc statement
+      | SMatch (_, _, cases, _) when tail ->
+          (* A subject no arm takes leaves unit, where an arm that
+             matches leaves what it ends in: two types for one
+             expression, which OCaml has no way to write. *)
+          List.iter
+            (fun (MatchCase (_, _, case_body, _)) ->
+              match List.rev case_body with
+              | SExprStmt (info, e, _) :: _ -> (
+                  match IntMap.find_opt (expr_sym e) ctx.tmap with
+                  | Some type_ when not (is_unit type_) ->
+                      unsupported info
+                        "an arm of a `match` that does not cover, in a \
+                         position whose value is taken: a subject no arm takes \
+                         leaves unit where this one leaves its own value, and \
+                         OCaml has one type for both"
+                  | _ -> ())
+              | _ -> ())
+            cases;
+          match_effects ctx acc statement
+      (* A `match` no arm takes falls out of it as unit, so one that does
+         not cover is worth unit wherever it stands -- and needs the
+         fallthrough spelled out, which OCaml requires anyway. *)
       | SMatch _ -> match_effects ctx acc statement
       | SLoop _ when tail ->
           (* A loop is an expression here, so a function ending in one
@@ -1233,26 +1839,44 @@ and last ctx acc statement where =
 and loop ctx acc s returning =
   match s with
   | SLoop (_, target, init, _, iterate, loop_body, _) ->
-      if iterate <> None then
-        unsupported (stmt_info s)
-          "a `for`/`while` clause on a loop -- this backend compiles a loop \
-           to a local recursive function, and the recursion over the \
-           sequence is not built yet";
       let name, acc = fresh_name ctx acc in
-      let parameter, accumulator, o_init, acc =
+      (* The accumulator is worked out before a `for`'s sequence, which
+         is the order interpreter.ml uses. *)
+      let carried =
+        match (target, init) with Some _, Some init -> [ init ] | _ -> []
+      in
+      let walked =
+        match iterate with
+        | Some (ForIn (_, _, sequence, _)) -> [ sequence ]
+        | _ -> []
+      in
+      let ordered, pin, acc = in_order ctx acc (carried @ walked) in
+      let o_init, o_sequence =
+        match (carried, ordered) with
+        | [], [ sequence ] -> (OUnit, Some sequence)
+        | _, [ o_init ] -> (o_init, None)
+        | _, [ o_init; sequence ] -> (o_init, Some sequence)
+        | _ -> (OUnit, None)
+      in
+      let parameter, accumulator, acc =
         match target with
         | None ->
             (* Nothing is carried, so the parameter is unit and the
                accumulator a `break` yields is unit too. *)
             let unused, acc = fresh_name ctx acc in
-            (OPatName unused, OUnit, OUnit, acc)
+            (OPatName unused, OUnit, acc)
         | Some target ->
-            let o_init, acc =
-              match init with
-              | Some init -> expr ctx acc init
-              | None -> (OUnit, acc)
-            in
-            (target_pattern ctx target, target_expr ctx target, o_init, acc)
+            (target_pattern ctx target, target_expr ctx target, acc)
+      in
+      (* A `for` carries what is left of the sequence as a second
+         parameter, so the name has to exist before the body is
+         translated: that is what `again` passes to the next turn. *)
+      let remaining, acc =
+        match iterate with
+        | Some (ForIn _) ->
+            let remaining, acc = fresh_name ctx acc in
+            (Some remaining, acc)
+        | _ -> (None, acc)
       in
       let this =
         {
@@ -1260,20 +1884,72 @@ and loop ctx acc s returning =
           loop_accumulator = accumulator;
           carries = target <> None;
           returning;
+          walking = Option.map (fun remaining -> OVar remaining) remaining;
         }
       in
       let inner_ctx = { ctx with loops = ctx.loops @ [ this ] } in
       let o_body, acc = block inner_ctx acc loop_body (InLoop this) in
-      let b = { bound = OPatName name; params = [ parameter ]; value = o_body } in
+      let read = free o_body in
+      let params, value, acc =
+        match (iterate, remaining) with
+        | Some (ForIn (_, element, _, _)), Some remaining ->
+            (* Running out of sequence is leaving the loop, so the empty
+               arm is worth what a `break` is worth. *)
+            let sequence, acc = fresh_name ctx acc in
+            let walking =
+              Printf.sprintf "%s :: %s"
+                (unread (mangle ctx element) (Some read))
+                (unread remaining (Some read))
+            in
+            ( [ parameter; OPatName sequence ],
+              OMatch
+                ( OVar sequence,
+                  [ ("[]", None, accumulator); (walking, None, o_body) ] ),
+              acc )
+        | Some (WhileTest (_, condition, _)), _ ->
+            (* The test is asked with the accumulator in scope, and a
+               turn that is not taken leaves the loop with it. *)
+            let o_condition, acc = expr inner_ctx acc condition in
+            ([ parameter ], OIf (o_condition, o_body, Some accumulator), acc)
+        | _ -> ([ parameter ], o_body, acc)
+      in
+      let b = { bound = OPatName name; params; value } in
       (* `rec` only where the body actually goes round again: an
          unnecessary one is a warning, and the harness builds with
          warnings as errors. *)
       let recursive = StringSet.mem name (free_in_binding b) in
-      (OLet ([ b ], OApp (OVar name, [ o_init ]), recursive), acc)
+      let arguments =
+        match o_sequence with
+        | None -> [ o_init ]
+        | Some sequence -> [ o_init; sequence ]
+      in
+      (pin (OLet ([ b ], OApp (OVar name, arguments), recursive)), acc)
   | _ -> (OUnit, acc)
 
+(** A `return` that leaves the function from somewhere OCaml has no exit
+    from: its value goes in the escape's cell and the exception carries
+    control out. Raises Needs_escape where no escape is in scope yet.
+    ctx -> acc -> stmt -> (oexpr, acc) *)
+and escaping ctx acc statement =
+  match ctx.escape with
+  | None -> raise Needs_escape
+  | Some (exc, cell) ->
+      let value, acc =
+        match statement with
+        | SReturn (_, e, _) -> expr ctx acc e
+        | SReturnStmt (_, inner, _) -> value_stmt ctx acc inner
+        | _ -> (OUnit, acc)
+      in
+      ( OSeq
+          ( OAssign (cell, OApp (OVar "Some", [ value ])),
+            OApp (OVar "raise", [ OVar exc ]) ),
+        acc )
+
 (** The tail call that starts loop's next turn. oloop -> oexpr -> oexpr *)
-and again this value = OApp (OVar this.loop_name, [ value ])
+and again this value =
+  match this.walking with
+  | None -> OApp (OVar this.loop_name, [ value ])
+  | Some rest -> OApp (OVar this.loop_name, [ value; rest ])
 
 (** The last statement of a loop body: what it produces is the
     accumulator the next turn carries, so it ends in either a call going
@@ -1287,10 +1963,10 @@ and loop_last ctx acc statement this =
       expr ctx acc e
   | SReturnStmt (_, inner, _) when this.returning -> value_stmt ctx acc inner
   | SReturn _ | SReturnStmt _ ->
-      unsupported (stmt_info statement)
-        "a `return` inside a loop that is not the function's own value: OCaml \
-         has no early exit, and this loop's value is wanted where it stands, \
-         so returning from it cannot leave the function too"
+      (* The loop's value is wanted where it stands, so leaving the loop
+         and leaving the function are two acts: the second is the
+         escape, which `function_binding` puts in scope. *)
+      escaping ctx acc statement
   | SLoop _ ->
       (* A loop as the last statement of a loop body: its value is what
          the turn outside goes round with. *)
@@ -1318,11 +1994,41 @@ and loop_last ctx acc statement this =
           let o_cond, acc = expr ctx acc cond in
           let o_then, acc = effects ctx acc then_body in
           (OSeq (OIf (o_cond, o_then, None), again this OUnit), acc))
+  | SMatch (_, subject, cases, _) ->
+      (* Each arm is a path of its own, and a subject no arm takes goes
+         round again -- which only a loop carrying nothing can do. *)
+      let covers =
+        Typesystem.covers (List.map (fun (MatchCase (_, p, _, _)) -> p) cases)
+      in
+      if this.carries && not covers then
+        unsupported (stmt_info statement)
+          "a `match` that does not cover as the last statement of a loop \
+           body: a subject no arm takes would say nothing about what the \
+           next turn carries";
+      let o_subject, acc = expr ctx acc subject in
+      let o_arms, acc =
+        List.fold_left
+          (fun (built, acc) (MatchCase (_, p, case_body, _)) ->
+            let o_body, acc = block ctx acc case_body (InLoop this) in
+            let arm, acc = arm_for ctx acc p o_body in
+            (built @ [ arm ], acc))
+          ([], acc) cases
+      in
+      let o_arms =
+        if Typesystem.covers (unguarded_patterns cases o_arms) then o_arms
+        else if covers then
+          (* Covered, but a `when` hides that from OCaml. *)
+          o_arms @ [ ("_", None, OApp (OVar "assert", [ OBool false ])) ]
+        else o_arms @ [ ("_", None, again this OUnit) ]
+      in
+      (OMatch (o_subject, o_arms), acc)
   | SExprStmt (_, e, _) when this.carries ->
       let o, acc = expr ctx acc e in
       (again this o, acc)
   | statement when not this.carries ->
-      let head, acc = discard ctx acc statement in
+      (* Nothing is carried, so the turn's last statement is run the way
+         any block run for what it does runs its last one. *)
+      let head, acc = last ctx acc statement Effect in
       (OSeq (head, again this OUnit), acc)
   | statement ->
       unsupported (stmt_info statement)
@@ -1432,6 +2138,15 @@ and check_rank_one ctx func =
 (** One def, as an obinding. ctx -> acc -> stmt -> (obinding, acc) *)
 and function_binding ctx acc func =
   check_rank_one ctx func;
+  let ctx =
+    {
+      ctx with
+      specialised =
+        Option.value
+          (IntMap.find_opt (stmt_sym func) ctx.specialisations)
+          ~default:[];
+    }
+  in
   match func with
   | SFunctionDef (_, name, params, func_body, _, _, _) ->
       (* OCaml has no nullary function, so a `def f():` takes unit -- the
@@ -1444,7 +2159,21 @@ and function_binding ctx acc func =
         | [] -> [ OPatTuple [] ]
         | params -> List.map (fun (Param (_, n, _, _)) -> OPatName (mangle ctx n)) params
       in
-      let value, acc = body ctx acc func_body in
+      let value, acc =
+        try body ctx acc func_body
+        with Needs_escape ->
+          (* Translated again with an escape in scope: nothing was
+             changed by the attempt that asked for one, so this starts
+             from the same place it did. *)
+          let exc, acc = fresh_name ctx acc in
+          let cell, acc = fresh_name ctx acc in
+          let bound, acc = fresh_name ctx acc in
+          let exc = String.capitalize_ascii exc in
+          let value, acc =
+            body { ctx with escape = Some (exc, cell) } acc func_body
+          in
+          (OEscape (exc, cell, bound, value), acc)
+      in
       ({ bound = OPatName (mangle ctx name); params = o_params; value }, acc)
   | _ -> ({ bound = OPatName ""; params = []; value = OUnit }, acc)
 
@@ -1499,6 +2228,7 @@ and groups ctx acc run later =
     a top-level let, and each run of non-binding statements one
     `let () = ...`. ctx -> acc -> [stmt] -> ([oitem], acc) *)
 and items ctx acc stmts =
+  let stmts = regroup stmts in
   let count = List.length stmts in
   let rec go index ctx acc built =
     if index >= count then (List.rev built, acc)
@@ -1582,9 +2312,14 @@ let rec polish e =
   | OList elements -> OList (List.map polish elements)
   | ONeg (spelling, operand) -> ONeg (spelling, polish operand)
   | OMatch (subject, made) ->
-      OMatch (polish subject, List.map (fun (p, b) -> (p, polish b)) made)
+      OMatch
+        ( polish subject,
+          List.map
+            (fun (p, guard, b) -> (p, Option.map polish guard, polish b))
+            made )
   | OFun made -> OFun (List.map (fun (p, b) -> (p, polish b)) made)
   | OSeq (first, rest) -> OSeq (polish first, polish rest)
+  | OEscape (exc, cell, bound, inner) -> OEscape (exc, cell, bound, polish inner)
   | OLet (bindings, body, recursive) ->
       let bindings = List.map polish_binding bindings in
       let body = polish body in
@@ -1826,23 +2561,29 @@ and pprint_bare e level =
       (Printf.sprintf "%s := %s" name (pprint value (p_let + 1) level), p_let)
   (* Always parenthesized, so it is an atom wherever it stands. *)
   | OTuple elements ->
+      (* A `,` binds tighter than every form that extends to the right,
+         so `if c then a else b, x` is one `if` yielding a pair. *)
       ( Printf.sprintf "(%s)"
           (String.concat ", "
-             (List.map (fun el -> pprint el (p_seq + 1) level) elements)),
+             (List.map (fun el -> pprint el (p_if + 1) level) elements)),
         p_atom )
   | OList elements ->
+      (* A `let`, `match` or sequence runs past the `;` that separates
+         two elements; an `if` stops at it, so it needs no parentheses. *)
       ( Printf.sprintf "[%s]"
           (String.concat "; "
-             (List.map (fun el -> pprint el (p_seq + 1) level) elements)),
+             (List.map (fun el -> pprint el p_if level) elements)),
         p_atom )
   | ONeg (spelling, operand) ->
       (* OCaml's unary minus on an application needs no parentheses
          (`-f x` is `-(f x)`), but on anything looser it does. *)
       let inner = pprint operand p_app level in
-      (* A `-` straight after this one would lex as the single operator
-         `--`, whatever the precedence says, so an operand that starts
-         with one is parenthesized to break them apart. *)
-      if String.length inner > 0 && inner.[0] = '-' then
+      (* A symbol straight after this one would lex as a single operator
+         -- `--`, or `-!` before a dereference -- whatever the precedence
+         says, so an operand that starts with one is parenthesized to
+         break them apart. *)
+      if String.length inner > 0 && String.contains "!$%&*+-./:<=>?@^|~" inner.[0]
+      then
         (Printf.sprintf "%s(%s)" spelling inner, p_app)
       else (Printf.sprintf "%s%s" spelling inner, p_app)
   | OMatch (subject, made) ->
@@ -1851,8 +2592,15 @@ and pprint_bare e level =
       ( String.concat "\n"
           (head
           :: List.map
-               (fun (p, b) ->
-                 Printf.sprintf "%s  | %s -> %s" pad p
+               (fun (p, guard, b) ->
+                 let tested =
+                   match guard with
+                   | None -> p
+                   | Some guard ->
+                       Printf.sprintf "%s when %s" p
+                         (pprint guard (p_seq + 1) (level + 1))
+                 in
+                 Printf.sprintf "%s  | %s -> %s" pad tested
                    (pprint b (p_seq + 1) (level + 1)))
                made),
         p_seq )
@@ -1866,6 +2614,27 @@ and pprint_bare e level =
         p_seq )
   | OIgnore inner ->
       (Printf.sprintf "ignore %s" (pprint inner p_atom level), p_app)
+  | OEscape (exc, cell, bound, inner) ->
+      (* The exception carries nothing, so OCaml needs no type written
+         for it: the value travels in the cell, whose type it infers
+         from what is put there. *)
+      let pad = String.concat "" (List.init level (fun _ -> "  ")) in
+      let recovered =
+        Printf.sprintf
+          "with %s -> (match !%s with Some %s -> %s | None -> assert false)"
+          exc cell bound bound
+      in
+      ( String.concat ""
+          [
+            Printf.sprintf "let %s = ref None in\n" cell;
+            Printf.sprintf "%slet exception %s in\n" pad exc;
+            Printf.sprintf "%stry\n" pad;
+            indent (left_trim (pprint inner p_seq (level + 1))) (level + 1);
+            "\n";
+            pad;
+            recovered;
+          ],
+        p_seq )
   | OApp (func, args) ->
       (* Application associates to the left in OCaml, so a call of a call
          needs no parentheses: `compose f g 5` *is* `(compose f g) 5`,
@@ -2044,6 +2813,7 @@ let pprint_ocaml_program program source =
     parts @ if program.needs_list_printer then [ ""; list_printer_def ] else []
   in
   let parts = parts @ if program.needs_quote then [ ""; quote_helper_def ] else [] in
+  let parts = parts @ if program.needs_range then [ ""; range_helper_def ] else [] in
   let parts =
     parts @ if program.needs_float then [ ""; float_helper_def ] else []
   in
@@ -2092,6 +2862,9 @@ let translate_program stmts tmap (context : Module.context) =
       printing = Analyses.effects stmts;
       prefix = unused_prefix stmts;
       refs = StringSet.empty;
+      escape = None;
+      specialisations = specialisations stmts tmap;
+      specialised = [];
       loops = [];
       modules =
         List.filter_map
@@ -2115,6 +2888,7 @@ let translate_program stmts tmap (context : Module.context) =
       needs_quote = false;
       needs_list_printer = false;
       needs_float = false;
+      needs_range = false;
     }
   in
   let built, acc = items ctx acc stmts in
@@ -2128,6 +2902,7 @@ let translate_program stmts tmap (context : Module.context) =
     needs_list_printer = acc.needs_list_printer;
     needs_quote = acc.needs_quote;
     needs_float = acc.needs_float;
+    needs_range = acc.needs_range;
     program_name = context.context_name;
     main = context.main;
     interface =

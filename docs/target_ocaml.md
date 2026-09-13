@@ -27,31 +27,35 @@ note. See "What the compiler would have said" below.
 
 ## What is supported
 
-Exactly the fragment `src/typesystem.ml` checks, no more and no less:
+Nearly all of the fragment `src/typesystem.ml` checks. The list this
+backend maintains is the short one of what it *refuses*, in the next
+section; everything else compiles:
 
-- `print`, and the builtins `str`, `len` and one-argument `range`;
-- `def` with fully annotated parameters and return type — recursion,
-  mutual recursion, nested functions, and a body written on the header's
-  own line (`def f(x): e`);
+- `print`, and the builtins `str`, `len`, `float`, `int` and `range`;
+- `def`, annotated or not — recursion, mutual recursion, nested
+  functions, and a body written on the header's own line (`def f(x): e`);
 - functions as values: passed as arguments, returned, and called;
 - `=` bindings, including ones that shadow;
 - `var` and `:=`, as OCaml `ref` cells;
 - `if` / `else if` / `else`, in statement form and in value form
   (`x = if c:`), and `if … then … else …` expressions;
-- `loop` with `break` and `continue`, in every position a value stands;
+- `loop` with `break` and `continue`, in every position a value stands,
+  and its `for`/`while` clauses;
+- `match` / `case`, including list and text patterns;
+- lists and list comprehensions;
 - tuples, including a binding that takes one apart;
-- `return`, in tail position or as a guard;
-- integers, strings and booleans; `+ - *`, comparisons, `==`, and calls.
+- `return`, anywhere it can be written;
+- integers, floats, strings and booleans; `+ - * /`, unary minus,
+  `++`, comparisons, `==`, and calls.
 
-The annotations a `def` must carry are the type checker's requirement,
-not this backend's — but they are what makes it possible to emit OCaml
-with none.
+A `def` needs no annotation here: the checker works one out from its
+body, and this backend reads the answer back. Annotations are erased
+either way — the output carries none.
 
 ## What is not supported
 
-Everything the type checker does not cover is refused before translation
-begins, with the checker's own message framed as this target's
-limitation:
+A program the type checker refuses is refused here first, with the
+checker's own message framed as this target's limitation:
 
 ```
 $ pyk compile -t ocaml program.pyk
@@ -60,53 +64,16 @@ $ pyk compile -t ocaml program.pyk
   Construct is not supported
 ```
 
-That covers `for`, `while`, `match`/`case`, lists, comprehensions, `/`,
-unary minus, and any `def` missing an annotation. Every program is
-type-checked anyway, so this target asks for nothing extra: the check
-happens either way.
-
-Two further things the checker accepts and this backend still refuses,
-each because OCaml has no way to say it.
-
-### A `return` that is neither in tail position nor a guard
-
-OCaml expressions have no early exit. A `return` at the end of a body is
-just that body's value, and a `return` guarding the rest of a function
-is an `if … then … else …` with the rest in the `else` — so both of
-these compile:
-
-```
-def clamp(n:Int) -> Int:
-    if n < 0:
-        return 0
-    n * 2
-```
-
-```ocaml
-let clamp n = if n < 0 then 0 else n * 2
-```
-
-A `return` anywhere else — in the middle of a body with statements after
-it that are not the alternative — has no OCaml spelling, and is refused
-rather than approximated. Inside a `loop` there is one more case: a loop
-is a local function here, so returning from it and returning from the
-*enclosing* function are two different things. They coincide exactly
-when the loop is the function's own value, which is where a `return` in
-a loop body compiles; anywhere else — a loop whose value is bound, and
-so wanted where it stands — it is refused:
-
-```
-'prog.pyk' 16:12-16:28 Unsupported by target 'ocaml': a `return` inside
-  a loop that is not the function's own value: OCaml has no early exit,
-  and this loop's value is wanted where it stands, so returning from it
-  cannot leave the function too
-```
+Beyond that, five things the checker accepts and this backend refuses,
+each because OCaml has no way to be given it. Each raises `Unsupported`
+with a source position, so nothing reaches `ocamlopt` that will not
+build.
 
 ### A `break` or `continue` that is neither in tail position nor a guard
 
-The same rule, for the same reason. `break` in tail position is the
-value the loop function returns and `continue` there is its tail call,
-and either one guarding the rest of the body is an `if … then … else …`
+A loop is a local function here, so `break` in tail position is the
+value that function returns and `continue` there is its tail call, and
+either one guarding the rest of the body is an `if … then … else …`
 with that rest in the `else` — which covers the shapes a loop is
 normally written in, since a statement written *after* an unconditional
 `break`/`continue` is a parse error to begin with (see PYKING.md). What
@@ -114,10 +81,13 @@ is left is a `break` inside an `if`/`else` neither arm of which leaves,
 with statements after it; that would need the rest of the body
 duplicated into every branch, and is refused instead.
 
-### A `def` naming one written further down, with something in between
+A `return` needs no such rule: one this backend cannot write as a value
+leaves through an escape instead (see "Leaving a function early").
 
-Pyking makes every `def` in a block visible throughout it, wherever it is
-written. OCaml expresses that with `let rec … and …`, which binds a
+### A `def` that cannot be moved to join its group
+
+Pyking makes every `def` in a block visible throughout it, wherever it
+is written. OCaml expresses that with `let rec … and …`, which binds a
 group that has to be **written together**. Consecutive `def`s are
 therefore fine, however they refer to each other:
 
@@ -140,7 +110,11 @@ let rec is_even n = if n = 0 then true else is_odd (n - 1)
 and is_odd n = if n = 0 then false else is_even (n - 1)
 ```
 
-But a statement between them breaks the group:
+A statement between them does not break the group: `regroup` moves the
+earlier `def`s down to join the last of their group before anything is
+translated, so the `let rec` is written where the group ends. A `def`
+binds no value and runs nothing, so moving one changes nothing — which
+is why only `def`s move and every other statement keeps its place.
 
 ```
 y = 1
@@ -154,18 +128,77 @@ def g() -> Int:
     y
 ```
 
-```
-'program.pyk' 3:0-4:7 Unsupported by target 'ocaml': `f` names `g`,
-  which is written further down with something in between: OCaml binds
-  a group of mutually recursive functions with `let rec ... and ...`,
-  which has to be written together
+```ocaml
+let _y = 1
+
+let y = 2
+
+let rec f () = g ()
+and g () = y
 ```
 
-Moving the group down past `y = 2` would compile, but it would change
-which binding of `y` the bodies see — Pyking's capture is positional
-(see [../PYKING.md](../PYKING.md), "Names and scoping") — so the backend
-refuses instead of quietly changing the program's meaning. Writing the
-two `def`s next to each other is the fix.
+Two things stop a `def` from moving, and both are refused rather than
+compiled wrongly. One is a name its own body reads being bound again in
+between — moving it would give it the later binding, where Pyking's
+capture is positional (see [../PYKING.md](../PYKING.md), "Names and
+scoping"). The other is the `def`'s own name being used in between —
+moving it would leave that use reading a name OCaml has not bound yet.
+
+```
+'program.pyk' 3:0-4:7 Unsupported by target 'ocaml5.5': `f` names a
+  `def` written further down: OCaml binds a group of mutually
+  recursive functions with `let rec ... and ...`, which has to be
+  written together, and this one cannot be moved down to join it --
+  `y` is bound again in between, so moving it would give it the later
+  one
+```
+
+Only a reference *forward* makes a group. A `def` naming one written
+above it needs nothing done: OCaml already has that one in scope.
+
+### A polymorphic parameter
+
+OCaml generalizes a `let`, not a parameter, so a function taking a
+polymorphic function as an argument needs an explicit `'a.` annotation —
+a record with a polymorphic field, in practice — which this backend does
+not write. A Pyking `def` whose parameter is written `(all a. …)` is
+refused here; the checker's own rank-2 support is unaffected.
+
+### Printing a value of a type variable
+
+OCaml has no runtime type, so a value whose type is a variable cannot be
+printed there at all. Two cases get through anyway. A variable *nothing
+constrained* stands for a type no value of which was ever made — the
+element type of `[]`, say — so the formatter it would need is never
+reached, and one that names no type is emitted in its place. And a
+definition every call in the module uses at one type is compiled at that
+type: `specialisations` reads the instantiation off the call sites,
+provided the name has one `def` in the module, is never handed anywhere
+as a value, and every call agrees.
+
+What is left is a definition used at two types whose body prints one of
+its parameters, and that is refused:
+
+```
+'program.pyk' 13:17-13:18 Unsupported by target 'ocaml5.5': printing a
+  value of type a
+```
+
+### An arm of a `match` that does not cover, where its value is taken
+
+A `match` no arm takes falls out of it as unit, so the checker types one
+that does not cover as unit wherever it stands. Every runtime
+implementation nonetheless answers with the *arm's* value when an arm
+does match, which is two types for one expression and has no OCaml
+spelling. An arm ending in a non-unit value, in a position whose value
+is taken, is therefore refused; arms that are themselves unit — a body
+of `print`s, say — compile, with `| _ -> ()` written in.
+
+### An element of a list pattern with elements after `..`
+
+`[a, ..rest, b]` is matched by binding the whole subject and taking each
+element by position, so each element has to be a pattern a `let` can
+take: a name or `_`. A literal or a nested list there is refused.
 
 ## How the type checker is reused
 
@@ -316,6 +349,120 @@ function's last statement. `rec` is emitted only when the body really
 does call the loop function — a loop that always breaks does not — since
 `ocamlopt -w +a` treats a needless `rec` as an error.
 
+### `for` and `while`
+
+A `for`/`while` clause is the same local function with one more thing to
+carry. A `for` walks a list, so what is left of it is a second
+parameter, and running out of list is leaving the loop with the
+accumulator:
+
+```pyking
+total = loop acc = 0 for x in xs:
+    acc + x
+```
+
+```ocaml
+let total =
+  let rec tmp1 acc tmp3 =
+    match tmp3 with
+    | [] -> acc
+    | x :: tmp2 -> tmp1 (acc + x) tmp2 in
+  tmp1 0 xs
+```
+
+A `while` needs no extra parameter — the test is asked with the
+accumulator in scope, and a turn not taken leaves the loop with it:
+
+```ocaml
+let rec tmp1 acc = if <test> then <body> else acc in
+tmp1 <init>
+```
+
+`break`, `continue` and a body's last expression mean exactly what they
+mean without a clause; `again` simply passes the remaining list along
+with the next accumulator. The accumulator is worked out before the
+sequence, which is the order `src/interpreter.ml` uses, and `in_order`
+pins it down where both can print.
+
+### Leaving a function early
+
+A `return` at the end of a body is just that body's value, and a
+`return` guarding the rest of a function is an `if … then … else …` with
+the rest in the `else`:
+
+```pyking
+def clamp(n:Int) -> Int:
+    if n < 0:
+        return 0
+    n * 2
+```
+
+```ocaml
+let clamp n = if n < 0 then 0 else n * 2
+```
+
+A `return` anywhere else has no OCaml spelling as a value — inside a
+loop whose value is wanted where it stands, or with unreachable
+statements after it — so control leaves by exception instead. The body
+is translated a second time with an **escape** in scope: a cell for the
+value and a local exception for the control. The exception carries
+nothing, so OCaml needs no type written for it, and infers the cell's
+from what is put there.
+
+```pyking
+def described(n:Int) -> String:
+    reached =
+    loop k = n:
+        if k > 100:
+            break
+        if k == 13:
+            return "unlucky"
+        k * 3
+    "reached " ++ str(reached)
+```
+
+```ocaml
+let described n =
+  let tmp2 = ref None in
+  let exception Tmp1 in
+  try
+    let reached =
+      let rec tmp4 k =
+        if k > 100 then k
+        else if k = 13 then (tmp2 := Some "unlucky"; raise Tmp1)
+        else tmp4 (k * 3) in
+      tmp4 n in
+    "reached " ^ string_of_int reached
+  with Tmp1 -> (match !tmp2 with Some tmp3 -> tmp3 | None -> assert false)
+```
+
+Nothing is wrapped that does not need it: `function_binding` translates
+the body without an escape first, and only builds one when the
+translation asks for it (`Needs_escape`). A body with no such `return`
+is byte-for-byte what it was.
+
+### `match` and patterns
+
+A Pyking `match` is OCaml's own, and most patterns are a spelling
+change: `..` is `_`, `..name` is `name`, and a list splits with `::`.
+Two shapes need what OCaml's patterns cannot say, and both go through
+one mechanism — an arm may carry a `when` guard and open its body with
+bindings the pattern could not make:
+
+- **a `++` pattern over a string.** OCaml's patterns do not split a
+  string, so the whole subject is bound and the guard tests its length
+  and its ends; the middle comes out with `String.sub`. The length test
+  is written first, which is what makes the `String.sub`s after it safe.
+- **a list pattern with elements after `..`.** OCaml matches a list from
+  the front only, so the whole subject is bound, the guard tests its
+  length, and every element is taken by position with `List.nth`; the
+  middle is `List.take` of `List.drop`.
+
+A `when` makes an arm invisible to OCaml's exhaustiveness check, so the
+catch-all a `match` needs is decided from the *unguarded* arms alone.
+Where the clauses cover and a guard hides it, the arm written in is
+`assert false` — unreachable, since the checker already proved coverage.
+
 ### `var` and `:=`
 
 A mutable variable is an OCaml `ref`, which is the same idea spelled the
@@ -393,7 +540,10 @@ let () =
 | `str(n)` | `string_of_int n` (or `string_of_bool`, or nothing at all for a `String`) |
 | `len(s)` | `String.length s` |
 | `len(xs)` | `List.length xs` |
-| `range(n)` | `List.init n Fun.id` |
+| `range(n)` | `List.init (max 0 n) Fun.id` |
+| `range(a, b)`, `range(a, b, s)` | `pyk_range a b s`, a generated helper |
+| `float(n)` | `float_of_int n` |
+| `int(x)` | `int_of_float x` |
 | printing a list | `pyk_string_of_int_list`, the one generated helper |
 
 The helper exists because a Pyking list prints the way Python prints one
@@ -579,11 +729,14 @@ would leave the call inside it naming nothing.
 
 ## Where the output is not optimal
 
-- **`range` builds a list.** `List.init n Fun.id` allocates `n` cells so
-  that `len(range(n))` and printing a range work at all. An OCaml
-  programmer would write a loop or a sequence; Pyking's `range` is a
-  value, so this backend materialises one. Only the one-argument form is
-  supported.
+- **`range` builds a list.** `List.init (max 0 n) Fun.id` allocates `n`
+  cells so that `len(range(n))` and printing a range work at all. An
+  OCaml programmer would write a loop or a sequence; Pyking's `range` is
+  a value, so this backend materialises one. The `max 0` is there
+  because `List.init` refuses a negative length where `range` answers
+  with nothing. Two and three arguments go through `pyk_range`, a
+  generated helper, for the same reason `pyk_string_of_int_list`
+  exists — there is nothing in `Stdlib` to reach for.
 - **Strings are built by concatenation.** `^` allocates a fresh string
   each time, so building text by recursion is quadratic. `Buffer` is
   what OCaml offers instead, and nothing in the Pyking source says which
@@ -594,11 +747,14 @@ would leave the call inside it naming nothing.
   neither is wrong and nothing is emitted to reconcile them.
 - **No optimisation.** The backend is a printer: no constant folding, no
   dead-code elimination. The OCaml compiler does that work afterwards.
-- **The subset is the checker's.** Everything the checker does not cover
-  yet — `for`, `while`, `match`, lists as a language feature, `var` —
-  would translate comfortably into OCaml, in some cases more directly
-  than into any other target here. It is the front end that has not
-  reached them, not this backend.
+- **A guarded pattern binds by position.** `[a, ..rest, b]` walks the
+  list once for its length and again for each element, where an OCaml
+  programmer would take it apart in one pass. The shape is rare enough
+  that the simple translation is the right one.
+- **An escape is an exception.** A `return` OCaml has no value spelling
+  for costs a `ref` and a local exception, where a hand-written OCaml
+  function would be restructured not to need one. Only a body that
+  actually holds such a `return` pays for it.
 
 ## External modules
 
@@ -645,8 +801,9 @@ ocamlopt -I +unix unix.cmxa -I <dir> -o prog <modules> prog.ml
 
 Nothing the compiler *generates* needs it. An external module's own
 implementation may: `lib/sys/sys_external.ml` does, because nothing in
-OCaml's `Stdlib` enumerates the environment, and without it the whole
-`sys` library would be unavailable here. `unix` ships with the compiler,
+OCaml's `Stdlib` enumerates the environment, and
+`lib/time/time_external.ml` does, because nothing there reads the clock
+as a calendar. Without it neither library would be available here. `unix` ships with the compiler,
 so this adds no dependency to install — and it is named before the
 modules that use it, since OCaml links in the order it is given.
 

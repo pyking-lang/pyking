@@ -17,8 +17,8 @@ and `target_java.ml` build their own small inference (see
 and `target_js_core.ml` don't need types at all, since Python and
 JavaScript are as dynamically typed as Pyking. This module takes a
 third path, and it's worth understanding why it's available here and
-nowhere else: **OCaml is statically typed, but this backend's accepted
-subset is exactly `typesystem.ml`'s own** (see PYKING.md, "Type
+nowhere else: **OCaml is statically typed, and this backend's accepted
+subset starts from `typesystem.ml`'s own** (see PYKING.md, "Type
 checking," and `type_inference.md`), so rather than reimplementing type
 inference, `translate_program` simply *runs the real checker* first —
 `typesystem.type_check(stmts)` — and reads every expression's type back
@@ -37,9 +37,10 @@ express versus `target_c.ml`/`target_java.ml`: because it isn't
 guessing (`used_as_string`'s fallback has no OCaml equivalent), it
 never has the class of bug the C backend documents as "not optimal" —
 a parameter whose type can't be told from local evidence alone. And
-because its subset moves in lockstep with the checker's, this is the
-one backend whose accepted-language grows automatically whenever
-`typesystem.ml`'s does, with nothing here to update.
+because its subset starts from the checker's, this is the one backend
+whose accepted language grows with `typesystem.ml`'s, with nothing here
+to update — unless the new construct is one of the few OCaml has no way
+to be given, which `target_ocaml.md` lists.
 
 ## Why the OCaml AST is so much smaller
 
@@ -152,17 +153,24 @@ rebinds its own function's name locally reads that local binding, not
 the recursive one, and a search over raw Pyking source text (or an
 unscoped name search) couldn't tell the difference.
 
-`check_no_split_group` is the refusal path: if a `def` in one run
-names a `def` in a *later* run — i.e., something other than another
-`def` sits between them — there is no legal `let rec` for that pair,
-because moving the group down past whatever's in between would change
-which binding of some other name its body captures (Pyking's own
+`regroup` runs before any of that, on the Pyking AST, and is what makes
+a split group legal in the first place: a `def` naming one written
+further down is **moved down to join it**, so the group is consecutive
+by the time `groups` sees it. A `def` binds no value and runs nothing,
+so moving one changes nothing — which is why only `def`s move, and only
+downward, and every other statement keeps its place. Two things stop a
+move and are refused instead: a name the body reads being bound again
+in between (moving would give it the later binding, and Pyking's
 capture rule is positional — see PYKING.md, "Names and scoping"), and
-silently relocating a group to make it compile would be exactly the
-kind of quiet meaning-change this backend refuses to make. See
-`target_ocaml.md`, "A `def` naming one written further down, with
-something in between," for the error this produces and a worked
-example.
+the `def`'s own name being used in between (moving would leave that use
+reading a name OCaml has not bound yet). Only a reference *forward*
+makes a group at all: one naming a `def` written above it already has
+that one in scope.
+
+`check_no_split_group` stays as the backstop behind it, over the
+translated bindings rather than the source. See `target_ocaml.md`, "A
+`def` that cannot be moved to join its group," for the error and a
+worked example.
 
 ## The polishing pass: silencing warnings before OCaml can raise them
 

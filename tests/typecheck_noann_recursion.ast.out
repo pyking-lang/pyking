@@ -50,8 +50,8 @@ def parity(limit:Int) -> String:
         'even'
     else:
         'odd'
-alias = factorial
-paired = is_even
+alias: (Int) -> Int = factorial
+paired: (Int) -> Bool = is_even
 six: Int = factorial(3)
 word: String = spell(3)
 flag: Bool = is_even(4)

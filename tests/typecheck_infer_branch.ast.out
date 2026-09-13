@@ -1,0 +1,10 @@
+def shout(word:String) -> String:
+    word ++ '!'
+def whisper(word:String) -> String:
+    word ++ '...'
+def chooser(loud:Bool) -> (String) -> String:
+    if loud:
+        shout
+    else:
+        whisper
+print(chooser(true)('hey'))

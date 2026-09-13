@@ -13,7 +13,7 @@ imports. A module is up to two files and a library shows both shapes:
 ```
 lib/fs/     fs.external.pyk        fs_external.{py,js,c,ml}  FsExternal.java
 lib/sys/    sys.pyk  sys.external.pyk   sys_external.{py,js,ml}
-lib/time/   time.pyk  time.external.pyk  time_external.{py,js}
+lib/time/   time.pyk  time.external.pyk  time_external.{py,js,ml}
 ```
 
 `fs` is entirely the host's: every name it offers is declared, and there
@@ -158,7 +158,7 @@ half may.
 |---|---|---|---|---|---|---|---|---|
 | `fs` | yes | yes | no | no | yes | yes | yes | yes |
 | `sys` | yes | yes | no | no | no | no | yes | yes |
-| `time` | yes | yes | yes | yes | no | no | no | yes |
+| `time` | yes | yes | yes | yes | no | no | yes | yes |
 
 `fs` reaches everything that has a filesystem. It claims no
 `web24`/`iweb24`: a browser has none, and an implementation that always
@@ -171,12 +171,10 @@ boundary, and neither backend compiles a module in two halves yet --
 each refuses one with a message rather than emitting code that will not
 link.
 
-`time` does not reach `ocaml5.5` because `format` parses its format
-string with a text pattern, which that backend refuses. `sys` does reach
-it, but only because every program on that target is linked with `unix`:
-nothing in OCaml's `Stdlib` enumerates the environment, so
-`sys_external.ml` needs it. See [target_ocaml.md](target_ocaml.md),
-"Linking unix".
+`sys` and `time` both reach `ocaml5.5`, and both need it linked with
+`unix`: nothing in OCaml's `Stdlib` enumerates the environment or reads
+the clock as a calendar, so `sys_external.ml` and `time_external.ml`
+need it. See [target_ocaml.md](target_ocaml.md), "Linking unix".
 
 Two gaps that used to be here were compiler defects rather than
 properties of the libraries, and both reproduced with an ordinary user
