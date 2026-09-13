@@ -35,6 +35,10 @@ import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+
+import suite  # noqa: E402  (after sys.path, which is what finds it)
+
 REPO = HERE.parent
 PLAYGROUND = REPO / "tools" / "playground"
 # What `make build` writes: the same compiler the page loads, as one
@@ -226,23 +230,24 @@ def main(argv):
     if not bundle.exists():
         print(f"playground: FAILED -- no bundle at {bundle}")
         print("  `make build` writes it; it is the compiler the page loads")
+        suite.footer("playground", 0, 1, "no bundle to drive")
         return 1
     prepared = plan()
     pairs, failures = run_driver(bundle, prepared)
     for failure in failures:
         print(f"playground: FAILED {failure}")
     if pairs is None:
-        print()
-        print("  playground 0 passed, 1 failed (the bundle could not be driven)")
+        suite.footer("playground", 0, 1, "the bundle could not be driven")
         return 1
     checks = len(prepared["targets"]) + 9
     print(f"playground: the bundle's {len(prepared['targets'])} targets, its "
           "entry points and the smoke program OK.")
     print(f"playground: {pairs} example/target pairs over "
           f"{len(prepared['examples'])} examples.")
-    print()
-    print(f"  playground {checks + pairs - len(failures)} passed, "
-          f"{len(failures)} failed (of {checks + pairs} checks)")
+    suite.footer(
+        "playground", checks + pairs - len(failures), len(failures),
+        f"{len(prepared['examples'])} examples on "
+        f"{len(prepared['targets'])} targets")
     return 1 if failures else 0
 
 

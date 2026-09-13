@@ -711,7 +711,9 @@ and it is compiled and run only as part of the one that imports it — but
 it is still accounted for, so the "not listed in the manifest" warning
 stays honest.
 
-`make test` runs `tests/test_script.py`, which walks that manifest,
+`make test` runs `tests/test_all.py`, which sequences the four suites and
+prints a combined summary at the end. The first of them,
+`tests/test_script.py`, walks that manifest,
 compiles and runs each program on each of its targets, and compares the
 output against the sibling `.out` file — the same `.out` file serving
 every target listed for a program, which is the property being tested.

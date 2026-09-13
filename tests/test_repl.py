@@ -27,6 +27,10 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+
+import suite  # noqa: E402  (after sys.path, which is what finds it)
+
 REPL_DIR = HERE / "repl"
 DEFAULT_COMPILER = [str(HERE.parent / "pyk")]
 TIMEOUT = 60
@@ -88,9 +92,8 @@ def main(argv):
         print(f"repl: {name} FAILED")
         for line in _diff(expected, actual):
             print(f"  {line}")
-    print()
-    print(f"  repl {len(found) - failed} passed, {failed} failed "
-          f"(of {len(found)} cases)")
+    suite.footer("repl", len(found) - failed, failed,
+                 f"{len(found)} session{'' if len(found) == 1 else 's'}")
     return 1 if failed else 0
 
 

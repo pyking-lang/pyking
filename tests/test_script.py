@@ -80,6 +80,11 @@ import sys
 import tempfile
 import tomllib
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import suite  # noqa: E402  (after sys.path, which is what finds it)
 
 # What runs the compiler: the executable `make build` puts in the
 # repository root. `--compiler` points the suite at another build of it,
@@ -1033,8 +1038,7 @@ def main():
             passed[target] += 1
 
     print()
-    print("Summary")
-    total_failed = 0
+    print("  per target:")
     # Width taken from the names themselves rather than fixed, so the
     # columns stay lined up whatever a target is called -- `pyking_notail`
     # is already longer than every backend name.
@@ -1042,12 +1046,19 @@ def main():
     for target in shown:
         total = passed[target] + failed[target]
         print(
-            f"  target {target:<{width}} {passed[target]:3d} passed, "
-            f"{failed[target]:3d} failed  (of {total} supported cases)"
+            f"    {target:<{width}} {passed[target]:5d} passed, "
+            f"{failed[target]:4d} failed  (of {total} supported cases)"
         )
-        total_failed += failed[target]
-    total_run = sum(passed.values()) + sum(failed.values())
-    print(f"  {total_run} runs over {len(cases)} programs and {len(TARGETS)} targets.")
+    total_passed = sum(passed.values())
+    total_failed = sum(failed.values())
+    # Counted from the tasks that ran rather than from the manifest: with
+    # `--target` most programs do not support the one target named, and
+    # saying how many the manifest holds would not describe this run.
+    programs = len({task[1] for task in tasks})
+    suite.footer(
+        "programs", total_passed, total_failed,
+        f"{programs} program{'' if programs == 1 else 's'} over "
+        f"{len(shown)} target{'' if len(shown) == 1 else 's'}")
 
     if total_failed:
         sys.exit(1)

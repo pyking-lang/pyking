@@ -34,6 +34,10 @@ import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+
+import suite  # noqa: E402  (after sys.path, which is what finds it)
+
 REPO = HERE.parent
 DEFAULT_COMPILER = [str(REPO / "pyk")]
 # Long enough for a compile that has gone wrong to be reported as a
@@ -241,9 +245,8 @@ def main(argv):
         failed += 1
         print(f"libpath: {name} FAILED")
         print(f"  {detail}")
-    print()
-    print(f"  libpath {len(found) - failed} passed, {failed} failed "
-          f"(of {len(found)} cases)")
+    suite.footer("libpath", len(found) - failed, failed,
+                 f"{len(found)} invocation{'' if len(found) == 1 else 's'}")
     return 1 if failed else 0
 
 

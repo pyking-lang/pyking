@@ -238,7 +238,8 @@ Three things make a library testable at all:
   host.
 
 `tests/test_libpath.py` is a third suite, beside `test_script.py` and
-`test_repl.py`, because the search path is a property of the
+`test_repl.py` (all four sequenced by `test_all.py`, which is what
+`make test` calls), because the search path is a property of the
 *invocation* rather than of a program: the order of `-L` flags, an
 environment variable, a name resolving in two places at once, and the
 wording of a failure are things no (program, target) pair can express.

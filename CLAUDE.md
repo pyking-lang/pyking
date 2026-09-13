@@ -1390,7 +1390,19 @@ version of that family; with no `TARGET` every target runs, which is
 what `make test` means. The REPL suite runs only when no `TARGET` was
 given, since it is not a target.
 
-`make test` runs `tests/test_script.py`. It
+**`make test` runs `tests/test_all.py`**, which sequences the four
+suites below rather than each being a line of the Makefile. Three things
+follow, and all three are the point: every suite runs even when an
+earlier one failed, so one broken case does not hide what the other
+three would have said; each suite's output is opened by a banner and
+closed by one footer line of a fixed shape; and the run ends with a
+combined summary over all four. Their counts reach it through
+`$PYK_TEST_TALLY`, a file each suite appends one line to
+(`tests/suite.py`), so a suite run on its own prints exactly what it
+prints here. Each remains a script of its own, with its own
+`--compiler`.
+
+The first of them is `tests/test_script.py`. It
 reads `tests/test_cases.toml`, and for every (program, target) pair the
 manifest declares, compiles the program to a temp directory, runs it the
 way a user would — `python3` on the `.py`, `node` on the `.js`, `node` on

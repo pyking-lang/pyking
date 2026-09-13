@@ -51,14 +51,16 @@ build:
 # them from, so update this list whenever a target is added or renamed.
 help:
 	@echo "make              build the compiler into ./pyk"
-	@echo "make test         the compiler's own suite: every tests/*.pyk on every"
-	@echo "                  target tests/test_cases.toml lists it for, run in"
-	@echo "                  parallel (JOBS=n to say how parallel), then the"
-	@echo "                  REPL's own cases in tests/repl/, then the"
-	@echo "                  library search path's in tests/test_libpath.py,"
-	@echo "                  then the playground's compiler bundle"
+	@echo "make test         all four suites, then a combined summary: every"
+	@echo "                  tests/*.pyk on every target tests/test_cases.toml"
+	@echo "                  lists it for, run in parallel (JOBS=n to say how"
+	@echo "                  parallel), then the REPL's own cases in tests/repl/,"
+	@echo "                  then the library search path's, then the"
+	@echo "                  playground's compiler bundle. Every suite runs even"
+	@echo "                  if an earlier one failed"
 	@echo "                  TARGET=c23 runs one target; TARGET=c runs every"
-	@echo "                  version of that family"
+	@echo "                  version of that family (the last three suites are"
+	@echo "                  skipped, since none of them is a target)"
 	@echo "make stest        the same suite, one test at a time"
 	@echo "make playground   build and serve the web playground, then print a link"
 	@echo "make clean        remove generated files: _build/, ./pyk, __pycache__/"
@@ -113,25 +115,13 @@ check-node:
 	fi
 
 test: check-node build
-	python3 tests/test_script.py $(if $(JOBS),--jobs $(JOBS)) \
+	@python3 tests/test_all.py $(if $(JOBS),--jobs $(JOBS)) \
 		$(if $(TARGET),--target $(TARGET))
-	@if [ -z "$(TARGET)" ]; then python3 tests/test_repl.py; \
-	else echo "repl: skipped (TARGET=$(TARGET) selected)"; fi
-	@if [ -z "$(TARGET)" ]; then python3 tests/test_libpath.py; \
-	else echo "libpath: skipped (TARGET=$(TARGET) selected)"; fi
-	@if [ -z "$(TARGET)" ]; then python3 tests/test_playground.py; \
-	else echo "playground: skipped (TARGET=$(TARGET) selected)"; fi
 
 # The same suite with no pool at all, for when a parallel run's timing is
 # itself in question.
 stest: check-node build
-	python3 tests/test_script.py --jobs 1 $(if $(TARGET),--target $(TARGET))
-	@if [ -z "$(TARGET)" ]; then python3 tests/test_repl.py; \
-	else echo "repl: skipped (TARGET=$(TARGET) selected)"; fi
-	@if [ -z "$(TARGET)" ]; then python3 tests/test_libpath.py; \
-	else echo "libpath: skipped (TARGET=$(TARGET) selected)"; fi
-	@if [ -z "$(TARGET)" ]; then python3 tests/test_playground.py; \
-	else echo "playground: skipped (TARGET=$(TARGET) selected)"; fi
+	@python3 tests/test_all.py --jobs 1 $(if $(TARGET),--target $(TARGET))
 
 # Delegates entirely to tools/playground's own Makefile (its default
 # target: vendor, build, check, then serve and print a URL). `-C` runs
