@@ -1,0 +1,25 @@
+# Every form the module system adds, in one program: the four ways to
+# write an import, and the three things `public` can go in front of.
+# The printed AST pins how each of them is written back out, and the
+# types the checker gave the names that crossed the boundary.
+
+import typecheck_module_public_mod1
+import typecheck_module_public_mod1 as m1
+from typecheck_module_public_mod1 import flip
+from typecheck_module_public_mod1 import marker as start
+
+public def twice(n:Int) -> Int:
+    return n * 2
+
+
+public def label : (Int) -> String
+def label(n):
+    return if n > 0 then "positive" else "other"
+
+
+public offset: Int = start + 1
+
+print(typecheck_module_public_mod1.name())
+print(m1.marker, offset)
+print(flip(true), flip(false))
+print(twice(offset), label(offset))

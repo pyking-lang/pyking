@@ -613,9 +613,9 @@ OCaml-style near the top of the file):
   in its sequence. **`available(module, info, store)`** is the refusal a
   file checked on its own gets.
 - **`check_exports(stmts, tmap)`** — the other direction: a module that
-  exports a `def` it worked out no type for is refused. An exported
-  `def` is fully annotated or called in its own module, since inference
-  reads a definition off that module's own use of it.
+  exports a name whose type the source does not write down is refused.
+  An exported `def` is fully annotated or carries a signature line, and
+  an exported `=` binding annotates its name.
 - **`check_stmts(stmts, env, tmap, return_type, acc_type, store) -> (Type,
   Store)`** — a block's type: its last statement's (`env` is not
   returned; a block is a scope). Calls `declare_functions` first.

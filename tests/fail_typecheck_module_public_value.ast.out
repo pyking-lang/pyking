@@ -1,0 +1,4 @@
+'tests/fail_typecheck_module_public_value.pyk' 8:0-8:23 Type error:
+  'size' is public, and a public function or value needs a complete
+  annotated type signature: write its type on its name, 'size: Int =
+  ...'.

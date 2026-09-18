@@ -101,9 +101,8 @@ greet__default__who` — and the call is a plain `greet__default__who()`.
 
 An **exported** function's defaulted parameter must carry a type
 annotation. Without one the generated def is unannotated, and
-`typesystem.check_exports` refuses exporting a `def` that annotated
-nothing and that its own module never calls — which is exactly what a
-default used only by other modules is.
+`typesystem.check_exports` refuses exporting a `def` whose type the
+source does not write down.
 
 An **external** module's functions take neither defaults nor named
 arguments: what they offer is written in a target language, which has
@@ -145,21 +144,22 @@ It is made from the program the *checker* saw, before the tail-call pass
 runs: that pass can change how a module computes what it exports, never
 what it exports or at what type.
 
-**A module says what it exports, and is refused if it cannot.** A `def`
-that annotated nothing has no type until something calls it
-(`infer_definition`), because inference reads a definition off its own
-module's use of it. So an exported one has to be either fully annotated
-or called somewhere in the module that exports it, and
+**A module says what it exports, and is refused if it cannot.** An
+exported name carries its complete type in the source: a public `def`
+annotates every parameter and its return type or has a signature line
+of its own, and a public `=` binding annotates its name.
 `typesystem.check_exports` refuses the module otherwise -- in the file
 that exports it, rather than leaving the module that imports it to find
 out. That is what makes the sigmap total, and `make_sigmap` relies on
 it.
 
-Inferring such a definition here instead would mean inferring it from no
-use at all, and would move the failure to whoever imported it. The rule
-also keeps the order honest: a module is checked before anything that
-imports it, and by the time that check is done it knows everything it
-offers.
+A `def` that annotated nothing has no type until something calls it
+(`infer_definition`), because inference reads a definition off its own
+module's use of it. Such a call settles what this module's own program
+needs, so it is not taken as a promise to another one: an exported name
+says its type where it is exported. The rule also keeps the order
+honest: a module is checked before anything that imports it, and by the
+time that check is done it knows everything it offers.
 
 The checker reads it back through `import_env`, which puts a selected
 name in the environment under the name it is known by here and a field

@@ -1178,6 +1178,18 @@ file = "fail_typecheck_module_unannotated.pyk"
 targets = ["pyking"]
 
 [[cases]]
+file = "fail_typecheck_module_public_partial.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_module_public_called.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_module_public_value.pyk"
+targets = ["pyking"]
+
+[[cases]]
 file = "external_all.pyk"
 modules = ["external_all_mod1.external.pyk"]
 targets = ["python14", "node24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5"]

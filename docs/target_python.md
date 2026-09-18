@@ -743,7 +743,7 @@ public def inc(x:Int) -> Int:
     return x + priv
 
 
-public greeting = "hi"
+public greeting: String = "hi"
 ```
 
 ```pyking

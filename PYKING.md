@@ -1684,8 +1684,8 @@ public def greet(who: String = "world") -> String: "hi " ++ who
 public def greet(who = "world") -> String: "hi " ++ who     # refused
 ```
 
-An unannotated `def` gets its type from how its own module uses it, and
-a default nothing in the module calls has nothing to be inferred from
+An exported function carries its complete type in the source, and a
+parameter's type is part of that whether or not it also has a default
 (see "What a module may export").
 
 A default may be written on a parameter of a nested `def`, in a loop
@@ -3539,7 +3539,7 @@ def previous(n):
     return n - step
 
 
-public first = 0
+public first: Int = 0
 ```
 
 `next`, `previous` and `first` are what another module can reach.
@@ -3562,22 +3562,23 @@ Two restrictions hold:
 
 ### What a module may export
 
-**A module says what it exports, in the file that exports it.** A `def`
-that writes no annotations has no type of its own until something uses
-it — inference reads a definition off its own module's use of it (see
-"Functions without annotations") — so an exported one has to be *either*
-fully annotated *or* used somewhere in the module that exports it:
+**A module says what it exports, in the file that exports it.** An
+exported name carries its complete type in the source: a public `def`
+annotates every parameter and its return type, or has a signature line
+of its own, and a public `=` binding annotates its name:
 
 ```pyking
-# Both of these are exported with a type this module worked out.
+# Each of these says what it is.
 
 public def next(n:Int) -> Int:
     return n + 1
 
 
-public def double(n): n * 2
+public def double : (Int) -> Int
+def double(n): n * 2
 
-print(double(21))
+
+public size: Int = 12
 ```
 
 ```pyking
@@ -3585,18 +3586,27 @@ public def triple(n): n * 3
 ```
 
 ```
-'list.pyk' 1:0-1:27 Type error: 'triple' is exported, but this module
-  never says what it is: a 'def' that writes no annotations is worked
-  out from a call, and nothing here calls 'triple'. Annotate its
-  parameters and return type, or call it in this module.
+'list.pyk' 1:0-1:27 Type error: 'triple' is public, and a public
+  function or value needs a complete annotated type signature:
+  annotate every parameter and the return type, or give it a 'def
+  triple : ...' signature line.
 ```
 
-The call is a *trigger*, not a definition: what crosses the boundary is
-still the principal type read off the body, so a function called at one
-type inside its own module is exported at every type it really has.
-`double` above is `(Int) -> Int` because its body multiplies, and a
-`public def identity(x): x` exercised by `identity(1)` is still exported
-as `(a) -> a`.
+A `def` that writes no annotations is worked out from a call — inference
+reads a definition off its own module's use of it (see "Functions
+without annotations"). That works out what this module's own program
+needs, and it is not a promise to another one, so a call here does not
+stand in for the annotations: what crosses the boundary is what the
+source wrote down.
+
+A written type is the type it always was, so an exported function is as
+general as its annotation says. `identity` here is exported as
+`(a) -> a` and may be used at every type:
+
+```pyking
+public def identity : (a) -> a
+def identity(x): x
+```
 
 ### Importing a whole module
 

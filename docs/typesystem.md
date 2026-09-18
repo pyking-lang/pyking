@@ -252,11 +252,14 @@ across the boundary and instantiates at the call like any other. See
 [modules.md](modules.md).
 
 The other direction is `check_exports`, which `type_check` runs after
-the walk: a definition that annotated nothing has no type until
-something calls it, and inference reads that definition off its *own*
-module's use of it — so exporting one this module never calls is
-refused here rather than inferred from nothing, or left for whoever
-imports it to trip over.
+the walk: an exported name carries its complete type in the source — a
+public `def` annotates every parameter and its return type or has a
+signature line of its own, and a public `=` binding annotates its name.
+A definition that annotated nothing has no type until something calls
+it, and inference reads that definition off its *own* module's use of
+it, which settles what this module needs rather than what it promises
+elsewhere — so exporting one is refused here rather than left for
+whoever imports it to trip over.
 
 ## Annotations are checked, never replaced
 

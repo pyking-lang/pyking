@@ -10,7 +10,7 @@ public def twice(n:Int) -> Int:
     return scale(n)
 
 
-public origin = 100
+public origin: Int = 100
 
 
 # Two functions that print as well as answering, so that a program using

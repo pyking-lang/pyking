@@ -1,5 +1,4 @@
-'tests/fail_typecheck_module_unannotated.pyk' 9:0-9:31 Type error:
-  'scale' is exported, but this module never says what it is: a 'def'
-  that writes no annotations is worked out from a call, and nothing
-  here calls 'scale'. Annotate its parameters and return type, or call
-  it in this module.
+'tests/fail_typecheck_module_unannotated.pyk' 7:0-7:31 Type error:
+  'scale' is public, and a public function or value needs a complete
+  annotated type signature: annotate every parameter and the return
+  type, or give it a 'def scale : ...' signature line.

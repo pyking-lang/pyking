@@ -194,11 +194,10 @@ Because the generated defs only exist after this pass, a module's
 
 An **exported** function's defaulted parameter must carry a type
 annotation. Without one the generated def is unannotated, and
-`typesystem.check_exports` refuses exporting a `def` that annotated
-nothing and that its own module never calls — which is exactly what a
-default used only by other modules is. Requiring the annotation is a
-language rule (PYKING.md) rather than a workaround: it also makes a
-mismatched default report against the default expression's own span.
+`typesystem.check_exports` refuses exporting a `def` whose type the
+source does not write down. Requiring the annotation is a language rule
+(PYKING.md) rather than a workaround: it also makes a mismatched default
+report against the default expression's own span.
 
 An **external** module is recorded in the table as foreign rather than
 merely absent, so a call into one refuses the sugar by name.

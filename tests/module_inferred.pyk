@@ -1,5 +1,5 @@
-# A module whose public functions annotate nothing. What crosses the
-# boundary is the type the checker worked out, quantifier and all, so
+# A module whose exports write their types down. What crosses the
+# boundary is the type the source promised, quantifier and all, so
 # `identity` is used here at two different types.
 
 import module_inferred_mod1 as m

@@ -1,0 +1,10 @@
+# A public value with no type on its name. A module says what it
+# exports, values as well as functions, so the type the checker would
+# have read off the right-hand side is not enough -- it has to be
+# written down.
+
+width = 3
+
+public size = width * 4
+
+print(size)

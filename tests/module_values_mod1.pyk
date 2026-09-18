@@ -4,9 +4,9 @@
 width = 7
 height = 6
 
-public area = width * height
+public area: Int = width * height
 
-public label = "area"
+public label: String = "area"
 
 public def describe(unit:String) -> String:
     return label ++ " in " ++ unit

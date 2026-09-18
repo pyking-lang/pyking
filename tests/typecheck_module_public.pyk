@@ -17,7 +17,7 @@ def label(n):
     return if n > 0 then "positive" else "other"
 
 
-public offset = start + 1
+public offset: Int = start + 1
 
 print(typecheck_module_public_mod1.name())
 print(m1.marker, offset)

@@ -1,0 +1,4 @@
+'tests/fail_typecheck_module_public_called.pyk' 6:0-6:26 Type error:
+  'scale' is public, and a public function or value needs a complete
+  annotated type signature: annotate every parameter and the return
+  type, or give it a 'def scale : ...' signature line.

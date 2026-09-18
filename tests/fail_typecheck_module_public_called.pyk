@@ -1,0 +1,8 @@
+# A public `def` that annotates nothing and that its own module calls.
+# The call works the definition out for this module's own use, and is
+# not what another module reads: an exported name says its type in the
+# source, so a call here does not stand in for the annotations.
+
+public def scale(n): n * 2
+
+print(scale(21))

@@ -20,15 +20,15 @@
 # `format` does not know ends the output there. See docs/libraries.md.
 
 
-public ISO8601 = "yyyy-MM-ddTHH:mm:ssZ"
+public ISO8601: String = "yyyy-MM-ddTHH:mm:ssZ"
 
-public DATE = "yyyy-MM-dd"
+public DATE: String = "yyyy-MM-dd"
 
-public TIME = "HH:mm:ss"
+public TIME: String = "HH:mm:ss"
 
-public DATETIME = "yyyy-MM-dd HH:mm:ss"
+public DATETIME: String = "yyyy-MM-dd HH:mm:ss"
 
-public COMPACT = "yyyyMMddHHmmss"
+public COMPACT: String = "yyyyMMddHHmmss"
 
 
 # One digit as text. `str` would do it, but the JavaScript backends have

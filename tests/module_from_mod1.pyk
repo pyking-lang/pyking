@@ -10,4 +10,4 @@ public def shout(what:String) -> String:
     return what ++ "!"
 
 
-public banner = "pyking"
+public banner: String = "pyking"

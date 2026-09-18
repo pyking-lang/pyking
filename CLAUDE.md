@@ -500,12 +500,13 @@ The bootstrap is split into one module per compiler stage:
    declaration of the module rather than a statement in its sequence --
    and it has to be that way round, because a deferred body is checked
    in the environment recorded where it was written. The other
-   direction is `check_exports`, run at the end: a `def` that annotated
-   nothing has no type until something calls it, and inference reads it
-   off its *own* module's use of it -- so exporting one this module
-   never calls is **refused**, not inferred from nothing. An exported
-   `def` is fully annotated or called in its own module; see PYKING.md,
-   "What a module may export". `interpreter.ml` defines its coverage as
+   direction is `check_exports`, run at the end: an exported name
+   carries its complete type in the source -- a public `def` annotates
+   every parameter and its return type or has a signature line of its
+   own, and a public `=` binding annotates its name -- and anything
+   less is **refused**, since a call in the module settles what this
+   module needs rather than promising anything to another one. See
+   PYKING.md, "What a module may export". `interpreter.ml` defines its coverage as
    "whatever this accepts", so widening the checker widens it, and it
    needs the corresponding `case` or an explicit refusal.
    `target_ocaml.ml` used to say the same and no longer can: it accepts
@@ -1563,7 +1564,9 @@ import form and each `public` does, one file per form plus the modules
 it imports (`module_qualified.pyk` and `module_qualified_mod1.pyk`), and
 `fail_typecheck_module_*` for what is refused — a cycle, a private name,
 a collision, an import inside a block, a `public var`, a name exported
-twice, and an unannotated export nothing in its module calls. `typecheck_module_public.pyk` is the one that pins the
+twice, and the four ways an export can fail to write its type down (no
+annotations, only some of them, an unannotated `def` its own module
+calls, and a value with no type on its name). `typecheck_module_public.pyk` is the one that pins the
 printed AST, since it is the only place `import`, `from`, `as` and
 `public` are printed back out at all.
 

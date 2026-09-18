@@ -1,0 +1,7 @@
+# A public `def` that annotates some of itself. A complete annotated
+# type signature is every parameter and the return type, so half of one
+# is refused exactly as none of it is: what a module offers is a whole
+# type or nothing.
+
+public def scale(n:Int):
+    return n * 2

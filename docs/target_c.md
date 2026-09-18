@@ -646,7 +646,7 @@ public def inc(x:Int) -> Int:
     return scale(x) + 1
 
 
-public greeting = "hi"
+public greeting: String = "hi"
 ```
 
 ```c

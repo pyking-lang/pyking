@@ -1,0 +1,13 @@
+# What a `from` line takes: the public names, one at a time.
+
+hidden = "not exported"
+
+public def greet(who:String) -> String:
+    return "hello, " ++ who
+
+
+public def shout(what:String) -> String:
+    return what ++ "!"
+
+
+public banner: String = "pyking"

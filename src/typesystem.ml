@@ -39,7 +39,8 @@
       declare_functions stmts env store -- binds every def of a block.
       builtin_env () -- the environment a program starts in.
       available module info store -- what a module exports, or a refusal.
-      check_exports stmts store -- refuses an export with no type.
+      check_exports stmts store -- refuses an export whose type the
+        source does not write down.
       zonk type_ store -- a type read back through what was solved. *)
 
 open Lexer
@@ -1206,33 +1207,6 @@ let unreachable_name module_ name env =
       name module_
   else Printf.sprintf "module '%s' does not export '%s'" module_ name
 
-(** Refuses a module that exports a definition it has no type for.
-
-    A `def` that writes no annotations is worked out from a call
-    (`infer_definition`), so one nothing in the module calls has no type
-    -- and there is nothing to work it out *from*, since inference reads
-    a definition off the uses its own module makes of it. A module says
-    what it exports here, in the file that exports it, rather than
-    leaving the module that imports it to find out.
-    [stmt] -> store -> () *)
-let check_exports stmts store =
-  List.iter
-    (fun statement ->
-      match statement with
-      | SFunctionDef (info, name, _, _, _, sym, true)
-        when not (IntMap.mem sym store.tmap) ->
-          raise
-            (Type_error
-               ( info,
-                 Printf.sprintf
-                   "'%s' is exported, but this module never says what it is: \
-                    a 'def' that writes no annotations is worked out from a \
-                    call, and nothing here calls '%s'. Annotate its \
-                    parameters and return type, or call it in this module."
-                   name name ))
-      | _ -> ())
-    stmts
-
 (* --- what a definition says about itself --- *)
 
 (** The type a `def name : type` line gave this definition, already
@@ -1252,6 +1226,48 @@ let fully_annotated node store =
           return_type <> None
           && List.for_all (fun (Param (_, _, t, _, _)) -> t <> None) params
       | _ -> false)
+
+(** Refuses a module that exports a name whose type the source does not
+    write down.
+
+    A module says what it exports here, in the file that exports it,
+    rather than leaving the module that imports it to find out. A `def`
+    says its whole type on its own header or on a signature line of its
+    own, and an `=` binding says it on its name; what the checker would
+    have worked out on its own is not enough, because what crosses the
+    boundary is what the source promised.
+    [stmt] -> store -> () *)
+let check_exports stmts store =
+  let incomplete name how =
+    Printf.sprintf
+      "'%s' is public, and a public function or value needs a complete \
+       annotated type signature: %s"
+      name how
+  in
+  List.iter
+    (fun statement ->
+      match statement with
+      | SFunctionDef (info, name, _, _, _, _, true)
+        when not (fully_annotated statement store) ->
+          raise
+            (Type_error
+               ( info,
+                 incomplete name
+                   (Printf.sprintf
+                      "annotate every parameter and the return type, or give \
+                       it a 'def %s : ...' signature line."
+                      name) ))
+      | SLet (info, TargetName (_, name, _), _, None, _, true)
+      | SLetStmt (info, TargetName (_, name, _), _, None, _, true) ->
+          raise
+            (Type_error
+               ( info,
+                 incomplete name
+                   (Printf.sprintf "write its type on its name, '%s: Int = \
+                                    ...'."
+                      name) ))
+      | _ -> ())
+    stmts
 
 (** node's type, from the signature line that named it or from the
     annotations on its own header, quantified over the type variables it

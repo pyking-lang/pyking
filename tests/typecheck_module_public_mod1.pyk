@@ -7,4 +7,4 @@ def name():
     return "mod1"
 
 
-public marker = 5
+public marker: Int = 5

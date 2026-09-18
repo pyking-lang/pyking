@@ -1,34 +1,41 @@
-# A module whose exports write no annotations. A `def` like that is
-# worked out from a call, so this module has to make one -- otherwise it
-# has no type to offer whoever imports it, and exporting it is refused
-# (see PYKING.md, "What a module may export").
+# A module whose exports say their types and whose private definitions
+# do not. What crosses the boundary is written down: a public `def`
+# annotates every parameter and its return type or carries a signature
+# line of its own, and a public value annotates its name (see PYKING.md,
+# "What a module may export").
 #
-# The call is a trigger, not a definition: what each of these exports is
-# its *principal* type, read off its own body, so `identity` leaves here
-# polymorphic even though the only call below is at Int.
+# Inside the module nothing changes: `double` writes no annotations and
+# is worked out from this module's own use of it.
+#
+# A written type is enforced rather than taken on trust, so `identity`
+# and `swap` really are polymorphic -- the program importing this one
+# uses `identity` at two different types.
 
-public def bump(n): n + 1
+public def bump(n:Int) -> Int: n + 1
 
-public def identity(x): x
+public def identity : (a) -> a
+def identity(x): x
 
-public def swap(a, b): (b, a)
+public def swap : (a, b) -> (b, a)
+def swap(a, b): (b, a)
 
-public start = 10
+public start: Int = 10
 
 
 # An export worked out from a private definition, and two exports that
-# are worked out together because they name each other.
+# call each other.
 def double(n): n * 2
 
 
-public def quadruple(n): double(double(n))
+public def quadruple(n:Int) -> Int: double(double(n))
 
 
-public def even(n): if n == 0 then true else odd(n - 1)
+public def even(n:Int) -> Bool: if n == 0 then true else odd(n - 1)
 
 
-public def odd(n): if n == 0 then false else even(n - 1)
+public def odd(n:Int) -> Bool: if n == 0 then false else even(n - 1)
 
 
-# What makes each of them a definition this module has a type for.
+# What works `double` out: an unannotated definition is read off the
+# calls its own module makes of it.
 print(bump(identity(start)), swap(quadruple(1), even(0)), odd(1))
