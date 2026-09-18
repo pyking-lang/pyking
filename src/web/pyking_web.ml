@@ -287,6 +287,9 @@ let front_end source name natively =
   let program =
     Parser.parse (Lexer.lexing name (Lexer.chars_of_string source))
   in
+  (* Default parameters and named arguments go first, as they do in
+     Module.load, which this path does not go through. *)
+  let program, _ = Desugar_args.desugar Desugar_args.no_signatures name program in
   let program = Analyses.symbolize program in
   (* The half of the module system that needs only this file: what it
      exports, and that it exports one thing under one name. The other

@@ -1366,3 +1366,81 @@ targets = ["pyking"]
 file = "external_float.pyk"
 modules = ["external_float_mod1.external.pyk"]
 targets = ["python14", "node24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5"]
+
+[[cases]]
+file = "typecheck_defaults.pyk"
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_nosugar"]
+
+[[cases]]
+file = "typecheck_named_args.pyk"
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_nosugar"]
+
+[[cases]]
+file = "typecheck_defaults_scope.pyk"
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_nosugar"]
+
+[[cases]]
+file = "typecheck_defaults_complex.pyk"
+targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_nosugar"]
+
+[[cases]]
+file = "typecheck_noann_defaults.pyk"
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
+
+[[cases]]
+file = "module_defaults.pyk"
+modules = ["module_defaults_mod1.pyk"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
+
+[[cases]]
+file = "continuation_lines.pyk"
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking_nosugar"]
+
+[[cases]]
+file = "fail_typecheck_defaults_trailing.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_defaults_positional.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_defaults_duplicate.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_defaults_order.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_defaults_unknown.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_defaults_repeated.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_defaults_alias.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_defaults_builtin.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_defaults_public.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_defaults_clash.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_defaults_missing.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_defaults_external.pyk"
+modules = ["external_all_mod1.external.pyk"]
+targets = ["pyking"]

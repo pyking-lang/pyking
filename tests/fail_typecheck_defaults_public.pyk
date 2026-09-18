@@ -1,0 +1,7 @@
+# A default on an exported function's parameter needs a type written
+# down: the def holding it crosses the module boundary, and nothing in
+# this module need call it for its type to be worked out.
+
+
+public def greet(who = "world") -> String:
+    return "hi " ++ who

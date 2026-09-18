@@ -1,0 +1,11 @@
+# An external module's functions are written in a target language, which
+# has no parameter names Pyking can see, so the sugar does not reach
+# into one. A declaration file cannot carry a default either: it holds
+# signatures, and a signature is a type.
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+import external_all_mod1 as m
+
+print(m.shout(text = "a"))

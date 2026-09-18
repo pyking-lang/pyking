@@ -70,6 +70,14 @@ type effects
 (** The names a statement binds in the block it is written in (excludes
     for/pattern/parameter names, and a def's own name), as (name, info)
     pairs. stmt -> [(string, info)] *)
+val target_names : Syntax.assign_target -> (string * Lexer.info) list
+(** The (name, info) pairs an assignment target binds.
+    assign_target -> [(String, info)] *)
+
+val pattern_bindings : Syntax.pattern -> (string * Lexer.info) list
+(** The (name, info) pairs a pattern binds.
+    pattern -> [(String, info)] *)
+
 val bound_names : Syntax.stmt -> (string * Lexer.info) list
 
 (** The function definitions written in a block, in source order.

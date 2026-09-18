@@ -1,0 +1,24 @@
+size = 10
+def scaled(x:Int = size) -> Int:
+    return x * 2
+size = 20
+print(scaled())
+print(scaled(1))
+def outer(base:Int) -> Int:
+    def inner(bump:Int = base) -> Int:
+        return base + bump
+    return inner() + inner(1)
+print(outer(10))
+print(outer(100))
+def width() -> Int:
+    return 7
+def padded(amount:Int = width()) -> Int:
+    return amount + 1
+print(padded())
+print(padded(0))
+var counter = 0
+def tick(from_:Int = counter) -> Int:
+    return from_ + 1
+print(tick())
+counter := 40
+print(tick())

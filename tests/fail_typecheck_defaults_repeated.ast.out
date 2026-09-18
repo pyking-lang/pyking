@@ -1,0 +1,2 @@
+'tests/fail_typecheck_defaults_repeated.pyk' 9:15-9:16 Name error: 'a'
+  is already given as argument 1 of this call

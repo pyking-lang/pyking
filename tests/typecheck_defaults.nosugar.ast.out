@@ -1,0 +1,20 @@
+def step(n:Int = 1, by:Int = 10) -> Int:
+    return n * by
+print(step())
+print(step(3))
+print(step(3, 4))
+def repeat(text:String, times:Int = 3) -> String:
+    if times <= 0:
+        return ''
+    return text ++ repeat(text, times - 1)
+print(repeat('ab'))
+print(repeat('ab', 1))
+def describe(flag:Bool = true, name:String = 'pyk', size:Int = 2, ratio:Float = 0.5) -> Float:
+    if flag:
+        print(name)
+        print(size)
+        return ratio * 2.0
+    return ratio
+print(describe())
+print(describe(false))
+print(describe(true, 'x', 9, 1.5))

@@ -1,0 +1,2 @@
+'tests/fail_typecheck_defaults_positional.pyk' 9:15-9:16 Parsing
+  error: a positional argument may not follow a named one

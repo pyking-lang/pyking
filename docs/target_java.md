@@ -228,6 +228,19 @@ host compiler with a message about a name this backend had emitted --
 which is exactly what refusing it at compile time, with a Pyking source
 position, exists to avoid.
 
+A **default parameter** whose expression reads a binding from around
+the definition is refused here for the same reason: a default is
+compiled as a generated `def` in the block the definition stands in
+(docs/desugar_args.md), so it is a function like any other and reads
+only its own parameters and other functions.
+
+```pyking
+size = 10
+def scaled(x: Int = size) -> Int: x * 2     # refused here
+def step(n: Int = 1) -> Int: n * 10         # fine: a literal
+```
+
+
 ### A function used as a value
 
 ```

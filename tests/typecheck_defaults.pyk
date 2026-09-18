@@ -1,0 +1,52 @@
+# Default parameters.
+#
+# A parameter may be given a value to use when the call leaves it out.
+# The default is written in the definition and belongs to it: it is an
+# expression evaluated in the scope the `def` is written in, each time a
+# call omits that argument (see PYKING.md, "Default parameters").
+#
+# Defaults must be trailing -- every parameter after the first one with
+# a default has one too -- so a positional call is never ambiguous.
+
+
+def step(n: Int = 1, by: Int = 10) -> Int:
+    return n * by
+
+
+# Nothing given: both defaults are used.
+print(step())
+
+# One given: the rest still default.
+print(step(3))
+
+# Everything given: no default is reached.
+print(step(3, 4))
+
+
+# A default may sit beside a parameter that has none.
+def repeat(text: String, times: Int = 3) -> String:
+    if times <= 0:
+        return ""
+    return text ++ repeat(text, times - 1)
+
+
+print(repeat("ab"))
+print(repeat("ab", 1))
+
+
+# A default of every type a parameter may be annotated with.
+def describe(
+        flag: Bool = true,
+        name: String = "pyk",
+        size: Int = 2,
+        ratio: Float = 0.5) -> Float:
+    if flag:
+        print(name)
+        print(size)
+        return ratio * 2.0
+    return ratio
+
+
+print(describe())
+print(describe(false))
+print(describe(true, "x", 9, 1.5))

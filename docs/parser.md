@@ -254,7 +254,7 @@ narrowed back down to "must have been a plain expression."
 
 ## Checks that live here because nowhere else can do them cheaply
 
-Six rules are enforced by this module even though they are, in a
+Seven rules are enforced by this module even though they are, in a
 sense, "not parsing":
 
 - **`check_no_duplicate_captures`** — a pattern may not bind the same
@@ -292,6 +292,17 @@ sense, "not parsing":
   does, and `parse_statement` — which every block goes through — refuses
   their keywords outright. Where a rule can be enforced by which
   function is reachable, that is cheaper than a check.
+- **`check_trailing_defaults` / `check_argument_shape`** — the shape of
+  a parameter list and of a call's arguments once defaults and named
+  arguments are written: every parameter after the first one with a
+  default has one too, every positional argument comes before every
+  named one, and a name is written once. All three are facts about the
+  tokens on the line, needing nothing about what a name *means*, so
+  they are refused here with a source position rather than left to
+  `desugar_args.ml`. The rule that a named argument must be in
+  *parameter* order is not among them: that one needs the callee's
+  parameters, which the parser has never heard of, so it is a `Name
+  error` from the pass instead. See PYKING.md, "Named arguments".
 - **`check_own_line`** — see below.
 - **`on_header_line` / `check_inline_value` / `check_ends_line` /
   `check_nothing_indented`** — the other half of the same
@@ -309,6 +320,13 @@ sense, "not parsing":
   indented block under one, which would belong to nothing. A second
   statement on the line is left to `check_own_line`, which already
   covers it. See PYKING.md, "A block on its header's own line".
+
+`parse_args` used to serve the parenthesized-tuple tail as well, the
+two grammars being identical. They are not any more: an argument may be
+written `name = expr` and a tuple element may not, so the tuple tail has
+`parse_tuple_elements` of its own. `(a = 1)` stays the parse error it
+was, and the one-line difference between the two functions is the whole
+of the reason they are separate.
 
 ## One line, several statements: `import a, b`
 

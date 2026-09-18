@@ -1,0 +1,9 @@
+# Every positional argument comes before every named one. A positional
+# argument after a name would have no position left to mean.
+
+
+def f(a: Int = 1, b: Int = 2) -> Int:
+    return a + b
+
+
+print(f(a = 1, 2))

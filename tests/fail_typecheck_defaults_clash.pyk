@@ -1,0 +1,14 @@
+# The def holding a default is named after the function and the
+# parameter. A block that already binds that name has no room for it,
+# and renaming it is not an option: the name is part of what an
+# exporting module offers.
+
+
+greet__default__who = 1
+
+
+def greet(who: Int = 2) -> Int:
+    return who
+
+
+print(greet())

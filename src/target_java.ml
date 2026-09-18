@@ -126,7 +126,7 @@ let reject_type_variables node =
                 "a type variable -- Java needs one concrete type per \
                  function, and this backend infers no polymorphism"
           | _ -> ())
-        (List.map (fun (Param (_, _, t, _)) -> t) params @ [ return_type ])
+        (List.map (fun (Param (_, _, t, _, _)) -> t) params @ [ return_type ])
   | _ -> ()
 
 (* --- Java AST ---
@@ -411,7 +411,7 @@ let direct_subexprs e =
   | EGreatThanEq (_, l, r, _) | EEq (_, l, r, _) ->
       [ l; r ]
   | ENeg (_, operand, _) -> [ operand ]
-  | ECall (_, func, args, _) -> func :: args
+  | ECall (_, func, args, _) -> func :: arg_exprs args
   | EList (_, elements, _) | ETuple (_, elements, _) -> elements
   | EIf (_, cond, then_expr, else_expr, _) -> [ cond; then_expr; else_expr ]
   | EListComp (_, element, _, _) -> [ element ]
@@ -457,7 +457,7 @@ let used_as_float name stmts =
 (** A parameter's type: its annotation when Java can represent it, else
     what the body's use of it suggests, else Int (docs/target_java.md,
     "How types are inferred"). stmt -> param -> jtype *)
-let param_type func (Param (_, name, annotation, _)) =
+let param_type func (Param (_, name, annotation, _, _)) =
   match annotated_type annotation with
   | Some t -> t
   | None ->
@@ -731,12 +731,12 @@ let rec expr state e scope allow_unit =
   (* Java's own conversions: widening an int is exact within the range a
      double holds, and narrowing a double truncates toward zero, which
      is the rounding Pyking's `int` and `/` both do. *)
-  | ECall (info, EVar (_, "float", _), [ argument ], _)
+  | ECall (info, EVar (_, "float", _), [ (_, argument) ], _)
     when not (List.mem_assoc "float" state.signatures) ->
       let inner, state = expr state argument scope false in
       require inner Int "`float`";
       (JCast (info, Float, inner), state)
-  | ECall (info, EVar (_, "int", _), [ argument ], _)
+  | ECall (info, EVar (_, "int", _), [ (_, argument) ], _)
     when not (List.mem_assoc "int" state.signatures) ->
       let inner, state = expr state argument scope false in
       require inner Float "`int`";
@@ -775,9 +775,9 @@ let rec expr state e scope allow_unit =
       let java_name, jtype = lookup (reached alias field) scope info in
       (JVar (info, java_name, jtype), state)
   | ECall (info, EQualified (_, alias, field, _), args, _) ->
-      call state e (reached alias field) args scope allow_unit info
+      call state e (reached alias field) (arg_exprs args) scope allow_unit info
   | ECall (info, EVar (_, name, _), args, _) ->
-      call state e name args scope allow_unit info
+      call state e name (arg_exprs args) scope allow_unit info
   | ECall _ -> unsupported (expr_info e) "calling anything but a named function"
   | e -> (
       match (binary_op e, Interpreter.binary_operands e) with
@@ -1199,7 +1199,7 @@ and stmt state s scope =
           (fun (out, state) a ->
             let j, state = expr state a scope false in
             (out @ [ j ], state))
-          ([], state) args
+          ([], state) (arg_exprs args)
       in
       let state =
         if List.exists (fun a -> jtype_of a = Float) translated then
@@ -1393,7 +1393,7 @@ let function_of state func scope =
       in
       let java_params, body_scope =
         List.fold_left2
-          (fun (out, body_scope) (Param (_, param_name, _, _)) jtype ->
+          (fun (out, body_scope) (Param (_, param_name, _, _, _)) jtype ->
             let java_param, body_scope = bind param_name jtype body_scope in
             (out @ [ (jtype, java_param) ], body_scope))
           ([], body_scope) params param_types

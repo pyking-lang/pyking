@@ -823,7 +823,8 @@ let calls_in stmts =
   Walk.fold_stmts
     (fun found node ->
       match node with
-      | Walk.NExpr (ECall (_, EVar (_, name, _), args, _)) -> found @ [ (name, args) ]
+      | Walk.NExpr (ECall (_, EVar (_, name, _), args, _)) ->
+          found @ [ (name, arg_exprs args) ]
       | _ -> found)
     [] stmts
 
@@ -1049,11 +1050,13 @@ let rec expr ctx acc e =
       (sequence (OTuple pieces), acc)
   | ECall (_, EVar (_, name, _), args, _)
     when Builtin.crosses_host name ->
-      print_call ctx acc e args
+      print_call ctx acc e (arg_exprs args)
   | ECall (_, EVar (_, name, _), args, _) when List.mem name Builtin.pure_names ->
-      builtin_call ctx acc e name args
+      builtin_call ctx acc e name (arg_exprs args)
   | ECall (_, func, args, _) ->
-      let pieces, sequence, acc = in_order ctx acc (func :: args) in
+      let pieces, sequence, acc =
+        in_order ctx acc (func :: arg_exprs args)
+      in
       (* A call with no arguments passes unit, since that is what
          `function_binding` gave the definition to take. *)
       let func_piece = List.hd pieces in
@@ -2124,7 +2127,7 @@ and check_rank_one ctx func =
       in
       let rec go ps ts =
         match (ps, ts) with
-        | Param (info, _, _, _) :: ps, type_ :: ts ->
+        | Param (info, _, _, _, _) :: ps, type_ :: ts ->
             if has_forall type_ then
               unsupported info
                 "a polymorphic parameter -- OCaml generalizes a `let`, not a \
@@ -2157,7 +2160,7 @@ and function_binding ctx acc func =
       let o_params =
         match params with
         | [] -> [ OPatTuple [] ]
-        | params -> List.map (fun (Param (_, n, _, _)) -> OPatName (mangle ctx n)) params
+        | params -> List.map (fun (Param (_, n, _, _, _)) -> OPatName (mangle ctx n)) params
       in
       let value, acc =
         try body ctx acc func_body

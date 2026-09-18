@@ -84,7 +84,7 @@ let e_string info s = EString (info, s, 0)
 let e_bool info b = EBool (info, b, 0)
 let e_var info name = EVar (info, name, 0)
 let e_eq info left right = EEq (info, left, right, 0)
-let e_call info func args = ECall (info, func, args, 0)
+let e_call info func args = ECall (info, func, plain_args args, 0)
 let e_list info elements = EList (info, elements, 0)
 let e_tuple info elements = ETuple (info, elements, 0)
 let target_name info name = TargetName (info, name, 0)
@@ -108,8 +108,8 @@ let def_name node =
 let def_params node =
   match node with SFunctionDef (_, _, params, _, _, _, _) -> params | _ -> []
 
-let param_name (Param (_, name, _, _)) = name
-let param_info (Param (info, _, _, _)) = info
+let param_name (Param (_, name, _, _, _)) = name
+let param_info (Param (info, _, _, _, _)) = info
 
 (** node with a different body. stmt -> [stmt] -> stmt *)
 let with_body node body =
@@ -354,7 +354,7 @@ let rec going_on info e context =
          | Some callee -> List.length args = callee.arity
          | None -> false) -> (
       let callee = List.assoc name context.names in
-      match state_of call_info callee args context with
+      match state_of call_info callee (arg_exprs args) context with
       (* A loop carrying nothing: there is no next value to give it, only
          another turn. *)
       | None -> [ s_continue info ]
@@ -546,7 +546,7 @@ let rewrite_self func work =
   in
   let carried =
     List.map
-      (fun (Param (_, _, _, sym)) -> IntMap.find_opt sym work.types)
+      (fun (Param (_, _, _, _, sym)) -> IntMap.find_opt sym work.types)
       (def_params func)
   in
   let loop, work =
@@ -818,9 +818,9 @@ let merge group work index =
         List.fold_left2
           (fun (params, work) slot type_ ->
             let sym, work = symbol work in
-            ( params @ [ Param (info, slot, Some type_, sym) ],
+            ( params @ [ Param (info, slot, Some type_, None, sym) ],
               remember work sym type_ ))
-          ([ Param (info, state, Some (t_int info), state_sym) ], work)
+          ([ Param (info, state, Some (t_int info), None, state_sym) ], work)
           slots slot_types
       in
       let definition_sym, work = symbol work in

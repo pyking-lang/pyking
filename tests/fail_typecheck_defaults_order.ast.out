@@ -1,0 +1,2 @@
+'tests/fail_typecheck_defaults_order.pyk' 10:19-10:20 Name error:
+  named arguments must be written in parameter order

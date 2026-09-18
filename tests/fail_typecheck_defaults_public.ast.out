@@ -1,0 +1,3 @@
+'tests/fail_typecheck_defaults_public.pyk' 6:17-6:30 Name error: a
+  default for an exported function's parameter needs a type: 'who: Int
+  = ...'

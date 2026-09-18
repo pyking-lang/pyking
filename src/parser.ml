@@ -87,9 +87,9 @@ let rec parse_atom eof tokens =
           (* (e,): a singleton tuple. *)
           parse_call_tail eof (ETuple (combine_info lp rp, [ first ], 0)) rest
       | TokComma _ :: rest ->
-          (* (e, e, ...): reuse parse_args's shape -- it is exactly the
-             tuple-tail grammar too. *)
-          let elements, rp, rest = parse_args eof rest in
+          (* (e, e, ...): the same shape as a call's arguments, minus
+             the `name = ` form, which belongs to a call alone. *)
+          let elements, rp, rest = parse_tuple_elements eof rest in
           parse_call_tail eof
             (ETuple (combine_info lp rp, first :: elements, 0))
             rest
@@ -134,25 +134,46 @@ and parse_call_tail eof e tokens =
   | TokLParen lp :: rest when lp.row1 = (expr_info e).row2 ->
       let args, rparen, rest = parse_args eof rest in
       let call_info = combine_info (expr_info e) rparen in
+      check_argument_shape args;
       parse_call_tail eof (ECall (call_info, e, args, 0)) rest
   | _ -> (e, tokens)
 
-(** Parses comma-separated call arguments up to and including ')'.
-    info -> [token] -> ([expr], info, [token]) *)
+(** Parses comma-separated call arguments up to and including ')'. An
+    argument written `name = expr` carries that parameter name.
+    info -> [token] -> ([(String?, expr)], info, [token]) *)
 and parse_args eof tokens =
   match tokens with
   | TokRParen i :: rest -> ([], i, rest)
   | _ -> (
+      let name, tokens =
+        match tokens with
+        | TokIdent (_, name) :: TokEq _ :: rest -> (Some name, rest)
+        | _ -> (None, tokens)
+      in
       let arg, rest = parse_expr eof tokens in
       match rest with
       | TokComma _ :: rest ->
           let args, rparen, rest = parse_args eof rest in
-          (arg :: args, rparen, rest)
-      | TokRParen i :: rest -> ([ arg ], i, rest)
+          ((name, arg) :: args, rparen, rest)
+      | TokRParen i :: rest -> ([ (name, arg) ], i, rest)
       | _ ->
           raise
             (Parse_error
                (here eof rest, "expected ',' or ')' in call arguments")))
+
+(** Parses comma-separated tuple elements up to and including ')'.
+    info -> [token] -> ([expr], info, [token]) *)
+and parse_tuple_elements eof tokens =
+  match tokens with
+  | TokRParen i :: rest -> ([], i, rest)
+  | _ -> (
+      let element, rest = parse_expr eof tokens in
+      match rest with
+      | TokComma _ :: rest ->
+          let elements, rparen, rest = parse_tuple_elements eof rest in
+          (element :: elements, rparen, rest)
+      | TokRParen i :: rest -> ([ element ], i, rest)
+      | _ -> raise (Parse_error (here eof rest, "expected ',' or ')'")))
 
 (** Parses comma-separated list elements up to and including ']'.
     info -> [token] -> ([expr], info, [token]) *)
@@ -477,15 +498,23 @@ and parse_type_vars eof tokens =
   in
   vars_from tokens []
 
-(** Parses one parameter, `name` or `name:type`.
-    info -> [token] -> (param, [token]) *)
+(** Parses one parameter, `name`, `name: type`, or either followed by
+    `= default`. info -> [token] -> (param, [token]) *)
 and parse_param eof tokens =
-  match tokens with
-  | TokIdent (i, name) :: TokColon _ :: rest ->
-      let type_, rest = parse_type eof rest in
-      (Param (combine_info i (type_info type_), name, Some type_, 0), rest)
-  | TokIdent (i, name) :: rest -> (Param (i, name, None, 0), rest)
-  | _ -> raise (Parse_error (here eof tokens, "expected a parameter"))
+  let named, type_, i, rest =
+    match tokens with
+    | TokIdent (i, name) :: TokColon _ :: rest ->
+        let type_, rest = parse_type eof rest in
+        (name, Some type_, combine_info i (type_info type_), rest)
+    | TokIdent (i, name) :: rest -> (name, None, i, rest)
+    | _ -> raise (Parse_error (here eof tokens, "expected a parameter"))
+  in
+  match rest with
+  | TokEq _ :: rest ->
+      let default, rest = parse_expr eof rest in
+      ( Param (combine_info i (expr_info default), named, type_, Some default, 0),
+        rest )
+  | _ -> (Param (i, named, type_, None, 0), rest)
 
 (** Parses comma-separated parameters up to and including ')'.
     info -> [token] -> ([param], [token]) *)
@@ -497,6 +526,7 @@ and parse_params eof tokens =
       match rest with
       | TokComma _ :: rest ->
           let params, rest = parse_params eof rest in
+          check_trailing_defaults param params;
           (param :: params, rest)
       | TokRParen _ :: rest -> ([ param ], rest)
       | _ ->
@@ -1110,6 +1140,50 @@ and check_no_duplicate_captures pattern =
         else check (StringSet.add name seen) rest
   in
   check StringSet.empty (pattern_captures pattern)
+
+(** Raises Parse_error if a parameter with a default is followed by one
+    without: every parameter after the first default must have one too.
+    param -> [param] -> () *)
+and check_trailing_defaults param params =
+  match param with
+  | Param (_, name, _, Some _, _) -> (
+      match
+        List.find_opt (fun (Param (_, _, _, d, _)) -> d = None) params
+      with
+      | None -> ()
+      | Some (Param (i, later, _, _, _)) ->
+          raise
+            (Parse_error
+               ( i,
+                 Printf.sprintf
+                   "parameter '%s' needs a default, because '%s' before it \
+                    has one"
+                   later name )))
+  | _ -> ()
+
+(** Raises Parse_error if a call's arguments are misshapen: a positional
+    argument after a named one, or the same name written twice.
+    [(String?, expr)] -> () *)
+and check_argument_shape args =
+  let rec check named seen args =
+    match args with
+    | [] -> ()
+    | (None, e) :: rest ->
+        if named then
+          raise
+            (Parse_error
+               ( expr_info e,
+                 "a positional argument may not follow a named one" ))
+        else check false seen rest
+    | (Some name, e) :: rest ->
+        if StringSet.mem name seen then
+          raise
+            (Parse_error
+               ( expr_info e,
+                 Printf.sprintf "duplicate argument '%s'" name ))
+        else check true (StringSet.add name seen) rest
+  in
+  check false StringSet.empty args
 
 (** The one pattern a `++` chain means. Each segment is either fixed --
     a list with no rest of its own, or a string literal -- or the single

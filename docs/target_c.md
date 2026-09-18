@@ -94,6 +94,19 @@ file scope without closures
 C has no nested functions. Hoisting one to file scope works only if it
 reads nothing from around it — which is to say, only without closures.
 
+A **default parameter** whose expression reads a binding from around
+the definition is refused here for the same reason: a default is
+compiled as a generated `def` in the block the definition stands in
+(docs/desugar_args.md), so it is a function like any other and reads
+only its own parameters and other functions.
+
+```pyking
+size = 10
+def scaled(x: Int = size) -> Int: x * 2     # refused here
+def step(n: Int = 1) -> Int: n * 10         # fine: a literal
+```
+
+
 ### `:=` that changes a variable's type
 
 ```pyking

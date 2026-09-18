@@ -89,6 +89,11 @@ second precisely because by then every name is known to be bound, so a
 name the mutability walk cannot find is never "unbound" — it is
 "not a mutable variable", which is the message worth printing.
 
+Earlier still, `module.load` desugars each module: default parameters
+and named arguments become ordinary defs and ordinary calls before
+anything is symbolized, so nothing the driver sequences knows the sugar
+exists (see [desugar_args.md](desugar_args.md)).
+
 Symbolizing runs before either of them, because both `--symbols` output
 and `tmap` need every node keyed by a stable symbol. It happens in
 `module.load`, which is also what makes the numbering span the whole
@@ -130,10 +135,13 @@ and `parse_args` refuses the flag anywhere but `compile -t pyking` --
 every other target reads the types, the Python backend to know what to
 format and the OCaml one for every type it emits, and so does the
 interpreter. What `-t pyking` prints under it is the program as
-written, with the source's own annotations: the parser's output with
-nothing inferred on top of it, which is what makes it worth having when
-the question is what the front end built rather than what the checker
-made of it.
+written, with the source's own annotations and its default parameters
+and named arguments still in it: the parser's output with nothing
+inferred on top of it and nothing rewritten away, which is what makes
+it worth having when the question is what the front end built rather
+than what the checker made of it. That view is the `pyking_nosugar`
+test target, and the only place the sugar's own printed form is
+pinned.
 
 `compiling_natively(options)` is the other half of that wiring: a target
 whose host eliminates tail calls itself gets the program as written,

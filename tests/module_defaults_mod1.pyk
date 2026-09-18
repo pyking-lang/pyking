@@ -1,0 +1,26 @@
+# A module whose exported functions carry default parameters.
+#
+# The def holding a default is exported alongside the function it
+# belongs to, which is what lets an importing module leave the argument
+# out (see docs/modules.md, "Default parameters"). An exported
+# function's defaulted parameter must be annotated, since nothing in
+# this module need call it for the type to be known.
+
+public def shout(text: String = "hi", marks: Int = 2) -> String:
+    if marks <= 0:
+        return text
+    return shout(text ++ "!", marks - 1)
+
+
+public def add(left: Int, right: Int = 100) -> Int:
+    return left + right
+
+
+# A private function with a default: the sugar works inside the module
+# whether or not the name is exported.
+def secret(n: Int = 5) -> Int:
+    return n * n
+
+
+public def squared() -> Int:
+    return secret() + secret(2)

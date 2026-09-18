@@ -58,7 +58,9 @@ next: `state` (`interpreter.State` — the machine's names to values),
 half of the type checker has worked out — see `typesystem.ml`'s own
 page and `type_inference.md`), `kinds` (the mutability analysis's names
 to binding kinds, so `:=` at the prompt is held to the same rule a file
-is), and `sources` (each name's own defining text, for `:edit`). `types`/`store` and `state` are genuinely two
+is), `sources` (each name's own defining text, for `:edit`), and
+`arguments` (what `desugar_args.ml` knows about the defs written so
+far). `types`/`store` and `state` are genuinely two
 separate environments, extended by two separate modules
 (`typesystem.declare_functions`/`check_stmt` for the first,
 `interpreter.declare_entry`/`eval_in` for the second) — the REPL keeps
@@ -79,6 +81,38 @@ entry's node. `submit` grows `seen` **before** checking whether the
 entry's statements actually get to run, specifically because a symbol,
 once handed out, must never be handed out again — even to a statement
 that turns out to be refused.
+
+## Default parameters, an entry at a time
+
+The prompt does not go through `module.load`, so `submit` calls
+`desugar_args.desugar` itself — first, before `symbolize`, exactly where
+`module.load` calls it for a file. The pass is over the **entry**, which
+it may lengthen (a default becomes a generated `def`), so `seen` is
+rebuilt from what it answers rather than from what was typed; rewriting
+`seen` instead would desynchronize the positional split that recovers
+the entry. That is the same shape the tail-call pass uses a few lines
+further down, and for the same reason.
+
+A session is one module written an entry at a time, so `arguments`
+accumulates under the name `<repl>`: a function defined in one entry is
+callable with its defaults in a later one, and redefining it in a later
+entry is ordinary shadowing. The table also records what an entry bound
+to something that is *not* a definition, which is what makes
+
+```
+> g = greet
+> g(who = "x")
+```
+
+a refusal rather than a silently ignored name — inside one file the
+binding is simply in scope, but across entries the pass has to have been
+told.
+
+The generated defs are real bindings in the session, so `:ls` filters
+them out with `desugar_args.generated_name`: nobody typed them, so
+nobody is shown them. `:edit greet` still answers with the text that was
+typed, defaults and all, since it is sliced from the entry rather than
+printed from the AST.
 
 ## `submit`: check the whole entry first, run it one statement at a time
 

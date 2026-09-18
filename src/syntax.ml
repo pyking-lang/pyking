@@ -45,7 +45,10 @@ type expr =
   | EGreatThan of info * expr * expr * int (* left > right *)
   | EGreatThanEq of info * expr * expr * int (* left >= right *)
   | EEq of info * expr * expr * int (* left == right *)
-  | ECall of info * expr * expr list * int (* func(args...) *)
+  | ECall of info * expr * (string option * expr) list * int
+      (* func(args...). Each argument carries the parameter name it was
+         written with, where one was: `f(x, n = 1)`. Desugar_args
+         removes every name, so nothing after it sees a Some. *)
   | EList of info * expr list * int (* [elements...] *)
   | ETuple of info * expr list * int (* (e1, e2, ...); () is Unit *)
   | EIf of info * expr * expr * expr * int (* if cond then a else b *)
@@ -104,7 +107,9 @@ and assign_target =
   | TargetName of info * string * int (* name *)
   | TargetTuple of info * assign_target list * int (* (t1, t2, ...) *)
 
-and param = Param of info * string * typ option * int (* name[:type] *)
+and param = Param of info * string * typ option * expr option * int
+(* name[: type][= default]. Desugar_args removes every default, so
+   nothing after it sees a Some. *)
 
 and loop_iter =
   | ForIn of info * string * expr * int (* for name in sequence *)
@@ -282,11 +287,20 @@ let target_info t =
 let target_sym t =
   match t with TargetName (_, _, s) -> s | TargetTuple (_, _, s) -> s
 
+(** The expressions of a call's arguments, dropping any parameter names
+    the caller wrote. After Desugar_args there are none.
+    [(String?, expr)] -> [expr] *)
+let arg_exprs args = List.map snd args
+
+(** A call's arguments with no parameter name written on any of them.
+    [expr] -> [(String?, expr)] *)
+let plain_args args = List.map (fun e -> (None, e)) args
+
 (** The source span of one parameter. param -> info *)
-let param_info (Param (i, _, _, _)) = i
+let param_info (Param (i, _, _, _, _)) = i
 
 (** The symbol of one parameter. param -> int *)
-let param_sym (Param (_, _, _, s)) = s
+let param_sym (Param (_, _, _, _, s)) = s
 
 (** The source span of one loop iteration clause. loop_iter -> info *)
 let loop_iter_info it =
@@ -564,23 +578,6 @@ let annotation cfg sym type_ =
   | None -> ""
   | Some t -> if spellable t then ": " ^ pprint_annotation_type cfg t else ""
 
-(** Formats one parameter. config -> param -> string *)
-let pprint_param cfg (Param (_, name, type_, sym)) =
-  let text =
-    match node_type cfg sym type_ with
-    | None -> name
-    | Some t ->
-        (* A parameter's own `all` is not the signature's outermost one,
-           so it is printed. *)
-        let printed =
-          match t with
-          | TForall _ -> grouped cfg t
-          | _ -> pprint_annotation_type cfg t
-        in
-        name ^ ":" ^ printed
-  in
-  with_sym cfg sym false text
-
 (** Formats one expression, parenthesized if needed for min_prec.
     config -> expr -> int -> string *)
 let rec pprint_expr cfg e min_prec =
@@ -642,7 +639,13 @@ and pprint_expr_body cfg e min_prec =
       (* The callee prints at 5 so a negated one keeps its parens:
          `(-f)(x)` calls the negation, `-f(x)` negates the result. *)
       Printf.sprintf "%s(%s)" (pprint_expr cfg f 5)
-        (String.concat ", " (List.map (fun a -> pprint_expr cfg a 0) args))
+        (String.concat ", "
+           (List.map
+              (fun (name, a) ->
+                match name with
+                | None -> pprint_expr cfg a 0
+                | Some n -> n ^ " = " ^ pprint_expr cfg a 0)
+              args))
   | EList (_, elements, _) ->
       "["
       ^ String.concat ", " (List.map (fun x -> pprint_expr cfg x 0) elements)
@@ -670,6 +673,28 @@ and pprint_expr_body cfg e min_prec =
         (Printf.sprintf "if %s then %s else %s" (pprint_expr cfg cond 1)
            (pprint_expr cfg then_expr 1)
            (pprint_expr cfg else_expr 0))
+
+(** Formats one parameter. config -> param -> string *)
+and pprint_param cfg (Param (_, name, type_, default, sym)) =
+  let text =
+    match node_type cfg sym type_ with
+    | None -> name
+    | Some t ->
+        (* A parameter's own `all` is not the signature's outermost one,
+           so it is printed. *)
+        let printed =
+          match t with
+          | TForall _ -> grouped cfg t
+          | _ -> pprint_annotation_type cfg t
+        in
+        name ^ ":" ^ printed
+  in
+  let text =
+    match default with
+    | None -> text
+    | Some e -> text ^ " = " ^ pprint_expr cfg e 0
+  in
+  with_sym cfg sym false text
 
 (** Formats one list-comprehension clause. config -> comp_clause -> string *)
 and pprint_comp_clause cfg c =

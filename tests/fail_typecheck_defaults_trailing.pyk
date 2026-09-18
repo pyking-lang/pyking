@@ -1,0 +1,10 @@
+# A parameter with a default may not be followed by one without: every
+# parameter after the first default must have one too, so a positional
+# call is never ambiguous about which parameter it filled.
+
+
+def f(a: Int = 1, b: Int) -> Int:
+    return a + b
+
+
+print(f(1, 2))

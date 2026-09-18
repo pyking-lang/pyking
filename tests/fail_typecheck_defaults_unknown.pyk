@@ -1,0 +1,8 @@
+# A named argument names a parameter the callee has.
+
+
+def f(a: Int = 1, b: Int = 2) -> Int:
+    return a + b
+
+
+print(f(c = 1))

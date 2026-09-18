@@ -1,0 +1,22 @@
+# Default and named arguments across a module boundary.
+#
+# Both import forms reach an imported function's defaults: a qualified
+# call names the module, and a `from` line brings the defaults in
+# beside the function it names.
+
+import module_defaults_mod1
+from module_defaults_mod1 import shout as yell, add
+
+print(module_defaults_mod1.shout())
+print(module_defaults_mod1.shout("go"))
+print(module_defaults_mod1.shout(marks = 4))
+print(module_defaults_mod1.shout("go", marks = 1))
+
+print(yell())
+print(yell(marks = 1))
+
+print(add(1))
+print(add(1, 2))
+print(add(1, right = 3))
+
+print(module_defaults_mod1.squared())

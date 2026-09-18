@@ -1,0 +1,45 @@
+# typecheck_defaults.pyk with every annotation taken off.
+#
+# An annotation says what a program means to a reader and to the
+# checker, never what it does -- so this file shares that one's `.out`
+# unchanged. A default is inferred from its own expression like any
+# other binding; only an *exported* function needs the annotation
+# written, since the def holding its default crosses a module boundary
+# (PYKING.md, "Default parameters").
+#
+# The C and Java backends infer a type per expression of their own and
+# need the annotations this file takes off, which is why they are not in
+# its target list -- the same reason every other typecheck_noann_* file
+# with an unannotated String parameter leaves them out.
+
+
+def step(n = 1, by = 10):
+    return n * by
+
+
+print(step())
+print(step(3))
+print(step(3, 4))
+
+
+def repeat(text, times = 3):
+    if times <= 0:
+        return ""
+    return text ++ repeat(text, times - 1)
+
+
+print(repeat("ab"))
+print(repeat("ab", 1))
+
+
+def describe(flag = true, name = "pyk", size = 2, ratio = 0.5):
+    if flag:
+        print(name)
+        print(size)
+        return ratio * 2.0
+    return ratio
+
+
+print(describe())
+print(describe(false))
+print(describe(true, "x", 9, 1.5))

@@ -83,6 +83,28 @@ first and last; nothing mutates a tree in place, so a pass that needs to
 change a node rebuilds it, which is exactly what `symbolize` does to
 attach symbols after the fact.
 
+## Two fields the desugarer empties
+
+`param` carries a default (`Param of info * string * typ option * expr
+option * int`) and an `ECall`'s arguments each carry the parameter name
+they were written with (`(string option * expr) list`). Both are
+`None` in every program any stage after `module.load` sees:
+`desugar_args.ml` removes them, rewriting a default into a generated
+`def` and putting a named argument back in its parameter's position
+(see [desugar_args.md](desugar_args.md)).
+
+They are fields of the existing nodes rather than nodes of their own on
+purpose. A separate `ENamedArg` node would have been smaller to add and
+would then need a case in every backend, the checker and the
+interpreter — a case for something that can never reach them. Widening
+instead means every consumer's `match` breaks once, the compiler finds
+all of them, and the fix is a widened pattern rather than new
+behaviour: `arg_exprs` drops the names, `plain_args` puts a bare
+expression list back.
+
+The printers do show both, which is what `--no-typechecking -t pyking`
+prints and the only place the sugar's own form is pinned.
+
 ## `TFunction`: two fields the source never writes
 
 Every other node's fields all come from parsing. `TFunction` is the one

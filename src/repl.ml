@@ -47,7 +47,9 @@ let starts_with prefix text =
     types -- the checker's names -> types.
     store -- what the checker has worked out.
     kinds -- the mutability analysis's names -> kinds.
-    sources -- each name's own source text, for `:edit`. *)
+    sources -- each name's own source text, for `:edit`.
+    arguments -- what Desugar_args knows about the defs written so far,
+      so a later entry may call an earlier one with its defaults. *)
 type session = {
   seen : stmt list;
   state : Interpreter.state;
@@ -55,6 +57,7 @@ type session = {
   store : Typesystem.store;
   kinds : Analyses.env;
   sources : (string * string) list;
+  arguments : Desugar_args.signatures;
 }
 
 (** The mutability analysis's starting environment: the builtins, and
@@ -74,12 +77,16 @@ let new_session () =
     store = Typesystem.empty_store [];
     kinds = builtin_kinds ();
     sources = [];
+    arguments = Desugar_args.no_signatures;
   }
 
 (* --- reading --- *)
 
 (** source as a list of statements. Raises Lex_error/Parse_error.
     string -> string -> [stmt] *)
+(* A session is one module, written an entry at a time. *)
+let repl_module = "<repl>"
+
 let parse_source ?(name = "<repl>") source =
   Parser.parse (Lexer.lexing name (Lexer.chars_of_string (source ^ "\n")))
 
@@ -785,6 +792,17 @@ let show value type_ =
     handle rather than reported here.
     session -> [stmt] -> (exn -> ()) -> string -> (session, exn option) *)
 let submit session stmts report source =
+  (* The sugar goes first, as it does in a file. The pass is over the
+     entry alone and answers a possibly longer list, so `seen` is built
+     from that rather than from what was typed. *)
+  match
+    try
+      Ok (Desugar_args.desugar session.arguments repl_module stmts)
+    with Analyses.Analysis_error _ as e -> Error e
+  with
+  | Error e -> (session, Some e)
+  | Ok (stmts, arguments) ->
+  let session = { session with arguments } in
   let seen = Analyses.symbolize (session.seen @ stmts) in
   let entry = List.filteri (fun i _ -> i >= List.length session.seen) seen in
   match
@@ -939,6 +957,9 @@ let meta_ls session _argument _report =
           else Some name)
         bindings
   in
+  (* A def holding a parameter's default is the pass's, not the
+     session's: nobody typed it, so nobody is shown it. *)
+  let names = List.filter (fun name -> not (Desugar_args.generated_name name)) names in
   (if names = [] then print_endline "no bindings yet"
    else
      let width =

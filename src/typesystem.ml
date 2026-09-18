@@ -1250,7 +1250,7 @@ let fully_annotated node store =
       match node with
       | SFunctionDef (_, _, params, _, return_type, _, _) ->
           return_type <> None
-          && List.for_all (fun (Param (_, _, t, _)) -> t <> None) params
+          && List.for_all (fun (Param (_, _, t, _, _)) -> t <> None) params
       | _ -> false)
 
 (** node's type, from the signature line that named it or from the
@@ -1265,7 +1265,7 @@ let function_type node store =
       | SFunctionDef (info, name, params, _, return_type, _, _) ->
           let unannotated =
             List.filter_map
-              (function Param (_, n, None, _) -> Some n | _ -> None)
+              (function Param (_, n, None, _, _) -> Some n | _ -> None)
               params
           in
           if unannotated <> [] || return_type = None then
@@ -1284,7 +1284,7 @@ let function_type node store =
           else
             generalize
               (t_function info
-                 (List.map (fun (Param (_, _, t, _)) -> Option.get t) params)
+                 (List.map (fun (Param (_, _, t, _, _)) -> Option.get t) params)
                  (Option.get return_type))
       | _ -> unsupported (stmt_info node))
 
@@ -1299,7 +1299,7 @@ let declared_type node store =
         TFunction
           ( info,
             List.map
-              (fun (Param (pinfo, _, t, _)) ->
+              (fun (Param (pinfo, _, t, _, _)) ->
                 match t with Some t -> t | None -> t_unknown pinfo)
               params,
             (match return_type with Some t -> t | None -> t_unknown info),
@@ -1344,7 +1344,7 @@ let declare_signatures stmts defined store =
                 in
                 let annotated =
                   List.filter_map
-                    (function Param (_, n, Some _, _) -> Some n | _ -> None)
+                    (function Param (_, n, Some _, _, _) -> Some n | _ -> None)
                     node_params
                 in
                 if annotated <> [] || node_return <> None then
@@ -1568,8 +1568,8 @@ let monotypes_for group store =
             List.fold_left
               (fun (types, store) param ->
                 match param with
-                | Param (_, _, Some written, _) -> (types @ [ written ], store)
-                | Param (at, _, None, _) ->
+                | Param (_, _, Some written, _, _) -> (types @ [ written ], store)
+                | Param (at, _, None, _, _) ->
                     let metas, store = fresh_metas 1 at store in
                     (types @ metas, store))
               ([], store) params
@@ -1729,8 +1729,8 @@ let def_params node =
 let def_body node =
   match node with SFunctionDef (_, _, _, body, _, _, _) -> body | _ -> []
 
-let param_name (Param (_, name, _, _)) = name
-let param_sym (Param (_, _, _, sym)) = sym
+let param_name (Param (_, name, _, _, _)) = name
+let param_sym (Param (_, _, _, _, sym)) = sym
 
 (** Checks a written annotation, if any, against its right-hand side's
     actual type, and answers the store that makes them one. An annotation
@@ -2412,7 +2412,7 @@ and check_binary e env store =
 and check_call call env store =
   let func, args =
     match call with
-    | ECall (_, func, args, _) -> (func, args)
+    | ECall (_, func, args, _) -> (func, arg_exprs args)
     | _ -> unsupported (expr_info call)
   in
   let builtin =
@@ -2440,7 +2440,7 @@ and check_call call env store =
     string -> expr -> env -> store -> (typ, store) *)
 and check_builtin_call name call env store =
   let info, args = match call with
-    | ECall (info, _, args, _) -> (info, args)
+    | ECall (info, _, args, _) -> (info, arg_exprs args)
     | _ -> (expr_info call, [])
   in
   let types, store = check_each args env store in
@@ -2594,7 +2594,9 @@ and work_out func_type store =
 (** The type this call is worth, working the definition out first.
     typ -> expr -> env -> store -> (typ, store) *)
 and infer_call func_type call env store =
-  let args = match call with ECall (_, _, args, _) -> args | _ -> [] in
+  let args =
+    match call with ECall (_, _, args, _) -> arg_exprs args | _ -> []
+  in
   let _, store = infer_definition func_type store in
   called_at (settled_type func_type store) call args env store
 

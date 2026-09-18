@@ -336,7 +336,7 @@ and analyze_stmt s env =
       let env = bind env name Function info in
       let body_env =
         List.fold_left
-          (fun body_env (Param (pinfo, pname, _, _)) ->
+          (fun body_env (Param (pinfo, pname, _, _, _)) ->
             bind body_env pname Parameter pinfo)
           env params
       in
@@ -451,7 +451,9 @@ let rec sym_expr counter e =
       (EEq (i, l, r, s), counter)
   | ECall (i, f, args, s) ->
       let f, counter = sym_expr counter f in
-      let args, counter = map_fold sym_expr counter args in
+      let names = List.map fst args in
+      let args, counter = map_fold sym_expr counter (arg_exprs args) in
+      let args = List.combine names args in
       let s, counter = assign s counter in
       (ECall (i, f, args, s), counter)
   | EList (i, elements, s) ->
@@ -576,10 +578,11 @@ and sym_target counter t =
       let s, counter = assign s counter in
       (TargetTuple (i, elements, s), counter)
 
-and sym_param counter (Param (i, name, type_, s)) =
+and sym_param counter (Param (i, name, type_, default, s)) =
   let type_, counter = map_option sym_type counter type_ in
+  let default, counter = map_option sym_expr counter default in
   let s, counter = assign s counter in
-  (Param (i, name, type_, s), counter)
+  (Param (i, name, type_, default, s), counter)
 
 and sym_loop_iter counter it =
   match it with
@@ -701,7 +704,8 @@ let rec high_expr e =
     | EEq (_, l, r, _) ->
         max (high_expr l) (high_expr r)
     | ENeg (_, o, _) -> high_expr o
-    | ECall (_, f, args, _) -> max (high_expr f) (high_list high_expr args)
+    | ECall (_, f, args, _) ->
+        max (high_expr f) (high_list high_expr (arg_exprs args))
     | EList (_, es, _) | ETuple (_, es, _) -> high_list high_expr es
     | EIf (_, c, t, e2, _) ->
         max (high_expr c) (max (high_expr t) (high_expr e2))
@@ -755,7 +759,8 @@ and high_target t =
   in
   max (target_sym t) children
 
-and high_param (Param (_, _, type_, s)) = max s (high_option high_type type_)
+and high_param (Param (_, _, type_, default, s)) =
+  max s (max (high_option high_type type_) (high_option high_expr default))
 
 and high_loop_iter it =
   match it with
@@ -847,8 +852,8 @@ let annotated definition signature =
         ( info,
           name,
           List.map2
-            (fun (Param (pinfo, pname, _, psym)) t ->
-              Param (pinfo, pname, Some t, psym))
+            (fun (Param (pinfo, pname, _, default, psym)) t ->
+              Param (pinfo, pname, Some t, default, psym))
             params written_params,
           body,
           Some result,

@@ -186,6 +186,10 @@ goes on `make clean` but the cache itself only goes on `make distclean`.
 - **[docs/build.md](docs/build.md)** — how `src/` becomes `./pyk`: the
   dune layout, why the pure half is a library of its own, and how the
   same code becomes the JavaScript the playground runs.
+- **[docs/desugar_args.md](docs/desugar_args.md)** — default parameters
+  and named arguments: what they lower to, why a default is a generated
+  `def` rather than a hoisted binding, and why named arguments are
+  written in parameter order.
 - **[docs/optimization.md](docs/optimization.md)** — tail calls, and the
   loops they become: what counts as one, what a mutually recursive group
   is merged into, what the pass deliberately leaves alone, and the one

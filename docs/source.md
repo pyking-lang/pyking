@@ -38,6 +38,7 @@ and which module calls which.
 | [`syntax.ml`](#syntaxml) | ~960 | The AST: one variant type per node group, plus the pretty printer that prints Pyking back out. |
 | [`parser.ml`](#parserml) | ~1520 | Recursive descent, tokens → AST, and the few rules the grammar cannot state. |
 | [`module.ml`](#moduleml) | ~520 | The module system: which modules a program is made of, in what order, what each exports, and what each import means. |
+| [`desugar_args.ml`](#desugar_argsml) | ~620 | Default parameters and named arguments, rewritten away before anything else reads the program, so no later stage knows they exist. |
 | [`analyses.ml`](#analysesml) | ~1030 | Static analyses over the AST: mutability (`analyze_mutability`), `symbolize`, which numbers every node, and `effects`, which says what can print. |
 | [`walk.ml`](#walkml) | ~190 | One `children` function over every AST node, for the passes that ask a question of a whole subtree. |
 | [`typesystem.ml`](#typesystemml) | ~3010 | The type checker: one function per AST datatype, producing `tmap` (symbol → type). Also the type *inference*, which is the same machinery run at a call site rather than at a definition. Its fragment is the interpreter's, and nearly all of the OCaml backend's. |
@@ -353,6 +354,58 @@ the signature the next one is checked against. Errors are
 - **`module_name(path)` / `module_path(directory, name)`** — the file a
   module name means, and back. A module is looked for beside the file
   that imports it.
+
+---
+
+## `desugar_args.ml`
+
+**Default parameters and named arguments, removed.** A default becomes
+a generated zero-argument `def` in the block the definition is written
+in, and an omitted argument becomes a call to it; a named argument is
+put back in its parameter's position. What comes out is ordinary
+Pyking, so the checker, the tail-call pass, the interpreter and all six
+backends need nothing — which is why every target supports the feature.
+
+It runs inside `module.load`, before `symbolize`, and separately in the
+two front ends that do not go through `module.load`: the playground's
+single-file path and the REPL. See
+[desugar_args.md](desugar_args.md) for the design, and PYKING.md for
+what the sugar means.
+
+### Data structures
+
+- **`parameter`** — one parameter of a definition the pass has seen: its
+  name, and the name of the generated `def` holding its default, where
+  it has one.
+- **`meta`** — what a call needs to know about the definition it
+  reaches: its parameters, and whether the module exports it.
+- **`module_info`** — one module: its definitions, the set of other
+  names its top level binds, and whether it is written in another
+  language.
+- **`signatures`** — the same for every module desugared so far,
+  threaded through a program in dependency order. Opaque outside the
+  module.
+- **`denotation`** — what a name means where a call uses it:
+  `Definition`, `Binding` or `Imported`. The pass resolves names itself,
+  because applying the wrong function's defaults would be silent.
+
+### Main functions
+
+- **`desugar signatures name stmts`** — rewrites one module, and answers
+  with what the next one may use. A module already in `signatures` is
+  one being extended an entry at a time, which is what the prompt does.
+- **`external_module signatures name`** — records a module written in
+  another language, so a call into it refuses the sugar by name rather
+  than by absence.
+- **`generated_name name`** — whether the pass made this name up, which
+  is what keeps the REPL's `:ls` from listing it.
+- **`block` / `rewrite` / `expression`** — the walk: a block's `def`
+  names are hoisted first, each definition's generated defs are emitted
+  immediately before it, and every call is resolved against the scope.
+- **`ordered`** — the full positional argument list one call supplies,
+  filling each omitted parameter with a call to its default. Answers
+  nothing where the call says nothing the sugar has to act on, so an
+  ordinary arity mistake is left to the type checker's own words.
 
 ---
 

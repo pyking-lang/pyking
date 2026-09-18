@@ -242,6 +242,30 @@ skipped over via `syntax-ppss' so it isn't mistaken for one."
                 (throw 'found (match-beginning 0)))))
           eol))))
 
+(defun pyking--continuation-open-position ()
+  "Return the position of the bracket keeping the current line open, or nil.
+A line inside an unclosed `(' or `[' is a continuation of the line that
+opened it: the lexer suspends its indentation rules there, so the line's
+own indentation means nothing to the compiler (see \"Lines and
+continuation\" in PYKING.md). `syntax-ppss' answers this directly,
+because `pyking-mode-syntax-table' gives both bracket pairs paren
+syntax."
+  (save-excursion
+    (beginning-of-line)
+    (nth 1 (syntax-ppss))))
+
+(defun pyking--goto-logical-line-start ()
+  "Move to the first line of the logical line point is on.
+A statement spanning several physical lines inside brackets starts at the
+line that opened the outermost one; that is the line whose indentation
+the statement actually has."
+  (beginning-of-line)
+  (let ((open (pyking--continuation-open-position)))
+    (while open
+      (goto-char open)
+      (beginning-of-line)
+      (setq open (pyking--continuation-open-position)))))
+
 (defun pyking--line-ends-with-colon-p ()
   "Return non-nil if the current line's code (sans trailing comment) ends in `:'."
   (save-excursion
@@ -371,6 +395,9 @@ Mirrors `python-mode's own simple case: a `block' is one
 it (see `block'/`if_stmt'/`match_stmt' et al. in PYKING.md's grammar),
 `else'/`case' dedent back out of the block(s) they close (see
 `pyking--else-target-indent'/`pyking--case-target-indent'), a line
+continued inside an open bracket sits one level past the line that
+opened it -- two for a `def' header, whose body already has the first
+(see `pyking--continuation-open-position'), a line
 following a `pyking--dedenter-line-p' line dedents one level, and any
 other line matches the previous non-blank line's indentation --
 leaving the user to dedent further manually, the same as `python-mode'
@@ -379,6 +406,24 @@ does for a plain statement following a multi-level nested block."
     (beginning-of-line)
     (cond
      ((bobp) 0)
+     ;; A continuation line indents one level past the line that opened
+     ;; the bracket. The compiler ignores it either way, so this is for
+     ;; the reader.
+     ((pyking--continuation-open-position)
+      (save-excursion
+        (goto-char (pyking--continuation-open-position))
+        (beginning-of-line)
+        ;; One level past the line holding the bracket, so nesting
+        ;; brackets steps in once each -- and a second level for a `def'
+        ;; header, whose body already occupies the first one. This is
+        ;; PEP 8's hanging-indent rule, and for its reason: the compiler
+        ;; ignores a continuation line's indentation entirely, so all it
+        ;; has to do is stay clear of the block below it.
+        (+ (current-indentation)
+           pyking-indent-offset
+           (if (pyking--line-first-word-matches-p "\\_<def\\_>")
+               pyking-indent-offset
+             0))))
      ((pyking--line-first-word-matches-p "\\_<else\\_>") (pyking--else-target-indent))
      ((pyking--line-first-word-matches-p "\\_<case\\_>") (pyking--case-target-indent))
      (t (let (prev-indent prev-opens-block prev-is-dedenter)
@@ -386,9 +431,14 @@ does for a plain statement following a multi-level nested block."
             (forward-line -1)
             (while (and (not (bobp)) (pyking--blank-or-comment-line-p))
               (forward-line -1))
-            (setq prev-indent (current-indentation))
+            ;; The `:' or `=' that opens a block is at the end of the
+            ;; statement, which for a multi-line one is its *last*
+            ;; physical line -- where we now stand.
             (setq prev-opens-block (or (pyking--line-ends-with-colon-p)
                                        (pyking--line-ends-with-eq-p)))
+            (pyking--goto-logical-line-start)
+            ;; Its indentation, though, is its first line's.
+            (setq prev-indent (current-indentation))
             (setq prev-is-dedenter (pyking--dedenter-line-p)))
           (cond
            (prev-opens-block (+ prev-indent pyking-indent-offset))

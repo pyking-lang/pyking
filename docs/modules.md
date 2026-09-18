@@ -77,6 +77,39 @@ one name can be marked twice and still be one definition;
 name. Two `def`s of one name is not this module's error to report:
 `analyses.block_functions` already refuses it, in its own words.
 
+## Default parameters cross the boundary
+
+A `public` function's default parameters work from another module. The
+mechanism is the one `src/desugar_args.ml` uses everywhere: a default is
+a generated `def` named `<function>__default__<parameter>`, and it
+inherits the `public` of the function it belongs to — so it is exported
+like any other name, appears in `check_publics`, in the sigmap and in a
+plain import's field list, and can be called as `mod.greet__default__who()`
+by anyone who cares to.
+
+`load` desugars each module in dependency order, threading the pass's
+own table, so by the time a module is rewritten every module it imports
+has been and their parameter lists are known. Because the generated
+defs only exist after that pass, `load` computes each module's
+`publics` again once it has run.
+
+The two import forms reach a default differently. `import mod` gives the
+call `mod.greet__default__who()`. `from mod import greet` has no module
+name to qualify, so the pass **adds the generated names to that import's
+own field list** — the tree holds `from mod import greet,
+greet__default__who` — and the call is a plain `greet__default__who()`.
+
+An **exported** function's defaulted parameter must carry a type
+annotation. Without one the generated def is unannotated, and
+`typesystem.check_exports` refuses exporting a `def` that annotated
+nothing and that its own module never calls — which is exactly what a
+default used only by other modules is.
+
+An **external** module's functions take neither defaults nor named
+arguments: what they offer is written in a target language, which has
+no parameter names Pyking can see. A declaration file cannot carry a
+default either, since it holds signatures and a signature is a type.
+
 ## What an import means
 
 `resolve_imports` settles two things that the parser could not.

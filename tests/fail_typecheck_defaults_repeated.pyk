@@ -1,0 +1,9 @@
+# A parameter already filled by a positional argument may not then be
+# named as well.
+
+
+def f(a: Int = 1, b: Int = 2) -> Int:
+    return a + b
+
+
+print(f(7, a = 2))

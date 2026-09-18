@@ -1,0 +1,53 @@
+# A line may be continued while a bracket is open.
+#
+# The lexer's indentation rules are suspended inside an unclosed `(` or
+# `[`, so a parameter list, a call's arguments and a list literal may
+# each span several lines. Nothing else changes: the continuation lines
+# are part of the same statement, and indentation outside brackets means
+# exactly what it did (PYKING.md, "Lines and continuation").
+#
+# A list literal written over several lines is in
+# typecheck_defaults_complex.pyk, which is the file the C and Java
+# backends do not take.
+
+
+def window(
+        start: Int,
+        size: Int,
+        step: Int) -> Int:
+    return start + (size * step)
+
+
+print(window(
+    1,
+    2,
+    3))
+
+
+# A default parameter list, which is where long headers come from.
+def padded(
+        text: String = "x",
+        left: Int = 1,
+        right: Int = 2) -> String:
+    if left + right <= 0:
+        return text
+    return "." ++ padded(
+        text,
+        left - 1,
+        right = right - 1)
+
+
+print(padded())
+print(padded(
+    "y",
+    left = 3))
+
+
+# A nested bracket keeps the line open until the outermost one closes.
+print(window(
+    window(
+        1,
+        1,
+        1),
+    2,
+    2))

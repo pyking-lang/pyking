@@ -154,8 +154,9 @@ let more_options =
   \                        `compile -t pyking` accepts it: every other\n\
   \                        target and the interpreter need the types.\n\
   \                        What it prints is then the program as written,\n\
-  \                        with the source's own annotations, and nothing\n\
-  \                        it imports is read.\n\
+  \                        with the source's own annotations and its\n\
+  \                        default parameters and named arguments still\n\
+  \                        in it, and nothing it imports is read.\n\
   \  --type-experiment     check the program with the alternative type\n\
   \                        checker in src/type_experiment.ml instead of\n\
   \                        the real one. That checker is a fragment --\n\

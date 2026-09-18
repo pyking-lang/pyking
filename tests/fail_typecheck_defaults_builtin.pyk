@@ -1,0 +1,4 @@
+# A builtin has no parameter names, so an argument to one cannot be
+# named (PYKING.md, "Builtins").
+
+print(text = "hello")

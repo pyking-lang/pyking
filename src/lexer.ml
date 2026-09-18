@@ -352,9 +352,10 @@ let lexing file chars =
   in
   (* The lexer's whole state is carried here rather than mutated: the
      tokens produced so far (reversed), the row and column, the stack of
-     indentation levels, and whether nothing but spaces has been seen on
-     this line yet. *)
-  let rec lex rest r c stack line_start tokens =
+     indentation levels, the number of brackets left open (a line break
+     inside one continues the line rather than starting a new one), and
+     whether nothing but spaces has been seen on this line yet. *)
+  let rec lex rest r c stack depth line_start tokens =
     match rest with
     | x :: _ when line_start && x <> '\n' && x <> '#' ->
         let spaces, ys = string_until (fun ch -> ch = ' ') rest in
@@ -368,7 +369,7 @@ let lexing file chars =
             let level = width / 4 in
             let top = List.hd stack in
             if level > top then
-              lex ys r (c + width) (level :: stack) false
+              lex ys r (c + width) (level :: stack) depth false
                 (TokIndent (fi r c 0) :: tokens)
             else
               let rec dedent stack tokens =
@@ -383,8 +384,8 @@ let lexing file chars =
                   (Lex_error
                      ( fi r c width,
                        "unindent does not match any outer indentation level" ));
-              lex ys r (c + width) stack false tokens
-        | _ -> lex ys r (c + width) stack line_start tokens)
+              lex ys r (c + width) stack depth false tokens
+        | _ -> lex ys r (c + width) stack depth line_start tokens)
     (* Integer, or float *)
     | x :: _ when is_digit x ->
         let y, ys = string_until is_digit rest in
@@ -406,7 +407,7 @@ let lexing file chars =
                      ( fi r c width,
                        Printf.sprintf "integer literal '%s' is too large" y ))
           in
-          lex ys r (c + width) stack line_start
+          lex ys r (c + width) stack depth line_start
             (TokInt (fi r c width, value) :: tokens)
         else
           let text = y ^ fraction ^ exponent in
@@ -414,66 +415,70 @@ let lexing file chars =
           (* No bound the way an integer literal has one: a literal past
              binary64's range is an infinity, which is IEEE's own answer
              and the same on every host and in both builds. *)
-          lex after_exponent r (c + width) stack line_start
+          lex after_exponent r (c + width) stack depth line_start
             (TokFloat (fi r c width, float_of_string text) :: tokens)
     (* Line comment *)
     | '#' :: xs ->
         let text, ys = string_until (fun ch -> ch <> '\n') xs in
-        lex ys r (c + 1 + String.length text) stack line_start tokens
+        lex ys r (c + 1 + String.length text) stack depth line_start tokens
     (* String *)
     | s :: xs when s = '\'' || s = '"' ->
         let text, body_length, ys = scan_string file r c s xs in
         let length = 1 + body_length in
-        lex ys r (c + length) stack line_start
+        lex ys r (c + length) stack depth line_start
           (TokString (fi r c length, text) :: tokens)
     (* Operators that are user defined in real pyking *)
     | '+' :: '+' :: xs ->
-        lex xs r (c + 2) stack line_start (TokConcat (fi r c 2) :: tokens)
+        lex xs r (c + 2) stack depth line_start (TokConcat (fi r c 2) :: tokens)
     | '+' :: xs ->
-        lex xs r (c + 1) stack line_start (TokAdd (fi r c 1) :: tokens)
+        lex xs r (c + 1) stack depth line_start (TokAdd (fi r c 1) :: tokens)
     | '-' :: '>' :: xs ->
         (* Pyking extension: single-expression `case` clauses *)
-        lex xs r (c + 2) stack line_start (TokArrow (fi r c 2) :: tokens)
+        lex xs r (c + 2) stack depth line_start (TokArrow (fi r c 2) :: tokens)
     | '-' :: xs ->
-        lex xs r (c + 1) stack line_start (TokSub (fi r c 1) :: tokens)
+        lex xs r (c + 1) stack depth line_start (TokSub (fi r c 1) :: tokens)
     | '*' :: xs ->
-        lex xs r (c + 1) stack line_start (TokMul (fi r c 1) :: tokens)
+        lex xs r (c + 1) stack depth line_start (TokMul (fi r c 1) :: tokens)
     | '/' :: xs ->
-        lex xs r (c + 1) stack line_start (TokDiv (fi r c 1) :: tokens)
+        lex xs r (c + 1) stack depth line_start (TokDiv (fi r c 1) :: tokens)
     | '<' :: '=' :: xs ->
-        lex xs r (c + 2) stack line_start (TokLessThanEq (fi r c 2) :: tokens)
+        lex xs r (c + 2) stack depth line_start (TokLessThanEq (fi r c 2) :: tokens)
     | '<' :: xs ->
-        lex xs r (c + 1) stack line_start (TokLessThan (fi r c 1) :: tokens)
+        lex xs r (c + 1) stack depth line_start (TokLessThan (fi r c 1) :: tokens)
     | '>' :: '=' :: xs ->
-        lex xs r (c + 2) stack line_start (TokGreatThanEq (fi r c 2) :: tokens)
+        lex xs r (c + 2) stack depth line_start (TokGreatThanEq (fi r c 2) :: tokens)
     | '>' :: xs ->
-        lex xs r (c + 1) stack line_start (TokGreatThan (fi r c 1) :: tokens)
+        lex xs r (c + 1) stack depth line_start (TokGreatThan (fi r c 1) :: tokens)
     | '=' :: '=' :: xs ->
-        lex xs r (c + 2) stack line_start (TokEqEq (fi r c 2) :: tokens)
+        lex xs r (c + 2) stack depth line_start (TokEqEq (fi r c 2) :: tokens)
     (* Language lex items *)
     | ':' :: '=' :: xs ->
-        lex xs r (c + 2) stack line_start (TokAssign (fi r c 2) :: tokens)
+        lex xs r (c + 2) stack depth line_start (TokAssign (fi r c 2) :: tokens)
     | ':' :: xs ->
-        lex xs r (c + 1) stack line_start (TokColon (fi r c 1) :: tokens)
+        lex xs r (c + 1) stack depth line_start (TokColon (fi r c 1) :: tokens)
     | '=' :: xs ->
-        lex xs r (c + 1) stack line_start (TokEq (fi r c 1) :: tokens)
+        lex xs r (c + 1) stack depth line_start (TokEq (fi r c 1) :: tokens)
     | '(' :: xs ->
-        lex xs r (c + 1) stack line_start (TokLParen (fi r c 1) :: tokens)
+        lex xs r (c + 1) stack (depth + 1) line_start
+          (TokLParen (fi r c 1) :: tokens)
     | ')' :: xs ->
-        lex xs r (c + 1) stack line_start (TokRParen (fi r c 1) :: tokens)
+        lex xs r (c + 1) stack (max 0 (depth - 1)) line_start
+          (TokRParen (fi r c 1) :: tokens)
     | '[' :: xs ->
-        lex xs r (c + 1) stack line_start (TokLBracket (fi r c 1) :: tokens)
+        lex xs r (c + 1) stack (depth + 1) line_start
+          (TokLBracket (fi r c 1) :: tokens)
     | ']' :: xs ->
-        lex xs r (c + 1) stack line_start (TokRBracket (fi r c 1) :: tokens)
+        lex xs r (c + 1) stack (max 0 (depth - 1)) line_start
+          (TokRBracket (fi r c 1) :: tokens)
     | '.' :: '.' :: xs ->
         (* list-pattern rest marker: `..` / `..name` *)
-        lex xs r (c + 2) stack line_start (TokDotDot (fi r c 2) :: tokens)
+        lex xs r (c + 2) stack depth line_start (TokDotDot (fi r c 2) :: tokens)
     | '.' :: xs ->
-        lex xs r (c + 1) stack line_start (TokDot (fi r c 1) :: tokens)
+        lex xs r (c + 1) stack depth line_start (TokDot (fi r c 1) :: tokens)
     | ',' :: xs ->
-        lex xs r (c + 1) stack line_start (TokComma (fi r c 1) :: tokens)
-    | ' ' :: xs -> lex xs r (c + 1) stack line_start tokens
-    | '\n' :: xs -> lex xs (r + 1) 0 stack true tokens
+        lex xs r (c + 1) stack depth line_start (TokComma (fi r c 1) :: tokens)
+    | ' ' :: xs -> lex xs r (c + 1) stack depth line_start tokens
+    | '\n' :: xs -> lex xs (r + 1) 0 stack depth (depth = 0) tokens
     (* Keywords and identifiers *)
     | x :: _ when is_letter x ->
         let y, ys = string_until is_digit_letter rest in
@@ -485,7 +490,7 @@ let lexing file chars =
             | None -> TokIdent (fi r c length, y)
           else TokIdent (fi r c length, y)
         in
-        lex ys r (c + length) stack line_start (tok :: tokens)
+        lex ys r (c + length) stack depth line_start (tok :: tokens)
     | [] ->
         let rec close stack tokens =
           match stack with
@@ -497,4 +502,4 @@ let lexing file chars =
         raise
           (Lex_error (fi r c 1, Printf.sprintf "unexpected character '%c'" x))
   in
-  lex chars 1 0 [ 0 ] true []
+  lex chars 1 0 [ 0 ] 0 true []

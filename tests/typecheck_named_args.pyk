@@ -1,0 +1,49 @@
+# Named arguments.
+#
+# An argument may be written `name = expr`, naming the parameter it is
+# for. Names come after every positional argument and must be written in
+# the order the parameters are declared, so nothing is ever reordered
+# and the arguments of a call still run left to right
+# (see PYKING.md, "Named arguments").
+#
+# A named argument is available only where the callee is a `def` this
+# module can see the parameters of -- default and named arguments are
+# not part of a function's type.
+
+
+def box(width: Int = 1, height: Int = 2, depth: Int = 3) -> Int:
+    return (width * 100) + (height * 10) + depth
+
+
+# A name lets a middle parameter be skipped.
+print(box(height = 9))
+print(box(depth = 9))
+print(box(width = 9))
+
+# Several names, in parameter order.
+print(box(width = 4, depth = 6))
+print(box(height = 4, depth = 6))
+print(box(width = 4, height = 5, depth = 6))
+
+# Positional first, then names.
+print(box(7))
+print(box(7, depth = 8))
+print(box(7, 8, depth = 9))
+
+
+# Naming every parameter of a function that has no defaults at all.
+def join(left: String, right: String) -> String:
+    return left ++ "-" ++ right
+
+
+print(join("a", "b"))
+print(join("a", right = "c"))
+
+
+# The value of a named argument is an ordinary expression, evaluated
+# where it is written.
+def scale(base: Int, factor: Int = 2) -> Int:
+    return base * factor
+
+
+print(scale(3, factor = box(width = 0, height = 0, depth = 2)))

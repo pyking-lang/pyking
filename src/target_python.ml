@@ -846,7 +846,7 @@ let rec free_in_expr e bound free =
   | ECall (_, func, args, _) ->
       List.fold_left
         (fun free arg -> free_in_expr arg bound free)
-        (free_in_expr func bound free) args
+        (free_in_expr func bound free) (arg_exprs args)
   | EList (_, elements, _) | ETuple (_, elements, _) ->
       List.fold_left (fun free e -> free_in_expr e bound free) free elements
   | EIf (_, cond, then_expr, else_expr, _) ->
@@ -961,7 +961,7 @@ and free_in_stmt s bound free =
       let bound = StringSet.add name bound in
       let free =
         free_in_nested body
-          (StringSet.union bound (set_of (List.map (fun (Param (_, n, _, _)) -> n) params)))
+          (StringSet.union bound (set_of (List.map (fun (Param (_, n, _, _, _)) -> n) params)))
           free
       in
       (bound, free)
@@ -1000,7 +1000,7 @@ let rec captured_in_block stmts bound captured =
       | SFunctionDef (_, name, params, body, _, _, _) ->
           let inner =
             StringSet.add name
-              (set_of (List.map (fun (Param (_, n, _, _)) -> n) params))
+              (set_of (List.map (fun (Param (_, n, _, _, _)) -> n) params))
           in
           (* A function nested inside this one is part of the same
              question one level down, and is reached when that body is
@@ -1679,7 +1679,7 @@ let def_body_names s =
   | SFunctionDef (_, name, params, body, _, _, _) ->
       free_names body
         (StringSet.add name
-           (set_of (List.map (fun (Param (_, n, _, _)) -> n) params)))
+           (set_of (List.map (fun (Param (_, n, _, _, _)) -> n) params)))
   | _ -> StringSet.empty
 
 (** The loop-carried names a def reads, or an empty set for anything
@@ -1957,11 +1957,11 @@ let rec translate_expr e scope gen =
          be made to agree, so the call is followed by the unit it is
          worth; a print written as a statement keeps the bare call (see
          `runtime_call_stmt`). *)
-      let call, gen = runtime_call info name args scope gen in
+      let call, gen = runtime_call info name (arg_exprs args) scope gen in
       ( PyIndex
           (info, PyTuple (info, [ call; PyTuple (info, []) ]), PyInt (info, 1)),
         gen )
-  | ECall (info, EVar (_, "str", _), [ argument ], _)
+  | ECall (info, EVar (_, "str", _), [ (_, argument) ], _)
     when not (is_bound "str" scope) ->
       (* str follows print's own Bool formatting rule. *)
       let translated, gen = translate_expr argument scope gen in
@@ -1972,7 +1972,7 @@ let rec translate_expr e scope gen =
       (* A range used as a value is materialised
          (docs/target_python.md, "range"); the for header keeps Python's
          lazy form. *)
-      let py_args, gen = translate_each args scope gen in
+      let py_args, gen = translate_each (arg_exprs args) scope gen in
       ( PyCall
           ( info,
             PyVar (info, "list"),
@@ -1980,7 +1980,7 @@ let rec translate_expr e scope gen =
         gen )
   | ECall (info, f, args, _) ->
       let py_f, gen = translate_expr f scope gen in
-      let py_args, gen = translate_each args scope gen in
+      let py_args, gen = translate_each (arg_exprs args) scope gen in
       (PyCall (info, py_f, py_args), gen)
   | EList (info, elements, _) ->
       let py_elements, gen = translate_each elements scope gen in
@@ -2109,7 +2109,7 @@ and translate_comp_for clause scope gen =
 and lazy_range call scope gen =
   match call with
   | ECall (info, _, args, _) ->
-      let py_args, gen = translate_each args scope gen in
+      let py_args, gen = translate_each (arg_exprs args) scope gen in
       (PyCall (info, PyVar (info, "range"), py_args), gen)
   | e -> translate_expr e scope gen
 
@@ -2119,7 +2119,7 @@ and lazy_range call scope gen =
 and runtime_call_stmt e scope gen =
   match e with
   | ECall (info, EVar (_, name, _), args, _) ->
-      let call, gen = runtime_call info name args scope gen in
+      let call, gen = runtime_call info name (arg_exprs args) scope gen in
       (PyExprStmt (info, call), gen)
   | e -> (PyExprStmt (expr_info e, PyTuple (expr_info e, [])), gen)
 
@@ -2392,7 +2392,7 @@ and translate_stmt s scope gen =
       let py_name, scope = bind name scope in
       let body_bound =
         StringSet.add name
-          (set_of (List.map (fun (Param (_, n, _, _)) -> n) params))
+          (set_of (List.map (fun (Param (_, n, _, _, _)) -> n) params))
       in
       let body_scope =
         function_scope scope (free_names body body_bound)
@@ -2400,7 +2400,7 @@ and translate_stmt s scope gen =
       in
       let param_names, body_scope =
         List.fold_left
-          (fun (out, body_scope) (Param (_, param_name, _, _)) ->
+          (fun (out, body_scope) (Param (_, param_name, _, _, _)) ->
             let py_param, body_scope = bind param_name body_scope in
             (out @ [ py_param ], body_scope))
           ([], body_scope) params

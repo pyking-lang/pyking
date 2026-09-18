@@ -98,6 +98,19 @@ comment (`x <> '\n' && x <> '#'` in the guard, and the inner match on
   `Lex_error`, "unindent does not match any outer indentation level" —
   there is no block this could be closing back into.
 
+Two things suspend all of that. A blank line and a comment line are
+skipped, as above — and so is **every line inside an open bracket**.
+`lex` carries a bracket `depth` beside the stack: `(` and `[` raise it,
+`)` and `]` lower it, and a newline reached with `depth > 0` leaves
+`line_start` false, so the next line's leading whitespace is consumed
+as ordinary spaces and no `TokIndent`/`TokDedent` is emitted at all.
+That is what lets a parameter list, a call's arguments, a list literal
+and a tuple span several lines (PYKING.md, "Lines and continuation"),
+and it is why their continuation lines may be indented however the
+writer likes. An unclosed bracket at end of input is not reported here
+— the parser's own "expected ',' or ')'" names the position, and it has
+the grammar to say what was expected.
+
 At end of input (the `[]` arm), whatever is still on `stack` above
 `0` is popped and dedented, so a file that ends inside a block gets the
 `TokDedent`s its last statement needs without a trailing blank line.

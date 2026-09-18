@@ -1,0 +1,2 @@
+'tests/fail_typecheck_defaults_duplicate.pyk' 8:19-8:20 Parsing error:
+  duplicate argument 'a'

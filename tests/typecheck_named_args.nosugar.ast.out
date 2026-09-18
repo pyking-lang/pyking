@@ -1,0 +1,18 @@
+def box(width:Int = 1, height:Int = 2, depth:Int = 3) -> Int:
+    return width * 100 + height * 10 + depth
+print(box(height = 9))
+print(box(depth = 9))
+print(box(width = 9))
+print(box(width = 4, depth = 6))
+print(box(height = 4, depth = 6))
+print(box(width = 4, height = 5, depth = 6))
+print(box(7))
+print(box(7, depth = 8))
+print(box(7, 8, depth = 9))
+def join(left:String, right:String) -> String:
+    return left ++ '-' ++ right
+print(join('a', 'b'))
+print(join('a', right = 'c'))
+def scale(base:Int, factor:Int = 2) -> Int:
+    return base * factor
+print(scale(3, factor = box(width = 0, height = 0, depth = 2)))

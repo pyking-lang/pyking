@@ -143,7 +143,7 @@ let reject_type_variables node =
                 "a type variable -- C needs one concrete type per function, \
                  and this backend infers no polymorphism"
           | _ -> ())
-        (List.map (fun (Param (_, _, t, _)) -> t) params @ [ return_type ])
+        (List.map (fun (Param (_, _, t, _, _)) -> t) params @ [ return_type ])
   | _ -> ()
 
 (* --- C AST ---
@@ -707,7 +707,7 @@ let used_as_float name stmts =
 (** A parameter's type: its annotation when C can represent it, else what
     the body's use of it suggests, else Int (docs/target_c.md, "How types
     are inferred"). stmt -> param -> ctype *)
-let param_type func (Param (_, name, annotation, _)) =
+let param_type func (Param (_, name, annotation, _, _)) =
   match annotated_type annotation with
   | Some t -> t
   | None ->
@@ -820,20 +820,20 @@ let rec expr state e scope allow_unit =
   (* C's own conversions: widening an int is exact within the range a
      double holds, and narrowing a double truncates toward zero, which
      is the rounding Pyking's `int` and `/` both do. *)
-  | ECall (info, EVar (_, "float", _), [ argument ], _)
+  | ECall (info, EVar (_, "float", _), [ (_, argument) ], _)
     when not (List.mem_assoc "float" state.signatures) ->
       let inner, state = expr state argument scope false in
       require inner Int "`float`";
       (CCast (info, Float, inner), { state with uses_float = true })
-  | ECall (info, EVar (_, "int", _), [ argument ], _)
+  | ECall (info, EVar (_, "int", _), [ (_, argument) ], _)
     when not (List.mem_assoc "int" state.signatures) ->
       let inner, state = expr state argument scope false in
       require inner Float "`int`";
       (CCast (info, Int, inner), state)
   | ECall (info, EQualified (_, alias, field, _), args, _) ->
-      call state e (reached alias field) args scope allow_unit info
+      call state e (reached alias field) (arg_exprs args) scope allow_unit info
   | ECall (info, EVar (_, name, _), args, _) ->
-      call state e name args scope allow_unit info
+      call state e name (arg_exprs args) scope allow_unit info
   | ECall _ -> unsupported (expr_info e) "calling anything but a named function"
   | e -> (
       match (binary_op e, Interpreter.binary_operands e) with
@@ -1331,7 +1331,7 @@ and stmt state s scope =
          the same way -- but this is a statement, and a statement can put
          them in front of itself rather than in a comma expression. *)
       let state = { state with uses_print = true } in
-      let ordered, steps, state = in_order state args scope in
+      let ordered, steps, state = in_order state (arg_exprs args) scope in
       let state =
         if List.exists (fun a -> ctype_of a = Float) ordered then
           { state with uses_float = true }
@@ -1565,7 +1565,7 @@ let function_of state func scope =
       in
       let c_params, body_scope =
         List.fold_left2
-          (fun (out, body_scope) (Param (_, param_name, _, _)) ctype ->
+          (fun (out, body_scope) (Param (_, param_name, _, _, _)) ctype ->
             let c_param, body_scope = bind param_name ctype body_scope in
             (out @ [ (ctype, c_param) ], body_scope))
           ([], body_scope) params param_types

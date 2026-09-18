@@ -1,0 +1,2 @@
+'tests/fail_typecheck_defaults_missing.pyk' 9:6-9:14 Name error: 'f'
+  needs an argument for 'a'

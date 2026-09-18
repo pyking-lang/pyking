@@ -144,7 +144,9 @@ Expressions:
 - Type variables (`def id(x:a) -> a`) and `all` quantifiers, including
   first-class polymorphism — Pyking extension; a `def`'s type may also
   be written on a line of its own (`def id : (a) -> a`)
-- Function calls
+- Function calls, whose arguments may be **named** after the parameters
+  they fill (`box(width = 4, depth = 6)`) where the callee is a `def`
+  this module can see — Pyking extension (see "Named arguments")
 - Qualified names (`m.f`) — Pyking extension; a public name of an
   imported module, reached through the name that module was imported
   under (see "Modules")
@@ -168,6 +170,10 @@ Statements:
   and whose right-hand side may be an `if`/`match` *statement* in value
   form (`x = if cond:` / `x = match e:`) — Pyking extension
 - Mutable variables (`var` and `:=`) — Pyking extension
+- **Default parameters** (`def greet(who: String = "world"):`), used
+  when a call leaves that argument out; the default is an expression
+  evaluated in the scope the `def` is written in, at each call that
+  omits it — Pyking extension (see "Default parameters")
 - Function definitions (`def`), with optional parameter and return type
   annotations (`Int`, `Float`, `String`, `Bool`, list types `[T]`, tuple types
   `(T1, T2, ...)` including the singleton `(T,)` and the unit type `()`,
@@ -205,7 +211,8 @@ Structure:
 - Left-to-right evaluation: an operator's operands and a call's
   arguments run in the order they are written, and all of a call's
   arguments before the call (see "Evaluation order")
-- Indentation-based blocks
+- Indentation-based blocks, with a line continued while a bracket is
+  open (see "Lines and continuation")
 - Lexical scoping, with every block a scope, free shadowing of immutable
   names, and no shadowing of a mutable one — checked statically by
   (see "Names and scoping")
@@ -266,8 +273,9 @@ statement   = function_def
 function_def = "def" , ident , "(" , [ params ] , ")" , [ "->" , type ] ,
                ":" , block ;
 function_sig = "def" , ident , ":" , type ;
+(* Every parameter after the first one with a default has one too. *)
 params       = param , { "," , param } ;
-param        = ident , [ ":" , type ] ;
+param        = ident , [ ":" , type ] , [ "=" , expr ] ;
 
 type         = type_atom , [ "->" , type ] ;
 type_atom    = "Int" | "Float" | "String" | "Bool"
@@ -358,7 +366,12 @@ atom        = ( float | int | string | bool | ident | list_lit | list_comp
               | tuple_lit
               | "(" , expr , ")" ) ,
               { call_tail } ;
-call_tail   = "(" , [ args ] , ")" ;
+(* Every named argument comes after every positional one, and they are
+   written in the order the callee's parameters are declared. *)
+call_tail   = "(" , [ call_args ] , ")" ;
+call_args   = expr , { "," , expr } , { "," , named_arg }
+            | named_arg , { "," , named_arg } ;
+named_arg   = ident , "=" , expr ;
 args        = expr , { "," , expr } ;
 
 list_lit    = "[" , [ args ] , "]" ;
@@ -692,12 +705,14 @@ Notes that don't fall out of the grammar alone:
   an error. `list_comp` always starts with a `comp_for`; `comp_for`/
   `comp_if` may then repeat in any order, matching Python's own
   multi-clause comprehensions (nested `for`s, interspersed `if`s).
-- Bracketed/parenthesized literals (`list_lit`, `list_comp`, `tuple_lit`,
-  call `args`, etc.) do not support line continuation the way Python's
-  do: this lexer has no notion of "inside brackets" and synthesizes
-  `INDENT`/`DEDENT` purely from each physical line's leading whitespace
-  (see "Indentation-based blocks" below), so a multi-element literal
-  must currently stay on one source line.
+- **A line may be continued while a bracket is open.** The lexer
+  synthesizes `INDENT`/`DEDENT` from each physical line's leading
+  whitespace (see "Indentation-based blocks" below), and suspends that
+  entirely while an `(` or `[` is unclosed — so a parameter list, a
+  call's arguments, a list literal, a comprehension and a tuple may each
+  span several lines. The continuation lines are part of the same
+  statement and their own indentation means nothing; outside brackets,
+  indentation means exactly what it did. See "Lines and continuation".
 - `block`'s bare-`expr_stmt` alternative is taken **only** when that
   expression begins on the row the header's `:` ends on. The EBNF cannot
   state this, for the same reason it cannot state "a statement starts a
@@ -1575,6 +1590,153 @@ def sign(n: Int) -> String:
 print(scaled(1, 2), sign(-3))
 ```
 
+### Default parameters
+
+A parameter may be given a **default**: an expression used when a call
+leaves that argument out.
+
+```pyking
+def greet(who: String = "world", times: Int = 1) -> Int:
+    print("hello, " ++ who)
+    return times
+
+
+print(greet())               # hello, world
+print(greet("pyking"))       # hello, pyking
+print(greet("a", 3))         # hello, a
+```
+
+Every parameter after the first one with a default has one too, so a
+positional call is never ambiguous about which parameter it filled:
+
+```pyking
+def f(a: Int = 1, b: Int) -> Int: a + b     # refused
+```
+
+A default is an ordinary expression, and it is evaluated **in the scope
+the `def` is written in, at each call that omits the argument**. Both
+halves matter. Rebinding a name after the definition does not change
+what the default is worth:
+
+```pyking
+size = 10
+
+
+def scaled(x: Int = size) -> Int:
+    return x * 2
+
+
+size = 20
+
+print(scaled())              # 20 -- the first `size`, not the second
+```
+
+and a default that has an effect has it once per call that omits it,
+not once when the `def` is reached:
+
+```pyking
+var counter = 0
+
+
+def tick(from_: Int = counter) -> Int:
+    return from_ + 1
+
+
+print(tick())                # 1
+counter := 40
+print(tick())                # 41
+```
+
+A default may name anything in scope where the definition stands,
+including a function written further down — a `def` name is visible
+throughout its block, so a default may call one:
+
+```pyking
+def padded(amount: Int = width()) -> Int:
+    return amount + 1
+
+
+def width() -> Int:
+    return 7
+```
+
+**A default is not part of a function's type.** `greet` above has type
+`(String, Int) -> Int`, exactly as it would without the defaults, and
+nothing that holds the function as a value carries them:
+
+```pyking
+g = greet
+print(g())                   # refused: `g` is a binding, not a definition
+```
+
+The same rule settles where the sugar is available at all: a call may
+leave an argument out only where the callee is a `def` this module can
+see the parameters of — written directly by name, or reached as
+`module.name` through an imported Pyking module. A builtin has no
+parameter names, and an external module's function is written in another
+language, so neither takes one.
+
+An **exported** function's defaulted parameter must carry a type
+annotation:
+
+```pyking
+public def greet(who: String = "world") -> String: "hi " ++ who
+public def greet(who = "world") -> String: "hi " ++ who     # refused
+```
+
+An unannotated `def` gets its type from how its own module uses it, and
+a default nothing in the module calls has nothing to be inferred from
+(see "What a module may export").
+
+A default may be written on a parameter of a nested `def`, in a loop
+body, or anywhere else a definition may stand; what it captures is what
+is bound where the definition is written, as any body is.
+
+### Named arguments
+
+An argument may be written `name = expr`, naming the parameter it fills:
+
+```pyking
+def box(width: Int = 1, height: Int = 2, depth: Int = 3) -> Int:
+    return (width * 100) + (height * 10) + depth
+
+
+print(box(height = 9))          # 193 -- width and depth default
+print(box(4, depth = 6))        # 426
+print(box(width = 4, depth = 6))
+```
+
+Three rules:
+
+- **Every positional argument comes first.** A positional argument after
+  a named one has no position left to mean.
+- **Names are written in the order the parameters are declared.**
+  `box(depth = 6, width = 4)` is refused. Nothing is therefore ever
+  reordered, and the arguments of a call still run left to right
+  whatever they are named (see "Evaluation order").
+- **A parameter is filled once.** Naming one that a positional argument
+  already filled is refused, as is naming the same one twice.
+
+A name may be given to a parameter that has no default — it is a way of
+saying at the call site what an argument is for:
+
+```pyking
+def join(left: String, right: String) -> String: left ++ "-" ++ right
+
+print(join("a", right = "c"))
+```
+
+but a name does not make a parameter optional: every parameter without a
+default still has to be given something.
+
+Named arguments are available exactly where defaults are — the callee
+must be a `def` this module can see the parameters of, since neither is
+part of a function's type.
+
+An omitted argument is worth its default **in its own position**, so a
+default with an effect has that effect between the supplied arguments
+around it rather than before or after all of them.
+
 ### Type annotations
 
 An immutable binding may be annotated on its name, `x: Int = 1`:
@@ -2395,6 +2557,43 @@ def bucket(x):
 
 print(bucket(0), bucket(5))
 ```
+
+### Lines and continuation
+
+A statement ends where the tokens stop being able to continue it, and
+each line's leading whitespace is what opens and closes blocks — but
+**not while a bracket is open**. Inside an unclosed `(` or `[` the
+indentation rules are suspended entirely, so a parameter list, a call's
+arguments, a list literal, a comprehension and a tuple may each span
+several lines:
+
+```pyking
+def window(
+        start: Int,
+        size: Int,
+        step: Int) -> Int:
+    return start + (size * step)
+
+
+numbers = [
+    1,
+    2,
+    3,
+    4]
+
+print(window(
+    1,
+    2,
+    3))
+```
+
+The continuation lines are part of the same statement, and their own
+indentation means nothing at all — it is there for the reader. Nesting
+one bracket inside another keeps the line open until the outermost one
+closes. Outside brackets, indentation means exactly what it did.
+
+There is no backslash continuation: a line is continued by an open
+bracket or not at all.
 
 ### A block on its header's own line
 

@@ -87,14 +87,17 @@ respects that, which is what makes the library link.
 │  module.ml       load, make_sigmap, check_publics, the path          │
 │                  helpers, and what a backend is told (context)       │
 │                              │                                       │
-│             ┌────────────────┼────────────────┐                      │
-│             ▼                ▼                ▼                      │
-│  parser.ml         analyses.ml         targets.ml                    │
-│  parse             symbolize,          all, default, resolve,        │
-│                    highest_sym,        family_of, members,           │
-│                    analyze_mutability, extension                     │
-│                    block_functions,                                  │
-│                    effects/may_print                                 │
+│        ┌──────────┬──────┴─────────┬────────────────┐               │
+│        ▼          ▼                ▼                ▼               │
+│  parser.ml   desugar_args.ml  analyses.ml     targets.ml            │
+│  parse       desugar,         symbolize,      all, default,         │
+│              no_signatures,   highest_sym,    resolve, family_of,   │
+│              external_module, analyze_mutability, members,          │
+│              generated_name   block_functions, extension            │
+│                    │          target_names,                         │
+│                    │          pattern_bindings,                     │
+│                    │          effects/may_print                     │
+│                    │                │                               │
 │                              │                                       │
 │                    ┌─────────┴─────────┐                             │
 │                    ▼                   ▼                             │
@@ -117,7 +120,8 @@ The arrows pick out the edges worth naming; the layering is the rule.
 Two modules are `open`ed rather than qualified, and they are the ones
 whose contents are the compiler's shared vocabulary rather than a
 service. `Syntax` is opened by the fourteen modules that work on the
-AST: `walk.ml`, `analyses.ml`, `parser.ml`, `module.ml`, both checkers,
+AST: `walk.ml`, `analyses.ml`, `desugar_args.ml`, `parser.ml`,
+`module.ml`, both checkers,
 `opt_tailcall.ml`, `interpreter.ml`, `repl.ml` and the five language
 backends. `Lexer` is opened by eleven — ten of those, and `syntax.ml`
 itself, whose nodes carry an `info`. `target_js_packaging.ml` opens
@@ -213,6 +217,7 @@ Beyond that:
 | `Syntax.config` | `syntax.mli` | abstract | a caller starts from `default_config` or calls `pprint_program`, which builds one |
 | `Analyses.kind`, `.binding`, `.env` | `analyses.mli` | public | the REPL carries a session's bindings and makes a builtin's |
 | `Analyses.effects` | `analyses.mli` | abstract | `effects` makes one, `may_print` reads it |
+| `Desugar_args.signatures` | `desugar_args.mli` | abstract | `module.ml` threads one through its fold and never looks inside; the REPL keeps one in its session |
 | `Module.t`, `.context`, `.sources` | `module.mli` | public | the driver reads a module's name and path, a backend reads its context, the playground supplies its own sources |
 | `Typesystem.store` | `typesystem.mli` | public | see below |
 | `Interpreter.value` | `interpreter.mli` | public | a prompt and a page show values |

@@ -845,17 +845,34 @@ let load ?(from = disk) ?(libs = []) path =
   let parsed, order =
     visit ~from ~libs (module_name path) found None [] [] []
   in
-  let _, _, modules =
+  let _, _, _, modules =
     List.fold_left
-      (fun (highest, loaded, modules) name ->
+      (fun (highest, signatures, loaded, modules) name ->
         let module_ = List.assoc name parsed in
+        (* The sugar goes first, so what every later stage sees is
+           ordinary Pyking; dependency order is what lets a call reach
+           an imported definition's parameters. *)
+        let stmts, signatures =
+          if module_.is_external then
+            (module_.stmts, Desugar_args.external_module signatures name)
+          else Desugar_args.desugar signatures name module_.stmts
+        in
         let module_ =
-          { module_ with stmts = Analyses.symbolize ~start:highest module_.stmts }
+          {
+            module_ with
+            stmts = Analyses.symbolize ~start:highest stmts;
+            (* The defs holding a public function's defaults are public
+               too, so what the module offers is settled again here. *)
+            publics = check_publics (stmts @ module_.declarations);
+          }
         in
         let highest = Analyses.highest_sym module_.stmts in
         let module_ = resolve_imports module_ loaded in
-        (highest, loaded @ [ (name, module_) ], modules @ [ module_ ]))
-      (0, [], []) order
+        ( highest,
+          signatures,
+          loaded @ [ (name, module_) ],
+          modules @ [ module_ ] ))
+      (0, Desugar_args.no_signatures, [], []) order
   in
   modules
 

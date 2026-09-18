@@ -57,7 +57,10 @@ type expr =
   | EGreatThan of info * expr * expr * int (* left > right *)
   | EGreatThanEq of info * expr * expr * int (* left >= right *)
   | EEq of info * expr * expr * int (* left == right *)
-  | ECall of info * expr * expr list * int (* func(args...) *)
+  | ECall of info * expr * (string option * expr) list * int
+      (* func(args...). Each argument carries the parameter name it was
+         written with, where one was: `f(x, n = 1)`. Desugar_args
+         removes every name, so nothing after it sees a Some. *)
   | EList of info * expr list * int (* [elements...] *)
   | ETuple of info * expr list * int (* (e1, e2, ...); () is Unit *)
   | EIf of info * expr * expr * expr * int (* if cond then a else b *)
@@ -116,7 +119,9 @@ and assign_target =
   | TargetName of info * string * int (* name *)
   | TargetTuple of info * assign_target list * int (* (t1, t2, ...) *)
 
-and param = Param of info * string * typ option * int (* name[:type] *)
+and param = Param of info * string * typ option * expr option * int
+(* name[: type][= default]. Desugar_args removes every default, so
+   nothing after it sees a Some. *)
 
 and loop_iter =
   | ForIn of info * string * expr * int (* for name in sequence *)
@@ -202,6 +207,15 @@ val target_info : assign_target -> info
 
 (** The symbol of one assignment target. assign_target -> int *)
 val target_sym : assign_target -> int
+
+(** The expressions of a call's arguments, dropping any parameter names
+    the caller wrote. After Desugar_args there are none.
+    [(String?, expr)] -> [expr] *)
+val arg_exprs : (string option * expr) list -> expr list
+
+(** A call's arguments with no parameter name written on any of them.
+    [expr] -> [(String?, expr)] *)
+val plain_args : expr list -> (string option * expr) list
 
 (** The source span of one parameter. param -> info *)
 val param_info : param -> info

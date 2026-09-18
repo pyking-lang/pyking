@@ -1,0 +1,62 @@
+# What a default expression sees.
+#
+# A default is resolved and evaluated in the scope where the `def` is
+# written, never at the call. Rebinding a name after the definition
+# therefore changes nothing about what the default is worth: the
+# definition kept the binding that stood where it was written
+# (PYKING.md, "Default parameters").
+
+
+size = 10
+
+
+def scaled(x: Int = size) -> Int:
+    return x * 2
+
+
+size = 20
+
+# The first `size`, not the second.
+print(scaled())
+print(scaled(1))
+
+
+# The same thing one scope in: the default sees what the enclosing
+# function had bound at that point.
+def outer(base: Int) -> Int:
+    def inner(bump: Int = base) -> Int:
+        return base + bump
+
+    return inner() + inner(1)
+
+
+print(outer(10))
+print(outer(100))
+
+
+# A default may call a function, including one defined after it: a
+# `def` name is visible throughout its block, so the default is too.
+def width() -> Int:
+    return 7
+
+
+def padded(amount: Int = width()) -> Int:
+    return amount + 1
+
+
+print(padded())
+print(padded(0))
+
+
+# A default is evaluated per call, so one that reads a `var` sees what
+# the variable holds at that call.
+var counter = 0
+
+
+def tick(from_: Int = counter) -> Int:
+    return from_ + 1
+
+
+print(tick())
+counter := 40
+print(tick())

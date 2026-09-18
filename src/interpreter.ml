@@ -304,7 +304,7 @@ let declare stmts env =
 let closure node env =
   match node with
   | SFunctionDef (_, name, params, body, _, _, _) ->
-      VClosure (name, List.map (fun (Param (_, n, _, _)) -> n) params, body, env)
+      VClosure (name, List.map (fun (Param (_, n, _, _, _)) -> n) params, body, env)
   | _ -> VUnit
 
 (** Fills in the cell `declare` made for this def, with the closure it
@@ -1405,7 +1405,9 @@ let step_apply state value =
       | exception Trap (info, message) -> failed state info message)
   | Some (KCallee (call_node, env, rest)) ->
       let args =
-        match call_node with ECall (_, _, args, _) -> args | _ -> []
+        match call_node with
+        | ECall (_, _, args, _) -> arg_exprs args
+        | _ -> []
       in
       start_arguments state call_node value [] args env rest
   | Some (KArgument (call_node, callee, done_, todo, env, rest)) ->

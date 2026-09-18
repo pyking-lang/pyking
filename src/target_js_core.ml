@@ -425,14 +425,16 @@ let rec translate_expr e scope =
     when Builtin.crosses_host name ->
       (* A call that leaves the program: see builtin.ml. *)
       JsRuntimeCall
-        (info, name, List.map (fun a -> printed_argument a scope) args)
+        ( info,
+          name,
+          List.map (fun a -> printed_argument a scope) (arg_exprs args) )
   (* A JavaScript number is already a double, so widening an Int is the
      value itself; what makes it print as a Float is its type, which the
      print site reads. *)
-  | ECall (_, EVar (_, "float", _), [ argument ], _)
+  | ECall (_, EVar (_, "float", _), [ (_, argument) ], _)
     when lookup "float" scope = "float" ->
       translate_expr argument scope
-  | ECall (info, EVar (_, "int", _), [ argument ], _)
+  | ECall (info, EVar (_, "int", _), [ (_, argument) ], _)
     when lookup "int" scope = "int" ->
       JsCall
         ( info,
@@ -449,7 +451,7 @@ let rec translate_expr e scope =
       JsCall
         ( info,
           translate_expr func scope,
-          List.map (fun a -> translate_expr a scope) args )
+          List.map (fun a -> translate_expr a scope) (arg_exprs args) )
   | e -> (
       match (binary_op e, Interpreter.binary_operands e) with
       | Some op, Some (left, right) ->
@@ -947,7 +949,7 @@ and translate_stmt s scope =
       let body_scope = block_scope scope in
       let param_names, body_scope =
         List.fold_left
-          (fun (out, body_scope) (Param (_, param_name, _, _)) ->
+          (fun (out, body_scope) (Param (_, param_name, _, _, _)) ->
             let js_param, body_scope = bind param_name body_scope in
             (out @ [ js_param ], body_scope))
           ([], body_scope) params

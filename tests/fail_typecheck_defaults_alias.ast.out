@@ -1,0 +1,4 @@
+'tests/fail_typecheck_defaults_alias.pyk' 13:6-13:20 Name error: 'g'
+  is a binding, not a function definition; default and named arguments
+  are available only when calling a 'def' directly or through
+  'module.name'

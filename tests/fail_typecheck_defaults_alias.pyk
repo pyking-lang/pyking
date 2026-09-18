@@ -1,0 +1,13 @@
+# Default and named arguments are available only where the callee is a
+# `def` this module can see the parameters of. A binding that happens to
+# hold a function is reached at its *type*, and the sugar is not part of
+# a function's type.
+
+
+def greet(who: String = "world") -> String:
+    return "hi " ++ who
+
+
+g = greet
+
+print(g(who = "you"))

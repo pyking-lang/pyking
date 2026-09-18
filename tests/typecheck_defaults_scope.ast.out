@@ -1,0 +1,32 @@
+size: Int = 10
+def scaled__default__x() -> Int:
+    size
+def scaled(x:Int) -> Int:
+    return x * 2
+size: Int = 20
+print(scaled(scaled__default__x()))
+print(scaled(1))
+def outer(base:Int) -> Int:
+    def inner__default__bump() -> Int:
+        base
+    def inner(bump:Int) -> Int:
+        return base + bump
+    return inner(inner__default__bump()) + inner(1)
+print(outer(10))
+print(outer(100))
+def width() -> Int:
+    return 7
+def padded__default__amount() -> Int:
+    width()
+def padded(amount:Int) -> Int:
+    return amount + 1
+print(padded(padded__default__amount()))
+print(padded(0))
+var counter = 0
+def tick__default__from_() -> Int:
+    counter
+def tick(from_:Int) -> Int:
+    return from_ + 1
+print(tick(tick__default__from_()))
+counter := 40
+print(tick(tick__default__from_()))

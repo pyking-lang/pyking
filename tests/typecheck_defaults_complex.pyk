@@ -1,0 +1,74 @@
+# Defaults and named arguments in the parts of the language the C, Java
+# and JavaScript backends do not all take: lists, tuples, `match`,
+# comprehensions, `range`, and a `def` written inside a loop.
+#
+# Nothing here is special to those constructs -- a default is a
+# generated `def` and an omitted argument is a call to it, so the sugar
+# reaches wherever an ordinary call reaches.
+
+
+# A default that builds a list, written over several lines, and one that
+# reads a binding around the definition.
+base = 2
+
+
+def slice_(
+        lst: [Int] = [
+            1,
+            4,
+            70 + 10],
+        size: Int = base * 3) -> Int:
+    total = loop acc = 0 for value in lst:
+        acc + value
+    return total + size
+
+
+print(slice_())
+print(slice_([5]))
+print(slice_(size = 7))
+print(slice_([2, 3], 1))
+
+
+# A default holding a tuple.
+def pair(both: (Int, String) = (1, "a")) -> String:
+    match both:
+        case (n, text):
+            if n > 5:
+                return text ++ "!"
+            return text
+
+
+print(pair())
+print(pair((9, "z")))
+
+
+# Tail recursion with a defaulted accumulator: the tail-call pass turns
+# this into a loop, and the sugar is long gone by the time it runs.
+def countdown(n: Int, sofar: [Int] = []) -> [Int]:
+    if n <= 0:
+        return sofar
+    return countdown(n - 1, sofar ++ [n])
+
+
+print(countdown(4))
+print(countdown(2, [99]))
+
+
+# A `def` inside a loop, with a default reading that turn's binding.
+# Each turn builds its own function, so each default is that turn's.
+sum_ = loop acc = 0 for i in range(4):
+    def add(n: Int = i) -> Int:
+        return n * 10
+
+    acc + add()
+
+print(sum_)
+
+
+# A default used inside a comprehension.
+def bumped(value: Int, by: Int = 2) -> Int:
+    return value + by
+
+
+print([bumped(v) for v in [1, 2, 3]])
+print([bumped(v, by = 10) for v in [1, 2, 3]])

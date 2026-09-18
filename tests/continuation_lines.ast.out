@@ -1,0 +1,16 @@
+def window(start:Int, size:Int, step:Int) -> Int:
+    return start + size * step
+print(window(1, 2, 3))
+def padded__default__text() -> String:
+    'x'
+def padded__default__left() -> Int:
+    1
+def padded__default__right() -> Int:
+    2
+def padded(text:String, left:Int, right:Int) -> String:
+    if left + right <= 0:
+        return text
+    return '.' ++ padded(text, left - 1, right - 1)
+print(padded(padded__default__text(), padded__default__left(), padded__default__right()))
+print(padded('y', 3, padded__default__right()))
+print(window(window(1, 1, 1), 2, 2))

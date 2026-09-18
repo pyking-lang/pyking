@@ -1,0 +1,9 @@
+# Naming an argument does not make a parameter without a default
+# optional: every parameter still has to be given something.
+
+
+def f(a: Int, b: Int = 2) -> Int:
+    return a + b
+
+
+print(f(b = 1))

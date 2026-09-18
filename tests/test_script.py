@@ -26,6 +26,16 @@ straight:
                    while the `.notail.ast.out` shows the program as it
                    was written. Read by the `python_notail` and
                    `pyking_notail` targets.
+  <name>.nosugar.ast.out
+                   what `-t pyking --no-typechecking` prints for it: the
+                   program as *written*, before default parameters and
+                   named arguments are rewritten away
+                   (see docs/desugar_args.md). It is what pins how the
+                   sugar itself prints, since the `.ast.out` shows what
+                   the rewrite built. Read by the `pyking_nosugar`
+                   target, which -- like the flag it uses -- reads only
+                   the file it is given, so a program that imports
+                   cannot list it.
 
 A `typecheck_*` program therefore has *both*: its types are pinned by the
 `.ast.out`, and it still runs on the backends like any other program, so
@@ -138,6 +148,11 @@ FAIL_TYPECHECK_PREFIX = "fail_typecheck_"
 PYKING_NOTAIL_TARGET = "pyking_notail"
 PYTHON_NOTAIL_TARGET = "python14_notail"
 NOTAIL_FLAG = "--no-tail-call-opt"
+# The target that prints the program before the argument sugar is
+# rewritten away, which is the only place that sugar's own printed form
+# is pinned.
+PYKING_NOSUGAR_TARGET = "pyking_nosugar"
+NOSUGAR_FLAG = "--no-typechecking"
 # What the `pyking` target compares against, beside the `.out` every
 # backend shares.
 AST_SUFFIX = ".ast.out"
@@ -169,6 +184,8 @@ def expected_path(source, target):
         return stem + ".notail" + AST_SUFFIX
     if target == PYTHON_NOTAIL_TARGET:
         return stem + ".notail.out"
+    if target == PYKING_NOSUGAR_TARGET:
+        return stem + ".nosugar" + AST_SUFFIX
     return stem + ".out"
 
 
@@ -178,7 +195,7 @@ def expected_path(source, target):
 TARGETS = (
     "python14", "node24", "web24", "iweb24", "c89", "c99", "c23",
     "java8", "java17", "java21", "ocaml5.5", INTERPRET_TARGET, PYKING_TARGET,
-    PYTHON_NOTAIL_TARGET, PYKING_NOTAIL_TARGET,
+    PYTHON_NOTAIL_TARGET, PYKING_NOTAIL_TARGET, PYKING_NOSUGAR_TARGET,
 )
 
 # The unversioned name of each family, for `--target`: naming a family
@@ -336,32 +353,78 @@ FACTORY_MARKER = "__pyk_turn"
 GROUP_MARKER = "tail_group"
 
 
+# A loop header either starts its line (`for x in xs:`) or is what a
+# binding is bound to (`total = loop acc = 0 for x in xs:`); both open a
+# loop body.
+LOOP_HEADER = re.compile(r"^(for|while|loop)\b|=\s*(for|while|loop)\b")
+
+
 def has_def_inside_loop(source):
     """Whether `source` writes a `def` anywhere inside a `for`, `while`
     or `loop` body.
 
     Indentation is the block structure in Pyking, in strict multiples of
-    four with no line continuations (see PYKING.md), so reading it off
-    the text is exact rather than a guess."""
+    four, so reading it off the text is exact rather than a guess. A
+    line continued inside an open bracket (see PYKING.md, "Lines and
+    continuation") is part of the line before it, and its own
+    indentation means nothing, so those are joined first."""
     open_blocks = []          # (indent, opened by a loop?)
+    for indent, stripped in _logical_lines(source):
+        while open_blocks and indent <= open_blocks[-1][0]:
+            open_blocks.pop()
+        if stripped.startswith("def ") and any(
+            is_loop for _, is_loop in open_blocks
+        ):
+            return True
+        open_blocks.append((
+            indent,
+            bool(LOOP_HEADER.search(stripped)) or stripped == "loop:",
+        ))
+    return False
+
+
+def _logical_lines(source):
+    """Every statement line of `source` as (indent, text), with comments
+    and blank lines dropped and continuation lines joined onto the line
+    that opened the bracket."""
+    lines = []
+    depth = 0
     with open(source) as f:
         for line in f:
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):
                 continue
-            indent = len(line) - len(line.lstrip())
-            while open_blocks and indent <= open_blocks[-1][0]:
-                open_blocks.pop()
-            if stripped.startswith("def ") and any(
-                is_loop for _, is_loop in open_blocks
-            ):
-                return True
-            open_blocks.append((
-                indent,
-                stripped.startswith(("for ", "while ", "loop "))
-                or stripped == "loop:",
-            ))
-    return False
+            if depth and lines:
+                lines[-1] = (lines[-1][0], lines[-1][1] + " " + stripped)
+            else:
+                lines.append((len(line) - len(line.lstrip()), stripped))
+            depth = max(0, depth + _bracket_change(stripped))
+    return lines
+
+
+def _bracket_change(text):
+    """How many brackets this line leaves open, counting only what is
+    code: a bracket inside a string literal or after a `#` is text."""
+    depth = 0
+    quote = None
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if quote:
+            if c == "\\":
+                i += 1
+            elif c == quote:
+                quote = None
+        elif c in "'\"":
+            quote = c
+        elif c == "#":
+            break
+        elif c in "([":
+            depth += 1
+        elif c in ")]":
+            depth -= 1
+        i += 1
+    return depth
 
 
 def run_python(source, workdir, modules, arguments):
@@ -683,9 +746,20 @@ def run_pyking_notail(source, _workdir, modules, arguments):
     return _pyking(source, [NOTAIL_FLAG], expect_failure=False)
 
 
+def run_pyking_nosugar(source, _workdir, modules, arguments):
+    """Prints the program with the front end stopped after symbolize, so
+    the `.nosugar.ast.out` holds the defaults and named arguments as
+    they were written rather than what Desugar_args built from them.
+
+    The flag reads no imported file, so a program that imports one
+    cannot list this target."""
+    return _pyking(source, [NOSUGAR_FLAG], expect_failure=False)
+
+
 RUNNERS = {
     PYKING_TARGET: run_pyking,
     PYKING_NOTAIL_TARGET: run_pyking_notail,
+    PYKING_NOSUGAR_TARGET: run_pyking_nosugar,
     PYTHON_NOTAIL_TARGET: run_python_notail,
     INTERPRET_TARGET: run_interpret,
     "python14": run_python,

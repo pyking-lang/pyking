@@ -188,6 +188,27 @@ tail-recursive function. Running the pass first would only have the
 backend undo it, since a `loop` becomes a local recursive function
 there.
 
+## Default parameters and named arguments, on every target
+
+The same arrangement, one stage earlier. A default parameter becomes a
+generated zero-argument `def` in the block the definition is written in,
+and an omitted argument becomes a call to it; a named argument is put
+back in its parameter's position. All of that happens in
+`src/desugar_args.ml` ([desugar_args.md](desugar_args.md)) before the
+program is symbolized, so every backend and the interpreter compile
+ordinary defs and ordinary calls and none of them implements anything
+for the feature.
+
+What a target may still refuse is the **default expression**, by its own
+rules: the generated def is a function like any other, so C and Java
+refuse one that reads a binding from around it, exactly as they refuse
+any other closure, and any target refuses a default built from a
+construct it does not take. A default built from literals and calls
+compiles everywhere.
+
+`--no-typechecking -t pyking` is where the sugar can still be seen; it
+is gone from every other output.
+
 ## The shared subset
 
 The Python target compiles all of Pyking. The others implement a common

@@ -63,7 +63,7 @@ let children n =
       | EEq (_, l, r, _) ->
           [ NExpr l; NExpr r ]
       | ENeg (_, operand, _) -> [ NExpr operand ]
-      | ECall (_, func, args, _) -> NExpr func :: exprs_of args
+      | ECall (_, func, args, _) -> NExpr func :: exprs_of (arg_exprs args)
       | EList (_, elements, _) | ETuple (_, elements, _) -> exprs_of elements
       | EIf (_, condition, then_, else_, _) ->
           [ NExpr condition; NExpr then_; NExpr else_ ]
@@ -100,8 +100,9 @@ let children n =
       | TargetName _ -> []
       | TargetTuple (_, elements, _) ->
           List.map (fun t -> NTarget t) elements)
-  | NParam (Param (_, _, annotation, _)) ->
+  | NParam (Param (_, _, annotation, default, _)) ->
       option_of (fun t -> NType t) annotation
+      @ option_of (fun e -> NExpr e) default
   | NLoopIter iterate -> (
       match iterate with
       | ForIn (_, _, sequence, _) -> [ NExpr sequence ]
@@ -164,7 +165,7 @@ let name_field n =
   match n with
   | NExpr (EVar (_, name, _)) | NExpr (EQualified (_, _, name, _)) -> Some name
   | NType (TBuiltin (_, name, _)) | NType (TVar (_, name, _, _)) -> Some name
-  | NParam (Param (_, name, _, _)) -> Some name
+  | NParam (Param (_, name, _, _, _)) -> Some name
   | NPattern (PCapture (_, name, _)) -> Some name
   | NListRest (ListRest (_, name, _)) -> name
   | NTarget (TargetName (_, name, _)) -> Some name
