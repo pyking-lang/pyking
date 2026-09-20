@@ -42,6 +42,7 @@ type token =
   | TokConcat of info (* '++' (string and list concatenation) *)
   | TokSub of info (* '-' user defined *)
   | TokArrow of info (* '->' (single-expression `case` clause) *)
+  | TokFatArrow of info (* '=>' (lambda: `x => x + 1`) *)
   | TokMul of info (* '*' user defined *)
   | TokDiv of info (* '/' user defined *)
   | TokLessThanEq of info (* '<=' *)

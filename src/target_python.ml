@@ -67,6 +67,9 @@ type pyexpr =
       (* then_expr if cond else else_expr *)
   | PyListComp of info * pyexpr * pycompclause list
       (* [expr for target in seq {for ... | if ...}] *)
+  | PyLambda of info * (string * pyexpr option) list * pyexpr
+      (* lambda a, b=e: body. A parameter with a default is one a
+         lambda inside a loop pins to the turn it was built in. *)
 
 and pypattern =
   | PyPInt of info * int (* case 0: *)
@@ -223,6 +226,24 @@ let rec pprint_py_expr ?(min_prec = 0) e =
   | PyListComp (_, e, clauses) ->
       Printf.sprintf "[%s %s]" (pprint_py_expr e)
         (String.concat " " (List.map pprint_py_comp_clause clauses))
+  | PyLambda (_, params, body) ->
+      (* Python's `lambda` binds as loosely as its conditional
+         expression, so the same precedence 0: as an operand of
+         anything it is parenthesized, and its body takes everything to
+         its right. *)
+      let parameters =
+        String.concat ", "
+          (List.map
+             (fun (name, default) ->
+               match default with
+               | None -> name
+               | Some e -> Printf.sprintf "%s=%s" name (pprint_py_expr e))
+             params)
+      in
+      parens 0 min_prec
+        (Printf.sprintf "lambda%s: %s"
+           (if params = [] then "" else " " ^ parameters)
+           (pprint_py_expr body))
   | PyIfExp (_, cond, then_expr, else_expr) ->
       (* Python's conditional expression binds looser than every
          operator here, so precedence 0 -- as an operand of anything it
@@ -869,6 +890,13 @@ let rec free_in_expr e bound free =
           (bound, free) clauses
       in
       free_in_expr e comp_bound free
+  | ELambda (_, params, body, _) ->
+      (* A lambda is a scope: its parameters bind for its body, and what
+         the body reads from outside is free here. *)
+      free_in_expr body
+        (StringSet.union bound
+           (set_of (List.map (fun (Param (_, n, _, _, _)) -> n) params)))
+        free
   | e -> (
       match Interpreter.binary_operands e with
       | Some (left, right) -> free_in_expr right bound (free_in_expr left bound free)
@@ -982,6 +1010,33 @@ and free_in_stmt s bound free =
     stmts (or bound) has bound it. [stmt] -> StringSet.t -> StringSet.t *)
 let free_names stmts bound = free_in_block stmts bound StringSet.empty
 
+(** Adds to captured every name a lambda inside this node reads from
+    around it. A nested block is not followed: it is asked the same
+    question in its own scope. Walk.node -> StringSet.t -> StringSet.t
+    -> StringSet.t *)
+let rec lambda_captures node bound captured =
+  match node with
+  | Walk.NStmt _ -> captured
+  | Walk.NExpr (ELambda (_, params, body, _)) ->
+      let inner =
+        StringSet.union bound
+          (set_of (List.map (fun (Param (_, n, _, _, _)) -> n) params))
+      in
+      lambda_captures (Walk.NExpr body) inner
+        (free_in_expr body inner captured)
+  | node ->
+      List.fold_left
+        (fun captured child -> lambda_captures child bound captured)
+        captured (Walk.children node)
+
+(** The same, for one statement's own expressions.
+    stmt -> StringSet.t -> StringSet.t -> StringSet.t *)
+let statement_lambda_captures s bound captured =
+  List.fold_left
+    (fun captured child -> lambda_captures child bound captured)
+    captured
+    (Walk.children (Walk.NStmt s))
+
 (** Adds to captured every name a function defined in stmts (or a nested
     block) reads from around it.
     [stmt] -> StringSet.t -> StringSet.t -> StringSet.t *)
@@ -996,6 +1051,7 @@ let rec captured_in_block stmts bound captured =
   in
   List.fold_left
     (fun captured s ->
+      let captured = statement_lambda_captures s bound captured in
       match s with
       | SFunctionDef (_, name, params, body, _, _, _) ->
           let inner =
@@ -2020,6 +2076,45 @@ let rec translate_expr e scope gen =
       in
       let py_element, gen = translate_expr element comp_scope gen in
       (PyListComp (info, py_element, py_clauses), gen)
+  | ELambda (info, params, body, _) ->
+      (* A Python lambda is a function scope, exactly like a `def` body,
+         so its parameters never need renaming and nothing inside it
+         leaks out.
+
+         What it does need is the turn it was built in: inside a loop,
+         Pyking binds the accumulator and the loop variable afresh every
+         turn, where Python has one variable for all of them. Each
+         loop-carried name the body reads therefore becomes a trailing
+         parameter with that name as its default, which Python evaluates
+         where the lambda is written. A lambda outside a loop gets none
+         of this and reads exactly as it was written. See
+         docs/target_python.md, "A def inside a loop". *)
+      let names = List.map (fun (Param (_, n, _, _, _)) -> n) params in
+      let bound = set_of names in
+      let read = free_in_expr body bound StringSet.empty in
+      let body_scope =
+        function_scope scope read
+          (lambda_captures (Walk.NExpr body) bound StringSet.empty)
+      in
+      let py_params, body_scope =
+        List.fold_left
+          (fun (out, body_scope) name ->
+            let py_param, body_scope = bind name body_scope in
+            (out @ [ (py_param, None) ], body_scope))
+          ([], body_scope) names
+      in
+      let pinned =
+        match scope.loop_names with
+        | None -> []
+        | Some loop_names ->
+            List.map
+              (fun name ->
+                let py_name = lookup name scope in
+                (py_name, Some (PyVar (info, py_name))))
+              (StringSet.elements (StringSet.inter read loop_names))
+      in
+      let py_body, gen = translate_expr body body_scope gen in
+      (PyLambda (info, py_params @ pinned, py_body), gen)
 
 (** Every expression of a list, left to right.
     [expr] -> scope -> gen -> ([pyexpr], gen) *)

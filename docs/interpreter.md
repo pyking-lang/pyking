@@ -347,6 +347,19 @@ call itself might not return promptly), so a call-containing expression
 always goes through the full step-by-step machinery, and only a
 call-free one ever takes the shortcut.
 
+**A lambda is call-free whatever its body holds.** Building a closure
+calls nothing: the body runs when the lambda is applied, somewhere else
+entirely. So the walk answers `true` at an `ELambda` without looking
+inside it, while still recording the symbols in its body — those
+expressions are stepped later, when the closure is called, and need
+their own entries. A lambda whose body prints would otherwise be
+treated as a suspending expression at the point it is *written*, which
+is not where it prints.
+
+`analyses.ml`'s `Effects` stops at a lambda for the same reason, which
+is what keeps `target_ocaml.ml` and `target_c.ml` from pinning an
+evaluation order around a closure that produces nothing.
+
 ## Values: no host objects
 
 `Value`'s variants — `VInt`, `VString`, `VBool`, `VUnit`, `VList`,
@@ -355,7 +368,10 @@ outside this small vocabulary: a `VList`'s elements are more `Value`s, a
 `VClosure`'s
 captured environment is this module's own `env`, never an OCaml closure,
 an OCaml array, or any other host-native object standing in for a Pyking
-one. That restriction is about where this code is headed, not just about
+one. A **lambda** is a `VClosure` too, named `lambda` and holding the
+one `SExprStmt` that supplies its body, so applying one goes through
+exactly the machinery a `def` goes through and nothing here had to
+learn a second way to call something. That restriction is about where this code is headed, not just about
 today: CLAUDE.md's bootstrapping plan is to eventually rewrite this
 compiler *in* Pyking, and a representation with host objects woven
 through it wouldn't survive that translation — a `value` tree built only

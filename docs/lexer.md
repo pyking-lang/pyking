@@ -132,10 +132,13 @@ grouped:
 - **Two-character operators are matched before their one-character
   prefix.** `'-' :: '>' :: xs` (the `->` of a return annotation and of
   a function type) comes before `'-' :: xs`; `'<' :: '=' :: xs`
-  before `'<' :: xs`; and so on for `>=`, `==`, `:=`. `match` tries arms
-  in order, so this is the whole of "maximal munch" here — get the
-  longer alternative in front of the shorter one it would otherwise
-  shadow. There is no separate longest-match algorithm.
+  before `'<' :: xs`; and so on for `>=`, `==`, `:=`, `=>`. `match`
+  tries arms in order, so this is the whole of "maximal munch" here —
+  get the longer alternative in front of the shorter one it would
+  otherwise shadow. There is no separate longest-match algorithm.
+  `=>` (a lambda) and `==` both come before `'=' :: xs`; they differ in
+  their second character, so their order relative to each other does not
+  matter, and neither is reachable from `>=`, which starts elsewhere.
 - **`string_until pred chars`** is the one general-purpose scanner,
   used for runs of spaces, digits, and identifier characters alike: the
   longest prefix satisfying a predicate, returned with what's left, so

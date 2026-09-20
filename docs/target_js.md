@@ -145,7 +145,8 @@ written under the header or on the header's own line (`def f(x): e`);
 including a binding that takes one apart; `if … then … else …`
 expressions; integers, strings and booleans; `+ - * /`, unary minus,
 comparisons, and calls. Tail position and `return if c:` are supported
-(see below); nested `def` works too — JavaScript has closures.
+(see below); nested `def` and lambdas work too — JavaScript has
+closures.
 
 ## What is not supported
 
@@ -273,6 +274,29 @@ loop i, made = 0, []:              while (true) {
 A loop with no function in its body keeps the plain `let`, so ordinary
 output stays ordinary. A `for … of` header needs none of this:
 JavaScript already gives each iteration its own binding for the element.
+
+A **lambda** in the body is the same case and gets the same answer:
+`defines_function` answers true for one, so `loop made = [] for i in
+[0, 1, 2]: made ++ [x => x + i]` gets the carrier and the per-turn
+`const` exactly as a `def` does. It matches `Walk.NExpr (ELambda _)` as
+well as `Walk.NStmt (SFunctionDef _)`, which is the whole of the
+difference — a lambda is an expression, so a predicate that looked only
+at statements would have walked straight past it and left every turn's
+lambda sharing the last turn's value.
+
+#### Lambdas
+
+A lambda is an arrow function, and its parameters are its own scope —
+the one place this backend needs no renaming at all:
+
+```pyking                          // generated JavaScript
+double = x => x * 2                const double = (x) => x * 2;
+adder = x => y => x + y            const adder = (x) => (y) => x + y;
+```
+
+The body is one expression in both languages, so the arrow's
+expression form is what is emitted; nothing here needs a block body or
+a `return`.
 
 ### Control flow, functions, expressions
 

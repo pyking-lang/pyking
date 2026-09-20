@@ -352,6 +352,15 @@ refuses a solution that would let a bound variable out. See
 [type_inference.md](type_inference.md#12a-unifying-under-a-quantifier)
 and `tests/typecheck_type_first_class_outer.pyk`.
 
+**A type variable in a lambda's parameter annotation is a
+metavariable.** Quantification is for definitions, and a lambda is not
+one (PYKING.md, "Lambdas"): `check_lambda` replaces each variable the
+annotations name with one fresh metavariable — one per *name*, so
+`(x: a, y: a) => …` still demands two arguments of one type — and
+generalises nothing afterwards. `(x: a) => x` therefore means "some
+type, to be settled by the uses", which is what monomorphic has to mean
+when a variable is written down.
+
 **A polymorphic value may stand where an instance is wanted.**
 `accepts` matches the quantified body against what is wanted and answers
 whether some instantiation of it is that type (`instance_for`). One way

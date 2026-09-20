@@ -78,6 +78,19 @@ A statement — `x = 1`, `var y = 2`, `def f(): ...` — can. `SReturn`,
 unchanged for the same reason: they don't bind anything, so what
 follows them sees exactly what they saw.
 
+One thing does make the walk look at an expression, and it is a
+binding rather than a write: a **lambda's parameters**. `x => x + 1` is
+an expression that binds a name, so `var count = 0` followed by
+`f = count => count` has to be refused by the same rule that refuses
+every other shadowing of a `var`. `analyze_lambdas` walks one
+statement's own expressions through `Walk.children`, binds each lambda's
+parameters where it finds one, and follows that lambda's body in the
+extended environment. It deliberately stops at a nested *statement*
+block: one of those is analyzed in its own scope, with its own
+bindings, by whichever arm owns it, and walking it from here would
+judge it against the wrong environment. The walk still looks for no
+mutation inside an expression, because there is still none to find.
+
 ## The one exception to "binding in source order": `def`
 
 Every other binding form is visible only *after* itself — `x = x + 1`

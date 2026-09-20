@@ -70,6 +70,9 @@ type expr =
          `as` alias). *)
   | EListComp of info * expr * comp_clause list * int
       (* [expr for pattern in seq {for ... | if ...}] *)
+  | ELambda of info * param list * expr * int
+      (* (x, y) => expr -- one parameter needs no parentheses. The body
+         is one expression; nothing here holds statements. *)
 
 and typ =
   | TInt of info * int (* Int *)

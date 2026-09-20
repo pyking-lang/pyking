@@ -447,6 +447,41 @@ the names alone — would be wrong rather than ugly, so the trade is worth
 it; but it does mean generated Python is not always a line-for-line
 mirror of the source.
 
+### Lambdas
+
+Pyking's lambda body is one expression and Python's `lambda` takes one
+expression, so a lambda is Python's own, parameter for parameter. A
+Python `lambda` is a function scope, so its parameters never need the
+renaming a Pyking block's bindings need.
+
+```pyking                          # generated Python
+double = x => x * 2                double = lambda x: x * 2
+adder = x => y => x + y            adder = lambda x: lambda y: x + y
+```
+
+A lambda **inside a loop** has the same problem a `def` there has, and a
+cheaper answer. Each loop-carried name the body reads becomes a trailing
+parameter whose default is that name, which Python evaluates where the
+lambda is written — so each turn's lambda holds that turn's value:
+
+```pyking                          # generated Python
+for i in [0, 1, 2]:                for i in [0, 1, 2]:
+    made ++ [x => x + i]               made = made + [lambda x, i=i: x + i]
+```
+
+A default is never reached positionally, because the call has exactly as
+many arguments as the lambda's type has parameters, and the pinned ones
+come after all of them. Outside a loop there are no loop-carried names,
+so an ordinary lambda is emitted exactly as it was written.
+
+Two analyses this backend already runs had to learn about lambdas, and
+neither would have failed loudly: `free_names`, so a binding that
+shadows a name a lambda reads from outside itself is still renamed, and
+`captured_names`, so a rebinding of a name a *lambda* captured gets its
+own Python variable the way one a `def` captured does. Without the
+second, `x = 1; f = () => x; x = 2` would print 2 where Pyking says 1.
+`tests/lambda_loop_capture.pyk` and `tests/lambda_capture.pyk` pin both.
+
 ### Statement forms that Python spells differently
 
 `else if` is Pyking's spelling of `elif`, and a body written on its

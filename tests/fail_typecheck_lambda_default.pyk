@@ -1,0 +1,12 @@
+# A lambda parameter may not carry a default value.
+#
+# A default is evaluated in the scope the definition is written in, at
+# each call that omits the argument (PYKING.md, "Default parameters").
+# A lambda is an expression written wherever it stands, so it has no
+# such scope to speak of, and only a `def` parameter may have one.
+#
+# This program is expected to FAIL parsing. Its `.ast.out` holds the
+# error message, not a program's output.
+
+f = (x = 1) => x
+print(f(2))

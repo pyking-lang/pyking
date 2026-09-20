@@ -72,6 +72,18 @@ Everything the JavaScript and C targets refuse -- lists, tuples, `for`,
 -- plus the following. All are refused at compile time with a source
 position.
 
+### Lambdas
+
+```
+Unsupported by target 'java21': lambdas, which this backend has no
+closure semantics for
+```
+
+Java *has* lambdas, and refuses Pyking's for the reason it refuses a
+nested `def`: one would need a functional-interface type this backend
+does not infer. The two are the same construct from here, so they get
+the same answer.
+
 ### Nested `def`
 
 ```

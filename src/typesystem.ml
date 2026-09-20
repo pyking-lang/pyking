@@ -2377,10 +2377,62 @@ and expr_type e env store =
       let inner, store = check_clauses clauses env store in
       let element_type, store = check_expr element inner store in
       (t_list info element_type, store)
+  | ELambda (info, params, body, _) -> check_lambda info params body env store
   | ECall _ -> check_call e env store
   | EAdd _ | EConcat _ | ESub _ | EMul _ | EDiv _ | ELessThan _
   | ELessThanEq _ | EGreatThan _ | EGreatThanEq _ | EEq _ ->
       check_binary e env store
+
+(** One lambda: the function type it is worth.
+
+    A lambda is **lambda-bound and so monomorphic**, whatever it is
+    bound to afterwards -- `def` is how a polymorphic function is
+    written (PYKING.md, "Lambdas"). A parameter with no annotation is a
+    metavariable the body and the uses settle between them; a type
+    variable *written* in one is a metavariable too, and one shared by
+    every parameter that names it, since there is nothing here to
+    quantify it. The body is checked in the environment the lambda
+    stands in, extended with the parameters -- what it captures is what
+    is bound where it is written.
+    info -> [param] -> expr -> env -> store -> (typ, store) *)
+and check_lambda info params body env store =
+  let written =
+    List.filter_map (fun (Param (_, _, type_, _, _)) -> type_) params
+  in
+  let mapping, store =
+    List.fold_left
+      (fun (mapping, store) name ->
+        if List.mem_assoc name mapping then (mapping, store)
+        else
+          let meta, store = fresh_meta info store in
+          (mapping @ [ (name, meta) ], store))
+      ([], store)
+      (List.concat_map free_vars written)
+  in
+  let param_types, store =
+    List.fold_left
+      (fun (types, store) (Param (param_info, _, type_, _, _)) ->
+        match type_ with
+        | Some written -> (types @ [ substitute written mapping ], store)
+        | None ->
+            let meta, store = fresh_meta param_info store in
+            (types @ [ meta ], store))
+      ([], store) params
+  in
+  let store =
+    List.fold_left2
+      (fun store param type_ ->
+        let _, store = check_param param type_ store in
+        store)
+      store params param_types
+  in
+  let body_env =
+    List.fold_left2
+      (fun body_env param type_ -> bind body_env (param_name param) type_)
+      env params param_types
+  in
+  let result, store = check_expr body body_env store in
+  (t_function info param_types result, store)
 
 (** Checks every expression left to right (Pyking's evaluation order) and
     answers their types. [expr] -> env -> store -> ([typ], store) *)

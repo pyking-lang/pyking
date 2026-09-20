@@ -258,6 +258,8 @@ testing — could be built end to end before the language surface grew:
 | a function reading a binding from around it (a closure) | ✅ | ✅ | ❌ (no closures) | ❌ (no closures) | ✅ |
 | a function *writing* a `var` from around it | ✅ (`global`/`nonlocal`) | ✅ | ❌ (same) | ❌ (same) | ✅ (the `ref` it closes over) |
 | a `def` inside a loop, keeping that turn's values | ✅ (a per-turn factory) | ✅ (a per-turn `const`) | ❌ | ❌ | ✅ |
+| lambdas (`x => x + 1`) | ✅ (Python's own `lambda`, which is expression-only too) | ✅ (an arrow function) | ❌ (no closures) | ❌ (no closures) | ✅ (`fun x -> …`) |
+| a lambda inside a loop, keeping that turn's values | ✅ (each loop-carried name it reads becomes a parameter defaulted to the turn's value) | ✅ (the same per-turn `const` a `def` gets) | ❌ | ❌ | ✅ |
 | tuples, destructuring | ✅ | ✅ (arrays) | ❌ | ❌ | ✅ |
 | value-form `x = if c:` / `x = match e:` | ✅ | ❌ | ❌ | ❌ | ✅ |
 | `str`, `len`, `range` | ✅ | ❌ (refused at compile time) | ❌ | ❌ | ✅ |

@@ -77,6 +77,7 @@ type oexpr =
       (* the arms are (pattern text, body), in source order *)
   | OFun of (string * oexpr) list
       (* OCaml's `function`: a lambda that matches its one argument *)
+  | OLambda of opattern list * oexpr (* fun x y -> body *)
   | OBin of string * oexpr * oexpr
   | OIf of oexpr * oexpr * oexpr option
   | OLet of obinding list * oexpr * bool (* let a = x and b = y in body *)
@@ -353,6 +354,10 @@ let rec free e =
                | Some guard -> StringSet.union (free guard) (free b))
              arms)
   | OFun arms -> union_all (List.map (fun (_, b) -> free b) arms)
+  | OLambda (params, body) ->
+      StringSet.diff (free body)
+        (union_all
+           (List.map (fun p -> StringSet.of_list (pattern_names p)) params))
   | OBin (_, left, right) -> StringSet.union (free left) (free right)
   | OIf (cond, then_, else_) ->
       let found = StringSet.union (free cond) (free then_) in
@@ -1078,6 +1083,19 @@ let rec expr ctx acc e =
       match type_of ctx e with
       | TList _ -> binary ctx acc "@" left right
       | _ -> binary ctx acc "^" left right)
+  | ELambda (_, params, body, _) ->
+      (* OCaml has no nullary function, so `() => e` takes unit -- the
+         same rule a `def` with no parameters follows. *)
+      let o_params =
+        match params with
+        | [] -> [ OPatTuple [] ]
+        | params ->
+            List.map
+              (fun (Param (_, n, _, _, _)) -> OPatName (mangle ctx n))
+              params
+      in
+      let value, acc = expr ctx acc body in
+      (OLambda (o_params, value), acc)
   | ESub (_, left, right, _) -> binary ctx acc (numeric ctx left "-") left right
   | EMul (_, left, right, _) -> binary ctx acc (numeric ctx left "*") left right
   (* OCaml's `/` on ints truncates toward zero, which is Pyking's own
@@ -2321,6 +2339,10 @@ let rec polish e =
             (fun (p, guard, b) -> (p, Option.map polish guard, polish b))
             made )
   | OFun made -> OFun (List.map (fun (p, b) -> (p, polish b)) made)
+  | OLambda (params, body) ->
+      let body = polish body in
+      let used = free body in
+      OLambda (List.map (fun p -> pattern_polished p used) params, body)
   | OSeq (first, rest) -> OSeq (polish first, polish rest)
   | OEscape (exc, cell, bound, inner) -> OEscape (exc, cell, bound, polish inner)
   | OLet (bindings, body, recursive) ->
@@ -2606,6 +2628,13 @@ and pprint_bare e level =
                  Printf.sprintf "%s  | %s -> %s" pad tested
                    (pprint b (p_seq + 1) (level + 1)))
                made),
+        p_seq )
+  | OLambda (params, body) ->
+      ( Printf.sprintf "fun %s -> %s"
+          (String.concat " "
+             (List.map pattern_text
+                (match params with [] -> [ OPatTuple [] ] | params -> params)))
+          (pprint body (p_seq + 1) level),
         p_seq )
   | OFun made ->
       ( Printf.sprintf "function %s"

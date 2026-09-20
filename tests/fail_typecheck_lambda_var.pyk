@@ -1,0 +1,15 @@
+# A lambda parameter may not shadow a mutable variable.
+#
+# A `var` may be shadowed by nothing (PYKING.md, "Names and scoping"),
+# and a lambda parameter is a binding like any other -- so the
+# mutability walk descends into an expression to find one, which is the
+# only reason it looks at expressions at all.
+#
+# This program is expected to FAIL the mutability analysis. Its
+# `.ast.out` holds the error message, not a program's output.
+
+def use(f: (Int) -> Int) -> Int: f(1)
+
+var count = 0
+count := count + 1
+print(use(count => count * 2))

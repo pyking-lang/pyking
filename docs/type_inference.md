@@ -248,6 +248,36 @@ def use(f):
 is checked against what the first settled. This is precisely
 Hindley-Milner's line, and this checker draws it in the same place.
 
+**A lambda is on the parameter's side of that line**, and stays there
+however it is bound:
+
+```pyking
+def named(x): x
+print(named(1), named("a"))          # fine: a definition, generalised
+
+id = x => x
+print(id(1))
+print(id("a"))                       # error: argument 1 has type
+                                     #        String, but Int was
+                                     #        expected
+```
+
+`check_lambda` gives each unannotated parameter a metavariable, checks
+the body in the environment the lambda stands in, and answers a
+`TFunction` — nothing generalises it, so what the first use settles is
+what every later use is held to. A type variable *written* in a lambda
+parameter's annotation is a metavariable too, shared by every parameter
+that names it: a lambda has nothing to quantify one over, so `(x: a) =>
+x` means "some type, to be settled" rather than "every type".
+
+That is Hindley-Milner's rule rather than a shortcut. Generalising at a
+lambda is what a higher-rank system does, and every guarantee in
+section 5 rests on not doing it. It is also why the machinery is
+untouched: generalisation hangs off `SFunctionDef` — `store.instances`
+is keyed by a definition's symbol and `infer_definition` is triggered by
+a call — so a lambda simply never reaches it. `def` is how a polymorphic
+function is written.
+
 ## 8. Comparison with Hindley-Milner
 
 **What is the same.** The type system is Hindley-Milner's:

@@ -474,6 +474,12 @@ let rec call_free_walk n found =
         List.fold_left
           (fun found child -> snd (call_free_walk child found))
           found (Walk.children n) )
+  | Walk.NExpr (ELambda (_, _, body, _) as lambda) ->
+      (* Building a closure calls nothing, whatever its body holds -- the
+         body runs when the lambda is applied, not here. Its symbols are
+         still collected, since the body is stepped later. *)
+      let found = snd (call_free_walk (Walk.NExpr body) found) in
+      (true, IntSet.add (expr_sym lambda) found)
   | n ->
       let free, found =
         List.fold_left
@@ -819,6 +825,15 @@ let rec evaluate e env =
         (List.map
            (fun inner -> evaluate element inner)
            (comprehension_envs clauses env))
+  | ELambda (_, params, body, _) ->
+      (* The body is one expression, so the closure holds the one
+         statement that supplies it -- `VClosure` is then applied by the
+         machinery every other function goes through. *)
+      VClosure
+        ( "lambda",
+          List.map (fun (Param (_, n, _, _, _)) -> n) params,
+          [ SExprStmt (expr_info body, body, 0) ],
+          env )
   | ENeg (_, operand, _) -> apply_unary e (evaluate operand env)
   | EIf (_, cond, then_expr, else_expr, _) -> (
       (* Only the branch that is chosen is evaluated, here as in the

@@ -1,0 +1,28 @@
+# A lambda written inside a loop body, and what each turn's copy
+# captures.
+#
+# The twin of loop_def_capture.pyk: every turn of a loop binds afresh,
+# so a lambda written inside one keeps the turn it was written on. The
+# Python backend pins each loop-carried name the lambda reads to the
+# turn it was built in, and the JavaScript one gives every turn its own
+# binding of the accumulator.
+
+makers = loop made = [] for i in [0, 1, 2]:
+    made ++ [x => x + i]
+
+for f in makers:
+    print(f(10))
+
+
+# The accumulator itself, read by the lambda rather than the loop
+# variable.
+(total, seen) =
+loop n, kept = 1, []:
+    if n > 8:
+        break
+    else:
+        (n * 2, kept ++ [x => x * n])
+
+print(total)
+for f in seen:
+    print(f(1))

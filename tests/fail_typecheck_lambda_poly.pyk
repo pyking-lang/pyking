@@ -1,0 +1,19 @@
+# A lambda is monomorphic.
+#
+# `id` is lambda-bound, so its parameter is one type that the uses
+# settle between them -- the first call makes it Int and the second is
+# refused. A `def` with the same body is polymorphic and serves both;
+# that is the whole of the difference, and it is Hindley-Milner's own
+# (PYKING.md, "Lambdas"; docs/type_inference.md).
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+def named(x): x
+
+print(named(1), named('a'))
+
+id = x => x
+
+print(id(1))
+print(id('a'))

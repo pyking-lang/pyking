@@ -1456,3 +1456,31 @@ targets = ["pyking"]
 file = "fail_typecheck_defaults_external.pyk"
 modules = ["external_all_mod1.external.pyk"]
 targets = ["pyking"]
+
+[[cases]]
+file = "lambda_basic.pyk"
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
+
+[[cases]]
+file = "lambda_capture.pyk"
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
+
+[[cases]]
+file = "lambda_loop_capture.pyk"
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
+
+[[cases]]
+file = "typecheck_lambda.pyk"
+targets = ["pyking", "python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
+
+[[cases]]
+file = "fail_typecheck_lambda_poly.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_lambda_var.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_lambda_default.pyk"
+targets = ["pyking"]

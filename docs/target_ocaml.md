@@ -45,6 +45,7 @@ section; everything else compiles:
 - lists and list comprehensions;
 - tuples, including a binding that takes one apart;
 - `return`, anywhere it can be written;
+- lambdas (`x => x + 1`);
 - integers, floats, strings and booleans; `+ - * /`, unary minus,
   `++`, comparisons, `==`, and calls.
 
@@ -275,6 +276,21 @@ would be a *value*, evaluated where it is written rather than where it
 is called: a body that prints would print at start-up, and one that
 never returns (a `loop:` with no `break`, which Pyking allows) would
 hang the program before `main` ran.
+
+### Lambdas
+
+A lambda is `fun x -> …`, and the rule a `def` with no parameters
+follows applies here too: `() => e` takes unit, so it is `fun () -> e`
+rather than a value evaluated where it stands.
+
+```ocaml
+let double = fun x -> x * 2
+let adder = fun x -> fun y -> x + y
+```
+
+A lambda's parameters go through the same name planning every other
+binding does, and an unread one is renamed `_x` like any other, so the
+`-w +a` build the test harness uses stays warning-free.
 
 ### `if`
 

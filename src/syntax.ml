@@ -58,6 +58,9 @@ type expr =
          `as` alias). *)
   | EListComp of info * expr * comp_clause list * int
       (* [expr for pattern in seq {for ... | if ...}] *)
+  | ELambda of info * param list * expr * int
+      (* (x, y) => expr -- one parameter needs no parentheses. The body
+         is one expression; nothing here holds statements. *)
 
 and typ =
   | TInt of info * int (* Int *)
@@ -186,6 +189,7 @@ let expr_info e =
   | ETuple (i, _, _) -> i
   | EIf (i, _, _, _, _) -> i
   | EListComp (i, _, _, _) -> i
+  | ELambda (i, _, _, _) -> i
   | EQualified (i, _, _, _) -> i
 
 (** The symbol of one expression. expr -> int *)
@@ -212,6 +216,7 @@ let expr_sym e =
   | ETuple (_, _, s) -> s
   | EIf (_, _, _, _, s) -> s
   | EListComp (_, _, _, s) -> s
+  | ELambda (_, _, _, s) -> s
   | EQualified (_, _, _, s) -> s
 
 (** The source span of one type. typ -> info *)
@@ -382,6 +387,7 @@ let set_expr_info i e =
   | ETuple (_, es, s) -> ETuple (i, es, s)
   | EIf (_, c, t, e2, s) -> EIf (i, c, t, e2, s)
   | EListComp (_, e2, cs, s) -> EListComp (i, e2, cs, s)
+  | ELambda (_, ps, b, s) -> ELambda (i, ps, b, s)
   | EQualified (_, m, n, s) -> EQualified (i, m, n, s)
 
 (** One type with its span replaced. info -> typ -> typ *)
@@ -673,6 +679,15 @@ and pprint_expr_body cfg e min_prec =
         (Printf.sprintf "if %s then %s else %s" (pprint_expr cfg cond 1)
            (pprint_expr cfg then_expr 1)
            (pprint_expr cfg else_expr 0))
+  | ELambda (_, params, body, _) ->
+      (* The parameter list is always parenthesized, which is the form
+         the parser reads whatever was written. The body prints at 0 --
+         the lambda is the lowest-precedence expression and associates
+         to the right, so `x => y => e` stays flat. *)
+      wrap_prec 0 min_prec
+        (Printf.sprintf "(%s) => %s"
+           (String.concat ", " (List.map (pprint_param cfg) params))
+           (pprint_expr cfg body 0))
 
 (** Formats one parameter. config -> param -> string *)
 and pprint_param cfg (Param (_, name, type_, default, sym)) =

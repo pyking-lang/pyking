@@ -83,6 +83,19 @@ position of the statement that produced nothing.
 A tuple accumulator is refused too, for the ordinary reason: this
 backend has no tuples.
 
+### Lambdas
+
+```
+Unsupported by target 'c23': lambdas, which C has no closures for
+```
+
+A lambda is an anonymous function that closes over what is bound where
+it is written, and both halves are out of reach: C has no anonymous
+functions and no closures. In practice most lambdas are refused one step
+earlier, since a lambda has to be passed somewhere or called, and a
+function-typed parameter is refused already; a lambda bound to a name of
+its own is what reaches this message.
+
 ### Nested `def`
 
 ```

@@ -161,6 +161,10 @@ Expressions:
   (`e1, e2, ...` — Python-like implicit tuples)
 - If expressions (`if cond then e1 else e2`) — Pyking extension; note the
   keyword order differs from Python's `e1 if cond else e2`
+- **Lambdas** (`x => x + 1`, `(x, y) => x + y`) — Pyking extension; an
+  expression that is a function, whose body is one expression. A lambda
+  is monomorphic; `def` is how a polymorphic function is written (see
+  "Lambdas")
 
 Statements:
 
@@ -351,7 +355,14 @@ expr_stmt   = tuple_or_expr ;
 
 tuple_or_expr = expr , { "," , expr } ;
 
-expr        = if_expr | comparison ;
+expr        = lambda | if_expr | comparison ;
+
+(* A lambda takes everything to its right that one expression can hold,
+   so `=>` associates to the right and binds looser than every
+   operator; a comma ends it, since `x => a, b` is a pair. *)
+lambda      = lambda_params , "=>" , expr ;
+lambda_params = ident
+            | "(" , [ param , { "," , param } ] , ")" ;
 
 if_expr     = "if" , expr , "then" , expr , "else" , expr ;
 
@@ -705,6 +716,17 @@ Notes that don't fall out of the grammar alone:
   an error. `list_comp` always starts with a `comp_for`; `comp_for`/
   `comp_if` may then repeat in any order, matching Python's own
   multi-clause comprehensions (nested `for`s, interspersed `if`s).
+- `lambda_params` shares `param` with `function_def`, but a lambda
+  parameter may **not** carry a default value: a default is evaluated in
+  the scope the definition is written in, and a lambda is an expression
+  written wherever it stands. Writing one is refused (`the lambda
+  parameter 'x' may not have a default value; only a 'def' parameter
+  may`).
+- A lambda's parenthesized parameter list is told from a parenthesized
+  expression by what follows the `)`: `(x)` is a lambda's parameter list
+  only when `=>` comes next, and is the expression `x` otherwise. The
+  EBNF cannot say this, so `src/parser.ml` decides it by trying the
+  parameter list and falling back.
 - **A line may be continued while a bracket is open.** The lexer
   synthesizes `INDENT`/`DEDENT` from each physical line's leading
   whitespace (see "Indentation-based blocks" below), and suspends that
@@ -2133,6 +2155,68 @@ print((if 1 < 2 then 100 else 200) + 1)
 # comprehension filter (see the grammar notes above).
 print([x for x in [1, 2, 3, 4] if (if x < 3 then true else false)])
 ```
+
+### Lambdas — Pyking extension
+
+`x => x + 1` is an expression that is a function. One parameter needs no
+parentheses, so `x => x + 1` and `(x) => x + 1` are the same thing;
+several need them, and a parameter may be annotated. The body is **one
+expression** — there is no block form.
+
+`=>` binds looser than every operator and associates to the right, so a
+lambda takes everything to its right that one expression can hold. A
+comma ends it, since `x => a, b` is a pair whose first element is the
+lambda.
+
+```pyking
+double = x => x * 2
+add = (x, y) => x + y
+typed = (n: Int) => n - 1
+nothing = () => 7
+
+print(double(21), add(3, 4), typed(10), nothing())
+
+# A lambda answering with a lambda; `=>` associates to the right, so no
+# parentheses are needed.
+adder = x => y => x + y
+print(adder(6)(7))
+
+# An `if` expression is one expression, so it is a body like any other.
+sign = n => if n < 0 then 0 - 1 else 1
+print(sign(-5), sign(5))
+```
+
+A lambda captures what is bound where it is written, exactly as a `def`
+body does, and a later binding of a name is a new binding rather than a
+write to the old one — so what a lambda captured does not change under
+it (see "Names and scoping").
+
+```pyking
+base = 100
+shift = n => n + base
+base = 200
+print(shift(1))     # 101: the binding `shift` captured
+```
+
+**A lambda is monomorphic.** Its parameters are one type, settled
+between its body and its uses, and never generalised; a `def` with the
+same body is polymorphic and serves every type at once. That is
+Hindley-Milner's own distinction between a `let`-bound definition and a
+lambda-bound one, and it is the whole of the difference here:
+
+```pyking
+def named(x): x
+print(named(1), named("a"))     # fine: `named` is polymorphic
+
+id = x => x
+print(id(1))
+# print(id("a"))                -- error: `id` is Int -> Int by now
+```
+
+Two more rules follow from a lambda being an expression rather than a
+definition. A lambda parameter may not have a default value, since a
+default belongs to the scope a definition is written in. And a lambda
+parameter is a binding like any other, so it may not shadow a `var`.
 
 ### `match`/`case` pattern matching
 

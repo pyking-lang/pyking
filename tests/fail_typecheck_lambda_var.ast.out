@@ -1,0 +1,4 @@
+'tests/fail_typecheck_lambda_var.pyk' 15:10-15:15 Name error: cannot
+  bind 'count': the mutable variable 'count' (declared on line 13) is
+  in scope, and a mutable variable may not be shadowed (update it with
+  ':=', or choose another name)

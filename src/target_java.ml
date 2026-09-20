@@ -51,6 +51,7 @@ let construct_names =
     ("EList", "list literals");
     ("ETuple", "tuples");
     ("EListComp", "list comprehensions");
+    ("ELambda", "lambdas, which this backend has no closure semantics for");
     ("SMatch", "`match` statements");
     ("SLetStmt", "value-form `if`/`match` bindings");
   ]
@@ -384,6 +385,7 @@ let expr_kind_name e =
   | EQualified _ -> "EQualified"
   | EList _ -> "EList"
   | EListComp _ -> "EListComp"
+  | ELambda _ -> "ELambda"
   | ETuple _ -> "ETuple"
   | ECall _ -> "ECall"
   | EIf _ -> "EIf"

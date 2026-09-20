@@ -101,7 +101,8 @@ imported by every other one.
   `TokString of info * string`,
   `TokIdent of info * string`, the operators (`TokAdd`, `TokConcat`,
   `TokSub`, `TokMul`, `TokDiv`, `TokEqEq`, `TokLessThan`, …), the punctuation (`TokColon`,
-  `TokComma`, `TokLParen`, `TokArrow`, `TokDotDot`, …), the keywords
+  `TokComma`, `TokLParen`, `TokArrow`, `TokFatArrow`, `TokDotDot`, …),
+  the keywords
   (`TokDef`, `TokReturn`, `TokFor`, `TokIf`, `TokMatch`, `TokVar`, …),
   and the two that carry the block structure, **`TokIndent`** and
   **`TokDedent`**.
@@ -160,7 +161,8 @@ The groups:
 - **`Expr`** — `EInt`, `EString`, `EBool`, `EVar`, `EAdd`, `ESub`,
   `EMul`, `EDiv`, `ENeg`, `EConcat`, `ELessThan`, `ELessThanEq`,
   `EGreatThan`, `EGreatThanEq`, `EEq`, `ECall`, `EList`, `ETuple`,
-  `EIf`, `EListComp`.
+  `EIf`, `EListComp`, `ELambda`. `ELambda` holds a `Param` list and one
+  *expression*: a lambda's body is never a block.
 - **`LoopIter`** — `ForIn`, `WhileTest`. A loop's iteration clause;
   `None` for a bare `loop:`. `SFor` and `SWhile` no longer exist:
   `for x in e:` and `while c:` *are* `SLoop`, with no accumulator
@@ -234,6 +236,11 @@ a token list and returning `(node, rest)`:
 `parse_atom` → `parse_call_tail` → `parse_unary` →
 `parse_multiplicative` → `parse_additive` → `parse_comparison` →
 `parse_expr` → `parse_tuple_or_expr`.
+
+`parse_expr` is also where a lambda is read: `parse_lambda` answers
+`None` where the tokens do not start one, and its parenthesized form is
+decided by trying `parse_params` and looking for a `=>` after the `)`
+(docs/parser.md, "Where the grammar is not LL(1)").
 
 Around them:
 
@@ -437,7 +444,9 @@ leaves evaluation order unspecified.
   answers for one expression. A call whose target is not a known `def`
   is assumed to print if anything in the program does, since
   overestimating costs a temporary and underestimating prints in the
-  wrong order. `target_ocaml.ml` and `target_c.ml` use it to decide
+  wrong order. The walk stops at a lambda: building a closure prints
+  nothing, and the call that runs its body is an ordinary call wherever
+  it is written. `target_ocaml.ml` and `target_c.ml` use it to decide
   which operands need their order pinned down (see
   [target_ocaml.md](target_ocaml.md) and [target_c.md](target_c.md),
   "Evaluation order"); it lives here rather than in either because it is
@@ -450,8 +459,10 @@ leaves evaluation order unspecified.
   type cannot state: `:=` may only name a `var`, and a `var` may not be
   shadowed (which is what keeps `:=` unambiguous). It runs *after*
   `typesystem.ml`, so every name it meets is already known to be bound,
-  and it never descends into an expression, since no expression
-  mutates anything.
+  and it descends into an expression for one reason only: a lambda's
+  parameters are bindings, so the no-shadowing-a-`var` rule has to reach
+  them (**`analyze_lambdas`**). It still looks for no mutation there,
+  since no expression mutates anything.
 - **`bind(env, name, kind, info)`** — every binding form funnels through
   here, which is where the no-shadowing-a-`var` rule lives.
 - **`analyze_stmt(s, env) -> env`** — returns the environment its
@@ -653,6 +664,12 @@ OCaml-style near the top of the file):
 - **`check_function`, `function_type`, `check_param`** — a `def` that
   wrote its whole type down is checked here, where it is written; its
   type is a `TFunction`.
+- **`check_lambda(info, params, body, env, store) -> (Type, Store)`** —
+  a lambda. Lambda-bound and so monomorphic: each unannotated parameter
+  is a metavariable, a type variable written in one is a metavariable
+  too (shared by every parameter naming it), and nothing generalises the
+  result. Deferred inference is not reached at all — that machinery is
+  keyed by a definition's symbol.
 - **`declared_type` / `infer_call` / `infer_definition` /
   `inference_group` / `body_result`** — the deferred half. A `def` that
   did *not* write its type down is put aside with `TUnknown` in place of
@@ -873,6 +890,9 @@ three are design rather than accident:
 - **`Value`** — `VInt`, `VFloat`, `VString`, `VBool`, `VUnit`, `VList`, `VTuple`,
   `VClosure(name, params, body, env)`, `VBuiltin(name)`, and
   `VUndefined(name)` (a hoisted `def` whose definition has not run yet).
+  A lambda is a `VClosure` too, named `lambda`, holding the one
+  `SExprStmt` that supplies its body — so applying one goes through the
+  machinery a `def` goes through.
   No host objects and no host dictionaries inside a value: the
   representation has to survive being rewritten in Pyking and compiled to
   machine code.
@@ -989,7 +1009,9 @@ three are design rather than accident:
   time. Which expressions those are is computed once, before the program
   runs, and kept as a set of symbols in `Runtime`. The recursion in
   `evaluate` is bounded by how deeply the *source* nests expressions, so
-  it cannot be driven deep by a long-running program.
+  it cannot be driven deep by a long-running program. A lambda is
+  call-free whatever its body holds: building a closure calls nothing,
+  and the body is stepped later, when it is applied.
 
 ---
 

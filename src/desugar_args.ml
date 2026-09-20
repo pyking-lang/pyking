@@ -325,6 +325,15 @@ let rec expression signatures scope e =
   | EList (i, elements, s) -> EList (i, List.map go elements, s)
   | ETuple (i, elements, s) -> ETuple (i, List.map go elements, s)
   | EIf (i, c, a, b, s) -> EIf (i, go c, go a, go b, s)
+  | ELambda (i, params, body, s) ->
+      (* A lambda's parameters are bindings like any other, and shadow
+         whatever a call in its body might otherwise have reached. *)
+      let scope =
+        List.fold_left
+          (fun scope (Param (_, name, _, _, _)) -> SMap.add name Binding scope)
+          scope params
+      in
+      ELambda (i, params, expression signatures scope body, s)
   | EListComp (i, element, clauses, s) ->
       (* A comprehension binds its patterns' names over the element and
          the clauses after it, so nothing in there is a definition. *)

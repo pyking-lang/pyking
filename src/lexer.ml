@@ -49,6 +49,7 @@ type token =
   | TokConcat of info (* '++' (string and list concatenation) *)
   | TokSub of info (* '-' user defined *)
   | TokArrow of info (* '->' (single-expression `case` clause) *)
+  | TokFatArrow of info (* '=>' (lambda: `x => x + 1`) *)
   | TokMul of info (* '*' user defined *)
   | TokDiv of info (* '/' user defined *)
   | TokLessThanEq of info (* '<=' *)
@@ -104,6 +105,7 @@ let token_info tok =
   | TokConcat i -> i
   | TokSub i -> i
   | TokArrow i -> i
+  | TokFatArrow i -> i
   | TokMul i -> i
   | TokDiv i -> i
   | TokLessThanEq i -> i
@@ -159,6 +161,7 @@ let pprint_token tok =
   | TokConcat _ -> "TokConcat"
   | TokSub _ -> "TokSub"
   | TokArrow _ -> "TokArrow"
+  | TokFatArrow _ -> "TokFatArrow"
   | TokMul _ -> "TokMul"
   | TokDiv _ -> "TokDiv"
   | TokLessThanEq _ -> "TokLessThanEq"
@@ -451,6 +454,10 @@ let lexing file chars =
         lex xs r (c + 1) stack depth line_start (TokGreatThan (fi r c 1) :: tokens)
     | '=' :: '=' :: xs ->
         lex xs r (c + 2) stack depth line_start (TokEqEq (fi r c 2) :: tokens)
+    | '=' :: '>' :: xs ->
+        (* Pyking extension: a lambda, `x => x + 1` *)
+        lex xs r (c + 2) stack depth line_start
+          (TokFatArrow (fi r c 2) :: tokens)
     (* Language lex items *)
     | ':' :: '=' :: xs ->
         lex xs r (c + 2) stack depth line_start (TokAssign (fi r c 2) :: tokens)

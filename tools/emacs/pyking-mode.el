@@ -185,6 +185,11 @@ builtin.")
    ;; "Concatenation"). Called out for the same reason `:=' is. Escaped:
    ;; a bare "++" would be a regexp repeat and match a single `+' too.
    '("\\+\\+" . font-lock-keyword-face)
+   ;; lambda = lambda_params , "=>" , expr -- Pyking's lambda arrow (see
+   ;; PYKING.md, "Lambdas"). Called out for the same reason `:=' and
+   ;; `++' are: it is a marker with no Python spelling. Escaped so the
+   ;; `=' is literal rather than a regexp operator's operand.
+   '("=>" . font-lock-keyword-face)
    ;; `all a b.' -- the quantifier that binds type variables. Not in
    ;; `pyking-mode-keywords' because it is not in src/lexer.ml's
    ;; `keywords' either: it is recognized only in type position (see

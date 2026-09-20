@@ -41,8 +41,8 @@ ace.define("ace/mode/pyking_highlight_rules", [], function (require, exports) {
         { token: ["keyword", "text", "entity.name.function"],
           regex: "(\\bdef\\b)(\\s+)([A-Za-z_][A-Za-z_0-9]*)" },
         // Mutation and the arrow forms first: ':=' must not lex as ':' + '=',
-        // and '++' must not lex as two '+'.
-        { token: "keyword.operator", regex: ":=|->|\\.\\.|==|<=|>=|<|>|\\+\\+|\\+|-|\\*|/|=" },
+        // '=>' must not lex as '=' + '>', and '++' must not lex as two '+'.
+        { token: "keyword.operator", regex: ":=|->|=>|\\.\\.|==|<=|>=|<|>|\\+\\+|\\+|-|\\*|/|=" },
         { token: keywordMapper, regex: "\\b[A-Za-z_][A-Za-z_0-9]*\\b" },
         { token: "paren.lparen", regex: "[\\[({]" },
         { token: "paren.rparen", regex: "[\\])}]" },

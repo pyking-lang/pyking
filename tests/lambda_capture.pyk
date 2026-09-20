@@ -1,0 +1,31 @@
+# What a lambda captures: what is bound where it is written.
+#
+# A lambda closes over the bindings around it, and a later binding of
+# the same name is a *new* binding rather than a write to the old one
+# (PYKING.md, "Names and scoping"), so what it captured does not
+# change under it.
+
+base = 100
+shift = n => n + base
+print(shift(1))
+
+base = 200
+print(shift(1))
+print(base)
+
+# A function written around a lambda is captured by it too, and the
+# lambda a function answers with keeps that call's arguments.
+def stepper(by: Int) -> (Int) -> Int:
+    x => x + by
+
+by_three = stepper(3)
+by_five = stepper(5)
+print(by_three(10), by_five(10))
+
+# A block is a scope, so a lambda written in one keeps that block's
+# bindings after it has ended.
+def held() -> (Int) -> Int:
+    inner = 9
+    x => x * inner
+
+print(held()(3))

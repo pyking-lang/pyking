@@ -342,6 +342,7 @@ let expr_kind_name e =
   | EQualified _ -> "EQualified"
   | EList _ -> "EList"
   | EListComp _ -> "EListComp"
+  | ELambda _ -> "ELambda"
   | ETuple _ -> "ETuple"
   | ECall _ -> "ECall"
   | EIf _ -> "EIf"
@@ -452,6 +453,18 @@ let rec translate_expr e scope =
         ( info,
           translate_expr func scope,
           List.map (fun a -> translate_expr a scope) (arg_exprs args) )
+  | ELambda (info, params, body, _) ->
+      (* An arrow function, whose parameters are its own scope -- the
+         one place JavaScript needs no renaming at all. *)
+      let body_scope = block_scope scope in
+      let param_names, body_scope =
+        List.fold_left
+          (fun (out, body_scope) (Param (_, param_name, _, _, _)) ->
+            let js_param, body_scope = bind param_name body_scope in
+            (out @ [ js_param ], body_scope))
+          ([], body_scope) params
+      in
+      JsArrow (info, param_names, [], translate_expr body body_scope)
   | e -> (
       match (binary_op e, Interpreter.binary_operands e) with
       | Some op, Some (left, right) ->
@@ -683,7 +696,9 @@ let yields_unit e =
 let defines_function stmts =
   Walk.exists_stmts
     (fun node ->
-      match node with Walk.NStmt (SFunctionDef _) -> true | _ -> false)
+      match node with
+      | Walk.NStmt (SFunctionDef _) | Walk.NExpr (ELambda _) -> true
+      | _ -> false)
     stmts
 
 (** A name for a loop-result variable that nothing here uses.

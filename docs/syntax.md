@@ -165,6 +165,16 @@ parsers exist (`parse_if_expr_tail` for the expression, the loop in
 `parse_if_stmt_tail` for the statement); each printer undoes exactly
 the desugaring its own parser rule performed.
 
+`ELambda` shares `EIf`'s precedence 0, and prints its body at 0 for the
+same reason `EIf` prints its `else` branch there: `=>` associates to the
+right, so `(x) => (y) => x + y` stays flat. Its parameter list is
+*always* parenthesized, whatever the source wrote — `x => e` and
+`(x) => e` are the same node, and the parenthesized spelling is the one
+the parser reads back whatever the parameters look like. A parameter's
+type prints from `tmap` like every other annotation, so a lambda whose
+parameter the source left bare prints with the type the checker worked
+out for it.
+
 ## Printing what the checker knows, not what the source wrote
 
 `pprint_program(stmts, symbols=False, tmap=None)` is the *only* entry

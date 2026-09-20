@@ -278,14 +278,64 @@ and parse_additive eof tokens =
   in
   more left rest
 
-(** Parses the lowest-precedence expression level: an if expression or a
-    comparison. info -> [token] -> (expr, [token]) *)
+(** Parses the lowest-precedence expression level: a lambda, an if
+    expression or a comparison. info -> [token] -> (expr, [token]) *)
 and parse_expr eof tokens =
   match tokens with
   | TokIf i :: rest ->
       let cond, rest = parse_expr eof rest in
       parse_if_expr_tail eof i cond rest
-  | _ -> parse_comparison eof tokens
+  | _ -> (
+      match parse_lambda eof tokens with
+      | Some answer -> answer
+      | None -> parse_comparison eof tokens)
+
+(** Parses one lambda, or answers None where these tokens do not start
+    one. The body is `parse_expr`, so a lambda takes everything to its
+    right that one expression can hold: `x => y => e` is curried, and
+    `x => a, b` is a pair whose first element is the lambda, as a
+    comma binds looser than any expression.
+
+    The parenthesized form is decided by *trying* it: a parameter list
+    is only a parameter list when `=>` follows the ')', and `(x)` is
+    otherwise the parenthesized expression it has always been.
+    info -> [token] -> (expr, [token]) option *)
+and parse_lambda eof tokens =
+  match tokens with
+  | TokIdent (i, name) :: TokFatArrow _ :: rest ->
+      let body, rest = parse_expr eof rest in
+      Some
+        ( ELambda
+            ( combine_info i (expr_info body),
+              [ Param (i, name, None, None, 0) ],
+              body,
+              0 ),
+          rest )
+  | TokLParen lparen :: after -> (
+      match (try Some (parse_params eof after) with Parse_error _ -> None) with
+      | Some (params, TokFatArrow _ :: rest) ->
+          List.iter check_no_lambda_default params;
+          let body, rest = parse_expr eof rest in
+          Some
+            ( ELambda
+                (combine_info lparen (expr_info body), params, body, 0),
+              rest )
+      | _ -> None)
+  | _ -> None
+
+(** A lambda parameter may not carry a default: a default is evaluated
+    where the definition is written, and a lambda is an expression that
+    is written wherever it stands. param -> () *)
+and check_no_lambda_default (Param (info, name, _, default, _)) =
+  match default with
+  | None -> ()
+  | Some _ ->
+      raise
+        (Parse_error
+           ( info,
+             Printf.sprintf
+               "the lambda parameter '%s' may not have a default value; only                 a 'def' parameter may"
+               name ))
 
 (** Parses the `then expr else expr` tail of an if expression, given the
     already-parsed `if` and condition.

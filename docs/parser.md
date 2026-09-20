@@ -171,10 +171,11 @@ construct really stopped.
 
 ## Where the grammar is not LL(1), and how that's handled without backtracking
 
-Two places in the grammar need more than one token of lookahead to know
-which rule applies, and the parser resolves both **by parsing the
+Three places in the grammar need more than one token of lookahead to
+know which rule applies. Two of them are resolved **by parsing the
 shared prefix once**, rather than by speculatively trying one
-alternative and rewinding on failure.
+alternative and rewinding on failure; the third speculates, in the same
+safe way assignment targets do.
 
 **`if` as a statement vs. as an expression statement.** `if cond: ...`
 (a statement) and `if cond then a else b` (an expression, standing alone
@@ -219,6 +220,22 @@ parse failure past that point as a real error rather than another
 reason to fall through, since a target followed by `:` cannot mean
 anything else. That's the comment on the `TokColon` match inside
 `try_parse_assignment_target` making that distinction explicit.
+
+**A lambda's parameter list vs. a parenthesized expression.** `(x)` is
+the expression `x`, and `(x) => x` is a lambda: the two are told apart
+only by what follows the `)`, and what is inside can be arbitrarily
+long. `parse_lambda` speculates exactly as `try_parse_assignment_target`
+does — it calls `parse_params`, catches `Parse_error`, and answers
+`None` unless the token after the `)` is `=>`. On `None`, `parse_expr`
+falls through to `parse_comparison` and re-parses the same tokens as an
+expression, having touched nothing. The single-parameter form needs no
+speculation at all: `TokIdent` followed by `TokFatArrow` is two tokens
+of lookahead and decides it outright.
+
+The body is `parse_expr`, which is what makes `=>` associate to the
+right and bind looser than every operator; `parse_tuple_or_expr` is
+deliberately *not* used there, so `x => a, b` is a pair whose first
+element is the lambda rather than a lambda answering with a pair.
 
 ## Value-form `if`/`match`: one AST shape, two positions
 

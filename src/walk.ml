@@ -68,7 +68,9 @@ let children n =
       | EIf (_, condition, then_, else_, _) ->
           [ NExpr condition; NExpr then_; NExpr else_ ]
       | EListComp (_, element, clauses, _) ->
-          NExpr element :: List.map (fun c -> NCompClause c) clauses)
+          NExpr element :: List.map (fun c -> NCompClause c) clauses
+      | ELambda (_, params, body, _) ->
+          List.map (fun p -> NParam p) params @ [ NExpr body ])
   | NType t -> (
       match t with
       | TInt _ | TFloat _ | TString _ | TBool _ | TUnknown _ | TBuiltin _

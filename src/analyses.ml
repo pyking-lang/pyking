@@ -236,6 +236,30 @@ let rec analyze_stmts stmts env =
     outside it. [stmt] -> env -> () *)
 and analyze_scope stmts env = ignore (analyze_stmts stmts env)
 
+(** Binds the parameters of every lambda written in one statement's own
+    expressions, so the no-shadowing-a-`var` rule reaches inside one.
+    A nested block is not followed: it is analyzed in its own scope,
+    with its own bindings, by whichever arm owns it. Nothing else here
+    looks at an expression, because no expression mutates anything.
+    env -> Walk.node -> () *)
+and analyze_lambdas env node =
+  match node with
+  | Walk.NStmt _ -> ()
+  | Walk.NExpr (ELambda (_, params, body, _)) ->
+      let inner =
+        List.fold_left
+          (fun inner (Param (info, name, _, _, _)) ->
+            bind inner name Parameter info)
+          env params
+      in
+      analyze_lambdas inner (Walk.NExpr body)
+  | node -> List.iter (analyze_lambdas env) (Walk.children node)
+
+(** The lambdas written in one statement's own expressions.
+    stmt -> env -> () *)
+and analyze_own_exprs s env =
+  List.iter (analyze_lambdas env) (Walk.children (Walk.NStmt s))
+
 (** Analyzes a value-form if/match/loop (the right-hand side of a
     binding); does not bind the target itself. stmt -> env -> () *)
 and analyze_value_stmt stmt env =
@@ -246,9 +270,11 @@ and analyze_value_stmt stmt env =
          in the block around it. *)
       ignore (analyze_stmt stmt env)
   | SIf (_, _, then_body, else_body, _) ->
+      analyze_own_exprs stmt env;
       analyze_scope then_body env;
       analyze_scope (Option.value else_body ~default:[]) env
   | SMatch (_, _, cases, _) ->
+      analyze_own_exprs stmt env;
       List.iter (fun case_clause -> analyze_case case_clause env) cases
   | _ -> ()
 
@@ -260,6 +286,7 @@ and analyze_case (MatchCase (_, pattern, body, _)) env =
 (** Analyzes one statement in env. Answers the environment the
     statements after it should see. stmt -> env -> env *)
 and analyze_stmt s env =
+  analyze_own_exprs s env;
   match s with
   | SLet (_, target, _, _, _, _) -> bind_target env target Value
   | SLetStmt (_, target, stmt, _, _, _) ->
@@ -475,6 +502,11 @@ let rec sym_expr counter e =
       let clauses, counter = map_fold sym_comp_clause counter clauses in
       let s, counter = assign s counter in
       (EListComp (i, e2, clauses, s), counter)
+  | ELambda (i, params, body, s) ->
+      let params, counter = map_fold sym_param counter params in
+      let body, counter = sym_expr counter body in
+      let s, counter = assign s counter in
+      (ELambda (i, params, body, s), counter)
   | EQualified (i, module_name, name, s) ->
       let s, counter = assign s counter in
       (EQualified (i, module_name, name, s), counter)
@@ -711,6 +743,8 @@ let rec high_expr e =
         max (high_expr c) (max (high_expr t) (high_expr e2))
     | EListComp (_, e2, clauses, _) ->
         max (high_expr e2) (high_list high_comp_clause clauses)
+    | ELambda (_, params, body, _) ->
+        max (high_list high_param params) (high_expr body)
   in
   max (expr_sym e) children
 
@@ -991,12 +1025,16 @@ let call_prints effects call =
 (** Whether a subtree holds a call that may print.
     effects -> Walk.node -> bool *)
 let subtree_prints effects node =
-  Walk.exists
-    (fun node ->
-      match node with
-      | Walk.NExpr (ECall _ as call) -> call_prints effects call
-      | _ -> false)
-    node
+  (* The walk stops at a lambda: building a closure prints nothing,
+     whatever its body holds, and the call that runs that body is an
+     ordinary call wherever it is written. *)
+  let rec go node =
+    match node with
+    | Walk.NExpr (ELambda _) -> false
+    | Walk.NExpr (ECall _ as call) when call_prints effects call -> true
+    | node -> List.exists go (Walk.children node)
+  in
+  go node
 
 (** Which functions in a program can print, by a fixed-point walk of the
     call graph. [stmt] -> effects *)
