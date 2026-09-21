@@ -1,0 +1,13 @@
+# An implicit definition that does not write its type down.
+#
+# Resolving an implicit argument is a question about types, so there has
+# to be a type to ask it of (PYKING.md, "Implicits").
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+implicit def bar(z): str(z)
+
+def foo(x: Int, implicit bar: (Int) -> String) -> String: bar(x)
+
+print(foo(1))

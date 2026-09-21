@@ -1,0 +1,16 @@
+# An overloaded call whose argument type nothing has decided.
+#
+# Resolution is by the arguments, and here they say nothing: `x` is
+# whatever the caller passes. Deferring the choice would be inferred
+# contexts, which is type classes; the fix is an implicit parameter, or
+# an annotation (docs/overloading.md).
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+def int::twice(x: Int) -> Int: x * 2
+def string::twice(x: String) -> String: x ++ x
+
+def both(x): (twice(x), twice(x))
+
+print(both(2))

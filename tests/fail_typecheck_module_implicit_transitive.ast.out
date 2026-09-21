@@ -1,0 +1,2 @@
+'tests/fail_typecheck_module_implicit_transitive.pyk' 14:6-14:9 Name
+  error: unbound name 'leq'

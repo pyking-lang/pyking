@@ -1,0 +1,4 @@
+'tests/fail_typecheck_implicit_default.pyk' 10:17-10:36 Parsing error:
+  the implicit parameter 'width' may not have a default value: an
+  omitted implicit argument is resolved from the calling context,
+  which is what makes it implicit

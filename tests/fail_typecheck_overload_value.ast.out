@@ -1,0 +1,4 @@
+'tests/fail_typecheck_overload_value.pyk' 11:4-11:13 Parsing error:
+  'int::zero' takes no argument, so nothing could say which definition
+  of 'zero' a call means; a '::' name belongs to a 'def' that takes at
+  least one

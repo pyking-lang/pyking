@@ -1,0 +1,12 @@
+def int::show(x: Int) -> String: str(x)
+def bool::show(x: Bool) -> String: str(x)
+show(5)
+show(true)
+int::show(7)
+implicit def fmt(n: Int) -> String: str(n) ++ "!"
+def loud(n: Int, implicit fmt: (Int) -> String) -> String: fmt(n)
+loud(3)
+def plain(n: Int) -> String: str(n)
+loud(3, plain)
+:ls
+show("no")

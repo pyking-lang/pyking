@@ -64,7 +64,8 @@ drift from it either — see that tool's own documentation.
 
 `front_end(options)` runs every stage before a backend, in the order
 they run: loading the modules the program is made of, and then, once per
-module, type checking, the mutability analysis and the tail-call pass.
+module, type checking, the mutability analysis, the overloading and
+implicits pass, and the tail-call pass.
 It answers with each module paired with the types worked out for it.
 That the order lives here and nowhere else is deliberate — no stage reaches for
 another one on its own, which is why `interpreter.check` no longer
@@ -88,6 +89,17 @@ rule: `:=` may only name a `var`, and nothing may shadow one. It goes
 second precisely because by then every name is known to be bound, so a
 name the mutability walk cannot find is never "unbound" — it is
 "not a mutable variable", which is the message worth printing.
+
+Between that walk and the tail-call pass, `src/elaborate.ml` removes
+overloading and implicit arguments from the program, reading the second
+table the checker answers with (`qmap`): a qualified name becomes a
+plain one, a resolved call names the definition it reaches, and an
+implicit parameter becomes an ordinary argument. It is the same bargain
+the tail-call pass makes -- AST in, AST out, before anything else reads
+the program -- so nothing the driver sequences after it, and no backend,
+knows either feature exists. It hands out symbols for the nodes it
+builds and extends `tmap` for them, since the checker does not run
+again (see [implicits.md](implicits.md)).
 
 Earlier still, `module.load` desugars each module: default parameters
 and named arguments become ordinary defs and ordinary calls before

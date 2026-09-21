@@ -1,0 +1,28 @@
+# Static overloading: `::` gives a definition a name of its own, and the
+# arguments say which one a call means.
+#
+# The qualifier is part of the name and nothing else -- `int` and
+# `float` have no meaning here, they only make the names unique. A call
+# may write the whole name or leave the qualifier out, and leaving it
+# out is what the type checker resolves (PYKING.md, "Static
+# overloading").
+
+def int::twice(x: Int) -> Int: x * 2
+def float::twice(x: Float) -> Float: x * 2.0
+def string::twice(x: String) -> String: x ++ x
+
+print(twice(21))
+print(twice(1.5))
+print(twice("ab"))
+
+# Written out in full, which always works.
+print(int::twice(3), string::twice("-"))
+
+# The qualifier is a name like any other: nothing about it is special.
+def wow::twice(x: Bool) -> Bool: x
+print(twice(true))
+
+# Two arguments, and a set whose members differ in their second.
+def a::join(x: Int, y: Int) -> Int: x + y
+def b::join(x: String, y: String) -> String: x ++ y
+print(join(2, 3), join("hi", "!"))

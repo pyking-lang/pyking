@@ -1,0 +1,3 @@
+'tests/fail_typecheck_overload_asvalue.pyk' 15:12-15:17 Type error:
+  'twice' names 2 definitions ('int::twice', 'string::twice'), so it
+  can be called but not used as a value; write the one that is meant

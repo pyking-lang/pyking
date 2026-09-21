@@ -36,12 +36,22 @@ not repeat. For a one-page summary of every function, see
         │
         ▼
      {Int: Type}      symbol → type, for every node that has one
+     {Int: Resolution} symbol → what that call denotes, for every one
+                       overloading or an implicit parameter settled
 ```
 
-One entry point, `type_check(stmts) -> tmap`. A whole program in, the
-types it worked out back. It raises `Type_error` for the first thing
+One entry point, `type_check(stmts) -> (tmap, qmap)`. A whole program
+in, the types it worked out back, and beside them what every call it
+resolved denotes -- which `src/elaborate.ml` then rewrites the program
+by (docs/implicits.md). It raises `Type_error` for the first thing
 that does not check, and `Analyses.Analysis_error` for a name it cannot
 find.
+
+**The pass still changes nothing.** `qmap` is a second *result*, filled
+by `record_resolution` exactly as `tmap` is filled by `record` -- both
+overwrite, because a generalisable body is checked twice and
+`verified`'s pass is the one that counts, and both are read back
+through `zonk` at the end.
 
 ## One function per AST datatype
 
@@ -211,6 +221,13 @@ shadows an outer one, a `def`'s name is in scope in its own body, and
 the builtins are in scope from the start — all of it falling out of the
 same immutable-map discipline `analyses.ml` established.
 
+**What a name maps to is a `binding`**: its type, and whether the
+binding was written `implicit`. There is still no option and no second
+inhabitant — a name is in the map with a denotation, or it is not in
+scope — and the second field is read by exactly two searches, the one
+that resolves an overloaded call and the one that fills an implicit
+parameter (docs/implicits.md). Everything else asks `type_of`.
+
 An unbound name raises `Analyses.Analysis_error` — imported, not a
 lookalike defined here — so the driver's `Name error` reads identically
 whichever pass caught it. A caller should not be able to tell which one
@@ -238,6 +255,12 @@ by here, and a field of a plain import under `alias.field`, which is the
 spelling an `EQualified` looks up. So a qualified name is an ordinary
 `Env` lookup, and nothing else in this module knows there is a module
 boundary at all.
+
+A **public implicit** is the one thing that stretches that. It is bound
+under `alias.field` like anything else, and the two searches look
+through the `.` when the binding is implicit — which is how an ordering
+a module defines is found by an unqualified call, while still being
+resolved to the module it came from (PYKING.md, "Modules").
 
 They go in *up front* rather than as the walk reaches them because an
 import is a declaration of the module, like a `def`, not a statement in

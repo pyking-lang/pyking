@@ -1,0 +1,24 @@
+# Supplying an implicit argument at the call.
+#
+# An implicit parameter is an ordinary parameter that a call may leave
+# out; writing it is always allowed, and is the way to override what the
+# search would have found (PYKING.md, "Implicits").
+
+implicit def fmt(n: Int) -> String: str(n)
+
+def show(n: Int, implicit fmt: (Int) -> String) -> String: fmt(n)
+
+def loud(n: Int) -> String: str(n) ++ "!"
+
+print(show(3))
+print(show(3, loud))
+
+# By the parameter's name, which is what named arguments are for.
+print(show(3, fmt = loud))
+
+# Two implicit parameters, both written out.
+def pair(n: Int, implicit a: (Int) -> String,
+         implicit b: (Int) -> String) -> String:
+    a(n) ++ "/" ++ b(n)
+
+print(pair(7, fmt, loud))

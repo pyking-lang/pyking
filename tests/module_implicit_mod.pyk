@@ -1,0 +1,27 @@
+# The module `module_implicit.pyk` imports: three public implicit
+# orderings and one public function that asks for one.
+
+public implicit def int::leq(x: Int, y: Int) -> Bool:
+    x <= y
+
+public implicit def float::leq(x: Float, y: Float) -> Bool:
+    x <= y
+
+public implicit def list::leq(xs: [a], ys: [a],
+                              implicit leq: (a, a) -> Bool) -> Bool:
+    match (xs, ys):
+        case ([x] ++ xrest, [y] ++ yrest):
+            if leq(x, y):
+                list::leq(xrest, yrest)
+            else:
+                false
+        case ([], []): true
+        case (_, _): false
+
+public def less_index(elem: a, lst: [a],
+                      implicit leq: (a, a) -> Bool) -> Int:
+    loop i = 0 for x in lst:
+        if leq(x, elem):
+            i + 1
+        else:
+            break

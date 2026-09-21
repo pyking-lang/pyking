@@ -1,0 +1,13 @@
+# The module `typecheck_module_implicit.pyk` imports.
+
+public implicit def int::pick(x: Int, y: Int) -> Int:
+    if x < y:
+        x
+    else:
+        y
+
+public implicit def float::pick(x: Float, y: Float) -> Float:
+    if x < y:
+        x
+    else:
+        y

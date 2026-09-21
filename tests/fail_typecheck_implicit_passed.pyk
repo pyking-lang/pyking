@@ -1,0 +1,16 @@
+# A function carrying an implicit parameter, passed where an ordinary
+# function is wanted, with nothing to resolve it.
+#
+# `foo` can be adapted to `(Int) -> Int` by supplying its `my` here --
+# that is what makes the passing legal at all -- so the failure is
+# about the implicit rather than about the types
+# (docs/implicits.md, "A function carrying implicits, passed on").
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+def takes(f: (Int) -> Int) -> Int: f(1)
+
+def foo(x: Int, implicit my: Int) -> Int: x + my
+
+print(takes(foo))

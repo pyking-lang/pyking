@@ -1,0 +1,33 @@
+# An implicit resolved to a definition that takes one of its own.
+#
+# `list::leq` compares two lists by comparing their elements, so it asks
+# for an implicit `leq` at the element type. Where it is *itself* chosen
+# to fill a parameter of type `([Int], [Int]) -> Bool`, which has no
+# implicit, what is passed is a lambda supplying its obligation -- the
+# dictionary, built by `elaborate.ml` and pinned in `.ast.out`
+# (docs/implicits.md).
+
+implicit def int::leq(x: Int, y: Int) -> Bool: x <= y
+implicit def float::leq(x: Float, y: Float) -> Bool: x <= y
+
+implicit def list::leq(xs: [a], ys: [a], implicit leq: (a, a) -> Bool) -> Bool:
+    match (xs, ys):
+        case ([x] ++ xrest, [y] ++ yrest):
+            if leq(x, y):
+                list::leq(xrest, yrest)
+            else:
+                false
+        case ([], []): true
+        case (_, _): false
+
+def less_index(elem: a, lst: [a], implicit leq: (a, a) -> Bool) -> Int:
+    loop i = 0 for x in lst:
+        if leq(x, elem):
+            i + 1
+        else:
+            break
+
+print(leq(88, 100), leq(79.12, 18.2), leq([171, 10], [188]))
+print(less_index(10, [7, 4, 12, 2]))
+print(less_index(30.3, [1.4, 10.12, 23.1, 55.1]))
+print(less_index([2], [[1], [2, 3], [0]]))

@@ -1,0 +1,21 @@
+# A polymorphic member of an overload set, chosen beside monomorphic
+# ones.
+#
+# Resolution is by unification, not by matching: the argument type here
+# is still a list of something when the choice is made, and choosing
+# `list::size` is what decides what (docs/overloading.md).
+
+def int::size(x: Int) -> Int: x
+def string::size(x: String) -> Int: len(x)
+def list::size(xs: [a]) -> Int: len(xs)
+
+print(size(7))
+print(size("abcd"))
+print(size([1, 2, 3]))
+print(size(["a", "b"]))
+print(size([[1], [2], [3]]))
+
+# A candidate reached through a definition of its own, so the choice is
+# made inside a function whose parameter type says which.
+def total(xs: [a]) -> Int: size(xs)
+print(total([true, false]))

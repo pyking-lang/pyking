@@ -1,0 +1,15 @@
+Pyking REPL.  :help for commands, :quit to leave.
+> > > '5' : String
+> 'true' : String
+> '7' : String
+> > > '3!' : String
+> > '3' : String
+> implicit fmt        = <function> : (Int) -> String
+loud       = <function> : (Int, implicit fmt: (Int) -> String) -> String
+plain      = <function> : (Int) -> String
+bool::show = <function> : (Bool) -> String
+int::show  = <function> : (Int) -> String
+> '<repl>' 1:0-1:10 Type error: no definition of 'show' takes (String);
+  the ones in scope are 'bool::show' of type (Bool) -> String,
+  'int::show' of type (Int) -> String
+> 

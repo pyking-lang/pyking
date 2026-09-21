@@ -1,0 +1,4 @@
+'tests/fail_typecheck_implicit_signature.pyk' 12:0-12:57 Type error:
+  'show' cannot take the implicit parameter 'fmt' on a signature line:
+  an implicit parameter is written on the 'def' itself, where its body
+  can name it

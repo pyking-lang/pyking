@@ -134,11 +134,19 @@ something that is not there, and worth saying so.
 
 ## The signature is a map from a name to a type
 
-`sigmap` is `{String: Type}` -- one entry per exported name -- and it is
-the whole of what one module sees of another. The types are the
-checker's own `T*` nodes, read out of the `tmap` it returned, so an
-imported polymorphic function arrives with its `all` intact and
-instantiates at the call like any other.
+`sigmap` is `[(String, Type, Bool)]` -- one entry per exported name,
+its type, and whether it was written `implicit` -- and it is the whole
+of what one module sees of another. The types are the checker's own
+`T*` nodes, read out of the `tmap` it returned, so an imported
+polymorphic function arrives with its `all` intact and instantiates at
+the call like any other.
+
+The **names** are the source's own, since that is what the file
+importing the module writes. The sigmap a *backend* is handed is
+different: `Module.context` renames each entry with `Names.renamed` and
+folds its implicit parameters in with `Typesystem.without_implicits`,
+because that is what the generated file declares
+(docs/overloading.md).
 
 It is made from the program the *checker* saw, before the tail-call pass
 runs: that pass can change how a module computes what it exports, never
@@ -173,6 +181,19 @@ module, like a `def`, not statements in its sequence -- and it has to be
 that way round, because a deferred definition's body is checked in the
 environment recorded where it was written, which is the environment at
 the start of the block.
+
+## A public implicit is found unqualified
+
+A name that is **both `public` and `implicit`** is reachable from an
+unqualified call in the importing file, and from the implicit search,
+as well as through the module name. It is still bound under one
+spelling -- `alias.field` -- so a resolution names the module it came
+from, and the generated call reads `mod.int__leq` rather than a name
+nothing declared.
+
+Nothing else is auto-imported, and it is not transitive: what a file
+sees is what that file imports. See PYKING.md, "A public implicit
+arrives unqualified", and [implicits.md](implicits.md).
 
 ## One file on its own
 

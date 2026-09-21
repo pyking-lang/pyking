@@ -1,0 +1,21 @@
+def int__twice(x:Int) -> Int:
+    x * 2
+def string__twice(x:String) -> String:
+    x ++ x
+print(int__twice(4), string__twice('ab'), int__twice(5))
+def doubled(n:Int) -> Int:
+    int__twice(n)
+print(doubled(8))
+def list__first(xs:[a], fallback:a) -> a:
+    match xs:
+        case [x, ..]:
+            x
+        case _:
+            fallback
+def string__first(s:String, fallback:String) -> String:
+    match s:
+        case 'x' ++ rest:
+            rest
+        case _:
+            fallback
+print(list__first([9, 8], 0), string__first('xy', '?'), string__first('no', '?'))

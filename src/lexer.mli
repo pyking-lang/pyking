@@ -74,6 +74,7 @@ type token =
   | TokElse of info (* 'else' *)
   | TokVar of info (* 'var' *)
   | TokPublic of info (* 'public' (module export marker) *)
+  | TokImplicit of info (* 'implicit' (an implicit definition or parameter) *)
   | TokImport of info (* 'import' *)
   | TokFrom of info (* 'from' (`from module import name`) *)
   | TokAs of info (* 'as' (renaming an import) *)

@@ -913,7 +913,7 @@ and free_in_block stmts bound free =
     List.fold_left
       (fun bound s ->
         match s with
-        | SFunctionDef (_, name, _, _, _, _, _) -> StringSet.add name bound
+        | SFunctionDef (_, name, _, _, _, _, _, _, _) -> StringSet.add name bound
         | _ -> bound)
       bound stmts
   in
@@ -930,7 +930,7 @@ and free_in_nested stmts bound free = free_in_block stmts bound free
     stmt -> StringSet.t -> StringSet.t -> (StringSet.t, StringSet.t) *)
 and free_in_stmt s bound free =
   match s with
-  | SLet (_, target, e, _, _, _) ->
+  | SLet (_, target, e, _, _, _, _) ->
       let free = free_in_expr e bound free in
       (StringSet.union bound (set_of (target_names target)), free)
   | SLetStmt (_, target, inner, _, _, _) ->
@@ -985,7 +985,7 @@ and free_in_stmt s bound free =
         | Some else_body -> free_in_nested else_body bound free
       in
       (bound, free)
-  | SFunctionDef (_, name, params, body, _, _, _) ->
+  | SFunctionDef (_, name, params, body, _, _, _, _, _) ->
       let bound = StringSet.add name bound in
       let free =
         free_in_nested body
@@ -1045,7 +1045,7 @@ let rec captured_in_block stmts bound captured =
     List.fold_left
       (fun bound s ->
         match s with
-        | SFunctionDef (_, name, _, _, _, _, _) -> StringSet.add name bound
+        | SFunctionDef (_, name, _, _, _, _, _, _, _) -> StringSet.add name bound
         | _ -> bound)
       bound stmts
   in
@@ -1053,7 +1053,7 @@ let rec captured_in_block stmts bound captured =
     (fun captured s ->
       let captured = statement_lambda_captures s bound captured in
       match s with
-      | SFunctionDef (_, name, params, body, _, _, _) ->
+      | SFunctionDef (_, name, params, body, _, _, _, _, _) ->
           let inner =
             StringSet.add name
               (set_of (List.map (fun (Param (_, n, _, _, _)) -> n) params))
@@ -1445,7 +1445,7 @@ let rec holds_float type_ =
   | TFloat _ -> true
   | TList (_, element, _) -> holds_float element
   | TTuple (_, elements, _) -> List.exists holds_float elements
-  | TFunction (_, params, result, _, _, _) ->
+  | TFunction (_, params, result, _, _, _, _) ->
       List.exists holds_float params || holds_float result
   | TForall (_, _, body, _) -> holds_float body
   | _ -> false
@@ -1722,17 +1722,17 @@ let rec falls_through py_body =
     stmt -> [string] *)
 let stmt_bound_names s =
   match s with
-  | SLet (_, target, _, _, _, _) | SLetStmt (_, target, _, _, _, _) ->
+  | SLet (_, target, _, _, _, _, _) | SLetStmt (_, target, _, _, _, _) ->
       target_names target
   | SVar (_, name, _, _) -> [ name ]
-  | SFunctionDef (_, name, _, _, _, _, _) -> [ name ]
+  | SFunctionDef (_, name, _, _, _, _, _, _, _) -> [ name ]
   | _ -> []
 
 (** The names a def's body reads freely (own name and parameters
     excluded). stmt -> StringSet.t *)
 let def_body_names s =
   match s with
-  | SFunctionDef (_, name, params, body, _, _, _) ->
+  | SFunctionDef (_, name, params, body, _, _, _, _, _) ->
       free_names body
         (StringSet.add name
            (set_of (List.map (fun (Param (_, n, _, _, _)) -> n) params)))
@@ -1842,7 +1842,7 @@ let turn_groups stmts scope =
       if defs = [] then []
       else
         let name_of s =
-          match s with SFunctionDef (_, name, _, _, _, _, _) -> name | _ -> ""
+          match s with SFunctionDef (_, name, _, _, _, _, _, _, _) -> name | _ -> ""
         in
         let index_of = List.map (fun (index, s) -> (name_of s, index)) defs in
         (* Union-find over "def i names def j", in either direction. *)
@@ -2227,7 +2227,7 @@ and declare_functions stmts scope =
   List.fold_left
     (fun scope s ->
       match s with
-      | SFunctionDef (_, name, _, _, _, _, _) -> snd (bind name scope)
+      | SFunctionDef (_, name, _, _, _, _, _, _, _) -> snd (bind name scope)
       | SImport (_, _, local, selected, fields, _) ->
           let names =
             if selected then List.map (fun (_, local) -> local) fields
@@ -2326,7 +2326,7 @@ and translate_turn_group members taken captures stmts scope gen =
     stmt -> scope -> gen -> ([pystmt], scope, gen) *)
 and translate_stmt s scope gen =
   match s with
-  | SLet (info, target, e, _, _, _) ->
+  | SLet (info, target, e, _, _, _, _) ->
       (* The right-hand side is translated *before* the target binds, so
          `x = x + 1` reads the outer `x` -- if that binding is a
          shadowing one, the read still resolves to the old name. *)
@@ -2483,7 +2483,7 @@ and translate_stmt s scope gen =
             (Some py_else, gen)
       in
       ([ PyIf (info, py_cond, py_then, py_else) ], scope, gen)
-  | SFunctionDef (info, name, params, body, _, _, _) ->
+  | SFunctionDef (info, name, params, body, _, _, _, _, _) ->
       let py_name, scope = bind name scope in
       let body_bound =
         StringSet.add name

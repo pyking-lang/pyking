@@ -1,0 +1,3 @@
+'tests/fail_typecheck_implicit_depth.pyk' 15:6-15:17 Type error:
+  resolving the implicit 'show' went 32 deep and did not stop; an
+  implicit that needs one of its own kind cannot go round for ever

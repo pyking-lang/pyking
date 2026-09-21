@@ -1,0 +1,28 @@
+# A parameter that asks for an implicit, and both kinds of argument.
+#
+# `f`'s type says `implicit my`, so the implicit is resolved inside
+# `bar`, against the `my` in scope there. `adds` asks for exactly that
+# and is passed as it is; a plain lambda does not ask for it, and is
+# adapted the other way -- a lambda that takes the implicit argument
+# and hands on only what the value wants. A function that needs less
+# stands wherever one that needs more is wanted
+# (docs/implicits.md, "A function carrying implicits, passed on").
+
+def bar(a, f: (Int, implicit my: Int) -> Int):
+    implicit my = 10
+    f(a + 1)
+
+def adds(x: Int, implicit my: Int) -> Int: x + my
+
+print(bar(7, adds))
+print(bar(2, x => x + 1))
+
+# The same two, where the parameter asks for nothing: `adds` is adapted
+# by supplying its implicit *here*, from the `my` in scope here.
+implicit my = 100
+
+def plain(a, f):
+    f(a + 1)
+
+print(plain(7, adds))
+print(plain(2, x => x + 1))

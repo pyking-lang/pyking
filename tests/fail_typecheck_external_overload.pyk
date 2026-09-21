@@ -1,0 +1,12 @@
+# An external declaration with a qualified name.
+#
+# `::` is resolved and renamed by the compiler; what a declaration names
+# is provided by the target's own source, under the name written. The
+# two cannot both be true (docs/overloading.md).
+#
+# This program is expected to FAIL loading. Its `.ast.out` holds the
+# error message, not a program's output.
+
+import fail_typecheck_external_overload_mod1 as m
+
+print(m.int::twice(4))

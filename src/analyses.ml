@@ -162,7 +162,7 @@ let bind_target env target kind =
     pairs. stmt -> [(string, info)] *)
 let bound_names stmt =
   match stmt with
-  | SLet (_, target, _, _, _, _) | SLetStmt (_, target, _, _, _, _) ->
+  | SLet (_, target, _, _, _, _, _) | SLetStmt (_, target, _, _, _, _) ->
       target_names target
   | SVar (info, name, _, _) -> [ (name, info) ]
   | SImport (info, _, name, selected, fields, _) ->
@@ -196,7 +196,7 @@ let check_no_function_clash name info functions =
 let block_functions stmts =
   let add functions stmt =
     match stmt with
-    | SFunctionDef (info, name, _, _, _, _, _) -> (
+    | SFunctionDef (info, name, _, _, _, _, _, _, _) -> (
         match List.assoc_opt name functions with
         | Some earlier ->
             raise
@@ -288,7 +288,7 @@ and analyze_case (MatchCase (_, pattern, body, _)) env =
 and analyze_stmt s env =
   analyze_own_exprs s env;
   match s with
-  | SLet (_, target, _, _, _, _) -> bind_target env target Value
+  | SLet (_, target, _, _, _, _, _) -> bind_target env target Value
   | SLetStmt (_, target, stmt, _, _, _) ->
       analyze_value_stmt stmt env;
       bind_target env target Value
@@ -356,16 +356,17 @@ and analyze_stmt s env =
          this walk to check. typesystem.ml is what pairs it with its
          definition. *)
       env
-  | SFunctionDef (info, name, params, body, _, _, _) ->
+  | SFunctionDef (info, name, params, body, _, _, _, implicits, _) ->
       (* The function's own name is bound before its body is walked, so
          a function may call itself; the parameters then bind in the
-         body's scope, shadowing anything but a mutable variable. *)
+         body's scope, shadowing anything but a mutable variable. An
+         implicit parameter is one of them. *)
       let env = bind env name Function info in
       let body_env =
         List.fold_left
           (fun body_env (Param (pinfo, pname, _, _, _)) ->
             bind body_env pname Parameter pinfo)
-          env params
+          env (params @ implicits)
       in
       analyze_scope body body_env;
       env
@@ -539,12 +540,19 @@ and sym_type counter t =
   | TBuiltin (i, n, s) ->
       let s, counter = assign s counter in
       (TBuiltin (i, n, s), counter)
-  | TFunction (i, params, result, s, tmsym, definition) ->
+  | TFunction (i, params, result, s, tmsym, definition, implicits) ->
       let params, counter = map_fold sym_type counter params in
+      let implicits, counter =
+        map_fold
+          (fun counter (IParam (n, t)) ->
+            let t, counter = sym_type counter t in
+            (IParam (n, t), counter))
+          counter implicits
+      in
       let result, counter = sym_type counter result in
       let definition, counter = map_option sym_stmt counter definition in
       let s, counter = assign s counter in
-      (TFunction (i, params, result, s, tmsym, definition), counter)
+      (TFunction (i, params, result, s, tmsym, definition, implicits), counter)
   | TVar (i, n, s, rigid) ->
       let s, counter = assign s counter in
       (TVar (i, n, s, rigid), counter)
@@ -635,12 +643,12 @@ and sym_case counter (MatchCase (i, pattern, body, s)) =
 
 and sym_stmt counter st =
   match st with
-  | SLet (i, target, expr, type_, s, public) ->
+  | SLet (i, target, expr, type_, s, public, implicit) ->
       let target, counter = sym_target counter target in
       let expr, counter = sym_expr counter expr in
       let type_, counter = map_option sym_type counter type_ in
       let s, counter = assign s counter in
-      (SLet (i, target, expr, type_, s, public), counter)
+      (SLet (i, target, expr, type_, s, public, implicit), counter)
   | SLetStmt (i, target, stmt, type_, s, public) ->
       let target, counter = sym_target counter target in
       let stmt, counter = sym_stmt counter stmt in
@@ -690,12 +698,16 @@ and sym_stmt counter st =
       in
       let s, counter = assign s counter in
       (SIf (i, cond, then_body, else_body, s), counter)
-  | SFunctionDef (i, name, params, body, return_type, s, public) ->
+  | SFunctionDef (i, name, params, body, return_type, s, public, implicits, implicit)
+    ->
       let params, counter = map_fold sym_param counter params in
+      let implicits, counter = map_fold sym_param counter implicits in
       let body, counter = map_fold sym_stmt counter body in
       let return_type, counter = map_option sym_type counter return_type in
       let s, counter = assign s counter in
-      (SFunctionDef (i, name, params, body, return_type, s, public), counter)
+      ( SFunctionDef
+          (i, name, params, body, return_type, s, public, implicits, implicit),
+        counter )
   | SFunctionSig (i, name, type_, s, public) ->
       let type_, counter = sym_type counter type_ in
       let s, counter = assign s counter in
@@ -756,7 +768,7 @@ and high_type t =
         0
     | TList (_, element, _) -> high_type element
     | TTuple (_, elements, _) -> high_list high_type elements
-    | TFunction (_, params, result, _, _, definition) ->
+    | TFunction (_, params, result, _, _, definition, _) ->
         max
           (max (high_list high_type params) (high_type result))
           (high_option high_stmt definition)
@@ -807,7 +819,7 @@ and high_case (MatchCase (_, pattern, body, s)) =
 and high_stmt st =
   let children =
     match st with
-    | SLet (_, target, expr, type_, _, _) ->
+    | SLet (_, target, expr, type_, _, _, _) ->
         max
           (max (high_target target) (high_expr expr))
           (high_option high_type type_)
@@ -836,10 +848,11 @@ and high_stmt st =
             high_list high_stmt then_body;
             high_option (high_list high_stmt) else_body;
           ]
-    | SFunctionDef (_, _, params, body, return_type, _, _) ->
+    | SFunctionDef (_, _, params, body, return_type, _, _, implicits, _) ->
         List.fold_left max 0
           [
             high_list high_param params;
+            high_list high_param implicits;
             high_list high_stmt body;
             high_option high_type return_type;
           ]
@@ -879,8 +892,9 @@ let annotated definition signature =
     match signature with TForall (_, _, body, _) -> body | t -> t
   in
   match (written, definition) with
-  | ( TFunction (_, written_params, result, _, _, _),
-      SFunctionDef (info, name, params, body, _, sym, public) )
+  | ( TFunction (_, written_params, result, _, _, _, _),
+      SFunctionDef (info, name, params, body, _, sym, public, implicits, implicit)
+    )
     when List.length written_params = List.length params ->
       SFunctionDef
         ( info,
@@ -892,7 +906,9 @@ let annotated definition signature =
           body,
           Some result,
           sym,
-          public )
+          public,
+          implicits,
+          implicit )
   | _ -> definition
 
 (** stmts with every `def name : type` line folded into the definition
@@ -919,7 +935,7 @@ let rec apply_signatures stmts =
   let fold stmt =
     match stmt with
     | SFunctionSig _ -> None
-    | SFunctionDef (_, name, _, _, _, _, public) -> (
+    | SFunctionDef (_, name, _, _, _, _, public, _, _) -> (
         match List.assoc_opt name signatures with
         | None -> Some (apply_in_stmt stmt)
         | Some (type_, signature_public) ->
@@ -928,10 +944,27 @@ let rec apply_signatures stmts =
                one on the signature comes with the types. *)
             let stmt =
               match stmt with
-              | SFunctionDef (info, name, params, body, return_type, sym, _)
+              | SFunctionDef
+                  ( info,
+                    name,
+                    params,
+                    body,
+                    return_type,
+                    sym,
+                    _,
+                    implicits,
+                    implicit )
                 when signature_public && not public ->
                   SFunctionDef
-                    (info, name, params, body, return_type, sym, true)
+                    ( info,
+                      name,
+                      params,
+                      body,
+                      return_type,
+                      sym,
+                      true,
+                      implicits,
+                      implicit )
               | stmt -> stmt
             in
             Some (apply_in_stmt stmt))
@@ -956,9 +989,18 @@ and apply_in_stmt stmt =
           apply_signatures then_body,
           Option.map apply_signatures else_body,
           sym )
-  | SFunctionDef (info, name, params, body, return_type, sym, public) ->
+  | SFunctionDef (info, name, params, body, return_type, sym, public, implicits, implicit)
+    ->
       SFunctionDef
-        (info, name, params, apply_signatures body, return_type, sym, public)
+        ( info,
+          name,
+          params,
+          apply_signatures body,
+          return_type,
+          sym,
+          public,
+          implicits,
+          implicit )
   | SMatch (info, subject, cases, sym) ->
       SMatch
         ( info,
@@ -987,7 +1029,7 @@ let all_functions stmts =
   Walk.fold_stmts
     (fun functions node ->
       match node with
-      | Walk.NStmt (SFunctionDef (_, name, _, _, _, _, _) as definition) ->
+      | Walk.NStmt (SFunctionDef (_, name, _, _, _, _, _, _, _) as definition) ->
           SMap.add name definition functions
       | _ -> functions)
     SMap.empty stmts

@@ -32,3 +32,7 @@ print(adder(6)(7))
 # An `if` expression is one expression, so it needs no parentheses.
 sign = n => if n < 0 then 0 - 1 else 1
 print(sign(0 - 5), sign(5))
+
+# A lambda applied where it stands: the callee needs parentheses in
+# every target that has an expression form for one.
+print((x => x + 1)(5))

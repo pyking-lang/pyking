@@ -88,7 +88,7 @@ be changed, but is exposed as a customizable option the same way
 
 (defconst pyking-mode-keywords
   '("for" "in" "if" "while" "loop" "break" "continue" "then" "else" "var"
-    "def" "return" "match" "case" "public" "import" "from" "as")
+    "def" "return" "match" "case" "public" "implicit" "import" "from" "as")
   "Reserved keywords in Pyking.
 Mirrors the `keywords' list in src/lexer.ml, minus the names broken out
 into `pyking-mode-types' and `pyking-mode-constants' below (each gets its
@@ -98,7 +98,9 @@ names from control-flow/declaration keywords). Unlike Python, `match' and
 keywords; `then' -- Pyking's `if cond then a else b' expression keyword --
 has no Python counterpart at all. The last four are the module system's
 \(see \"Modules\" in PYKING.md): `public' marks what a module exports,
-and `import'/`from'/`as' are how another module reaches it.")
+and `import'/`from'/`as' are how another module reaches it. `implicit'
+marks a definition an implicit argument may be resolved to, and an
+implicit parameter in a header or a function type (see \"Implicits\").")
 
 (defconst pyking-mode-keywords-regexp
   (regexp-opt pyking-mode-keywords 'symbols)
@@ -185,6 +187,11 @@ builtin.")
    ;; "Concatenation"). Called out for the same reason `:=' is. Escaped:
    ;; a bare "++" would be a regexp repeat and match a single `+' too.
    '("\\+\\+" . font-lock-keyword-face)
+   ;; def_name = ident | qualified_name -- the `q::' of an overloaded
+   ;; definition's name (see PYKING.md, "Static overloading"). The whole
+   ;; thing is one identifier to the lexer; only the qualifier and the
+   ;; `::' are highlighted, so the base name still reads as a name.
+   '("\\_<\\(\\sw+::\\)\\sw" 1 font-lock-type-face)
    ;; lambda = lambda_params , "=>" , expr -- Pyking's lambda arrow (see
    ;; PYKING.md, "Lambdas"). Called out for the same reason `:=' and
    ;; `++' are: it is a marker with no Python spelling. Escaped so the

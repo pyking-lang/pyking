@@ -1,0 +1,5 @@
+'tests/fail_typecheck_overload_open.pyk' 14:14-14:22 Type error:
+  nothing here decides which 'twice' is meant: 'int::twice' and
+  'string::twice' all take these arguments, and the type of at least
+  one of them is still open. Annotate it, or take the definition as an
+  implicit parameter

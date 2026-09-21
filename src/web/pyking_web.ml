@@ -299,9 +299,14 @@ let front_end source name natively =
   (* Pyking is statically typed: this is not a mode. The checker carries
      a name environment of its own, so an unbound name is reported here
      too -- as the name error it is (pyk.ml draws the same line). *)
-  let tmap = Typesystem.type_check program [] in
+  let tmap, qmap = Typesystem.type_check program [] in
   (* The one rule types do not state: only a `var` may be written to. *)
   Analyses.analyze_mutability program;
+  (* Overloading and implicits are removed from what the checker settled,
+     exactly as pyk.ml does it, so the page shows the program every
+     backend compiles (docs/implicits.md). *)
+  let program, tmap = Elaborate.program qmap tmap program in
+  let program = Analyses.symbolize program in
   (* Tail calls become loops before any backend reads the program, so
      the page shows what `pyk compile` would produce. OCaml is the
      exception it is in pyk.ml: that host eliminates them itself, so the
@@ -362,7 +367,7 @@ let run_program main =
                 checked @ [ unit ] )
             else
               let declared = Module.external_signatures unit.declarations in
-              let tmap =
+              let tmap, qmap =
                 Typesystem.type_check ~declared unit.stmts
                   (Module.sigmaps_for unit sigmaps)
               in
@@ -370,7 +375,10 @@ let run_program main =
               let sigmap =
                 Module.module_sigmap unit.stmts unit.declarations tmap
               in
-              let optimized, _ = Opt_tailcall.optimize unit.stmts tmap in
+              let elaborated, tmap = Elaborate.program qmap tmap unit.stmts in
+              let elaborated = Analyses.symbolize ~start:highest elaborated in
+              let highest = max highest (Analyses.highest_sym elaborated) in
+              let optimized, _ = Opt_tailcall.optimize elaborated tmap in
               (* Without this the nodes the pass built keep symbol 0,
                  and the interpreter's call-free table -- which is keyed
                  by symbol -- would answer for the wrong node. *)

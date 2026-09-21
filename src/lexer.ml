@@ -81,6 +81,7 @@ type token =
   | TokElse of info (* 'else' *)
   | TokVar of info (* 'var' *)
   | TokPublic of info (* 'public' (module export marker) *)
+  | TokImplicit of info (* 'implicit' (an implicit definition or parameter) *)
   | TokImport of info (* 'import' *)
   | TokFrom of info (* 'from' (`from module import name`) *)
   | TokAs of info (* 'as' (renaming an import) *)
@@ -137,6 +138,7 @@ let token_info tok =
   | TokElse i -> i
   | TokVar i -> i
   | TokPublic i -> i
+  | TokImplicit i -> i
   | TokImport i -> i
   | TokFrom i -> i
   | TokAs i -> i
@@ -193,6 +195,7 @@ let pprint_token tok =
   | TokElse _ -> "TokElse"
   | TokVar _ -> "TokVar"
   | TokPublic _ -> "TokPublic"
+  | TokImplicit _ -> "TokImplicit"
   | TokImport _ -> "TokImport"
   | TokFrom _ -> "TokFrom"
   | TokAs _ -> "TokAs"
@@ -228,7 +231,8 @@ let max_int_literal = 2147483647
 let keywords =
   [
     "for"; "in"; "if"; "while"; "loop"; "break"; "continue"; "then";
-    "else"; "var"; "def"; "return"; "match"; "case"; "public"; "import";
+    "else"; "var"; "def"; "return"; "match"; "case"; "public"; "implicit";
+    "import";
     "from"; "as"; "Int"; "Float"; "String"; "Bool"; "true"; "false";
   ]
 
@@ -251,6 +255,7 @@ let keyword_token name i =
   | "match" -> Some (TokMatch i)
   | "case" -> Some (TokCase i)
   | "public" -> Some (TokPublic i)
+  | "implicit" -> Some (TokImplicit i)
   | "import" -> Some (TokImport i)
   | "from" -> Some (TokFrom i)
   | "as" -> Some (TokAs i)
@@ -488,14 +493,39 @@ let lexing file chars =
     | '\n' :: xs -> lex xs (r + 1) 0 stack depth (depth = 0) tokens
     (* Keywords and identifiers *)
     | x :: _ when is_letter x ->
-        let y, ys = string_until is_digit_letter rest in
+        let word, after = string_until is_digit_letter rest in
+        (* A qualified name -- `int::str` -- is one identifier that holds
+           a `::`, so nothing after the lexer has to take one apart
+           (docs/overloading.md). No space is allowed on either side,
+           which is what keeps it clear of the block `:` and the
+           annotation `:`. *)
+        let y, ys, halves =
+          match after with
+          | ':' :: ':' :: (c :: _ as base_chars) when is_letter c ->
+              let b, zs = string_until is_digit_letter base_chars in
+              (word ^ "::" ^ b, zs, Some (word, b))
+          | _ -> (word, after, None)
+        in
         let length = String.length y in
         let tok =
-          if List.mem y keywords then
-            match keyword_token y (fi r c length) with
-            | Some t -> t
-            | None -> TokIdent (fi r c length, y)
-          else TokIdent (fi r c length, y)
+          match halves with
+          | Some (q, b) ->
+              let reserved = if List.mem q keywords then q else b in
+              if List.mem q keywords || List.mem b keywords then
+                raise
+                  (Lex_error
+                     ( fi r c length,
+                       Printf.sprintf
+                         "'%s' is not a name: '%s' is a keyword, and a \
+                          qualified name is made of two ordinary names"
+                         y reserved ))
+              else TokIdent (fi r c length, y)
+          | None ->
+              if List.mem y keywords then
+                match keyword_token y (fi r c length) with
+                | Some t -> t
+                | None -> TokIdent (fi r c length, y)
+              else TokIdent (fi r c length, y)
         in
         lex ys r (c + length) stack depth line_start (tok :: tokens)
     | [] ->

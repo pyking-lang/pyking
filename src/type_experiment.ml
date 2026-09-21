@@ -94,7 +94,7 @@ and expr_type env tmap e =
     env -> tmap -> stmt -> (env, tmap) *)
 and check_stmt env tmap s =
   match s with
-  | SLet (_, TargetName (_, name, _), e, annotation, sym, _) ->
+  | SLet (_, TargetName (_, name, _), e, annotation, sym, _, _) ->
       let type_, tmap = check_expr env tmap e in
       check_annotation annotation type_;
       (Env.add name type_ env, IntMap.add sym type_ tmap)

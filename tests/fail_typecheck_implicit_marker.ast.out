@@ -1,0 +1,4 @@
+'tests/fail_typecheck_implicit_marker.pyk' 9:9-9:22 Parsing error:
+  'implicit' marks a 'def' or an '=' binding of one name, and nothing
+  else: an implicit argument is resolved by name and type, so there
+  has to be a name to find

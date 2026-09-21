@@ -278,7 +278,7 @@ let rec has_forall type_ =
   | TForall _ -> true
   | TList (_, element, _) -> has_forall element
   | TTuple (_, elements, _) -> List.exists has_forall elements
-  | TFunction (_, params, result, _, _, _) ->
+  | TFunction (_, params, result, _, _, _, _) ->
       List.exists has_forall params || has_forall result
   | _ -> false
 
@@ -503,7 +503,7 @@ let later_functions ctx stmts =
   List.fold_left
     (fun found s ->
       match s with
-      | SFunctionDef (_, name, _, _, _, _, _) ->
+      | SFunctionDef (_, name, _, _, _, _, _, _, _) ->
           StringSet.add (mangle ctx name) found
       | _ -> found)
     StringSet.empty stmts
@@ -518,10 +518,10 @@ let bound_names stmt =
     | TargetTuple (_, parts, _) -> List.concat_map target_names parts
   in
   match stmt with
-  | SLet (_, target, _, _, _, _) | SLetStmt (_, target, _, _, _, _) ->
+  | SLet (_, target, _, _, _, _, _) | SLetStmt (_, target, _, _, _, _) ->
       StringSet.of_list (target_names target)
   | SVar (_, name, _, _) -> StringSet.singleton name
-  | SFunctionDef (_, name, _, _, _, _, _) -> StringSet.singleton name
+  | SFunctionDef (_, name, _, _, _, _, _, _, _) -> StringSet.singleton name
   | _ -> StringSet.empty
 
 (** stmts with every group of `def`s that name each other made
@@ -536,7 +536,7 @@ let regroup stmts =
   let count = Array.length all in
   let def_name index =
     match all.(index) with
-    | SFunctionDef (_, name, _, _, _, _, _) -> Some name
+    | SFunctionDef (_, name, _, _, _, _, _, _, _) -> Some name
     | _ -> None
   in
   let defs = List.filter (fun i -> def_name i <> None) (List.init count Fun.id) in
@@ -643,7 +643,7 @@ let check_no_split_group run free_sets later =
     List.fold_left
       (fun set f ->
         match f with
-        | SFunctionDef (_, name, _, _, _, _, _) -> StringSet.add name set
+        | SFunctionDef (_, name, _, _, _, _, _, _, _) -> StringSet.add name set
         | _ -> set)
       StringSet.empty run
   in
@@ -659,7 +659,7 @@ let check_no_split_group run free_sets later =
       | first :: _ ->
           let name =
             match func with
-            | SFunctionDef (_, name, _, _, _, _, _) -> name
+            | SFunctionDef (_, name, _, _, _, _, _, _, _) -> name
             | _ -> ""
           in
           unsupported (stmt_info func)
@@ -731,14 +731,15 @@ let rec substituted bindings type_ =
         TList (info, substituted bindings element, sym)
     | TTuple (info, elements, sym) ->
         TTuple (info, List.map (substituted bindings) elements, sym)
-    | TFunction (info, params, result, sym, tmsym, node) ->
+    | TFunction (info, params, result, sym, tmsym, node, implicits) ->
         TFunction
           ( info,
             List.map (substituted bindings) params,
             substituted bindings result,
             sym,
             tmsym,
-            node )
+            node,
+            implicits )
     | TForall (info, vars, inner, sym) ->
         TForall (info, vars, substituted bindings inner, sym)
     | type_ -> type_
@@ -763,7 +764,7 @@ let rec variables_in type_ =
   | TVar (_, name, _, true) -> [ name ]
   | TList (_, element, _) -> variables_in element
   | TTuple (_, elements, _) -> List.concat_map variables_in elements
-  | TFunction (_, params, result, _, _, _) ->
+  | TFunction (_, params, result, _, _, _, _) ->
       List.concat_map variables_in params @ variables_in result
   | TForall (_, _, inner, _) -> variables_in inner
   | _ -> []
@@ -787,8 +788,8 @@ let rec matched declared actual found =
         (fun found mine theirs ->
           match found with None -> None | Some found -> matched mine theirs found)
         (Some found) mine theirs
-  | TFunction (_, mine, my_result, _, _, _),
-    TFunction (_, theirs, their_result, _, _, _)
+  | TFunction (_, mine, my_result, _, _, _, _),
+    TFunction (_, theirs, their_result, _, _, _, _)
     when List.length mine = List.length theirs ->
       let found =
         List.fold_left2
@@ -813,7 +814,7 @@ let callable_definitions stmts =
     Walk.fold_stmts
       (fun found node ->
         match node with
-        | Walk.NStmt (SFunctionDef (_, name, _, _, _, _, _) as node) ->
+        | Walk.NStmt (SFunctionDef (_, name, _, _, _, _, _, _, _) as node) ->
             (name, node) :: found
         | _ -> found)
       [] stmts
@@ -871,8 +872,8 @@ let specialisations stmts tmap =
           else
             let params =
               match declared with
-              | TForall (_, _, TFunction (_, params, _, _, _, _), _)
-              | TFunction (_, params, _, _, _, _) ->
+              | TForall (_, _, TFunction (_, params, _, _, _, _, _), _)
+              | TFunction (_, params, _, _, _, _, _) ->
                   params
               | _ -> []
             in
@@ -2112,7 +2113,7 @@ and discard ctx acc statement =
     ctx -> acc -> stmt -> (obinding, acc) *)
 and binding ctx acc statement =
   match statement with
-  | SLet (_, target, e, _, _, _) ->
+  | SLet (_, target, e, _, _, _, _) ->
       let value, acc = expr ctx acc e in
       ({ bound = target_pattern ctx target; params = []; value }, acc)
   | SLetStmt (_, target, stmt, _, _, _) ->
@@ -2131,8 +2132,8 @@ and binding ctx acc statement =
 and check_rank_one ctx func =
   let declared =
     match IntMap.find_opt (stmt_sym func) ctx.tmap with
-    | Some (TForall (_, _, TFunction (_, params, _, _, _, _), _)) -> Some params
-    | Some (TFunction (_, params, _, _, _, _)) -> Some params
+    | Some (TForall (_, _, TFunction (_, params, _, _, _, _, _), _)) -> Some params
+    | Some (TFunction (_, params, _, _, _, _, _)) -> Some params
     | _ -> None
   in
   match declared with
@@ -2140,7 +2141,7 @@ and check_rank_one ctx func =
   | Some params ->
       let func_params =
         match func with
-        | SFunctionDef (_, _, params, _, _, _, _) -> params
+        | SFunctionDef (_, _, params, _, _, _, _, _, _) -> params
         | _ -> []
       in
       let rec go ps ts =
@@ -2169,7 +2170,7 @@ and function_binding ctx acc func =
     }
   in
   match func with
-  | SFunctionDef (_, name, params, func_body, _, _, _) ->
+  | SFunctionDef (_, name, params, func_body, _, _, _, _, _) ->
       (* OCaml has no nullary function, so a `def f():` takes unit -- the
          empty tuple pattern, which prints as `()`. Without it the
          binding would be a value, evaluated where it is written rather
@@ -2510,7 +2511,7 @@ let rec type_text type_ name top =
         String.concat " * " (List.map (fun e -> type_text e name false) elements)
       in
       if top then inner else Printf.sprintf "(%s)" inner
-  | TFunction (_, params, result, _, _, _) ->
+  | TFunction (_, params, result, _, _, _, _) ->
       let params = if params = [] then [ TTuple (builtin_info, [], 0) ] else params in
       let arrow =
         String.concat " -> "
@@ -2878,8 +2879,13 @@ let translate_program stmts tmap (context : Module.context) =
   let exported =
     if context.main then []
     else
+      (* The sigmap names what the *source* exports; what this file
+         exports is the plain name the overloading pass gave it
+         (docs/overloading.md). *)
       List.filter_map
-        (fun (name, _) -> if List.mem name own_external then None else Some name)
+        (fun (name, _, _) ->
+          if List.mem name own_external then None
+          else Some (Names.renamed name))
         own_sigmap
   in
   let names = plan_names stmts exported in
@@ -2939,6 +2945,16 @@ let translate_program stmts tmap (context : Module.context) =
     main = context.main;
     interface =
       List.map
-        (fun name -> (public_name name, interface_type (List.assoc name own_sigmap) name))
+        (fun name ->
+          ( public_name name,
+            interface_type
+              (List.find_map
+                 (fun (n, t, _) ->
+                   if Names.renamed n = name then
+                     Some (Typesystem.without_implicits t)
+                   else None)
+                 own_sigmap
+              |> Option.get)
+              name ))
         exported;
   }

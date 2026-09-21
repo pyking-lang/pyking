@@ -88,7 +88,7 @@ type t = {
   declaration_path : string option;
   imports : string list;
   publics : (string * Lexer.info) list;
-  sigmap : (string * typ) list option;
+  sigmap : (string * typ * bool) list option;
   is_external : bool;
 }
 
@@ -134,7 +134,7 @@ type context = {
   main : bool;
   separate : bool;
   starts : string list;
-  sigmaps : (string * (string * typ) list) list;
+  sigmaps : (string * (string * typ * bool) list) list;
   external_fields : (string * string list) list;
   externals : string list;
 }
@@ -405,12 +405,12 @@ let public_names stmts =
   List.filter_map
     (fun statement ->
       match statement with
-      | SFunctionDef (_, name, _, _, _, _, true)
+      | SFunctionDef (_, name, _, _, _, _, true, _, _)
       | SFunctionSig (_, name, _, _, true) ->
           Some (name, statement)
       (* The parser refuses `public` on a binding that takes a tuple
          apart, so a public target is always one name. *)
-      | SLet (_, TargetName (_, name, _), _, _, _, true)
+      | SLet (_, TargetName (_, name, _), _, _, _, true, _)
       | SLetStmt (_, TargetName (_, name, _), _, _, _, true) ->
           Some (name, statement)
       | _ -> None)
@@ -430,9 +430,9 @@ let bound_at_top_level stmts =
   List.concat_map
     (fun statement ->
       match statement with
-      | SFunctionDef (_, name, _, _, _, _, _) | SVar (_, name, _, _) ->
+      | SFunctionDef (_, name, _, _, _, _, _, _, _) | SVar (_, name, _, _) ->
           [ (name, statement) ]
-      | SLet (_, target, _, _, _, _) | SLetStmt (_, target, _, _, _, _) ->
+      | SLet (_, target, _, _, _, _, _) | SLetStmt (_, target, _, _, _, _) ->
           List.map (fun name -> (name, statement)) (target_names target)
       | _ -> [])
     stmts
@@ -527,7 +527,7 @@ let check_boundary_type type_ name info =
     match type_ with
     | TVar _ -> refuse "a type variable"
     | TForall _ -> refuse "a polymorphic type"
-    | TFunction (_, params, result, _, _, _) ->
+    | TFunction (_, params, result, _, _, _, _) ->
         if nested then refuse "a function type";
         List.iter (walk true) params;
         walk true result
@@ -554,6 +554,19 @@ let check_declaration stmts path =
     (fun statement ->
       match statement with
       | SFunctionSig (info, name, type_, _, _) ->
+          (* A declaration is not rewritten by any pass, so a qualified
+             name here would reach the implementation under a spelling
+             no target has (docs/overloading.md). *)
+          if Names.is_qualified name then
+            raise
+              (Module_error
+                 ( info,
+                   Printf.sprintf
+                     "'%s' cannot be declared here: a '::' name is \
+                      resolved and renamed by the compiler, and what a \
+                      declaration names is provided by the target's own \
+                      source under the name written"
+                     name ));
           check_boundary_type type_ name info
       | statement ->
           raise
@@ -899,9 +912,20 @@ let context units unit =
          |> List.filter (fun (other : t) -> not other.is_external)
          |> List.map (fun (other : t) -> other.name)
        else []);
+    (* A backend sees what `elaborate.ml` left: every name plain, and
+       every implicit parameter an ordinary one. The sigmap the *checker*
+       is given keeps the source's own spelling, since that is what the
+       file importing the module writes (docs/overloading.md). *)
     sigmaps =
       List.map
-        (fun (other, _) -> (other.name, Option.value other.sigmap ~default:[]))
+        (fun (other, _) ->
+          ( other.name,
+            List.map
+              (fun (name, type_, implicit) ->
+                ( Names.renamed name,
+                  Typesystem.without_implicits type_,
+                  implicit ))
+              (Option.value other.sigmap ~default:[]) ))
         units;
     (* Which of each module's names the target's own source provides,
        rather than the file this compiler generates for it. A backend
@@ -925,24 +949,34 @@ let context units unit =
     module that another one can see. Every exported name has one:
     `Typesystem.check_exports` refuses a module that exports a `def` it
     worked out no type for.
-    [stmt] -> typ IntMap.t -> [(string, typ)] *)
+    Each carries whether it was written `implicit`, since a public
+    implicit is imported unqualified and automatically (PYKING.md,
+    "Modules").
+    [stmt] -> typ IntMap.t -> [(string, typ, bool)] *)
 let make_sigmap stmts tmap =
   let exported = check_publics stmts in
   List.filter_map
     (fun (name, statement) ->
       if List.mem_assoc name exported then
-        Some (name, IntMap.find (stmt_sym statement) tmap)
+        Some
+          ( name,
+            IntMap.find (stmt_sym statement) tmap,
+            match statement with
+            | SFunctionDef (_, _, _, _, _, _, _, _, implicit) -> implicit
+            | SLet (_, _, _, _, _, _, implicit) -> implicit
+            | _ -> false )
       else None)
     (bound_at_top_level stmts)
 
 (** A declaration half's *public* names and their types: what another
     module sees of it. A private declaration is reachable from this
     module's own Pyking half and from nowhere else.
-    [stmt] -> [(string, typ)] *)
+    [stmt] -> [(string, typ, bool)] *)
 let public_declarations declarations =
   List.filter_map
     (function
-      | SFunctionSig (_, name, type_, _, true) -> Some (name, type_) | _ -> None)
+      | SFunctionSig (_, name, type_, _, true) -> Some (name, type_, false)
+      | _ -> None)
     declarations
 
 let external_sigmap declarations = public_declarations declarations
@@ -950,12 +984,13 @@ let external_sigmap declarations = public_declarations declarations
 (** What one module exports, both halves together: the public names of
     its Pyking half at the types the checker worked out, and the public
     names of its declaration half at the types it wrote down.
-    [stmt] -> [stmt] -> typ IntMap.t -> [(string, typ)] *)
+    [stmt] -> [stmt] -> typ IntMap.t -> [(string, typ, bool)] *)
 let module_sigmap stmts declarations tmap =
   make_sigmap stmts tmap @ public_declarations declarations
 
 (** The signatures needed to check one module: its own imports', out of
     every module checked so far.
-    t -> [(string, [(string, typ)])] -> [(string, [(string, typ)])] *)
+    t -> [(string, [(string, typ, bool)])]
+    -> [(string, [(string, typ, bool)])] *)
 let sigmaps_for module_ sigmaps =
   List.map (fun name -> (name, List.assoc name sigmaps)) module_.imports

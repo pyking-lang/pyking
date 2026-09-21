@@ -43,11 +43,16 @@ threaded through rather than state mutated in place.
                     ┌────────▼────────┐
                     │src/typesystem.ml│   names and types, always: leaves
                     └────────┬────────┘   the AST alone and fills a
-                             │            symbol→type tmap
+                             │            symbol→type tmap, and a
+                             │            symbol→resolution qmap
                     ┌────────▼────────┐
                     │src/analyses.ml │   `:=` names a `var`, and nothing
                     │analyze_mutability│  shadows one: rejects, never
                     └────────┬────────┘   rewrites
+                    ┌────────▼────────┐
+                    │src/elaborate.ml │   `::` names → plain ones, and
+                    └────────┬────────┘   implicit parameters → ordinary
+                             │            arguments, by qmap
                     ┌────────▼────────┐
                     │src/opt_tailcall │   tail calls → loops, for a program
                     │      .ml        │   the checker accepted; then
@@ -103,7 +108,9 @@ repl`) rather than a `--target`.
 | `src/module.ml` | The module system: which modules a program is made of, in what order, what each exports, and what each import means. Runs first — it is what reads the files at all — and again between checks, since a module is checked against the signature `make_sigmap` took from the last one. Also owns *external* modules: a `<name>.external.pyk` declares what a module implemented in the target's own language offers, and this is where that is resolved, checked and named. |
 | `src/desugar_args.ml` | Default parameters and named arguments, removed before anything reasons about the program. A default becomes a generated zero-argument `def` in the block the definition is written in, and an omitted argument becomes a call to it; a named argument is put back in its parameter's position. AST in, AST out, inside `module.load` and before `symbolize`, so no later stage knows the sugar exists and every target supports it. See [desugar_args.md](desugar_args.md). |
 | `src/analyses.ml` | Static passes over the AST. `symbolize` gives every node a unique integer `sym`, rebuilding the tree (nodes are frozen), and runs before anything reasons about the program. `analyze_mutability` runs *after* the checker and applies the one rule a type cannot state: `:=` may only name a `var`, and nothing may shadow one. It only rejects, never rewrites. `Effects` is a third pass the driver never runs: the C and OCaml backends ask it which expressions can print, since their host languages leave evaluation order unspecified. |
-| `src/typesystem.ml` | The type checker, and the only pass that checks *names*: its environment is a scope, so an unbound name is refused here, as an `Analyses.Analysis_error`. It runs for every mode and every target, since Pyking is statically typed — there is no flag and no way round it. It covers only part of the language; it leaves the AST alone and reports what it inferred in `tmap`, a symbol → type table, which is what `-t pyking` then prints from. It is given the signature of every module this one imports, and all it sees of another module is that. |
+| `src/typesystem.ml` | The type checker, and the only pass that checks *names*: its environment is a scope, so an unbound name is refused here, as an `Analyses.Analysis_error`. It runs for every mode and every target, since Pyking is statically typed — there is no flag and no way round it. It covers only part of the language; it leaves the AST alone and reports what it inferred in `tmap`, a symbol → type table, which is what `-t pyking` then prints from. It answers a second table beside it, `qmap`: what each call it resolved denotes, which is what `elaborate.ml` rewrites the program by. It is given the signature of every module this one imports, and all it sees of another module is that. |
+| `src/names.ml` | The spelling rules for a qualified name (`int::leq`): the one place one is taken apart, and the one place the plain name it compiles to is decided. See [overloading.md](overloading.md). |
+| `src/elaborate.ml` | Overloading and implicits, removed after the checker and before anything else reads the program: a qualified name becomes a plain one, a resolved call names the definition it reaches, and an implicit parameter becomes an ordinary argument. It reads `qmap`, the checker's second table, and extends `tmap` for the nodes it builds -- the checker does not run again. AST in, AST out, so no backend and not the interpreter knows either feature exists. See [implicits.md](implicits.md). |
 | `src/execution.ml` | What `--run` runs: the commands each target's host uses to build and run what was compiled. One table, so the driver stays a sequencer. |
 | `src/opt_tailcall.ml` | Tail calls into loops: a function that calls itself in tail position becomes a `loop` carrying its parameters, and a group that tail-calls each other becomes one loop they share. AST in, AST out, after the checker and only for a program it accepted — the types decide which groups can share a loop, and what a slot a narrower member does not fill is entered with. `--no-tail-call-opt` turns it off. |
 | `src/target_python.ml` | Python backend: its own `Py*` AST, translation, printer. |
@@ -647,6 +654,11 @@ own page:
 - **[optimization.md](optimization.md)** — the tail-call pass every
   target benefits from, and why it is one AST rewrite rather than nine
   backend features.
+- **[overloading.md](overloading.md)** — `::` names, and how a call is
+  resolved to one of them.
+- **[implicits.md](implicits.md)** — implicit parameters, the search
+  that fills them, and the pass that writes the answer into the
+  program.
 - **[target_python.md](target_python.md)** — `python`.
 - **[target_js.md](target_js.md)** — `node24`, `web24` and `iweb24`.
 - **[target_c.md](target_c.md)** — `c89`, `c23`.

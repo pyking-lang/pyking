@@ -28,7 +28,7 @@ module SSet = Set.Make (String)
 
 (** One parameter of a definition: its name, and the name of the
     generated def holding its default, where it has one. *)
-type parameter = { name : string; default : string option }
+type parameter = { name : string; default : string option; implicit : bool }
 
 (** What a call needs to know about the definition it reaches. *)
 type meta = { parameters : parameter list; exported : bool }
@@ -90,24 +90,24 @@ let refuse info message = raise (Analyses.Analysis_error (info, message))
     stmt -> [String] *)
 let bound_here statement =
   match statement with
-  | SFunctionDef (_, name, _, _, _, _, _) -> [ name ]
+  | SFunctionDef (_, name, _, _, _, _, _, _, _) -> [ name ]
   | statement -> List.map fst (Analyses.bound_names statement)
 
 (** What a definition's parameters are, and where its defaults will
     live. String -> [param] -> bool -> meta *)
-let meta_of func params exported =
+let meta_of func params implicits exported =
+  let one implicit (Param (_, name, _, default, _)) =
+    {
+      name;
+      default =
+        (match default with
+        | None -> None
+        | Some _ -> Some (default_name func name));
+      implicit;
+    }
+  in
   {
-    parameters =
-      List.map
-        (fun (Param (_, name, _, default, _)) ->
-          {
-            name;
-            default =
-              (match default with
-              | None -> None
-              | Some _ -> Some (default_name func name));
-          })
-        params;
+    parameters = List.map (one false) params @ List.map (one true) implicits;
     exported;
   }
 
@@ -116,8 +116,8 @@ let meta_of func params exported =
 let block_definitions stmts =
   List.filter_map
     (function
-      | SFunctionDef (_, name, params, _, _, _, public) ->
-          Some (name, meta_of name params public)
+      | SFunctionDef (_, name, params, _, _, _, public, implicits, _) ->
+          Some (name, meta_of name params implicits public)
       | _ -> None)
     stmts
 
@@ -148,6 +148,67 @@ let callee_meta signatures scope callee =
               | _ -> None))
       | _ -> None)
   | _ -> None
+
+(** The `::` definitions an unqualified callee could mean, each with the
+    expression its generated defaults are named by here. Which of them a
+    call means is the type checker's question, decided by the argument
+    *types*; what this pass has to know is which of them the argument
+    *count* allows at all, since a default it has already erased is what
+    makes a definition take fewer (docs/overloading.md).
+    signatures -> [denotation] -> expr
+    -> [(String, meta, String -> expr)] *)
+let overload_set signatures scope callee =
+  match callee with
+  | EVar (info, name, _)
+    when (not (Names.is_qualified name)) && not (SMap.mem name scope) ->
+      SMap.fold
+        (fun bound what found ->
+          match what with
+          | Definition meta
+            when Names.is_qualified bound && Names.base bound = name ->
+              found @ [ (bound, meta, fun made -> EVar (info, made, 0)) ]
+          | _ -> found)
+        scope []
+  | EQualified (info, alias, field, _) when not (Names.is_qualified field) -> (
+      match SMap.find_opt alias scope with
+      | Some (Imported module_) -> (
+          match SMap.find_opt module_ signatures with
+          | Some known when not known.foreign ->
+              SMap.fold
+                (fun bound meta found ->
+                  if
+                    meta.exported
+                    && Names.is_qualified bound
+                    && Names.base bound = field
+                  then
+                    found
+                    @ [
+                        ( bound,
+                          meta,
+                          fun made -> EQualified (info, alias, made, 0) );
+                      ]
+                  else found)
+                known.functions []
+          | _ -> [])
+      | _ -> [])
+  | _ -> []
+
+(** How many arguments one definition takes: the ones it must be given,
+    the ones it may be given, and the ones it may be given with every
+    implicit argument written out as well. meta -> (int, int, int) *)
+let arities meta =
+  let explicit = List.filter (fun p -> not p.implicit) meta.parameters in
+  let required = List.length (List.filter (fun p -> p.default = None) explicit) in
+  ( required,
+    List.length explicit,
+    List.length explicit + (List.length meta.parameters - List.length explicit) )
+
+(** Whether this definition takes a call of `given` arguments, and
+    whether taking it means using a default. meta -> int -> (bool, bool) *)
+let takes meta given =
+  let required, explicit, with_implicits = arities meta in
+  ( (given >= required && given <= explicit) || given = with_implicits,
+    given < explicit )
 
 (** Why the sugar cannot be used on this callee, in the words that name
     what was written. signatures -> scope -> expr -> String *)
@@ -207,7 +268,6 @@ let position parameters name =
     [expr]? *)
 let ordered info shown meta reach args =
   let parameters = meta.parameters in
-  let arity = List.length parameters in
   let positional = List.filter (fun (name, _) -> name = None) args in
   let named =
     List.filter_map
@@ -215,6 +275,25 @@ let ordered info shown meta reach args =
       args
   in
   let given = List.length positional in
+  let explicit =
+    List.length (List.filter (fun p -> not p.implicit) parameters)
+  in
+  (* An implicit parameter is left out at most calls and resolved by the
+     type checker instead, so a call that supplies none of them is an
+     ordinary call of the explicit arity (docs/implicits.md). *)
+  let implicit_names =
+    List.filter_map (fun p -> if p.implicit then Some p.name else None)
+      parameters
+  in
+  let supplies_implicit =
+    given > explicit
+    || List.exists (fun (n, _) -> List.mem n implicit_names) named
+  in
+  let parameters =
+    if supplies_implicit then parameters
+    else List.filter (fun p -> not p.implicit) parameters
+  in
+  let arity = List.length parameters in
   if named = [] && given = arity then None
   else if named = [] && given > arity then None
   else
@@ -366,22 +445,86 @@ let rec expression signatures scope e =
       let args = List.map (fun (name, a) -> (name, go a)) args in
       let named = List.exists (fun (name, _) -> name <> None) args in
       match callee_meta signatures scope callee with
-      | None ->
-          (* A name nothing has bound is the type checker's to report,
-             in its own words, so a call on one is left as written. *)
-          let unbound =
-            match callee with
-            | EVar (_, name, _) ->
-                (not (SMap.mem name scope)) && not (List.mem name Builtin.names)
-            | _ -> false
-          in
-          if named && not unbound then
-            refuse i (sugar_refusal signatures scope callee)
-          else ECall (i, callee, args, s)
+      | None -> (
+          match overload_set signatures scope callee with
+          | _ :: _ as candidates ->
+              overloaded i (shown callee) candidates args (fun args ->
+                  ECall (i, callee, args, s))
+          | [] ->
+              (* A name nothing has bound is the type checker's to
+                 report, in its own words, so a call on one is left as
+                 written. *)
+              let unbound =
+                match callee with
+                | EVar (_, name, _) ->
+                    (not (SMap.mem name scope))
+                    && not (List.mem name Builtin.names)
+                | _ -> false
+              in
+              if named && not unbound then
+                refuse i (sugar_refusal signatures scope callee)
+              else ECall (i, callee, args, s))
       | Some (meta, reach) -> (
           match ordered i (shown callee) meta reach args with
           | None -> ECall (i, callee, plain_args (arg_exprs args), s)
           | Some filled -> ECall (i, callee, plain_args filled, s)))
+
+(** The first parameter a call of `given` arguments leaves to its
+    default. meta -> int -> String *)
+and omitted meta given =
+  let explicit = List.filter (fun p -> not p.implicit) meta.parameters in
+  match List.filteri (fun at _ -> at >= given) explicit with
+  | first :: _ -> first.name
+  | [] -> ""
+
+(** One call on an overloaded name. The type checker resolves which
+    definition it means, from the argument types -- but it sees the
+    arguments this pass leaves, and a default erased here is what lets a
+    definition take fewer of them. So the *count* is settled here: one
+    definition taking the call by using a default has its defaults
+    filled in, and two taking it where one of them needs a default is
+    refused, since nothing would say which (docs/overloading.md).
+    info -> String -> [(String, meta, String -> expr)]
+    -> [(String?, expr)] -> ([(String?, expr)] -> expr) -> expr *)
+and overloaded info shown candidates args build =
+  let given = List.length (List.filter (fun (name, _) -> name = None) args) in
+  if List.exists (fun (name, _) -> name <> None) args then
+    refuse info
+      (Printf.sprintf
+         "an argument of this call to '%s' cannot be named: several \
+          definitions of it are in scope, and which one is meant is \
+          settled by the argument types -- write the qualified name to \
+          say which"
+         shown);
+  let taking =
+    List.filter_map
+      (fun (name, meta, reach) ->
+        let takes, by_default = takes meta given in
+        if takes then Some (name, meta, reach, by_default) else None)
+      candidates
+  in
+  let defaulting = List.filter (fun (_, _, _, by_default) -> by_default) taking in
+  if List.length taking > 1 && defaulting <> [] then
+    refuse info
+      (Printf.sprintf
+         "this call to '%s' is ambiguous: %s -- write the qualified name to \
+          say which is meant"
+         shown
+         (String.concat " and "
+            (List.map
+               (fun (name, meta, _, by_default) ->
+                 if by_default then
+                   Printf.sprintf "'%s' takes them with its default for '%s'"
+                     name (omitted meta given)
+                 else Printf.sprintf "'%s' takes them as written" name)
+               taking)))
+  else
+    match taking with
+    | [ (name, meta, reach, true) ] -> (
+        match ordered info name meta reach args with
+        | None -> build (plain_args (arg_exprs args))
+        | Some filled -> build (plain_args filled))
+    | _ -> build args
 
 (** Rewrites one block: its definitions are visible throughout it, and
     each one's defaults are generated just before it.
@@ -417,8 +560,8 @@ and rewrite signatures scope taken statement =
       scope (bound_here statement)
   in
   match statement with
-  | SLet (i, target, e, t, s, public) ->
-      let statement = SLet (i, target, go e, t, s, public) in
+  | SLet (i, target, e, t, s, public, implicit) ->
+      let statement = SLet (i, target, go e, t, s, public, implicit) in
       ([], statement, bind scope statement)
   | SLetStmt (i, target, inner, t, s, public) ->
       let _, inner, _ = rewrite signatures scope taken inner in
@@ -496,7 +639,8 @@ and rewrite signatures scope taken statement =
   | SImport _ ->
       let statement = imported signatures statement in
       ([], statement, import_scope signatures statement scope)
-  | SFunctionDef (i, name, params, body, return_type, s, public) ->
+  | SFunctionDef (i, name, params, body, return_type, s, public, implicits, implicit)
+    ->
       let generated =
         List.filter_map
           (fun (Param (pi, param, annotation, default, _)) ->
@@ -524,7 +668,9 @@ and rewrite signatures scope taken statement =
                        [ SExprStmt (expr_info e, go e, 0) ],
                        annotation,
                        0,
-                       public )))
+                       public,
+                       [],
+                       false )))
           params
       in
       let inner =
@@ -543,7 +689,9 @@ and rewrite signatures scope taken statement =
             block signatures inner body,
             return_type,
             s,
-            public )
+            public,
+            implicits,
+            implicit )
       in
       (generated, statement, scope)
 

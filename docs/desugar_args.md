@@ -137,6 +137,42 @@ A default fills its own positional slot, so its side effects fall
 all of them. That follows from the same rule and is stated in
 PYKING.md.
 
+## An implicit parameter may be left out
+
+A definition's implicit parameters are part of its signature here too,
+marked as such, because a named argument may fill one
+(`show(3, fmt = loud)`). What makes them different is that a call may
+leave them out entirely: the type checker resolves them later
+(docs/implicits.md).
+
+So `ordered` decides first whether the call supplies any of them --
+more positional arguments than there are explicit parameters, or a name
+that is one of theirs -- and if it does not, it treats the definition
+as having its explicit parameters only. Nothing is inserted and no
+argument is reported missing; the call is an ordinary call of the
+explicit arity, and the checker fills the rest.
+
+## An overloaded callee: the count, not the choice
+
+A `::` name may stand for several definitions, and which one a call
+means is the type checker's question (docs/overloading.md). This pass
+cannot answer it -- it has no types -- but it cannot ignore the call
+either, because a default it erases here is what lets one of those
+definitions take fewer arguments, and after the erasure the checker
+sees only the arity the parameters were written with.
+
+So `overloaded` settles the *count*: it takes every `q::name`
+definition in scope, asks which of them a call of this many arguments
+could reach (`takes`, which counts a default as optional and an
+implicit parameter as omittable), and then
+
+- fills the defaults of the single definition that takes it that way,
+- refuses the call where two take it and one of them needs a default,
+- leaves it alone otherwise, for the checker to resolve by types.
+
+A named argument on such a call is refused outright: putting one in its
+parameter's place needs to know whose parameter list to use.
+
 ## Only where the callee resolves to a definition
 
 The sugar is available when the callee is a name that resolves, in

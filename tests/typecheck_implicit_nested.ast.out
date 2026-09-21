@@ -1,0 +1,26 @@
+def int__leq(x:Int, y:Int) -> Bool:
+    x <= y
+def float__leq(x:Float, y:Float) -> Bool:
+    x <= y
+def list__leq(xs:[a], ys:[a], leq:(a, a) -> Bool) -> Bool:
+    loop (xs, ys, leq): ([a], [a], (a, a) -> Bool) = (xs, ys, leq):
+        match (xs, ys):
+            case ([x, ..xrest], [y, ..yrest]):
+                if leq(x, y):
+                    (xrest, yrest, leq)
+                else:
+                    return false
+            case ([], []):
+                return true
+            case (_, _):
+                return false
+def less_index(elem:a, lst:[a], leq:(a, a) -> Bool) -> Int:
+    loop i: Int = 0 for x in lst:
+        if leq(x, elem):
+            i + 1
+        else:
+            break
+print(int__leq(88, 100), float__leq(79.12, 18.2), list__leq([171, 10], [188], int__leq))
+print(less_index(10, [7, 4, 12, 2], int__leq))
+print(less_index(30.3, [1.4, 10.12, 23.1, 55.1], float__leq))
+print(less_index([2], [[1], [2, 3], [0]], (__implicit__1:[Int], __implicit__2:[Int]) => list__leq(__implicit__1, __implicit__2, int__leq)))

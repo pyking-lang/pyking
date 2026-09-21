@@ -381,6 +381,36 @@ classes or implicit arguments; `tests/fail_typecheck_infer_pinned.pyk`
 pins the current refusal so whatever fills the gap has something to
 change.
 
+## 9aa. Overloading, and why it is not deferred
+
+Section 9 says what is left of ad-hoc polymorphism. Since then there is
+one more thing: a definition may be *overloaded* by a `::` qualifier,
+and a call that leaves the qualifier out is resolved by its arguments
+(docs/overloading.md).
+
+It is resolved **where the call is written**, and nowhere else. The
+arguments are checked once, and every candidate is tried against what
+they turned out to be; exactly one fitting resolves it. The test is
+unification, so choosing a candidate may be what decides an argument's
+type — but the choice is made there and then, with whatever is known
+there and then.
+
+What is *not* done is deferring the choice until something later
+decides the type:
+
+```pyking
+def both(x): (twice(x), twice(x))    # refused
+```
+
+Every candidate fits an argument type nothing has decided, so the call
+is ambiguous, and the checker says so rather than carrying a
+"`twice` at some type" constraint out of the body and into `both`'s
+type. That constraint is a *context*, and inferring contexts is type
+classes: it would make a definition's principal type depend on what its
+body happened to call, which is exactly the property section 5
+guarantees against. The feature that solves the problem properly is an
+implicit parameter, and the error message names it.
+
 ## 9a. Two numeric types, no type classes
 
 `Int` and `Float` make `+ - * /` overloaded as well, and they are the

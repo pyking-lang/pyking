@@ -50,15 +50,35 @@ exception Type_error of info * string
 
 module SMap : Map.S with type key = string
 
-(** A name's type, in scope. `env` maps a name to a type and to nothing
-    else: a name it does not hold is a name that is not in scope. The
-    four host operations are in it under TBuiltin, which is a type like
-    any other here. *)
-type env = typ SMap.t
+(** What a name denotes: its type, and whether the binding was written
+    `implicit`, which is what an implicit argument may be resolved to. *)
+type binding = { btype : typ; bimplicit : bool }
 
-(** What one module exports, and at what type -- all of it another
-    module sees (Module.make_sigmap). *)
-type sigmap = (string * typ) list
+(** A name's denotation, in scope. `env` maps a name to one and to
+    nothing else: a name it does not hold is a name that is not in
+    scope. The host operations are in it under TBuiltin, which is a type
+    like any other here. *)
+type env = binding SMap.t
+
+(** What one module exports, at what type, and whether it is implicit --
+    all of it another module sees (Module.make_sigmap). *)
+type sigmap = (string * typ * bool) list
+
+(** What one node denotes once overloading and implicits are resolved. *)
+type resolution =
+  | Call of (string * typ) option * argument list
+      (** a call: the name overload resolution chose for it and that
+          definition's type, and one argument per implicit parameter *)
+  | Adapted of typ * int * argument list
+      (** an argument whose implicit parameters are not the ones wanted:
+          a lambda of that type stands in its place, passing the first
+          `int` of its own parameters to what was written *)
+
+and argument =
+  | Direct of string * typ  (** a name in scope, used at this type *)
+  | Wrapped of string * typ * int * argument list
+      (** a lambda of that function type, passing the first `int` of its
+          own parameters to the name and then these *)
 
 (** One `return` in the body being inferred, or the value its body ends
     in: where it is written, and what it gives. *)
@@ -99,6 +119,7 @@ type store = {
   captured : StringSet.t;
   modules : (string * sigmap) list;
   tmap : typ IntMap.t;
+  qmap : resolution IntMap.t;
 }
 
 (** Type-checks one module -- or a whole one-file program, which is the
@@ -110,12 +131,16 @@ type store = {
     `declared` is the module's own declaration half -- the names a
     target's own source provides -- which are in scope here unqualified,
     since the two files are one module.
-    [(string, typ)] -> [stmt] -> [(string, sigmap)] -> typ IntMap.t *)
+    Answers the types it worked out and, beside them, what every call
+    it resolved denotes -- which is what `elaborate.ml` rewrites the
+    program by (docs/implicits.md).
+    [(string, typ)] -> [stmt] -> [(string, sigmap)]
+    -> (typ IntMap.t, resolution IntMap.t) *)
 val type_check :
   ?declared:(string * typ) list ->
   stmt list ->
   (string * sigmap) list ->
-  typ IntMap.t
+  typ IntMap.t * resolution IntMap.t
 
 (** The environment a program starts in: every name in
     Builtin.names, at its TBuiltin type. () -> env *)
@@ -141,6 +166,10 @@ val check_stmt :
 (** The type of one expression, recorded in the store's table under its
     symbol. expr -> env -> store -> (typ, store) *)
 val check_expr : expr -> env -> store -> typ * store
+
+val without_implicits : typ -> typ
+(** The type a definition has once its implicit parameters are ordinary
+    ones: what every stage after `elaborate.ml` sees of it. typ -> typ *)
 
 (** Whether two types are the same type, structurally -- never OCaml's
     own equality, since a type node carries an info and a symbol that

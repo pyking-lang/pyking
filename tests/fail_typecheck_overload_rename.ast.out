@@ -1,0 +1,4 @@
+'tests/fail_typecheck_overload_rename.pyk' 11:0-11:36 Name error:
+  'int::twice' and 'int__twice' cannot both be bound in this program:
+  a qualified name compiles to the plain one, and the two would be one
+  name

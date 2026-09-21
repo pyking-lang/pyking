@@ -87,15 +87,22 @@ and typ =
       (* the type of a name denoting a host operation: print, range,
          str, len. Never written in source, never printed. *)
   | TFunction of info * typ list * typ * int * int * stmt option
-      (* (T1, T2, ...) -> T. The last two fields are the type checker's
-         alone: the symbol of the definition whose body is still to be
-         checked, and that definition. Nothing in the source produces
-         them and no printer shows them. *)
+                 * implicit_param list
+      (* (T1, T2, ..., implicit n: T) -> T. The middle two fields are
+         the type checker's alone: the symbol of the definition whose
+         body is still to be checked, and that definition. Nothing in
+         the source produces them and no printer shows them. The last is
+         the implicit parameters, which are trailing and are part of the
+         type by name as well as by type (PYKING.md, "Implicits"). *)
   | TVar of info * string * int * bool
       (* a lowercase name: a type the caller chooses. The flag is
          `rigid`: false for a variable the checker made rather than the
          source. *)
   | TForall of info * string list * typ * int (* all a b. body *)
+
+and implicit_param = IParam of string * typ
+(* `implicit name: type`, in a function type. It carries no info and no
+   sym: it is part of a type, and a type is synthesized. *)
 
 and pattern =
   | PInt of info * int * int (* case 0: *)
@@ -133,11 +140,12 @@ and loop_iter =
 and match_case = MatchCase of info * pattern * stmt list * int
 
 and stmt =
-  | SLet of info * assign_target * expr * typ option * int * bool
-      (* target[: type] = expr. The type is the binding's as the
-         *source* wrote it; the checker records what it inferred in its
-         own table instead. The flag is `public`: the module exports
-         this name. *)
+  | SLet of info * assign_target * expr * typ option * int * bool * bool
+      (* [public] [implicit] target[: type] = expr. The type is the
+         binding's as the *source* wrote it; the checker records what it
+         inferred in its own table instead. The flags are `public` (the
+         module exports this name) and `implicit` (an implicit argument
+         may be resolved to it). *)
   | SLetStmt of info * assign_target * stmt * typ option * int * bool
       (* target = <if/match statement in value form> *)
   | SVar of info * string * expr * int (* var name = expr *)
@@ -162,8 +170,19 @@ and stmt =
   | SIf of info * expr * stmt list * stmt list option * int
       (* if cond: then_body [else: else_body] *)
   | SFunctionDef of
-      info * string * param list * stmt list * typ option * int * bool
-      (* [public] def name(params...) [-> return_type]: body *)
+      info
+      * string
+      * param list
+      * stmt list
+      * typ option
+      * int
+      * bool
+      * param list
+      * bool
+      (* [public] [implicit] def name(params... [, implicit n: T]...)
+         [-> return_type]: body. The last two fields are the implicit
+         parameters, which are trailing, and whether the definition is
+         itself implicit. *)
   | SFunctionSig of info * string * typ * int * bool
       (* [public] def name : type -- a def's type on a line of its own *)
   | SMatch of info * expr * match_case list * int

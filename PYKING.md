@@ -165,6 +165,10 @@ Expressions:
   expression that is a function, whose body is one expression. A lambda
   is monomorphic; `def` is how a polymorphic function is written (see
   "Lambdas")
+- **Static overloading** (`def int::leq(...)`, `def float::leq(...)`) —
+  Pyking extension; a qualifier makes two definitions of one base name
+  distinct, and a call written without it is resolved by its arguments
+  (see "Static overloading")
 
 Statements:
 
@@ -178,6 +182,10 @@ Statements:
   when a call leaves that argument out; the default is an expression
   evaluated in the scope the `def` is written in, at each call that
   omits it — Pyking extension (see "Default parameters")
+- **Implicit parameters** (`def foo(x: a, implicit bar: (a) -> b)`),
+  filled from the calling context by name and by type where a call
+  leaves them out; `implicit` in front of a `def` or an `=` binding is
+  what makes one findable — Pyking extension (see "Implicits")
 - Function definitions (`def`), with optional parameter and return type
   annotations (`Int`, `Float`, `String`, `Bool`, list types `[T]`, tuple types
   `(T1, T2, ...)` including the singleton `(T,)` and the unit type `()`,
@@ -274,12 +282,22 @@ statement   = function_def
             | mutation
             | expr_stmt ;
 
-function_def = "def" , ident , "(" , [ params ] , ")" , [ "->" , type ] ,
-               ":" , block ;
-function_sig = "def" , ident , ":" , type ;
-(* Every parameter after the first one with a default has one too. *)
-params       = param , { "," , param } ;
+(* `implicit` marks a definition an implicit argument may be resolved
+   to; a definition's own name may carry a `::` qualifier, which is what
+   makes two definitions of one base name distinct. *)
+function_def = [ "implicit" ] , "def" , def_name ,
+               "(" , [ params ] , ")" , [ "->" , type ] , ":" , block ;
+function_sig = "def" , def_name , ":" , type ;
+def_name     = ident | qualified_name ;
+(* No whitespace is permitted on either side of the "::", and neither
+   half may be a keyword. *)
+qualified_name = ident , "::" , ident ;
+(* Every parameter after the first one with a default has one too, and
+   every implicit parameter comes after every ordinary one. *)
+params       = param , { "," , param } , { "," , implicit_param }
+             | implicit_param , { "," , implicit_param } ;
 param        = ident , [ ":" , type ] , [ "=" , expr ] ;
+implicit_param = "implicit" , ident , ":" , type ;
 
 type         = type_atom , [ "->" , type ] ;
 type_atom    = "Int" | "Float" | "String" | "Bool"
@@ -290,7 +308,11 @@ type_atom    = "Int" | "Float" | "String" | "Bool"
 (* One parenthesized list, three readings, decided by the token after
    ")" and by whether a comma is written -- exactly as `tuple_lit` and a
    parenthesized expression are told apart among values. *)
-type_paren   = "(" , [ type , { "," , type } , [ "," ] ] , ")" , "->" , type
+type_paren   = "(" , [ type , { "," , type } ,
+                       { "," , implicit_param } , [ "," ] ] , ")" ,
+               "->" , type
+             | "(" , implicit_param , { "," , implicit_param } , ")" ,
+               "->" , type
              | "(" , type , ")"
              | "(" , ")"
              | "(" , type , "," , ")"
@@ -332,7 +354,7 @@ list_pattern_item  = pattern_join | rest_marker ;
 rest_marker        = ".." , [ ident ] ;
 
 var_decl    = "var" , ident , "=" , bound_expr ;
-assignment  = target , [ ":" , type ] , "=" , bound_value ;
+assignment  = [ "implicit" ] , target , [ ":" , type ] , "=" , bound_value ;
 mutation    = ident , ":=" , bound_expr ;
 
 (* A bound value may start on the line after its "=", indented -- the
@@ -716,6 +738,23 @@ Notes that don't fall out of the grammar alone:
   an error. `list_comp` always starts with a `comp_for`; `comp_for`/
   `comp_if` may then repeat in any order, matching Python's own
   multi-clause comprehensions (nested `for`s, interspersed `if`s).
+- A `qualified_name` may be a **definition's** name and nothing else --
+  not a binding, a `var`, a parameter, a loop variable, a pattern
+  capture, a module name or an import alias -- and the definition must
+  take at least one argument, since the arguments of a call are what
+  resolve which of them is meant. Both are refused where they are
+  written (`'int::zero' takes no argument, so nothing could say which
+  definition of 'zero' a call means`). A module-qualified name is
+  `m.int::leq`: the module is written with a `.` and the definition's
+  own qualifier with a `::`, and the two never mix.
+- `implicit` in front of a statement marks a `def` or an `=` binding of
+  one name, and nothing else. It is a statement's prefix rather than a
+  top-level one, so a definition inside a function may be implicit
+  there and nowhere else; `public implicit def ...` is written in that
+  order.
+- An `implicit_param` needs both its name and its type written: the
+  pair is what resolves it. It may not carry a default value, and a
+  lambda may not have one at all.
 - `lambda_params` shares `param` with `function_def`, but a lambda
   parameter may **not** carry a default value: a default is evaluated in
   the scope the definition is written in, and a lambda is an expression
@@ -2218,6 +2257,223 @@ definition. A lambda parameter may not have a default value, since a
 default belongs to the scope a definition is written in. And a lambda
 parameter is a binding like any other, so it may not shadow a `var`.
 
+### Static overloading — Pyking extension
+
+Two definitions may share a base name if a **qualifier** tells them
+apart:
+
+```pyking
+def int::twice(x: Int) -> Int: x * 2
+def string::twice(x: String) -> String: x ++ x
+
+print(twice(21), twice("ab"))       # 42 abab
+print(int::twice(3))                # 6
+```
+
+`int` and `float` are not special: the qualifier is part of the name and
+nothing else, and `wow::twice` works exactly as well. What it does is
+make the names unique, so both definitions may be written in one block.
+
+A call may write the whole name or leave the qualifier out. Leaving it
+out is resolved by the **arguments**: the one definition whose
+parameters they fit is the one meant. Nothing else takes part — not the
+result type, and not what the call is used for.
+
+```pyking
+def a::join(x: Int, y: Int) -> Int: x + y
+def b::join(x: String, y: String) -> String: x ++ y
+
+print(join(2, 3), join("hi", "!"))  # 5 hi!
+```
+
+Three rules follow, and each is refused where it is written:
+
+- **A `::` name belongs to a `def` that takes at least one argument.**
+  A binding, a `var`, a parameter, a loop variable, a pattern capture,
+  a module name and an import alias may not carry one, and neither may
+  a `def` with no parameters — there would be nothing to resolve it by.
+- **A plain definition is not a member of any set.** If a block binds
+  `twice` with no qualifier, `twice(...)` means that one and is a type
+  error if it does not fit.
+- **A builtin's name is never part of a set.** `str(1)` is the builtin
+  whatever `q::str` definitions are in scope.
+
+Resolution needs the argument types to be decided. Inside a function
+whose parameter could be anything, they are not, and the call is
+refused with the way out named:
+
+```pyking
+# def both(x): (twice(x), twice(x))
+#   -- error: nothing here decides which 'twice' is meant. Annotate it,
+#      or take the definition as an implicit parameter
+```
+
+Two definitions that both fit is an error too. There is no ordering
+between them: write the one that is meant.
+
+**A default parameter counts.** It lets a definition take fewer
+arguments, so it is part of what says whether a call could mean that
+definition — and two definitions taking one call, where one of them
+needs a default, is refused:
+
+```pyking
+def b::my2(x: Bool, y: Int) -> Int: y + 100
+def c::my2(x: Bool, y: Int, z: Int = 1000) -> Int: y + z
+
+# print(my2(true, 1))
+#   -- error: 'b::my2' takes them as written and 'c::my2' takes them
+#      with its default for 'z'
+```
+
+Where only one definition can take the call that way, it is the one
+meant and its default is used. A **named argument** may not be written
+on an overloaded call at all: putting one in its parameter's place
+needs to know which definition is meant, which the arguments have not
+said yet.
+
+### Implicits — Pyking extension
+
+A parameter written `implicit` may be left out at a call, and is filled
+from the calling context by **name** and by **type**:
+
+```pyking
+def foo(x: a, implicit bar: (a) -> b) -> (b, b):
+    (bar(x), bar(x))
+
+def my1() -> ():
+    implicit def bar(z: Int) -> String: str(z) ++ "!"
+    print(foo(78))                  # ('78!', '78!')
+
+def my2() -> ():
+    implicit def bar(z: String) -> String: z ++ "!"
+    print(foo("hi"))                # ('hi!', 'hi!')
+```
+
+`foo` is written once and means two things, because the implicit `bar`
+it asks for is a different definition in each scope. The name matters:
+`implicit bar` asks for something *called* `bar`, so the parameter's
+name is part of `foo`'s type —
+
+```
+foo : (a, implicit bar: (a) -> b) -> (b, b)
+```
+
+— and that is what `-t pyking` prints and what a written annotation has
+to say.
+
+**Only an `implicit` definition is ever resolved to.** A binding of the
+right name and the right type that was not written `implicit` is
+invisible to the search:
+
+```pyking
+def my3() -> ():
+    def bar(z: Int) -> String: str(z)
+    print(foo(1))       # error: there is a 'bar', but it is not
+                        #        declared 'implicit'
+```
+
+`implicit` goes in front of a `def` or an `=` binding of one name, and
+in front of `def` it follows `public`. Any value may be implicit, not
+only a function:
+
+```pyking
+implicit width = 4
+
+def pad(text: String, implicit width: Int) -> String:
+    loop out = text while len(out) < width:
+        out ++ "."
+
+print(pad("a"))         # a...
+print(pad("a", 8))      # a....... -- written out, which always works
+```
+
+Implicit parameters come after every ordinary one, each needs its type
+written, and none may have a default value: an omitted implicit
+argument is resolved rather than defaulted. A call writes out every
+implicit argument or none of them, by position or by the parameter's
+name (`pad("a", width = 8)`).
+
+**A definition with implicit parameters, or one that is itself
+implicit, writes its whole type down** — resolving is a question about
+types, so there has to be a type to ask it of.
+
+**An implicit obligation does not cross a `def`.** If a body calls
+something whose type carries an implicit `bar` and that body has no
+implicit `bar` in scope, it is an error there, and the fix is to write
+`implicit bar` among its own parameters. What the body's *caller* has
+in scope does not reach inside it.
+
+What does work — and is why the parameter is part of the type — is
+passing such a function as a value and calling it elsewhere. The
+resolution happens where the **call** is written:
+
+```pyking
+def apply_twice(f: (Int, implicit bar: (Int) -> String) -> (String, String),
+                n: Int) -> (String, String):
+    implicit def bar(z: Int) -> String: str(z * 2)
+    f(n)
+
+print(apply_twice(foo, 5))          # ('10', '10')
+```
+
+An implicit may be resolved to a definition that takes implicits of its
+own, and those are discharged in turn, in the scope of the call. A
+chain that does not stop is cut at a fixed depth and reported.
+
+**A function carrying an implicit parameter may be passed where an
+ordinary function is wanted**, and its implicit is then resolved where
+it is *passed*:
+
+```pyking
+implicit my = 10
+
+def bar(a, f):                  # `f` is an ordinary (Int) -> a here:
+    f(a + 1)                    # a body cannot discover an implicit
+
+def foo(x: Int, implicit my: Int) -> Int: x + my
+
+print(bar(7, foo))              # 18 -- foo's `my` is the 10 above
+```
+
+Writing the implicit into `f`'s own type says the other thing: resolve
+it in `bar`'s body, against whatever is in scope there.
+
+```pyking
+def bar(a, f: (Int, implicit my: Int) -> Int):
+    implicit my = 7
+    f(a + 1)                    # 15
+```
+
+That is the whole of what the annotation decides, and it is why an
+implicit parameter is part of a function's type.
+
+The adaptation goes both ways, so the annotated `f` above still accepts
+a function that asks for nothing — `bar(2, x => x + 1)` works, and the
+lambda simply never sees the implicit. A function that needs less
+stands wherever one that needs more is wanted.
+
+The two features meet: an implicit definition may be overloaded, and
+the search considers every qualifier.
+
+```pyking
+implicit def int::leq(x: Int, y: Int) -> Bool: x <= y
+implicit def float::leq(x: Float, y: Float) -> Bool: x <= y
+
+implicit def list::leq(xs: [a], ys: [a],
+                       implicit leq: (a, a) -> Bool) -> Bool:
+    match (xs, ys):
+        case ([x] ++ xrest, [y] ++ yrest):
+            if leq(x, y):
+                list::leq(xrest, yrest)
+            else:
+                false
+        case ([], []): true
+        case (_, _): false
+
+print(leq(88, 100), leq(79.12, 18.2), leq([171, 10], [188]))
+# true false false
+```
+
 ### `match`/`case` pattern matching
 
 `match expr:` is followed by one or more indented `case pattern:` clauses;
@@ -3596,6 +3852,32 @@ refused as `Construct is not supported` rather than as an unbound name,
 since the name is perfectly well bound; it is the *type* that is
 missing.
 
+### Overloading and implicits, resolved
+
+Two more things the checker settles, and the only two where it decides
+what a *name* means rather than what a type is (see "Static
+overloading" and "Implicits").
+
+**An overloaded call is resolved by its arguments.** They are checked
+once, and each `q::name` definition in scope is then tried against what
+they turned out to be. Exactly one fitting resolves the call; none and
+several are both errors, and an argument type nothing has decided fits
+every candidate, which is reported as such. The test is unification, so
+choosing a candidate may be what *decides* an argument's type —
+`leq([171, 10], [188])` picks `list::leq` and settles the element type
+by doing so.
+
+**An implicit parameter is resolved by name and type.** Every
+`implicit` binding in scope whose base name is the parameter's is
+tried, with its own implicit parameters set aside as obligations to
+discharge in turn, in the scope of the call. A binding that was not
+written `implicit` is never considered. Exactly one fit resolves it.
+
+Both are questions about the program's *text*, settled once, where the
+call is written. Nothing is deferred to a caller and nothing is decided
+at run time: a program that compiles has one definition per call site,
+chosen before anything runs.
+
 ## Modules
 
 **One file is one module.** A file called `list.pyk` is the module
@@ -3756,6 +4038,41 @@ is built from, so it cannot be written inside a `def`, a loop or a
 branch. Like a `def`, an import is visible throughout the module rather
 than from its line down, so where it is written among the other
 top-level statements does not matter.
+
+### A public implicit arrives unqualified
+
+A `public` name is reached through the module name (`mod.less_index`).
+A name that is **both `public` and `implicit`** is different: it is also
+found by an unqualified call in the file that imports the module,
+automatically, so an ordering a library defines is usable without being
+named.
+
+```pyking
+# ordering.pyk
+public implicit def int::leq(x: Int, y: Int) -> Bool: x <= y
+public def less_index(elem: a, lst: [a],
+                      implicit leq: (a, a) -> Bool) -> Int: ...
+```
+
+```pyking
+# main.pyk
+import ordering as ord
+
+print(ord.int::leq(7, 8))       # by its full name, which always works
+print(leq(88, 100))             # found because it is public *and* implicit
+print(ord.less_index(10, [7, 4, 12, 2]))
+```
+
+`less_index` is public and not implicit, so it is reached through
+`ord.` like anything else — but *its* implicit parameter is resolved at
+each call, against everything in scope there, including implicits this
+file writes itself.
+
+Auto-import is **not transitive**: what is in scope is what this file
+imports. If `main` imports `middle` and `middle` imports `ordering`,
+`ordering`'s implicits do not reach `main`. The cost is that a library
+cannot re-export another's orderings; the gain is that reading a file
+says where every name it uses comes from.
 
 ### No circular imports
 

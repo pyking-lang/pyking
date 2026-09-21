@@ -153,6 +153,34 @@ is reported immediately (`report(error)`) and the loop moves on, since
 by the time a statement is running, there's no better place to surface
 the mistake than where it happened.
 
+## Checked under one set of names, run under another
+
+An entry is checked as it was typed and **run as it was rewritten**.
+`elaborate.ml` renames a qualified definition -- `int::leq` becomes
+`int__leq` -- and fills in every implicit argument, so the machine is
+given a different list of statements from the one the checker saw.
+
+The session keeps both, and they never have to agree:
+
+- `session.types` and `session.store` are the *checker's*, under the
+  source's own names, so a later entry may write `int::leq` and find
+  it.
+- `session.state` is the *machine's*, under the plain names the rewrite
+  gave them, so a call written in a later entry reaches the closure the
+  earlier one built.
+
+`:ls` bridges the two: it lists the checker's names, asks the machine
+for each one's value under `Names.renamed` of it, and leaves out any
+name either pass made up (`Desugar_args.generated_name`,
+`Elaborate.generated_name`). An implicit definition is shown with
+`implicit` in front, since that is what makes it findable.
+
+`session.high` is the third thing that follows: the rewrite builds
+nodes, which need symbols nothing else will reuse, and the machine's
+call-free table is keyed by symbol. It is the highest handed out to
+anything so far, and every `symbolize` in this module continues past
+it.
+
 ## `undefined_name`/`undefined_message`: a refusal that offers to keep going
 
 An entry refused for naming something unbound is, more often than not,

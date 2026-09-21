@@ -298,6 +298,12 @@ The body is one expression in both languages, so the arrow's
 expression form is what is emitted; nothing here needs a block body or
 a `return`.
 
+An arrow function is an `AssignmentExpression`, which binds looser than
+everything else this printer emits, so one used as a **callee** or as
+an operand is parenthesized: `(x => x + 1)(5)` has to print as
+`((x) => x + 1)(5)`, since `(x) => x + 1(5)` is an arrow whose body is
+a call. `tests/lambda_basic.pyk` pins it.
+
 ### Control flow, functions, expressions
 
 ```pyking

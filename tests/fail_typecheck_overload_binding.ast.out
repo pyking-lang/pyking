@@ -1,0 +1,4 @@
+'tests/fail_typecheck_overload_binding.pyk' 7:0-7:9 Parsing error:
+  'int::zero' cannot be bound with '=': a '::' name belongs to a 'def'
+  that takes at least one argument, which is what resolves which of
+  them a call means

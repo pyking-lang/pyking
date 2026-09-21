@@ -58,9 +58,25 @@ let join_error =
    every part but one name must have a fixed length"
 
 
+(** Refuses a qualified name where only a plain one may stand. `::` is
+    what makes an overloaded definition's name unique, and only a `def`
+    with at least one parameter has arguments for a call to resolve it
+    by, so nothing else may carry one (PYKING.md, "Static overloading").
+    info -> String -> String -> () *)
+let rec check_plain_name info name what =
+  if Names.is_qualified name then
+    raise
+      (Parse_error
+         ( info,
+           Printf.sprintf
+             "'%s' cannot be %s: a '::' name belongs to a 'def' that takes \
+              at least one argument, which is what resolves which of them \
+              a call means"
+             name what ))
+
 (** Parses one atom: a literal, name, parenthesized expression, tuple,
     list, or list comprehension. info -> [token] -> (expr, [token]) *)
-let rec parse_atom eof tokens =
+and parse_atom eof tokens =
   match tokens with
   | TokInt (i, v) :: rest -> parse_call_tail eof (EInt (i, v, 0)) rest
   | TokFloat (i, v) :: rest -> parse_call_tail eof (EFloat (i, v, 0)) rest
@@ -68,7 +84,7 @@ let rec parse_atom eof tokens =
   | TokTrue i :: rest -> parse_call_tail eof (EBool (i, true, 0)) rest
   | TokFalse i :: rest -> parse_call_tail eof (EBool (i, false, 0)) rest
   | TokIdent (i, module_name) :: TokDot dot :: TokIdent (name_info, name) :: rest
-    when dot.row1 = i.row2 ->
+    when dot.row1 = i.row2 && not (Names.is_qualified module_name) ->
       (* `module.name`: a public name of an imported module. The dot must
          be on the module name's own row, for the reason parse_call_tail
          requires it of a '(' -- otherwise a name ending one line would
@@ -313,8 +329,19 @@ and parse_lambda eof tokens =
           rest )
   | TokLParen lparen :: after -> (
       match (try Some (parse_params eof after) with Parse_error _ -> None) with
-      | Some (params, TokFatArrow _ :: rest) ->
+      | Some (params, implicits, TokFatArrow _ :: rest) ->
           List.iter check_no_lambda_default params;
+          (match implicits with
+          | Param (info, name, _, _, _) :: _ ->
+              raise
+                (Parse_error
+                   ( info,
+                     Printf.sprintf
+                       "the lambda parameter '%s' may not be implicit: an \
+                        implicit parameter is part of a function's type, \
+                        and only a 'def' writes one down"
+                       name ))
+          | [] -> ());
           let body, rest = parse_expr eof rest in
           Some
             ( ELambda
@@ -456,7 +483,8 @@ and parse_type eof tokens =
             result,
             0,
             0,
-            None ),
+            None,
+            [] ),
         rest )
   | _ -> (atom, rest)
 
@@ -486,7 +514,9 @@ and parse_type_atom eof tokens =
          list when `->` follows and a tuple otherwise. Deciding it on
          the token after `)` is what keeps a *parameter* that is itself
          a tuple writable, as `((Int, Bool)) -> Int`. *)
-      let elements, trailing, rp, rest = parse_type_elements eof rest in
+      let elements, implicits, trailing, rp, rest =
+        parse_type_elements eof rest
+      in
       match rest with
       | TokArrow _ :: after_arrow ->
           (* The result is a whole type in its turn, so `->` groups to
@@ -498,10 +528,17 @@ and parse_type_atom eof tokens =
                 result,
                 0,
                 0,
-                None ),
+                None,
+                implicits ),
             rest )
       | _ ->
-          if List.length elements = 1 && not trailing then
+          if implicits <> [] then
+            raise
+              (Parse_error
+                 ( lp,
+                   "only a function type has implicit parameters, and this \
+                    one has no '->' after its ')'" ))
+          else if List.length elements = 1 && not trailing then
             (* `(T)` is grouping, exactly as `(e)` is among values; the
                comma is what makes a singleton. *)
             (set_type_info (combine_info lp rp) (List.hd elements), rest)
@@ -516,21 +553,61 @@ and parse_type_atom eof tokens =
 (** Parses comma-separated types up to and including ')', also saying
     whether a comma came just before that ')' -- which is the whole of
     what tells the singleton tuple `(T,)` from the grouping `(T)`.
-    info -> [token] -> ([typ], bool, info, [token]) *)
+    An `implicit name: type` entry is a function type's implicit
+    parameter, which is trailing and part of the type by name as well as
+    by type (PYKING.md, "Implicits"); a tuple type has none.
+    info -> [token] -> ([typ], [implicit_param], bool, info, [token]) *)
 and parse_type_elements eof tokens =
   match tokens with
-  | TokRParen i :: rest -> ([], false, i, rest)
+  | TokRParen i :: rest -> ([], [], false, i, rest)
+  | TokImplicit _ :: _ ->
+      let implicits, rp, rest = parse_implicit_type_params eof tokens in
+      ([], implicits, false, rp, rest)
   | _ -> (
       let elem, rest = parse_type eof tokens in
       match rest with
-      | TokComma _ :: TokRParen i :: rest -> ([ elem ], true, i, rest)
+      | TokComma _ :: TokRParen i :: rest -> ([ elem ], [], true, i, rest)
       | TokComma _ :: rest ->
-          let elems, trailing, rp, rest = parse_type_elements eof rest in
-          (elem :: elems, trailing, rp, rest)
-      | TokRParen i :: rest -> ([ elem ], false, i, rest)
+          let elems, implicits, trailing, rp, rest =
+            parse_type_elements eof rest
+          in
+          (elem :: elems, implicits, trailing, rp, rest)
+      | TokRParen i :: rest -> ([ elem ], [], false, i, rest)
       | _ ->
           raise
             (Parse_error (here eof rest, "expected ',' or ')' in tuple type")))
+
+(** Parses the `implicit name: type` entries that end a function type,
+    up to and including the ')'.
+    info -> [token] -> ([implicit_param], info, [token]) *)
+and parse_implicit_type_params eof tokens =
+  match tokens with
+  | TokImplicit _ :: TokIdent (i, name) :: TokColon _ :: rest -> (
+      check_plain_name i name "an implicit parameter";
+      let type_, rest = parse_type eof rest in
+      let one = IParam (name, type_) in
+      match rest with
+      | TokComma _ :: rest ->
+          let rest_params, rp, rest = parse_implicit_type_params eof rest in
+          (one :: rest_params, rp, rest)
+      | TokRParen rp :: rest -> ([ one ], rp, rest)
+      | _ ->
+          raise
+            (Parse_error
+               (here eof rest, "expected ',' or ')' in a function type")))
+  | TokImplicit i :: _ ->
+      raise
+        (Parse_error
+           ( i,
+             "an implicit parameter is written 'implicit name: type': it \
+              needs both a name and a type, since that pair is what \
+              resolves it" ))
+  | _ ->
+      raise
+        (Parse_error
+           ( here eof tokens,
+             "an implicit parameter comes after every ordinary one, so \
+              nothing may follow it but another implicit parameter" ))
 
 (** Parses the variables an `all` binds, up to and including the `.`.
     info -> [token] -> ([string], [token]) *)
@@ -566,23 +643,73 @@ and parse_param eof tokens =
         rest )
   | _ -> (Param (i, named, type_, None, 0), rest)
 
-(** Parses comma-separated parameters up to and including ')'.
-    info -> [token] -> ([param], [token]) *)
+(** Parses comma-separated parameters up to and including ')', answering
+    the ordinary ones and the implicit ones apart. Implicit parameters
+    are trailing, so once one is seen nothing but another may follow
+    (PYKING.md, "Implicits").
+    info -> [token] -> ([param], [param], [token]) *)
 and parse_params eof tokens =
   match tokens with
-  | TokRParen _ :: rest -> ([], rest)
+  | TokRParen _ :: rest -> ([], [], rest)
+  | TokImplicit _ :: _ ->
+      let implicits, rest = parse_implicit_params eof tokens in
+      ([], implicits, rest)
   | _ -> (
       let param, rest = parse_param eof tokens in
       match rest with
       | TokComma _ :: rest ->
-          let params, rest = parse_params eof rest in
+          let params, implicits, rest = parse_params eof rest in
           check_trailing_defaults param params;
-          (param :: params, rest)
-      | TokRParen _ :: rest -> ([ param ], rest)
+          (param :: params, implicits, rest)
+      | TokRParen _ :: rest -> ([ param ], [], rest)
       | _ ->
           raise
             (Parse_error
                (here eof rest, "expected ',' or ')' in parameter list")))
+
+(** Parses the `implicit name: type` parameters that end a parameter
+    list, up to and including the ')'. Each needs its type written: the
+    name and the type together are what resolve it at a call.
+    info -> [token] -> ([param], [token]) *)
+and parse_implicit_params eof tokens =
+  match tokens with
+  | TokImplicit start :: TokIdent (i, name) :: TokColon _ :: rest -> (
+      check_plain_name i name "an implicit parameter";
+      let type_, rest = parse_type eof rest in
+      let one =
+        Param (combine_info start (type_info type_), name, Some type_, None, 0)
+      in
+      match rest with
+      | TokEq _ :: _ ->
+          raise
+            (Parse_error
+               ( combine_info start (type_info type_),
+                 Printf.sprintf
+                   "the implicit parameter '%s' may not have a default \
+                    value: an omitted implicit argument is resolved from \
+                    the calling context, which is what makes it implicit"
+                   name ))
+      | TokComma _ :: rest ->
+          let rest_params, rest = parse_implicit_params eof rest in
+          (one :: rest_params, rest)
+      | TokRParen _ :: rest -> ([ one ], rest)
+      | _ ->
+          raise
+            (Parse_error
+               (here eof rest, "expected ',' or ')' in parameter list")))
+  | TokImplicit i :: _ ->
+      raise
+        (Parse_error
+           ( i,
+             "an implicit parameter is written 'implicit name: type': it \
+              needs both a name and a type, since that pair is what \
+              resolves it" ))
+  | _ ->
+      raise
+        (Parse_error
+           ( here eof tokens,
+             "an implicit parameter comes after every ordinary one, so \
+              nothing may follow it but another implicit parameter" ))
 
 (** Parses one assignment target: a name, or a parenthesized
     tuple-target group. info -> [token] -> (assign_target, [token]) *)
@@ -671,8 +798,20 @@ and try_parse_assignment_target eof tokens =
         | _ -> (None, rest)
       in
       match rest with
-      | TokEq _ :: rest -> Some (target, annotation, rest)
+      | TokEq _ :: rest ->
+          (* Committed: only now is a qualified name in the target a
+             mistake rather than a reason to read these tokens as an
+             expression instead. *)
+          check_plain_target target;
+          Some (target, annotation, rest)
       | _ -> None)
+
+(** Refuses a qualified name anywhere in a binding's target.
+    assign_target -> () *)
+and check_plain_target target =
+  match target with
+  | TargetName (info, name, _) -> check_plain_name info name "bound with '='"
+  | TargetTuple (_, elements, _) -> List.iter check_plain_target elements
 
 (** Parses one block: TokIndent to matching TokDedent, or the one
     expression written on the header's own line. `header_info` is the
@@ -720,7 +859,9 @@ and parse_pattern_atom eof tokens =
   | TokTrue i :: rest -> (PBool (i, true, 0), rest)
   | TokFalse i :: rest -> (PBool (i, false, 0), rest)
   | TokIdent (i, "_") :: rest -> (PWildcard (i, 0), rest)
-  | TokIdent (i, name) :: rest -> (PCapture (i, name, 0), rest)
+  | TokIdent (i, name) :: rest ->
+      check_plain_name i name "bound by a pattern";
+      (PCapture (i, name, 0), rest)
   | TokLParen lp :: TokRParen rp :: rest ->
       (PTuple (combine_info lp rp, [], 0), rest)
   | TokLParen lp :: rest -> (
@@ -785,6 +926,7 @@ and parse_list_pattern_items eof tokens =
 and parse_list_pattern_item eof tokens =
   match tokens with
   | TokDotDot i :: TokIdent (name_info, name) :: rest ->
+      check_plain_name name_info name "bound by a pattern";
       (Either.Right (ListRest (combine_info i name_info, Some name, 0)), rest)
   | TokDotDot i :: rest -> (Either.Right (ListRest (i, None, 0)), rest)
   | _ ->
@@ -955,6 +1097,7 @@ and parse_loop_iter eof tokens =
   match tokens with
   | TokFor i :: TokIdent (_, name) :: TokIn _ :: rest ->
       let sequence, rest = parse_expr eof rest in
+      check_plain_name i name "a loop variable";
       (Some (ForIn (combine_info i (expr_info sequence), name, sequence, 0)), rest)
   | TokFor i :: _ ->
       raise (Parse_error (i, "expected `for <name> in <expression>`"))
@@ -1027,13 +1170,28 @@ and parse_statement eof tokens =
            ( i,
              "only the top level of a module has names to export, so \
               'public' cannot be written inside a block" ))
+  | TokImplicit i :: rest ->
+      (* `implicit` belongs to a block like any other statement: a
+         definition written inside a function is implicit there and
+         nowhere else. *)
+      let stmt, rest = parse_statement eof rest in
+      (made_implicit stmt i, rest)
   | TokDef i :: TokIdent (_, name) :: TokColon _ :: rest ->
       (* `def name : type` -- a signature on a line of its own, for the
          `def name(...)` in this same block. *)
       let type_, rest = parse_type eof rest in
       (SFunctionSig (combine_info i (type_info type_), name, type_, 0, false), rest)
-  | TokDef i :: TokIdent (_, name) :: TokLParen _ :: rest -> (
-      let params, rest = parse_params eof rest in
+  | TokDef i :: TokIdent (ni, name) :: TokLParen _ :: rest -> (
+      let params, implicits, rest = parse_params eof rest in
+      if Names.is_qualified name && params = [] then
+        raise
+          (Parse_error
+             ( ni,
+               Printf.sprintf
+                 "'%s' takes no argument, so nothing could say which \
+                  definition of '%s' a call means; a '::' name belongs to \
+                  a 'def' that takes at least one"
+                 name (Names.base name) ));
       let return_type, rest =
         match rest with
         | TokArrow _ :: rest2 ->
@@ -1045,7 +1203,16 @@ and parse_statement eof tokens =
       | TokColon colon_info :: rest ->
           let body, rest = parse_block eof rest colon_info in
           let def_info = combine_info i (block_end_info i body) in
-          ( SFunctionDef (def_info, name, params, body, return_type, 0, false),
+          ( SFunctionDef
+              ( def_info,
+                name,
+                params,
+                body,
+                return_type,
+                0,
+                false,
+                implicits,
+                false ),
             rest )
       | _ -> raise (Parse_error (here eof rest, "expected ':' after def header")))
   | TokReturn i :: rest -> (
@@ -1087,10 +1254,12 @@ and parse_statement eof tokens =
   | TokVar i :: TokIdent (_, name) :: TokEq _ :: rest ->
       let value, rest = parse_bound_value eof rest in
       let e = expect_expr_value value "a 'var' declaration" in
+      check_plain_name i name "declared with 'var'";
       (SVar (combine_info i (expr_info e), name, e, 0), rest)
   | TokIdent (i, name) :: TokAssign _ :: rest ->
       let value, rest = parse_bound_value eof rest in
       let e = expect_expr_value value "a ':=' mutation" in
+      check_plain_name i name "updated with ':='";
       (SMutate (combine_info i (expr_info e), name, e, 0), rest)
   (* `target = expr`, where `target` may destructure a tuple -- tried
      speculatively since, unlike the fixed-prefix cases above, a target
@@ -1109,7 +1278,7 @@ and parse_statement eof tokens =
               (SLetStmt (let_info, target, stmt, annotation, 0, false), rest)
           | BExpr e ->
               let let_info = combine_info (target_info target) (expr_info e) in
-              (SLet (let_info, target, e, annotation, 0, false), rest))
+              (SLet (let_info, target, e, annotation, 0, false, false), rest))
       | None -> parse_expr_statement eof tokens)
   | _ -> parse_expr_statement eof tokens
 
@@ -1353,7 +1522,7 @@ and check_loop_context stmts held crossed =
       | SBreak (i, _) | SContinue (i, _) ->
           if not held then no_loop_here stmt i crossed
       | SLoop (_, _, _, _, _, body, _) -> check_loop_context body true None
-      | SFunctionDef (_, _, _, body, _, _, _) ->
+      | SFunctionDef (_, _, _, body, _, _, _, _, _) ->
           check_loop_context body false (if held then Some "def" else crossed)
       | SIf (_, _, then_body, else_body, _) ->
           check_loop_context then_body held crossed;
@@ -1485,6 +1654,27 @@ and shorten text =
   if String.length first <= quote_limit then first
   else String.sub first 0 (quote_limit - 3) ^ "..."
 
+(** One statement with `implicit` written in front of it. Only a `def`
+    and an `=` binding of a name may carry it: resolving an implicit
+    argument means finding a name of a type, and nothing else here has
+    both. stmt -> info -> stmt *)
+and made_implicit stmt implicit_info =
+  let i = combine_info implicit_info (stmt_info stmt) in
+  match stmt with
+  | SFunctionDef (_, name, params, body, return_type, sym, public, implicits, _)
+    ->
+      SFunctionDef
+        (i, name, params, body, return_type, sym, public, implicits, true)
+  | SLet (_, (TargetName _ as target), e, annotation, sym, public, _) ->
+      SLet (i, target, e, annotation, sym, public, true)
+  | other ->
+      raise
+        (Parse_error
+           ( stmt_info other,
+             "'implicit' marks a 'def' or an '=' binding of one name, and \
+              nothing else: an implicit argument is resolved by name and \
+              type, so there has to be a name to find" ))
+
 (** Whether an identifier in type position names a type variable: one
     starting with a lowercase letter (`Int`, `String` and `Bool` are
     their own tokens). string -> bool *)
@@ -1504,9 +1694,12 @@ let no_star =
 let rec parse_import eof import_info tokens =
   let stmt, tokens =
     match tokens with
-    | TokIdent (_, module_name) :: TokAs _ :: TokIdent (last, alias) :: rest ->
+    | TokIdent (mi, module_name) :: TokAs _ :: TokIdent (last, alias) :: rest ->
+        check_plain_name mi module_name "a module name";
+        check_plain_name last alias "an import alias";
         (SImport (combine_info import_info last, module_name, alias, false, [], 0), rest)
     | TokIdent (last, module_name) :: rest ->
+        check_plain_name last module_name "a module name";
         ( SImport
             (combine_info import_info last, module_name, module_name, false, [], 0),
           rest )
@@ -1526,6 +1719,7 @@ let rec parse_import_fields eof tokens =
   let field, last, tokens =
     match tokens with
     | TokIdent (_, field) :: TokAs _ :: TokIdent (last, local) :: rest ->
+        check_plain_name last local "an import alias";
         ((field, local), last, rest)
     | TokIdent (last, field) :: rest -> ((field, field), last, rest)
     | TokMul i :: _ -> raise (Parse_error (i, no_star))
@@ -1542,7 +1736,8 @@ let rec parse_import_fields eof tokens =
     info -> info -> [token] -> ([stmt], [token]) *)
 let parse_from_import eof from_info tokens =
   match tokens with
-  | TokIdent (_, module_name) :: TokImport _ :: rest ->
+  | TokIdent (mi, module_name) :: TokImport _ :: rest ->
+      check_plain_name mi module_name "a module name";
       let fields, last, rest = parse_import_fields eof rest in
       let i = combine_info from_info last in
       ([ SImport (i, module_name, module_name, true, fields, 0) ], rest)
@@ -1557,15 +1752,17 @@ let parse_from_import eof from_info tokens =
 let made_public stmt public_info =
   let i = combine_info public_info (stmt_info stmt) in
   match stmt with
-  | SFunctionDef (_, name, params, body, return_type, sym, _) ->
-      SFunctionDef (i, name, params, body, return_type, sym, true)
+  | SFunctionDef (_, name, params, body, return_type, sym, _, implicits, implicit)
+    ->
+      SFunctionDef
+        (i, name, params, body, return_type, sym, true, implicits, implicit)
   | SFunctionSig (_, name, type_, sym, _) ->
       SFunctionSig (i, name, type_, sym, true)
-  | SLet (_, (TargetName _ as target), e, annotation, sym, _) ->
-      SLet (i, target, e, annotation, sym, true)
+  | SLet (_, (TargetName _ as target), e, annotation, sym, _, implicit) ->
+      SLet (i, target, e, annotation, sym, true, implicit)
   | SLetStmt (_, (TargetName _ as target), inner, annotation, sym, _) ->
       SLetStmt (i, target, inner, annotation, sym, true)
-  | SLet (_, _, _, _, _, _) | SLetStmt (_, _, _, _, _, _) ->
+  | SLet (_, _, _, _, _, _, _) | SLetStmt (_, _, _, _, _, _) ->
       raise
         (Parse_error
            ( stmt_info stmt,

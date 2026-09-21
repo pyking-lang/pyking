@@ -1,0 +1,12 @@
+# A module between `module_implicit_mod` and whoever imports this one.
+# It uses that module's implicits itself; what it exports is an
+# ordinary function.
+
+import module_implicit_mod as base
+
+public def smallest(lst: [Int]) -> Int:
+    loop best = 0 for x in lst:
+        if base.int::leq(x, best):
+            x
+        else:
+            best

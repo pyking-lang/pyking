@@ -78,8 +78,9 @@ let children n =
           []
       | TList (_, element, _) -> [ NType element ]
       | TTuple (_, elements, _) -> List.map (fun t -> NType t) elements
-      | TFunction (_, params, result, _, _, definition) ->
+      | TFunction (_, params, result, _, _, definition, implicits) ->
           List.map (fun t -> NType t) params
+          @ List.map (fun (IParam (_, t)) -> NType t) implicits
           @ [ NType result ]
           @ option_of (fun s -> NStmt s) definition
       | TForall (_, _, body, _) -> [ NType body ])
@@ -114,7 +115,7 @@ let children n =
   | NStmt s -> (
       match s with
       | SBreak _ | SContinue _ | SImport _ -> []
-      | SLet (_, target, e, annotation, _, _) ->
+      | SLet (_, target, e, annotation, _, _, _) ->
           [ NTarget target; NExpr e ] @ option_of (fun t -> NType t) annotation
       | SLetStmt (_, target, inner, annotation, _, _) ->
           [ NTarget target; NStmt inner ]
@@ -131,8 +132,8 @@ let children n =
       | SIf (_, condition, then_body, else_body, _) ->
           (NExpr condition :: stmts_of then_body)
           @ (match else_body with None -> [] | Some body -> stmts_of body)
-      | SFunctionDef (_, _, params, body, return_type, _, _) ->
-          List.map (fun p -> NParam p) params
+      | SFunctionDef (_, _, params, body, return_type, _, _, implicits, _) ->
+          List.map (fun p -> NParam p) (params @ implicits)
           @ stmts_of body
           @ option_of (fun t -> NType t) return_type
       | SFunctionSig (_, _, t, _, _) -> [ NType t ]
@@ -174,7 +175,7 @@ let name_field n =
   | NLoopIter (ForIn (_, name, _, _)) -> Some name
   | NStmt (SVar (_, name, _, _))
   | NStmt (SMutate (_, name, _, _))
-  | NStmt (SFunctionDef (_, name, _, _, _, _, _))
+  | NStmt (SFunctionDef (_, name, _, _, _, _, _, _, _))
   | NStmt (SFunctionSig (_, name, _, _, _))
   | NStmt (SImport (_, _, name, _, _, _)) ->
       Some name

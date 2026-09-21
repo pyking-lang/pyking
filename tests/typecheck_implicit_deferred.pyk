@@ -1,0 +1,59 @@
+# Overloading and implicits resolved inside a definition that was not
+# annotated.
+#
+# A `def` that writes no types is worked out from its body the first
+# time something calls it (docs/type_inference.md), and that check runs
+# in a store of its own which is folded back into the outer one. Both
+# of the checker's result tables come back from it: `tmap`, and the
+# `qmap` these calls were resolved into. Without the second the program
+# type-checks and then calls a function with the wrong number of
+# arguments, because nothing was there for `elaborate.ml` to rewrite
+# (docs/implicits.md).
+
+def bar(a, f: (Int, implicit my: Int) -> Int):
+    implicit my = 7
+    f(a + 1)
+
+def foo(x: Int, implicit my: Int) -> Int:
+    x + my
+
+print(bar(7, foo))
+
+# The same for an overloaded call: `twice` is resolved while `applied`
+# is being worked out from its body. The argument decides which one --
+# `v * 1` is Int arithmetic, so `v` is an Int by the time the call is
+# resolved.
+def int::twice(x: Int) -> Int: x * 2
+def string::twice(x: String) -> String: x ++ x
+
+def applied(v): twice(v * 1)
+
+print(applied(4))
+
+# A function carrying an implicit parameter, passed where an ordinary
+# function type is wanted. `bar` writes no types, so its body can only
+# say that `f` takes one argument -- and an implicit parameter is not
+# something a body can discover. So `foo` is adapted where it is
+# *passed*: its implicit is resolved here, against the `my` in scope
+# here, and what `bar` receives is an ordinary `(Int) -> Int`. Writing
+# the implicit into `f`'s type says the other thing -- resolve it in
+# `bar`'s own body -- and the two are meant to differ
+# (docs/implicits.md, "A function carrying implicits, passed on").
+implicit my = 10
+
+def unannotated(a, f):
+    f(a + 1)
+
+def adds(x: Int, implicit my: Int) -> Int: x + my
+
+print(unannotated(7, adds))
+
+# And for an implicit resolved at a call to a definition, rather than
+# to a parameter, inside an unannotated body.
+implicit unit = 10
+
+def scaled(n: Int, implicit unit: Int) -> Int: n * unit
+
+def twice_scaled(n): scaled(n) + scaled(n)
+
+print(twice_scaled(3))

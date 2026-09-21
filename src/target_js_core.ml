@@ -746,7 +746,7 @@ let declare_functions stmts scope =
   List.fold_left
     (fun scope s ->
       match s with
-      | SFunctionDef (_, name, _, _, _, _, _)
+      | SFunctionDef (_, name, _, _, _, _, _, _, _)
         when not (StringSet.mem name scope.block) ->
           snd (bind name scope)
       | SImport _ ->
@@ -871,7 +871,7 @@ and translate_tail_stmt s scope =
     stmt -> scope -> ([jsstmt], scope) *)
 and translate_stmt s scope =
   match s with
-  | SLet (info, target, e, _, _, _) ->
+  | SLet (info, target, e, _, _, _, _) ->
       let js_expr = translate_expr e scope in
       let js_target, scope = translate_target target scope in
       ([ JsConst (info, js_target, js_expr) ], scope)
@@ -957,7 +957,7 @@ and translate_stmt s scope =
           ]
       in
       (own @ implementation, scope)
-  | SFunctionDef (info, name, params, body, _, _, _) ->
+  | SFunctionDef (info, name, params, body, _, _, _, _, _) ->
       (* The name was bound by `declare_functions`; read it back rather
          than binding again, which would rename it twice. *)
       let js_name = lookup name scope in
@@ -1184,6 +1184,11 @@ let precedence op =
 
 let unary_precedence = 14
 let conditional_precedence = 3
+
+(* An arrow function is an AssignmentExpression, looser than everything
+   else printed here -- so one used as a callee or an operand is
+   parenthesized. *)
+let arrow_precedence = 2
 let call_precedence = 17
 
 let escape_char c =
@@ -1256,15 +1261,17 @@ let rec pprint_js_expr ?(min_prec = 0) e runtime =
   | JsPlain (_, elements) ->
       Printf.sprintf "[%s]" (String.concat ", " (List.map plain elements))
   | JsArrow (_, params, body, result) ->
-      if body = [] then
-        Printf.sprintf "(%s) => %s" (String.concat ", " params) (plain result)
-      else
-        let lines =
-          List.map (fun st -> pprint_js_stmt ~level:1 st runtime) body
-          @ [ Printf.sprintf "  return %s;" (plain result) ]
-        in
-        Printf.sprintf "(%s) => {\n%s\n}" (String.concat ", " params)
-          (String.concat "\n" lines)
+      parens arrow_precedence min_prec
+        (if body = [] then
+           Printf.sprintf "(%s) => %s" (String.concat ", " params)
+             (plain result)
+         else
+           let lines =
+             List.map (fun st -> pprint_js_stmt ~level:1 st runtime) body
+             @ [ Printf.sprintf "  return %s;" (plain result) ]
+           in
+           Printf.sprintf "(%s) => {\n%s\n}" (String.concat ", " params)
+             (String.concat "\n" lines))
   | JsConcat (_, left, right) ->
       Printf.sprintf "pykConcat(%s, %s)" (plain left) (plain right)
   | JsSpread (_, parts) ->

@@ -190,6 +190,13 @@ goes on `make clean` but the cache itself only goes on `make distclean`.
   and named arguments: what they lower to, why a default is a generated
   `def` rather than a hoisted binding, and why named arguments are
   written in parameter order.
+- **[docs/overloading.md](docs/overloading.md)** — `::` names: what may
+  carry a qualifier, how a call is resolved to one definition by its
+  arguments, and what the output holds instead.
+- **[docs/implicits.md](docs/implicits.md)** — implicit parameters: the
+  search that fills one, the lambda built where a candidate takes
+  implicits of its own, why an obligation stops at a `def`, and why the
+  checker does not have to run twice.
 - **[docs/optimization.md](docs/optimization.md)** — tail calls, and the
   loops they become: what counts as one, what a mutually recursive group
   is merged into, what the pass deliberately leaves alone, and the one

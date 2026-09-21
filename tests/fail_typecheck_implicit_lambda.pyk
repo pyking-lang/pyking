@@ -1,0 +1,11 @@
+# A lambda parameter may not be implicit.
+#
+# An implicit parameter is part of a function's type, and only a `def`
+# writes one down (PYKING.md, "Implicits").
+#
+# This program is expected to FAIL parsing. Its `.ast.out` holds the
+# error message, not a program's output.
+
+f = (x: Int, implicit g: (Int) -> Int) => g(x)
+
+print(f(1))

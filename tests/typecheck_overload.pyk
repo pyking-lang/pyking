@@ -1,0 +1,30 @@
+# The program overload resolution turns a call into.
+#
+# `.ast.out` holds what `-t pyking` prints, which is the program every
+# backend compiles: each qualified name has become a plain one, and each
+# call names the definition it reaches. Resolution happens once, in the
+# type checker, and `elaborate.ml` writes the answer down
+# (docs/overloading.md).
+
+def int::twice(x: Int) -> Int: x * 2
+def string::twice(x: String) -> String: x ++ x
+
+print(twice(4), twice("ab"), int::twice(5))
+
+# Chosen inside a definition, from what its own parameter says.
+def doubled(n: Int) -> Int: twice(n)
+print(doubled(8))
+
+# An argument type that is still open when the choice is made: only one
+# candidate takes a list, and choosing it settles the element type.
+def list::first(xs: [a], fallback: a) -> a:
+    match xs:
+        case [x] ++ _: x
+        case _: fallback
+
+def string::first(s: String, fallback: String) -> String:
+    match s:
+        case "x" ++ rest: rest
+        case _: fallback
+
+print(first([9, 8], 0), first("xy", "?"), first("no", "?"))

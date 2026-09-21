@@ -1,0 +1,15 @@
+# An overloaded name used as a value.
+#
+# Resolution is by the arguments of a call, and a name standing on its
+# own has none -- so the definition that is meant has to be written out
+# (docs/overloading.md).
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+def int::twice(x: Int) -> Int: x * 2
+def string::twice(x: String) -> String: x ++ x
+
+def apply(f: (Int) -> Int, n: Int) -> Int: f(n)
+
+print(apply(twice, 4))

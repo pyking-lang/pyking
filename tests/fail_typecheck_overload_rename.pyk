@@ -1,0 +1,15 @@
+# A qualified name and the plain name it compiles to, both bound.
+#
+# `int::twice` becomes `int__twice` in every target's output, so a
+# program that also binds `int__twice` would have two definitions of one
+# name. It is refused by name, with the position of the second
+# (docs/overloading.md).
+#
+# This program is expected to FAIL the name analysis. Its `.ast.out`
+# holds the error message, not a program's output.
+
+def int::twice(x: Int) -> Int: x * 2
+
+def int__twice(x: Int) -> Int: x * 3
+
+print(int::twice(2), int__twice(2))

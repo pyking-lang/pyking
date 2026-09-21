@@ -1484,3 +1484,143 @@ targets = ["pyking"]
 [[cases]]
 file = "fail_typecheck_lambda_default.pyk"
 targets = ["pyking"]
+
+[[cases]]
+file = "overload_basic.pyk"
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
+
+[[cases]]
+file = "overload_poly.pyk"
+targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+
+[[cases]]
+file = "typecheck_overload.pyk"
+targets = ["pyking", "python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
+
+[[cases]]
+file = "implicit_value.pyk"
+targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+
+[[cases]]
+file = "implicit_function.pyk"
+targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+
+[[cases]]
+file = "implicit_explicit_arg.pyk"
+targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+
+[[cases]]
+file = "typecheck_implicit_nested.pyk"
+targets = ["pyking", "python14", "ocaml5.5", "iweb24", "interpret"]
+
+[[cases]]
+file = "module_implicit.pyk"
+modules = ["module_implicit_mod.pyk"]
+targets = ["python14", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "typecheck_module_implicit.pyk"
+modules = ["typecheck_module_implicit_mod.pyk"]
+targets = ["pyking", "python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "fail_typecheck_overload_none.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_overload_ambiguous.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_overload_open.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_overload_value.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_overload_binding.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_overload_rename.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_overload_asvalue.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_implicit_notimplicit.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_implicit_missing.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_implicit_ambiguous.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_implicit_escape.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_implicit_annotation.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_implicit_depth.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_implicit_marker.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_implicit_lambda.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_implicit_default.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_module_implicit_transitive.pyk"
+modules = ["module_implicit_mod.pyk", "module_implicit_middle.pyk"]
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_external_overload.pyk"
+modules = ["fail_typecheck_external_overload_mod1.external.pyk"]
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_implicit_signature.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "typecheck_implicit_deferred.pyk"
+targets = ["pyking", "python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
+
+[[cases]]
+file = "fail_typecheck_implicit_passed.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "typecheck_implicit_adapt.pyk"
+targets = ["pyking", "python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
+
+[[cases]]
+file = "overload_defaults.pyk"
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
+
+[[cases]]
+file = "fail_typecheck_overload_default.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_overload_named.pyk"
+targets = ["pyking"]

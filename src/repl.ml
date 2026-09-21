@@ -52,6 +52,7 @@ let starts_with prefix text =
       so a later entry may call an earlier one with its defaults. *)
 type session = {
   seen : stmt list;
+  high : int;
   state : Interpreter.state;
   types : Typesystem.env;
   store : Typesystem.store;
@@ -72,6 +73,7 @@ let builtin_kinds () =
 let new_session () =
   {
     seen = [];
+    high = 0;
     state = Interpreter.initial_state [] Interpreter.console_host;
     types = Typesystem.builtin_env ();
     store = Typesystem.empty_store [];
@@ -704,7 +706,7 @@ let make_reader () =
 (** The names a top-level statement binds. stmt -> [string] *)
 let defined_names stmt =
   match stmt with
-  | SFunctionDef (_, name, _, _, _, _, _) -> [ name ]
+  | SFunctionDef (_, name, _, _, _, _, _, _, _) -> [ name ]
   | stmt -> List.map fst (Analyses.bound_names stmt)
 
 (** The whole lines of source a statement covers. string -> stmt
@@ -747,7 +749,9 @@ let rec set_source name text = function
     -> ([(stmt, typ option, Typesystem.env, Typesystem.store)], typ IntMap.t) *)
 let check_entry entry types store =
   let types, store = Typesystem.declare_functions entry types store in
-  let store = { store with Typesystem.tmap = IntMap.empty } in
+  let store =
+    { store with Typesystem.tmap = IntMap.empty; Typesystem.qmap = IntMap.empty }
+  in
   let checked, _, store =
     List.fold_left
       (fun (checked, types, store) stmt ->
@@ -757,7 +761,7 @@ let check_entry entry types store =
         (checked @ [ (stmt, supplied, types, store) ], types, store))
       ([], types, store) entry
   in
-  (checked, store.Typesystem.tmap)
+  (checked, store.Typesystem.tmap, store.Typesystem.qmap)
 
 (** A value as the prompt shows it: `display_value`, except a function
     shows as <function>. Interpreter.value -> string *)
@@ -803,21 +807,21 @@ let submit session stmts report source =
   | Error e -> (session, Some e)
   | Ok (stmts, arguments) ->
   let session = { session with arguments } in
-  let seen = Analyses.symbolize (session.seen @ stmts) in
+  let seen = Analyses.symbolize ~start:session.high (session.seen @ stmts) in
   let entry = List.filteri (fun i _ -> i >= List.length session.seen) seen in
   match
     try
-      let checked, tmap = check_entry entry session.types session.store in
+      let checked, tmap, qmap = check_entry entry session.types session.store in
       (* The one rule types do not state, asked of the entry as a block,
          exactly as `pyk` asks it of a file. *)
       let kinds = Analyses.analyze_stmts entry session.kinds in
-      Ok (checked, tmap, kinds, seen, entry)
+      Ok (checked, tmap, qmap, kinds, seen, entry)
     with
     | Analyses.Analysis_error _ as e -> Error e
     | Typesystem.Type_error _ as e -> Error e
   with
   | Error e -> (session, Some e)
-  | Ok (checked, tmap, kinds, seen, entry) -> (
+  | Ok (checked, tmap, qmap, kinds, seen, entry) -> (
       (* An entry's tail calls become loops here as they would in a file,
          so a function written at the prompt runs the way `pyk <file>`
          runs it (see docs/optimization.md). The pass needs the types, so
@@ -828,20 +832,39 @@ let submit session stmts report source =
          alone, which is exactly right: an entry is its own group of
          `def`s. *)
       let optimized, _ = Opt_tailcall.optimize entry tmap in
-      let checked, seen, entry =
-        if optimized = entry then (checked, seen, entry)
+      let checked, qmap, seen, entry =
+        if optimized = entry then (checked, qmap, seen, entry)
         else
-          let seen = Analyses.symbolize (session.seen @ optimized) in
+          let seen =
+            Analyses.symbolize ~start:session.high (session.seen @ optimized)
+          in
           let entry =
             List.filteri (fun i _ -> i >= List.length session.seen) seen
           in
-          let checked, _ = check_entry entry session.types session.store in
-          (checked, seen, entry)
+          let checked, _, qmap =
+            check_entry entry session.types session.store
+          in
+          (checked, qmap, seen, entry)
+      in
+      (* The entry is *checked* under the names the prompt was typed
+         with and *run* with overloading and implicits removed, exactly
+         as a file is: the checker's environment keeps `int::leq`, so a
+         later entry may name it, while the machine's holds the plain
+         name the rewrite gave it (docs/implicits.md). *)
+      let running, _ = Elaborate.program qmap tmap entry in
+      let high = max session.high (Analyses.highest_sym seen) in
+      let running = Analyses.symbolize ~start:high running in
+      let high = max high (Analyses.highest_sym running) in
+      let checked =
+        List.map2
+          (fun (_, supplied, types, store) stmt ->
+            (stmt, supplied, types, store))
+          checked running
       in
       (* `seen` grows whether or not every statement runs: a symbol
          handed out once must not be handed out again. *)
-      let session = { session with seen; kinds } in
-      let state = Interpreter.declare_entry session.state entry in
+      let session = { session with seen; high; kinds } in
+      let state = Interpreter.declare_entry session.state running in
       let rec run session state checked =
         match checked with
         | [] -> (session, None)
@@ -896,16 +919,16 @@ let binding_types session =
   in
   let named name =
     match Typesystem.SMap.find_opt name session.types with
-    | Some (TBuiltin _) | None -> None
-    | Some type_ -> Some (name, settled type_)
+    | Some { Typesystem.btype = TBuiltin _; _ } | None -> None
+    | Some binding -> Some (name, settled binding.Typesystem.btype)
   in
   let ordered = List.filter_map (fun (name, _) -> named name) session.sources in
   ordered
   @ Typesystem.SMap.fold
-      (fun name type_ found ->
+      (fun name binding found ->
         if List.mem_assoc name ordered then found
         else
-          match type_ with
+          match binding.Typesystem.btype with
           | TBuiltin _ -> found
           | type_ -> found @ [ (name, settled type_) ])
       session.types []
@@ -945,21 +968,29 @@ let meta_help session _argument _report =
 let meta_ls session _argument _report =
   let bindings = Interpreter.bindings_in_scope session.state.Interpreter.env in
   let types = binding_types session in
-  let names =
-    List.filter (fun (name, _) -> List.mem_assoc name bindings) types
-    |> List.map fst
-  in
+  (* A qualified name runs under the plain one the rewrite gave it
+     (docs/overloading.md), so the machine is asked for that while the
+     prompt shows what was typed. *)
+  let held name = List.mem_assoc (Names.renamed name) bindings in
+  let names = List.filter (fun (name, _) -> held name) types |> List.map fst in
+  let shown = List.map Names.renamed names in
   let names =
     names
     @ List.filter_map
         (fun (name, _) ->
-          if List.mem_assoc name types || List.mem name Builtin.names then None
+          if List.mem name shown || List.mem name Builtin.names then None
           else Some name)
         bindings
   in
   (* A def holding a parameter's default is the pass's, not the
      session's: nobody typed it, so nobody is shown it. *)
-  let names = List.filter (fun name -> not (Desugar_args.generated_name name)) names in
+  let names =
+    List.filter
+      (fun name ->
+        (not (Desugar_args.generated_name name))
+        && not (Elaborate.generated_name name))
+      names
+  in
   (if names = [] then print_endline "no bindings yet"
    else
      let width =
@@ -968,10 +999,15 @@ let meta_ls session _argument _report =
      List.iter
        (fun name ->
          let value =
-           value_text (List.assoc name bindings)
+           value_text (List.assoc (Names.renamed name) bindings)
            ^ type_suffix (List.assoc_opt name types)
          in
-         Printf.printf "%s%s = %s\n" name
+         let marked =
+           match Typesystem.SMap.find_opt name session.types with
+           | Some { Typesystem.bimplicit = true; _ } -> "implicit "
+           | _ -> ""
+         in
+         Printf.printf "%s%s%s = %s\n" marked name
            (String.make (width - String.length name) ' ')
            value)
        names);

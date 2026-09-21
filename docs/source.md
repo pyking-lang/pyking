@@ -614,15 +614,19 @@ One function per AST datatype, each taking a node of exactly that type
 and returning exactly one kind of answer (the signatures are written out
 OCaml-style near the top of the file):
 
-- **`type_check(stmts, sigmaps=()) -> tmap`** — the entry point. One
-  module in, the types it worked out back; `sigmaps` pairs the name of
-  every module this one imports with what that module exports and at
-  what type, which is all of it this check can see.
+- **`type_check(stmts, sigmaps=()) -> (tmap, qmap)`** — the entry
+  point. One module in, the types it worked out back, and beside them
+  what every call it resolved denotes; `sigmaps` pairs the name of
+  every module this one imports with what that module exports, at what
+  type, and whether it is implicit, which is all of it this check can
+  see.
 - **`import_env(stmts, env, store) -> Env`** — what a module's imports
   bring into scope, put there before the first statement is checked
   since an import is a declaration of the module rather than a statement
-  in its sequence. **`available(module, info, store)`** is the refusal a
-  file checked on its own gets.
+  in its sequence. Each binding keeps whether it was written
+  `implicit`, which is what an unqualified call and the implicit search
+  look through a module for. **`available(module, info, store)`** is
+  the refusal a file checked on its own gets.
 - **`check_exports(stmts, tmap)`** — the other direction: a module that
   exports a name whose type the source does not write down is refused.
   An exported `def` is fully annotated or carries a signature line, and
@@ -670,6 +674,22 @@ OCaml-style near the top of the file):
   too (shared by every parameter naming it), and nothing generalises the
   result. Deferred inference is not reached at all — that machinery is
   keyed by a definition's symbol.
+- **`candidates_for` / `resolve_overload`** — an overloaded call. The
+  arguments are checked once and each `q::name` in scope is tried
+  against what they turned out to be, in a store of its own; exactly
+  one fitting resolves it. See [overloading.md](overloading.md).
+- **`discharge` / `resolve_implicit`** — an implicit parameter. Every
+  *implicit* binding whose base name is the parameter's is tried, with
+  its own implicit parameters set aside as obligations discharged in
+  turn, in the scope of the call. See [implicits.md](implicits.md).
+- **`adapted`** — the same, for an *explicit* argument: a function
+  carrying implicit parameters, passed where a type without them is
+  wanted, has them supplied here. Tried where an argument does not fit
+  its parameter and before the mismatch is reported.
+- **`without_implicits(type_)`** — the type a definition has once its
+  implicit parameters are ordinary ones, which is what every stage
+  after `elaborate.ml` sees of it. Read by the backends' sigmap and by
+  the pass itself, so the two cannot disagree.
 - **`declared_type` / `infer_call` / `infer_definition` /
   `inference_group` / `body_result`** — the deferred half. A `def` that
   did *not* write its type down is put aside with `TUnknown` in place of
@@ -847,6 +867,60 @@ without a type or a value: which argument *types* a builtin accepts is
 comparison, and what a builtin computes is `interpreter.ml`'s. Write a
 new builtin's entry here first; the checker, the interpreter and each
 backend then bind it.
+
+---
+
+## `names.ml`
+
+**The spelling rules for a qualified name.**
+
+`int::leq` is one identifier that happens to hold a `::`, so this is
+the only place one is taken apart -- the lexer, the parser, the type
+checker and `elaborate.ml` all ask here rather than each splitting a
+string of its own.
+
+**Design, in depth:** [overloading.md](overloading.md).
+
+### Main functions
+
+- **`is_qualified name`**, **`qualifier name`**, **`base name`** -- the
+  parts.
+- **`renamed name`** -- the plain name a qualified one compiles to,
+  `int::leq` -> `int__leq`. Deterministic, which is what lets two
+  modules agree on it with no shared state.
+- **`field name`** -- the part of a dotted name after the module it is
+  reached through, so a key like `mod.int::leq` can be asked the
+  questions above.
+
+---
+
+## `elaborate.ml`
+
+**Overloading and implicits, removed after the type checker.**
+
+The checker changes nothing; what it writes down is `qmap`, and this
+pass rewrites the program by it. Three things happen: every qualified
+name becomes the plain one `Names.renamed` gives it, every call the
+checker resolved names the definition it reaches, and every implicit
+parameter becomes an ordinary argument -- built from a *lambda* where
+the value filling it takes implicit arguments of its own. What comes
+out is ordinary Pyking, so no backend and not the interpreter knows
+either feature exists.
+
+**Design, in depth:** [implicits.md](implicits.md),
+[overloading.md](overloading.md).
+
+### Main functions
+
+- **`program qmap tmap stmts -> ([stmt], tmap)`** -- the entry point.
+  Every node it builds is given a symbol of its own and its type
+  recorded, from what `qmap` carried: the checker does not run again
+  (implicits.md, "Why one check is enough").
+- **`generated_name name`** -- whether the pass made this name up,
+  which is what keeps a generated lambda's parameter out of the
+  prompt's listing.
+- **`check_no_rename_clash stmts`** -- refuses a program that binds
+  both `q::b` and the plain name it compiles to.
 
 ---
 

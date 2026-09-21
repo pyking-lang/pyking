@@ -52,15 +52,41 @@ exception Type_error of info * string
 
 module SMap = Map.Make (String)
 
-(* `env` maps a name to a type, and to nothing else: a name it does not
-   hold is a name that is not in scope. The four host operations are in
-   it under TBuiltin, which is a type like any other here -- see
-   `check_builtin_call`, which is what a call to one is checked by. *)
-type env = typ SMap.t
+(* What a name denotes: its type, and whether the binding was written
+   `implicit` -- which is what an implicit argument may be resolved to
+   and what an ordinary name never is (PYKING.md, "Implicits"). *)
+type binding = { btype : typ; bimplicit : bool }
 
-(** What one module exports, and at what type -- all of it another
-    module sees (Module.make_sigmap). *)
-type sigmap = (string * typ) list
+(* `env` maps a name to what it denotes, and to nothing else: a name it
+   does not hold is a name that is not in scope. The host operations are
+   in it under TBuiltin, which is a type like any other here -- see
+   `check_builtin_call`, which is what a call to one is checked by. *)
+type env = binding SMap.t
+
+(** What one module exports, at what type, and whether it is implicit --
+    all of it another module sees (Module.make_sigmap). *)
+type sigmap = (string * typ * bool) list
+
+(** What one node denotes once overloading and implicits are resolved. *)
+type resolution =
+  | Call of (string * typ) option * argument list
+      (* a call: the name overload resolution chose for it and that
+         definition's type (None where the source named it outright),
+         and one argument per implicit parameter, in order *)
+  | Adapted of typ * int * argument list
+      (* an argument whose implicit parameters are not the ones wanted:
+         a lambda of that type stands in its place, passing the first
+         `int` of its own parameters to what was written and then these
+         (docs/implicits.md) *)
+
+and argument =
+  | Direct of string * typ
+      (* a name in scope, used at this type *)
+  | Wrapped of string * typ * int * argument list
+      (* a lambda of that function type, passing the first `int` of its
+         own parameters to the name and then these -- what a function
+         whose implicit parameters are not the ones wanted needs, in
+         either direction (docs/implicits.md) *)
 
 (* --- building types ---
    The Python leaves the symbol, and a function type's two inference
@@ -76,8 +102,47 @@ let t_unknown info = TUnknown (info, 0)
 let t_builtin info name = TBuiltin (info, name, 0)
 let t_var info name = TVar (info, name, 0, true)
 let t_meta info name = TVar (info, name, 0, false)
-let t_function info params result = TFunction (info, params, result, 0, 0, None)
+let t_function ?(implicits = []) info params result =
+  TFunction (info, params, result, 0, 0, None, implicits)
 let t_forall info vars body = TForall (info, vars, body, 0)
+
+(** The type a definition has once its implicit parameters are ordinary
+    ones: what every stage after `elaborate.ml` sees of it. typ -> typ *)
+let rec without_implicits type_ =
+  match type_ with
+  | TForall (info, vars, body, sym) ->
+      TForall (info, vars, without_implicits body, sym)
+  | TFunction (info, params, result, sym, tmsym, definition, implicits) ->
+      TFunction
+        ( info,
+          params @ List.map (fun (IParam (_, t)) -> t) implicits,
+          result,
+          sym,
+          tmsym,
+          definition,
+          [] )
+  | type_ -> type_
+
+(** How many parameters a function type takes, counting an implicit one
+    like any other; 0 for anything that is not a function. typ -> int *)
+let arity type_ =
+  match type_ with
+  | TFunction (_, params, _, _, _, _, implicits) ->
+      List.length params + List.length implicits
+  | _ -> 0
+
+(** The types of a list of implicit parameters, in order.
+    [implicit_param] -> [typ] *)
+let implicit_types implicits = List.map (fun (IParam (_, t)) -> t) implicits
+
+(** The names of a list of implicit parameters, in order.
+    [implicit_param] -> [string] *)
+let implicit_names implicits = List.map (fun (IParam (n, _)) -> n) implicits
+
+(** implicits with each type replaced by f of it.
+    (typ -> typ) -> [implicit_param] -> [implicit_param] *)
+let map_implicits f implicits =
+  List.map (fun (IParam (n, t)) -> IParam (n, f t)) implicits
 
 (** The unit type, (), an empty tuple type. info -> typ *)
 let unit_type info = t_tuple info []
@@ -135,7 +200,10 @@ type expected = No_function | Inferring | Declared of typ
     modules -- the signature of every module this one imports: the whole
       of what one module can see of another. Given, like signatures.
     tmap -- symbol -> the type worked out for that node: the pass's
-      result. *)
+      result.
+    qmap -- a call's symbol -> what that call denotes, once overloading
+      and implicits are resolved: the pass's other result, and what
+      elaborate.ml rewrites the program by. *)
 type store = {
   environments : env IntMap.t;
   instances : typ IntMap.t;
@@ -148,6 +216,7 @@ type store = {
   captured : StringSet.t;
   modules : (string * sigmap) list;
   tmap : typ IntMap.t;
+  qmap : resolution IntMap.t;
 }
 
 (** The store a program starts checking in, holding the signature of
@@ -165,6 +234,7 @@ let empty_store sigmaps =
     captured = StringSet.empty;
     modules = sigmaps;
     tmap = IntMap.empty;
+    qmap = IntMap.empty;
   }
 
 (* The names a generalised variable is given, in order: a, b, ... z,
@@ -260,14 +330,15 @@ let rec zonk type_ store =
   | TList (info, element, sym) -> TList (info, zonk element store, sym)
   | TTuple (info, elements, sym) ->
       TTuple (info, List.map (fun e -> zonk e store) elements, sym)
-  | TFunction (info, params, result, sym, tmsym, definition) ->
+  | TFunction (info, params, result, sym, tmsym, definition, implicits) ->
       TFunction
         ( info,
           List.map (fun p -> zonk p store) params,
           zonk result store,
           sym,
           tmsym,
-          definition )
+          definition,
+          map_implicits (fun t -> zonk t store) implicits )
   | TForall (info, vars, body, sym) -> TForall (info, vars, zonk body store, sym)
   | type_ -> type_
 
@@ -280,8 +351,10 @@ let metas_in type_ store =
         if List.mem name found then found else found @ [ name ]
     | TList (_, element, _) -> walk found element
     | TTuple (_, elements, _) -> List.fold_left walk found elements
-    | TFunction (_, params, result, _, _, _) ->
-        walk (List.fold_left walk found params) result
+    | TFunction (_, params, result, _, _, _, implicits) ->
+        walk
+          (List.fold_left walk found (params @ implicit_types implicits))
+          result
     | TForall (_, _, body, _) -> walk found body
     | _ -> found
   in
@@ -307,9 +380,12 @@ let free_vars_under type_ bound =
     | TList (_, element, _) -> walk found bound element
     | TTuple (_, elements, _) ->
         List.fold_left (fun found e -> walk found bound e) found elements
-    | TFunction (_, params, result, _, _, _) ->
+    | TFunction (_, params, result, _, _, _, implicits) ->
         walk
-          (List.fold_left (fun found p -> walk found bound p) found params)
+          (List.fold_left
+             (fun found p -> walk found bound p)
+             found
+             (params @ implicit_types implicits))
           bound result
     | _ -> found
   in
@@ -331,14 +407,15 @@ let rec substitute type_ mapping =
   | TList (info, element, sym) -> TList (info, substitute element mapping, sym)
   | TTuple (info, elements, sym) ->
       TTuple (info, List.map (fun e -> substitute e mapping) elements, sym)
-  | TFunction (info, params, result, sym, tmsym, definition) ->
+  | TFunction (info, params, result, sym, tmsym, definition, implicits) ->
       TFunction
         ( info,
           List.map (fun p -> substitute p mapping) params,
           substitute result mapping,
           sym,
           tmsym,
-          definition )
+          definition,
+          map_implicits (fun t -> substitute t mapping) implicits )
   | type_ -> type_
 
 (** type_ with the variables `vars` renamed to their positions, so that
@@ -364,7 +441,7 @@ let rec names_in type_ =
       List.fold_left
         (fun s e -> StringSet.union s (names_in e))
         StringSet.empty elements
-  | TFunction (_, params, result, _, _, _) ->
+  | TFunction (_, params, result, _, _, _, _) ->
       List.fold_left
         (fun s p -> StringSet.union s (names_in p))
         (names_in result) params
@@ -471,14 +548,17 @@ let rec same_type a b =
   | TList (_, x, _), TList (_, y, _) -> same_type x y
   | TTuple (_, xs, _), TTuple (_, ys, _) ->
       List.length xs = List.length ys && List.for_all2 same_type xs ys
-  | TFunction (_, ps, r, _, _, _), TFunction (_, qs, s, _, _, _) ->
-      (* A function *is* its parameters and its result. The other three
-         fields -- the symbol, the definition it came from, and the body
-         still to be checked -- say where a type was written and what is
-         left to do about it, neither of which is part of what it
-         means. *)
+  | TFunction (_, ps, r, _, _, _, mine), TFunction (_, qs, s, _, _, _, theirs)
+    ->
+      (* A function *is* its parameters and its result. The other two
+         fields -- the symbol of the definition it came from and that
+         definition -- say what is left to do about it, which is not part
+         of what it means. Its implicit parameters are: they are matched
+         by name as well as by type, since the name is half of what
+         resolves one (PYKING.md, "Implicits"). *)
       List.length ps = List.length qs
       && List.for_all2 same_type ps qs
+      && same_implicits mine theirs
       && same_type r s
   | TVar (_, x, _, true), TVar (_, y, _, true) ->
       (* A variable is rigid: inside a body it stands for a type the
@@ -497,6 +577,14 @@ let rec same_type a b =
       List.length mine = List.length theirs
       && same_type (canonical my_body mine) (canonical their_body theirs)
   | _ -> false
+
+(** Whether two lists of implicit parameters are the same, name by name
+    and type by type. [implicit_param] -> [implicit_param] -> Bool *)
+and same_implicits mine theirs =
+  List.length mine = List.length theirs
+  && List.for_all2
+       (fun (IParam (a, x)) (IParam (b, y)) -> a = b && same_type x y)
+       mine theirs
 
 let is_forall type_ = match type_ with TForall _ -> true | _ -> false
 
@@ -554,10 +642,17 @@ and instance_for general wanted quantified chosen =
       | TTuple (_, mine, _), TTuple (_, theirs, _)
         when List.length mine = List.length theirs ->
           each mine theirs chosen
-      | ( TFunction (_, mine, my_result, _, _, _),
-          TFunction (_, theirs, their_result, _, _, _) )
-        when List.length mine = List.length theirs -> (
-          match each mine theirs chosen with
+      | ( TFunction (_, mine, my_result, _, _, _, my_implicits),
+          TFunction (_, theirs, their_result, _, _, _, their_implicits) )
+        when List.length mine = List.length theirs
+             && implicit_names my_implicits = implicit_names their_implicits
+        -> (
+          match
+            each
+              (mine @ implicit_types my_implicits)
+              (theirs @ implicit_types their_implicits)
+              chosen
+          with
           | None -> None
           | Some chosen ->
               instance_for my_result their_result quantified chosen)
@@ -596,12 +691,21 @@ let rec unify one other store =
   | TTuple (_, mine, _), TTuple (_, theirs, _)
     when List.length mine = List.length theirs ->
       unify_each mine theirs store
-  | ( TFunction (_, mine, my_result, _, _, _),
-      TFunction (_, theirs, their_result, _, _, _) )
-    when List.length mine = List.length theirs -> (
+  | ( TFunction (_, mine, my_result, _, _, _, my_implicits),
+      TFunction (_, theirs, their_result, _, _, _, their_implicits) )
+    when List.length mine = List.length theirs
+         && implicit_names my_implicits = implicit_names their_implicits -> (
       match unify_each mine theirs store with
       | None -> None
-      | Some store -> unify my_result their_result store)
+      | Some store -> (
+          match
+            unify_each
+              (implicit_types my_implicits)
+              (implicit_types their_implicits)
+              store
+          with
+          | None -> None
+          | Some store -> unify my_result their_result store))
   | TForall (_, mine, my_body, _), TForall (_, theirs, their_body, _)
     when List.length mine = List.length theirs ->
       unify_under mine my_body theirs their_body store
@@ -729,7 +833,7 @@ let returning store info type_ =
     { returns = store.frame.returns @ [ { given_info = info; given_type = type_ } ] }
 
 (** store with what an inner check found out (environments, instances,
-    solutions, and the result table) merged in; frame and checking stay
+    solutions, and the result tables) merged in; frame and checking stay
     store's own. A solution is knowledge like the others: a metavariable
     is handed out once, so no two checks can disagree about one.
     store -> store -> store *)
@@ -743,7 +847,23 @@ let learned store inner =
     groups = inner.groups;
     captured = StringSet.union store.captured inner.captured;
     tmap = inner.tmap;
+    (* `qmap` is a result exactly as `tmap` is, so it comes back for the
+       same reason: a call resolved while a deferred definition's body
+       was being worked out is resolved once, and dropping it here would
+       leave `elaborate.ml` with nothing to rewrite that call by. *)
+    qmap = inner.qmap;
   }
+
+(** store with what this call denotes recorded under its symbol. Like
+    `record` it overwrites: a generalisable body is checked twice, and
+    `verified`'s pass is the one that counts.
+    store -> int -> resolution -> store *)
+let record_resolution store sym answer =
+  { store with qmap = IntMap.add sym answer store.qmap }
+
+(* How deep a chain of implicits resolving implicits may go before it is
+   called a mistake rather than a program. *)
+let max_implicit_depth = 32
 
 (** store with a node's type recorded, with every metavariable in it
     replaced by what it was solved to. Overwrites: a body checked twice
@@ -964,13 +1084,13 @@ let check_mutable type_ info name =
 let check_not_conflated then_type else_type info =
   let definition type_ =
     match type_ with
-    | Some (TFunction (_, _, _, _, _, Some (SFunctionDef _ as node))) ->
+    | Some (TFunction (_, _, _, _, _, Some (SFunctionDef _ as node), _)) ->
         Some node
     | _ -> None
   in
   match (definition then_type, definition else_type) with
-  | ( Some (SFunctionDef (_, my_name, _, _, _, my_sym, _)),
-      Some (SFunctionDef (_, their_name, _, _, _, their_sym, _)) )
+  | ( Some (SFunctionDef (_, my_name, _, _, _, my_sym, _, _, _)),
+      Some (SFunctionDef (_, their_name, _, _, _, their_sym, _, _, _)) )
     when my_sym <> their_sym ->
       raise
         (Type_error
@@ -1138,8 +1258,19 @@ and ends_every_path stmts =
 (* --- the environment --- *)
 
 (** env with name bound to type_. A fresh map, so shadowing works by
-    construction. env -> string -> typ -> env *)
-let bind env name type_ = SMap.add name type_ env
+    construction. `implicit` marks a binding an implicit argument may be
+    resolved to; every ordinary binding form leaves it alone.
+    env -> string -> typ -> env *)
+let bind ?(implicit = false) env name type_ =
+  SMap.add name { btype = type_; bimplicit = implicit } env
+
+(** The type a name denotes, or None where it is not in scope.
+    env -> string -> typ? *)
+let type_of env name =
+  match SMap.find_opt name env with
+  | Some binding -> Some binding.btype
+  | None -> None
+
 
 (** The environment a program starts in: every name in
     Builtin.names, at its TBuiltin type. Its own function so
@@ -1181,10 +1312,19 @@ let import_env stmts env store =
           let sigmap = available module_ info store in
           List.fold_left
             (fun env (exported, local) ->
+              let _, type_, implicit =
+                List.find (fun (n, _, _) -> n = exported) sigmap
+              in
               let bound =
                 if selected then local else Printf.sprintf "%s.%s" name exported
               in
-              bind env bound (List.assoc exported sigmap))
+              (* A public implicit is found by an unqualified call as
+                 well, and automatically -- an ordering a module defines
+                 is usable in the file that imports it without being
+                 named (PYKING.md, "Modules"). It is bound under the one
+                 spelling either way, so a resolution always names the
+                 module it came from. *)
+              bind ~implicit env bound type_)
             env fields
       | _ -> env)
     env stmts
@@ -1222,10 +1362,30 @@ let fully_annotated node store =
   | Some _ -> true
   | None -> (
       match node with
-      | SFunctionDef (_, _, params, _, return_type, _, _) ->
+      | SFunctionDef (_, _, params, _, return_type, _, _, _, _) ->
           return_type <> None
           && List.for_all (fun (Param (_, _, t, _, _)) -> t <> None) params
       | _ -> false)
+
+(** Refuses a definition that carries implicit parameters, or is itself
+    implicit, without writing its whole type down. Resolving an implicit
+    argument is a question about types, so there has to be a type to ask
+    it of (PYKING.md, "Implicits"). stmt -> store -> () *)
+let check_implicit_annotated node store =
+  match node with
+  | SFunctionDef (info, name, _, _, _, _, _, implicits, implicit)
+    when (implicits <> [] || implicit) && not (fully_annotated node store) ->
+      raise
+        (Type_error
+           ( info,
+             Printf.sprintf
+               "'%s' is %s, so it needs its whole type written down: \
+                annotate every parameter and the return type, or give it a \
+                'def %s : ...' signature line"
+               name
+               (if implicit then "implicit" else "a function with an implicit parameter")
+               name ))
+  | _ -> ()
 
 (** Refuses a module that exports a name whose type the source does not
     write down.
@@ -1247,7 +1407,7 @@ let check_exports stmts store =
   List.iter
     (fun statement ->
       match statement with
-      | SFunctionDef (info, name, _, _, _, _, true)
+      | SFunctionDef (info, name, _, _, _, _, true, _, _)
         when not (fully_annotated statement store) ->
           raise
             (Type_error
@@ -1257,7 +1417,7 @@ let check_exports stmts store =
                       "annotate every parameter and the return type, or give \
                        it a 'def %s : ...' signature line."
                       name) ))
-      | SLet (info, TargetName (_, name, _), _, None, _, true)
+      | SLet (info, TargetName (_, name, _), _, None, _, true, _)
       | SLetStmt (info, TargetName (_, name, _), _, None, _, true) ->
           raise
             (Type_error
@@ -1278,7 +1438,7 @@ let function_type node store =
   | Some written -> written
   | None -> (
       match node with
-      | SFunctionDef (info, name, params, _, return_type, _, _) ->
+      | SFunctionDef (info, name, params, _, return_type, _, _, implicits, _) ->
           let unannotated =
             List.filter_map
               (function Param (_, n, None, _, _) -> Some n | _ -> None)
@@ -1299,7 +1459,12 @@ let function_type node store =
                      name missing ))
           else
             generalize
-              (t_function info
+              (t_function
+                 ~implicits:
+                   (List.map
+                      (fun (Param (_, n, t, _, _)) -> IParam (n, Option.get t))
+                      implicits)
+                 info
                  (List.map (fun (Param (_, _, t, _, _)) -> Option.get t) params)
                  (Option.get return_type))
       | _ -> unsupported (stmt_info node))
@@ -1311,7 +1476,7 @@ let declared_type node store =
   if fully_annotated node store then function_type node store
   else
     match node with
-    | SFunctionDef (info, _, params, _, return_type, sym, _) ->
+    | SFunctionDef (info, _, params, _, return_type, sym, _, implicits, _) ->
         TFunction
           ( info,
             List.map
@@ -1321,7 +1486,12 @@ let declared_type node store =
             (match return_type with Some t -> t | None -> t_unknown info),
             0,
             sym,
-            Some node )
+            Some node,
+            List.map
+              (fun (Param (pinfo, pname, t, _, _)) ->
+                IParam
+                  (pname, match t with Some t -> t | None -> t_unknown pinfo))
+              implicits )
     | _ -> unsupported (stmt_info node)
 
 (** Pairs each `def name : type` line of a block with the definition of
@@ -1354,7 +1524,7 @@ let declare_signatures stmts defined store =
                            "'%s' already has a signature in this block" name ));
                 let node_params, node_return =
                   match node with
-                  | SFunctionDef (_, _, params, _, return_type, _, _) ->
+                  | SFunctionDef (_, _, params, _, return_type, _, _, _, _) ->
                       (params, return_type)
                   | _ -> ([], None)
                 in
@@ -1377,7 +1547,22 @@ let declare_signatures stmts defined store =
                 let type_ = generalize written in
                 let _, written_type = instantiated type_ in
                 (match written_type with
-                | TFunction (_, written_params, _, _, _, _) ->
+                | TFunction (_, _, _, _, _, _, (IParam (implicit, _) :: _)) ->
+                    (* An implicit parameter is written on the `def`
+                       header, where the body can name it. A signature
+                       line says a type and binds nothing, so one here
+                       would name a parameter that does not exist
+                       (docs/implicits.md). *)
+                    raise
+                      (Type_error
+                         ( info,
+                           Printf.sprintf
+                             "'%s' cannot take the implicit parameter '%s' \
+                              on a signature line: an implicit parameter is \
+                              written on the 'def' itself, where its body \
+                              can name it"
+                             name implicit ))
+                | TFunction (_, written_params, _, _, _, _, _) ->
                     if List.length written_params <> List.length node_params
                     then
                       raise
@@ -1416,8 +1601,8 @@ let declare_functions stmts env store =
     List.fold_left
       (fun env function_ ->
         match function_ with
-        | SFunctionDef (_, name, _, _, _, _, _) ->
-            bind env name (declared_type function_ store)
+        | SFunctionDef (_, name, _, _, _, _, _, _, implicit) ->
+            bind ~implicit env name (declared_type function_ store)
         | _ -> env)
       env functions
   in
@@ -1523,10 +1708,10 @@ let one_type given name store =
     them by its own caller. env -> store -> StringSet.t *)
 let free_metas env store =
   SMap.fold
-    (fun _ type_ found ->
+    (fun _ binding found ->
       List.fold_left
         (fun found meta -> StringSet.add meta found)
-        found (metas_in type_ store))
+        found (metas_in binding.btype store))
     env StringSet.empty
 
 (** The scheme a definition has: its worked-out type, with every
@@ -1577,7 +1762,7 @@ let monotypes_for group store =
   List.fold_left
     (fun (monotypes, store) node ->
       match node with
-      | SFunctionDef (info, _, params, _, return_type, _, _) ->
+      | SFunctionDef (info, _, params, _, return_type, _, _, _, _) ->
           (* A parameter the source annotated means what it says: a
              metavariable stands only where nothing was written. *)
           let params, store =
@@ -1617,7 +1802,7 @@ let required store wanted supplied node =
       | None ->
           let name =
             match node with
-            | SFunctionDef (_, name, _, _, _, _, _) -> name
+            | SFunctionDef (_, name, _, _, _, _, _, _, _) -> name
             | _ -> "?"
           in
           raise
@@ -1667,12 +1852,12 @@ let inference_group node store =
   else
     let name_of other =
       match other with
-      | SFunctionDef (_, name, _, _, _, _, _) -> name
+      | SFunctionDef (_, name, _, _, _, _, _, _, _) -> name
       | _ -> ""
     in
     let body_of other =
       match other with
-      | SFunctionDef (_, _, _, body, _, _, _) -> body
+      | SFunctionDef (_, _, _, body, _, _, _, _, _) -> body
       | _ -> []
     in
     let calls =
@@ -1725,7 +1910,7 @@ let inference_group node store =
 let settled_type func_type store =
   let func_type = prune func_type store in
   match func_type with
-  | TFunction (_, _, _, _, tmsym, Some (SFunctionDef _)) -> (
+  | TFunction (_, _, _, _, tmsym, Some (SFunctionDef _), _) -> (
       match instance_of store tmsym with
       | Some instance -> zonk instance store
       | None -> func_type)
@@ -1737,13 +1922,20 @@ let settled_type func_type store =
    unreachable and answer with nothing. *)
 
 let def_name node =
-  match node with SFunctionDef (_, name, _, _, _, _, _) -> name | _ -> ""
+  match node with SFunctionDef (_, name, _, _, _, _, _, _, _) -> name | _ -> ""
+
+(** The implicit parameters of a definition, or none for anything else.
+    stmt -> [param] *)
+let def_implicits node =
+  match node with
+  | SFunctionDef (_, _, _, _, _, _, _, implicits, _) -> implicits
+  | _ -> []
 
 let def_params node =
-  match node with SFunctionDef (_, _, params, _, _, _, _) -> params | _ -> []
+  match node with SFunctionDef (_, _, params, _, _, _, _, _, _) -> params | _ -> []
 
 let def_body node =
-  match node with SFunctionDef (_, _, _, body, _, _, _) -> body | _ -> []
+  match node with SFunctionDef (_, _, _, body, _, _, _, _, _) -> body | _ -> []
 
 let param_name (Param (_, name, _, _, _)) = name
 let param_sym (Param (_, _, _, _, sym)) = sym
@@ -1899,7 +2091,7 @@ let rec check_stmts stmts env return_type acc_type store =
     stmt -> env -> expected -> typ option -> store -> (typ option, env, store) *)
 and check_stmt statement env return_type acc_type store =
   match statement with
-  | SLet (info, target, e, annotation, sym, _) ->
+  | SLet (info, target, e, annotation, sym, _, implicit) ->
       (* The binding's symbol records what its right-hand side turned out
          to be; the binding *itself* is a statement, so it has unit
          type. *)
@@ -1907,7 +2099,7 @@ and check_stmt statement env return_type acc_type store =
       let store = check_annotation annotation expr_type_ store in
       let expr_type_ = zonk expr_type_ store in
       let store = record store sym expr_type_ in
-      let env, store = check_target target expr_type_ env store in
+      let env, store = check_target ~implicit target expr_type_ env store in
       (Some (unit_type info), env, store)
   | SLetStmt (info, target, inner, annotation, sym, _) ->
       (* `x = if c: ...` binds what the branch that runs yields, so the
@@ -1955,7 +2147,7 @@ and check_stmt statement env return_type acc_type store =
       (* A mutation binds nothing and is worth nothing: the name keeps
          the type it was declared with, and the value written into it
          must fit that type. *)
-      match SMap.find_opt name env with
+      match type_of env name with
       | None ->
           raise
             (Analyses.Analysis_error
@@ -2162,13 +2354,14 @@ and check_stmt statement env return_type acc_type store =
          was checked (`declare_signatures`); on its own it says nothing
          and produces nothing. *)
       (Some (unit_type info), env, store)
-  | SFunctionDef (info, name, _, _, _, sym, _) ->
+  | SFunctionDef (info, name, _, _, _, sym, _, _, implicit) ->
+      check_implicit_annotated statement store;
       if fully_annotated statement store then
         (* Checked against its annotations here; visible under its own
            name only to the statements that follow. *)
         let supplied, store = check_function statement env store in
         ( supplied,
-          bind env name (function_type statement store),
+          bind ~implicit env name (function_type statement store),
           store )
       else
         (* Not fully annotated: there is nothing to check yet, because
@@ -2217,11 +2410,11 @@ and check_iteration iterate env body_env store =
     so a value nothing has decided yet is settled by it -- which is what
     lets `n, s = pair` say what `pair` is inside a body being worked out.
     assign_target -> typ -> env -> store -> (env, store) *)
-and check_target target type_ env store =
+and check_target ?(implicit = false) target type_ env store =
   match target with
   | TargetName (_, name, sym) ->
       let store = record store sym type_ in
-      (bind env name type_, store)
+      (bind ~implicit env name type_, store)
   | TargetTuple (info, elements, sym) -> (
       let parts, store = fresh_metas (List.length elements) info store in
       match unify (t_tuple info parts) type_ store with
@@ -2265,11 +2458,27 @@ and expr_type e env store =
          all -- a question about *names*, answered the way analyses.ml
          answers it and reported the same way? And then: does this
          checker know a type for it? *)
-      match SMap.find_opt name env with
-      | None ->
-          raise
-            (Analyses.Analysis_error
-               (info, Printf.sprintf "unbound name '%s'" name))
+      match type_of env name with
+      | None -> (
+          match candidates_for e env with
+          | Some (_, candidates) ->
+              (* Several `::` definitions and no plain one: the arguments
+                 of a call are what say which is meant, and there are
+                 none here (docs/overloading.md). *)
+              raise
+                (Type_error
+                   ( info,
+                     Printf.sprintf
+                       "'%s' names %d definitions (%s), so it can be called \
+                        but not used as a value; write the one that is meant"
+                       name (List.length candidates)
+                       (String.concat ", "
+                          (List.map (fun (n, _) -> "'" ^ n ^ "'") candidates))
+                   ))
+          | None ->
+              raise
+                (Analyses.Analysis_error
+                   (info, Printf.sprintf "unbound name '%s'" name)))
       | Some (TBuiltin (_, builtin, _)) ->
           raise
             (Type_error
@@ -2293,7 +2502,7 @@ and expr_type e env store =
          -- and the type is the one the module's own check worked out,
          read out of its sigmap. *)
       let qualified = Printf.sprintf "%s.%s" module_ name in
-      match SMap.find_opt qualified env with
+      match type_of env qualified with
       | None ->
           raise
             (Analyses.Analysis_error
@@ -2486,7 +2695,7 @@ and check_call call env store =
   let builtin =
     match func with
     | EVar (_, name, _) -> (
-        match SMap.find_opt name env with
+        match type_of env name with
         | Some (TBuiltin (_, builtin, _)) -> Some builtin
         | _ -> None)
     | _ -> None
@@ -2494,14 +2703,241 @@ and check_call call env store =
   match builtin with
   | Some builtin -> check_builtin_call builtin call env store
   | None -> (
-      let func_type, store = check_expr func env store in
-      match settled_type func_type store with
-      | TFunction (_, _, _, _, _, Some (SFunctionDef _)) as deferred ->
-          (* Nothing has worked this definition out yet, so this call is
-             what makes it happen. Its body decides its type, and this
-             call is then checked against that like any other. *)
-          infer_call deferred call env store
-      | settled -> called_at settled call args env store)
+      match candidates_for func env with
+      | Some (spelling, candidates) ->
+          (* A name that is not bound but has `::` definitions in scope
+             is an overloaded call: the arguments say which of them is
+             meant (docs/overloading.md). *)
+          resolve_overload call spelling candidates args env store
+      | None -> (
+          let func_type, store = check_expr func env store in
+          match settled_type func_type store with
+          | TFunction (_, _, _, _, _, Some (SFunctionDef _), _) as deferred ->
+              (* Nothing has worked this definition out yet, so this call
+                 is what makes it happen. Its body decides its type, and
+                 this call is then checked against that like any other. *)
+              infer_call deferred call env store
+          | settled -> called_at settled call args env store))
+
+(** The overload set a callee names, where it names one: the spelling
+    the source wrote, and every `::` definition in scope whose base name
+    is that one. A name that *is* bound means itself and nothing else --
+    a plain `def` is not a member of any set (docs/overloading.md).
+    expr -> env -> (string, [(string, typ)]) option *)
+and candidates_for func env =
+  let gather spelling fits =
+    let found =
+      SMap.fold
+        (fun bound binding found ->
+          if fits bound binding then found @ [ (bound, binding.btype) ]
+          else found)
+        env []
+    in
+    if found = [] then None else Some (spelling, found)
+  in
+  match func with
+  | EVar (_, name, _) when not (SMap.mem name env) ->
+      if Names.is_qualified name then
+        (* `int::leq` written with no module in front, reaching one an
+           import brought in: only a public *implicit* arrives that way
+           (PYKING.md, "Modules"). *)
+        gather name (fun bound binding ->
+            binding.bimplicit && imported bound && Names.field bound = name)
+      else
+        gather name (fun bound binding ->
+            let field = Names.field bound in
+            Names.is_qualified field
+            && Names.base field = name
+            && ((not (imported bound)) || binding.bimplicit))
+  | EQualified (_, module_, name, _)
+    when (not (SMap.mem (module_ ^ "." ^ name) env))
+         && not (Names.is_qualified name) ->
+      let prefix = module_ ^ "." in
+      gather (prefix ^ name) (fun bound _ ->
+          imported bound
+          && String.length bound > String.length prefix
+          && String.sub bound 0 (String.length prefix) = prefix
+          && Names.is_qualified (Names.field bound)
+          && Names.base (Names.field bound) = name)
+  | _ -> None
+
+(** Whether this environment key names something reached through a
+    module -- `alias.field` -- rather than one of this file's own.
+    string -> Bool *)
+and imported bound = String.contains bound '.'
+
+(** One overloaded call. The arguments are checked **once**, and each
+    candidate is then tried against the types they turned out to be, in
+    a store of its own: the store is a value, so a trial that does not
+    fit is discarded by not being kept. Exactly one candidate fitting
+    resolves the call; none and several are both errors naming what was
+    in scope (docs/overloading.md).
+    expr -> string -> [(string, typ)] -> [expr] -> env -> store
+    -> (typ, store) *)
+and resolve_overload call spelling candidates args env store =
+  let info = expr_info call in
+  let given, store = check_each args env store in
+  let fitting =
+    List.filter_map
+      (fun (name, scheme) ->
+        let used, trial = instantiate scheme store in
+        match prune used trial with
+        | TFunction (_, params, result, _, _, _, implicits)
+          when List.length params = List.length given -> (
+            match unify_each given params trial with
+            | None -> None
+            | Some trial -> Some (name, result, implicits, trial))
+        | _ -> None)
+      candidates
+  in
+  match fitting with
+  | [ (name, result, implicits, trial) ] ->
+      let implicits = map_implicits (fun t -> prune t trial) implicits in
+      let supplied, store = discharge info implicits env trial 0 in
+      let store =
+        record_resolution store (expr_sym call)
+          (Call (Some (name, t_function info given (zonk result store)), supplied))
+      in
+      (result, store)
+  | [] -> raise (no_candidate info spelling candidates given store)
+  | several -> raise (several_candidates info spelling several given store)
+
+(** Why no definition of an overloaded name fits these arguments.
+    info -> string -> [(string, typ)] -> [typ] -> store -> exn *)
+and no_candidate info spelling candidates given store =
+  Type_error
+    ( info,
+      Printf.sprintf
+        "no definition of '%s' takes (%s); the ones in scope are %s"
+        spelling
+        (String.concat ", " (List.map (fun t -> shown t store) given))
+        (String.concat ", "
+           (List.map
+              (fun (name, scheme) ->
+                Printf.sprintf "'%s' of type %s" name (shown scheme store))
+              candidates)) )
+
+(** Why several definitions of an overloaded name fit. An argument type
+    nothing has decided fits every candidate, and saying *that* is worth
+    more than listing them (docs/overloading.md).
+    info -> string -> [(string, typ, [implicit_param], store)] -> [typ]
+    -> store -> exn *)
+and several_candidates info spelling fitting given store =
+  let named =
+    String.concat " and "
+      (List.map (fun (name, _, _, _) -> Printf.sprintf "'%s'" name) fitting)
+  in
+  let undecided =
+    List.exists (fun type_ -> is_meta (prune type_ store)) given
+  in
+  Type_error
+    ( info,
+      if undecided then
+        Printf.sprintf
+          "nothing here decides which '%s' is meant: %s all take these \
+           arguments, and the type of at least one of them is still open. \
+           Annotate it, or take the definition as an implicit parameter"
+          spelling named
+      else
+        Printf.sprintf
+          "this call to '%s' is ambiguous: %s all take these arguments, so \
+           write the one that is meant"
+          spelling named )
+
+(** The arguments one call's implicit parameters resolve to, in order.
+    info -> [implicit_param] -> env -> store -> int
+    -> ([argument], store) *)
+and discharge info implicits env store depth =
+  List.fold_left
+    (fun (found, store) (IParam (name, wanted)) ->
+      let one, store = resolve_implicit info name wanted env store depth in
+      (found @ [ one ], store))
+    ([], store) implicits
+
+(** The one implicit binding in scope that fits this parameter, and the
+    store in which it does.
+
+    The search is by name and by type: every *implicit* binding whose
+    base name is this one is tried, and its own implicit parameters --
+    which it does not carry across -- become obligations discharged here,
+    in the scope of the call (docs/implicits.md). A non-implicit binding
+    is never considered, which is what keeps a value from being captured
+    by accident.
+    info -> string -> typ -> env -> store -> int -> (argument, store) *)
+and resolve_implicit info name wanted env store depth =
+  if depth > max_implicit_depth then
+    raise
+      (Type_error
+         ( info,
+           Printf.sprintf
+             "resolving the implicit '%s' went %d deep and did not stop; \
+              an implicit that needs one of its own kind cannot go round \
+              for ever"
+             name max_implicit_depth ));
+  let wanted = zonk wanted store in
+  let fitting =
+    SMap.fold
+      (fun bound binding found ->
+        if binding.bimplicit && Names.base (Names.field bound) = name then
+          let used, trial = instantiate binding.btype store in
+          let stripped, obligations =
+            match prune used trial with
+            | TFunction (i, params, result, sym, tmsym, definition, implicits)
+              when implicits <> [] ->
+                ( TFunction (i, params, result, sym, tmsym, definition, []),
+                  implicits )
+            | other -> (other, [])
+          in
+          match unify stripped wanted trial with
+          | None -> found
+          | Some trial -> found @ [ (bound, obligations, trial) ]
+        else found)
+      env []
+  in
+  match fitting with
+  | [ (bound, [], store) ] -> (Direct (bound, zonk wanted store), store)
+  | [ (bound, obligations, store) ] ->
+      (* The candidate takes implicit arguments of its own and is being
+         passed where a plain function type is wanted, so what is passed
+         is a lambda that supplies them -- the dictionary, built here
+         and emitted by elaborate.ml. *)
+      let obligations = map_implicits (fun t -> prune t store) obligations in
+      let inner, store = discharge info obligations env store (depth + 1) in
+      let wanted = zonk wanted store in
+      (Wrapped (bound, wanted, arity wanted, inner), store)
+  | [] -> raise (no_implicit info name wanted env store)
+  | several ->
+      raise
+        (Type_error
+           ( info,
+             Printf.sprintf
+               "the implicit '%s' of type %s is ambiguous here: %s all fit"
+               name (shown wanted store)
+               (String.concat " and "
+                  (List.map
+                     (fun (bound, _, _) -> Printf.sprintf "'%s'" bound)
+                     several)) ))
+
+(** Why no implicit binding fits. Names a binding of the right name that
+    is not implicit, since that is the mistake worth pointing at.
+    info -> string -> typ -> env -> store -> exn *)
+and no_implicit info name wanted env store =
+  let shadowing =
+    SMap.exists
+      (fun bound binding ->
+        (not binding.bimplicit) && Names.base (Names.field bound) = name)
+      env
+  in
+  Type_error
+    ( info,
+      Printf.sprintf "no implicit '%s' of type %s is in scope here%s" name
+        (shown wanted store)
+        (if shadowing then
+           Printf.sprintf
+             "; there is a '%s', but it is not declared 'implicit', and only \
+              an implicit definition may be resolved to"
+             name
+         else "") )
 
 (** A call to print, str, len or range, checked by its own rule since
     none of them has a TFunction type (PYKING.md, "Builtins").
@@ -2591,7 +3027,14 @@ and called_at scheme call args env store =
     else (used, store)
   in
   match used with
-  | TFunction (_, params, result, _, _, _) ->
+  | TFunction (_, params, result, _, _, _, implicits)
+    when implicits <> []
+         && List.length args = List.length params + List.length implicits ->
+      (* Every implicit argument written out at the call: nothing is
+         resolved and nothing is inserted, since they are already where
+         they belong (PYKING.md, "Implicits"). *)
+      (result, check_arguments args (params @ implicit_types implicits) env store 1)
+  | TFunction (_, params, result, _, _, _, implicits) ->
       if List.length args <> List.length params then
         raise
           (Type_error
@@ -2602,7 +3045,17 @@ and called_at scheme call args env store =
                  (if List.length params = 1 then "" else "s")
                  (List.length args)
                  (if List.length args = 1 then "was" else "were") ));
-      (result, check_arguments args params env store 1)
+      let store = check_arguments args params env store 1 in
+      (* Whatever was called -- a definition, a parameter holding one,
+         a binding -- its implicit parameters are resolved here, where
+         the call is written. That is what lets a function carrying one
+         be passed as a value and called somewhere else (PYKING.md,
+         "Implicits"). *)
+      if implicits = [] then (result, store)
+      else
+        let implicits = map_implicits (fun t -> prune t store) implicits in
+        let supplied, store = discharge info implicits env store 0 in
+        (result, record_resolution store (expr_sym call) (Call (None, supplied)))
   | _ ->
       raise
         (Type_error
@@ -2620,7 +3073,7 @@ and check_arguments args declared env store position =
   | [], _ -> store
   | arg :: rest, expected :: rest_declared ->
       let actual, store = check_expr arg env store in
-      let store = fitted expected actual arg position store in
+      let store = fitted expected actual arg position env store in
       check_arguments rest rest_declared env store (position + 1)
   | _ :: _, [] -> store
 
@@ -2634,7 +3087,7 @@ and check_arguments args declared env store position =
     argument has to be that scheme whole, which is first-class
     polymorphism and the one place the two are compared as schemes.
     typ -> typ -> expr -> int -> store -> store *)
-and fitted expected actual arg position store =
+and fitted expected actual arg position env store =
   let settled = prune expected store in
   let store = work_out actual store in
   let actual = settled_type actual store in
@@ -2643,7 +3096,84 @@ and fitted expected actual arg position store =
   in
   match unify settled actual store with
   | Some answer -> answer
-  | None -> raise (argument_error position actual settled arg store)
+  | None -> (
+      match adapted arg actual settled env store with
+      | Some answer -> answer
+      | None -> raise (argument_error position actual settled arg store))
+
+(** The store in which an argument carrying implicit parameters fits a
+    parameter that has none, by supplying them *here*.
+
+    A function whose type says `implicit my` is called with `my`
+    resolved where the call is written; handing it somewhere that wants
+    an ordinary function is the same demand one step earlier, so the
+    implicits are resolved at this position and what is passed is a
+    lambda that supplies them -- the same adaptation
+    `resolve_implicit` makes for an implicit argument
+    (docs/implicits.md, "The dictionary"). None where this argument is
+    not that case, and the caller then reports the mismatch it has.
+    expr -> typ -> typ -> env -> store -> store? *)
+and adapted arg actual wanted env store =
+  match (prune actual store, prune wanted store) with
+  | ( TFunction (info, params, result, sym, tmsym, definition, implicits),
+      TFunction (_, wanted_params, _, _, _, _, []) )
+    when implicits <> [] && List.length params = List.length wanted_params -> (
+      (* More implicit parameters than are wanted: they are supplied
+         here, and the lambda hands on everything it is given. *)
+      let stripped =
+        TFunction (info, params, result, sym, tmsym, definition, [])
+      in
+      match unify (prune wanted store) stripped store with
+      | None -> None
+      | Some store ->
+          let implicits = map_implicits (fun t -> prune t store) implicits in
+          let supplied, store =
+            try discharge (expr_info arg) implicits env store 0
+            with Type_error (where, message) ->
+              raise (Type_error (where, resolved_here message arg))
+          in
+          let wanted = zonk (prune wanted store) store in
+          Some
+            (record_resolution store (expr_sym arg)
+               (Adapted (wanted, arity wanted, supplied))))
+  | ( TFunction (info, params, result, sym, tmsym, definition, []),
+      TFunction (_, wanted_params, _, _, _, _, (_ :: _ as wanted_implicits)) )
+    when List.length params = List.length wanted_params -> (
+      (* Fewer: the value does not ask for what is offered, so the
+         lambda takes the implicit arguments and hands on only the
+         explicit ones. A function that needs less stands wherever one
+         that needs more is wanted. *)
+      let filled =
+        TFunction (info, params, result, sym, tmsym, definition, wanted_implicits)
+      in
+      match unify (prune wanted store) filled store with
+      | None -> None
+      | Some store ->
+          let wanted = zonk (prune wanted store) store in
+          Some
+            (record_resolution store (expr_sym arg)
+               (Adapted (wanted, List.length wanted_params, []))))
+  | _ -> None
+
+(** Why an implicit an adapted argument needs could not be found, said
+    where the mistake usually is: the parameter it is passed to has no
+    implicit of its own, so the search happened here rather than
+    wherever that parameter is called (docs/implicits.md).
+    String -> expr -> String *)
+and resolved_here message arg =
+  let what =
+    match arg with
+    | EVar (_, name, _) -> Printf.sprintf "'%s'" name
+    | EQualified (_, module_, field, _) ->
+        Printf.sprintf "'%s.%s'" module_ field
+    | _ -> "this argument"
+  in
+  Printf.sprintf
+    "%s. %s takes it implicitly and the parameter it is passed to does \
+     not, so it is resolved here rather than where that parameter is \
+     called; write the implicit into that parameter's own type to have it \
+     resolved there instead"
+    message what
 
 (** The store in which this definition has a scheme: `infer_call` without
     the call. What makes it happen is usually a call, but a definition
@@ -2652,7 +3182,7 @@ and fitted expected actual arg position store =
     place the two can be compared for real. typ -> store -> store *)
 and work_out func_type store =
   match func_type with
-  | TFunction (_, _, _, _, tmsym, Some (SFunctionDef _))
+  | TFunction (_, _, _, _, tmsym, Some (SFunctionDef _), _)
     when instance_of store tmsym = None
          && not (IntSet.mem tmsym store.checking) ->
       let _, store = infer_definition func_type store in
@@ -2678,7 +3208,7 @@ and infer_call func_type call env store =
     typ -> store -> (typ, store) *)
 and infer_definition func_type store =
   match func_type with
-  | TFunction (_, _, _, _, tmsym, Some (SFunctionDef _ as node)) ->
+  | TFunction (_, _, _, _, tmsym, Some (SFunctionDef _ as node), _) ->
       (* The environment the function was *written* in -- not this
          call's. `declare_functions` always records it, and the `def`
          statement sharpens it to the position; the fallback is for a
@@ -2723,7 +3253,7 @@ and infer_definition func_type store =
             in
             let mono_params =
               match mono with
-              | TFunction (_, params, _, _, _, _) -> params
+              | TFunction (_, params, _, _, _, _, _) -> params
               | _ -> []
             in
             let group_env =
@@ -2735,7 +3265,7 @@ and infer_definition func_type store =
             let supplied, inner = body_result other group_env inner in
             let mono_result =
               match mono with
-              | TFunction (_, _, result, _, _, _) -> result
+              | TFunction (_, _, result, _, _, _, _) -> result
               | _ -> mono
             in
             required inner mono_result supplied other)
@@ -2785,7 +3315,7 @@ and infer_definition func_type store =
             let store = remembering store (stmt_sym other) settled in
             let store = record store (stmt_sym other) settled in
             match instantiated settled with
-            | _, TFunction (_, params, _, _, _, _) ->
+            | _, TFunction (_, params, _, _, _, _, _) ->
                 List.fold_left2
                   (fun store param type_ ->
                     record store (param_sym param) type_)
@@ -2844,7 +3374,7 @@ and supplied_type node env return_type store =
 and verified node scheme store =
   let _, written = instantiated scheme in
   match written with
-  | TFunction (_, written_params, result, _, _, _)
+  | TFunction (_, written_params, result, _, _, _, _)
     when List.length written_params = List.length (def_params node) -> (
       let env =
         match environment_of store (stmt_sym node) with
@@ -2906,10 +3436,11 @@ and check_function node env store =
      with itself, so a body that assumes `a` is an Int is refused here
      rather than at some call. That is the whole of skolemization. *)
   let _, written = instantiated ftype in
-  let param_types, result_type =
+  let param_types, result_type, written_implicits =
     match written with
-    | TFunction (_, params, result, _, _, _) -> (params, result)
-    | _ -> ([], written)
+    | TFunction (_, params, result, _, _, _, implicits) ->
+        (params, result, implicits)
+    | _ -> ([], written, [])
   in
   let store =
     List.fold_left2
@@ -2925,6 +3456,16 @@ and check_function node env store =
     List.fold_left2
       (fun body_env param type_ -> bind body_env (param_name param) type_)
       env (def_params node) param_types
+  in
+  (* An implicit parameter is an implicit binding in the body, which is
+     what lets a definition discharge its own recursive call's implicit
+     against the one it was given (docs/implicits.md). *)
+  let body_env, store =
+    List.fold_left2
+      (fun (body_env, store) param (IParam (_, type_)) ->
+        let _, store = check_param param type_ store in
+        (bind ~implicit:true body_env (param_name param) type_, store))
+      (body_env, store) (def_implicits node) written_implicits
   in
   (* The body's last statement is in tail position; `check_stmt` already
      answers what it supplies, by return or by value (PYKING.md). *)
@@ -3046,12 +3587,41 @@ and check_pattern pattern type_ env store =
 
 (* --- the program --- *)
 
+(** One resolution with every type in it read back through what has
+    since been solved. resolution -> store -> resolution *)
+let rec resolved_types answer store =
+  match answer with
+  | Call (target, supplied) ->
+      Call
+        ( (match target with
+          | None -> None
+          | Some (name, type_) -> Some (name, zonk type_ store)),
+          List.map (fun one -> resolved_argument one store) supplied )
+  | Adapted (type_, passed, supplied) ->
+      Adapted
+        ( zonk type_ store,
+          passed,
+          List.map (fun one -> resolved_argument one store) supplied )
+
+(** One resolved argument, read back the same way.
+    argument -> store -> argument *)
+and resolved_argument one store =
+  match one with
+  | Direct (name, type_) -> Direct (name, zonk type_ store)
+  | Wrapped (name, type_, passed, inner) ->
+      Wrapped
+        ( name,
+          zonk type_ store,
+          passed,
+          List.map (fun one -> resolved_argument one store) inner )
+
 (** Type-checks one module -- or a whole one-file program, which is the
     same thing. `sigmaps` pairs the name of every module this one imports
     with what that module exports and at what type, which is all of it
     this check can see (module.ml). Raises Type_error for the first thing
-    that does not check out.
-    [stmt] -> [(string, sigmap)] -> typ IntMap.t *)
+    that does not check out. Answers the types it worked out and, beside
+    them, what every call it resolved denotes.
+    [stmt] -> [(string, sigmap)] -> (typ IntMap.t, resolution IntMap.t) *)
 let type_check ?(declared = []) stmts sigmaps =
   let store = empty_store sigmaps in
   (* A module's own declaration half is in scope here, unqualified and
@@ -3072,4 +3642,9 @@ let type_check ?(declared = []) stmts sigmaps =
      solved by something written further down -- a definition worked out
      before the call that says what it holds, most often. What is still
      open then is open for good, and is shown as the variable it is. *)
-  IntMap.map (fun type_ -> displayed (zonk type_ store) store) store.tmap
+  ( IntMap.map (fun type_ -> displayed (zonk type_ store) store) store.tmap,
+    (* Every resolution is read back for the same reason: one recorded
+       while a metavariable was open may have been decided by something
+       written further down, and `elaborate.ml` fills `tmap` from these
+       types rather than running the checker again (docs/implicits.md). *)
+    IntMap.map (fun answer -> resolved_types answer store) store.qmap )

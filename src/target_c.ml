@@ -125,7 +125,7 @@ let rec mentions_type_variable annotation =
   | TVar _ | TForall _ -> true
   | TList (_, element, _) -> mentions_type_variable element
   | TTuple (_, elements, _) -> List.exists mentions_type_variable elements
-  | TFunction (_, params, result, _, _, _) ->
+  | TFunction (_, params, result, _, _, _, _) ->
       List.exists mentions_type_variable params || mentions_type_variable result
   | _ -> false
 
@@ -135,7 +135,7 @@ let rec mentions_type_variable annotation =
     other type into code that is quietly wrong. stmt -> () *)
 let reject_type_variables node =
   match node with
-  | SFunctionDef (_, _, params, _, return_type, _, _) ->
+  | SFunctionDef (_, _, params, _, return_type, _, _, _, _) ->
       List.iter
         (fun annotation ->
           match annotation with
@@ -714,7 +714,7 @@ let param_type func (Param (_, name, annotation, _, _)) =
   | Some t -> t
   | None ->
       let body = match func with
-        | SFunctionDef (_, _, _, body, _, _, _) -> body
+        | SFunctionDef (_, _, _, body, _, _, _, _, _) -> body
         | _ -> []
       in
       if used_as_string name body then String
@@ -1286,7 +1286,7 @@ and pattern_test state p subject scope =
     behind. state -> stmt -> scope -> ([cstmt], scope, state) *)
 and stmt state s scope =
   match s with
-  | SLet (info, TargetName (_, name, _), e, _, _, _) ->
+  | SLet (info, TargetName (_, name, _), e, _, _, _, _) ->
       let value, state = expr state e scope false in
       let c_name, scope = bind name (ctype_of value) scope in
       ([ CDecl (info, ctype_of value, c_name, value) ], scope, state)
@@ -1394,8 +1394,12 @@ let declare_imports state stmts scope =
                 else Printf.sprintf "%s.%s" local_module exported
               in
               let c_name = module_name module_ exported in
-              match List.assoc_opt exported sigmap with
-              | Some (TFunction (_, params, result, _, _, _)) ->
+              match
+                List.find_map
+                  (fun (n, t, _) -> if n = exported then Some t else None)
+                  sigmap
+              with
+              | Some (TFunction (_, params, result, _, _, _, _)) ->
                   let param_types = List.map (fun p -> annotated_type (Some p)) params in
                   let result = Option.value (annotated_type (Some result)) ~default:Unit in
                   if List.for_all (fun p -> p <> None) param_types then
@@ -1449,7 +1453,7 @@ let external_declarations state stmts =
             try List.assoc name state.context.sigmaps with Not_found -> []
           in
           List.map
-            (fun (field, type_) ->
+            (fun (field, type_, _) ->
               let qualified = name ^ "_" ^ field in
               let ctype_of t what =
                 match t with
@@ -1465,7 +1469,7 @@ let external_declarations state stmts =
                              name field what))
               in
               match type_ with
-              | TFunction (_, params, result, _, _, _) ->
+              | TFunction (_, params, result, _, _, _, _) ->
                   CExternFunc
                     ( qualified,
                       List.map (fun t -> ctype_of t "a parameter") params,
@@ -1484,7 +1488,7 @@ let exported_values state stmts scope =
     List.filter_map
       (fun statement ->
         match statement with
-        | SLet (info, TargetName (_, name, _), _, _, _, true)
+        | SLet (info, TargetName (_, name, _), _, _, _, true, _)
         | SLetStmt (info, TargetName (_, name, _), _, _, _, true) ->
             let held, ctype = lookup name scope info in
             Some
@@ -1503,10 +1507,10 @@ let exported_values state stmts scope =
     state -> stmt -> scope -> (string, scope) *)
 let public_name state node scope =
   match node with
-  | SFunctionDef (_, name, _, _, _, _, true) when not state.context.main ->
+  | SFunctionDef (_, name, _, _, _, _, true, _, _) when not state.context.main ->
       let c_name = module_name state.context.context_name name in
       (c_name, bind_exact name c_name Int scope)
-  | SFunctionDef (_, name, _, _, _, _, _) -> bind name Int scope
+  | SFunctionDef (_, name, _, _, _, _, _, _, _) -> bind name Int scope
   | _ -> ("", scope)
 
 (** Registers every top-level def's signature (return type provisional:
@@ -1518,7 +1522,7 @@ let declare_functions state stmts scope =
   List.fold_left
     (fun (scope, state) s ->
       match s with
-      | SFunctionDef (_, name, params, _, return_type, _, _) ->
+      | SFunctionDef (_, name, params, _, return_type, _, _, _, _) ->
           reject_type_variables s;
           let c_name, scope = public_name state s scope in
           ( scope,
@@ -1539,7 +1543,7 @@ let declare_functions state stmts scope =
     (`declare_functions`). state -> stmt -> scope -> (cfunc, scope, state) *)
 let function_of state func scope =
   match func with
-  | SFunctionDef (info, name, params, func_body, return_type, _, public) ->
+  | SFunctionDef (info, name, params, func_body, return_type, _, public, _, _) ->
       let param_types = List.map (param_type func) params in
       let c_name, scope =
         match List.assoc_opt name state.declared with

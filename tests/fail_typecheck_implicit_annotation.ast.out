@@ -1,0 +1,4 @@
+'tests/fail_typecheck_implicit_annotation.pyk' 9:0-9:27 Type error:
+  'bar' is implicit, so it needs its whole type written down: annotate
+  every parameter and the return type, or give it a 'def bar : ...'
+  signature line

@@ -1,0 +1,25 @@
+# An implicit parameter filled from the calling context.
+#
+# `implicit` on a definition is what makes it findable; an ordinary
+# binding of the same name is never resolved to. The search is by name
+# and by type (PYKING.md, "Implicits").
+
+implicit width = 4
+
+def pad(text: String, implicit width: Int) -> String:
+    loop out = text while len(out) < width:
+        out ++ "."
+
+print(pad("a"))
+print(pad("abcdef"))
+
+# Written out at the call, which always works and overrides the search.
+print(pad("a", 8))
+
+# A block is a scope, so an implicit written in one is found only there.
+def wider() -> String:
+    implicit width = 9
+    pad("b")
+
+print(wider())
+print(pad("c"))

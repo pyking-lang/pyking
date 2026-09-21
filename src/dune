@@ -16,8 +16,8 @@
 (library
  (name pyking)
  (wrapped false)
- (modules targets lexer syntax walk builtin analyses desugar_args parser module
-   typesystem opt_tailcall interpreter target_python target_js_core target_js_packaging target_ocaml target_c target_java type_experiment)
+ (modules targets lexer names syntax walk builtin analyses desugar_args parser module
+   typesystem elaborate opt_tailcall interpreter target_python target_js_core target_js_packaging target_ocaml target_c target_java type_experiment)
  (flags
   (:standard -warn-error -a)))
 

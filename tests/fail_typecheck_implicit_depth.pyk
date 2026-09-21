@@ -1,0 +1,15 @@
+# An implicit that resolves to itself, for ever.
+#
+# `wrap::show` needs an implicit `show` at the element type of its own
+# argument, and nothing ever bottoms out -- so the chain is cut at a
+# fixed depth and reported rather than run (docs/implicits.md).
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+implicit def wrap::show(xs: [a], implicit show: ([a]) -> String) -> String:
+    show(xs)
+
+def render(v: [Int], implicit show: ([Int]) -> String) -> String: show(v)
+
+print(render([1]))

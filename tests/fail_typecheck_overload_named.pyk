@@ -1,0 +1,14 @@
+# A named argument on an overloaded call.
+#
+# Which definition a call means is settled by the argument types, and
+# putting a named argument in its parameter's place needs to know that
+# answer first -- so the two cannot be written together
+# (docs/overloading.md).
+#
+# This program is expected to FAIL the name analysis. Its `.ast.out`
+# holds the error message, not a program's output.
+
+def b::my2(x: Bool, y: Int) -> Int: y
+def c::my2(x: Int, y: Int) -> Int: y + 1
+
+print(my2(true, y = 1))

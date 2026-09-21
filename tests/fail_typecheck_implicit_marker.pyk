@@ -1,0 +1,11 @@
+# `implicit` marks a `def` or an `=` binding of one name.
+#
+# An implicit argument is resolved by name and by type, so there has to
+# be a name to find (PYKING.md, "Implicits").
+#
+# This program is expected to FAIL parsing. Its `.ast.out` holds the
+# error message, not a program's output.
+
+implicit var count = 0
+
+print(count)

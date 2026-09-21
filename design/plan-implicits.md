@@ -491,3 +491,115 @@ obligation is discharged against a parameter.
 
 Written after the fact. Where this disagrees with the plan above, the
 code is right.
+
+**Decision 23 had to reach further than the sigmap.** The plan said the
+sigmap carries implicitness; it also had to say which *names* a sigmap
+carries, because there are two answers. The one the **checker** is
+given keeps the source's own spelling -- `int::leq` -- since that is
+what the importing file writes. The one a **backend** is given is
+renamed and has its implicit parameters folded in, since that is what
+the generated file declares. `Module.context` does the second, in one
+place, and `Typesystem.without_implicits` is the fold, exported so the
+pass and the backends cannot disagree about it. Three separate bugs
+surfaced through this before it was one rule: an OCaml `.mli` writing
+`val int::leq`, a JavaScript `export { int::pick }`, and C and Java
+registering an imported function under a name no call used. A module's
+`publics` needed the same treatment, for the JS export clause.
+
+**The auto-import rule is one binding, not two.** The plan implied a
+public implicit would be bound both unqualified and under `mod.name`.
+Binding both made every such call ambiguous with itself. What it
+actually does is stay bound under `alias.field` alone, with the two
+searches looking *through* the `.` when the binding is implicit -- so a
+resolution always names the module it came from, which is also what
+lets `elaborate.ml` write `mod.int__leq` rather than a name nothing
+declared.
+
+**Decision 11 needed `desugar_args` to know about implicit parameters**,
+not just the checker. That pass runs before the checker and refuses a
+call missing an argument, so it had to learn that an implicit parameter
+may be left out -- and that a call supplying *one* of them supplies all
+of them. `called_at` then accepts a call whose argument count is
+explicit + implicit and checks them positionally, resolving nothing.
+
+**The REPL needed a third thing in its session.** An entry is checked
+under the names it was typed with and run under the ones the rewrite
+gave it, which the plan predicted; what it did not predict is that the
+rewrite builds nodes, whose symbols must not be handed out twice, and
+the machine's call-free table is keyed by symbol. `session.high` is the
+high-water mark, and every `symbolize` in that module continues past
+it. `:ls` bridges the two name spaces.
+
+**Two error messages earned their own case.** An argument type nothing
+has decided fits *every* candidate, so the ambiguity report would have
+listed them all and said nothing useful; it now says the type is open
+and names the two ways out. And a qualified name in a binding target
+was swallowed by the parser's speculative path -- the refusal moved to
+after the `=` is found, where the parse is committed.
+
+**One decision was taken that the grilling did not ask about.**
+`implicit` and `::` are refused in an **external module's declaration
+half**, because no pass rewrites a declaration: a `::` name there would
+reach the target's own source under a spelling it does not have. The
+plan's decision 22 said an implicit declaration would be allowed; it is
+not, and `fail_typecheck_external_overload` pins the refusal.
+
+**`qmap` had to be merged where `tmap` is.** `learned` folds an inner
+check's knowledge into the outer store, and it listed `tmap` but not
+`qmap` -- so every resolution made while a *deferred* definition's body
+was being worked out was dropped. Such a program type-checked and then
+failed at run time with an arity error, because `elaborate.ml` found
+nothing to rewrite the call by. `tests/typecheck_implicit_deferred.pyk`
+is the case, and it is the one shape none of the planned tests covered:
+overloading and implicits inside a `def` that wrote no types.
+
+**Decision 16 had to reach explicit arguments too.** The plan gave the
+lambda wrapper only to an *implicit* parameter filled by a definition
+that takes implicits. The same demand arises one step earlier: a
+function carrying `implicit my` passed where an ordinary function type
+is wanted -- which is what `def bar(a, f): f(a + 1)` asks for, since a
+body cannot discover an implicit parameter and inference gives `f` the
+type `(Int) -> a`. `Typesystem.adapted` supplies the implicit at the
+argument's position and records an `Adapted` resolution; `qmap` became
+a variant to carry it, since it now describes a node rather than only a
+call. Which scope answers is exactly what the annotation on `f`
+decides, and the two readings give different answers, which
+`typecheck_implicit_deferred` pins.
+
+**And it had to go both ways.** A function asking for *nothing*, passed
+where one asking for an implicit is wanted, is widened by a lambda that
+takes the implicit argument and drops it -- so a parameter written
+`f: (Int, implicit my: Int) -> Int` accepts both a definition that asks
+for `my` and a plain lambda that does not. That is usually the
+annotation to write, since it is the one that resolves the implicit
+*inside* the function rather than where the argument was passed, and
+without the widening direction the two wishes were exclusive.
+`Adapted` therefore carries the wanted type, how many of its parameters
+the wrapper hands on, and the arguments it adds -- one shape for both
+directions, wrapping whatever expression was written rather than only a
+name.
+
+**One latent bug came out of it.** A JavaScript arrow function is an
+`AssignmentExpression`, looser than everything `target_js_core`'s
+printer emits, and `JsArrow` consulted no `min_prec` at all -- so
+`(x => x + 1)(5)` printed as `(x) => x + 1(5)`, an arrow whose body is
+a call. It had been there since lambdas arrived and no test applied one
+where it stood; `tests/lambda_basic.pyk` does now.
+
+**Defaults and `::` had to be made to see each other.** A default is
+erased by `desugar_args` before the checker runs, and that pass fills
+an omitted argument only where it can tell which definition a call
+reaches -- which on an overloaded name it cannot. So `c::my2(x, y,
+z = 1000)` looked like a three-parameter function by the time overload
+resolution ran, `my2(true, 1)` matched only the two-parameter sibling,
+and one of two applicable definitions was picked silently. The *count*
+is now settled in `desugar_args` (`overloaded`): one definition taking
+the call by using a default has its defaults filled, two taking it
+where one needs a default is refused, and anything else is left to the
+checker's types. A named argument on an overloaded call is refused
+there too -- it was being dropped silently, since `arg_exprs` discards
+the names nothing had put in place.
+
+**Decision 16's cost is as stated.** `typecheck_implicit_nested` lists
+Python, OCaml, `iweb24` and `interpret`, and is refused on C and Java
+because the argument built for the inner implicit is a lambda.

@@ -108,7 +108,7 @@ let rec mentions_type_variable annotation =
   | TVar _ | TForall _ -> true
   | TList (_, element, _) -> mentions_type_variable element
   | TTuple (_, elements, _) -> List.exists mentions_type_variable elements
-  | TFunction (_, params, result, _, _, _) ->
+  | TFunction (_, params, result, _, _, _, _) ->
       List.exists mentions_type_variable params || mentions_type_variable result
   | _ -> false
 
@@ -118,7 +118,7 @@ let rec mentions_type_variable annotation =
     other type into code that is quietly wrong. stmt -> () *)
 let reject_type_variables node =
   match node with
-  | SFunctionDef (_, _, params, _, return_type, _, _) ->
+  | SFunctionDef (_, _, params, _, return_type, _, _, _, _) ->
       List.iter
         (fun annotation ->
           match annotation with
@@ -464,7 +464,7 @@ let param_type func (Param (_, name, annotation, _, _)) =
   | Some t -> t
   | None ->
       let body =
-        match func with SFunctionDef (_, _, _, body, _, _, _) -> body | _ -> []
+        match func with SFunctionDef (_, _, _, body, _, _, _, _, _) -> body | _ -> []
       in
       if used_as_string name body then String
       else if used_as_float name body then Float
@@ -1158,7 +1158,7 @@ and pattern_test p subject scope =
     behind. state -> stmt -> scope -> ([jstmt], scope, state) *)
 and stmt state s scope =
   match s with
-  | SLet (info, TargetName (_, name, _), e, _, _, _) ->
+  | SLet (info, TargetName (_, name, _), e, _, _, _, _) ->
       let value, state = expr state e scope false in
       let java_name, scope = bind name (jtype_of value) scope in
       ([ JDecl (info, jtype_of value, java_name, value, true) ], scope, state)
@@ -1286,8 +1286,12 @@ let declare_imports state stmts scope =
                      exported)
               in
               let java_name = Printf.sprintf "%s.%s" held exported in
-              match List.assoc_opt exported sigmap with
-              | Some (TFunction (_, params, result, _, _, _)) ->
+              match
+                List.find_map
+                  (fun (n, t, _) -> if n = exported then Some t else None)
+                  sigmap
+              with
+              | Some (TFunction (_, params, result, _, _, _, _)) ->
                   let param_types = List.map (fun p -> annotated_type (Some p)) params in
                   let result = Option.value (annotated_type (Some result)) ~default:Unit in
                   if List.for_all (fun p -> p <> None) param_types then
@@ -1318,7 +1322,7 @@ let exported_values state stmts scope =
     List.filter_map
       (fun statement ->
         match statement with
-        | SLet (info, TargetName (_, name, _), _, _, _, true)
+        | SLet (info, TargetName (_, name, _), _, _, _, true, _)
         | SLetStmt (info, TargetName (_, name, _), _, _, _, true) ->
             let held, jtype = lookup name scope info in
             Some
@@ -1346,7 +1350,7 @@ let declare_functions state stmts scope =
   List.fold_left
     (fun (scope, state) s ->
       match s with
-      | SFunctionDef (_, name, params, _, return_type, _, _) ->
+      | SFunctionDef (_, name, params, _, return_type, _, _, _, _) ->
           reject_type_variables s;
           let java_name, scope = bind name Int scope in
           ( scope,
@@ -1367,7 +1371,7 @@ let declare_functions state stmts scope =
     (`declare_functions`). state -> stmt -> scope -> (jfunc, scope, state) *)
 let function_of state func scope =
   match func with
-  | SFunctionDef (info, name, params, func_body, return_type, _, public) ->
+  | SFunctionDef (info, name, params, func_body, return_type, _, public, _, _) ->
       let param_types = List.map (param_type func) params in
       let java_name, scope =
         match List.assoc_opt name state.declared with
@@ -1475,7 +1479,7 @@ let check_externals stmts (context : Module.context) =
             try List.assoc name context.sigmaps with Not_found -> []
           in
           List.iter
-            (fun (field, type_) ->
+            (fun (field, type_, _) ->
               let check t what =
                 match t with
                 | TTuple (_, [], _) -> ()
@@ -1488,7 +1492,7 @@ let check_externals stmts (context : Module.context) =
                            name field what)
               in
               match type_ with
-              | TFunction (_, params, result, _, _, _) ->
+              | TFunction (_, params, result, _, _, _, _) ->
                   List.iter (fun t -> check t "a parameter") params;
                   check result "a return type"
               | t -> check t "a type")

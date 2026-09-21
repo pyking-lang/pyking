@@ -86,6 +86,7 @@ respects that, which is what makes the library link.
 │                              ▼                                       │
 │  module.ml       load, make_sigmap, check_publics, the path          │
 │                  helpers, and what a backend is told (context)       │
+│  elaborate.ml    program: overloading and implicits out of the AST   │
 │                              │                                       │
 │        ┌──────────┬──────┴─────────┬────────────────┐               │
 │        ▼          ▼                ▼                ▼               │
@@ -101,10 +102,11 @@ respects that, which is what makes the library link.
 │                              │                                       │
 │                    ┌─────────┴─────────┐                             │
 │                    ▼                   ▼                             │
-│             walk.ml             builtin.ml                           │
-│             children, fold,     names, pure_names,                   │
-│             exists, fold_stmts, lookup, crosses_host                 │
-│             exists_stmts, name_field                                 │
+│             walk.ml             builtin.ml         names.ml          │
+│             children, fold,     names, pure_names, is_qualified,     │
+│             exists, fold_stmts, lookup,            base, renamed,    │
+│             exists_stmts,       crosses_host       qualifier, field  │
+│             name_field                                               │
 │                    │                                                 │
 │                    ▼                                                 │
 │             syntax.ml    the AST, its accessors, pprint_program      │
@@ -220,12 +222,15 @@ Beyond that:
 | `Desugar_args.signatures` | `desugar_args.mli` | abstract | `module.ml` threads one through its fold and never looks inside; the REPL keeps one in its session |
 | `Module.t`, `.context`, `.sources` | `module.mli` | public | the driver reads a module's name and path, a backend reads its context, the playground supplies its own sources |
 | `Typesystem.store` | `typesystem.mli` | public | see below |
+| `Typesystem.binding`, `.env` | `typesystem.mli` | public | the REPL carries a session's environment from one entry to the next, and `:ls` reads whether a name is implicit |
+| `Typesystem.resolution`, `.argument` | `typesystem.mli` | public | `elaborate.ml` rewrites the program by them, node for node |
 | `Interpreter.value` | `interpreter.mli` | public | a prompt and a page show values |
 | `Interpreter.env` | `interpreter.mli` | abstract | `bindings_in_scope` is all a caller needs of a frame chain |
 | `Interpreter.state` | `interpreter.mli` | a record of opaque parts | a caller keeps a state and reads its `env`; `control`, `kont`, `frame`, `loop` and `runtime` are the machine's own |
 | `Target_js_core.jsexpr`, `.jsstmt`, `.jshost` | `target_js_core.mli` | public | the packager decides how a runtime call and an import are spelled, and both reach it as nodes |
 | `Target_js_core.jstarget` | `target_js_core.mli` | abstract | nothing outside the core looks inside a binding's target |
 | `cprogram`, `jprogram`, `oprogram`, `pyprogram` | the four other backends | abstract | `translate_program` is the only thing that makes one and the printer the only thing that reads one |
+| `Elaborate.program` | `elaborate.mli` | -- | takes `qmap` and `tmap` and answers the rewritten module and an extended `tmap`; the pass keeps nothing |
 | `Repl.session`, `.reader` | `repl.mli` | abstract | `start`'s own parameters, for driving a session without a terminal |
 
 **`Typesystem.store` is the one interface here that is wider than it

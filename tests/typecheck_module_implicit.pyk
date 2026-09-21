@@ -1,0 +1,17 @@
+# What `public implicit` prints as, and what an import brings in.
+#
+# `.ast.out` holds the program every backend compiles: the qualified
+# names have become plain ones, every call names the definition it
+# reaches, and each implicit argument is written out. What a module
+# *exports* keeps the source's own name, since that is what the file
+# importing it writes (docs/overloading.md).
+
+import typecheck_module_implicit_mod as m
+
+print(pick(3, 4))
+print(pick(1.5, 0.5))
+print(m.int::pick(9, 2))
+
+implicit def bool::pick(x: Bool, y: Bool) -> Bool: x
+
+print(pick(true, false))

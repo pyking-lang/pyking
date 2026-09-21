@@ -504,16 +504,16 @@ let fail_unsupported target (i : Lexer.info) message =
 (** One module through the type checker and the mutability analysis,
     answering the types it worked out. Exits via fail on the first
     error. Module.t -> [(string, Typesystem.sigmap)] -> bool
-    -> typ IntMap.t *)
+    -> ([stmt], typ IntMap.t) *)
 let check_module (unit : Module.t) sigmaps experiment =
   let declared = Module.external_signatures unit.declarations in
   (* Pyking is statically typed, so this is not a mode: a program that
      does not check is refused, whatever was asked for. The checker
      carries a scope of its own, so it reports an unbound name too, in
      analyses.ml's words. *)
-  let tmap =
+  let tmap, qmap =
     try
-      if experiment then Type_experiment.type_check unit.stmts
+      if experiment then (Type_experiment.type_check unit.stmts, Syntax.IntMap.empty)
       else Typesystem.type_check ~declared unit.stmts sigmaps
     with
     | Analyses.Analysis_error _ as e -> fail e
@@ -524,7 +524,16 @@ let check_module (unit : Module.t) sigmaps experiment =
      with `:=`, and nothing may shadow one. *)
   (try Analyses.analyze_mutability unit.stmts
    with Analyses.Analysis_error _ as e -> fail e);
-  tmap
+  (* Overloading and implicits are removed here, from what the checker
+     settled: a qualified name becomes a plain one, a resolved call names
+     the definition it reaches, and an implicit parameter becomes an
+     ordinary argument. Everything after this point sees ordinary
+     Pyking (docs/implicits.md). *)
+  let stmts, tmap =
+    try Elaborate.program qmap tmap unit.stmts
+    with Analyses.Analysis_error _ as e -> fail e
+  in
+  (stmts, tmap)
 
 (** One module through the tail-call pass, with the symbols it hands out
     continuing past `highest` -- the highest anywhere in the program so
@@ -620,22 +629,39 @@ let front_end options =
               highest,
               checked @ [ ({ unit with sigmap = Some sigmap }, None) ] )
           else
-            let tmap =
+            let elaborated, tmap =
               check_module unit
                 (Module.sigmaps_for unit sigmaps)
                 options.type_experiment
             in
             (* Both halves: a module with a declaration beside it exports
                what its Pyking half worked out *and* what that half
-               declared public. *)
+               declared public. The names are the source's own, since
+               that is what the module importing this one writes. *)
             let sigmap = Module.module_sigmap unit.stmts unit.declarations tmap in
+            let elaborated = Analyses.symbolize ~start:highest elaborated in
+            let highest = max highest (Analyses.highest_sym elaborated) in
             let stmts, tmap, highest =
-              optimize_module unit.stmts tmap highest options
+              optimize_module elaborated tmap highest options
             in
             ( sigmaps @ [ (unit.name, sigmap) ],
               highest,
               checked
-              @ [ ({ unit with stmts; sigmap = Some sigmap }, Some tmap) ] ))
+              @ [
+                  ( {
+                      unit with
+                      stmts;
+                      sigmap = Some sigmap;
+                      (* The names this module exports are the plain ones
+                         the overloading pass gave them, since that is
+                         what the generated file declares. *)
+                      publics =
+                        List.map
+                          (fun (name, info) -> (Names.renamed name, info))
+                          unit.publics;
+                    },
+                    Some tmap );
+                ] ))
         ([], highest, []) units
     in
     checked

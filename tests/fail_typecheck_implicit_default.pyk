@@ -1,0 +1,12 @@
+# An implicit parameter may not have a default value.
+#
+# An omitted implicit argument is resolved from the calling context,
+# which is what makes it implicit; a default would be a second answer to
+# the same question (PYKING.md, "Implicits").
+#
+# This program is expected to FAIL parsing. Its `.ast.out` holds the
+# error message, not a program's output.
+
+def show(n: Int, implicit width: Int = 4) -> Int: n + width
+
+print(show(1))

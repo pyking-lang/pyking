@@ -1,0 +1,7 @@
+import typecheck_module_implicit_mod as m
+print(m.int__pick(3, 4))
+print(m.float__pick(1.5, 0.5))
+print(m.int__pick(9, 2))
+def bool__pick(x:Bool, y:Bool) -> Bool:
+    x
+print(bool__pick(true, false))

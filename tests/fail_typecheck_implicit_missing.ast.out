@@ -1,0 +1,2 @@
+'tests/fail_typecheck_implicit_missing.pyk' 9:6-9:12 Type error: no
+  implicit 'bar' of type (Int) -> String is in scope here

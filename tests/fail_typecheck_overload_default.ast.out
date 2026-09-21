@@ -1,0 +1,4 @@
+'tests/fail_typecheck_overload_default.pyk' 20:6-20:18 Name error:
+  this call to 'my2' is ambiguous: 'b::my2' takes them as written and
+  'c::my2' takes them with its default for 'z' -- write the qualified
+  name to say which is meant

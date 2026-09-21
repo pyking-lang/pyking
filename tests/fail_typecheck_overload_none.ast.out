@@ -1,0 +1,4 @@
+'tests/fail_typecheck_overload_none.pyk' 13:6-13:17 Type error: no
+  definition of 'twice' takes (Bool); the ones in scope are
+  'int::twice' of type (Int) -> Int, 'string::twice' of type (String)
+  -> String

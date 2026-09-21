@@ -258,6 +258,9 @@ testing — could be built end to end before the language surface grew:
 | a function reading a binding from around it (a closure) | ✅ | ✅ | ❌ (no closures) | ❌ (no closures) | ✅ |
 | a function *writing* a `var` from around it | ✅ (`global`/`nonlocal`) | ✅ | ❌ (same) | ❌ (same) | ✅ (the `ref` it closes over) |
 | a `def` inside a loop, keeping that turn's values | ✅ (a per-turn factory) | ✅ (a per-turn `const`) | ❌ | ❌ | ✅ |
+| static overloading (`def int::leq(...)`) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| implicit parameters (`implicit leq: ...`) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| … one resolved to a definition that takes implicits of its own | ✅ | ✅ | ❌ (the argument built for it is a lambda) | ❌ (same) | ✅ |
 | lambdas (`x => x + 1`) | ✅ (Python's own `lambda`, which is expression-only too) | ✅ (an arrow function) | ❌ (no closures) | ❌ (no closures) | ✅ (`fun x -> …`) |
 | a lambda inside a loop, keeping that turn's values | ✅ (each loop-carried name it reads becomes a parameter defaulted to the turn's value) | ✅ (the same per-turn `const` a `def` gets) | ❌ | ❌ | ✅ |
 | tuples, destructuring | ✅ | ✅ (arrays) | ❌ | ❌ | ✅ |
@@ -279,6 +282,13 @@ The JavaScript targets get Pyking's own rule for free: an ES module's
 top level runs once, the first time something imports it, and imports
 resolve before the importing file runs. There is nothing for the program
 to arrange and no `init` to call.
+
+Overloading and implicits are on every target for the same reason tail
+calls are: `src/elaborate.ml` removes them from the AST, so what a
+backend compiles is a program with plain names and ordinary arguments
+(docs/overloading.md, docs/implicits.md). The one exception is the row
+above — an implicit filled by a definition that takes implicits of its
+own is passed as a *lambda*, and C and Java have no closures.
 
 The `ocaml5.5` column starts from the type checker's coverage: the
 backend runs `src/typesystem.ml` and reads the types back, so a program

@@ -1,0 +1,6 @@
+# A qualified name in a declaration half. No pass rewrites a
+# declaration, so what a `::` name compiles to would reach the target's
+# own source under a spelling it does not have. See
+# docs/overloading.md.
+
+public def int::twice : (Int) -> Int

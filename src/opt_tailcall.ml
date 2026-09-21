@@ -98,15 +98,15 @@ let t_int info = TInt (info, 0)
 
 (** The body a definition was written with. stmt -> [stmt] *)
 let def_body node =
-  match node with SFunctionDef (_, _, _, body, _, _, _) -> body | _ -> []
+  match node with SFunctionDef (_, _, _, body, _, _, _, _, _) -> body | _ -> []
 
 (** The name a definition was written with. stmt -> string *)
 let def_name node =
-  match node with SFunctionDef (_, name, _, _, _, _, _) -> name | _ -> ""
+  match node with SFunctionDef (_, name, _, _, _, _, _, _, _) -> name | _ -> ""
 
 (** The parameters a definition was written with. stmt -> [param] *)
 let def_params node =
-  match node with SFunctionDef (_, _, params, _, _, _, _) -> params | _ -> []
+  match node with SFunctionDef (_, _, params, _, _, _, _, _, _) -> params | _ -> []
 
 let param_name (Param (_, name, _, _, _)) = name
 let param_info (Param (info, _, _, _, _)) = info
@@ -114,8 +114,10 @@ let param_info (Param (info, _, _, _, _)) = info
 (** node with a different body. stmt -> [stmt] -> stmt *)
 let with_body node body =
   match node with
-  | SFunctionDef (info, name, params, _, return_type, sym, public) ->
-      SFunctionDef (info, name, params, body, return_type, sym, public)
+  | SFunctionDef (info, name, params, _, return_type, sym, public, implicits, implicit)
+    ->
+      SFunctionDef
+        (info, name, params, body, return_type, sym, public, implicits, implicit)
   | node -> node
 
 (* --- finding tail calls ---
@@ -207,7 +209,7 @@ let falls_through result =
 let rec falls_through_signature signature =
   match signature with
   | Some (TForall (_, _, body, _)) -> falls_through_signature (Some body)
-  | Some (TFunction (_, _, result, _, _, _)) -> falls_through (Some result)
+  | Some (TFunction (_, _, result, _, _, _, _)) -> falls_through (Some result)
   | _ -> true
 
 (** Raised where a tail call cannot be turned into going round, so the
@@ -590,7 +592,7 @@ let rec zero type_ info =
     stmt -> typ IntMap.t -> ([typ], typ) option *)
 let signature func types =
   match IntMap.find_opt (stmt_sym func) types with
-  | Some (TFunction (_, params, result, _, _, _))
+  | Some (TFunction (_, params, result, _, _, _, _))
     when List.length params = List.length (def_params func) ->
       if List.exists undecided (params @ [ result ]) then None
       else Some (params, result)
@@ -711,6 +713,7 @@ let branch func slots slot_types context work =
                 e_var (param_info param) slot,
                 None,
                 sym,
+                false,
                 false )
           in
           rebind params slots types (out @ [ node ]) (remember work sym type_)
@@ -826,11 +829,19 @@ let merge group work index =
       let definition_sym, work = symbol work in
       let definition =
         SFunctionDef
-          (info, worker, params, body, Some result, definition_sym, false)
+          ( info,
+            worker,
+            params,
+            body,
+            Some result,
+            definition_sym,
+            false,
+            [],
+            false )
       in
       let work =
         remember work definition_sym
-          (TFunction (info, t_int info :: slot_types, result, 0, 0, None))
+          (TFunction (info, t_int info :: slot_types, result, 0, 0, None, []))
       in
       (* Every slot has a type, so every wrapper has something to enter
          the ones it does not fill with. The value is never read -- the
@@ -861,7 +872,7 @@ let binds stmts names =
   Walk.exists_stmts
     (fun node ->
       match node with
-      | Walk.NStmt (SLet (_, target, _, _, _, _))
+      | Walk.NStmt (SLet (_, target, _, _, _, _, _))
       | Walk.NStmt (SLetStmt (_, target, _, _, _, _)) ->
           touches (target_names target)
       | Walk.NStmt (SVar (_, name, _, _)) -> StringSet.mem name names
@@ -874,7 +885,7 @@ let binds stmts names =
           || (match iterate with
              | Some (ForIn (_, name, _, _)) -> StringSet.mem name names
              | _ -> false)
-      | Walk.NStmt (SFunctionDef (_, name, params, _, _, _, _)) ->
+      | Walk.NStmt (SFunctionDef (_, name, params, _, _, _, _, _, _)) ->
           StringSet.mem name names || touches (List.map param_name params)
       | _ -> false)
     stmts
@@ -900,7 +911,7 @@ let functions_of stmts =
     List.filter_map
       (fun statement ->
         match statement with
-        | SFunctionDef (_, name, _, _, _, _, _) -> Some (name, statement)
+        | SFunctionDef (_, name, _, _, _, _, _, _, _) -> Some (name, statement)
         | _ -> None)
       stmts
   in
@@ -970,10 +981,10 @@ let bound_names statement =
     List.fold_left (fun s n -> StringSet.add n s) StringSet.empty names
   in
   match statement with
-  | SLet (_, target, _, _, _, _) | SLetStmt (_, target, _, _, _, _) ->
+  | SLet (_, target, _, _, _, _, _) | SLetStmt (_, target, _, _, _, _) ->
       of_list (target_names target)
   | SVar (_, name, _, _) -> StringSet.singleton name
-  | SFunctionDef (_, name, _, _, _, _, _) -> StringSet.singleton name
+  | SFunctionDef (_, name, _, _, _, _, _, _, _) -> StringSet.singleton name
   | _ -> StringSet.empty
 
 (** Whether a group may be merged where its first member stands: no
@@ -992,7 +1003,7 @@ let same_scope stmts group =
          (List.fold_left
             (fun (index, found) statement ->
               match statement with
-              | SFunctionDef (_, name, _, _, _, _, _)
+              | SFunctionDef (_, name, _, _, _, _, _, _, _)
                 when List.mem name group && not (List.mem_assoc name found) ->
                   (index + 1, (name, index) :: found)
               | _ -> (index + 1, found))
@@ -1009,7 +1020,7 @@ let same_scope stmts group =
           if index <= first || index >= last then between
           else
             match statement with
-            | SFunctionDef (_, name, _, _, _, _, _) when List.mem name group ->
+            | SFunctionDef (_, name, _, _, _, _, _, _, _) when List.mem name group ->
                 between
             | statement -> StringSet.union between (bound_names statement))
         StringSet.empty
@@ -1089,10 +1100,10 @@ let rec block stmts work =
       ( List.concat_map
           (fun statement ->
             match statement with
-            | SFunctionDef (_, name, _, _, _, _, _)
+            | SFunctionDef (_, name, _, _, _, _, _, _, _)
               when List.mem_assoc name replacements ->
                 List.assoc name replacements
-            | SFunctionDef (_, name, _, _, _, _, _)
+            | SFunctionDef (_, name, _, _, _, _, _, _, _)
               when List.mem_assoc name rewritten ->
                 [ List.assoc name rewritten ]
             | statement -> [ statement ])
@@ -1126,9 +1137,12 @@ and rewrite_selves members work rewritten replacements =
     stmt -> pass_state -> (stmt, pass_state) *)
 and walk statement work =
   match statement with
-  | SFunctionDef (info, name, params, body, return_type, sym, public) ->
+  | SFunctionDef (info, name, params, body, return_type, sym, public, implicits, implicit)
+    ->
       let body, work = block body work in
-      (SFunctionDef (info, name, params, body, return_type, sym, public), work)
+      ( SFunctionDef
+          (info, name, params, body, return_type, sym, public, implicits, implicit),
+        work )
   | SLoop (info, target, init, annotation, iterate, body, sym) ->
       let body, work = block body work in
       (SLoop (info, target, init, annotation, iterate, body, sym), work)

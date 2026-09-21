@@ -75,15 +75,22 @@ and typ =
       (* the type of a name denoting a host operation: print, range,
          str, len. Never written in source, never printed. *)
   | TFunction of info * typ list * typ * int * int * stmt option
-      (* (T1, T2, ...) -> T. The last two fields are the type checker's
-         alone: the symbol of the definition whose body is still to be
-         checked, and that definition. Nothing in the source produces
-         them and no printer shows them. *)
+                 * implicit_param list
+      (* (T1, T2, ..., implicit n: T) -> T. The middle two fields are
+         the type checker's alone: the symbol of the definition whose
+         body is still to be checked, and that definition. Nothing in
+         the source produces them and no printer shows them. The last is
+         the implicit parameters, which are trailing and are part of the
+         type by name as well as by type (PYKING.md, "Implicits"). *)
   | TVar of info * string * int * bool
       (* a lowercase name: a type the caller chooses. The flag is
          `rigid`: false for a variable the checker made rather than the
          source. *)
   | TForall of info * string list * typ * int (* all a b. body *)
+
+and implicit_param = IParam of string * typ
+(* `implicit name: type`, in a function type. It carries no info and no
+   sym: it is part of a type, and a type is synthesized. *)
 
 and pattern =
   | PInt of info * int * int (* case 0: *)
@@ -121,11 +128,12 @@ and loop_iter =
 and match_case = MatchCase of info * pattern * stmt list * int
 
 and stmt =
-  | SLet of info * assign_target * expr * typ option * int * bool
-      (* target[: type] = expr. The type is the binding's as the
-         *source* wrote it; the checker records what it inferred in its
-         own table instead. The flag is `public`: the module exports
-         this name. *)
+  | SLet of info * assign_target * expr * typ option * int * bool * bool
+      (* [public] [implicit] target[: type] = expr. The type is the
+         binding's as the *source* wrote it; the checker records what it
+         inferred in its own table instead. The flags are `public` (the
+         module exports this name) and `implicit` (an implicit argument
+         may be resolved to it). *)
   | SLetStmt of info * assign_target * stmt * typ option * int * bool
       (* target = <if/match statement in value form> *)
   | SVar of info * string * expr * int (* var name = expr *)
@@ -150,8 +158,19 @@ and stmt =
   | SIf of info * expr * stmt list * stmt list option * int
       (* if cond: then_body [else: else_body] *)
   | SFunctionDef of
-      info * string * param list * stmt list * typ option * int * bool
-      (* [public] def name(params...) [-> return_type]: body *)
+      info
+      * string
+      * param list
+      * stmt list
+      * typ option
+      * int
+      * bool
+      * param list
+      * bool
+      (* [public] [implicit] def name(params... [, implicit n: T]...)
+         [-> return_type]: body. The last two fields are the implicit
+         parameters, which are trailing, and whether the definition is
+         itself implicit. *)
   | SFunctionSig of info * string * typ * int * bool
       (* [public] def name : type -- a def's type on a line of its own *)
   | SMatch of info * expr * match_case list * int
@@ -230,7 +249,7 @@ let type_info t =
   | TTuple (i, _, _) -> i
   | TUnknown (i, _) -> i
   | TBuiltin (i, _, _) -> i
-  | TFunction (i, _, _, _, _, _) -> i
+  | TFunction (i, _, _, _, _, _, _) -> i
   | TVar (i, _, _, _) -> i
   | TForall (i, _, _, _) -> i
 
@@ -245,7 +264,7 @@ let type_sym t =
   | TTuple (_, _, s) -> s
   | TUnknown (_, s) -> s
   | TBuiltin (_, _, s) -> s
-  | TFunction (_, _, _, s, _, _) -> s
+  | TFunction (_, _, _, s, _, _, _) -> s
   | TVar (_, _, s, _) -> s
   | TForall (_, _, _, s) -> s
 
@@ -323,7 +342,7 @@ let case_body (MatchCase (_, _, b, _)) = b
 (** The source span of one statement. stmt -> info *)
 let stmt_info s =
   match s with
-  | SLet (i, _, _, _, _, _) -> i
+  | SLet (i, _, _, _, _, _, _) -> i
   | SLetStmt (i, _, _, _, _, _) -> i
   | SVar (i, _, _, _) -> i
   | SMutate (i, _, _, _) -> i
@@ -334,7 +353,7 @@ let stmt_info s =
   | SBreak (i, _) -> i
   | SContinue (i, _) -> i
   | SIf (i, _, _, _, _) -> i
-  | SFunctionDef (i, _, _, _, _, _, _) -> i
+  | SFunctionDef (i, _, _, _, _, _, _, _, _) -> i
   | SFunctionSig (i, _, _, _, _) -> i
   | SMatch (i, _, _, _) -> i
   | SImport (i, _, _, _, _, _) -> i
@@ -342,7 +361,7 @@ let stmt_info s =
 (** The symbol of one statement. stmt -> int *)
 let stmt_sym s =
   match s with
-  | SLet (_, _, _, _, s, _) -> s
+  | SLet (_, _, _, _, s, _, _) -> s
   | SLetStmt (_, _, _, _, s, _) -> s
   | SVar (_, _, _, s) -> s
   | SMutate (_, _, _, s) -> s
@@ -353,7 +372,7 @@ let stmt_sym s =
   | SBreak (_, s) -> s
   | SContinue (_, s) -> s
   | SIf (_, _, _, _, s) -> s
-  | SFunctionDef (_, _, _, _, _, s, _) -> s
+  | SFunctionDef (_, _, _, _, _, s, _, _, _) -> s
   | SFunctionSig (_, _, _, s, _) -> s
   | SMatch (_, _, _, s) -> s
   | SImport (_, _, _, _, _, s) -> s
@@ -401,7 +420,7 @@ let set_type_info i t =
   | TTuple (_, es, s) -> TTuple (i, es, s)
   | TUnknown (_, s) -> TUnknown (i, s)
   | TBuiltin (_, n, s) -> TBuiltin (i, n, s)
-  | TFunction (_, ps, r, s, tm, d) -> TFunction (i, ps, r, s, tm, d)
+  | TFunction (_, ps, r, s, tm, d, ips) -> TFunction (i, ps, r, s, tm, d, ips)
   | TVar (_, n, s, rigid) -> TVar (i, n, s, rigid)
   | TForall (_, vs, b, s) -> TForall (i, vs, b, s)
 
@@ -544,11 +563,19 @@ and pprint_type_body cfg t =
          before anything had decided it. Deliberately not spellable. *)
       "?"
   | TBuiltin (_, name, _) -> "builtin " ^ name
-  | TFunction (_, params, result, _, _, _) ->
+  | TFunction (_, params, result, _, _, _, implicits) ->
       (* The parentheses are the parameter *list*'s, not a tuple's, so
-         one parameter that happens to be a tuple keeps its own pair. *)
-      Printf.sprintf "(%s) -> %s"
-        (String.concat ", " (List.map (grouped cfg) params))
+         one parameter that happens to be a tuple keeps its own pair.
+         An implicit parameter prints its name as well as its type: both
+         are part of the type, since both are what resolves it. *)
+      let written =
+        List.map (grouped cfg) params
+        @ List.map
+            (fun (IParam (name, t)) ->
+              Printf.sprintf "implicit %s: %s" name (grouped cfg t))
+            implicits
+      in
+      Printf.sprintf "(%s) -> %s" (String.concat ", " written)
         (pprint_type cfg result)
   | TVar (_, name, _, _) -> name
   | TForall (_, vars, body, _) ->
@@ -572,8 +599,10 @@ let rec spellable t =
   | TUnknown _ | TBuiltin _ -> false
   | TList (_, element, _) -> spellable element
   | TTuple (_, elements, _) -> List.for_all spellable elements
-  | TFunction (_, params, result, _, _, _) ->
-      List.for_all spellable params && spellable result
+  | TFunction (_, params, result, _, _, _, implicits) ->
+      List.for_all spellable params
+      && List.for_all (fun (IParam (_, t)) -> spellable t) implicits
+      && spellable result
   | TForall (_, _, body, _) -> spellable body
   | _ -> true
 
@@ -793,7 +822,7 @@ let return_annotation cfg sym return_type =
         | Some t -> (
             let t = match t with TForall (_, _, body, _) -> body | _ -> t in
             match t with
-            | TFunction (_, _, result, _, _, _) -> Some result
+            | TFunction (_, _, result, _, _, _, _) -> Some result
             | _ -> Some t))
   in
   match return_type with
@@ -804,16 +833,26 @@ let return_annotation cfg sym return_type =
     "". bool -> string *)
 let public_prefix public = if public then "public " else ""
 
+(** The `implicit ` prefix a definition an implicit argument may resolve
+    to carries, or "". bool -> string *)
+let implicit_prefix implicit = if implicit then "implicit " else ""
+
 (** Formats `def name(params) -> result`, from tmap where given.
     config -> string -> int -> string -> [param] -> typ option -> bool
     -> string *)
-let function_header cfg pad sym name params return_type public =
+let function_header cfg pad sym name params return_type public implicits
+    implicit =
   (* A definition whose type is on a `def name : type` line of its own
      says its type in one place or the other: printing both would give a
      program the checker refuses. *)
   let cfg = if IntSet.mem sym cfg.signed then { cfg with tmap = None } else cfg in
-  Printf.sprintf "%s%sdef %s(%s)%s" pad (public_prefix public) name
-    (String.concat ", " (List.map (pprint_param cfg) params))
+  let written =
+    List.map (pprint_param cfg) params
+    @ List.map (fun p -> "implicit " ^ pprint_param cfg p) implicits
+  in
+  Printf.sprintf "%s%s%sdef %s(%s)%s" pad (public_prefix public)
+    (implicit_prefix implicit) name
+    (String.concat ", " written)
     (return_annotation cfg sym return_type)
 
 let split_lines text = String.split_on_char '\n' text
@@ -845,9 +884,10 @@ let rec pprint_stmt cfg s level =
 and pprint_stmt_body cfg s level =
   let pad = String.concat "" (List.init level (fun _ -> "    ")) in
   match s with
-  | SLet (_, target, expr, type_, sym, public) ->
-      Printf.sprintf "%s%s%s%s = %s" pad (public_prefix public)
-        (pprint_target cfg target) (annotation cfg sym type_)
+  | SLet (_, target, expr, type_, sym, public, implicit) ->
+      Printf.sprintf "%s%s%s%s%s = %s" pad (public_prefix public)
+        (implicit_prefix implicit) (pprint_target cfg target)
+        (annotation cfg sym type_)
         (pprint_expr cfg expr 0)
   | SLetStmt (_, target, stmt, type_, sym, public) ->
       (* The bound statement prints exactly as it would on its own; only
@@ -925,9 +965,11 @@ and pprint_stmt_body cfg s level =
   | SFunctionSig (_, name, type_, _, public) ->
       Printf.sprintf "%s%sdef %s : %s" pad (public_prefix public) name
         (pprint_type_nested cfg type_)
-  | SFunctionDef (_, name, params, body, return_type, sym, public) ->
+  | SFunctionDef
+      (_, name, params, body, return_type, sym, public, implicits, implicit) ->
       let header =
-        function_header cfg pad sym name params return_type public
+        function_header cfg pad sym name params return_type public implicits
+          implicit
       in
       String.concat "\n"
         ((header ^ ":")
@@ -969,7 +1011,7 @@ let signed_defs stmts =
       List.fold_left
         (fun acc s ->
           match s with
-          | SFunctionDef (_, name, _, _, _, sym, _)
+          | SFunctionDef (_, name, _, _, _, sym, _, _, _)
             when StringSet.mem name names ->
               IntSet.add sym acc
           | _ -> acc)
@@ -982,7 +1024,7 @@ let signed_defs stmts =
     | SIf (_, _, then_body, else_body, _) ->
         IntSet.union (block then_body)
           (match else_body with None -> IntSet.empty | Some b -> block b)
-    | SFunctionDef (_, _, _, body, _, _, _) -> block body
+    | SFunctionDef (_, _, _, body, _, _, _, _, _) -> block body
     | SMatch (_, _, cases, _) ->
         List.fold_left
           (fun acc c -> IntSet.union acc (block (case_body c)))

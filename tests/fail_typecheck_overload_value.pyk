@@ -1,0 +1,13 @@
+# `::` belongs to a `def` that takes at least one argument.
+#
+# A call's arguments are what resolve which definition it means, so a
+# qualified name with nothing to resolve it by is refused where it is
+# written rather than where it is used (PYKING.md, "Static
+# overloading").
+#
+# This program is expected to FAIL parsing. Its `.ast.out` holds the
+# error message, not a program's output.
+
+def int::zero() -> Int: 0
+
+print(int::zero())

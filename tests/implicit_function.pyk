@@ -1,0 +1,32 @@
+# An implicit parameter whose value is a function.
+#
+# The parameter's *name* is half of what resolves it: `foo` asks for an
+# implicit called `bar`, and an implicit definition called `bar` is what
+# fills it. Two of them, in two scopes, give `foo` two meanings without
+# `foo` being written twice (PYKING.md, "Implicits").
+
+def foo(x: a, implicit bar: (a) -> b) -> (b, b):
+    (bar(x), bar(x))
+
+def my1() -> ():
+    implicit def bar(z: Int) -> String:
+        str(z) ++ "!"
+    print(foo(78), foo(10))
+
+def my2() -> ():
+    implicit def bar(z: String) -> String:
+        z ++ "!"
+    print(foo("hi"), foo("wow"))
+
+my1()
+my2()
+
+# An implicit-taking function passed as a value and called somewhere
+# else: the implicit is resolved where the *call* is written, which is
+# what makes this work at all.
+def apply_twice(f: (Int, implicit bar: (Int) -> String) -> (String, String),
+                n: Int) -> (String, String):
+    implicit def bar(z: Int) -> String: str(z * 2)
+    f(n)
+
+print(apply_twice(foo, 5))

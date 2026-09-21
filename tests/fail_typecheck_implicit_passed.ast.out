@@ -1,0 +1,6 @@
+'tests/fail_typecheck_implicit_passed.pyk' 16:12-16:15 Type error: no
+  implicit 'my' of type Int is in scope here. 'foo' takes it
+  implicitly and the parameter it is passed to does not, so it is
+  resolved here rather than where that parameter is called; write the
+  implicit into that parameter's own type to have it resolved there
+  instead

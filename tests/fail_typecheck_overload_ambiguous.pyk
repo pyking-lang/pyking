@@ -1,0 +1,13 @@
+# Two definitions of an overloaded name take the same arguments.
+#
+# Resolution answers when exactly one candidate fits. Two is a mistake
+# the programmer has to settle, by writing the name in full
+# (docs/overloading.md).
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+def a::first(xs: [Int]) -> Int: 0
+def b::first(xs: [a]) -> Int: 1
+
+print(first([1, 2]))

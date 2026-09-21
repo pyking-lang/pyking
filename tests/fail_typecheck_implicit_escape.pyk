@@ -1,0 +1,24 @@
+# An implicit obligation that would have to cross a `def`.
+#
+# `run` calls something whose type carries an implicit `bar`, and `run`
+# has no implicit `bar` of its own -- the one `outer` writes is in scope
+# where `run` is *called*, not where `f(2)` is written. The obligation
+# stops at the `def` boundary rather than travelling outwards into
+# `run`'s own type: propagating it is inferred contexts, which is type
+# classes, and the fix is to write `implicit bar` in `run`'s parameters
+# (docs/implicits.md).
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+def foo(x: Int, implicit bar: (Int) -> String) -> String:
+    bar(x)
+
+def run(f: (Int, implicit bar: (Int) -> String) -> String) -> String:
+    f(2)
+
+def outer() -> String:
+    implicit def bar(z: Int) -> String: str(z)
+    run(foo)
+
+print(outer())

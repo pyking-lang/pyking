@@ -1,0 +1,20 @@
+# An overloaded call that two definitions take, because one of them has
+# a default.
+#
+# `b::my2` takes two arguments as written and `c::my2` takes two with
+# its default for `z`, so nothing says which this call means. Defaults
+# are erased before the type checker runs, so the count is settled
+# where they are erased -- and two definitions taking one call, where
+# one of them needs a default, is refused there rather than silently
+# resolved to the other (docs/overloading.md).
+#
+# This program is expected to FAIL the name analysis. Its `.ast.out`
+# holds the error message, not a program's output.
+
+def b::my2(x: Bool, y: Int) -> Int:
+    if x then y + 100 else y + 101
+
+def c::my2(x: Bool, y: Int, z: Int = 1000) -> Int:
+    if x then y + 100 + z else y + 101
+
+print(my2(true, 1))

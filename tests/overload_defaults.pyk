@@ -1,0 +1,25 @@
+# Overloading and default parameters, where they do not collide.
+#
+# A default lets a definition take fewer arguments, so it is part of
+# what says whether a call could mean it. Where exactly one definition
+# takes a call that way, its defaults are filled in and the type
+# checker resolves what is left; where two do, the call is refused
+# (see fail_typecheck_overload_default.pyk).
+
+def b::my2(x: Bool, y: Int, w: String) -> String: w
+def c::my2(x: Bool, y: Int, z: Int = 1000) -> Int: y + z
+
+# Only `c::my2` takes two arguments, and only by using its default.
+print(my2(true, 1))
+
+# Three arguments: both take that many, and the types say which.
+print(my2(true, 1, "hi"))
+print(my2(true, 1, 5))
+
+# Written in full, which always works and fills the default too.
+print(c::my2(true, 1))
+
+# A default on an overloaded definition nothing else shares a name with
+# behaves exactly as it always has.
+def only::greet(who: String, mark: String = "!") -> String: who ++ mark
+print(only::greet("hi"), only::greet("hi", "?"))

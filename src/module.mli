@@ -96,7 +96,7 @@ type t = {
   declaration_path : string option;
   imports : string list;
   publics : (string * Lexer.info) list;
-  sigmap : (string * typ) list option;
+  sigmap : (string * typ * bool) list option;
   is_external : bool;
 }
 
@@ -117,7 +117,7 @@ type context = {
   main : bool;
   separate : bool;
   starts : string list;
-  sigmaps : (string * (string * typ) list) list;
+  sigmaps : (string * (string * typ * bool) list) list;
   external_fields : (string * string list) list;
   externals : string list;
 }
@@ -215,26 +215,29 @@ val check_publics : stmt list -> (string * Lexer.info) list
 (** A checked module's exported names and the type the checker gave
     each: all of it another module sees. Made from the program the
     checker saw, before the tail-call pass.
-    [stmt] -> typ IntMap.t -> [(string, typ)] *)
+    Each carries whether it was written `implicit`, since a public
+    implicit is imported unqualified and automatically.
+    [stmt] -> typ IntMap.t -> [(string, typ, bool)] *)
 val make_sigmap :
-  stmt list -> typ IntMap.t -> (string * typ) list
+  stmt list -> typ IntMap.t -> (string * typ * bool) list
 
 (** The same for an external module, taken from what it declared: there
     is no body for the checker to work its exports out from.
-    [stmt] -> [(string, typ)] *)
-val external_sigmap : stmt list -> (string * typ) list
+    [stmt] -> [(string, typ, bool)] *)
+val external_sigmap : stmt list -> (string * typ * bool) list
 
 (** A declaration half's *public* names and their types: what another
     module sees of it. A private declaration is reachable from this
     module's own Pyking half and from nowhere else.
-    [stmt] -> [(string, typ)] *)
-val public_declarations : stmt list -> (string * typ) list
+    [stmt] -> [(string, typ, bool)] *)
+val public_declarations : stmt list -> (string * typ * bool) list
 
 (** What one module exports, both halves together: the public names of
     its Pyking half at the types the checker worked out, and the public
     names of its declaration half at the types it wrote down.
-    [stmt] -> [stmt] -> typ IntMap.t -> [(string, typ)] *)
-val module_sigmap : stmt list -> stmt list -> typ IntMap.t -> (string * typ) list
+    [stmt] -> [stmt] -> typ IntMap.t -> [(string, typ, bool)] *)
+val module_sigmap :
+  stmt list -> stmt list -> typ IntMap.t -> (string * typ * bool) list
 
 (** An external module's declared names and their types.
     [stmt] -> [(string, typ)] *)

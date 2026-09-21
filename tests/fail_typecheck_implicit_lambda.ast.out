@@ -1,0 +1,3 @@
+'tests/fail_typecheck_implicit_lambda.pyk' 9:13-9:37 Parsing error:
+  the lambda parameter 'g' may not be implicit: an implicit parameter
+  is part of a function's type, and only a 'def' writes one down

@@ -303,7 +303,7 @@ let declare stmts env =
 (** The closure a def denotes, capturing env. stmt -> env -> value *)
 let closure node env =
   match node with
-  | SFunctionDef (_, name, params, body, _, _, _) ->
+  | SFunctionDef (_, name, params, body, _, _, _, _, _) ->
       VClosure (name, List.map (fun (Param (_, n, _, _, _)) -> n) params, body, env)
   | _ -> VUnit
 
@@ -311,7 +311,7 @@ let closure node env =
     denotes here. The first of this module's two writes.
     env -> stmt -> env *)
 let define env node =
-  let name = match node with SFunctionDef (_, name, _, _, _, _, _) -> name | _ -> "" in
+  let name = match node with SFunctionDef (_, name, _, _, _, _, _, _, _) -> name | _ -> "" in
   match cell env name with
   (* A `def` whose name `declare` never saw: only reachable if a caller
      ran a statement without declaring its block first. *)
@@ -1277,7 +1277,7 @@ let step_eval state e =
     position") to its continuation. state -> stmt -> state *)
 let step_stmt state stmt =
   match stmt with
-  | SLet (_, target, e, _, _, _) ->
+  | SLet (_, target, e, _, _, _, _) ->
       {
         state with
         control = CEval e;
@@ -1781,7 +1781,9 @@ let run_modules ?(max_depth = max_call_depth) units host =
                 ( name,
                   exported_values stmts state
                   @ host_values
-                      (Module.public_declarations declarations)
+                      (List.map
+                         (fun (n, t, _) -> (n, t))
+                         (Module.public_declarations declarations))
                       name host );
               ])
             state
