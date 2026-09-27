@@ -22,6 +22,7 @@ Data structures:
 Functions:
     require_python(tool) -- exits with a message below Python 3.14.
     vendor() -- downloads Ace and KaTeX into vendor/.
+    vendor_files() -- every vendored file, with the URL it comes from.
     check_vendor(tool) -- exits with a message if vendor/ is incomplete.
     bundle_manifest() -- the compiler bundle's manifest, with its stamp.
     check_bundle(tool) -- exits with a message if build/pyking.js is missing.
@@ -115,7 +116,7 @@ NO_VENDOR_VARIABLE = "PYKING_WEB_NO_VENDOR"
 # --- the vendored libraries ------------------------------------------------
 
 
-def _vendor_plan():
+def vendor_files():
     """Every vendored file: (local path, URL). () -> [(Path, String)]"""
     return ([(VENDOR / "ace" / name, ACE_CDN + "/" + name) for name in ACE_FILES]
             + [(VENDOR / "katex" / name, KATEX_CDN + "/" + name)
@@ -126,7 +127,7 @@ def vendor():
     """Downloads Ace and KaTeX into vendor/, once; a file already present
     is left alone. () -> ()"""
     fetched = 0
-    for path, url in _vendor_plan():
+    for path, url in vendor_files():
         if path.exists():
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -147,7 +148,7 @@ def check_vendor(tool):
     test suite said it does not need them. String -> ()"""
     if os.environ.get(NO_VENDOR_VARIABLE):
         return
-    missing = [path for path, _ in _vendor_plan() if not path.exists()]
+    missing = [path for path, _ in vendor_files() if not path.exists()]
     if missing:
         raise SystemExit(
             f"{tool}: the browser libraries are not downloaded "

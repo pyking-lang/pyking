@@ -111,6 +111,22 @@ comes back whole, can be edited anywhere in it, and re-submitted.
 `:edit <name>` does the same for anything the session defined, however
 long ago. `:help` lists the rest.
 
+## Installing
+
+On a Mac, with [Homebrew](https://brew.sh):
+
+```sh
+brew install pyking-lang/pyking/pyking
+pyk --version
+```
+
+The package is a compiled, universal `pyk` (Apple Silicon and Intel,
+macOS 11 or later) with no dependencies. `pyk notebook` and
+`pyk playground` additionally need Python 3.14 or later on the `PATH`, and
+running what a target compiled needs that target's own tools. See
+[tools/packaging/](tools/packaging/) for how the package is built and
+published.
+
 ## Make targets
 
 The compiler is OCaml in `src/`, built by dune, so `make` builds it:
@@ -123,12 +139,15 @@ make            # dune build src/pyk.exe, copied here as ./pyk
 |---|---|
 | `make` | build the compiler into `./pyk` |
 | `make help` | the list below |
-| `make test` | the compiler's own suite: every program in `tests/` on every target it supports, comparing each against one shared `.out` file — run in parallel, one job per usable CPU (`JOBS=n` to say how many) — then the REPL's own cases in `tests/repl/`, the library path's, the playground's and the notebook's |
+| `make test` | the compiler's own suite: every program in `tests/` on every target it supports, comparing each against one shared `.out` file — run in parallel, one job per usable CPU (`JOBS=n` to say how many) — then the REPL's own cases in `tests/repl/`, the library path's, the playground's, the notebook's and the packaged tree's |
 | `make stest` | the same suite, one test at a time |
 | `make playground` | serve the [web playground](tools/playground/) (`pyk playground`), then print a link to open |
 | `make notebook` | serve `PYKING-TUTORIAL.md` as a [notebook](tools/notebook/) (`pyk notebook`), then print a link |
 | `make vendor` | download Ace and KaTeX into `tools/webrun/vendor/`, once; the two above run it first |
-| `make clean` | remove what has been generated: `_build/`, `./pyk`, `__pycache__/` directories |
+| `make packaging` | build the installable packages into `tools/packaging/build/` — for now the Homebrew one, on a Mac |
+| `make packaging-setup` | once, on an Apple Silicon Mac: make the two OCaml toolchains `make packaging` builds with, and say whether it worked |
+| `make packaging-install` | install that build with Homebrew, to try it before publishing (`make packaging-uninstall` undoes it) |
+| `make clean` | remove what has been generated: `_build/`, `./pyk`, `__pycache__/` directories, `tools/packaging/build/` |
 | `make distclean` | that, plus the `tools/webrun/vendor/` download cache |
 
 `./pyk` is a build artifact, not a checked-in script: `make` writes it
@@ -223,6 +242,7 @@ and math libraries and caches them, which is why the cache only goes on
 | `tools/playground/` | the browser playground: the compiler itself, compiled to JavaScript |
 | `tools/notebook/` | the notebook: a Markdown file whose Pyking blocks run in the browser |
 | `tools/webrun/` | what the playground and the notebook share |
+| `tools/packaging/` | builds the installable packages (Homebrew, so far) |
 
 Building the compiler needs OCaml and dune, and nothing else; the
 playground's bundle additionally needs js_of_ocaml. The test harness is

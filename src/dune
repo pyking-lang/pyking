@@ -21,9 +21,20 @@
  (flags
   (:standard -warn-error -a)))
 
+;; version.ml is generated from the VERSION file at the root, so the
+;; number is written in one place and `pyk --version` cannot disagree
+;; with the package built from the same tree.
+(rule
+ (targets version.ml)
+ (deps ../VERSION)
+ (action
+  (with-stdout-to
+   version.ml
+   (echo "let version = \"%{read-lines:../VERSION}\"\n"))))
+
 (executable
  (name pyk)
- (modules pyk execution repl stdlib_host web_tools)
+ (modules pyk execution repl stdlib_host web_tools install version)
  (libraries pyking unix)
  (flags
   (:standard -warn-error -a)))

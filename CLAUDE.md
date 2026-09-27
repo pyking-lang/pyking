@@ -1142,6 +1142,18 @@ The bootstrap is split into one module per compiler stage:
    passing `--port` and the document. It serves nothing itself; see "The
    web tools" below.
 
+20. **`src/install.ml`** — `root ()`, the directory the running
+   executable is in *after resolving every symbolic link*. Everything
+   that looks beside `pyk` -- the standard library, `build/pyking.js`
+   for `iweb`, the web tools -- asks it, since a package manager's
+   `bin/pyk` is a link and the tree is beside its target. Do not read
+   `Sys.executable_name` for a directory anywhere else.
+21. **`src/version.ml`** — generated, not checked in: a rule in
+   `src/dune` writes `let version = "..."` from the `VERSION` file at
+   the root. `pyk --version` prints it and `tools/packaging/` names
+   packages by it. Bump `VERSION` for a release; nothing else holds the
+   number.
+
 When extending the lexer (new operators, keywords, string escapes, etc.),
 follow the existing pattern: add an arm to the `match rest with`
 inside `lexing`, add a corresponding `Tok*` constructor, and add an arm
@@ -1280,6 +1292,41 @@ install alike. Keep it that way: a web tool may not need anything outside
 those directories, and the playground runs (with no example menu) when
 `tests/` is absent. `docs/build.md`, "The web tools", is the long form.
 
+## Packaging
+
+`make packaging` builds the installable packages into
+`tools/packaging/build/` (gitignored, removed by `make clean`), with
+`tools/packaging/packaging.py`. A format is one class in its `FORMATS`
+table -- a `name`, the `archs` it builds, `refusal()` and `build()` --
+and every format ships the tree `stage()` builds: the table `SHIPPED`,
+filtered by file suffix so no backup or cache file can reach a package.
+A file a web tool or `pyk` needs at run time has to be in `SHIPPED`, or
+the installed copy will not have it.
+
+The one format so far is **Homebrew**: a universal macOS `pyk` (arm64 +
+x86_64, `MACOSX_DEPLOYMENT_TARGET=11.0`), built on an Apple Silicon Mac
+by two opam switches called `pyking-release` whose OCaml was itself
+compiled for macOS 11 -- the x86_64 one under Rosetta -- reached by the
+command prefixes in `$PYK_ARM64` / `$PYK_X86_64`. Both are checked before
+anything is built (architecture, dune, and a runtime no newer than the
+floor, read with `otool -l`), since a runtime compiled for a newer macOS
+makes the floor a lie. The halves are joined with `lipo`, signed ad hoc,
+and refused if `otool -L` shows a library outside `/usr/lib` and
+`/System`. Next to
+the tarball it writes two formulas: `homebrew/pyking.rb`, naming the
+GitHub release `v<VERSION>` of `pyking-lang/pyking`, to be copied into
+the tap repository `pyking-lang/homebrew-pyking` (so users run `brew
+install pyking-lang/pyking/pyking`), and `homebrew-local/pyking.rb`,
+naming the local file, which `make packaging-install` installs through
+the tap `pyking-lang/local`. `make packaging-setup` makes the two
+release switches (`Homebrew.setup`: each step checked before it runs,
+then `preflight` on both, ending in one SUCCEEDED/FAILED line); the
+commands it runs are the `SETUP` table's, which the refusals print too,
+so keep the two and the README's setup section in step. It refuses on Linux, and refuses half a
+universal package unless `ARCHS=` asks for one. Publishing -- the
+release and the tap commit -- is left to the maintainer; see
+`tools/packaging/README.md`.
+
 ## Running
 
 ```
@@ -1288,6 +1335,7 @@ pyk repl                             start the REPL
 pyk compile [options] <filename>     compile it (alias: pyk c)
 pyk notebook [--port N] <file.md>    serve a notebook, print a link
 pyk playground [--port N]            serve the playground, print a link
+pyk --version                        print the version (from VERSION)
 
 options: [--tokens] [--symbols] [--no-tail-call-opt]
          [--no-typechecking] [--type-experiment] [--run]
@@ -1442,7 +1490,8 @@ executable to `./pyk`. `make help` prints the list of targets, which is
 hand-written, as is the one in `tools/playground/Makefile` it is
 modelled on — add a target and you have to add its line too.
 
-`make clean` removes `_build/`, `./pyk` and `__pycache__` directories;
+`make clean` removes `_build/`, `./pyk`, `__pycache__` directories and
+`tools/packaging/build/` (delegated to that directory's Makefile);
 `make distclean` also drops `tools/webrun/vendor/`, the download cache
 `make vendor` fills.
 Neither touches *compiled programs*: `pyk` writes them wherever the
@@ -1457,13 +1506,13 @@ version of that family; with no `TARGET` every target runs, which is
 what `make test` means. The REPL suite runs only when no `TARGET` was
 given, since it is not a target.
 
-**`make test` runs `tests/test_all.py`**, which sequences the five
+**`make test` runs `tests/test_all.py`**, which sequences the six
 suites below rather than each being a line of the Makefile. Three things
 follow, and all three are the point: every suite runs even when an
 earlier one failed, so one broken case does not hide what the other
-four would have said; each suite's output is opened by a banner and
+five would have said; each suite's output is opened by a banner and
 closed by one footer line of a fixed shape; and the run ends with a
-combined summary over all five. Their counts reach it through
+combined summary over all six. Their counts reach it through
 `$PYK_TEST_TALLY`, a file each suite appends one line to
 (`tests/suite.py`), so a suite run on its own prints exactly what it
 prints here. Each remains a script of its own, with its own
@@ -1558,6 +1607,20 @@ is not Markdown, and a Python older than 3.14 (a fake `$PYTHON`). It sets
 still passes. After changing the renderer, `--update` rewrites
 `features.html`; read the diff before keeping it. It takes `--compiler
 CMD` like the others.
+
+**`tests/test_packaging.py` is the sixth suite**, and runs on every
+system even though the Homebrew package is built only on a Mac: it
+stages the shipped tree around *this* machine's `./pyk`, installs it into
+a temporary prefix shaped like Homebrew's (`bin/pyk` a link to a link
+into `Cellar/pyking/<version>/libexec`), and from outside the repository
+checks `pyk --version`, a program, the standard library, `iweb24`, `pyk
+notebook` and `pyk playground`, the tree's contents, the tarball's
+reproducibility and the formula's text (`ruby -c` where Ruby exists).
+When `tools/packaging/build/` holds a package, it also unpacks it, reads
+its `pyk`'s architectures from the Mach-O header, and checks both
+formulas' checksums. It never runs `brew`; `make packaging-install` does. It takes
+`--compiler PYK` like the others, a file rather than a command, since it
+is what gets packaged.
 
 A fifth family covers **external modules**: `external_*` for a module
 implemented in a target language -- `external_all` on every host, and

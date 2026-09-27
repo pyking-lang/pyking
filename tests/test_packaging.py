@@ -1,0 +1,297 @@
+#!/usr/bin/env python3
+"""Runs the packaging's own test cases: that the tree every package
+ships, installed the way Homebrew installs it, is a working Pyking that
+needs nothing from this repository -- and, when a package has been built
+here, that it is what it claims to be.
+
+The Homebrew package itself can only be built on a Mac, so the first
+part stages the shipped tree around *this* machine's `pyk` instead
+(tools/packaging/packaging.py, `stage`), and installs it into a
+temporary prefix shaped like Homebrew's: the tree in
+Cellar/pyking/<version>/libexec, and bin/pyk a link to a link to it.
+Then, from a directory outside the repository:
+
+  - `pyk --version` says the version in VERSION;
+  - a program runs, and a program importing the standard library
+    compiles, which needs lib/ found through the links;
+  - the `iweb24` target compiles, which needs build/pyking.js;
+  - `pyk notebook` and `pyk playground` start and serve their pages;
+  - the tree holds what it should and nothing else;
+  - the tarball is reproducible and unpacks to one directory, and the
+    formula names its URL, checksum and version.
+
+The second part runs only when tools/packaging/build/ holds a package
+(`make packaging` on a Mac): it unpacks each one, checks the
+architectures of its `pyk` from the Mach-O header -- which needs no Mac
+-- checks both formulas' checksums against the tarball, and on a Mac
+runs the binary. It never runs `brew`.
+
+Usage: python3 tests/test_packaging.py [--compiler PYK]
+
+`--compiler` names the `pyk` to package, `./pyk` by default. It has to be
+an executable file, not a command, since it is what the package holds.
+
+Functions:
+    check_stage() -- the shipped tree, installed as Homebrew would.
+    check_built() -- the packages tools/packaging/build/ holds.
+    main(argv) -- the command-line entry point.
+"""
+
+import hashlib
+import os
+import platform
+import shutil
+import struct
+import subprocess
+import sys
+import tarfile
+import tempfile
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE.parent / "tools" / "packaging"))
+
+import suite  # noqa: E402  (after sys.path, which is what finds it)
+import test_notebook  # noqa: E402
+import packaging  # noqa: E402
+
+REPO = HERE.parent
+COMPILER = REPO / "pyk"
+TIMEOUT = 60
+
+HELLO = 'print("hello from", "the package", 1 + 2)\n'
+HELLO_OUTPUT = "hello from the package 3\n"
+# A program that imports the standard library: compiling it at all means
+# lib/ was found beside the resolved executable.
+IMPORTS = "import sys\n\nprint(len(sys.args()))\n"
+
+
+class Checks:
+    """A running count of checks, and the failures among them."""
+
+    def __init__(self):
+        self.count = 0
+        self.failures = []
+
+    def __call__(self, label, ok, detail=""):
+        self.count += 1
+        if not ok:
+            self.failures.append(label + (f": {detail}" if detail else ""))
+        return ok
+
+
+def run(command, cwd, env):
+    """Runs a command, capturing both streams. [..] -> Path -> {..} ->
+    CompletedProcess"""
+    return subprocess.run([str(c) for c in command], cwd=cwd, env=env,
+                          capture_output=True, text=True, timeout=TIMEOUT)
+
+
+def install_like_homebrew(tree, prefix):
+    """Links a staged tree into prefix the way Homebrew does: the tree is
+    Cellar/pyking/<version>/libexec, and bin/pyk is a link to the keg's
+    bin/pyk, itself a link to libexec/pyk. Answers prefix/bin/pyk.
+    Path -> Path -> Path"""
+    keg_bin = tree.parent / "bin"
+    keg_bin.mkdir(parents=True, exist_ok=True)
+    (keg_bin / "pyk").symlink_to(Path("..") / "libexec" / "pyk")
+    (prefix / "bin").mkdir(parents=True, exist_ok=True)
+    (prefix / "bin" / "pyk").symlink_to(os.path.relpath(keg_bin / "pyk", prefix / "bin"))
+    return prefix / "bin" / "pyk"
+
+
+def check_stage(check, compiler):
+    """The shipped tree, staged around this machine's pyk and installed
+    into a temporary prefix, used from outside the repository.
+    Checks -> ()"""
+    version = packaging.version()
+    vendored = all(path.exists() for path, _ in packaging.server.vendor_files())
+    with tempfile.TemporaryDirectory(prefix="pyk-packaging-") as directory:
+        root = Path(directory)
+        tree = root / "Cellar" / "pyking" / version / "libexec"
+        try:
+            packaging.stage(compiler, tree, vendor=vendored)
+        except packaging.Refusal as refusal:
+            check("the tree stages", False, str(refusal))
+            return
+        # Before anything runs from the tree: Python writes __pycache__
+        # beside a script it runs.
+        files = {str(p.relative_to(tree)) for p in tree.rglob("*") if p.is_file()}
+        for wanted in ["pyk", "LICENSE", "PYKING-TUTORIAL.md", "build/pyking.js",
+                       "lib/sys/sys.pyk", "tools/webrun/server.py",
+                       "tools/notebook/notebook.py", "tools/playground/playground.py"]:
+            check(f"the tree holds {wanted}", wanted in files)
+        stray = sorted(f for f in files if f.endswith(("~", ".DS_Store", "Makefile",
+                                                        "e2e.mjs", ".pyc"))
+                       or f.startswith("tests/") or "/#" in f)
+        check("the tree holds nothing else", not stray, ", ".join(stray[:5]))
+
+        pyk = install_like_homebrew(tree, root / "prefix")
+        work = root / "work"
+        work.mkdir()
+        (work / "hello.pyk").write_text(HELLO)
+        (work / "imports.pyk").write_text(IMPORTS)
+        env = {k: v for k, v in os.environ.items() if k != "PYKING_LIB_PATH"}
+        if not vendored:
+            env["PYKING_WEB_NO_VENDOR"] = "1"
+
+        result = run([pyk, "--version"], work, env)
+        check("`pyk --version` says VERSION",
+              result.stdout.strip() == f"pyk {version}", result.stdout + result.stderr)
+        result = run([pyk, "hello.pyk"], work, env)
+        check("a program runs", result.stdout == HELLO_OUTPUT,
+              result.stdout + result.stderr)
+        result = run([pyk, "compile", "-t", "pyking", "--stdout", "imports.pyk"], work, env)
+        check("the standard library is found through the links",
+              result.returncode == 0, result.stderr.strip())
+        result = run([pyk, "compile", "-t", "iweb24", "-o", "page.html", "hello.pyk"],
+                     work, env)
+        check("build/pyking.js is found for the iweb24 target",
+              result.returncode == 0 and (work / "page.html").exists(),
+              result.stderr.strip())
+
+        port = test_notebook.free_port()
+        process, printed = test_notebook.start(
+            [str(pyk)], ["notebook", "--port", str(port), str(tree / "PYKING-TUTORIAL.md")],
+            env)
+        if check("`pyk notebook` starts from the package", process is not None, printed):
+            try:
+                for path in ["/", "/notebook/notebook.js", "/webrun/web.js",
+                             "/pyking/pyking.js", "/doc/PYKING-TUTORIAL.md"]:
+                    status, _ = test_notebook.fetch(port, path)
+                    check(f"the packaged notebook serves {path}", status == 200,
+                          f"status {status}")
+                if vendored:
+                    status, _ = test_notebook.fetch(port, "/vendor/ace/ace.js")
+                    check("the packaged notebook serves Ace", status == 200)
+            finally:
+                test_notebook.stop(process)
+        port = test_notebook.free_port()
+        process, printed = test_notebook.start(
+            [str(pyk)], ["playground", "--port", str(port)], env)
+        if check("`pyk playground` starts from the package", process is not None, printed):
+            try:
+                status, body = test_notebook.fetch(port, "/assets/playground.json")
+                check("the packaged playground offers no examples",
+                      status == 200 and b'"examples": []' in body, f"status {status}")
+            finally:
+                test_notebook.stop(process)
+
+        first = packaging.tarball(tree, root / "a.tar.gz")
+        second = packaging.tarball(tree, root / "b.tar.gz")
+        check("the tarball is reproducible", first == second)
+        with tarfile.open(root / "a.tar.gz") as archive:
+            names = archive.getnames()
+            tops = {name.split("/")[0] for name in names}
+            check("the tarball unpacks to one directory", tops == {"libexec"}, str(tops))
+            member = archive.getmember("libexec/pyk")
+            check("pyk stays executable in the tarball", member.mode & 0o111 != 0)
+
+        url = f"{packaging.RELEASES}/v{version}/pyking-{version}-macos.tar.gz"
+        text = packaging.formula(url, first, ["arm64", "x86_64"])
+        for wanted in [f'url "{url}"', f'sha256 "{first}"', f'version "{version}"',
+                       'bin.install_symlink libexec/"pyk"',
+                       f"depends_on macos: :{packaging.MACOS_MINIMUM_NAME}"]:
+            check(f"the formula says {wanted}", wanted in text)
+        check("a universal formula names no architecture", "depends_on arch" not in text)
+        check("a one-architecture formula says which",
+              "depends_on arch: :arm64" in packaging.formula(url, first, ["arm64"]))
+        check("the formula depends on nothing else",
+              text.count("depends_on") == 1, text)
+        if shutil.which("ruby"):
+            (root / "pyking.rb").write_text(text)
+            result = run(["ruby", "-c", root / "pyking.rb"], root, env)
+            check("the formula is valid Ruby", result.returncode == 0, result.stderr)
+
+
+def check_macho(check):
+    """The Mach-O reader, on headers made here. Checks -> ()"""
+    with tempfile.TemporaryDirectory(prefix="pyk-packaging-") as directory:
+        root = Path(directory)
+        fat = root / "fat"
+        fat.write_bytes(b"\xca\xfe\xba\xbe" + struct.pack(">I", 2)
+                        + struct.pack(">iiIII", 0x01000007, 3, 0, 0, 0)
+                        + struct.pack(">iiIII", 0x0100000C, 0, 0, 0, 0))
+        check("a universal header reads as both architectures",
+              packaging.macho_archs(fat) == ["x86_64", "arm64"], str(packaging.macho_archs(fat)))
+        thin = root / "thin"
+        thin.write_bytes(b"\xcf\xfa\xed\xfe" + struct.pack("<i", 0x0100000C) + bytes(24))
+        check("a thin header reads as its one", packaging.macho_archs(thin) == ["arm64"])
+        check("a file that is not Mach-O reads as none",
+              packaging.macho_archs(REPO / "VERSION") == [])
+
+
+def check_built(check):
+    """Each package tools/packaging/build/ holds: its tree, its binary's
+    architectures, and both formulas' checksums. Answers how many there
+    were. Checks -> Int"""
+    archives = sorted(packaging.BUILD.glob("pyking-*-macos*.tar.gz"))
+    for archive in archives:
+        name = archive.name
+        sha = hashlib.sha256(archive.read_bytes()).hexdigest()
+        suffix = name.removesuffix(".tar.gz").split("-macos")[1]
+        wanted = sorted(suffix.lstrip("-").split("-")) if suffix else ["arm64", "x86_64"]
+        with tempfile.TemporaryDirectory(prefix="pyk-packaging-") as directory:
+            with tarfile.open(archive) as tar:
+                tar.extractall(directory, filter="data")
+            tops = list(Path(directory).iterdir())
+            if not check(f"{name} unpacks to one directory", len(tops) == 1):
+                continue
+            pyk = tops[0] / "pyk"
+            check(f"{name}'s pyk is {' + '.join(wanted)}",
+                  sorted(packaging.macho_archs(pyk)) == wanted,
+                  str(packaging.macho_archs(pyk)))
+            check(f"{name} holds the web tools and the library",
+                  (tops[0] / "tools" / "notebook" / "notebook.py").exists()
+                  and (tops[0] / "lib").is_dir() and (tops[0] / "build" / "pyking.js").exists())
+            if sys.platform == "darwin" and platform.machine() in wanted:
+                result = run([pyk, "--version"], directory, dict(os.environ))
+                check(f"{name}'s pyk runs here",
+                      result.stdout.strip() == f"pyk {packaging.version()}",
+                      result.stdout + result.stderr)
+        for kind in ("homebrew", "homebrew-local"):
+            rb = packaging.BUILD / kind / "pyking.rb"
+            if rb.exists() and name in rb.read_text():
+                check(f"{kind}/pyking.rb has {name}'s checksum", f'sha256 "{sha}"' in rb.read_text())
+    return len(archives)
+
+
+def main(argv):
+    """Runs the checks and reports them. [String] -> Int"""
+    compiler = COMPILER
+    if argv[:1] == ["--compiler"] and len(argv) == 2:
+        compiler = Path(shutil.which(argv[1]) or argv[1]).resolve()
+    elif argv:
+        print("usage: test_packaging.py [--compiler PYK]", file=sys.stderr)
+        return 2
+    if not compiler.is_file():
+        print(f"packaging: FAILED -- no compiler at {compiler}; `make build` writes it")
+        suite.footer("packaging", 0, 1, "nothing to package")
+        return 1
+    try:
+        subprocess.run([str(compiler), "--version"], capture_output=True, timeout=TIMEOUT)
+    except OSError as e:
+        print(f"packaging: FAILED -- {compiler} does not run on this machine ({e.strerror}); "
+              "it was built for another platform. `make clean && make` rebuilds it here.")
+        suite.footer("packaging", 0, 1, "the compiler is for another platform")
+        return 1
+    check = Checks()
+    check_stage(check, compiler)
+    check_macho(check)
+    built = check_built(check)
+    for failure in check.failures:
+        print(f"packaging: FAILED {failure}")
+    print("packaging: the shipped tree, installed as Homebrew would, "
+          f"{'OK' if not check.failures else 'with failures'}.")
+    print(f"packaging: {built} built package{'' if built == 1 else 's'} in "
+          f"{packaging.BUILD.relative_to(REPO)}/ checked"
+          + ("" if built else " (none built; `make packaging` on a Mac builds one)") + ".")
+    failed = len(check.failures)
+    suite.footer("packaging", check.count - failed, failed,
+                 f"the staged tree, {built} built package{'' if built == 1 else 's'}")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

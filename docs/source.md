@@ -54,6 +54,8 @@ and which module calls which.
 | [`target_java.ml`](#target_javaml) | ~1690 | The Java backend, for `java8`/`java17`/`java21`. Also proves every function returns. |
 | [`target_ocaml.ml`](#target_ocamlml) | ~2900 | The OCaml backend. Infers nothing: it reads the checker's `tmap`. |
 | [`execution.ml`](#executionml) | ~200 | What `--run` runs: the commands each target's host uses to build and run what was compiled. |
+| [`install.ml`](#installml) | ~20 | Where this installation keeps `lib/`, `build/` and `tools/`: the executable's directory, symbolic links resolved. |
+| [`version.ml`](#versionml) | 1 | The version, generated from `VERSION` by `src/dune`. |
 | [`web_tools.ml`](#web_toolsml) | ~100 | `pyk notebook` and `pyk playground`: checks Python and hands the process to the tool's server. |
 | [`pyk.ml`](#pykml) | ~780 | The driver: argv, stage sequencing, error reporting, the five commands. |
 | [`web/pyking_web.ml`](#webpyking_webml) | ~320 | The browser entry point: the same library compiled to JavaScript, for the playground and the notebook. |
@@ -1643,6 +1645,25 @@ starts a process.
   replaces this process with the script (`Unix.execvp`), passing
   `--port` and the document. It returns only when it could not, with the
   reason as a sentence for the driver to print.
+
+---
+
+## `install.ml`
+
+**Where this installation keeps what ships beside `pyk`**: `lib/`,
+`build/pyking.js` and `tools/`. `root ()` is the running executable's
+directory after `Unix.realpath`, so a `pyk` reached through a symbolic
+link -- Homebrew's `bin/pyk` is two -- finds the directory it was
+installed in. The standard library's search path, the `iweb` target's
+`pyking.js` and `web_tools.ml` all ask it rather than reading
+`Sys.executable_name` themselves. In the executable, since it needs
+`unix`.
+
+## `version.ml`
+
+**The version**, one string. Not checked in: `src/dune` writes it from
+the `VERSION` file at the root when the executable is built, and `pyk
+--version` prints it. See [build.md](build.md), "Packaging".
 
 ---
 

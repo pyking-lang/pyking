@@ -24,7 +24,7 @@ let name tool = match tool with Notebook -> "notebook" | Playground -> "playgrou
     which is where both a checkout and a distribution keep it.
     tool -> string *)
 let script tool =
-  let root = Module.dirname (Module.absolute Sys.executable_name) in
+  let root = Install.root () in
   Module.join (Module.join (Module.join root "tools") (name tool)) (name tool ^ ".py")
 
 (** The Python to run: $PYTHON, else the platform's usual name for it.

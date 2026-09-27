@@ -11,6 +11,7 @@ make test           the test suite (make stest for one at a time)
 make playground     serve the web playground (pyk playground)
 make notebook       serve PYKING-TUTORIAL.md as a notebook (pyk notebook)
 make vendor         download the browser libraries the two above need
+make packaging      build the installable packages (on a Mac)
 make clean          remove _build/, ./pyk, __pycache__/
 ```
 
@@ -173,3 +174,29 @@ tools/playground/
 The playground's examples come from `tests/`, which a distribution need
 not ship; without it the page starts with a short program of its own
 and offers no example menu.
+
+`pyk` finds that tree through `src/install.ml`, which resolves every
+symbolic link on the way to the running executable first: a package
+manager's `bin/pyk` is a link into the directory the tree was installed
+in, and the tree is beside the target, not beside the link.
+
+## Packaging
+
+`make packaging` builds that tree into installable packages, with
+`tools/packaging/packaging.py`, writing them into `tools/packaging/build/`.
+One format so far: **Homebrew**, a tarball holding a universal macOS
+`pyk` (arm64 and x86_64, macOS 11 or later) and a formula that installs
+it with no dependencies. It is built on an Apple Silicon Mac by two opam
+switches made for releases, whose OCaml was compiled for macOS 11 (the
+x86_64 one runs under Rosetta), and the halves are joined with `lipo`.
+An everyday switch is refused: its runtime was compiled for the macOS
+it was created on, and linking it would break the macOS 11 promise.
+The build refuses a binary that links anything outside the system's own
+libraries, and refuses to build half a package unless `ARCHS=` asks for
+one. `make packaging-setup` makes those two switches once.
+`tools/packaging/README.md` has the one-time setup, the release steps
+and the install instructions.
+
+The version is the `VERSION` file at the root. `src/dune` turns it into
+`version.ml` when the executable is built, so `pyk --version` and the
+package built from the same tree cannot disagree.

@@ -5,12 +5,14 @@
 #                   (TARGET=c23 or TARGET=c for one target or family)
 #   make stest      the same suite, one test at a time
 #   make notebook   open PYKING-TUTORIAL.md as a notebook in the browser
+#   make packaging  build the installable packages (on a Mac)
 #   make clean      remove what has been generated
 #
 # Run `make help` for the full list. The compiler is OCaml in src/,
 # built by dune into the executable this directory calls ./pyk.
 
 .PHONY: all help build test stest check-node playground notebook vendor \
+	packaging packaging-setup packaging-install packaging-uninstall \
 	clean clean-pycache clean-build distclean
 
 # `make` builds the compiler: it is the one thing someone typing `make`
@@ -52,16 +54,17 @@ build:
 # them from, so update this list whenever a target is added or renamed.
 help:
 	@echo "make              build the compiler into ./pyk"
-	@echo "make test         all five suites, then a combined summary: every"
+	@echo "make test         all six suites, then a combined summary: every"
 	@echo "                  tests/*.pyk on every target tests/test_cases.toml"
 	@echo "                  lists it for, run in parallel (JOBS=n to say how"
 	@echo "                  parallel), then the REPL's own cases in tests/repl/,"
 	@echo "                  then the library search path's, then the"
 	@echo "                  playground's compiler bundle, then the notebook's"
-	@echo "                  renderer and server. Every suite runs even"
+	@echo "                  renderer and server, then the packaged tree's."
+	@echo "                  Every suite runs even"
 	@echo "                  if an earlier one failed"
 	@echo "                  TARGET=c23 runs one target; TARGET=c runs every"
-	@echo "                  version of that family (the last four suites are"
+	@echo "                  version of that family (the last five suites are"
 	@echo "                  skipped, since none of them is a target)"
 	@echo "make stest        the same suite, one test at a time"
 	@echo "make playground   serve the web playground (pyk playground), then print"
@@ -70,7 +73,16 @@ help:
 	@echo "                  then print a link. PORT=n picks the port for both"
 	@echo "make vendor       download Ace and KaTeX into tools/webrun/vendor/, once"
 	@echo "                  (~1 MB; the two above need it and run it first)"
+	@echo "make packaging    build the installable packages into"
+	@echo "                  tools/packaging/build/: for now the Homebrew one,"
+	@echo "                  a universal macOS pyk (on a Mac; ARCHS=arm64 for"
+	@echo "                  one architecture)"
+	@echo "make packaging-setup      make the toolchains make packaging needs"
+	@echo "                          (once, on an Apple Silicon Mac)"
+	@echo "make packaging-install    brew install that build (pyking-lang/local)"
+	@echo "make packaging-uninstall  and remove it again"
 	@echo "make clean        remove generated files: _build/, ./pyk, __pycache__/"
+	@echo "                  and tools/packaging/build/"
 	@echo "make distclean    also remove tools/webrun/vendor/, the download cache"
 	@echo "                  (refetching it needs the network)"
 	@echo
@@ -142,10 +154,27 @@ notebook: build vendor
 vendor:
 	@python3 tools/webrun/server.py vendor
 
+# The installable packages, built by tools/packaging/'s own Makefile into
+# its build/: the compiler as JavaScript and the browser libraries go in
+# every package, so both are made first. The executable is rebuilt there,
+# once per architecture, in a dune build directory of its own.
+packaging: build vendor
+	@$(MAKE) --no-print-directory -C tools/packaging $(if $(ARCHS),ARCHS=$(ARCHS))
+
+packaging-setup:
+	@$(MAKE) --no-print-directory -C tools/packaging setup
+
+packaging-install:
+	@$(MAKE) --no-print-directory -C tools/packaging install-local
+
+packaging-uninstall:
+	@$(MAKE) --no-print-directory -C tools/packaging uninstall-local
+
 # What "generated" means here is narrow, and deliberately so: what dune
 # built, the copy of the executable beside it, Python's bytecode caches
-# (the test harness and the web tools' servers are Python), and nothing
-# else: the web tools are served from source and build nothing.
+# (the test harness and the web tools' servers are Python), and the
+# packages tools/packaging/ built (delegated to its own Makefile, which
+# owns them). The web tools are served from source and build nothing.
 #
 # Compiled *programs* are left alone. `pyk` writes its output wherever the
 # caller asked for it, under names that are ordinary source names in every
@@ -155,6 +184,7 @@ vendor:
 # the caller knows which ones they are. ./pyk is the exception that
 # shows the rule: `make build` chose that name itself, so this knows it.
 clean: clean-build clean-pycache
+	@$(MAKE) --no-print-directory -C tools/packaging clean
 
 # tools/webrun/vendor/ is a download cache, so it survives `clean` and
 # only goes on request -- rebuilding it needs the network again.

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""How the five test suites report themselves, in one place so they do
+"""How the six test suites report themselves, in one place so they do
 it the same way.
 
 Each suite prints its own detail, then one footer line of a fixed shape;
-`tests/test_all.py` runs all five, lets that output through unchanged,
+`tests/test_all.py` runs all six, lets that output through unchanged,
 and prints a combined summary at the end. The tally it adds up does not
 travel on stdout -- a suite appends it to the file named by
 `$PYK_TEST_TALLY` instead, so running one suite on its own prints

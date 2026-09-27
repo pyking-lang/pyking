@@ -143,6 +143,7 @@ let synopsis =
   \  --port <n>            serve the notebook or playground on port <n>\n\
   \  --                    everything after it is the program's own\n\
   \                        arguments, read by sys.args()\n\
+  \  --version             print the version and exit\n\
   \  --help                this, in full: the rest of the flags, what each\n\
   \                        command does, and what each target writes"
 
@@ -318,7 +319,7 @@ let environment_libs () =
     work with no flag set and no variable exported, and it is last, so
     anything a caller says overrides it. () -> [string] *)
 let builtin_libs () =
-  let beside = join (dirname (absolute Sys.executable_name)) "lib" in
+  let beside = join (Install.root ()) "lib" in
   if Sys.file_exists beside then [ beside ] else []
 
 (** The whole search path, in the order a module name is looked for:
@@ -363,6 +364,9 @@ let parse_args argv =
     | [] -> (options, List.rev positional)
     | "--help" :: _ | "-h" :: _ ->
         print_endline (usage_full ());
+        exit 0
+    | "--version" :: _ ->
+        print_endline ("pyk " ^ Version.version);
         exit 0
     | "--tokens" :: rest -> go { options with tokens = true } positional rest
     | "--run" :: rest -> go { options with run = true } positional rest
@@ -917,7 +921,7 @@ let compile_program checked target output_path options =
      the program: `make` writes it to build/pyking.js, so it is looked
      for beside the executable that is asking for it. *)
   let interpreter_js () =
-    let here = dirname (Module.absolute Sys.executable_name) in
+    let here = Install.root () in
     let candidates =
       [
         join (join here "build") Target_js_packaging.interpreter_module;
