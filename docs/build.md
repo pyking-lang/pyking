@@ -123,7 +123,7 @@ to *produce* the code, and none at all to run a program with
 `pyk <file>`, which is the interpreter.
 
 The test harness (`tests/test_script.py`) is Python 3.11+. The web tools'
-servers (`tools/webrun/server.py`) need Python 3.14+ and check for it.
+servers (`tools/webrun/server.py`) need Python 3.10+ and check for it.
 Both are tooling around the compiler, not part of it.
 
 ## The web tools
@@ -144,7 +144,7 @@ build/pyking.js   the compiler, which both pages load
 
 `pyk` itself does not serve anything. `src/web_tools.ml` finds
 `tools/<tool>/<tool>.py` beside the running executable, runs `$PYTHON`
-(else `python3`) to check it is 3.14 or later, and replaces its own
+(else `python3`) to check it is 3.10 or later, and replaces its own
 process with that script (`execvp`), passing `--port` and the document
 on. `make playground` and `make notebook` go through `./pyk` the same
 way, after `make vendor` has downloaded Ace and KaTeX once.
@@ -157,7 +157,7 @@ program. OCaml, dune and js_of_ocaml are needed to *build* it, never to
 use it.
 
 The web tools add one dependency, and only for someone who uses them:
-Python 3.14 or later, standard library only. A distribution is a subset
+Python 3.10 or later, standard library only. A distribution is a subset
 of this repository's tree, kept at the same relative paths so that one
 lookup — beside the executable — works in a checkout and an install
 alike:
@@ -183,19 +183,31 @@ in, and the tree is beside the target, not beside the link.
 ## Packaging
 
 `make packaging` builds that tree into installable packages, with
-`tools/packaging/packaging.py`, writing them into `tools/packaging/build/`.
-One format so far: **Homebrew**, a tarball holding a universal macOS
-`pyk` (arm64 and x86_64, macOS 11 or later) and a formula that installs
-it with no dependencies. It is built on an Apple Silicon Mac by two opam
-switches made for releases, whose OCaml was compiled for macOS 11 (the
-x86_64 one runs under Rosetta), and the halves are joined with `lipo`.
-An everyday switch is refused: its runtime was compiled for the macOS
-it was created on, and linking it would break the macOS 11 promise.
-The build refuses a binary that links anything outside the system's own
-libraries, and refuses to build half a package unless `ARCHS=` asks for
-one. `make packaging-setup` makes those two switches once.
-`tools/packaging/README.md` has the one-time setup, the release steps
-and the install instructions.
+`tools/packaging/packaging.py`, writing them into `tools/packaging/build/`,
+and `make release` publishes them. Two formats, each holding a `pyk` with
+no dependencies:
+
+- **Homebrew**, for macOS 11 or later: a tarball holding a universal
+  `pyk` (arm64 and x86_64) and a formula that installs it. It is built on
+  an Apple Silicon Mac by two opam switches made for releases, whose
+  OCaml was compiled for macOS 11 (the x86_64 one runs under Rosetta),
+  and the halves are joined with `lipo`. An everyday switch is refused:
+  its runtime was compiled for the macOS it was created on, and linking
+  it would break the macOS 11 promise. A binary that links anything
+  outside the system's own libraries is refused too.
+- **Linux**, for every distribution and WSL: a `pyk` linked fully
+  static against musl, built in an Alpine container per architecture
+  (x86_64 and aarch64, one of them emulated), shipped as a tarball --
+  which the one-line installer `install.sh` installs -- and as a `.deb`.
+  The static link is dune's `static` profile in `src/dune`, used by
+  nothing else.
+
+A partial build (`FORMATS=`, `ARCHS=`) is possible and cannot be
+published. `make packaging-setup` makes the toolchains once. One release
+of the public repository `pyking-lang/pyking-releases` holds every
+platform's files, and the formula goes to the tap
+`pyking-lang/homebrew-tap`. `tools/packaging/README.md` has the one-time
+setup, the release steps and the install instructions.
 
 The version is the `VERSION` file at the root. `src/dune` turns it into
 `version.ml` when the executable is built, so `pyk --version` and the

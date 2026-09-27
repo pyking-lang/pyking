@@ -21,7 +21,7 @@ tools/webrun/
 `server.py` is a module the two tools import, not a server of its own. It
 provides:
 
-- **the Python check** — `require_python` refuses anything older than 3.14
+- **the Python check** — `require_python` refuses anything older than 3.10
   with one line saying so. The file stays parseable by an old Python so
   that the check, not a syntax error, is what such a Python reports.
 - **a `Site`** — URL prefixes mapped to directories, exact paths mapped to

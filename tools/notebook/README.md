@@ -15,7 +15,7 @@ make notebook                            # at the repository root: the tutorial
 As with the playground, **nothing executes on the server**. The page loads
 the real compiler — `src/` compiled to JavaScript, `build/pyking.js` — into a
 worker and runs each cell with its interpreter. The server only hands out
-files, and needs Python 3.14 or later.
+files, and needs Python 3.10 or later.
 
 ## Running cells
 

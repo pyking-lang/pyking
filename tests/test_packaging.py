@@ -20,11 +20,19 @@ Then, from a directory outside the repository:
   - the tarball is reproducible and unpacks to one directory, and the
     formula names its URL, checksum and version.
 
-The second part runs only when tools/packaging/build/ holds a package
-(`make packaging` on a Mac): it unpacks each one, checks the
-architectures of its `pyk` from the Mach-O header -- which needs no Mac
--- checks both formulas' checksums against the tarball, and on a Mac
-runs the binary. It never runs `brew`.
+The same tree is then packed the Linux way, which this suite can check
+end to end on Linux: a .deb, read back by its own reader and, where dpkg
+exists, by `dpkg-deb`, then unpacked and run; and install.sh, run against
+a release copied into a temporary directory, installing into a temporary
+home -- installing, reinstalling, refusing a wrong checksum, refusing
+macOS, and uninstalling. SHA256SUMS and the ELF reader are checked too.
+
+The last part runs only when tools/packaging/build/ holds packages
+(`make packaging`): it unpacks each one, checks its `pyk` -- the Mac's
+architectures from the Mach-O header, each Linux one's architecture and
+that it is static from the ELF header, which needs neither system --
+checks SHA256SUMS and both formulas against the files, and runs what
+this machine can run. It never runs `brew`, `dpkg -i` or a release.
 
 Usage: python3 tests/test_packaging.py [--compiler PYK]
 
@@ -33,11 +41,15 @@ an executable file, not a command, since it is what the package holds.
 
 Functions:
     check_stage() -- the shipped tree, installed as Homebrew would.
+    check_deb(tree) -- the .deb of a tree.
+    check_install_sh(tree) -- install.sh, against a local release.
+    check_readers() -- the Mach-O and ELF readers, and SHA256SUMS.
     check_built() -- the packages tools/packaging/build/ holds.
     main(argv) -- the command-line entry point.
 """
 
 import hashlib
+import io
 import os
 import platform
 import shutil
@@ -205,6 +217,143 @@ def check_stage(check, compiler):
             check("the formula is valid Ruby", result.returncode == 0, result.stderr)
 
 
+HOST_UNAME = {"arm64": "aarch64", "aarch64": "aarch64", "x86_64": "x86_64",
+              "amd64": "x86_64"}.get(platform.machine(), platform.machine())
+
+
+def read_ar(path):
+    """The members of an ar archive, in order, as (name, bytes).
+    Path -> [(String, Bytes)]"""
+    data = path.read_bytes()
+    assert data[:8] == b"!<arch>\n", "not an ar archive"
+    members, at = [], 8
+    while at < len(data):
+        header = data[at:at + 60]
+        name, size = header[:16].decode().strip().rstrip("/"), int(header[48:58])
+        members.append((name, data[at + 60:at + 60 + size]))
+        at += 60 + size + (size % 2)
+    return members
+
+
+def check_deb(check, tree):
+    """The .deb of a tree, for this machine's architecture: its layout,
+    its control file, what dpkg-deb says of it, and that the pyk it
+    installs runs. Checks -> Path -> ()"""
+    arch = packaging.canonical_arch(HOST_UNAME)
+    if arch not in packaging.ARCHS:
+        return
+    with tempfile.TemporaryDirectory(prefix="pyk-packaging-") as directory:
+        root = Path(directory)
+        first = packaging.deb(tree, arch, root / "a.deb")
+        check("the .deb is reproducible", first == packaging.deb(tree, arch, root / "b.deb"))
+        members = read_ar(root / "a.deb")
+        check("the .deb holds debian-binary, control and data, in that order",
+              [name for name, _ in members] == ["debian-binary", "control.tar.gz",
+                                               "data.tar.gz"], str([n for n, _ in members]))
+        control_tar = tarfile.open(fileobj=io.BytesIO(members[1][1]))
+        control = control_tar.extractfile("./control").read().decode()
+        fields = dict(line.split(": ", 1) for line in control.splitlines()
+                      if ": " in line and not line.startswith(" "))
+        for key, wanted in [("Package", "pyking"), ("Version", packaging.version()),
+                            ("Architecture", packaging.DEB_ARCH[arch]),
+                            ("Recommends", f"python3 (>= {packaging.PYTHON_MINIMUM})")]:
+            check(f"the .deb's control says {key}: {wanted}", fields.get(key) == wanted,
+                  fields.get(key, "(missing)"))
+        check("the .deb depends on nothing", "Depends" not in fields)
+        data = tarfile.open(fileobj=io.BytesIO(members[2][1]))
+        link = data.getmember("./usr/bin/pyk")
+        check("the .deb links /usr/bin/pyk into /usr/lib/pyking",
+              link.issym() and link.linkname == "../lib/pyking/pyk")
+        check("the .deb installs the tree in /usr/lib/pyking",
+              "./usr/lib/pyking/lib/sys/sys.pyk" in data.getnames())
+        if shutil.which("dpkg-deb"):
+            info = run(["dpkg-deb", "--field", root / "a.deb", "Package", "Architecture"],
+                       root, dict(os.environ))
+            check("dpkg-deb reads the .deb", info.returncode == 0
+                  and f"Architecture: {packaging.DEB_ARCH[arch]}" in info.stdout,
+                  info.stdout + info.stderr)
+            unpacked = root / "unpacked"
+            run(["dpkg-deb", "-x", root / "a.deb", unpacked], root, dict(os.environ))
+            result = run([unpacked / "usr" / "bin" / "pyk", "--version"], root, dict(os.environ))
+            check("the pyk the .deb installs runs through /usr/bin/pyk",
+                  result.stdout.strip() == f"pyk {packaging.version()}",
+                  result.stdout + result.stderr)
+
+
+def check_install_sh(check, tree):
+    """install.sh against a release in a temporary directory, into a
+    temporary home. Checks -> Path -> ()"""
+    script = packaging.INSTALL_SH
+    with tempfile.TemporaryDirectory(prefix="pyk-packaging-") as directory:
+        root = Path(directory)
+        release = root / "release"
+        release.mkdir()
+        asset = f"pyking-linux-{HOST_UNAME}.tar.gz"
+        sha = packaging.tarball(tree, release / asset)
+        (release / "SHA256SUMS").write_text(f"{sha}  {asset}\n")
+        home = root / "home"
+        home.mkdir()
+        env = {k: v for k, v in os.environ.items() if k not in ("XDG_DATA_HOME",)}
+        env.update(HOME=str(home), PYKING_DOWNLOAD_BASE=release.as_uri())
+        if platform.system() != "Linux":
+            # install.sh refuses anything but Linux, by design -- a Mac is sent
+            # to Homebrew, which is checked below. To exercise it here all the
+            # same, a stand-in `uname` says Linux; the pyk it installs is this
+            # machine's own, so it still runs.
+            linux = root / "linuxbin"
+            linux.mkdir()
+            (linux / "uname").write_text(
+                '#!/bin/sh\ncase "$1" in -s) echo Linux ;; -m) echo '
+                f'{HOST_UNAME} ;; *) exec /usr/bin/uname "$@" ;; esac\n')
+            (linux / "uname").chmod(0o755)
+            env["PATH"] = f"{linux}:{env['PATH']}"
+        pyk = home / ".local" / "bin" / "pyk"
+
+        result = run(["sh", script], root, env)
+        installed = check("install.sh installs into ~/.local", result.returncode == 0
+                          and pyk.is_symlink()
+                          and (home / ".local" / "share" / "pyking" / "pyk").exists(),
+                          result.stdout + result.stderr)
+        check("install.sh says what it installed",
+              f"Installed pyk {packaging.version()}" in result.stdout, result.stdout)
+        (root / "hello.pyk").write_text(HELLO)
+        if installed:
+            ran = run([pyk, root / "hello.pyk"], root, env)
+            check("the pyk install.sh installed runs a program", ran.stdout == HELLO_OUTPUT,
+                  ran.stdout + ran.stderr)
+        again = run(["sh", script], root, env)
+        check("install.sh installs over an earlier installation", again.returncode == 0,
+              again.stderr)
+
+        (release / "SHA256SUMS").write_text(f"{'0' * 64}  {asset}\n")
+        bad = run(["sh", script], root, env)
+        check("install.sh refuses a download that does not match SHA256SUMS",
+              bad.returncode != 0 and "does not match its checksum" in bad.stderr,
+              bad.stdout + bad.stderr)
+        (release / "SHA256SUMS").write_text(f"{sha}  {asset}\n")
+
+        fake = root / "fakebin"
+        fake.mkdir()
+        (fake / "uname").write_text("#!/bin/sh\necho Darwin\n")
+        (fake / "uname").chmod(0o755)
+        mac = run(["sh", script], root, dict(env, PATH=f"{fake}:{env['PATH']}"))
+        check("install.sh sends a Mac to Homebrew", mac.returncode != 0
+              and packaging.BREW_INSTALL in mac.stderr, mac.stderr)
+        wrong = run(["sh", script, "--frob"], root, env)
+        check("install.sh refuses an unknown option", wrong.returncode != 0
+              and "unknown option" in wrong.stderr, wrong.stderr)
+
+        gone = run(["sh", script, "--uninstall"], root, env)
+        check("install.sh --uninstall removes it", gone.returncode == 0
+              and not pyk.exists() and not pyk.is_symlink()
+              and not (home / ".local" / "share" / "pyking").exists(), gone.stderr)
+    for shell in ("dash", "busybox"):
+        if shutil.which(shell):
+            parsed = run([shell] + (["sh"] if shell == "busybox" else []) + ["-n", script],
+                         REPO, dict(os.environ))
+            check(f"install.sh parses under {shell}", parsed.returncode == 0, parsed.stderr)
+
+
 def check_macho(check):
     """The Mach-O reader, on headers made here. Checks -> ()"""
     with tempfile.TemporaryDirectory(prefix="pyk-packaging-") as directory:
@@ -220,12 +369,71 @@ def check_macho(check):
         check("a thin header reads as its one", packaging.macho_archs(thin) == ["arm64"])
         check("a file that is not Mach-O reads as none",
               packaging.macho_archs(REPO / "VERSION") == [])
+        # An ELF header with no program headers at all: static, arm64.
+        elf = root / "elf"
+        elf.write_bytes(b"\x7fELF\x02\x01\x01" + bytes(9) + struct.pack("<HH", 2, 0xB7)
+                        + bytes(64 - 20))
+        check("an ELF header reads as its machine, static when it names no loader",
+              packaging.elf_info(elf) == ("arm64", True), str(packaging.elf_info(elf)))
+        check("a file that is not ELF reads as none",
+              packaging.elf_info(REPO / "VERSION") is None)
+        v = "9.9.9"
+        names = packaging.release_assets(v)
+        check("a release holds the Mac tarball, each Linux tarball and .deb under "
+              "both names, install.sh and SHA256SUMS",
+              len(names) == 11 and names[-1] == "SHA256SUMS" and "install.sh" in names
+              and "pyking-linux-x86_64.tar.gz" in names and "pyking_9.9.9_arm64.deb" in names,
+              str(names))
+        saved = packaging.BUILD
+        try:
+            packaging.BUILD = root
+            (root / "install.sh").write_text("echo\n")
+            (root / "pyking_arm64.deb").write_bytes(b"x")
+            sums = packaging.read_checksums(packaging.write_checksums(v))
+            check("SHA256SUMS lists what is built, and only that",
+                  sums == {"install.sh": hashlib.sha256(b"echo\n").hexdigest(),
+                           "pyking_arm64.deb": hashlib.sha256(b"x").hexdigest()}, str(sums))
+        finally:
+            packaging.BUILD = saved
 
 
 def check_built(check):
     """Each package tools/packaging/build/ holds: its tree, its binary's
-    architectures, and both formulas' checksums. Answers how many there
-    were. Checks -> Int"""
+    architectures, and both formulas' checksums -- and each Linux tarball
+    and .deb, and SHA256SUMS. Answers how many there were. Checks -> Int"""
+    linux = sorted(packaging.BUILD.glob(f"pyking-{packaging.version()}-linux-*.tar.gz"))
+    for archive in linux:
+        u = archive.name.removesuffix(".tar.gz").rsplit("-", 1)[1]
+        arch = packaging.canonical_arch(u)
+        with tempfile.TemporaryDirectory(prefix="pyk-packaging-") as directory:
+            with tarfile.open(archive) as tar:
+                tar.extractall(directory, filter="data")
+            tops = list(Path(directory).iterdir())
+            pyk = tops[0] / "pyk" if len(tops) == 1 else Path(directory) / "missing"
+            info = packaging.elf_info(pyk) if pyk.exists() else None
+            check(f"{archive.name}'s pyk is a static {arch} binary", info == (arch, True),
+                  str(info))
+            if platform.system() == "Linux" and HOST_UNAME == u:
+                result = run([pyk, "--version"], directory, dict(os.environ))
+                check(f"{archive.name}'s pyk runs here",
+                      result.stdout.strip() == f"pyk {packaging.version()}",
+                      result.stdout + result.stderr)
+        fixed = packaging.BUILD / f"pyking-linux-{u}.tar.gz"
+        check(f"{fixed.name} is {archive.name}", fixed.exists()
+              and fixed.read_bytes() == archive.read_bytes())
+        package = packaging.BUILD / f"pyking_{packaging.version()}_{packaging.DEB_ARCH[arch]}.deb"
+        if check(f"{package.name} is built beside it", package.exists()):
+            members = read_ar(package)
+            control = tarfile.open(fileobj=io.BytesIO(members[1][1])) \
+                .extractfile("./control").read().decode()
+            check(f"{package.name} says Architecture: {packaging.DEB_ARCH[arch]}",
+                  f"Architecture: {packaging.DEB_ARCH[arch]}" in control)
+    sums_file = packaging.BUILD / "SHA256SUMS"
+    if sums_file.exists():
+        sums = packaging.read_checksums(sums_file)
+        wrong = [name for name, sha in sums.items() if not (packaging.BUILD / name).exists()
+                 or hashlib.sha256((packaging.BUILD / name).read_bytes()).hexdigest() != sha]
+        check("SHA256SUMS matches the files built", not wrong, ", ".join(wrong))
     archives = sorted(packaging.BUILD.glob("pyking-*-macos*.tar.gz"))
     for archive in archives:
         name = archive.name
@@ -254,7 +462,7 @@ def check_built(check):
             rb = packaging.BUILD / kind / "pyking.rb"
             if rb.exists() and name in rb.read_text():
                 check(f"{kind}/pyking.rb has {name}'s checksum", f'sha256 "{sha}"' in rb.read_text())
-    return len(archives)
+    return len(archives) + len(linux)
 
 
 def main(argv):
@@ -278,6 +486,12 @@ def main(argv):
         return 1
     check = Checks()
     check_stage(check, compiler)
+    vendored = all(path.exists() for path, _ in packaging.server.vendor_files())
+    with tempfile.TemporaryDirectory(prefix="pyk-packaging-") as directory:
+        tree = packaging.stage(compiler, Path(directory) / f"pyking-{packaging.version()}",
+                               vendor=vendored)
+        check_deb(check, tree)
+        check_install_sh(check, tree)
     check_macho(check)
     built = check_built(check)
     for failure in check.failures:

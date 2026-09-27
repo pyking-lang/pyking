@@ -1641,7 +1641,7 @@ starts a process.
 
 - **`start tool port document -> string`** — finds
   `tools/<tool>/<tool>.py` beside the running executable, asks `$PYTHON`
-  (else `python3`) for its version and refuses one older than 3.14, then
+  (else `python3`) for its version and refuses one older than 3.10, then
   replaces this process with the script (`Unix.execvp`), passing
   `--port` and the document. It returns only when it could not, with the
   reason as a sentence for the driver to print.

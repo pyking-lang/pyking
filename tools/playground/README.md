@@ -51,7 +51,7 @@ to the outside world: `pyk.ml` (the driver), `execution.ml` (`--run`) and
 | `make serve` | serve the page and print a clickable `http://localhost:8000/` |
 
 Variables: `PORT=9000` (without it, 8000 or the next free port),
-`PYTHON=python3.14`. The server needs Python 3.14 or later.
+`PYTHON=python3.12`. The server needs Python 3.10 or later.
 
 `make check` is worth knowing about: it runs every example through the
 same `pyking.js` the page loads, under `node` — over 1600 example/target

@@ -116,16 +116,22 @@ long ago. `:help` lists the rest.
 On a Mac, with [Homebrew](https://brew.sh):
 
 ```sh
-brew install pyking-lang/macos/pyking
-pyk --version
+brew install pyking-lang/tap/pyking
 ```
 
-The package is a compiled, universal `pyk` (Apple Silicon and Intel,
-macOS 11 or later) with no dependencies. `pyk notebook` and
-`pyk playground` additionally need Python 3.14 or later on the `PATH`, and
-running what a target compiled needs that target's own tools. See
-[tools/packaging/](tools/packaging/) for how the package is built and
-published.
+On Linux and WSL, any distribution, into `~/.local` with no sudo:
+
+```sh
+curl -fsSL https://github.com/pyking-lang/pyking-releases/releases/latest/download/install.sh | sh
+```
+
+Either way `pyk` is one compiled binary with no dependencies: universal
+on macOS 11 or later (Apple Silicon and Intel), fully static on Linux
+(x86_64 and aarch64). Debian and Ubuntu users can install the release's
+`.deb` instead. `pyk notebook` and `pyk playground` additionally need
+Python 3.10 or later on the `PATH`, and running what a target compiled
+needs that target's own tools. See [tools/packaging/](tools/packaging/)
+for every option, and for how the packages are built and published.
 
 ## Make targets
 
@@ -146,7 +152,7 @@ make            # dune build src/pyk.exe, copied here as ./pyk
 | `make vendor` | download Ace and KaTeX into `tools/webrun/vendor/`, once; the two above run it first |
 | `make packaging` | build the installable packages into `tools/packaging/build/` — for now the Homebrew one, on a Mac |
 | `make packaging-setup` | once, on an Apple Silicon Mac: make the two OCaml toolchains `make packaging` builds with, and say whether it worked |
-| `make release-macos` | publish the built package: a release and the formula, both in the public `pyking-lang/homebrew-macos` |
+| `make release` | publish the built packages: one release of the public `pyking-lang/pyking-releases` with every platform, the formula in the tap `pyking-lang/homebrew-tap`, and (asked separately) the tag `release-<VERSION>` here |
 | `make packaging-install` | install that build with Homebrew, to try it before publishing (`make packaging-uninstall` undoes it) |
 | `make clean` | remove what has been generated: `_build/`, `./pyk`, `__pycache__/` directories, `tools/packaging/build/` |
 | `make distclean` | that, plus the `tools/webrun/vendor/` download cache |
@@ -165,7 +171,7 @@ runs.
 
 The playground and the notebook are started through the compiler —
 `pyk playground`, `pyk notebook FILE.md`, `--port N` for either — and
-need Python 3.14 or later. Neither is built: each is served from
+need Python 3.10 or later. Neither is built: each is served from
 `tools/` as it stands. The first `make vendor` downloads their editor
 and math libraries and caches them, which is why the cache only goes on
 `make distclean`. See [docs/build.md](docs/build.md), "The web tools".
@@ -248,7 +254,7 @@ and math libraries and caches them, which is why the cache only goes on
 Building the compiler needs OCaml and dune, and nothing else; the
 playground's bundle additionally needs js_of_ocaml. The test harness is
 Python 3.11+ (`match`/`case`, `tomllib`), and the web tools need Python
-3.14+.
+3.10+.
 
 Running the generated code needs `node` for the JavaScript targets, a C
 compiler for the C ones, a JDK (`javac`/`java`) for the Java ones and an

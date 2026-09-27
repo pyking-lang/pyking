@@ -37,6 +37,7 @@ import http.client
 import json
 import os
 import shlex
+import shutil
 import socket
 import subprocess
 import sys
@@ -383,15 +384,66 @@ def check_server(compiler):
     refused("a filename for the playground is refused",
             ["playground", str(FEATURES)], "takes no filename")
     with tempfile.TemporaryDirectory(prefix="pyk-notebook-") as directory:
-        old = Path(directory) / "python-3.12"
-        old.write_text("#!/bin/sh\necho '3 12'\n")
+        old = Path(directory) / "python-3.9"
+        old.write_text("#!/bin/sh\necho '3 9'\n")
         old.chmod(0o755)
-        refused("a Python older than 3.14 is refused", ["notebook", str(FEATURES)],
-                "needs Python 3.14 or later", dict(environment, PYTHON=str(old)))
+        refused("a Python older than 3.10 is refused", ["notebook", str(FEATURES)],
+                "needs Python 3.10 or later", dict(environment, PYTHON=str(old)))
     refused("a Python that is not there is refused", ["notebook", str(FEATURES)],
             "could not be run",
             dict(environment, PYTHON=str(Path("/nonexistent") / "python3")))
     return checks, failures
+
+
+# The oldest Python the web tools promise to run on (tools/webrun/server.py).
+OLDEST_PYTHON = "3.10"
+OLDEST_IMAGE = f"python:{OLDEST_PYTHON}-alpine"
+# Run inside the oldest Python: both servers started, and what each page
+# is driven by fetched from them.
+OLDEST_SCRIPT = f"""
+import os, subprocess, sys, time, urllib.request
+os.environ["PYKING_WEB_NO_VENDOR"] = "1"
+assert sys.version_info[:2] == ({OLDEST_PYTHON.replace(".", ", ")}), sys.version
+servers = [subprocess.Popen([sys.executable, "tools/notebook/notebook.py", "--port", "8871",
+                             "tests/notebook/features.md"], stdout=subprocess.DEVNULL),
+           subprocess.Popen([sys.executable, "tools/playground/playground.py", "serve",
+                             "--port", "8872"], stdout=subprocess.DEVNULL)]
+try:
+    for url in ["http://127.0.0.1:8871/notebook.json", "http://127.0.0.1:8872/assets/playground.json"]:
+        for _ in range(50):
+            try:
+                urllib.request.urlopen(url).read()
+                break
+            except OSError:
+                time.sleep(0.1)
+        else:
+            sys.exit("no answer from " + url)
+finally:
+    for server in servers:
+        server.terminate()
+print("ok")
+"""
+
+
+def check_oldest_python():
+    """Whether the web tools run on the oldest Python they promise: with a
+    `python3.10` on the PATH, or else in the python:3.10 Docker image if it
+    is already here (nothing is downloaded). Answers (ran, problem?).
+    () -> (Bool, String?)"""
+    local = shutil.which(f"python{OLDEST_PYTHON}")
+    if local:
+        command, cwd = [local, "-c", OLDEST_SCRIPT], REPO
+    elif shutil.which("docker") and subprocess.run(
+            ["docker", "image", "inspect", OLDEST_IMAGE], capture_output=True).returncode == 0:
+        command, cwd = ["docker", "run", "--rm", "-v", f"{REPO}:/src:ro", "-w", "/src",
+                        OLDEST_IMAGE, "python3", "-c", OLDEST_SCRIPT], REPO
+    else:
+        return False, None
+    result = subprocess.run(command, cwd=cwd, capture_output=True, text=True,
+                            timeout=SERVER_TIMEOUT * 3)
+    if result.stdout.strip() == "ok":
+        return True, None
+    return True, (result.stderr or result.stdout).strip().splitlines()[-1:] or ["failed"]
 
 
 def parse_args(argv):
@@ -431,6 +483,16 @@ def main(argv):
     print(f"notebook: renderer and {cells} cells, {checks} checks.")
 
     served, server_failures = check_server(compiler)
+    ran, problem = check_oldest_python()
+    if ran:
+        served += 1
+        if problem:
+            server_failures.append(f"the web tools on Python {OLDEST_PYTHON}: {problem}")
+        print(f"notebook: the web tools on Python {OLDEST_PYTHON}"
+              f" {'FAILED' if problem else 'OK'}.")
+    else:
+        print(f"notebook: the web tools on Python {OLDEST_PYTHON} skipped "
+              f"(no python{OLDEST_PYTHON}, and no {OLDEST_IMAGE} image here).")
     for failure in server_failures:
         print(f"notebook: FAILED {failure}")
     print(f"notebook: server, {served} checks.")

@@ -323,7 +323,7 @@ file, so there is nothing for `--run` to run.
 The two web commands run no front end at all, and `main` dispatches them
 before `front_end` is reached. Each page is served by a Python script
 under `tools/`, so all the driver does is `command_web`: it calls
-`Web_tools.start`, which checks that `$PYTHON` (else `python3`) is 3.14
+`Web_tools.start`, which checks that `$PYTHON` (else `python3`) is 3.10
 or later and then replaces this process with the script, and prints the
 reason only when that fails. Replacing the process rather than running
 a child means Ctrl+C reaches the server directly and `pyk` leaves

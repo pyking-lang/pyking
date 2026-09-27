@@ -1138,7 +1138,7 @@ The bootstrap is split into one module per compiler stage:
    the executable since it starts a process. `start` finds
    `tools/<tool>/<tool>.py` beside the running executable, asks
    `$PYTHON` (else `python3`) for its version and refuses anything older
-   than 3.14, then replaces the process with the script (`execvp`),
+   than 3.10, then replaces the process with the script (`execvp`),
    passing `--port` and the document. It serves nothing itself; see "The
    web tools" below.
 
@@ -1281,7 +1281,7 @@ anything both pages need there rather than copying it.
 **Packaging and dependencies.** Pyking is meant to be distributed as a
 binary: `./pyk` is a native executable, and using it -- compiling,
 interpreting, the REPL -- needs no OCaml, dune or js_of_ocaml, which are
-needed only to *build* it. The one extra dependency is **Python 3.14 or
+needed only to *build* it. The one extra dependency is **Python 3.10 or
 later, standard library only, and only for someone who uses the notebook
 or the playground**; `pyk` and each server check the version and say so
 in one line. A distribution is a subset of this repository's tree at the
@@ -1296,46 +1296,79 @@ those directories, and the playground runs (with no example menu) when
 
 `make packaging` builds the installable packages into
 `tools/packaging/build/` (gitignored, removed by `make clean`), with
-`tools/packaging/packaging.py`. A format is one class in its `FORMATS`
-table -- a `name`, the `archs` it builds, `refusal()` and `build()` --
+`tools/packaging/packaging.py`, and `make release` publishes them. A
+format is one class in its `FORMATS` table -- `name`, `refusal()`,
+`setup()`, `build(archs)`, `install_local()` / `uninstall_local()` --
 and every format ships the tree `stage()` builds: the table `SHIPPED`,
 filtered by file suffix so no backup or cache file can reach a package.
 A file a web tool or `pyk` needs at run time has to be in `SHIPPED`, or
-the installed copy will not have it.
+the installed copy will not have it. `release_assets(v)` is the one list
+of what a release holds; a format that adds files adds them there.
 
-The one format so far is **Homebrew**: a universal macOS `pyk` (arm64 +
-x86_64, `MACOSX_DEPLOYMENT_TARGET=11.0`), built on an Apple Silicon Mac
-by two opam switches called `pyking-release` whose OCaml was itself
-compiled for macOS 11 -- the x86_64 one under Rosetta -- reached by the
-command prefixes in `$PYK_ARM64` / `$PYK_X86_64`. Both are checked before
-anything is built (architecture, dune, and a runtime no newer than the
-floor, read with `otool -l`), since a runtime compiled for a newer macOS
-makes the floor a lie. The halves are joined with `lipo`, signed ad hoc,
-and refused if `otool -L` shows a library outside `/usr/lib` and
-`/System`. Next to
-the tarball it writes two formulas: `homebrew/pyking.rb`, naming the
-GitHub release `v<VERSION>` of `pyking-lang/homebrew-macos`, to be
-committed to that same repository, which is the tap (so users run `brew
-install pyking-lang/macos/pyking`), and `homebrew-local/pyking.rb`,
-naming the local file, which `make packaging-install` installs through
-the tap `pyking-lang/local`. The code repository is private, so
-nothing a user downloads lives in it: the releases and the formula both
-go to the public `PUBLIC_REPO`, `pyking-lang/homebrew-macos` -- its
-`homebrew-` name is what makes the tap `pyking-lang/macos`, and so the
-install command `INSTALL`. `make release-macos` publishes a build there
-with `gh` and `git`
-(`Homebrew.release`): it checks everything before changing anything --
-including git's identity *outside* this repository, since the tap
-commit comes after the release -- asks unless `YES=1`, never replaces an
-existing release, verifies the uploaded tarball's checksum before
-touching the tap, and ends in one SUCCEEDED/FAILED line. `make packaging-setup` makes the two
-release switches (`Homebrew.setup`: each step checked before it runs,
-then `preflight` on both, ending in one SUCCEEDED/FAILED line); the
-commands it runs are the `SETUP` table's, which the refusals print too,
-so keep the two and the README's setup section in step. It refuses on Linux, and refuses half a
-universal package unless `ARCHS=` asks for one. Publishing -- the
-release and the tap commit -- is left to the maintainer; see
-`tools/packaging/README.md`.
+- **Homebrew** (macOS): a universal `pyk` (arm64 + x86_64,
+  `MACOSX_DEPLOYMENT_TARGET=11.0`), built on an Apple Silicon Mac by two
+  opam switches called `pyking-release` whose OCaml was itself compiled
+  for macOS 11 -- the x86_64 one under Rosetta -- reached by the command
+  prefixes in `$PYK_ARM64` / `$PYK_X86_64`. Both are checked before
+  anything is built (architecture, dune, and a runtime no newer than the
+  floor, read with `otool -l`), since a runtime compiled for a newer
+  macOS makes the floor a lie. The halves are joined with `lipo`, signed
+  ad hoc, and refused if `otool -L` shows a library outside `/usr/lib`
+  and `/System`. Beside the tarball go two formulas: `homebrew/pyking.rb`,
+  naming the release, and `homebrew-local/pyking.rb`, naming the local
+  file, which `make packaging-install` installs through the tap
+  `pyking-lang/local`.
+- **Linux** (every distribution, and WSL): `pyk` linked fully static
+  against musl -- dune's `static` profile in `src/dune`, which nothing
+  else uses -- in an Alpine container per architecture
+  (`tools/packaging/linux/Dockerfile`; the image's tag hashes the
+  Dockerfile and the OCaml version), the other architecture emulated.
+  It is refused unless its ELF header (`elf_info`) says static and the
+  right architecture, then run in a plain Debian container. Each
+  architecture gives a tarball, which `tools/packaging/install.sh`
+  installs (POSIX sh; `~/.local` by default, `--system`, `--version`,
+  `--uninstall`, checksums checked against `SHA256SUMS`), and a `.deb`
+  that `deb()` writes directly (an `ar` of two tarballs, so no `dpkg` is
+  needed), with `Recommends: python3 (>= 3.10)` and no `Depends`. Both
+  also go out under fixed names (`pyking-linux-x86_64.tar.gz`,
+  `pyking_amd64.deb`), which `latest` links and install.sh ask for.
+  `make packaging-install` on Linux runs install.sh against `build/`
+  (`PYKING_DOWNLOAD_BASE`).
+
+The code repository is private, so nothing a user downloads lives in it.
+**Every release goes to the public `pyking-lang/pyking-releases`**
+(`RELEASES_REPO`) -- the Mac tarball, both Linux tarballs and `.deb`s,
+install.sh and `SHA256SUMS` in one release per version, marked latest --
+and **the formula to `pyking-lang/homebrew-tap`** (`TAP_REPO`), whose
+`homebrew-` name makes the tap `pyking-lang/tap`. So users run `brew
+install pyking-lang/tap/pyking` (`BREW_INSTALL`) and `curl -fsSL
+https://github.com/pyking-lang/pyking-releases/releases/latest/download/install.sh
+| sh` (`LINUX_INSTALL`). `make release` (`release()`) needs every file of
+the release for `VERSION`, so it is run where every format was built --
+an Apple Silicon Mac with Docker. It checks everything before changing
+anything -- including git's identity *outside* this repository, since
+the tap commit comes after the release -- asks unless `YES=1`, never
+replaces an existing release, downloads every file back (install.sh
+once more through `latest`) and checks it against `SHA256SUMS` before
+touching the tap, and ends in one SUCCEEDED/FAILED line. Last, asked
+separately (`YES=1` answers it too), it tags the commit the release was
+built from in the private code repository `CODE_REPO`,
+`pyking-lang/pyking`, as `release-<VERSION>` (annotated, pushed to
+`origin`). Whether that can be done is checked with everything else,
+before anything is published (`code_tag_preflight`): no uncommitted
+change to a tracked file, `origin` being `CODE_REPO`, HEAD already on
+GitHub (asked through `gh api`, since the repository is private), and the
+tag absent or already on HEAD.
+
+`make packaging-setup` makes the toolchains (`setup()` on each format:
+each step checked before it runs, then `preflight`, with one row per
+format and architecture and one SUCCEEDED/FAILED line). The Mac's
+commands are the `SETUP` table's, which the refusals print too, so keep
+the two and the README's setup section in step. Every format is asked
+for its `refusal()` before any is built, so a machine that cannot build
+one says so at once; `FORMATS=` and `ARCHS=` build part of it, and
+`make release` refuses what is not complete. Publishing is left to the
+maintainer; see `tools/packaging/README.md`.
 
 ## Running
 
@@ -1612,9 +1645,13 @@ cases against CommonMark's own answers, runs every cell of
 under node (an `error` cell must be refused, any other must run), and
 starts `pyk notebook` and `pyk playground` on a free port to fetch what
 their pages load and to check the refusals: a missing file, a file that
-is not Markdown, and a Python older than 3.14 (a fake `$PYTHON`). It sets
+is not Markdown, and a Python older than 3.10 (a fake `$PYTHON`). It sets
 `PYKING_WEB_NO_VENDOR=1`, so a checkout that never ran `make vendor`
-still passes. After changing the renderer, `--update` rewrites
+still passes. It also runs both servers on Python 3.10, the oldest the
+web tools promise: with a `python3.10` on the `PATH`, or else in the
+`python:3.10-alpine` Docker image when it is already present (nothing is
+pulled), and reports the check as skipped otherwise. After changing the
+renderer, `--update` rewrites
 `features.html`; read the diff before keeping it. It takes `--compiler
 CMD` like the others.
 
@@ -1626,9 +1663,15 @@ into `Cellar/pyking/<version>/libexec`), and from outside the repository
 checks `pyk --version`, a program, the standard library, `iweb24`, `pyk
 notebook` and `pyk playground`, the tree's contents, the tarball's
 reproducibility and the formula's text (`ruby -c` where Ruby exists).
-When `tools/packaging/build/` holds a package, it also unpacks it, reads
-its `pyk`'s architectures from the Mach-O header, and checks both
-formulas' checksums. It never runs `brew`; `make packaging-install` does. It takes
+The same tree is then packed as a `.deb` (read back, and by `dpkg-deb`
+where it exists, then unpacked and run) and installed by install.sh from
+a release copied into a temporary directory, into a temporary home
+(install, reinstall, a wrong checksum, macOS, an unknown option,
+uninstall; parsed by `dash` and BusyBox). When `tools/packaging/build/`
+holds packages, it also unpacks them, reads each `pyk`'s architecture
+from its Mach-O or ELF header (and that a Linux one is static), and
+checks `SHA256SUMS` and both formulas against the files. It never runs
+`brew`, `dpkg -i` or a release; `make packaging-install` installs. It takes
 `--compiler PYK` like the others, a file rather than a command, since it
 is what gets packaged.
 
@@ -1740,7 +1783,7 @@ prefix happened to match.
 **No third-party dependencies.** Building the compiler needs OCaml and
 dune; the playground's bundle additionally needs js_of_ocaml. The test
 harness is Python 3.11+ (`match`/`case`, and `tomllib` for the
-manifest), and the web tools' servers Python 3.14+ — tooling around the
+manifest), and the web tools' servers Python 3.10+ — tooling around the
 compiler, not part of it. The web pages vendor Ace and KaTeX, downloaded
 by `make vendor`; nothing is installed.
 

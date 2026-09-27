@@ -1,31 +1,34 @@
-# Pyking's installable packages.
+# Pyking's installable packages, and publishing them.
 #
-#   make setup           make the release toolchains (once, on a Mac)
+#   make setup           make the build toolchains (once)
 #   make                 build every package into build/
-#   make ARCHS=arm64     one architecture only, for trying it locally
-#   make install-local   brew install the local build (a Mac with brew)
+#   make FORMATS=linux   only some formats (homebrew, linux)
+#   make ARCHS=arm64     only some architectures (not for publishing)
+#   make install-local   install the local build on this machine
 #   make uninstall-local remove it again
-#   make release         publish the build (pyking-lang/homebrew-macos)
+#   make release         publish the build: pyking-lang/pyking-releases
+#                        and the formula in pyking-lang/homebrew-tap
 #   make clean           remove build/
 #
-# Only the Homebrew package exists so far, and it is built on an Apple
-# Silicon Mac: see README.md for the one-time setup of the two release
-# toolchains it builds with.
-# `make packaging` at the repository root builds the compiler and
-# downloads the browser libraries first, which this relies on.
+# Homebrew packages are built on an Apple Silicon Mac, Linux ones in
+# Docker: see README.md for the one-time setup. `make packaging` at the
+# repository root builds the compiler and downloads the browser libraries
+# first, which this relies on.
 
-PYTHON ?= python3
-ARCHS  ?=
+PYTHON  ?= python3
+FORMATS ?=
+ARCHS   ?=
 
 .PHONY: all build setup install-local uninstall-local release clean help
 
 all: build
 
 build:
-	@$(PYTHON) packaging.py build $(if $(ARCHS),--archs $(ARCHS))
+	@$(PYTHON) packaging.py build $(if $(FORMATS),--formats $(FORMATS)) \
+		$(if $(ARCHS),--archs $(ARCHS))
 
 setup:
-	@$(PYTHON) packaging.py setup
+	@$(PYTHON) packaging.py setup $(if $(FORMATS),--formats $(FORMATS))
 
 install-local:
 	@$(PYTHON) packaging.py install-local
@@ -42,18 +45,24 @@ clean:
 	@echo "clean: removed tools/packaging/build/"
 
 help:
-	@echo "make setup            make the two release toolchains, skipping what"
-	@echo "                      is done already, and say whether they are ready"
+	@echo "make setup            make the build toolchains: the Mac's two opam"
+	@echo "                      switches and the Linux Docker images, skipping"
+	@echo "                      what is done already, and say whether they are"
+	@echo "                      ready"
 	@echo "make                  build every package into build/"
+	@echo "make FORMATS=linux    only those formats (homebrew, linux)"
 	@echo "make ARCHS=arm64      only that architecture (not for publishing)"
-	@echo "make install-local    brew install the local build, through the"
-	@echo "                      tap pyking-lang/local, and run its brew test"
-	@echo "make uninstall-local  uninstall it and remove that tap"
-	@echo "make release          publish the build: a release and the formula,"
-	@echo "                      both in pyking-lang/homebrew-macos;"
+	@echo "make install-local    install the local build here: with Homebrew on"
+	@echo "                      a Mac, with install.sh into ~/.local on Linux"
+	@echo "make uninstall-local  remove it again"
+	@echo "make release          publish the build: one release of"
+	@echo "                      pyking-lang/pyking-releases with every platform,"
+	@echo "                      and the formula in pyking-lang/homebrew-tap,"
+	@echo "                      then asks whether to tag HEAD in"
+	@echo "                      pyking-lang/pyking as release-<VERSION>;"
 	@echo "                      asks first (YES=1 does not)"
 	@echo "make clean            remove build/"
 	@echo
-	@echo "variables:  ARCHS=$(ARCHS)   PYTHON=$(PYTHON)"
+	@echo "variables:  FORMATS=$(FORMATS)  ARCHS=$(ARCHS)  PYTHON=$(PYTHON)"
 	@echo "            PYK_ARM64, PYK_X86_64 (environment): the command prefixes"
-	@echo "            that run each release toolchain; see README.md"
+	@echo "            that run the Mac's release toolchains; see README.md"

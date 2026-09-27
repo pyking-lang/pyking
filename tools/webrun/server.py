@@ -20,7 +20,7 @@ Data structures:
     Handler -- the HTTP handler a Site is served with.
 
 Functions:
-    require_python(tool) -- exits with a message below Python 3.14.
+    require_python(tool) -- exits with a message below Python 3.10.
     vendor() -- downloads Ace and KaTeX into vendor/.
     vendor_files() -- every vendored file, with the URL it comes from.
     check_vendor(tool) -- exits with a message if vendor/ is incomplete.
@@ -37,7 +37,7 @@ import sys
 # The tools say which Python they need before anything else can fail on
 # an older one. So this whole file must stay parseable by an old Python:
 # no syntax newer than 3.6 anywhere in it.
-MINIMUM_PYTHON = (3, 14)
+MINIMUM_PYTHON = (3, 10)
 
 
 def require_python(tool):

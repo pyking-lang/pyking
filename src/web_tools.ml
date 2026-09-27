@@ -14,7 +14,7 @@
 type tool = Notebook | Playground
 
 (** The oldest Python the web tools run on. (int, int) *)
-let minimum_python = (3, 14)
+let minimum_python = (3, 10)
 
 (** The tool's name, as its directory and its script are called.
     tool -> string *)

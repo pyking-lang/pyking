@@ -5,7 +5,7 @@
 #                   (TARGET=c23 or TARGET=c for one target or family)
 #   make stest      the same suite, one test at a time
 #   make notebook   open PYKING-TUTORIAL.md as a notebook in the browser
-#   make packaging  build the installable packages (on a Mac)
+#   make packaging  build the installable packages (macOS and Linux)
 #   make clean      remove what has been generated
 #
 # Run `make help` for the full list. The compiler is OCaml in src/,
@@ -13,7 +13,7 @@
 
 .PHONY: all help build test stest check-node playground notebook vendor \
 	packaging packaging-setup packaging-install packaging-uninstall \
-	release-macos \
+	release \
 	clean clean-pycache clean-build distclean
 
 # `make` builds the compiler: it is the one thing someone typing `make`
@@ -75,17 +75,21 @@ help:
 	@echo "make vendor       download Ace and KaTeX into tools/webrun/vendor/, once"
 	@echo "                  (~1 MB; the two above need it and run it first)"
 	@echo "make packaging    build the installable packages into"
-	@echo "                  tools/packaging/build/: for now the Homebrew one,"
-	@echo "                  a universal macOS pyk (on a Mac; ARCHS=arm64 for"
-	@echo "                  one architecture)"
+	@echo "                  tools/packaging/build/: a universal macOS pyk for"
+	@echo "                  Homebrew (on an Apple Silicon Mac), and static"
+	@echo "                  Linux ones, tarball and .deb (in Docker)."
+	@echo "                  FORMATS=linux or ARCHS=arm64 build part of it"
 	@echo "make packaging-setup      make the toolchains make packaging needs"
-	@echo "                          (once, on an Apple Silicon Mac)"
-	@echo "make packaging-install    brew install that build (pyking-lang/local)"
+	@echo "                          (once; FORMATS= as for make packaging)"
+	@echo "make packaging-install    install that build here (Homebrew on a Mac,"
+	@echo "                          install.sh into ~/.local on Linux)"
 	@echo "make packaging-uninstall  and remove it again"
-	@echo "make release-macos        publish that build: a GitHub release and the"
-	@echo "                          Homebrew formula, both in"
-	@echo "                          pyking-lang/homebrew-macos (asks first;"
-	@echo "                          YES=1 does not)"
+	@echo "make release              publish that build: one release of"
+	@echo "                          pyking-lang/pyking-releases with every"
+	@echo "                          platform, and the formula in"
+	@echo "                          pyking-lang/homebrew-tap, then (asked) the"
+	@echo "                          tag release-<VERSION> in pyking-lang/pyking"
+	@echo "                          (asks first; YES=1 does not)"
 	@echo "make clean        remove generated files: _build/, ./pyk, __pycache__/"
 	@echo "                  and tools/packaging/build/"
 	@echo "make distclean    also remove tools/webrun/vendor/, the download cache"
@@ -164,10 +168,11 @@ vendor:
 # every package, so both are made first. The executable is rebuilt there,
 # once per architecture, in a dune build directory of its own.
 packaging: build vendor
-	@$(MAKE) --no-print-directory -C tools/packaging $(if $(ARCHS),ARCHS=$(ARCHS))
+	@$(MAKE) --no-print-directory -C tools/packaging $(if $(FORMATS),FORMATS=$(FORMATS)) \
+		$(if $(ARCHS),ARCHS=$(ARCHS))
 
 packaging-setup:
-	@$(MAKE) --no-print-directory -C tools/packaging setup
+	@$(MAKE) --no-print-directory -C tools/packaging setup $(if $(FORMATS),FORMATS=$(FORMATS))
 
 packaging-install:
 	@$(MAKE) --no-print-directory -C tools/packaging install-local
@@ -175,7 +180,7 @@ packaging-install:
 packaging-uninstall:
 	@$(MAKE) --no-print-directory -C tools/packaging uninstall-local
 
-release-macos:
+release:
 	@$(MAKE) --no-print-directory -C tools/packaging release $(if $(YES),YES=$(YES))
 
 # What "generated" means here is narrow, and deliberately so: what dune

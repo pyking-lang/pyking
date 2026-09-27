@@ -16,6 +16,8 @@ Usage: `make`, `pyk playground`, or directly:
     python3 playground.py check      compile every example, headless
 
 Functions:
+    examples_available() -- whether tests/ and tomllib are there to offer any.
+    code_targets() -- the targets the page offers, in dropdown order.
     offered_examples(code_targets) -- the examples the page offers.
     page_manifest() -- what the page is driven by, as JSON.
     site() -- what the playground serves.
@@ -36,7 +38,10 @@ import argparse  # noqa: E402
 import json  # noqa: E402
 import subprocess  # noqa: E402
 import tempfile  # noqa: E402
-import tomllib  # noqa: E402
+try:
+    import tomllib  # noqa: E402  (3.11 and later)
+except ImportError:  # the web tools run on 3.10, which lacks it
+    tomllib = None
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
@@ -159,6 +164,13 @@ def offered_examples(code_targets, notes=False):
 
 
 
+def examples_available():
+    """Whether the examples can be offered: tests/ is there, as in a
+    checkout but not a package, and Python has tomllib to read its
+    manifest, which 3.10 does not. () -> Bool"""
+    return TESTS_DIR.is_dir() and tomllib is not None
+
+
 def code_targets():
     """The targets the page offers, in the order the dropdown shows them.
     The compiler's own list is checked against this one by `check` and by
@@ -171,7 +183,7 @@ def page_manifest():
     and the examples. Worked out per request, so an edit to the manifest
     shows on the next reload. () -> Bytes"""
     targets = code_targets()
-    examples = offered_examples(targets) if TESTS_DIR.is_dir() else []
+    examples = offered_examples(targets) if examples_available() else []
     return json.dumps({
         "targets": [{"name": t, "label": TARGET_LABEL[t]} for t in targets],
         "modes": {t: TARGET_MODE[t] for t in targets},
@@ -184,7 +196,7 @@ def site():
     """What the playground serves: its page and scripts, the manifest,
     and each offered example from tests/. () -> server.Site"""
     files = {"/": ASSETS / "index.html", "/index.html": ASSETS / "index.html"}
-    if TESTS_DIR.is_dir():
+    if examples_available():
         for entry in offered_examples(code_targets()):
             files["/examples/" + entry["file"]] = TESTS_DIR / entry["file"]
     return server.common_site().extended(

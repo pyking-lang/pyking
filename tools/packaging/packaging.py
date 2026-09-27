@@ -1,43 +1,52 @@
 #!/usr/bin/env python3
-"""Builds the packages Pyking is installed from on another machine. Each
-package format is one entry in FORMATS; the only one so far is Homebrew,
-for macOS, which ships a universal (arm64 + x86_64) `pyk` with no
-dependency beyond the system itself. Everything is written under
-build/ beside this file. See README.md beside this file and
-docs/build.md ("Packaging").
+"""Builds the packages Pyking is installed from on another machine, and
+publishes them. Each package format is one entry in FORMATS:
 
-Every format ships the same tree, `stage` builds it: the executable,
+  homebrew  macOS: a universal (arm64 + x86_64) `pyk` in a tarball, and a
+            Homebrew formula for it. Built on an Apple Silicon Mac.
+  linux     Linux and WSL: a static `pyk` per architecture, as a tarball
+            (which install.sh installs) and a .deb. Built in Docker.
+
+Every format ships the same tree, which `stage` builds: the executable,
 lib/, build/pyking.js and the web tools, at the paths they have in the
 repository, since that is where `pyk` looks for them (src/install.ml).
+Everything is written under build/ beside this file, and one release on
+GitHub holds every platform's files. See README.md beside this file and
+docs/build.md ("Packaging").
 
 Usage: `make packaging`, or directly:
 
-    python3 packaging.py build [--archs arm64,x86_64]   every format
-                                     (Homebrew: on an Apple Silicon Mac)
-    python3 packaging.py setup             make the release toolchains, once
+    python3 packaging.py build [--formats F,..] [--archs A,..]
+    python3 packaging.py setup [--formats F,..]   make the build toolchains
     python3 packaging.py release [--yes]   publish the build: release + tap
-    python3 packaging.py install-local     brew install the local build
+    python3 packaging.py install-local     install the local build here
     python3 packaging.py uninstall-local   and remove it again
     python3 packaging.py stage --binary PYK --dest DIR
     python3 packaging.py formula --tarball FILE --url URL --output FILE
 
 Data structures:
     Refusal -- why a package cannot be built here, as a message.
-    Homebrew -- the Homebrew format: a tarball and two formulas, and the
-      release toolchains they are built with (`setup`).
+    Homebrew -- the macOS format, and the toolchains it is built with.
+    Linux -- the Linux format, and the Docker images it is built in.
 
 Functions:
     version() -- the version, from VERSION.
     stage(binary, destination) -- the shipped tree, with this binary.
     tarball(source, output) -- a reproducible .tar.gz; answers its sha256.
     macho_archs(path) -- the architectures a Mach-O file holds.
+    elf_info(path) -- an ELF file's architecture, and whether it is static.
+    deb(tree, arch, output) -- a .deb installing the tree.
     formula(url, sha256, archs) -- a Homebrew formula, as text.
+    release_assets(v) -- every file a release of v holds.
+    write_checksums(v) -- SHA256SUMS over the assets built.
+    release(assume_yes) -- publishes the build, and tags it in CODE_REPO.
     main(argv) -- the command-line entry point.
 """
 
 import argparse
 import gzip
 import hashlib
+import io
 import json
 import os
 import platform
@@ -60,19 +69,31 @@ sys.path.insert(0, str(REPO / "tools" / "webrun"))
 import server  # noqa: E402  (after sys.path, which is what finds it)
 
 NAME = "pyking"
-# The code repository is private, so what a user downloads is kept in a
-# public repository of its own, holding both the releases and the formula.
-# Homebrew finds the tap `pyking-lang/macos` in the repository
-# `pyking-lang/homebrew-macos`, which is what makes INSTALL work.
-PUBLIC_REPO = "pyking-lang/homebrew-macos"
-INSTALL = "brew install pyking-lang/macos/pyking"
-HOMEPAGE = f"https://github.com/{PUBLIC_REPO}"
+# The code repository is private, so what a user downloads lives in public
+# repositories of its own: every release in RELEASES_REPO, and the Homebrew
+# formula in TAP_REPO, which Homebrew knows as the tap `pyking-lang/tap`.
+RELEASES_REPO = "pyking-lang/pyking-releases"
+# The private code repository, where `make release` tags the commit a
+# release was built from as `release-<version>`.
+CODE_REPO = "pyking-lang/pyking"
+TAP_REPO = "pyking-lang/homebrew-tap"
+HOMEPAGE = f"https://github.com/{RELEASES_REPO}"
 RELEASES = HOMEPAGE + "/releases/download"
+BREW_INSTALL = "brew install pyking-lang/tap/pyking"
+LINUX_INSTALL = f"curl -fsSL {HOMEPAGE}/releases/latest/download/install.sh | sh"
 DESCRIPTION = "Compiler and interpreter for Pyking, a small statically typed Python-like language"
 LICENSE = "MIT"
+MAINTAINER = "pyking-lang <pyking-lang@users.noreply.github.com>"
+PYTHON_MINIMUM = "3.10"
 MACOS_MINIMUM = "11.0"
 MACOS_MINIMUM_NAME = "big_sur"
 LOCAL_TAP = "pyking-lang/local"
+ARCHS = ("arm64", "x86_64")
+# Other spellings of the two architectures, as uname, Debian and Docker
+# write them.
+ARCH_ALIASES = {"aarch64": "arm64", "amd64": "x86_64"}
+INSTALL_SH = HERE / "install.sh"
+DOCKERFILE = HERE / "linux" / "Dockerfile"
 
 # What the shipped tree holds, as (path in the repository, path in the
 # package). A directory is copied with only the files SHIPPED_SUFFIXES
@@ -133,6 +154,15 @@ class Refusal(Exception):
     """Why a package cannot be built here: a message for the user."""
 
 
+def shown(path):
+    """A path as messages print it: relative to the repository when it is
+    in it. Path -> Path"""
+    try:
+        return path.relative_to(REPO)
+    except ValueError:
+        return path
+
+
 def version():
     """The version, from VERSION at the root. () -> String"""
     return (REPO / "VERSION").read_text().strip()
@@ -169,7 +199,7 @@ def stage(binary, destination, vendor=True):
                if vendor or s != "tools/webrun/vendor" or (REPO / s).exists()]
     missing = [source for source, _ in shipped if not (REPO / source).exists()]
     if vendor:
-        missing += [str(path.relative_to(REPO)) for path, _ in server.vendor_files()
+        missing += [str(shown(path)) for path, _ in server.vendor_files()
                     if not path.exists()][:1]
     if missing:
         raise Refusal("not built or not downloaded yet: " + ", ".join(missing)
@@ -236,7 +266,196 @@ def macho_archs(path):
     return []
 
 
+# ELF machine numbers (elf.h).
+ELF_MACHINES = {0x3E: "x86_64", 0xB7: "arm64"}
+
+
+def elf_info(path):
+    """An ELF file's architecture, and whether it is static -- whether it
+    names no program interpreter, the dynamic loader a shared-library
+    binary needs. None for a file that is not a 64-bit little-endian ELF.
+    Path -> (String, Bool)?"""
+    with open(path, "rb") as f:
+        head = f.read(64)
+        if len(head) < 64 or head[:4] != b"\x7fELF" or head[4] != 2 or head[5] != 1:
+            return None
+        machine = struct.unpack("<H", head[18:20])[0]
+        phoff = struct.unpack("<Q", head[32:40])[0]
+        phentsize, phnum = struct.unpack("<HH", head[54:58])
+        interpreter = False
+        for k in range(phnum):
+            f.seek(phoff + k * phentsize)
+            if struct.unpack("<I", f.read(4))[0] == 3:      # PT_INTERP
+                interpreter = True
+    return ELF_MACHINES.get(machine, hex(machine)), not interpreter
+
+
+def canonical_arch(name):
+    """An architecture's name as this module spells it. String -> String"""
+    return ARCH_ALIASES.get(name, name)
+
+
+# --- the .deb --------------------------------------------------------------
+
+DEB_ARCH = {"arm64": "arm64", "x86_64": "amd64"}
+UNAME_ARCH = {"arm64": "aarch64", "x86_64": "x86_64"}
+
+
+def _tar_gz(entries):
+    """A reproducible .tar.gz, in memory, from (TarInfo, bytes?) pairs.
+    [(TarInfo, Bytes?)] -> Bytes"""
+    buffer = io.BytesIO()
+    with gzip.GzipFile(filename="", mode="wb", fileobj=buffer, mtime=0) as zipped, \
+            tarfile.open(fileobj=zipped, mode="w", format=tarfile.GNU_FORMAT) as archive:
+        for info, data in entries:
+            info.mtime = 0
+            info.uid = info.gid = 0
+            info.uname = info.gname = "root"
+            archive.addfile(info, io.BytesIO(data) if data is not None else None)
+    return buffer.getvalue()
+
+
+def _tar_entry(name, kind, data=None, mode=0o644, target=""):
+    """One tar entry: a file, a directory or a symbolic link.
+    String -> String -> Bytes? -> Int -> String -> (TarInfo, Bytes?)"""
+    info = tarfile.TarInfo(name)
+    info.mode = mode
+    if kind == "dir":
+        info.type, info.mode = tarfile.DIRTYPE, 0o755
+    elif kind == "link":
+        info.type, info.linkname, info.mode = tarfile.SYMTYPE, target, 0o777
+    else:
+        info.size = len(data)
+    return info, data
+
+
+def _ar(members):
+    """An ar archive, the container a .deb is, from (name, bytes) pairs.
+    [(String, Bytes)] -> Bytes"""
+    out = [b"!<arch>\n"]
+    for name, data in members:
+        header = f"{name:<16}{0:<12}{0:<6}{0:<6}{'100644':<8}{len(data):<10}`\n"
+        out += [header.encode(), data, b"\n" if len(data) % 2 else b""]
+    return b"".join(out)
+
+
+def deb(tree, arch, output):
+    """A .deb installing the tree in /usr/lib/pyking/, with /usr/bin/pyk a
+    link to its pyk. Written directly -- it is an ar archive of two
+    tarballs -- so building one needs no dpkg. Recommends Python for the
+    web tools and depends on nothing. Answers its sha256.
+    Path -> String -> Path -> String"""
+    prefix = "./usr/lib/pyking"
+    data, sums, size = [], [], 0
+    for directory in ("./", "./usr/", "./usr/bin/", "./usr/lib/", "./usr/share/",
+                      "./usr/share/doc/", "./usr/share/doc/pyking/"):
+        data.append(_tar_entry(directory, "dir"))
+    data.append(_tar_entry(prefix + "/", "dir"))
+    for path in sorted(tree.rglob("*")):
+        name = f"{prefix}/{path.relative_to(tree).as_posix()}"
+        if path.is_dir():
+            data.append(_tar_entry(name + "/", "dir"))
+            continue
+        content = path.read_bytes()
+        size += len(content)
+        mode = 0o755 if os.access(path, os.X_OK) else 0o644
+        data.append(_tar_entry(name, "file", content, mode))
+        sums.append(f"{hashlib.md5(content).hexdigest()}  {name[2:]}")
+    copyright_text = (REPO / "LICENSE").read_bytes()
+    data.append(_tar_entry("./usr/share/doc/pyking/copyright", "file", copyright_text))
+    sums.append(f"{hashlib.md5(copyright_text).hexdigest()}  usr/share/doc/pyking/copyright")
+    data.append(_tar_entry("./usr/bin/pyk", "link", target="../lib/pyking/pyk"))
+    control = f"""Package: {NAME}
+Version: {version()}
+Architecture: {DEB_ARCH[arch]}
+Maintainer: {MAINTAINER}
+Installed-Size: {(size + len(copyright_text) + 1023) // 1024}
+Recommends: python3 (>= {PYTHON_MINIMUM})
+Section: devel
+Priority: optional
+Homepage: {HOMEPAGE}
+Description: {DESCRIPTION}
+ Pyking is a small, statically typed language with Python's syntax. This
+ package holds its compiler and interpreter, pyk, as one static binary
+ with no dependencies. `pyk notebook` and `pyk playground` use Python
+ {PYTHON_MINIMUM} or later, which is why it is recommended.
+"""
+    control_tar = _tar_gz([
+        _tar_entry("./", "dir"),
+        _tar_entry("./control", "file", control.encode()),
+        _tar_entry("./md5sums", "file", ("\n".join(sums) + "\n").encode()),
+    ])
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(_ar([("debian-binary", b"2.0\n"),
+                            ("control.tar.gz", control_tar),
+                            ("data.tar.gz", _tar_gz(data))]))
+    return hashlib.sha256(output.read_bytes()).hexdigest()
+
+
+# --- the release's files ---------------------------------------------------
+
+
+def release_assets(v):
+    """Every file a release of v holds, by name: the macOS tarball, each
+    Linux architecture's tarball and .deb -- under their versioned names
+    and under the fixed ones install.sh and a `latest` link ask for --
+    install.sh, and SHA256SUMS over the rest. String -> [String]"""
+    names = [f"{NAME}-{v}-macos.tar.gz"]
+    for arch in ARCHS:
+        u, d = UNAME_ARCH[arch], DEB_ARCH[arch]
+        names += [f"{NAME}-{v}-linux-{u}.tar.gz", f"{NAME}-linux-{u}.tar.gz",
+                  f"{NAME}_{v}_{d}.deb", f"{NAME}_{d}.deb"]
+    return names + ["install.sh", "SHA256SUMS"]
+
+
+def write_checksums(v):
+    """Writes build/SHA256SUMS over the release's files that are built,
+    in the format `sha256sum -c` reads. String -> Path"""
+    lines = []
+    for name in release_assets(v)[:-1]:
+        path = BUILD / name
+        if path.exists():
+            lines.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {name}")
+    target = BUILD / "SHA256SUMS"
+    target.write_text("\n".join(lines) + "\n")
+    return target
+
+
+def read_checksums(path):
+    """SHA256SUMS as a map from name to sha256. Path -> {String: String}"""
+    pairs = (line.split(None, 1) for line in path.read_text().splitlines() if line.strip())
+    return {name.strip().lstrip("*"): sha for sha, name in pairs}
+
+
 # --- Homebrew ----------------------------------------------------------------
+
+
+def check_archs(name, archs):
+    """Refuses an architecture this module does not know. String ->
+    [String] -> ()"""
+    unknown = sorted(set(archs) - set(ARCHS))
+    if unknown:
+        raise Refusal(f"{name}: unknown architecture {', '.join(unknown)}")
+
+
+def run_steps(title, steps, check):
+    """Runs setup steps, each only when it has not been done, then check.
+    Answers the problem, or None when all went well.
+    String -> [(String, () -> Bool, () -> ())] -> (() -> ()) -> String?"""
+    print(f"\n{title}:")
+    try:
+        for label, done, do in steps:
+            if done():
+                print(f"  done already: {label}")
+                continue
+            print(f"  {label}")
+            do()
+            if not done():
+                raise Refusal(f"{label}: the step ran, but did not take effect")
+        check()
+        return None
+    except Refusal as refusal:
+        return str(refusal)
 
 
 def formula(url, sha256, archs):
@@ -267,7 +486,7 @@ class Pyking < Formula
 
   def caveats
     <<~EOS
-      `pyk notebook` and `pyk playground` need Python 3.14 or later on
+      `pyk notebook` and `pyk playground` need Python 3.10 or later on
       your PATH; nothing else does. Compiling for a target and running
       the result needs that target's own tools (node, cc, javac, ...).
 
@@ -291,7 +510,6 @@ class Homebrew:
     to, one naming the file itself, for installing before publishing."""
 
     name = "homebrew"
-    archs = ("arm64", "x86_64")
 
     def refusal(self):
         """Why this machine cannot build the format, or None.
@@ -411,6 +629,7 @@ class Homebrew:
 
     def build(self, archs):
         """Builds the tarball and both formulas. [String] -> ()"""
+        check_archs(self.name, archs)
         archs = sorted(archs)
         # Every toolchain is checked before any is used, so a missing one is
         # reported at once rather than after the others have built.
@@ -430,7 +649,7 @@ class Homebrew:
         self.check_linkage(universal)
 
         v = version()
-        suffix = "" if set(archs) >= set(self.archs) else "-" + "-".join(archs)
+        suffix = "" if set(archs) >= set(ARCHS) else "-" + "-".join(archs)
         top = f"{NAME}-{v}"
         tree = stage(universal, BUILD / "stage" / top)
         name = f"{NAME}-{v}-macos{suffix}.tar.gz"
@@ -443,10 +662,10 @@ class Homebrew:
         local = BUILD / "homebrew-local" / "pyking.rb"
         local.parent.mkdir(parents=True, exist_ok=True)
         local.write_text(formula(archive.resolve().as_uri(), sha, archs))
-        print(f"homebrew: {archive.relative_to(REPO)} ({', '.join(archs)}, "
+        print(f"homebrew: {shown(archive)} ({', '.join(archs)}, "
               f"{archive.stat().st_size / 1048576:.1f} MB, sha256 {sha[:12]}…)")
-        print(f"homebrew: {release.relative_to(REPO)} (for the release v{v})")
-        print(f"homebrew: {local.relative_to(REPO)} (for `make packaging-install`)")
+        print(f"homebrew: {shown(release)} (for the release v{v})")
+        print(f"homebrew: {shown(local)} (for `make packaging-install`)")
         if suffix:
             print(f"homebrew: NOTE this package holds {', '.join(archs)} only; "
                   "do not publish it as the release.")
@@ -481,38 +700,16 @@ class Homebrew:
     def setup(self):
         """Makes both release toolchains (README.md, "One-time setup"),
         running each step only when it has not been done, then checks them
-        as `build` would. Prints one line per architecture and a verdict,
-        and answers whether both are ready. () -> Bool"""
+        as `build` would. Answers one (label, problem?) row per
+        architecture. () -> [(String, String?)]"""
         if sys.platform != "darwin" or platform.machine() != "arm64":
-            print("packaging setup: FAILED -- the release toolchains are set up on "
-                  "an Apple Silicon Mac, and this is not one.")
-            return False
-        results = {}
-        for arch, steps in (("arm64", self._arm64_steps()), ("x86_64", self._x86_64_steps())):
-            print(f"\n{arch}:")
-            try:
-                for label, done, do in steps:
-                    if done():
-                        print(f"  done already: {label}")
-                        continue
-                    print(f"  {label}")
-                    do()
-                    if not done():
-                        raise Refusal(f"{label}: the step ran, but did not take effect")
-                self.preflight(arch)
-                results[arch] = None
-            except Refusal as refusal:
-                results[arch] = str(refusal)
-        print()
-        for arch, problem in results.items():
-            print(f"  {arch:<7} {'ready' if problem is None else 'FAILED: ' + problem}")
-        ok = all(problem is None for problem in results.values())
-        print()
-        print("packaging setup: " + ("SUCCEEDED -- both release toolchains are ready; "
-                                     "`make packaging` builds the package."
-                                     if ok else "FAILED -- see above; running it again "
-                                     "resumes where it stopped."))
-        return ok
+            return [("homebrew", "its toolchains are set up on an Apple Silicon "
+                                 "Mac, and this is not one (FORMATS=linux sets up "
+                                 "only the Linux one)")]
+        return [(f"homebrew {arch}", run_steps(f"homebrew {arch}", steps,
+                                               lambda arch=arch: self.preflight(arch)))
+                for arch, steps in (("arm64", self._arm64_steps()),
+                                    ("x86_64", self._x86_64_steps()))]
 
     def _opam(self, opam, root, *args):
         """An opam command for a release toolchain, in the environment a
@@ -626,150 +823,450 @@ class Homebrew:
                          env=self.environment())),
         ] + self._switch_steps(opam, root)
 
-    def release(self, assume_yes):
-        """Publishes the build: a release v<VERSION> of PUBLIC_REPO holding
-        the tarball, checked by downloading it back, then the formula
-        committed and pushed to the same repository, which is the tap. Checks everything it can first,
-        asks before changing anything unless assume_yes, and never replaces
-        a published release. Prints a verdict; answers whether it succeeded.
-        Bool -> Bool"""
-        v = version()
-        tag = f"v{v}"
-        name = f"{NAME}-{v}-macos.tar.gz"
-        archive = BUILD / name
-        rb = BUILD / "homebrew" / "pyking.rb"
-        url = f"{RELEASES}/{tag}/{name}"
-
-        # 1. The build: this version, universal, and its formula agreeing.
-        if not archive.exists():
-            others = sorted(p.name for p in BUILD.glob(f"{NAME}-*-macos*.tar.gz"))
-            raise Refusal(f"no universal package for {v} (no {name} in "
-                          f"{BUILD.relative_to(REPO)}/"
-                          + (f"; found {', '.join(others)}" if others else "")
-                          + "); run `make packaging` first")
-        sha = hashlib.sha256(archive.read_bytes()).hexdigest()
-        text = rb.read_text() if rb.exists() else ""
-        if f'url "{url}"' not in text or f'sha256 "{sha}"' not in text:
-            raise Refusal(f"{rb.relative_to(REPO)} does not describe {name}; "
-                          "run `make packaging` again")
-
-        # 2. The tools and the two repositories.
-        if not shutil.which("gh") or not shutil.which("git"):
-            raise Refusal("git and gh (the GitHub CLI) are needed: `brew install gh`, "
-                          "then `gh auth login`")
-        if subprocess.run(["gh", "auth", "status"], capture_output=True).returncode:
-            raise Refusal("gh is not logged in; run `gh auth login`")
-        # Checked here, not left to the commit: a commit that fails comes
-        # after the release exists, which would leave it without a formula.
-        for key in ("user.name", "user.email"):
-            # Asked from outside any repository, as the fresh clone will be:
-            # a name set only in this repository's own config is not used there.
-            if not subprocess.run(["git", "config", key], capture_output=True, text=True,
-                                  cwd=tempfile.gettempdir()).stdout.strip():
-                raise Refusal(f"git has no {key}, which the tap commit needs: "
-                              f'git config --global {key} "..."')
-        repo = PUBLIC_REPO
-        viewed = subprocess.run(["gh", "repo", "view", repo, "--json",
-                                 "visibility,isEmpty"], capture_output=True, text=True)
-        if viewed.returncode:
-            raise Refusal(f"the repository {repo} does not exist or is not "
-                          f"reachable; create it with\n    gh repo create {repo} "
-                          '--public --description "Pyking for macOS: releases and '
-                          'Homebrew tap"')
-        info = json.loads(viewed.stdout)
-        if info.get("visibility") != "PUBLIC":
-            raise Refusal(f"{repo} is {info.get('visibility', '?').lower()}; it must be "
-                          "public, since Homebrew downloads without credentials:\n"
-                          f"    gh repo edit {repo} --visibility public "
-                          "--accept-visibility-change-consequences")
-        if subprocess.run(["gh", "release", "view", tag, "--repo", repo],
-                          capture_output=True).returncode == 0:
-            raise Refusal(f"{repo} already has a release {tag}. A published "
-                          "tarball is never replaced, since everyone who installed "
-                          "it holds its checksum; bump VERSION and build again")
-
-        # 3. Say what will happen, and ask.
-        print(f"\nAbout to publish Pyking {v}:")
-        print(f"  1. create the release {tag} of {repo}, with {name}"
-              f" ({archive.stat().st_size / 1048576:.1f} MB, sha256 {sha[:12]}…)")
-        print(f"  2. commit Formula/pyking.rb for {v} to {repo} and push it")
-        if not assume_yes:
-            try:
-                answer = input("Publish? [y/N] ")
-            except EOFError:
-                answer = ""
-            if answer.strip().lower() not in ("y", "yes"):
-                print("release: nothing was published.")
-                return False
-
-        with tempfile.TemporaryDirectory(prefix="pyk-release-") as directory:
-            work = Path(directory)
-            # 4. The release. A repository with no commit cannot hold a tag,
-            #    so an empty one is given a README first.
-            if info.get("isEmpty"):
-                self._first_commit(work / "first", repo, {
-                    "README.md": self._release_readme()}, "Describe the releases")
-            notes = (f"Pyking {v} for macOS 11 or later: one universal `pyk` for Apple "
-                     f"Silicon and Intel, with no dependencies.\n\n"
-                     f"    {INSTALL}\n\n"
-                     f"sha256: `{sha}`\n")
-            run(["gh", "release", "create", tag, archive, "--repo", repo,
-                 "--title", f"Pyking {v}", "--notes", notes])
-            fetched = work / name
-            print(f"  $ download {url}")
-            try:
-                urllib.request.urlretrieve(url, fetched)
-            except OSError as e:
-                raise Refusal(f"the release was created, but {url} cannot be "
-                              f"downloaded ({e}); the tap was not changed")
-            if hashlib.sha256(fetched.read_bytes()).hexdigest() != sha:
-                raise Refusal(f"the release was created, but {url} does not have the "
-                              "built tarball's checksum; the tap was not changed")
-
-            # 5. The formula, beside the releases: this repository is the tap.
-            tap = work / "tap"
-            run(["gh", "repo", "clone", repo, tap])
-            (tap / "Formula").mkdir(exist_ok=True)
-            shutil.copy2(rb, tap / "Formula" / "pyking.rb")
-            run(["git", "-C", tap, "add", "Formula/pyking.rb"])
-            if subprocess.run(["git", "-C", tap, "diff", "--cached", "--quiet"]).returncode:
-                run(["git", "-C", tap, "commit", "-m", f"pyking {v}"])
-                run(["git", "-C", tap, "push", "origin", "HEAD"])
-            else:
-                print(f"  ({repo} already has this formula)")
-        print(f"\nrelease: SUCCEEDED -- Pyking {v} is published. Install it with\n"
-              f"    {INSTALL}\n"
-              "or, where an earlier version is installed, `brew update && brew upgrade pyking`.")
-        return True
-
-    def _first_commit(self, directory, repo, files, message):
-        """Gives an empty repository its first commit on main.
-        Path -> String -> {String: String} -> String -> ()"""
-        run(["gh", "repo", "clone", repo, directory])
-        run(["git", "-C", directory, "symbolic-ref", "HEAD", "refs/heads/main"])
-        for name, text in files.items():
-            (directory / name).write_text(text)
-            run(["git", "-C", directory, "add", name])
-        run(["git", "-C", directory, "commit", "-m", message])
-        run(["git", "-C", directory, "push", "origin", "HEAD"])
-
-    def _release_readme(self):
-        """The README of the releases repository. () -> String"""
-        return (f"# Pyking for macOS\n\nReleases of Pyking for macOS, and the "
-                "Homebrew formula that installs them: each release a "
-                "universal `pyk` (Apple Silicon and Intel, macOS 11 or later) with "
-                "no dependencies.\n\nInstall with [Homebrew](https://brew.sh):\n\n"
-                f"```sh\n{INSTALL}\n```\n\n"
-                "`pyk notebook` and `pyk playground` also need Python 3.14 or later "
-                "on the `PATH`.\n")
-
     def uninstall_local(self):
         """Removes what install_local installed, and the tap. () -> ()"""
         subprocess.run(["brew", "uninstall", f"{LOCAL_TAP}/pyking"])
         subprocess.run(["brew", "untap", LOCAL_TAP])
 
 
-FORMATS = {"homebrew": Homebrew()}
+# --- Linux -------------------------------------------------------------------
+
+
+class Linux:
+    """The Linux format: `pyk` linked fully static against musl, in an
+    Alpine container per architecture, so one binary runs on every
+    distribution and on WSL. Ships a tarball per architecture (what
+    install.sh installs) and a .deb."""
+
+    name = "linux"
+    PLATFORM = {"arm64": "linux/arm64", "x86_64": "linux/amd64"}
+    OCAML_ARCH = {"arm64": "arm64", "x86_64": "amd64"}
+    RUN_IMAGE = "debian:stable-slim"
+
+    def refusal(self):
+        """Why this machine cannot build the format, or None.
+        () -> String?"""
+        if not shutil.which("docker"):
+            return ("Docker is needed to build the Linux packages (Docker Desktop, "
+                    "OrbStack or Colima on a Mac)")
+        if subprocess.run(["docker", "info"], capture_output=True).returncode:
+            return "Docker is installed but not running; start it and try again"
+        return None
+
+    def image(self, arch):
+        """The build image's tag: the architecture and a hash of the
+        Dockerfile and the OCaml version, so either changing makes a new
+        one. String -> String"""
+        digest = hashlib.sha256(DOCKERFILE.read_bytes() + OCAML_VERSION.encode())
+        return f"pyking-linux-build:{arch}-{digest.hexdigest()[:12]}"
+
+    def has_image(self, arch):
+        """Whether the build image exists. String -> Bool"""
+        return subprocess.run(["docker", "image", "inspect", self.image(arch)],
+                              capture_output=True).returncode == 0
+
+    def emulates(self, arch):
+        """Whether Docker runs arch's containers here, natively or emulated.
+        String -> Bool"""
+        result = subprocess.run(["docker", "run", "--rm", "--platform", self.PLATFORM[arch],
+                                 "alpine:3.22", "uname", "-m"], capture_output=True, text=True)
+        return result.returncode == 0 and result.stdout.strip() == UNAME_ARCH[arch]
+
+    def emulation_help(self, arch):
+        """How to make Docker run arch's containers. String -> String"""
+        return (f"Docker cannot run {arch} containers here. Docker Desktop and "
+                "OrbStack emulate the other architecture out of the box (check "
+                "that it is enabled in their settings); on Linux, register QEMU "
+                "once with\n    docker run --privileged --rm tonistiigi/binfmt "
+                f"--install {self.OCAML_ARCH[arch]}")
+
+    def preflight(self, arch):
+        """Refuses before anything is built when arch's image is missing or
+        does not build for arch. String -> ()"""
+        if not self.emulates(arch):
+            raise Refusal(self.emulation_help(arch))
+        if not self.has_image(arch):
+            raise Refusal(f"no {arch} build image ({self.image(arch)}); "
+                          "`make packaging-setup` builds it")
+        found = subprocess.run(["docker", "run", "--rm", "--platform", self.PLATFORM[arch],
+                                self.image(arch), "ocamlopt", "-config-var", "architecture"],
+                               capture_output=True, text=True).stdout.strip()
+        if found != self.OCAML_ARCH[arch]:
+            raise Refusal(f"the {arch} build image builds for {found or 'nothing'}")
+
+    def setup(self):
+        """Builds the image for each architecture, when it is not there.
+        Answers one (label, problem?) row per architecture.
+        () -> [(String, String?)]"""
+        reason = self.refusal()
+        if reason:
+            return [("linux", reason)]
+        rows = []
+        for arch in ARCHS:
+            native = UNAME_ARCH[arch] == platform.machine() or arch == platform.machine()
+            slow = "several minutes" if native else "30-60 minutes emulated"
+
+            def emulation(arch=arch):
+                raise Refusal(self.emulation_help(arch))
+
+            steps = [
+                (f"run {arch} containers", lambda arch=arch: self.emulates(arch), emulation),
+                (f"build the image {self.image(arch)} (compiles OCaml {OCAML_VERSION}, "
+                 f"which takes {slow})",
+                 lambda arch=arch: self.has_image(arch),
+                 lambda arch=arch: run(["docker", "build", "--platform", self.PLATFORM[arch],
+                                        "--build-arg", f"OCAML_VERSION={OCAML_VERSION}",
+                                        "-t", self.image(arch), DOCKERFILE.parent])),
+            ]
+            rows.append((f"linux {arch}", run_steps(f"linux {arch}", steps,
+                                                    lambda arch=arch: self.preflight(arch))))
+        return rows
+
+    def binary(self, arch):
+        """Builds a static pyk for arch in its image, into a dune build
+        directory of its own in the repository, which the container sees
+        mounted; answers its path. String -> Path"""
+        directory = BUILD / f"_build-linux-{arch}"
+        BUILD.mkdir(parents=True, exist_ok=True)
+        inside = "/src/" + directory.relative_to(REPO).as_posix()
+        user = [] if sys.platform == "win32" else ["--user", f"{os.getuid()}:{os.getgid()}"]
+        run(["docker", "run", "--rm", "--platform", self.PLATFORM[arch], *user,
+             "-v", f"{REPO}:/src", "-w", "/src", self.image(arch),
+             "dune", "build", "--root", "/src", "--build-dir", inside,
+             "--profile", "static", "src/pyk.exe"])
+        path = directory / "default" / "src" / "pyk.exe"
+        info = elf_info(path)
+        if info != (arch, True):
+            raise Refusal(f"{path} is {info}, not a static {arch} binary")
+        return path
+
+    def check_runs(self, arch, binary):
+        """Runs the binary in a plain container of another distribution:
+        its version, and a program. String -> Path -> ()"""
+        with tempfile.TemporaryDirectory(prefix="pyk-linux-") as directory:
+            shutil.copy2(binary, Path(directory) / "pyk")
+            (Path(directory) / "hello.pyk").write_text('print("hello", 1 + 2)\n')
+            result = subprocess.run(
+                ["docker", "run", "--rm", "--platform", self.PLATFORM[arch],
+                 "-v", f"{directory}:/p:ro", self.RUN_IMAGE, "sh", "-c",
+                 "/p/pyk --version && /p/pyk /p/hello.pyk"],
+                capture_output=True, text=True)
+        if result.stdout.splitlines() != [f"pyk {version()}", "hello 3"]:
+            raise Refusal(f"the {arch} binary does not run in {self.RUN_IMAGE}: "
+                          + (result.stdout + result.stderr).strip()[-300:])
+
+    def build(self, archs):
+        """Builds, for each architecture, the tarball (under both names)
+        and the .deb (under both names), and copies install.sh. [String] -> ()"""
+        check_archs(self.name, archs)
+        for arch in archs:
+            self.preflight(arch)
+        v = version()
+        for arch in archs:
+            binary = self.binary(arch)
+            self.check_runs(arch, binary)
+            u, d = UNAME_ARCH[arch], DEB_ARCH[arch]
+            tree = stage(binary, BUILD / f"stage-linux-{arch}" / f"{NAME}-{v}")
+            archive = BUILD / f"{NAME}-{v}-linux-{u}.tar.gz"
+            sha = tarball(tree, archive)
+            shutil.copy2(archive, BUILD / f"{NAME}-linux-{u}.tar.gz")
+            package = BUILD / f"{NAME}_{v}_{d}.deb"
+            deb_sha = deb(tree, arch, package)
+            shutil.copy2(package, BUILD / f"{NAME}_{d}.deb")
+            print(f"linux: {shown(archive)} ({archive.stat().st_size / 1048576:.1f}"
+                  f" MB, sha256 {sha[:12]}…)")
+            print(f"linux: {shown(package)} ({package.stat().st_size / 1048576:.1f}"
+                  f" MB, sha256 {deb_sha[:12]}…)")
+        shutil.copy2(INSTALL_SH, BUILD / "install.sh")
+        (BUILD / "install.sh").chmod(0o755)
+        if set(archs) != set(ARCHS):
+            print(f"linux: NOTE only {', '.join(archs)} was built; "
+                  "`make release` needs every architecture.")
+
+    def install_local(self):
+        """Installs the local build into ~/.local with install.sh, as the
+        one-liner would, reading the files from build/. () -> ()"""
+        u = UNAME_ARCH.get(canonical_arch(platform.machine()), platform.machine())
+        if not (BUILD / f"{NAME}-linux-{u}.tar.gz").exists():
+            raise Refusal(f"nothing built for {u}; run `make packaging` first")
+        write_checksums(version())
+        run(["sh", INSTALL_SH], env=dict(os.environ,
+                                         PYKING_DOWNLOAD_BASE=BUILD.resolve().as_uri()))
+
+    def uninstall_local(self):
+        """Removes what install_local installed. () -> ()"""
+        run(["sh", INSTALL_SH, "--uninstall"])
+
+
+FORMATS = {"homebrew": Homebrew(), "linux": Linux()}
+
+
+def host_format():
+    """The format whose packages install on this machine. () -> Format"""
+    return FORMATS["homebrew" if sys.platform == "darwin" else "linux"]
+
+
+# --- publishing --------------------------------------------------------------
+
+
+def release(assume_yes):
+    """Publishes the build: one release v<VERSION> of RELEASES_REPO holding
+    every platform's files, each downloaded back and checked against
+    SHA256SUMS, then the formula committed and pushed to TAP_REPO, then --
+    asked separately -- the commit it was built from tagged in CODE_REPO
+    as release-<VERSION>. Checks everything it can first, asks before
+    changing anything unless assume_yes, and never replaces a published
+    release. Answers whether it succeeded. Bool -> Bool"""
+    v = version()
+    tag = f"v{v}"
+    names = release_assets(v)
+
+    # 1. The build: every file for this version, agreeing with SHA256SUMS
+    #    and with the formula.
+    missing = [name for name in names if not (BUILD / name).exists()]
+    if missing:
+        raise Refusal(f"the release of {v} is not fully built; missing from "
+                      f"{shown(BUILD)}/: {', '.join(missing)}.\n"
+                      "  `make packaging` builds every platform (on an Apple "
+                      "Silicon Mac with Docker)")
+    sums = read_checksums(BUILD / "SHA256SUMS")
+    for name in names[:-1]:
+        if sums.get(name) != hashlib.sha256((BUILD / name).read_bytes()).hexdigest():
+            raise Refusal(f"SHA256SUMS does not match {name}; run `make packaging` again")
+    mac = names[0]
+    rb = BUILD / "homebrew" / "pyking.rb"
+    text = rb.read_text() if rb.exists() else ""
+    if f'url "{RELEASES}/{tag}/{mac}"' not in text or f'sha256 "{sums[mac]}"' not in text:
+        raise Refusal(f"{shown(rb)} does not describe {mac}; "
+                      "run `make packaging` again")
+
+    # 2. The tools and the two repositories.
+    if not shutil.which("gh") or not shutil.which("git"):
+        raise Refusal("git and gh (the GitHub CLI) are needed: `brew install gh`, "
+                      "then `gh auth login`")
+    if subprocess.run(["gh", "auth", "status"], capture_output=True).returncode:
+        raise Refusal("gh is not logged in; run `gh auth login`")
+    # Checked here, not left to the commit: a commit that fails comes after
+    # the release exists, which would leave it without a formula. Asked from
+    # outside any repository, as the fresh clone will be: a name set only in
+    # this repository's own config is not used there.
+    for key in ("user.name", "user.email"):
+        if not subprocess.run(["git", "config", key], capture_output=True, text=True,
+                              cwd=tempfile.gettempdir()).stdout.strip():
+            raise Refusal(f"git has no {key}, which the tap commit needs: "
+                          f'git config --global {key} "..."')
+    state = {}
+    for repo, description in ((RELEASES_REPO, "Pyking releases for macOS, Linux and WSL"),
+                              (TAP_REPO, "Homebrew tap for Pyking")):
+        viewed = subprocess.run(["gh", "repo", "view", repo, "--json", "visibility,isEmpty"],
+                                capture_output=True, text=True)
+        if viewed.returncode:
+            raise Refusal(f"the repository {repo} does not exist or is not reachable; "
+                          f'create it with\n    gh repo create {repo} --public '
+                          f'--description "{description}"')
+        state[repo] = json.loads(viewed.stdout)
+        if state[repo].get("visibility") != "PUBLIC":
+            raise Refusal(f"{repo} is {state[repo].get('visibility', '?').lower()}; it "
+                          "must be public, since it is downloaded without credentials:\n"
+                          f"    gh repo edit {repo} --visibility public "
+                          "--accept-visibility-change-consequences")
+    if subprocess.run(["gh", "release", "view", tag, "--repo", RELEASES_REPO],
+                      capture_output=True).returncode == 0:
+        raise Refusal(f"{RELEASES_REPO} already has a release {tag}. A published "
+                      "release is never replaced, since everyone who installed it "
+                      "holds its checksums; bump VERSION and build again")
+    commit, code_tag, tagged = code_tag_preflight(v)
+
+    # 3. Say what will happen, and ask.
+    size = sum((BUILD / name).stat().st_size for name in names) / 1048576
+    print(f"\nAbout to publish Pyking {v}:")
+    print(f"  1. create the release {tag} of {RELEASES_REPO}, marked latest, with "
+          f"{len(names)} files ({size:.1f} MB):")
+    for name in names:
+        print(f"       {name}")
+    print(f"  2. commit Formula/pyking.rb for {v} to {TAP_REPO} and push it")
+    print(f"  3. then ask whether to tag {commit[:12]} in {CODE_REPO} as {code_tag}"
+          + (" (it already is)" if tagged else ""))
+    if not assume_yes and not confirm("Publish? [y/N] "):
+        print("release: nothing was published.")
+        return False
+
+    with tempfile.TemporaryDirectory(prefix="pyk-release-") as directory:
+        work = Path(directory)
+        # 4. The release. A repository with no commit cannot hold a tag, so
+        #    an empty one is given a README first.
+        if state[RELEASES_REPO].get("isEmpty"):
+            first_commit(work / "releases", RELEASES_REPO,
+                         {"README.md": releases_readme()}, "Describe the releases")
+        notes = (f"Pyking {v}: the compiler and interpreter, with no dependencies.\n\n"
+                 f"**macOS** 11 or later, Apple Silicon and Intel:\n\n    {BREW_INSTALL}\n\n"
+                 f"**Linux and WSL**, x86_64 and aarch64, any distribution:\n\n"
+                 f"    {LINUX_INSTALL}\n\n"
+                 f"Or, on Debian, Ubuntu and WSL Ubuntu, the `.deb` for your "
+                 f"architecture: `sudo apt install ./pyking_amd64.deb`.\n\n"
+                 f"Checksums are in `SHA256SUMS`.\n")
+        run(["gh", "release", "create", tag, *[BUILD / name for name in names],
+             "--repo", RELEASES_REPO, "--title", f"Pyking {v}", "--notes", notes,
+             "--latest"])
+        # Every file, fetched back from where users fetch it -- and install.sh
+        # once more through `latest`, which is what the one-liner reads.
+        checks = [(f"{RELEASES}/{tag}/{name}", name) for name in names[:-1]]
+        checks.append((f"{HOMEPAGE}/releases/latest/download/install.sh", "install.sh"))
+        for url, name in checks:
+            fetched = work / "fetched"
+            print(f"  $ download {url}")
+            try:
+                urllib.request.urlretrieve(url, fetched)
+            except OSError as e:
+                raise Refusal(f"the release was created, but {url} cannot be "
+                              f"downloaded ({e}); the tap was not changed")
+            if hashlib.sha256(fetched.read_bytes()).hexdigest() != sums[name]:
+                raise Refusal(f"the release was created, but {url} does not match "
+                              "SHA256SUMS; the tap was not changed")
+
+        # 5. The formula, in the tap.
+        tap = work / "tap"
+        run(["gh", "repo", "clone", TAP_REPO, tap])
+        if state[TAP_REPO].get("isEmpty"):
+            run(["git", "-C", tap, "symbolic-ref", "HEAD", "refs/heads/main"])
+            (tap / "README.md").write_text(tap_readme())
+            run(["git", "-C", tap, "add", "README.md"])
+        (tap / "Formula").mkdir(exist_ok=True)
+        shutil.copy2(rb, tap / "Formula" / "pyking.rb")
+        run(["git", "-C", tap, "add", "Formula/pyking.rb"])
+        if subprocess.run(["git", "-C", tap, "diff", "--cached", "--quiet"]).returncode:
+            run(["git", "-C", tap, "commit", "-m", f"pyking {v}"])
+            run(["git", "-C", tap, "push", "origin", "HEAD"])
+        else:
+            print(f"  ({TAP_REPO} already has this formula)")
+    # 6. The tag in the code repository, asked for on its own: the release
+    #    is out whatever the answer.
+    if tagged:
+        outcome = f"{CODE_REPO} already tags {commit[:12]} as {code_tag}"
+    elif assume_yes or confirm(f"\nTag {commit[:12]} in {CODE_REPO} as {code_tag}? [y/N] "):
+        try:
+            tag_code(commit, code_tag, v)
+        except Refusal as refusal:
+            raise Refusal(f"Pyking {v} is published -- the release and the formula -- "
+                          f"but tagging {commit[:12]} as {code_tag} failed: {refusal}. "
+                          f"Tag it by hand: git tag -a {code_tag} -m 'Pyking {v}' "
+                          f"{commit[:12]} && git push origin {code_tag}")
+        outcome = f"tagged {commit[:12]} in {CODE_REPO} as {code_tag}"
+    else:
+        outcome = (f"not tagged; to tag it later: git tag -a {code_tag} -m "
+                   f"'Pyking {v}' {commit[:12]} && git push origin {code_tag}")
+    print(f"\nrelease: SUCCEEDED -- Pyking {v} is published; {outcome}.\n"
+          f"  macOS:         {BREW_INSTALL}\n"
+          f"  Linux and WSL: {LINUX_INSTALL}")
+    return True
+
+
+def confirm(question):
+    """Asks a yes/no question; anything but yes, or no terminal, is no.
+    String -> Bool"""
+    try:
+        answer = input(question)
+    except EOFError:
+        answer = ""
+    return answer.strip().lower() in ("y", "yes")
+
+
+def git(*args):
+    """A git command in this repository, answering its output, or None
+    when it fails. String... -> String?"""
+    result = subprocess.run(["git", "-C", REPO, *args], capture_output=True, text=True)
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def code_tag_preflight(v):
+    """Checks, before anything is published, that the commit the release
+    is built from can be tagged: no uncommitted change to a tracked file,
+    HEAD already on GitHub in CODE_REPO, origin being CODE_REPO, and the
+    tag either absent or already on HEAD. Answers (commit, tag, whether it
+    is already tagged). String -> (String, String, Bool)"""
+    code_tag = f"release-{v}"
+    changed = git("status", "--porcelain", "--untracked-files=no")
+    if changed is None:
+        raise Refusal(f"{REPO} is not a git repository, so the release commit "
+                      "cannot be tagged")
+    if changed:
+        # Each line is a status code, then the path; git() strips the
+        # output, which can take the first line's leading blank with it.
+        files = [line.split(None, 1)[1] for line in changed.splitlines()]
+        raise Refusal("the working tree has uncommitted changes, so the release "
+                      f"would not be the commit {code_tag} names: "
+                      + ", ".join(files[:6]) + (" ..." if len(files) > 6 else "")
+                      + "\n  Commit or discard them, build again, and release.")
+    origin = git("remote", "get-url", "origin") or ""
+    if CODE_REPO not in origin.removesuffix(".git"):
+        raise Refusal(f"origin is {origin or 'not set'}, not {CODE_REPO}, so the tag "
+                      "would be pushed somewhere else")
+    commit = git("rev-parse", "HEAD")
+    if subprocess.run(["gh", "api", f"repos/{CODE_REPO}/commits/{commit}", "--silent"],
+                      capture_output=True).returncode:
+        raise Refusal(f"HEAD ({commit[:12]}) is not on GitHub in {CODE_REPO}; push it "
+                      "first (`git push`), so the tag names a commit others can see")
+    remote = subprocess.run(["gh", "api", f"repos/{CODE_REPO}/git/ref/tags/{code_tag}",
+                             "--jq", ".object.sha"], capture_output=True, text=True)
+    if remote.returncode == 0:
+        # An annotated tag names its tag object; peel it to the commit.
+        peeled = subprocess.run(["gh", "api", f"repos/{CODE_REPO}/git/tags/"
+                                 f"{remote.stdout.strip()}", "--jq", ".object.sha"],
+                                capture_output=True, text=True)
+        target = peeled.stdout.strip() if peeled.returncode == 0 else remote.stdout.strip()
+        if target != commit:
+            raise Refusal(f"{CODE_REPO} already has the tag {code_tag}, on "
+                          f"{target[:12]} rather than HEAD ({commit[:12]}); bump VERSION")
+        return commit, code_tag, True
+    return commit, code_tag, False
+
+
+def tag_code(commit, code_tag, v):
+    """Tags commit as code_tag, annotated, and pushes the tag to origin.
+    A local tag already on that commit is reused. String -> String ->
+    String -> ()"""
+    local = git("rev-parse", "--verify", "--quiet", f"refs/tags/{code_tag}^{{commit}}")
+    if local is None:
+        run(["git", "-C", REPO, "tag", "-a", code_tag, "-m", f"Pyking {v}", commit])
+    elif local != commit:
+        raise Refusal(f"the release is published, but a local tag {code_tag} already "
+                      f"names {local[:12]}, not {commit[:12]}; delete it "
+                      f"(git tag -d {code_tag}) and tag by hand")
+    run(["git", "-C", REPO, "push", "origin", f"refs/tags/{code_tag}"])
+
+
+def first_commit(directory, repo, files, message):
+    """Gives an empty repository its first commit on main.
+    Path -> String -> {String: String} -> String -> ()"""
+    run(["gh", "repo", "clone", repo, directory])
+    run(["git", "-C", directory, "symbolic-ref", "HEAD", "refs/heads/main"])
+    for name, text in files.items():
+        (directory / name).write_text(text)
+        run(["git", "-C", directory, "add", name])
+    run(["git", "-C", directory, "commit", "-m", message])
+    run(["git", "-C", directory, "push", "origin", "HEAD"])
+
+
+def releases_readme():
+    """The README of RELEASES_REPO. () -> String"""
+    return (f"# Pyking releases\n\nReleases of Pyking, a compiler and interpreter with "
+            "no dependencies.\n\n## macOS\n\nmacOS 11 or later, Apple Silicon and "
+            f"Intel, with [Homebrew](https://brew.sh):\n\n```sh\n{BREW_INSTALL}\n```\n\n"
+            "## Linux and WSL\n\nAny distribution, x86_64 or aarch64. Installs into "
+            f"`~/.local`, with no sudo:\n\n```sh\n{LINUX_INSTALL}\n```\n\n"
+            "`sh -s -- --system` installs for every user instead, `--version X` a "
+            "given release, and `--uninstall` removes it. On Debian, Ubuntu and WSL "
+            "Ubuntu, the `.deb` of a release works too:\n\n```sh\n"
+            f"curl -fLO {HOMEPAGE}/releases/latest/download/pyking_amd64.deb\n"
+            "sudo apt install ./pyking_amd64.deb\n```\n\n"
+            f"`pyk notebook` and `pyk playground` also need Python {PYTHON_MINIMUM} or "
+            "later.\n")
+
+
+def tap_readme():
+    """The README of TAP_REPO. () -> String"""
+    return (f"# Pyking's Homebrew tap\n\n```sh\n{BREW_INSTALL}\n```\n\nThe formulas "
+            f"install the releases in [{RELEASES_REPO}]({HOMEPAGE}).\n")
 
 
 def main(argv=None):
@@ -777,13 +1274,16 @@ def main(argv=None):
     parser = argparse.ArgumentParser(prog="packaging.py",
                                      description="Build Pyking's packages.")
     commands = parser.add_subparsers(dest="command", required=True)
-    build = commands.add_parser("build", help="build every format")
+    build = commands.add_parser("build", help="build the packages")
+    build.add_argument("--formats", default="",
+                       help=f"comma-separated formats (default: {','.join(FORMATS)})")
     build.add_argument("--archs", default="",
                        help="comma-separated architectures (default: all)")
-    commands.add_parser("setup", help="make the release toolchains, once")
+    setup = commands.add_parser("setup", help="make the build toolchains, once")
+    setup.add_argument("--formats", default="")
     published = commands.add_parser("release", help="publish the build")
     published.add_argument("--yes", action="store_true", help="do not ask first")
-    commands.add_parser("install-local", help="brew install the local build")
+    commands.add_parser("install-local", help="install the local build here")
     commands.add_parser("uninstall-local", help="remove it again")
     staged = commands.add_parser("stage", help="the shipped tree, with a binary")
     staged.add_argument("--binary", required=True, type=Path)
@@ -797,32 +1297,56 @@ def main(argv=None):
     written.add_argument("--archs", default="arm64,x86_64")
     args = parser.parse_args(argv)
 
+    def chosen(spelled):
+        names = [f for f in spelled.split(",") if f] or list(FORMATS)
+        unknown = [f for f in names if f not in FORMATS]
+        if unknown:
+            raise Refusal(f"unknown format {', '.join(unknown)}; there are "
+                          f"{', '.join(FORMATS)}")
+        return [FORMATS[f] for f in names]
+
     try:
         if args.command == "build":
-            for fmt in FORMATS.values():
-                reason = fmt.refusal()
-                if reason:
-                    raise Refusal(f"{fmt.name}: {reason}")
-                archs = [a for a in args.archs.split(",") if a] or list(fmt.archs)
-                unknown = sorted(set(archs) - set(fmt.archs))
-                if unknown:
-                    raise Refusal(f"{fmt.name}: unknown architecture {', '.join(unknown)}")
+            formats = chosen(args.formats)
+            # Every format is asked first, so a machine that cannot build one
+            # says so before the others spend their time.
+            refused = [(fmt.name, fmt.refusal()) for fmt in formats]
+            refused = [(name, reason) for name, reason in refused if reason]
+            if refused:
+                others = [fmt.name for fmt in formats if fmt.name not in dict(refused)]
+                raise Refusal("\n  ".join(f"{name}: {reason}" for name, reason in refused)
+                              + (f"\n  FORMATS={','.join(others)} builds the rest."
+                                 if others else ""))
+            archs = sorted({canonical_arch(a) for a in args.archs.split(",") if a}) \
+                or list(ARCHS)
+            for fmt in formats:
                 fmt.build(archs)
+            print(f"checksums: {shown(write_checksums(version()))}")
+        elif args.command == "setup":
+            rows = [row for fmt in chosen(args.formats) for row in fmt.setup()]
+            print()
+            for label, problem in rows:
+                print(f"  {label:<16} {'ready' if problem is None else 'FAILED: ' + problem}")
+            ok = all(problem is None for _, problem in rows)
+            print()
+            print("packaging setup: " + ("SUCCEEDED -- everything `make packaging` "
+                                         "builds with is ready." if ok else
+                                         "FAILED -- see above; running it again "
+                                         "resumes where it stopped."))
+            if not ok:
+                return 1
         elif args.command == "release":
             try:
-                if not FORMATS["homebrew"].release(args.yes):
+                if not release(args.yes):
                     return 1
             except Refusal as refusal:
                 print(f"packaging: {refusal}", file=sys.stderr)
                 print("release: FAILED -- see above.")
                 return 1
-        elif args.command == "setup":
-            if not FORMATS["homebrew"].setup():
-                return 1
         elif args.command == "install-local":
-            FORMATS["homebrew"].install_local()
+            host_format().install_local()
         elif args.command == "uninstall-local":
-            FORMATS["homebrew"].uninstall_local()
+            host_format().uninstall_local()
         elif args.command == "stage":
             stage(args.binary, args.dest, vendor=not args.no_vendor)
         elif args.command == "formula":

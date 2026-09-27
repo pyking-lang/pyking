@@ -234,7 +234,7 @@ let usage_full () =
      `pyk notebook <file.md>` serves a Markdown document whose Pyking code\n\
      blocks can be edited and run in the browser, and `pyk playground`\n\
      serves the compiler's playground. Both print a link to open, need\n\
-     Python 3.14 or later ($PYTHON names which one), and look for tools/\n\
+     Python 3.10 or later ($PYTHON names which one), and look for tools/\n\
      beside this executable. Without --port they start at 8000 and take\n\
      the first free port."
     synopsis more_options (target_table ())

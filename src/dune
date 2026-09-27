@@ -13,6 +13,15 @@
 ;
 ; Warnings are on but never fatal, so a build fails only on a real
 ; error.
+;; `--profile static` is for the Linux packages only
+;; (tools/packaging/linux/Dockerfile): it links pyk with no shared
+;; library at all, which musl makes possible. Every other build is
+;; unaffected.
+(env
+ (static
+  (link_flags
+   (:standard -ccopt -static))))
+
 (library
  (name pyking)
  (wrapped false)
