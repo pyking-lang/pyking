@@ -56,9 +56,9 @@ output extension (`extensions`, built the same way) impossible to leave
 stale when a target is added: a new C standard added to
 `Target_c.standards` shows up in `pyk --help`'s target table
 automatically, with no second place in this file to remember to update.
-`tools/playground/generator.py` goes one better and asks the *compiled*
-compiler for the same list (`pykTargets`), so the page's dropdown cannot
-drift from it either — see that tool's own documentation.
+The playground goes one better: its page asks the *compiled* compiler
+for the same list (`pykTargets`), so its dropdown cannot drift from it
+either — see that tool's own documentation.
 
 ## `front_end`: the stages every command shares, with one branch
 
@@ -317,6 +317,18 @@ the interpreter.
 `--run` with `--stdout` is refused in `parse_args` rather than here,
 because it is a statement about the *arguments*: `--stdout` writes no
 file, so there is nothing for `--run` to run.
+
+## `pyk notebook` and `pyk playground`: handed over, not served
+
+The two web commands run no front end at all, and `main` dispatches them
+before `front_end` is reached. Each page is served by a Python script
+under `tools/`, so all the driver does is `command_web`: it calls
+`Web_tools.start`, which checks that `$PYTHON` (else `python3`) is 3.14
+or later and then replaces this process with the script, and prints the
+reason only when that fails. Replacing the process rather than running
+a child means Ctrl+C reaches the server directly and `pyk` leaves
+nothing behind. `--port` is theirs alone and refused elsewhere, as `--`
+is refused for them. See [build.md](build.md), "The web tools".
 
 ## Why `repl.ml` is handed `format_error`
 

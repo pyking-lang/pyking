@@ -33,6 +33,7 @@ export class PykingRuntime {
     // Which compiler the worker booted from, so a rebuild under an open
     // tab is noticed rather than silently disagreed with (`_checkStamp`).
     this.stamp = null;
+    this._words = null;
   }
 
   get isReady() { return this._ready; }
@@ -95,6 +96,16 @@ export class PykingRuntime {
     this._require();
     await this._checkStamp();
     return this._send("compile", { source, target, name });
+  }
+
+  /** The compiler's own word lists and targets, and the source of the
+   *  JavaScript value formatter: {keywords, builtins, targets,
+   *  formatHelper}. Asked once and remembered, since they cannot change
+   *  without the compiler changing. */
+  async words() {
+    this._require();
+    if (!this._words) this._words = await this._send("words", {});
+    return this._words;
   }
 
   /** Reboot the worker if the compiler on disk is no longer the one it
@@ -219,8 +230,9 @@ export class JsRunner {
   /** Runs a compiled program. `code` is the module being looked at,
    *  `files` the whole program the compiler wrote and `main` which of
    *  them `code` is -- the worker wires them together and imports it.
+   *  `formatHelper` is the compiler's value formatter (`words()`).
    *  Resolves when the program finishes; rejects if it threw. */
-  run(code, { files = {}, main, onOutput } = {}) {
+  run(code, { files = {}, main, onOutput, formatHelper = "" } = {}) {
     this.stop();
     return new Promise((resolve, reject) => {
       // A module worker: generated code is imported as a real module,
@@ -239,7 +251,7 @@ export class JsRunner {
       };
       worker.onerror = (event) =>
         finish(reject, new Error(event.message || "worker failed"));
-      worker.postMessage({ code, files, main });
+      worker.postMessage({ code, files, main, formatHelper });
     });
   }
 

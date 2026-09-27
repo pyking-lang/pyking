@@ -54,8 +54,9 @@ and which module calls which.
 | [`target_java.ml`](#target_javaml) | ~1690 | The Java backend, for `java8`/`java17`/`java21`. Also proves every function returns. |
 | [`target_ocaml.ml`](#target_ocamlml) | ~2900 | The OCaml backend. Infers nothing: it reads the checker's `tmap`. |
 | [`execution.ml`](#executionml) | ~200 | What `--run` runs: the commands each target's host uses to build and run what was compiled. |
-| [`pyk.ml`](#pykml) | ~780 | The driver: argv, stage sequencing, error reporting, the three commands. |
-| [`web/pyking_web.ml`](#webpyking_webml) | ~320 | The browser entry point: the same library compiled to JavaScript, for the playground. |
+| [`web_tools.ml`](#web_toolsml) | ~100 | `pyk notebook` and `pyk playground`: checks Python and hands the process to the tool's server. |
+| [`pyk.ml`](#pykml) | ~780 | The driver: argv, stage sequencing, error reporting, the five commands. |
+| [`web/pyking_web.ml`](#webpyking_webml) | ~320 | The browser entry point: the same library compiled to JavaScript, for the playground and the notebook. |
 
 Two shapes recur everywhere and are worth reading once rather than
 twenty times:
@@ -485,8 +486,7 @@ leaves evaluation order unspecified.
   refuses a type it cannot represent needs to know nothing about
   signatures. Run by `pyk.ml` after the `pyking` target has printed, so
   that output still shows the program as it stands — and by the
-  playground's own driver (`PYKING_WEB_PY` in
-  `tools/playground/generator.py`), which repeats `pyk.ml`'s front end
+  playground's own driver (`src/web/pyking_web.ml`), which repeats `pyk.ml`'s front end
   and has to gain each step it gains. Only well-formed
   pairings are folded — a signature naming no definition is left for
   `typesystem.ml` to refuse in its own words.
@@ -1567,7 +1567,7 @@ the driver. One table, so `pyk.ml` stays a sequencer.
 ## `pyk.ml`
 
 **The driver.** It parses argv, sequences the stages, reports errors, and
-dispatches to one of three commands. Everything else — translation,
+dispatches to one of five commands. Everything else — translation,
 packaging, file naming, and running what was compiled — belongs to the
 backends and to `execution.ml`.
 
@@ -1575,6 +1575,8 @@ backends and to `execution.ml`.
 pyk <file>              run it with the interpreter
 pyk repl                start the REPL
 pyk compile <file>      compile it (alias: pyk c)
+pyk notebook <file.md>  serve a notebook (web_tools.ml)
+pyk playground          serve the playground (web_tools.ml)
 ```
 
 **Design, in depth:** [pyk.md](pyk.md).
@@ -1604,6 +1606,9 @@ pyk compile <file>      compile it (alias: pyk c)
   tail-call pass. One branch, and it is `--no-typechecking`'s: otherwise
   every program takes the same route, and a refusal at any step is an
   error.
+- **`command_web tool options`** — `pyk notebook` and `pyk playground`,
+  which run no front end: `Web_tools.start` replaces the process, and
+  this prints why when it could not.
 - **`command_interpret` / `command_compile`**, and `Repl.start` for the
   third. The REPL is *handed* this module's `format_error` rather than
   importing it, which is what keeps the dependency one-way — a cycle
@@ -1617,18 +1622,42 @@ pyk compile <file>      compile it (alias: pyk c)
 
 ---
 
+## `web_tools.ml`
+
+**`pyk notebook` and `pyk playground`.** Neither page is served by the
+compiler: each is a directory under `tools/` with a Python server of its
+own (see [build.md](build.md), "The web tools"). This module is the
+bridge, and is in the executable rather than the library, since it
+starts a process.
+
+### Data structures
+
+- **`tool`** — `Notebook | Playground`, which is also the name of the
+  tool's directory and script.
+
+### Main functions
+
+- **`start tool port document -> string`** — finds
+  `tools/<tool>/<tool>.py` beside the running executable, asks `$PYTHON`
+  (else `python3`) for its version and refuses one older than 3.14, then
+  replaces this process with the script (`Unix.execvp`), passing
+  `--port` and the document. It returns only when it could not, with the
+  reason as a sentence for the driver to print.
+
+---
+
 ## `web/pyking_web.ml`
 
 **The browser entry point**: the same library, compiled to JavaScript
-with js_of_ocaml, so `tools/playground/` runs the real compiler in the
-page instead of a Python runtime.
+with js_of_ocaml, so `tools/playground/` and `tools/notebook/` run the
+real compiler in the page instead of a Python runtime.
 
 It registers a handful of functions on the global object through the
 primitives in `src/web/stub.js` — `pykCompile` (a program and a target
 in, generated source or a formatted error out), `pykRun` (the
 interpreter, emitting each line as the program produces it),
 `pykTargets`, `pykFormatHelper`, `pykKeywords` and `pykBuiltins`. The
-last four are what `generator.py` asks the bundle for at build time, so
+last four are what the pages ask the bundle for when they load, so
 the page's target list, its syntax mode's keyword list and its JavaScript
 worker's formatter all come from the compiler rather than from a
 hand-kept copy.

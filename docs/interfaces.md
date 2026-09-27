@@ -43,8 +43,8 @@ respects that, which is what makes the library link.
 ┌──── the entry points ────────────────────────────────────────────────┐
 │                                                                      │
 │  pyk.ml              the driver: argv, the stages, and one of        │
-│                      three commands. Links unix, and with it         │
-│                      repl.ml and execution.ml.                       │
+│                      five commands. Links unix, and with it          │
+│                      repl.ml, execution.ml and web_tools.ml.         │
 │  web/pyking_web.ml   the playground: the same stages, answering      │
 │                      JSON. Compiled to JavaScript by js_of_ocaml.    │
 │                                                                      │
@@ -59,6 +59,8 @@ respects that, which is what makes the library link.
 │                                  typed into                          │
 │  execution.ml    execute,        what --run builds and runs          │
 │                  pyking_target                                       │
+│  web_tools.ml    start, tool     pyk notebook / pyk playground:      │
+│                                  hands over to the tool's server     │
 │                                                                      │
 └──────────────────────────────────────────────────────────────────────┘
                                     │

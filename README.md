@@ -123,11 +123,13 @@ make            # dune build src/pyk.exe, copied here as ./pyk
 |---|---|
 | `make` | build the compiler into `./pyk` |
 | `make help` | the list below |
-| `make test` | the compiler's own suite: every program in `tests/` on every target it supports, comparing each against one shared `.out` file — run in parallel, one job per usable CPU (`JOBS=n` to say how many) — then the REPL's own cases in `tests/repl/` |
+| `make test` | the compiler's own suite: every program in `tests/` on every target it supports, comparing each against one shared `.out` file — run in parallel, one job per usable CPU (`JOBS=n` to say how many) — then the REPL's own cases in `tests/repl/`, the library path's, the playground's and the notebook's |
 | `make stest` | the same suite, one test at a time |
-| `make playground` | build and serve the [web playground](tools/playground/), then print a link to open |
-| `make clean` | remove what has been generated: `_build/`, `./pyk`, `__pycache__/` directories, and the playground's `build/` |
-| `make distclean` | that, plus the playground's `vendor/` download cache |
+| `make playground` | serve the [web playground](tools/playground/) (`pyk playground`), then print a link to open |
+| `make notebook` | serve `PYKING-TUTORIAL.md` as a [notebook](tools/notebook/) (`pyk notebook`), then print a link |
+| `make vendor` | download Ace and KaTeX into `tools/webrun/vendor/`, once; the two above run it first |
+| `make clean` | remove what has been generated: `_build/`, `./pyk`, `__pycache__/` directories |
+| `make distclean` | that, plus the `tools/webrun/vendor/` download cache |
 
 `./pyk` is a build artifact, not a checked-in script: `make` writes it
 and `make clean` removes it. Everything else `make clean` leaves alone —
@@ -141,12 +143,12 @@ See [docs/build.md](docs/build.md) for how the build is put together —
 the library/executable split, and the js_of_ocaml bundle the playground
 runs.
 
-`make playground` delegates to `tools/playground/`, which has options of
-its own (`PORT=`, `CDN=`, ...) — run `make -C tools/playground help` for
-those. Everything it generates stays inside that directory and is
-gitignored; the first run downloads its editor assets and caches them,
-later ones are offline. That cache is why the playground's build output
-goes on `make clean` but the cache itself only goes on `make distclean`.
+The playground and the notebook are started through the compiler —
+`pyk playground`, `pyk notebook FILE.md`, `--port N` for either — and
+need Python 3.14 or later. Neither is built: each is served from
+`tools/` as it stands. The first `make vendor` downloads their editor
+and math libraries and caches them, which is why the cache only goes on
+`make distclean`. See [docs/build.md](docs/build.md), "The web tools".
 
 ## Documentation
 
@@ -219,10 +221,13 @@ goes on `make clean` but the cache itself only goes on `make distclean`.
 | `docs/` | design and architecture notes |
 | `tools/emacs/` | a major mode for editing `.pyk` files |
 | `tools/playground/` | the browser playground: the compiler itself, compiled to JavaScript |
+| `tools/notebook/` | the notebook: a Markdown file whose Pyking blocks run in the browser |
+| `tools/webrun/` | what the playground and the notebook share |
 
 Building the compiler needs OCaml and dune, and nothing else; the
-playground's bundle additionally needs js_of_ocaml. The test harness and
-the playground generator are Python 3.11+ (`match`/`case`, `tomllib`).
+playground's bundle additionally needs js_of_ocaml. The test harness is
+Python 3.11+ (`match`/`case`, `tomllib`), and the web tools need Python
+3.14+.
 
 Running the generated code needs `node` for the JavaScript targets, a C
 compiler for the C ones, a JDK (`javac`/`java`) for the Java ones and an

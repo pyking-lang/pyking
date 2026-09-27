@@ -9,11 +9,16 @@ front end, the same type checker, the same interpreter and the same backends
 `pyk` does.
 
 ```sh
-make          # vendor, build, check, serve — then open the printed link
+pyk playground   # serve it and print a link to open
+make             # here: vendor, check, serve
 ```
 
-The first `make` downloads ~1 MB of Ace into `vendor/` and caches it; later
-builds are offline and instant.
+**Nothing is built.** `playground.py` serves `assets/`, the files the
+playground shares with the notebook in `../webrun/`, the compiler bundle
+`build/pyking.js` and the examples in `tests/` from where they sit, so an
+edit to any of them shows on the next reload. The first `make vendor` (at
+the repository root or here) downloads ~1 MB of Ace and KaTeX into
+`../webrun/vendor/` and caches it; see `../webrun/README.md`.
 
 ## Why this design
 
@@ -29,7 +34,7 @@ The one thing the library does not have is a browser entry point.
 `pykTargets`, `pykFormatHelper`, `pykKeywords` and `pykBuiltins` on the
 global object through the four `//Provides:` primitives in
 `src/web/stub.js`. It is checked in beside the compiler, not generated here
-— `generator.py` only builds it and asks it questions.
+— the page only loads it and asks it questions.
 
 The three modules the library deliberately leaves out are the ones that talk
 to the outside world: `pyk.ml` (the driver), `execution.ml` (`--run`) and
@@ -39,38 +44,28 @@ to the outside world: `pyk.ml` (the driver), `execution.ml` (`--run`) and
 
 | Target | |
 |---|---|
-| `make` | `vendor` → `build` → `check` → `serve` |
-| `make build` | regenerate `build/` from `generator.py` |
-| `make vendor` | download Ace into `vendor/` (cached; skipped if present) |
+| `make` | `vendor` → `check` → `serve` |
+| `make vendor` | download Ace and KaTeX into `../webrun/vendor/` (cached; skipped if present) |
 | `make check` | compile every example for every target it claims, headlessly |
 | `make e2e` | browser tests — mounting, compiling, running, Stop (needs Playwright) |
-| `make serve` | rebuild the compiler bundle if `src/` moved on, serve `build/`, print a clickable `http://localhost:8000/` |
-| `make clean` | remove `build/` |
-| `make distclean` | also remove `vendor/` |
+| `make serve` | serve the page and print a clickable `http://localhost:8000/` |
 
-Variables: `PORT=9000` (auto-advances if busy), `CDN=1` (see below),
-`PYTHON=python3.12`.
+Variables: `PORT=9000` (without it, 8000 or the next free port),
+`PYTHON=python3.14`. The server needs Python 3.14 or later.
 
-`make check` is worth knowing about: it runs all 270 examples through the
-same `pyking.js` the page loads, under `node` — over 1300 example/target
-pairs — so a regressed backend fails the build without a browser being
-involved.
-
-### `CDN=1`
-
-By default Ace is vendored, so the built directory is entirely
-self-contained and works with no internet. `make CDN=1` skips the download and
-points the page at jsdelivr instead: the build drops from 6.1 MB to 5.5 MB,
-at the cost of needing internet on every page load. The compiler itself is
-always local — it is not on any CDN — so this only moves the editor.
+`make check` is worth knowing about: it runs every example through the
+same `pyking.js` the page loads, under `node` — over 1600 example/target
+pairs — so a regressed backend fails without a browser being involved.
 
 ### It must be *served*
 
 `file://` will not work — browsers block the module and WebAssembly loads the
 page needs. This is the same constraint the compiler's own `web` target
 documents (see `docs/target_js.md`), and the reason
-`make` ends by starting a server rather than telling you to open a file. Any
-static host will do; nothing runs server-side.
+`make` ends by starting a server rather than telling you to open a file.
+Nothing runs server-side, but the page's manifest (`assets/playground.json`)
+is worked out per request from `tests/test_cases.toml`, so a static host
+needs a copy of it saved once.
 
 ## What the page does
 
@@ -160,13 +155,14 @@ static host will do; nothing runs server-side.
   loses nothing, since plain `Enter` inserts a newline anyway and Shift+Enter
   merely duplicated it.
 
-The compiler loads lazily on the first compile or run, not on page load, so
-the page appears immediately and the status pill reports progress.
+The compiler loads when the page does, because the editor's highlighting
+reads the keyword list out of it (see "Four things read out of the
+repository" below); the status pill reports progress.
 
 ### How long the first compile takes
 
-Pressing **Compile** the first time fetches the compiler. The status pill
-names the phase and counts seconds, so you can tell working from frozen:
+Opening the page fetches the compiler. The status pill names the phase,
+so you can tell working from frozen:
 
 | Pill | What is happening | Typical |
 |---|---|---|
@@ -177,30 +173,21 @@ names the phase and counts seconds, so you can tell working from frozen:
 After that, compiling is **about a millisecond**, and running is as fast as
 the generated code.
 
-A reload does not repeat the fetch: the server marks `assets/vendor/`
-cacheable for a day while everything `make` regenerates stays `no-store`, so
-you can rebuild and reload without ever debugging a stale asset.
+The server marks `vendor/` cacheable for a day while everything else stays
+`no-store`, since everything else is served straight from the source tree.
 
 **The compiler cannot go stale under you either**, which needs more than
-cache headers: `build/pyking/pyking.js` is a *copy* of what dune built, and
-the page fetches it once, at boot. So there are two ways to end up with the
-page running one compiler while `pyk` runs another, and each has its own
-answer. `make serve` rebuilds the bundle from `src/` and re-copies it before
-it serves, saying so when it moved on — so editing the compiler and
-re-serving is enough, without the full rebuild that also re-copies the
-vendored editor. And `manifest.json` carries a **stamp** of the bytes it
-names, which the page re-reads before every compile: a tab left open across
-a rebuild reloads its worker rather than going on answering with the
-compiler it started with. Nothing else in `build/` is covered — a change to
-the page itself, the examples or the Ace mode still needs `make build`.
+cache headers: the page fetches `build/pyking.js` once, at boot, so a tab
+left open across a `make` would go on answering with the compiler it
+started with. `manifest.json` carries a **stamp** of the bundle's bytes,
+which the page re-reads before every compile: when it has moved on, the
+worker reloads.
 
-> **If it seems to hang at `starting…`** on an old build: the dev server used
-> to be single-threaded. Browsers open several connections at once and
-> speculatively pre-connect ones they never use, and one idle pre-connect
-> blocked the whole server — the page would wait indefinitely for files that
-> were never sent. `make serve` now uses `ThreadingHTTPServer`; re-run
-> `make build` (or just `make`) to pick it up. `python3 -m http.server` has
-> the same flaw, so prefer `make serve` over serving `build/` by hand.
+> **If it seems to hang at `starting…`**: a single-threaded server does
+> that. Browsers open several connections at once and speculatively
+> pre-connect ones they never use, and one idle pre-connect blocks the
+> whole server. `playground.py` uses `ThreadingHTTPServer`;
+> `python3 -m http.server` has the flaw, so do not serve the page with it.
 
 ### How programs are executed, and how they are stopped
 
@@ -246,9 +233,9 @@ them, because a module loaded from a blob has no base to resolve
 `./x.js` against. Nothing else is touched: the text in the pane is what
 runs, edits included. Its
 `print` formats values with the JavaScript backend's **own** `pykFormat`,
-lifted out of `src/target_js_packaging.ml` at build time rather than
-hand-copied, so the playground cannot disagree with `node prog.js` about
-how a value prints.
+asked of the compiler (`pykFormatHelper`) when the page loads and handed to
+the worker with each program rather than hand-copied, so the playground
+cannot disagree with `node prog.js` about how a value prints.
 
 ### The Stop button
 
@@ -290,53 +277,43 @@ alike.
 
 ## Layout
 
-Checked in — note there is no `index.html` here; it is generated:
-
 ```
 tools/playground/
   Makefile
-  generator.py     the single source for every generated file
-  e2e.mjs          browser tests (optional; see "Verifying" below)
+  playground.py      the server, the example list, and `check`
+  e2e.mjs            browser tests (optional; see "Verifying" below)
   README.md
-  .gitignore       build/, vendor/
-```
-
-Generated into `build/`:
-
-```
-build/
-  index.html                 thin host page: mounts the component, nothing else
   assets/
-    playground.js            the UI (ES module, exports mountPlayground)
-    pyking-runtime.js        the compiler as an object — no UI at all
-    pyking-worker.js         the compiler bundle, on its own thread
-    js-worker.js             generated JavaScript, on its own thread
-    pyking-mode.js           Ace syntax mode for Pyking
-    playground.css           all styles, scoped under .pyk-playground
-    playground.json          targets, editor modes, examples — drives the UI
-    vendor/ace/…             Ace + the modes the targets need
-  pyking/
-    pyking.js                the compiler, built from src/ by dune and
-                             js_of_ocaml, copied here byte for byte
-    manifest.json            what the runtime loads, and the stamp saying
-                             which compiler that is
-  examples/
-    *.pyk                    copied from tests/
+    index.html       thin host page: mounts the component, nothing else
+    playground.js    the UI (ES module, exports mountPlayground)
+    js-worker.js     generated JavaScript, on its own thread
+    playground.css   all styles, scoped under .pyk-playground
 ```
+
+What the page loads, and where the server finds it:
+
+| URL | From |
+|---|---|
+| `/`, `/assets/…` | `assets/` |
+| `/assets/playground.json` | worked out per request: targets, editor modes, examples |
+| `/webrun/…` | `../webrun/assets/`: the runtime, the compiler's worker, the Ace mode |
+| `/vendor/…` | `../webrun/vendor/`: Ace and KaTeX |
+| `/pyking/pyking.js` | `build/pyking.js`, built from `src/` by dune and js_of_ocaml |
+| `/pyking/manifest.json` | worked out per request: the bundle's name and stamp |
+| `/examples/*.pyk` | `tests/`, only the examples the manifest offers |
 
 ### The bundle is evaluated, not required
 
-`generator.py` asks the compiled compiler for the target list, the word
-lists and the formatter by running it under node — and it does that by
-*reading* `build/pyking.js` and evaluating it, rather than `require`ing
-it.
+`check` and `tests/test_playground.py` run the compiled compiler under
+node — and they do that by *reading* `build/pyking.js` and evaluating it,
+rather than `require`ing it.
 
 That looks roundabout and is not. The bundle is a classic script, but
 node decides a `.js` file's module system from the nearest
 `package.json`: one saying `"type": "module"` anywhere above the
 repository makes it an ES module, and `require` of an ES module works on
 some node versions and fails with `ERR_REQUIRE_ESM` on others. Reading
-the text sidesteps the module system, so the generator behaves the same
+the text sidesteps the module system, so the check behaves the same
 wherever the repository sits and whichever node is installed. The one
 thing evaluation needs supplying is `require` itself — a module-local in
 CommonJS, which js_of_ocaml's runtime calls — so it is put on
@@ -348,16 +325,16 @@ CommonJS, which js_of_ocaml's runtime calls — so it is put on
 
 The playground cannot drift from the compiler, because it does not restate
 anything the compiler already knows. Three of the four are *asked of the
-built bundle*, with `node`, rather than parsed out of the source:
+bundle* when the page loads, through the worker's `words` request, rather
+than parsed out of the source:
 
-1. **The compiler** is `dune build src/web/pyking_web.bc.js`, copied into
-   `build/pyking/pyking.js` byte for byte — never forked, and never edited
-   here.
+1. **The compiler** is `dune build src/web/pyking_web.bc.js`, served as
+   `build/pyking.js` — never forked, and never edited here.
 2. **The target list** comes from `pykTargets`, which is `pyk.ml`'s own
-   `targets`, itself assembled from the backends. So a new target appears in
-   the dropdown automatically. `generator.py` fails the build if a target
-   turns up that has no editor mode assigned, rather than silently showing
-   it unhighlighted.
+   `targets`, itself assembled from the backends. `make check` and
+   `tests/test_playground.py` fail if a target turns up that has no entry in
+   `playground.py`'s `TARGET_MODE`, rather than it silently going missing
+   from the dropdown.
 3. **The keyword and builtin lists** in `pyking-mode.js` come from
    `pykKeywords` and `pykBuiltins` — `lexer.keywords` and
    `builtin.names` — and **the value formatter** in `js-worker.js` from
@@ -386,8 +363,10 @@ there so you can take either one.
 <script type="module">
   import { mountPlayground } from "./assets/playground.js";
   mountPlayground(document.getElementById("host"), {
-    base: "./assets",             // where the assets/ folder lives
-    pykingURL: "./pyking/",       // where the compiler was copied
+    base: "./assets",             // playground.json, js-worker.js
+    webrunURL: "./webrun/",       // tools/webrun/assets
+    vendorURL: "./vendor/",       // tools/webrun/vendor
+    pykingURL: "./pyking/",       // pyking.js and manifest.json
     examplesURL: "./examples/",   // where the .pyk files live
     initialTarget: "c23",
     initialExample: "arithmetic.pyk",
@@ -396,8 +375,8 @@ there so you can take either one.
 ```
 
 Ace and the Pyking mode are loaded for you if they are not already present.
-All paths are relative, so the build directory can be served from any
-sub-path. Styles are scoped under `.pyk-playground` and use CSS custom
+`playground.js` imports `../webrun/web.js`, so `assets/` and `webrun/` sit
+side by side, as the server lays them out; everything else is an option. Styles are scoped under `.pyk-playground` and use CSS custom
 properties (`--pyk-bg`, `--pyk-accent`, …), so re-theming is a few overrides.
 
 Note that every button-variant rule is written as `.pyk-playground .pyk-run`
@@ -419,11 +398,11 @@ layout from your own CSS:
 **Just the compiler**, with your own interface:
 
 ```js
-import { PykingRuntime } from "./assets/pyking-runtime.js";
+import { PykingRuntime } from "./webrun/pyking-runtime.js";
 
 const rt = new PykingRuntime({
   pykingURL: "./pyking/",
-  workerURL: "./assets/pyking-worker.js",
+  workerURL: "./webrun/pyking-worker.js",
 });
 await rt.ready(status => console.log(status));   // the compiler is fetched here
 
@@ -454,7 +433,7 @@ against the *worker's* location, which is how `./pyking/` once became
 shape:
 
 ```js
-import { JsRunner } from "./assets/pyking-runtime.js";
+import { JsRunner } from "./webrun/pyking-runtime.js";
 
 const js = new JsRunner("./assets/js-worker.js");
 await js.run("script", nodejsSource, { onOutput: line => console.log(line) });
@@ -485,10 +464,10 @@ make e2e                         # the same page, in a real browser
 
 The repository's own `make test` asks the first of those questions too,
 as `tests/test_playground.py`: it drives `build/pyking.js` directly, so
-it needs neither `build/` nor the vendored assets, and it reads the
-example list out of this generator's `offered_examples` so the two
-cannot disagree about what the page offers. `make check` here is the
-same question asked of a page that has actually been built.
+it needs no vendored assets, and it reads the example list out of
+`playground.py`'s `offered_examples` so the two cannot disagree about
+what the page offers. `tests/test_notebook.py` also starts
+`pyk playground` and fetches the page's manifest and an example.
 
 `make check` needs Python and `node`. Every example is compiled for the
 `pyking` target as well as for every target it claims, and the
@@ -512,8 +491,8 @@ npm install playwright && npx playwright install chromium
 
 It is worth having, because there is a class of defect nothing headless can
 see: Ace, the worker plumbing and the page's own wiring only exist in a
-browser. `make e2e` starts its own server on a free port and drives the built
-page: that it mounts with every target in the dropdown, that Compile loads
+browser. `make e2e` starts `playground.py serve` on a free port and drives
+the page: that it mounts with every target in the dropdown, that Compile loads
 the compiler and produces a file, that the `pyking` target prints the front
 end's own output, that both Run buttons produce output, that **every example
 compiles for every target it claims** — the same pairs `make check` compiles,
@@ -525,9 +504,7 @@ answering. Any error on the console fails the run.
 
 - **Needs a static server** (above). No way around it for ES modules and
   workers.
-- **About 6 MB on first load**, cached by the browser afterwards — 5.1 MB
-  of it the compiler. `CDN=1` moves the editor's share rather than the
-  compiler's.
+- **About 6 MB on first load** — 5.1 MB of it the compiler.
 - **A non-terminating program no longer freezes the tab.** Execution happens
   on workers, so the page stays responsive and the Stop button ends it (see
   "How programs are executed" above). This is what makes "run while you type"

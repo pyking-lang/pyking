@@ -3,13 +3,11 @@
 page loads still works, and that every example the page offers still
 compiles on every target it claims.
 
-`make playground` asks the second question too, as its `check` step --
-but only after generating `build/`, which needs the vendored browser
-assets and a network to fetch them, so it cannot run here. This drives
-the bundle directly instead: the bundle is what `make build` already
-writes to `build/pyking.js`, and the example list comes from
-`tools/playground/generator.py` itself, so the suite and the page cannot
-disagree about what is offered. A manifest key the generator has not
+`make -C tools/playground check` asks the second question too. This
+drives the bundle directly instead: the bundle is what `make build`
+already writes to `build/pyking.js`, and the example list comes from
+`tools/playground/playground.py` itself, so the suite and the page cannot
+disagree about what is offered. A manifest key the playground has not
 been taught about -- which is how this broke once -- shows up here as an
 example that will not compile.
 
@@ -42,13 +40,13 @@ import suite  # noqa: E402  (after sys.path, which is what finds it)
 REPO = HERE.parent
 PLAYGROUND = REPO / "tools" / "playground"
 # What `make build` writes: the same compiler the page loads, as one
-# JavaScript file. The playground's own build/ holds a copy of it.
+# JavaScript file.
 DEFAULT_BUNDLE = REPO / "build" / "pyking.js"
 # Long enough that a bundle which has gone wrong is reported rather than
 # hanging. Compiling every example takes a few seconds.
 STEP_TIMEOUT = 600
 # Plain `node`, with no flags, which is also how
-# tools/playground/generator.py runs its own check. Elsewhere the suite
+# tools/playground/playground.py runs its own check. Elsewhere the suite
 # passes `--no-experimental-detect-module` so that node cannot guess a
 # generated `.js` into an ES module, and it probes for that flag first
 # because an older node rejects it outright. Neither applies here: the
@@ -72,7 +70,7 @@ const fs = require("fs");
 // Evaluated rather than required: the bundle is a classic script, and
 // `require` is a module-local in CommonJS that js_of_ocaml's runtime
 // calls, so global code needs it put within reach. This is how
-// tools/playground/generator.py loads it too.
+// tools/playground/playground.py loads it too.
 globalThis.require = require;
 (0, eval)(fs.readFileSync(process.argv[2], "utf8"));
 const plan = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
@@ -101,6 +99,10 @@ if (failures.length) {
 const targets = JSON.parse(pykTargets());
 check("pykTargets", Array.isArray(targets) && targets.length > 0,
       JSON.stringify(targets));
+const unknown = targets.filter(
+  (t) => !plan.targets.includes(t) && !plan.leftOut.includes(t));
+check("every target known to the playground", unknown.length === 0,
+      unknown.join(", ") + " has no entry in playground.py's TARGET_MODE");
 const keywords = JSON.parse(pykKeywords());
 check("pykKeywords", Array.isArray(keywords) && keywords.includes("def"),
       JSON.stringify(keywords).slice(0, 120));
@@ -156,18 +158,17 @@ console.log(JSON.stringify({ pairs, failures }));
 
 def plan():
     """The targets the page offers and every example it will offer, asked
-    of the generator itself so that the two cannot disagree.
+    of the playground itself so that the two cannot disagree.
     () -> {...}"""
     sys.path.insert(0, str(PLAYGROUND))
-    import generator
+    import playground
 
-    # `offered_examples` writes nothing, which is why it is separate from
-    # the copying `build_examples` does. Its notes are for a build.
     with contextlib.redirect_stdout(io.StringIO()):
-        targets = generator.target_order()
-        examples = generator.offered_examples(targets)
+        targets = playground.code_targets()
+        examples = playground.offered_examples(targets)
     return {
         "targets": targets,
+        "leftOut": sorted(playground.NOT_IN_THE_PAGE),
         "smoke": SMOKE,
         "smokeOutput": SMOKE_OUTPUT,
         "examples": [
@@ -239,7 +240,7 @@ def main(argv):
     if pairs is None:
         suite.footer("playground", 0, 1, "the bundle could not be driven")
         return 1
-    checks = len(prepared["targets"]) + 9
+    checks = len(prepared["targets"]) + 10
     print(f"playground: the bundle's {len(prepared['targets'])} targets, its "
           "entry points and the smoke program OK.")
     print(f"playground: {pairs} example/target pairs over "

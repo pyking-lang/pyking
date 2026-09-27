@@ -122,7 +122,8 @@ repl`) rather than a `--target`.
 | `src/interpreter.ml` | The interpreter: runtime values, environments, and a resumable small-step machine over the AST. Runs the fragment the checker accepts, and is the reference for what a program *means* at run time. |
 | `src/repl.ml` | `pyk repl`: a session as a program written one statement at a time — checked as one program, run one statement at a time. |
 | `src/builtin.ml` | The builtins: each one's name, arity, and whether it crosses the host/IO boundary. Backend-agnostic. |
-| `src/pyk.ml` | The driver: argv, stage sequencing, error reporting, and the three commands (`pyk <file>`, `repl`, `compile`). |
+| `src/web_tools.ml` | `pyk notebook` and `pyk playground`: finds the web tool beside the executable, checks for Python 3.14+, and hands the process to its server. See [build.md](build.md), "The web tools". |
+| `src/pyk.ml` | The driver: argv, stage sequencing, error reporting, and the three commands (`pyk <file>`, `repl`, `compile`), plus the two web commands, which run no front end. |
 
 ## The builtins and the host boundary
 

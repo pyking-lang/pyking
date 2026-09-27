@@ -1,0 +1,94 @@
+<h1 id="features"><a class="pkn-anchor" href="#features" aria-hidden="true">#</a>Features</h1>
+<p>A paragraph with <em>emphasis</em>, <strong>strong</strong>, <em><strong>both</strong></em>, <em>underscores</em>,
+<del>strikethrough</del>, <code>inline code</code>, a <a href="https://example.com" title="Example">link</a>,
+a <a href="https://example.com/ref">reference link</a>, an image <img src="doc/dot.png" alt="a dot">, a bare
+<a href="https://example.org/path">https://example.org/path</a> link, an <a href="https://autolink.example">https://autolink.example</a> and an
+escaped *star*. Snake_case_words stay whole.
+A line ending in two spaces<br>
+breaks, and so does a backslash<br>
+like this.</p>
+<h2 id="code-cells"><a class="pkn-anchor" href="#code-cells" aria-hidden="true">#</a>Code cells</h2>
+<p>A runnable cell:</p>
+<div class="pkn-cell" id="cell-1" data-cell="0"><pre class="pkn-cell-fallback"><code>print(&quot;Hello&quot;, &quot;world&quot;, 2026)</code></pre></div>
+<p>A cell that is meant to be refused:</p>
+<div class="pkn-cell" id="cell-2" data-cell="1"><pre class="pkn-cell-fallback"><code>x = 1
+x := 2</code></pre></div>
+<p>A read-only cell:</p>
+<div class="pkn-cell" id="cell-3" data-cell="2"><pre class="pkn-cell-fallback"><code>def sq(x: Int) -&gt; Int: x * x
+print(sq(7))</code></pre></div>
+<p>A fragment, highlighted but not runnable:</p>
+<pre class="pkn-code" data-lang="pyking"><code>def f(x): ...</code></pre>
+<p>Another language:</p>
+<pre class="pkn-code" data-lang="python"><code>print(&quot;not Pyking&quot;)</code></pre>
+<pre class="pkn-code"><code>an indented code block</code></pre>
+<h2 id="lists"><a class="pkn-anchor" href="#lists" aria-hidden="true">#</a>Lists</h2>
+<ul>
+<li>one</li>
+<li>two
+<ul>
+<li>nested <em>a</em></li>
+<li>nested b</li>
+</ul></li>
+<li>three</li>
+</ul>
+<ol>
+<li><p>first</p>
+</li>
+<li><p>second</p>
+</li>
+<li><p>third, after a blank line</p>
+</li>
+</ol>
+<ol start="7">
+<li>seven</li>
+<li>eight</li>
+</ol>
+<ul class="pkn-tasks">
+<li class="pkn-task"><input type="checkbox" disabled> a task</li>
+<li class="pkn-task"><input type="checkbox" disabled checked> a done task</li>
+</ul>
+<h2 id="tables"><a class="pkn-anchor" href="#tables" aria-hidden="true">#</a>Tables</h2>
+<div class="pkn-table"><table>
+<thead><tr><th style="text-align:left">Left</th><th style="text-align:center">Center</th><th style="text-align:right">Right</th></tr></thead>
+<tbody>
+<tr><td style="text-align:left">a</td><td style="text-align:center"><code>b|c</code></td><td style="text-align:right">1</td></tr>
+<tr><td style="text-align:left"><strong>d</strong></td><td style="text-align:center">e</td><td style="text-align:right">22</td></tr>
+</tbody>
+</table></div>
+<h2 id="quotes-and-callouts"><a class="pkn-anchor" href="#quotes-and-callouts" aria-hidden="true">#</a>Quotes and callouts</h2>
+<blockquote>
+<p>A quote
+over two lines.</p>
+<blockquote>
+<p>And a nested one.</p>
+</blockquote>
+</blockquote>
+<div class="pkn-callout pkn-callout-note"><p class="pkn-callout-title">Note</p>
+<p>Notes render as callouts.</p>
+</div>
+<div class="pkn-callout pkn-callout-warning"><p class="pkn-callout-title">Warning</p>
+<p>So do warnings, with <strong>inline</strong> markup.</p>
+</div>
+<h2 id="math"><a class="pkn-anchor" href="#math" aria-hidden="true">#</a>Math</h2>
+<p>Inline math <span class="pkn-math">e^{i\pi} + 1 = 0</span> and a price of $5 and $6 stay text.</p>
+<div class="pkn-math pkn-math-display">\sum_{k=1}^{n} k = \frac{n(n+1)}{2}</div>
+<div class="pkn-math pkn-math-display">a^2 + b^2 = c^2</div>
+<h2 id="footnotes"><a class="pkn-anchor" href="#footnotes" aria-hidden="true">#</a>Footnotes</h2>
+<p>A claim<sup class="pkn-fnref" id="fnref-1"><a href="#fn-1">1</a></sup> and another<sup class="pkn-fnref" id="fnref-2"><a href="#fn-2">2</a></sup>.</p>
+<h2 id="setext-heading"><a class="pkn-anchor" href="#setext-heading" aria-hidden="true">#</a>Setext heading</h2>
+<p>Rules:</p>
+<hr>
+<div class="raw">Raw <b>HTML</b> passes through.</div>
+<h2 id="features-1"><a class="pkn-anchor" href="#features-1" aria-hidden="true">#</a>Features</h2>
+<p>The same heading twice gets a distinct anchor.</p>
+<section class="pkn-footnotes">
+<ol>
+<li id="fn-1">
+<p>The source of the claim. <a href="#fnref-1" class="pkn-fnback" aria-label="Back to the text">↩</a></p>
+</li>
+<li id="fn-2">
+<p>A second note,
+over two lines. <a href="#fnref-2" class="pkn-fnback" aria-label="Back to the text">↩</a></p>
+</li>
+</ol>
+</section>

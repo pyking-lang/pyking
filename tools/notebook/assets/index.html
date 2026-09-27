@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pyking notebook</title>
+<!--
+  Served by tools/notebook/notebook.py at `/`. The page is only a host for
+  the notebook component: everything below the <div> is what another page
+  would copy to embed one (see tools/notebook/README.md, "Embedding").
+
+  `notebook.json` names the document the server was started with, served
+  from `doc/`; `?doc=other.md` opens another file beside it.
+-->
+<style>
+  html, body { margin: 0; min-height: 100%; background: #fbfbf9; }
+  @media (prefers-color-scheme: dark) { html, body { background: #16181b; } }
+  noscript { display: block; padding: 2rem; font: 16px system-ui, sans-serif; }
+</style>
+</head>
+<body>
+<div id="notebook"></div>
+<noscript>The Pyking notebook runs its code in your browser, so it needs JavaScript.</noscript>
+<script type="module">
+  import { mountNotebook } from "./notebook/notebook.js";
+
+  const host = document.getElementById("notebook");
+  try {
+    const config = await (await fetch("./notebook.json", { cache: "no-store" })).json();
+    const doc = new URLSearchParams(location.search).get("doc") || config.document;
+    const here = new URL(doc, new URL("./doc/", location.href));
+    const app = await mountNotebook(host, {
+      url: here.href,
+      // A link to another Markdown file beside this one opens it here too.
+      documentLink: (href) => {
+        const target = new URL(href, here);
+        const root = new URL("./doc/", location.href).pathname;
+        return target.pathname.startsWith(root)
+          ? "?doc=" + encodeURIComponent(decodeURIComponent(
+              target.pathname.slice(root.length))) + target.hash
+          : target.href;
+      },
+    });
+    document.title = app.title ? `${app.title} · Pyking notebook` : "Pyking notebook";
+    document.body.style.background = "var(--pkn-bg)";
+    // A handle for the console and for tests driving the page.
+    window.pykingNotebook = app;
+    if (location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView();
+  } catch (err) {
+    host.textContent = "Could not open the notebook: " + err.message;
+    console.error(err);
+  }
+</script>
+</body>
+</html>

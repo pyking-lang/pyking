@@ -10,3 +10,4 @@ temp/
 _build/
 /build/
 /pyk
+\.DS_Store

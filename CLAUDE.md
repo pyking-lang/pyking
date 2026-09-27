@@ -1083,7 +1083,9 @@ The bootstrap is split into one module per compiler stage:
    `pyk <file>` interprets it; `pyk repl` starts the REPL; `pyk compile`
    (alias `pyk c`) compiles, which is what every flag above is for.
    Flags are shared by all three rather than per-command, so `--tokens`
-   means the same thing wherever it is written.
+   means the same thing wherever it is written. Two more, `pyk notebook
+   FILE.md` and `pyk playground`, run no front end at all: `command_web`
+   hands them to `web_tools.ml`, and `--port` is theirs alone.
    Errors: `ERROR_KINDS` pairs each front-end exception with its label,
    and `format_error` turns any of them into one
    `'file' row:col-row:col Kind: message` line (`Lexing error` /
@@ -1131,6 +1133,14 @@ The bootstrap is split into one module per compiler stage:
    `target_java.ml`'s, by the same principle). What a backend needs to
    know about the module it is compiling *as part of a program* arrives
    as one `module.Context`, not as a growing list of parameters.
+
+19. **`src/web_tools.ml`** — `pyk notebook` and `pyk playground`, in
+   the executable since it starts a process. `start` finds
+   `tools/<tool>/<tool>.py` beside the running executable, asks
+   `$PYTHON` (else `python3`) for its version and refuses anything older
+   than 3.14, then replaces the process with the script (`execvp`),
+   passing `--port` and the document. It serves nothing itself; see "The
+   web tools" below.
 
 When extending the lexer (new operators, keywords, string escapes, etc.),
 follow the existing pattern: add an arm to the `match rest with`
@@ -1222,12 +1232,62 @@ Two rules follow from it and are easy to break:
 `docs/build.md` is the long form, and `tools/playground/README.md`
 covers what the page does with the bundle.
 
+## The web tools
+
+Two pages run that bundle: the **playground** (`tools/playground/`) and
+the **notebook** (`tools/notebook/`), a Markdown file whose ```` ```pyking ````
+blocks are cells a reader can edit and run with the interpreter. What
+they share is in **`tools/webrun/`**: `server.py` (the Python version
+check, the vendored-library download, and a small static server),
+`assets/` (the compiler's worker and `PykingRuntime`, the Ace mode, and
+`web.js`, which loads Ace, KaTeX and the compiler), and `vendor/` (Ace
+and KaTeX, downloaded once by `make vendor`, never checked in). Put
+anything both pages need there rather than copying it.
+
+- **There is no build step.** Each tool's server serves its files, the
+  shared ones and `build/pyking.js` from where they sit, and works out
+  what is not a file (the playground's example manifest, the bundle's
+  stamp) per request. Do not add a generated copy of anything.
+- **Nothing is baked into the pages.** The keyword list, the builtins,
+  the targets and the JavaScript value formatter are asked of the loaded
+  compiler through the worker's `words` request, so the compiler is
+  loaded before any editor is made.
+- **Both are started through `pyk`**: `pyk notebook FILE.md` and `pyk
+  playground` (see `src/web_tools.ml`); `make notebook` opens
+  `PYKING-TUTORIAL.md` and `make playground` the playground, both after
+  `make vendor`. The OCaml code only *starts* them: the pages are
+  JavaScript, the servers Python.
+- **The notebook is read-only.** Edits to a cell live in the page until
+  it is reloaded; each cell is a whole program, run on its own.
+  `tools/notebook/assets/markdown.js` is a hand-written renderer, pure so
+  node can test it; `tools/notebook/README.md` lists what Markdown it
+  supports and the cell attributes (`norun`, `readonly`, `error`).
+- Both are libraries as well as pages: `mountNotebook(host, options)` and
+  `mountPlayground(host, options)` embed them in another site. Keep the
+  host `index.html` pages thin.
+
+**Packaging and dependencies.** Pyking is meant to be distributed as a
+binary: `./pyk` is a native executable, and using it -- compiling,
+interpreting, the REPL -- needs no OCaml, dune or js_of_ocaml, which are
+needed only to *build* it. The one extra dependency is **Python 3.14 or
+later, standard library only, and only for someone who uses the notebook
+or the playground**; `pyk` and each server check the version and say so
+in one line. A distribution is a subset of this repository's tree at the
+same relative paths -- `pyk`, `lib/`, `build/pyking.js`, `tools/webrun/`
+(with `vendor/`), `tools/notebook/`, `tools/playground/` -- so the one
+rule "look beside the executable" finds everything in a checkout and an
+install alike. Keep it that way: a web tool may not need anything outside
+those directories, and the playground runs (with no example menu) when
+`tests/` is absent. `docs/build.md`, "The web tools", is the long form.
+
 ## Running
 
 ```
 pyk [options] <filename> [-- args]   run it with the interpreter
 pyk repl                             start the REPL
 pyk compile [options] <filename>     compile it (alias: pyk c)
+pyk notebook [--port N] <file.md>    serve a notebook, print a link
+pyk playground [--port N]            serve the playground, print a link
 
 options: [--tokens] [--symbols] [--no-tail-call-opt]
          [--no-typechecking] [--type-experiment] [--run]
@@ -1382,9 +1442,9 @@ executable to `./pyk`. `make help` prints the list of targets, which is
 hand-written, as is the one in `tools/playground/Makefile` it is
 modelled on — add a target and you have to add its line too.
 
-`make clean` removes `_build/`, `./pyk` and `__pycache__` directories,
-and delegates the playground's `build/` to that directory's own
-Makefile; `make distclean` also drops its `vendor/` download cache.
+`make clean` removes `_build/`, `./pyk` and `__pycache__` directories;
+`make distclean` also drops `tools/webrun/vendor/`, the download cache
+`make vendor` fills.
 Neither touches *compiled programs*: `pyk` writes them wherever the
 caller asked, under names indistinguishable from hand-written source in
 every target language, so a clean rule that guessed at them would
@@ -1397,13 +1457,13 @@ version of that family; with no `TARGET` every target runs, which is
 what `make test` means. The REPL suite runs only when no `TARGET` was
 given, since it is not a target.
 
-**`make test` runs `tests/test_all.py`**, which sequences the four
+**`make test` runs `tests/test_all.py`**, which sequences the five
 suites below rather than each being a line of the Makefile. Three things
 follow, and all three are the point: every suite runs even when an
 earlier one failed, so one broken case does not hide what the other
-three would have said; each suite's output is opened by a banner and
+four would have said; each suite's output is opened by a banner and
 closed by one footer line of a fixed shape; and the run ends with a
-combined summary over all four. Their counts reach it through
+combined summary over all five. Their counts reach it through
 `$PYK_TEST_TALLY`, a file each suite appends one line to
 (`tests/suite.py`), so a suite run on its own prints exactly what it
 prints here. Each remains a script of its own, with its own
@@ -1477,14 +1537,27 @@ page loads: that its entry points are registered, that one small program
 compiles for every target the page offers and runs under the
 interpreter, and that **every example the page offers still compiles on
 every target it claims**. That last is `make -C tools/playground check`
-asked without generating the page, which needs the vendored browser
-assets and a network; the example list comes from `generator.py`'s own
-`offered_examples`, so the suite and the page cannot disagree about what
-is offered. A manifest key the generator has not been taught about --
-which is how `libs` broke `make playground` once -- shows up here as an
-example that will not compile. The page itself, its worker and its
-iframe are `make -C tools/playground e2e`'s, which needs Playwright and
-is not part of `make test`.
+asked of the bundle directly; the example list comes from
+`playground.py`'s own `offered_examples`, so the suite and the page
+cannot disagree about what is offered. A manifest key the playground has
+not been taught about -- which is how `libs` broke `make playground`
+once -- shows up here as an example that will not compile. The page
+itself, its worker and its iframe are `make -C tools/playground e2e`'s,
+which needs Playwright and is not part of `make test`.
+
+**`tests/test_notebook.py` is the fifth suite**, and needs no browser
+either. It renders `tests/notebook/features.md` -- every Markdown
+feature the notebook supports -- against `features.html`, checks short
+cases against CommonMark's own answers, runs every cell of
+`PYKING-TUTORIAL.md` through `tools/webrun/assets/pyking-worker.js`
+under node (an `error` cell must be refused, any other must run), and
+starts `pyk notebook` and `pyk playground` on a free port to fetch what
+their pages load and to check the refusals: a missing file, a file that
+is not Markdown, and a Python older than 3.14 (a fake `$PYTHON`). It sets
+`PYKING_WEB_NO_VENDOR=1`, so a checkout that never ran `make vendor`
+still passes. After changing the renderer, `--update` rewrites
+`features.html`; read the diff before keeping it. It takes `--compiler
+CMD` like the others.
 
 A fifth family covers **external modules**: `external_*` for a module
 implemented in a target language -- `external_all` on every host, and
@@ -1593,9 +1666,10 @@ prefix happened to match.
 
 **No third-party dependencies.** Building the compiler needs OCaml and
 dune; the playground's bundle additionally needs js_of_ocaml. The test
-harness and the playground generator are Python 3.11+ (`match`/`case`,
-and `tomllib` for the manifest) — tooling around the compiler, not part
-of it.
+harness is Python 3.11+ (`match`/`case`, and `tomllib` for the
+manifest), and the web tools' servers Python 3.14+ — tooling around the
+compiler, not part of it. The web pages vendor Ace and KaTeX, downloaded
+by `make vendor`; nothing is installed.
 
 Running the generated code needs `node` for
 the JavaScript targets, a C compiler (`$CC`, default `cc`) for the C

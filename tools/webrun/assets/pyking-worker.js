@@ -40,6 +40,17 @@ self.onmessage = (event) => {
         reply(message.id, JSON.parse(
           self.pykCompile(message.source, message.target, message.name)));
         break;
+      case "words":
+        // What a page reads out of the compiler rather than keeping a copy
+        // of: the words its editor highlights, the targets it offers, and
+        // the value formatter generated JavaScript is run with.
+        reply(message.id, {
+          keywords: JSON.parse(self.pykKeywords()),
+          builtins: JSON.parse(self.pykBuiltins()),
+          targets: JSON.parse(self.pykTargets()),
+          formatHelper: self.pykFormatHelper(),
+        });
+        break;
       case "run":
         // The name travels on the first line, ahead of the program: one
         // string in, so the boundary stays one primitive wide.

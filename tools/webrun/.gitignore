@@ -1,0 +1,3 @@
+# Download cache for Ace and KaTeX (~1 MB), written by `make vendor`.
+# Survives `make clean`; `make distclean` removes it.
+vendor/

@@ -4,13 +4,14 @@
 #   make test       the compiler's own test suite, run in parallel
 #                   (TARGET=c23 or TARGET=c for one target or family)
 #   make stest      the same suite, one test at a time
+#   make notebook   open PYKING-TUTORIAL.md as a notebook in the browser
 #   make clean      remove what has been generated
 #
 # Run `make help` for the full list. The compiler is OCaml in src/,
 # built by dune into the executable this directory calls ./pyk.
 
-.PHONY: all help build test stest check-node playground clean clean-pycache \
-	clean-build distclean
+.PHONY: all help build test stest check-node playground notebook vendor \
+	clean clean-pycache clean-build distclean
 
 # `make` builds the compiler: it is the one thing someone typing `make`
 # in a compiler's directory is asking for.
@@ -51,24 +52,29 @@ build:
 # them from, so update this list whenever a target is added or renamed.
 help:
 	@echo "make              build the compiler into ./pyk"
-	@echo "make test         all four suites, then a combined summary: every"
+	@echo "make test         all five suites, then a combined summary: every"
 	@echo "                  tests/*.pyk on every target tests/test_cases.toml"
 	@echo "                  lists it for, run in parallel (JOBS=n to say how"
 	@echo "                  parallel), then the REPL's own cases in tests/repl/,"
 	@echo "                  then the library search path's, then the"
-	@echo "                  playground's compiler bundle. Every suite runs even"
+	@echo "                  playground's compiler bundle, then the notebook's"
+	@echo "                  renderer and server. Every suite runs even"
 	@echo "                  if an earlier one failed"
 	@echo "                  TARGET=c23 runs one target; TARGET=c runs every"
-	@echo "                  version of that family (the last three suites are"
+	@echo "                  version of that family (the last four suites are"
 	@echo "                  skipped, since none of them is a target)"
 	@echo "make stest        the same suite, one test at a time"
-	@echo "make playground   build and serve the web playground, then print a link"
+	@echo "make playground   serve the web playground (pyk playground), then print"
+	@echo "                  a link"
+	@echo "make notebook     serve PYKING-TUTORIAL.md as a notebook (pyk notebook),"
+	@echo "                  then print a link. PORT=n picks the port for both"
+	@echo "make vendor       download Ace and KaTeX into tools/webrun/vendor/, once"
+	@echo "                  (~1 MB; the two above need it and run it first)"
 	@echo "make clean        remove generated files: _build/, ./pyk, __pycache__/"
-	@echo "                  and the playground's build/"
-	@echo "make distclean    also remove the playground's vendor/ download cache"
-	@echo "                  (~1 MB; refetching it needs the network)"
+	@echo "make distclean    also remove tools/webrun/vendor/, the download cache"
+	@echo "                  (refetching it needs the network)"
 	@echo
-	@echo "tools/playground has options of its own (PORT=, CDN=, ...):"
+	@echo "tools/playground has targets of its own (check, e2e, ...):"
 	@echo "run 'make -C tools/playground help' for those."
 
 # The suite's runs are independent of each other -- each compiles into a
@@ -123,19 +129,23 @@ test: check-node build
 stest: check-node build
 	@python3 tests/test_all.py --jobs 1 $(if $(TARGET),--target $(TARGET))
 
-# Delegates entirely to tools/playground's own Makefile (its default
-# target: vendor, build, check, then serve and print a URL). `-C` runs
-# make with that directory as its cwd, which is what keeps every file
-# generator.py writes (build/, vendor/) inside tools/playground instead
-# of wherever `make playground` happened to be invoked from.
-playground:
-	$(MAKE) -C tools/playground
+# The two web tools, started the way a user of a distribution starts
+# them: through ./pyk, which finds tools/ beside itself and checks that
+# Python is new enough. Neither has a build step; both need the browser
+# libraries downloaded once, which `vendor` does and then skips.
+playground: build vendor
+	./pyk playground $(if $(PORT),--port $(PORT))
+
+notebook: build vendor
+	./pyk notebook PYKING-TUTORIAL.md $(if $(PORT),--port $(PORT))
+
+vendor:
+	@python3 tools/webrun/server.py vendor
 
 # What "generated" means here is narrow, and deliberately so: what dune
 # built, the copy of the executable beside it, Python's bytecode caches
-# (the test harness and the playground generator are Python), and
-# whatever tools/playground built (delegated to its own Makefile, which
-# owns those files -- see the `-C` note above).
+# (the test harness and the web tools' servers are Python), and nothing
+# else: the web tools are served from source and build nothing.
 #
 # Compiled *programs* are left alone. `pyk` writes its output wherever the
 # caller asked for it, under names that are ordinary source names in every
@@ -145,13 +155,12 @@ playground:
 # the caller knows which ones they are. ./pyk is the exception that
 # shows the rule: `make build` chose that name itself, so this knows it.
 clean: clean-build clean-pycache
-	@$(MAKE) --no-print-directory -C tools/playground clean
 
-# `distclean` depends on these rather than on `clean`, so that the
-# playground's own `distclean` -- which already runs its `clean` first --
-# is invoked exactly once and reports each removal exactly once.
-distclean: clean-build clean-pycache
-	@$(MAKE) --no-print-directory -C tools/playground distclean
+# tools/webrun/vendor/ is a download cache, so it survives `clean` and
+# only goes on request -- rebuilding it needs the network again.
+distclean: clean
+	@rm -rf tools/webrun/vendor
+	@echo "distclean: removed tools/webrun/vendor/"
 
 # What `dune build` wrote, and the copy of its executable that `make
 # build` puts here. Both are this Makefile's own output, under names it

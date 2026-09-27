@@ -1,6 +1,7 @@
 (** The driver: what `pyk` on the command line runs. Parses argv,
-    sequences the front-end stages, and dispatches to one of three
-    commands (`pyk <file>`, `repl`, `compile`). Every program is
+    sequences the front-end stages, and dispatches to one of five
+    commands (`pyk <file>`, `repl`, `compile`, `notebook`,
+    `playground`). Every program is
     type-checked, so a program that does not check is refused whatever
     was asked for. A program of several modules runs the middle of that
     sequence once per module, in the order module.ml puts them in. Each
@@ -19,6 +20,7 @@
       format_error error -- formats any front-end error as one line.
       command_interpret checked arguments -- `pyk <file>`.
       command_compile checked options -- `pyk compile`.
+      command_web tool options -- `pyk notebook` and `pyk playground`.
       wrap text -- reflows text to the driver's line width. *)
 
 (* The compiling targets, in the order the usage message lists them. The
@@ -127,7 +129,9 @@ let target_table () =
 let synopsis =
   "Usage: pyk [options] <filename> [-- args]   run it with the interpreter\n\
   \       pyk repl                             start the REPL\n\
-  \       pyk compile [options] <filename>     compile it (alias: pyk c)\n\n\
+  \       pyk compile [options] <filename>     compile it (alias: pyk c)\n\
+  \       pyk notebook [--port N] <file.md>    open a notebook in the browser\n\
+  \       pyk playground [--port N]            open the playground\n\n\
    Options:\n\
   \  -t, --target <name>   compile for <name> (default: python)\n\
   \  -o, --output <file>   write the output to <file>\n\
@@ -136,6 +140,7 @@ let synopsis =
   \  --stdout              print the generated code instead of writing it\n\
   \  --run                 build and run what was compiled, with the\n\
   \                        target's own commands\n\
+  \  --port <n>            serve the notebook or playground on port <n>\n\
   \  --                    everything after it is the program's own\n\
   \                        arguments, read by sys.args()\n\
   \  --help                this, in full: the rest of the flags, what each\n\
@@ -224,7 +229,13 @@ let usage_full () =
      -L directory, then in each entry of $PYKING_LIB_PATH (separated by ':'\n\
      here), then in the lib/ beside this executable -- which is where the\n\
      standard library is found with no flag at all. A -L directory holds one\n\
-     folder per library: -L libs finds libs/fs/fs.external.pyk for `fs`."
+     folder per library: -L libs finds libs/fs/fs.external.pyk for `fs`.\n\n\
+     `pyk notebook <file.md>` serves a Markdown document whose Pyking code\n\
+     blocks can be edited and run in the browser, and `pyk playground`\n\
+     serves the compiler's playground. Both print a link to open, need\n\
+     Python 3.14 or later ($PYTHON names which one), and look for tools/\n\
+     beside this executable. Without --port they start at 8000 and take\n\
+     the first free port."
     synopsis more_options (target_table ())
     (wrap ("An unversioned name is the family's latest: " ^ alias_line () ^ "."))
 
@@ -234,7 +245,14 @@ let usage_full () =
    out. A bare `pyk foo.pyk` runs the program -- the thing someone with
    a file in their hand almost always wants -- and every other command
    says its name. *)
-let commands = [ ("repl", "repl"); ("compile", "compile"); ("c", "compile") ]
+let commands =
+  [
+    ("repl", "repl");
+    ("compile", "compile");
+    ("c", "compile");
+    ("notebook", "notebook");
+    ("playground", "playground");
+  ]
 let default_command = "interpret"
 
 (** argv parsed into one value. Flags are shared by every command. *)
@@ -252,6 +270,7 @@ type options = {
   type_experiment : bool;
   lib_paths : string list;
   arguments : string list;
+  port : int option;
 }
 
 let default_options command =
@@ -269,6 +288,7 @@ let default_options command =
     type_experiment = false;
     lib_paths = [];
     arguments = [];
+    port = None;
   }
 
 (* --- the library search path ---
@@ -373,6 +393,14 @@ let parse_args argv =
                        (String.concat ", " (List.map fst Targets.aliases)))
             in
             go { options with target } positional rest)
+    | "--port" :: rest -> (
+        match rest with
+        | [] -> usage_error "--port requires a <number> argument"
+        | given :: rest -> (
+            match int_of_string_opt given with
+            | Some port when port > 0 && port < 65536 ->
+                go { options with port = Some port } positional rest
+            | _ -> usage_error (Printf.sprintf "--port expects a port number, not '%s'" given)))
     | ("--output" | "-o") :: rest -> (
         match rest with
         | [] -> usage_error "--output requires a <file> argument"
@@ -420,11 +448,16 @@ let parse_args argv =
   let options, positional = go (default_options command) [] argv in
   if options.run && options.stdout then
     usage_error "--run needs a file to run, so it cannot be used with --stdout";
+  let web = command = "notebook" || command = "playground" in
+  if options.port <> None && not web then
+    usage_error "--port only applies to 'pyk notebook' and 'pyk playground'";
   if options.arguments <> [] then
-    if command = "repl" then
+    if command = "repl" || web then
       usage_error
-        "everything after -- is passed to a program being run, and 'pyk repl' \
-         runs none"
+        (Printf.sprintf
+           "everything after -- is passed to a program being run, and 'pyk %s' \
+            runs none"
+           command)
     else if command = "compile" && not options.run then
       usage_error
         "everything after -- is passed to a program being run; 'pyk compile' \
@@ -451,8 +484,9 @@ let parse_args argv =
          "--no-typechecking only applies to 'pyk compile -t %s': every other \
           target, and the interpreter, need the types the checker works out"
          pyking_target);
-  if command = "repl" then (
-    if positional <> [] then usage_error "'pyk repl' takes no filename";
+  if command = "repl" || command = "playground" then (
+    if positional <> [] then
+      usage_error (Printf.sprintf "'pyk %s' takes no filename" command);
     options)
   else
     match positional with
@@ -1130,10 +1164,19 @@ let command_compile checked options =
         options.arguments
     else 0)
 
+(** `pyk notebook` and `pyk playground`: hands the process to the web
+    tool's server, and answers 1 only if that could not be done.
+    Web_tools.tool -> options -> int *)
+let command_web tool options =
+  prerr_endline (wrap (Web_tools.start tool options.port options.filename));
+  1
+
 (** Runs pyk. [string] -> int *)
 let main argv =
   let options = parse_args argv in
   if options.command = "repl" then Repl.start format_error
+  else if options.command = "notebook" then command_web Web_tools.Notebook options
+  else if options.command = "playground" then command_web Web_tools.Playground options
   else
     let checked = front_end options in
     if options.command = "compile" then command_compile checked options

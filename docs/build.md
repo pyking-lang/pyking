@@ -8,15 +8,17 @@ they form, see [architecture.md](architecture.md).
 ```
 make                build the compiler into ./pyk
 make test           the test suite (make stest for one at a time)
-make playground     build and serve the web playground
-make clean          remove _build/, ./pyk, __pycache__/, the playground's build/
+make playground     serve the web playground (pyk playground)
+make notebook       serve PYKING-TUTORIAL.md as a notebook (pyk notebook)
+make vendor         download the browser libraries the two above need
+make clean          remove _build/, ./pyk, __pycache__/
 ```
 
 `make` builds two things: `./pyk`, the compiler, and
 `build/pyking.js`, the same compiler as JavaScript. The second is what
 the `iweb` target ships beside a program and what the playground runs,
-and it is built here so there is one copy of it — `tools/playground`
-reuses this rather than running a dune build of its own.
+and it is built here so there is one copy of it — the playground and
+the notebook serve this file rather than building their own.
 
 Both are copied out of `_build/`, since nobody would think to run them
 from there. The copy is `cp -f` because dune leaves what it
@@ -87,12 +89,11 @@ entry-point module and one hand-written JavaScript stub.
   library is involved, which is what keeps the dependency list at
   js_of_ocaml alone, and only for this directory.
 
-`tools/playground/generator.py` runs that build, then asks the resulting
-bundle — with `node` — for the target list, the keyword and builtin
-lists, and the JavaScript runtime's formatter, and writes them into the page's
-assets. So the playground's target menu, its syntax highlighting and its
-worker's value formatting all come from the compiler rather than from a
-hand-kept copy. See `tools/playground/README.md`.
+The pages ask the loaded bundle, through the worker's `words` request,
+for the target list, the keyword and builtin lists, and the JavaScript
+runtime's formatter. So the playground's target menu, both tools' syntax
+highlighting and the playground's value formatting all come from the
+compiler rather than from a hand-kept copy. See `tools/webrun/README.md`.
 
 One thing about js_of_ocaml is load-bearing rather than incidental: its
 `int` is 32 bits, where a native OCaml `int` is 63. Anything that
@@ -120,6 +121,55 @@ for the Java ones, `ocamlopt` for `ocaml5.5` — but none of that is needed
 to *produce* the code, and none at all to run a program with
 `pyk <file>`, which is the interpreter.
 
-The test harness (`tests/test_script.py`) and the playground generator
-(`tools/playground/generator.py`) are Python 3.11+. They are tooling
-around the compiler, not part of it.
+The test harness (`tests/test_script.py`) is Python 3.11+. The web tools'
+servers (`tools/webrun/server.py`) need Python 3.14+ and check for it.
+Both are tooling around the compiler, not part of it.
+
+## The web tools
+
+`pyk playground` and `pyk notebook FILE.md` start a web page that runs
+the compiler in the browser: the playground, and a Markdown document
+whose Pyking code blocks are runnable cells. Neither is built. Each is a
+directory of JavaScript, CSS and HTML under `tools/`, served from where
+it sits by a small Python server:
+
+```
+tools/webrun/     what both share: server.py, the compiler's worker and
+                  runtime, the Ace mode, and vendor/ (Ace, KaTeX)
+tools/playground/ playground.py and its page
+tools/notebook/   notebook.py and its page
+build/pyking.js   the compiler, which both pages load
+```
+
+`pyk` itself does not serve anything. `src/web_tools.ml` finds
+`tools/<tool>/<tool>.py` beside the running executable, runs `$PYTHON`
+(else `python3`) to check it is 3.14 or later, and replaces its own
+process with that script (`execvp`), passing `--port` and the document
+on. `make playground` and `make notebook` go through `./pyk` the same
+way, after `make vendor` has downloaded Ace and KaTeX once.
+
+### What a distribution needs
+
+The compiler is one native executable with no OCaml runtime to install:
+`./pyk` needs nothing but the C library to compile or interpret a
+program. OCaml, dune and js_of_ocaml are needed to *build* it, never to
+use it.
+
+The web tools add one dependency, and only for someone who uses them:
+Python 3.14 or later, standard library only. A distribution is a subset
+of this repository's tree, kept at the same relative paths so that one
+lookup — beside the executable — works in a checkout and an install
+alike:
+
+```
+pyk                   the compiler
+lib/                  the standard library
+build/pyking.js       the compiler as JavaScript, for the pages
+tools/webrun/         including vendor/, downloaded before packaging
+tools/notebook/
+tools/playground/
+```
+
+The playground's examples come from `tests/`, which a distribution need
+not ship; without it the page starts with a short program of its own
+and offers no example menu.

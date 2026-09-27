@@ -587,11 +587,27 @@ let run_source source name =
                   (Lexer.pprint_info info))
               (Interpreter.stack_trace state)
           in
+          let span =
+            match front_end_error error with
+            | Some (_, info, _) ->
+                [
+                  ( "info",
+                    json_object
+                      [
+                        ("row1", json_int info.row1);
+                        ("col1", json_int info.col1);
+                        ("row2", json_int info.row2);
+                        ("col2", json_int info.col2);
+                      ] );
+                ]
+            | None -> []
+          in
           json_object
-            [
-              ("ok", json_bool false);
-              ("text", json_string (String.concat "\n" (text :: trace)));
-            ])
+            ([
+               ("ok", json_bool false);
+               ("text", json_string (String.concat "\n" (text :: trace)));
+             ]
+            @ span))
 
 (** Every target the compiler has, in the order the dropdown shows them
     (pyking first). () -> string *)
