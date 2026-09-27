@@ -116,7 +116,7 @@ long ago. `:help` lists the rest.
 On a Mac, with [Homebrew](https://brew.sh):
 
 ```sh
-brew install pyking-lang/pyking/pyking
+brew install pyking-lang/macos/pyking
 pyk --version
 ```
 
@@ -146,6 +146,7 @@ make            # dune build src/pyk.exe, copied here as ./pyk
 | `make vendor` | download Ace and KaTeX into `tools/webrun/vendor/`, once; the two above run it first |
 | `make packaging` | build the installable packages into `tools/packaging/build/` — for now the Homebrew one, on a Mac |
 | `make packaging-setup` | once, on an Apple Silicon Mac: make the two OCaml toolchains `make packaging` builds with, and say whether it worked |
+| `make release-macos` | publish the built package: a release and the formula, both in the public `pyking-lang/homebrew-macos` |
 | `make packaging-install` | install that build with Homebrew, to try it before publishing (`make packaging-uninstall` undoes it) |
 | `make clean` | remove what has been generated: `_build/`, `./pyk`, `__pycache__/` directories, `tools/packaging/build/` |
 | `make distclean` | that, plus the `tools/webrun/vendor/` download cache |

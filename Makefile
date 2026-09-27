@@ -13,6 +13,7 @@
 
 .PHONY: all help build test stest check-node playground notebook vendor \
 	packaging packaging-setup packaging-install packaging-uninstall \
+	release-macos \
 	clean clean-pycache clean-build distclean
 
 # `make` builds the compiler: it is the one thing someone typing `make`
@@ -81,6 +82,10 @@ help:
 	@echo "                          (once, on an Apple Silicon Mac)"
 	@echo "make packaging-install    brew install that build (pyking-lang/local)"
 	@echo "make packaging-uninstall  and remove it again"
+	@echo "make release-macos        publish that build: a GitHub release and the"
+	@echo "                          Homebrew formula, both in"
+	@echo "                          pyking-lang/homebrew-macos (asks first;"
+	@echo "                          YES=1 does not)"
 	@echo "make clean        remove generated files: _build/, ./pyk, __pycache__/"
 	@echo "                  and tools/packaging/build/"
 	@echo "make distclean    also remove tools/webrun/vendor/, the download cache"
@@ -169,6 +174,9 @@ packaging-install:
 
 packaging-uninstall:
 	@$(MAKE) --no-print-directory -C tools/packaging uninstall-local
+
+release-macos:
+	@$(MAKE) --no-print-directory -C tools/packaging release $(if $(YES),YES=$(YES))
 
 # What "generated" means here is narrow, and deliberately so: what dune
 # built, the copy of the executable beside it, Python's bytecode caches

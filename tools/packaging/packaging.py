@@ -15,6 +15,7 @@ Usage: `make packaging`, or directly:
     python3 packaging.py build [--archs arm64,x86_64]   every format
                                      (Homebrew: on an Apple Silicon Mac)
     python3 packaging.py setup             make the release toolchains, once
+    python3 packaging.py release [--yes]   publish the build: release + tap
     python3 packaging.py install-local     brew install the local build
     python3 packaging.py uninstall-local   and remove it again
     python3 packaging.py stage --binary PYK --dest DIR
@@ -37,6 +38,7 @@ Functions:
 import argparse
 import gzip
 import hashlib
+import json
 import os
 import platform
 import shlex
@@ -45,6 +47,7 @@ import struct
 import subprocess
 import sys
 import tarfile
+import tempfile
 import urllib.request
 from pathlib import Path
 
@@ -57,7 +60,13 @@ sys.path.insert(0, str(REPO / "tools" / "webrun"))
 import server  # noqa: E402  (after sys.path, which is what finds it)
 
 NAME = "pyking"
-HOMEPAGE = "https://github.com/pyking-lang/pyking"
+# The code repository is private, so what a user downloads is kept in a
+# public repository of its own, holding both the releases and the formula.
+# Homebrew finds the tap `pyking-lang/macos` in the repository
+# `pyking-lang/homebrew-macos`, which is what makes INSTALL work.
+PUBLIC_REPO = "pyking-lang/homebrew-macos"
+INSTALL = "brew install pyking-lang/macos/pyking"
+HOMEPAGE = f"https://github.com/{PUBLIC_REPO}"
 RELEASES = HOMEPAGE + "/releases/download"
 DESCRIPTION = "Compiler and interpreter for Pyking, a small statically typed Python-like language"
 LICENSE = "MIT"
@@ -617,6 +626,143 @@ class Homebrew:
                          env=self.environment())),
         ] + self._switch_steps(opam, root)
 
+    def release(self, assume_yes):
+        """Publishes the build: a release v<VERSION> of PUBLIC_REPO holding
+        the tarball, checked by downloading it back, then the formula
+        committed and pushed to the same repository, which is the tap. Checks everything it can first,
+        asks before changing anything unless assume_yes, and never replaces
+        a published release. Prints a verdict; answers whether it succeeded.
+        Bool -> Bool"""
+        v = version()
+        tag = f"v{v}"
+        name = f"{NAME}-{v}-macos.tar.gz"
+        archive = BUILD / name
+        rb = BUILD / "homebrew" / "pyking.rb"
+        url = f"{RELEASES}/{tag}/{name}"
+
+        # 1. The build: this version, universal, and its formula agreeing.
+        if not archive.exists():
+            others = sorted(p.name for p in BUILD.glob(f"{NAME}-*-macos*.tar.gz"))
+            raise Refusal(f"no universal package for {v} (no {name} in "
+                          f"{BUILD.relative_to(REPO)}/"
+                          + (f"; found {', '.join(others)}" if others else "")
+                          + "); run `make packaging` first")
+        sha = hashlib.sha256(archive.read_bytes()).hexdigest()
+        text = rb.read_text() if rb.exists() else ""
+        if f'url "{url}"' not in text or f'sha256 "{sha}"' not in text:
+            raise Refusal(f"{rb.relative_to(REPO)} does not describe {name}; "
+                          "run `make packaging` again")
+
+        # 2. The tools and the two repositories.
+        if not shutil.which("gh") or not shutil.which("git"):
+            raise Refusal("git and gh (the GitHub CLI) are needed: `brew install gh`, "
+                          "then `gh auth login`")
+        if subprocess.run(["gh", "auth", "status"], capture_output=True).returncode:
+            raise Refusal("gh is not logged in; run `gh auth login`")
+        # Checked here, not left to the commit: a commit that fails comes
+        # after the release exists, which would leave it without a formula.
+        for key in ("user.name", "user.email"):
+            # Asked from outside any repository, as the fresh clone will be:
+            # a name set only in this repository's own config is not used there.
+            if not subprocess.run(["git", "config", key], capture_output=True, text=True,
+                                  cwd=tempfile.gettempdir()).stdout.strip():
+                raise Refusal(f"git has no {key}, which the tap commit needs: "
+                              f'git config --global {key} "..."')
+        repo = PUBLIC_REPO
+        viewed = subprocess.run(["gh", "repo", "view", repo, "--json",
+                                 "visibility,isEmpty"], capture_output=True, text=True)
+        if viewed.returncode:
+            raise Refusal(f"the repository {repo} does not exist or is not "
+                          f"reachable; create it with\n    gh repo create {repo} "
+                          '--public --description "Pyking for macOS: releases and '
+                          'Homebrew tap"')
+        info = json.loads(viewed.stdout)
+        if info.get("visibility") != "PUBLIC":
+            raise Refusal(f"{repo} is {info.get('visibility', '?').lower()}; it must be "
+                          "public, since Homebrew downloads without credentials:\n"
+                          f"    gh repo edit {repo} --visibility public "
+                          "--accept-visibility-change-consequences")
+        if subprocess.run(["gh", "release", "view", tag, "--repo", repo],
+                          capture_output=True).returncode == 0:
+            raise Refusal(f"{repo} already has a release {tag}. A published "
+                          "tarball is never replaced, since everyone who installed "
+                          "it holds its checksum; bump VERSION and build again")
+
+        # 3. Say what will happen, and ask.
+        print(f"\nAbout to publish Pyking {v}:")
+        print(f"  1. create the release {tag} of {repo}, with {name}"
+              f" ({archive.stat().st_size / 1048576:.1f} MB, sha256 {sha[:12]}…)")
+        print(f"  2. commit Formula/pyking.rb for {v} to {repo} and push it")
+        if not assume_yes:
+            try:
+                answer = input("Publish? [y/N] ")
+            except EOFError:
+                answer = ""
+            if answer.strip().lower() not in ("y", "yes"):
+                print("release: nothing was published.")
+                return False
+
+        with tempfile.TemporaryDirectory(prefix="pyk-release-") as directory:
+            work = Path(directory)
+            # 4. The release. A repository with no commit cannot hold a tag,
+            #    so an empty one is given a README first.
+            if info.get("isEmpty"):
+                self._first_commit(work / "first", repo, {
+                    "README.md": self._release_readme()}, "Describe the releases")
+            notes = (f"Pyking {v} for macOS 11 or later: one universal `pyk` for Apple "
+                     f"Silicon and Intel, with no dependencies.\n\n"
+                     f"    {INSTALL}\n\n"
+                     f"sha256: `{sha}`\n")
+            run(["gh", "release", "create", tag, archive, "--repo", repo,
+                 "--title", f"Pyking {v}", "--notes", notes])
+            fetched = work / name
+            print(f"  $ download {url}")
+            try:
+                urllib.request.urlretrieve(url, fetched)
+            except OSError as e:
+                raise Refusal(f"the release was created, but {url} cannot be "
+                              f"downloaded ({e}); the tap was not changed")
+            if hashlib.sha256(fetched.read_bytes()).hexdigest() != sha:
+                raise Refusal(f"the release was created, but {url} does not have the "
+                              "built tarball's checksum; the tap was not changed")
+
+            # 5. The formula, beside the releases: this repository is the tap.
+            tap = work / "tap"
+            run(["gh", "repo", "clone", repo, tap])
+            (tap / "Formula").mkdir(exist_ok=True)
+            shutil.copy2(rb, tap / "Formula" / "pyking.rb")
+            run(["git", "-C", tap, "add", "Formula/pyking.rb"])
+            if subprocess.run(["git", "-C", tap, "diff", "--cached", "--quiet"]).returncode:
+                run(["git", "-C", tap, "commit", "-m", f"pyking {v}"])
+                run(["git", "-C", tap, "push", "origin", "HEAD"])
+            else:
+                print(f"  ({repo} already has this formula)")
+        print(f"\nrelease: SUCCEEDED -- Pyking {v} is published. Install it with\n"
+              f"    {INSTALL}\n"
+              "or, where an earlier version is installed, `brew update && brew upgrade pyking`.")
+        return True
+
+    def _first_commit(self, directory, repo, files, message):
+        """Gives an empty repository its first commit on main.
+        Path -> String -> {String: String} -> String -> ()"""
+        run(["gh", "repo", "clone", repo, directory])
+        run(["git", "-C", directory, "symbolic-ref", "HEAD", "refs/heads/main"])
+        for name, text in files.items():
+            (directory / name).write_text(text)
+            run(["git", "-C", directory, "add", name])
+        run(["git", "-C", directory, "commit", "-m", message])
+        run(["git", "-C", directory, "push", "origin", "HEAD"])
+
+    def _release_readme(self):
+        """The README of the releases repository. () -> String"""
+        return (f"# Pyking for macOS\n\nReleases of Pyking for macOS, and the "
+                "Homebrew formula that installs them: each release a "
+                "universal `pyk` (Apple Silicon and Intel, macOS 11 or later) with "
+                "no dependencies.\n\nInstall with [Homebrew](https://brew.sh):\n\n"
+                f"```sh\n{INSTALL}\n```\n\n"
+                "`pyk notebook` and `pyk playground` also need Python 3.14 or later "
+                "on the `PATH`.\n")
+
     def uninstall_local(self):
         """Removes what install_local installed, and the tap. () -> ()"""
         subprocess.run(["brew", "uninstall", f"{LOCAL_TAP}/pyking"])
@@ -635,6 +781,8 @@ def main(argv=None):
     build.add_argument("--archs", default="",
                        help="comma-separated architectures (default: all)")
     commands.add_parser("setup", help="make the release toolchains, once")
+    published = commands.add_parser("release", help="publish the build")
+    published.add_argument("--yes", action="store_true", help="do not ask first")
     commands.add_parser("install-local", help="brew install the local build")
     commands.add_parser("uninstall-local", help="remove it again")
     staged = commands.add_parser("stage", help="the shipped tree, with a binary")
@@ -660,6 +808,14 @@ def main(argv=None):
                 if unknown:
                     raise Refusal(f"{fmt.name}: unknown architecture {', '.join(unknown)}")
                 fmt.build(archs)
+        elif args.command == "release":
+            try:
+                if not FORMATS["homebrew"].release(args.yes):
+                    return 1
+            except Refusal as refusal:
+                print(f"packaging: {refusal}", file=sys.stderr)
+                print("release: FAILED -- see above.")
+                return 1
         elif args.command == "setup":
             if not FORMATS["homebrew"].setup():
                 return 1

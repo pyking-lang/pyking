@@ -11,13 +11,13 @@ make packaging            # at the repository root: every package, into build/
 ## Installing with Homebrew
 
 ```sh
-brew install pyking-lang/pyking/pyking
+brew install pyking-lang/macos/pyking
 ```
 
 or, equivalently, tap once and then use the short name:
 
 ```sh
-brew tap pyking-lang/pyking
+brew tap pyking-lang/macos
 brew install pyking
 ```
 
@@ -85,22 +85,41 @@ On an Apple Silicon Mac, with the one-time setup below done
 3. `make packaging-install` installs that build with Homebrew and runs the
    formula's own test, before anything is published. See "Trying a build
    locally" below.
-4. Publish the tarball as a release of `pyking-lang/pyking`, tagged
-   `v` + the version -- the formula's URL is
-   `https://github.com/pyking-lang/pyking/releases/download/v0.2.0/pyking-0.2.0-macos.tar.gz`:
+4. `make release-macos` publishes it. Nothing about the code repository
+   is published: `pyking-lang/pyking` can stay private.
 
-   ```sh
-   git tag v0.2.0 && git push origin v0.2.0
-   gh release create v0.2.0 tools/packaging/build/pyking-0.2.0-macos.tar.gz
-   ```
-5. Copy `tools/packaging/build/homebrew/pyking.rb` to `Formula/pyking.rb` in
-   the tap repository, `pyking-lang/homebrew-pyking`, commit and push.
-   `brew upgrade` picks it up from there.
+   - It checks everything first: that the build is the universal package
+     for `VERSION` and its formula matches it, that `gh` is logged in,
+     that git has a name and an email for the commit, that the
+     repository below exists and is public, and that release
+     `v0.2.0` does not exist yet.
+   - It says what it is about to do and asks. `make release-macos YES=1`
+     does not ask.
+   - It creates the release `v0.2.0` of **`pyking-lang/homebrew-macos`**,
+     holding the tarball, then downloads it back from the formula's URL
+     and checks its checksum.
+   - It clones the same repository, commits the formula as
+     `Formula/pyking.rb` ("pyking 0.2.0") and pushes it. `brew upgrade`
+     picks it up from there.
+   - It ends with one line: **SUCCEEDED**, with the install command, or
+     **FAILED**, with the reason.
 
-The tap repository has to exist once: a public GitHub repository named
-`pyking-lang/homebrew-pyking` holding a `Formula/` directory. That name is
-what makes `brew install pyking-lang/pyking/pyking` find it. The release
-must be public too, since Homebrew downloads it without credentials.
+   A published release is never replaced: everyone who installed it
+   holds its checksum. To change one, bump `VERSION` and release again.
+
+The public repository is made once, and holds no code:
+
+```sh
+gh repo create pyking-lang/homebrew-macos --public --description "Pyking for macOS: releases and Homebrew tap"
+```
+
+It is both things a user downloads from: the releases, since Homebrew
+downloads them without credentials and so cannot reach a private
+repository, and the tap, `Formula/pyking.rb`. Its name is what makes
+`brew install pyking-lang/macos/pyking` work: Homebrew looks for the tap
+`<owner>/<tap>` in the repository `<owner>/homebrew-<tap>`. The first
+release gives it a README if it is empty. `make release-macos` needs `gh`
+(`brew install gh`, then `gh auth login`).
 
 The tarball is reproducible -- sorted, owned by root, dated 0 -- so
 building the same tree twice gives the same checksum.
@@ -252,7 +271,8 @@ It ships the tree `stage()` builds and writes into `build/`.
 ```
 tools/packaging/
   packaging.py     the formats, the shipped tree, the tarball, the formula
-  Makefile         setup, build, install-local, uninstall-local, clean
+  Makefile         setup, build, install-local, uninstall-local, release,
+                   clean
   README.md
   build/           what `make packaging` writes; `make clean` removes it
 ```

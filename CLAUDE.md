@@ -1314,11 +1314,21 @@ makes the floor a lie. The halves are joined with `lipo`, signed ad hoc,
 and refused if `otool -L` shows a library outside `/usr/lib` and
 `/System`. Next to
 the tarball it writes two formulas: `homebrew/pyking.rb`, naming the
-GitHub release `v<VERSION>` of `pyking-lang/pyking`, to be copied into
-the tap repository `pyking-lang/homebrew-pyking` (so users run `brew
-install pyking-lang/pyking/pyking`), and `homebrew-local/pyking.rb`,
+GitHub release `v<VERSION>` of `pyking-lang/homebrew-macos`, to be
+committed to that same repository, which is the tap (so users run `brew
+install pyking-lang/macos/pyking`), and `homebrew-local/pyking.rb`,
 naming the local file, which `make packaging-install` installs through
-the tap `pyking-lang/local`. `make packaging-setup` makes the two
+the tap `pyking-lang/local`. The code repository is private, so
+nothing a user downloads lives in it: the releases and the formula both
+go to the public `PUBLIC_REPO`, `pyking-lang/homebrew-macos` -- its
+`homebrew-` name is what makes the tap `pyking-lang/macos`, and so the
+install command `INSTALL`. `make release-macos` publishes a build there
+with `gh` and `git`
+(`Homebrew.release`): it checks everything before changing anything --
+including git's identity *outside* this repository, since the tap
+commit comes after the release -- asks unless `YES=1`, never replaces an
+existing release, verifies the uploaded tarball's checksum before
+touching the tap, and ends in one SUCCEEDED/FAILED line. `make packaging-setup` makes the two
 release switches (`Homebrew.setup`: each step checked before it runs,
 then `preflight` on both, ending in one SUCCEEDED/FAILED line); the
 commands it runs are the `SETUP` table's, which the refusals print too,

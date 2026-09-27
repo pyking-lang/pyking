@@ -5,6 +5,7 @@
 #   make ARCHS=arm64     one architecture only, for trying it locally
 #   make install-local   brew install the local build (a Mac with brew)
 #   make uninstall-local remove it again
+#   make release         publish the build (pyking-lang/homebrew-macos)
 #   make clean           remove build/
 #
 # Only the Homebrew package exists so far, and it is built on an Apple
@@ -16,7 +17,7 @@
 PYTHON ?= python3
 ARCHS  ?=
 
-.PHONY: all build setup install-local uninstall-local clean help
+.PHONY: all build setup install-local uninstall-local release clean help
 
 all: build
 
@@ -32,6 +33,10 @@ install-local:
 uninstall-local:
 	@$(PYTHON) packaging.py uninstall-local
 
+# Asks before publishing; YES=1 does not.
+release:
+	@$(PYTHON) packaging.py release $(if $(YES),--yes)
+
 clean:
 	@rm -rf build
 	@echo "clean: removed tools/packaging/build/"
@@ -44,6 +49,9 @@ help:
 	@echo "make install-local    brew install the local build, through the"
 	@echo "                      tap pyking-lang/local, and run its brew test"
 	@echo "make uninstall-local  uninstall it and remove that tap"
+	@echo "make release          publish the build: a release and the formula,"
+	@echo "                      both in pyking-lang/homebrew-macos;"
+	@echo "                      asks first (YES=1 does not)"
 	@echo "make clean            remove build/"
 	@echo
 	@echo "variables:  ARCHS=$(ARCHS)   PYTHON=$(PYTHON)"
