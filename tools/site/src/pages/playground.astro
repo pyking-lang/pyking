@@ -1,0 +1,37 @@
+---
+// The playground, as a page of the site: tools/playground's own
+// component (mountPlayground), served from runtime/ (tools/site/README.md).
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+
+const runtime = import.meta.env.BASE_URL.replace(/\/?$/, "/") + "runtime/";
+---
+<StarlightPage frontmatter={{
+  title: "Playground",
+  description: "Write Pyking, compile it to every target, and run it, in the browser.",
+  tableOfContents: false,
+}}>
+  <p>Write a program on the left, pick a target and compile it, or run it
+  with the interpreter. Everything runs in your browser.</p>
+  <div id="playground" class="pyking-playground not-content" data-runtime={runtime}></div>
+  <script is:inline type="module">
+    const host = document.getElementById("playground");
+    const runtime = new URL(host.dataset.runtime, location.href).href;
+    const style = document.createElement("link");
+    style.rel = "stylesheet";
+    style.href = runtime + "assets/playground.css";
+    document.head.append(style);
+    try {
+      const { mountPlayground } = await import(runtime + "assets/playground.js");
+      window.pykingPlayground = await mountPlayground(host, {
+        base: runtime + "assets",
+        pykingURL: runtime + "pyking/",
+        examplesURL: runtime + "examples/",
+        webrunURL: runtime + "webrun/",
+        vendorURL: runtime + "vendor/",
+      });
+    } catch (err) {
+      host.textContent = "Could not start the playground: " + err.message;
+      console.error(err);
+    }
+  </script>
+</StarlightPage>

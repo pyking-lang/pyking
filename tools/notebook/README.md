@@ -169,6 +169,33 @@ becomes), and `fontSize` (the editors', in pixels). Styles are scoped under
 a theme is a few overrides. The mounted object has `cells`, `run(index)`,
 `reset(index)`, `stop()`, `setTheme(choice)` and `title`.
 
+### Cells without the notebook
+
+A page that is not a notebook can still hold cells: the website
+(`tools/site/`) puts examples on its own pages this way. Each cell is a
+placeholder, a `.pkn-cell` inside a `.pkn-notebook`, holding its code as a
+`<pre>`; `mountCells` makes them runnable with one worker and one run queue
+between them.
+
+```html
+<div class="pkn-notebook">
+  <div class="pkn-cell" data-stdin="Ada&#10;"><pre>import io
+print(io.read_line())</pre></div>
+</div>
+<script type="module">
+  import { mountCells } from "./notebook/notebook.js";
+  const cells = await mountCells(document.querySelectorAll(".pkn-cell"),
+                                 { theme: "dark" });
+  cells.setTheme("light", false);  // false: not remembered in this browser
+</script>
+```
+
+`data-readonly` and `data-error` are the fence attributes of the same
+names, and `data-stdin` and `data-args` fill in the cell's input as a
+```` ```stdin ```` or ```` ```args ```` block does. The options and the
+mounted object are the notebook's, without the page: no header, no
+contents, no `title`.
+
 The renderer is usable on its own, with no page at all:
 
 ```js

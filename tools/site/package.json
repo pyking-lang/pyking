@@ -1,0 +1,15 @@
+{
+  "name": "pyking-site",
+  "private": true,
+  "type": "module",
+  "description": "The Pyking website, built by `make website` (see README.md).",
+  "scripts": {
+    "build": "astro build",
+    "dev": "astro dev"
+  },
+  "dependencies": {
+    "@astrojs/markdown-remark": "7.3.1",
+    "@astrojs/starlight": "0.42.5",
+    "astro": "7.3.5"
+  }
+}

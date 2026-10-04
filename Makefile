@@ -6,6 +6,7 @@
 #                   (TARGET=c23 or TARGET=c for one target or family)
 #   make stest      the same suite, one test at a time
 #   make notebook   open PYKING-TUTORIAL.md as a notebook in the browser
+#   make website    build the website into website/
 #   make packaging  build the installable packages (macOS and Linux)
 #   make clean      remove what has been generated
 #
@@ -13,9 +14,10 @@
 # built by dune into the executable this directory calls ./pyk.
 
 .PHONY: all help build libs test stest check-node playground notebook vendor \
+	website website-dev \
 	packaging packaging-setup packaging-install packaging-uninstall \
 	release \
-	clean clean-pycache clean-build distclean
+	clean clean-pycache clean-build clean-website distclean
 
 # `make` builds the compiler: it is the one thing someone typing `make`
 # in a compiler's directory is asking for. The standard library's
@@ -69,17 +71,18 @@ help:
 	@echo "make              build the compiler into ./pyk, then make libs"
 	@echo "make libs         compile each lib/*/<name>_external.ml into the"
 	@echo "                  plugin the interpreter loads, <name>_external.cmxs"
-	@echo "make test         all six suites, then a combined summary: every"
+	@echo "make test         all seven suites, then a combined summary: every"
 	@echo "                  tests/*.pyk on every target tests/test_cases.toml"
 	@echo "                  lists it for, run in parallel (JOBS=n to say how"
 	@echo "                  parallel), then the REPL's own cases in tests/repl/,"
 	@echo "                  then the library search path's, then the"
 	@echo "                  playground's compiler bundle, then the notebook's"
-	@echo "                  renderer and server, then the packaged tree's."
+	@echo "                  renderer and server, then the packaged tree's,"
+	@echo "                  then the website's pages and library docs."
 	@echo "                  Every suite runs even"
 	@echo "                  if an earlier one failed"
 	@echo "                  TARGET=c23 runs one target; TARGET=c runs every"
-	@echo "                  version of that family (the last five suites are"
+	@echo "                  version of that family (the last six suites are"
 	@echo "                  skipped, since none of them is a target)"
 	@echo "make stest        the same suite, one test at a time"
 	@echo "make playground   serve the web playground (pyk playground), then print"
@@ -88,6 +91,11 @@ help:
 	@echo "                  then print a link. PORT=n picks the port for both"
 	@echo "make vendor       download Ace and KaTeX into tools/webrun/vendor/, once"
 	@echo "                  (~1 MB; the two above need it and run it first)"
+	@echo "make website      build the website (Astro and Starlight, from sitesrc/"
+	@echo "                  and lib/) into website/; runs npm ci in tools/site/"
+	@echo "                  the first time (needs node 22.12 or later)"
+	@echo "make website-dev  the same site, served by Astro's dev server;"
+	@echo "                  both need make vendor and run it first"
 	@echo "make packaging    build the installable packages into"
 	@echo "                  tools/packaging/build/: a universal macOS pyk for"
 	@echo "                  Homebrew (on an Apple Silicon Mac), and static"
@@ -105,9 +113,11 @@ help:
 	@echo "                          tag release-<VERSION> in pyking-lang/pyking"
 	@echo "                          (asks first; YES=1 does not)"
 	@echo "make clean        remove generated files: _build/, ./pyk, lib/'s"
-	@echo "                  plugins, __pycache__/ and tools/packaging/build/"
-	@echo "make distclean    also remove tools/webrun/vendor/, the download cache"
-	@echo "                  (refetching it needs the network)"
+	@echo "                  plugins, __pycache__/, tools/packaging/build/,"
+	@echo "                  website/ and tools/site/build/"
+	@echo "make distclean    also remove tools/webrun/vendor/ and"
+	@echo "                  tools/site/node_modules/, the download caches"
+	@echo "                  (refetching them needs the network)"
 	@echo
 	@echo "tools/playground has targets of its own (check, e2e, ...):"
 	@echo "run 'make -C tools/playground help' for those."
@@ -177,6 +187,16 @@ notebook: build vendor
 vendor:
 	@python3 tools/webrun/server.py vendor
 
+# The website: tools/site/site.py stages sitesrc/, the library pages it
+# generates from lib/ and the web tools' runtime, then builds them with
+# Astro into website/. The page runs the same compiler bundle and the
+# same browser libraries the playground does, so both are made first.
+website: build vendor
+	@python3 tools/site/site.py build
+
+website-dev: build vendor
+	@python3 tools/site/site.py dev $(if $(PORT),--port $(PORT))
+
 # The installable packages, built by tools/packaging/'s own Makefile into
 # its build/: the compiler as JavaScript and the browser libraries go in
 # every package, so both are made first. The executable is rebuilt there,
@@ -210,14 +230,15 @@ release:
 # nobody generated. Removing those is the caller's business, since only
 # the caller knows which ones they are. ./pyk is the exception that
 # shows the rule: `make build` chose that name itself, so this knows it.
-clean: clean-build clean-pycache
+clean: clean-build clean-pycache clean-website
 	@$(MAKE) --no-print-directory -C tools/packaging clean
 
-# tools/webrun/vendor/ is a download cache, so it survives `clean` and
-# only goes on request -- rebuilding it needs the network again.
+# tools/webrun/vendor/ and tools/site/node_modules/ are download caches,
+# so they survive `clean` and only go on request -- rebuilding them needs
+# the network again.
 distclean: clean
-	@rm -rf tools/webrun/vendor
-	@echo "distclean: removed tools/webrun/vendor/"
+	@rm -rf tools/webrun/vendor tools/site/node_modules
+	@echo "distclean: removed tools/webrun/vendor/ and tools/site/node_modules/"
 
 # What `dune build` wrote, and the copy of its executable that `make
 # build` puts here. Both are this Makefile's own output, under names it
@@ -227,6 +248,12 @@ clean-build:
 	@rm -rf _build build
 	@rm -f pyk lib/*/*_external.cmxs lib/*/*_external.digest
 	@echo "clean: removed _build, build/, ./pyk and lib/'s plugins"
+
+# The website and what tools/site/site.py staged for it. Both are names
+# this repository chose, like ./pyk.
+clean-website:
+	@rm -rf website tools/site/build
+	@echo "clean: removed website/ and tools/site/build/"
 
 # .venv/ and .git/ are pruned rather than filtered: their caches belong to
 # installed packages and to git, not to anything this repository builds,

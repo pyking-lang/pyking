@@ -1,3 +1,8 @@
+## Reading and writing files.
+##
+## Reading a file that is not there, or writing where the host does not
+## allow it, is undefined. Call `exists` first.
+#
 # The filesystem, as the host provides it. Every type here is an Int, a
 # String or a Bool, so the boundary carries all of it on every target
 # (docs/modules.md, "What may cross the boundary") -- which is why this
@@ -8,8 +13,12 @@
 # so there is nothing this module could answer with. Ask `exists`
 # first. See docs/libraries.md.
 
+## The whole contents of the file at a path, as text.
 public def read_text : (String) -> String
 
+## Writes text to a file: the first argument is the path, the second
+## the text, which replaces what the file held.
 public def write_text : (String, String) -> ()
 
+## Whether a file exists at a path.
 public def exists : (String) -> Bool

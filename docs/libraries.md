@@ -340,3 +340,9 @@ which library was actually found.
    dependency order, and `interpret` among the targets.
 4. A row in the table above, with the reason for every target it does
    *not* claim.
+5. `##` doc comments: one block opening one of its two files, saying what
+   the module is for, and one directly above every `public` line. They
+   are the library's page on the website (`tools/site/libdoc.py`), and
+   `tests/test_site.py` fails on a public name without one. A plain `#`
+   comment is for maintainers and is not published. See
+   `tools/site/README.md`, "The library reference".

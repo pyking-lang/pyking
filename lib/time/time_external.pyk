@@ -19,8 +19,11 @@
 # the host's own zone database, which the targets disagree about, and a
 # library that formatted differently per target would be no use.
 
+## The current time, as seconds since 1970-01-01 00:00:00 UTC.
 public def instant : () -> Int
 
+## The current time as (year, month, day, hour, minute, second), in UTC,
+## read from the clock once.
 public def now : () -> (Int, Int, Int, Int, Int, Int)
 
 def year_of : (Int) -> Int

@@ -1409,6 +1409,41 @@ install alike. Keep it that way: a web tool may not need anything outside
 those directories, and the playground runs (with no example menu) when
 `tests/` is absent. `docs/build.md`, "The web tools", is the long form.
 
+## The website
+
+`make website` builds the Pyking website into **`website/`** (gitignored)
+with `tools/site/site.py`: Astro with Starlight, configured in
+`tools/site/`, over pages that live elsewhere. **`sitesrc/`** holds the
+hand-written Markdown (the start page, `install.md`, and
+`getstarted/`, one page per file), and the Libraries section is
+**generated from `lib/`** by `tools/site/libdoc.py`. `site.py` stages
+both, and the runtime the pages run, in `tools/site/build/`
+(gitignored) and Astro builds from there; nothing is generated into
+`sitesrc/` or `lib/`.
+
+- **A library is documented by its `##` comments.** A `##` block opening
+  one of a module's two files describes the module; a `##` block directly
+  above a `public` line describes that export, whose own line (without
+  `public`) is the signature shown. A plain `#` comment is for
+  maintainers and is never published. A new public name in `lib/` needs
+  a `##` block, or `tests/test_site.py` fails.
+- **A ```` ```pyking ```` block on a page is a runnable cell**, with the
+  notebook's fences (`readonly`, `error`, `norun`, ```` ```stdin ````,
+  ```` ```args ````). `tools/site/src/remark-pyking-cells.mjs` turns it into
+  a placeholder and `public/site/cells.js` calls the notebook's
+  `mountCells` on it -- the notebook's own cell, not a copy. Every one is
+  run by `tests/test_site.py`.
+- **The playground page is `mountPlayground`** from
+  `tools/playground/assets/`. Both it and the cells load from `runtime/`
+  in the built site, which `site.py` writes from the same `Site` the
+  playground's server serves -- so a change to what the playground
+  serves reaches the website with no edit here.
+- **The website is not shipped.** No package holds `tools/site/`,
+  `sitesrc/` or `website/`, and `SHIPPED` must not grow them.
+
+`tools/site/README.md` is the long form, and `docs/build.md`, "The
+website", the short one.
+
 ## Packaging
 
 `make packaging` builds the installable packages into
@@ -1686,13 +1721,13 @@ version of that family; with no `TARGET` every target runs, which is
 what `make test` means. The REPL suite runs only when no `TARGET` was
 given, since it is not a target.
 
-**`make test` runs `tests/test_all.py`**, which sequences the six
+**`make test` runs `tests/test_all.py`**, which sequences the seven
 suites below rather than each being a line of the Makefile. Three things
 follow, and all three are the point: every suite runs even when an
 earlier one failed, so one broken case does not hide what the other
-five would have said; each suite's output is opened by a banner and
+six would have said; each suite's output is opened by a banner and
 closed by one footer line of a fixed shape; and the run ends with a
-combined summary over all six. Their counts reach it through
+combined summary over all seven. Their counts reach it through
 `$PYK_TEST_TALLY`, a file each suite appends one line to
 (`tests/suite.py`), so a suite run on its own prints exactly what it
 prints here. Each remains a script of its own, with its own
@@ -1827,6 +1862,15 @@ checks `SHA256SUMS` and both formulas against the files. It never runs
 `--compiler PYK` like the others, a file rather than a command, since it
 is what gets packaged.
 
+**`tests/test_site.py` is the seventh suite**, and needs no Astro: it
+checks that `tools/site/libdoc.py` finds nothing undocumented in `lib/`,
+that every name a library page lists is one the module exports
+(a program importing them all must compile), that the remark plugin
+turns a page's Pyking blocks into the placeholders `mountCells` reads,
+and that every runnable ```` ```pyking ```` block in `sitesrc/` and in the
+generated library pages runs under `pyk` -- or is refused, where it is
+marked `error`. It takes `--compiler CMD` like the others.
+
 A fifth family covers **external modules**: `external_*` for a module
 implemented in a target language -- `external_all` on every host, and
 `external_shapes` on the four whose boundary can carry a tuple and a
@@ -1947,7 +1991,11 @@ dune; the playground's bundle additionally needs js_of_ocaml. The test
 harness is Python 3.11+ (`match`/`case`, and `tomllib` for the
 manifest), and the web tools' servers Python 3.10+ — tooling around the
 compiler, not part of it. The web pages vendor Ace and KaTeX, downloaded
-by `make vendor`; nothing is installed.
+by `make vendor`; nothing is installed. The one exception is the
+website (`make website`): Astro and Starlight, pinned in
+`tools/site/package-lock.json` and installed by `npm ci` into
+`tools/site/node_modules/` on its first build. Nothing else -- not the
+compiler, not the tests, not a distribution -- needs them.
 
 Running the generated code needs `node` for
 the JavaScript targets, a C compiler (`$CC`, default `cc`) for the C

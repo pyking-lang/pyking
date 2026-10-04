@@ -15,12 +15,18 @@
 # has been written so far first, so a prompt is on screen before the
 # program waits for an answer.
 
+## Writes a string to standard output as it is, with no newline added.
 public def write : (String) -> ()
 
+## Writes a string to standard output, followed by a newline.
 public def write_line : (String) -> ()
 
+## The rest of standard input, from where the last read stopped to its
+## end, line endings included.
 public def read : () -> String
 
+## Whether standard input is used up: `true` once nothing is left to
+## read. This is what tells an empty line from the end of the input.
 public def is_eof : () -> Bool
 
 # The host's half of `read_line`: write the prompt, then read one line.

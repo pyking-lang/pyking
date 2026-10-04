@@ -1,4 +1,7 @@
-# Dates and times: reading the clock, and rendering an instant.
+## Dates and times: reading the clock, and rendering an instant.
+##
+## An instant is a whole number of seconds since 1970-01-01 00:00:00,
+## and every date and time is in UTC on every host.
 #
 # The Pyking half of `time`. What the host provides is declared in
 # time_external.pyk beside this file and is in scope here unqualified --
@@ -20,14 +23,19 @@
 # `format` does not know ends the output there. See docs/libraries.md.
 
 
+## The ISO 8601 format, e.g. `2026-10-04T12:30:00Z`.
 public ISO8601: String = "yyyy-MM-ddTHH:mm:ssZ"
 
+## A date alone, e.g. `2026-10-04`.
 public DATE: String = "yyyy-MM-dd"
 
+## A time of day alone, e.g. `12:30:00`.
 public TIME: String = "HH:mm:ss"
 
+## A date and a time separated by a space, e.g. `2026-10-04 12:30:00`.
 public DATETIME: String = "yyyy-MM-dd HH:mm:ss"
 
+## A date and a time with no separators, e.g. `20261004123000`.
 public COMPACT: String = "yyyyMMddHHmmss"
 
 
@@ -70,15 +78,15 @@ def pad4(n:Int) -> String:
     return pad2(n / 100) ++ pad2(n - n / 100 * 100)
 
 
-# One instant as (year, month, day, hour, minute, second), in UTC.
-# Month is 1..12 and day is 1..31, as a reader writes them.
+## One instant as (year, month, day, hour, minute, second), in UTC.
+## Month is 1..12 and day is 1..31, as a reader writes them.
 public def of_instant(t:Int) -> (Int, Int, Int, Int, Int, Int):
     return (year_of(t), month_of(t), day_of(t), hour_of(t), minute_of(t), second_of(t))
 
 
-# One time rendered by a format: `yyyy` `MM` `dd` `HH` `mm` `ss`, with
-# anything else in the format taken literally, from the separators
-# listed here.
+## One time rendered by a format: `yyyy` `MM` `dd` `HH` `mm` `ss`, with
+## anything else in the format taken literally, from the separators
+## listed here.
 public def format(t:(Int, Int, Int, Int, Int, Int), fmt:String) -> String:
     (year, month, day, hour, minute, second) = t
     (_, rendered) = loop rest, out = fmt, "":

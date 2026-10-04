@@ -11,15 +11,20 @@
 # the caller wants. `exit` is the exception, and it reaches C and Java
 # as well.
 
+## The arguments the program was started with, without the program's own
+## name: what follows `--` in `pyk prog.pyk -- a b`.
 public def args : () -> [String]
 
+## Every environment variable, as (name, value) pairs.
 public def env : () -> [(String, String)]
 
+## The name the program was started as, without its directory.
 public def prog_name : () -> String
 
+## The directory the program was started from, as an absolute path.
 public def prog_path : () -> String
 
-# Ends the program at once, with `code` as its exit status. Output
-# written so far is written out first. A program that ends without
-# calling it ends with status 0.
+## Ends the program at once, with `code` as its exit status. Output
+## written so far is written out first. A program that ends without
+## calling it ends with status 0.
 public def exit : (Int) -> ()

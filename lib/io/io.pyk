@@ -1,4 +1,9 @@
-# Standard input and standard output.
+## Standard input and standard output.
+##
+## `print` writes to the same standard output as `write` and
+## `write_line`, so all three interleave in the order they ran. Every
+## read first writes out whatever has been written so far, so a prompt
+## is on screen before the program waits for an answer.
 #
 # The Pyking half of `io`. What the host provides is declared in
 # io_external.pyk beside this file and is in scope here unqualified --
@@ -9,8 +14,8 @@
 # and for an answer to a question with `io.read_line("Name? ")`.
 
 
-# One line of standard input, without its line ending, after writing
-# `prompt` -- with no newline -- to standard output. At the end of the
-# input it is the empty string; `is_eof` tells that from an empty line.
+## One line of standard input, without its line ending, after writing
+## `prompt` -- with no newline -- to standard output. At the end of the
+## input it is the empty string; `is_eof` tells that from an empty line.
 public def read_line(prompt: String = "") -> String:
     return prompt_line(prompt)

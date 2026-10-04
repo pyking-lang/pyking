@@ -1,0 +1,47 @@
+/* The website's own styles, on top of Starlight's. */
+
+:root {
+  --sl-color-accent-low: #1b2a4a;
+  --sl-color-accent: #3b6fd8;
+  --sl-color-accent-high: #c9d8f7;
+}
+:root[data-theme="light"] {
+  --sl-color-accent-low: #d6e2fb;
+  --sl-color-accent: #2f5fc4;
+  --sl-color-accent-high: #1a3168;
+}
+
+/* A cell embedded in a page: the notebook's cell, without the notebook's
+   page background and type size. */
+.pkn-notebook.pkn-embedded {
+  background: transparent;
+  font-size: var(--sl-text-sm);
+  line-height: 1.6;
+  margin-block: 1.25rem;
+}
+.sl-markdown-content .pkn-notebook.pkn-embedded + * { margin-top: 1.25rem; }
+.pkn-notebook.pkn-embedded .pkn-cell { margin: 0; }
+
+/* The header's menu, beside the search box. */
+.pyking-nav { display: flex; gap: 1.1rem; align-items: center; }
+.pyking-nav a {
+  color: var(--sl-color-gray-2);
+  text-decoration: none;
+  font-size: var(--sl-text-sm);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.pyking-nav a:hover, .pyking-nav a[aria-current="page"] { color: var(--sl-color-white); }
+@media (max-width: 72rem) { .pyking-nav { display: none; } }
+
+/* The playground page: the whole width, and the window's height. */
+:root:has(.pyking-playground) { --sl-content-width: 100%; }
+/* Two classes, so this wins over the playground's own `.pyk-playground`
+   height, which its stylesheet sets after this one loads. */
+.pyking-playground.pyk-playground, .pyking-playground {
+  height: calc(100vh - var(--sl-nav-height) - 14rem);
+  min-height: 32rem;
+  border-radius: .5rem;
+  overflow: hidden;
+  border: 1px solid var(--sl-color-gray-5);
+}

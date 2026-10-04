@@ -146,17 +146,18 @@ make            # dune build src/pyk.exe, copied here as ./pyk
 |---|---|
 | `make` | build the compiler into `./pyk` |
 | `make help` | the list below |
-| `make test` | the compiler's own suite: every program in `tests/` on every target it supports, comparing each against one shared `.out` file — run in parallel, one job per usable CPU (`JOBS=n` to say how many) — then the REPL's own cases in `tests/repl/`, the library path's, the playground's, the notebook's and the packaged tree's |
+| `make test` | the compiler's own suite: every program in `tests/` on every target it supports, comparing each against one shared `.out` file — run in parallel, one job per usable CPU (`JOBS=n` to say how many) — then the REPL's own cases in `tests/repl/`, the library path's, the playground's, the notebook's, the packaged tree's and the website's |
 | `make stest` | the same suite, one test at a time |
 | `make playground` | serve the [web playground](tools/playground/) (`pyk playground`), then print a link to open |
 | `make notebook` | serve `PYKING-TUTORIAL.md` as a [notebook](tools/notebook/) (`pyk notebook`), then print a link |
 | `make vendor` | download Ace and KaTeX into `tools/webrun/vendor/`, once; the two above run it first |
+| `make website` | build the [website](tools/site/) into `website/`, from `sitesrc/` and `lib/` (`make website-dev` serves it with Astro's dev server) |
 | `make packaging` | build the installable packages into `tools/packaging/build/` — for now the Homebrew one, on a Mac |
 | `make packaging-setup` | once, on an Apple Silicon Mac: make the two OCaml toolchains `make packaging` builds with, and say whether it worked |
 | `make release` | publish the built packages: one release of the public `pyking-lang/pyking-releases` with every platform, the formula in the tap `pyking-lang/homebrew-tap`, and (asked separately) the tag `release-<VERSION>` here |
 | `make packaging-install` | install that build with Homebrew, to try it before publishing (`make packaging-uninstall` undoes it) |
-| `make clean` | remove what has been generated: `_build/`, `./pyk`, `__pycache__/` directories, `tools/packaging/build/` |
-| `make distclean` | that, plus the `tools/webrun/vendor/` download cache |
+| `make clean` | remove what has been generated: `_build/`, `./pyk`, `__pycache__/` directories, `tools/packaging/build/`, `website/`, `tools/site/build/` |
+| `make distclean` | that, plus the `tools/webrun/vendor/` and `tools/site/node_modules/` download caches |
 
 `./pyk` is a build artifact, not a checked-in script: `make` writes it
 and `make clean` removes it. Everything else `make clean` leaves alone —
@@ -253,12 +254,15 @@ and math libraries and caches them, which is why the cache only goes on
 | `tools/playground/` | the browser playground: the compiler itself, compiled to JavaScript |
 | `tools/notebook/` | the notebook: a Markdown file whose Pyking blocks run in the browser |
 | `tools/webrun/` | what the playground and the notebook share |
+| `tools/site/` | the website: Astro and Starlight, and the library reference generator |
+| `sitesrc/` | the website's pages, in Markdown |
 | `tools/packaging/` | builds the installable packages (Homebrew, so far) |
 
 Building the compiler needs OCaml and dune, and nothing else; the
 playground's bundle additionally needs js_of_ocaml. The test harness is
 Python 3.11+ (`match`/`case`, `tomllib`), and the web tools need Python
-3.10+.
+3.10+. The website alone needs node 22.12+ and npm, which installs Astro
+and Starlight the first time `make website` runs.
 
 Running the generated code needs `node` for the JavaScript targets, a C
 compiler for the C ones, a JDK (`javac`/`java`) for the Java ones and an

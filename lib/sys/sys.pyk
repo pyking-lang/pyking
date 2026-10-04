@@ -1,5 +1,5 @@
-# The process this program is running as: its arguments, its name, and
-# its environment.
+## The process this program is running as: its arguments, its name, and
+## its environment.
 #
 # The Pyking half of `sys`. What the host provides is declared in
 # sys_external.pyk beside this file and is in scope here unqualified --
@@ -38,13 +38,13 @@ def holds(pairs:[(String, String)], name:String) -> Bool:
                 return holds(rest, name)
 
 
-# What one variable holds, or "" where it is not set. A variable set to
-# the empty string answers the same way, which is what `env_has` is for.
+## What one variable holds, or "" where it is not set. A variable set to
+## the empty string answers the same way, which is what `env_has` is for.
 public def env_get(name:String) -> String:
     return lookup(env(), name)
 
 
-# Whether one variable is set at all, which tells an empty variable from
-# a missing one.
+## Whether one variable is set at all, which tells an empty variable from
+## a missing one.
 public def env_has(name:String) -> Bool:
     return holds(env(), name)

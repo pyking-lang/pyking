@@ -1,0 +1,16 @@
+---
+// The header's menu: the site's four sections, beside Starlight's own
+// social icons. Replaces Starlight's SocialIcons component
+// (astro.config.mjs, `components`).
+import Default from "@astrojs/starlight/components/SocialIcons.astro";
+import { SECTIONS } from "../sections.mjs";
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+const here = Astro.url.pathname;
+---
+<nav class="pyking-nav" aria-label="Sections">
+  {SECTIONS.map(({ label, path, prefix }) => (
+    <a href={base + path} aria-current={here.startsWith(base + prefix) ? "page" : undefined}>{label}</a>
+  ))}
+</nav>
+<Default />

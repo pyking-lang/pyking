@@ -12,13 +12,24 @@
 // layout tools/notebook/notebook.py serves -- or their URLs given as
 // options. See tools/notebook/README.md.
 //
+// Cells can also be embedded one at a time in a page that is not a
+// notebook, as the website does (tools/site/): each is a `.pkn-cell`
+// placeholder inside a `.pkn-notebook` element, and one call makes all of
+// them runnable:
+//
+//   import { mountCells } from "./notebook/notebook.js";
+//   mountCells(document.querySelectorAll(".pkn-cell"), { theme: "dark" });
+//
 // Data structures:
-//   Notebook -- one mounted document: its cells, the compiler worker, and
-//     the run queue.
+//   Cells -- what the cells of one page share: the compiler worker, the
+//     run queue, and the theme.
+//   Notebook -- one mounted document: Cells, plus the page around them.
 //   Cell -- one runnable code block: its editor, its output, its state.
 //
 // Functions:
 //   mountNotebook(host, options) -- renders a document into host.
+//   mountCells(placeholders, options) -- makes cell placeholders runnable.
+//   cellSpec(placeholder, index) -- what a placeholder's data attributes say.
 
 import { renderMarkdown, escapeHTML } from "./markdown.js";
 
@@ -79,15 +90,47 @@ export async function mountNotebook(host, options = {}) {
   return notebook;
 }
 
-// ---------------------------------------------------------------- notebook
+/** Makes every placeholder runnable, sharing one compiler worker and one
+ *  run queue. A placeholder is a `.pkn-cell` element inside a
+ *  `.pkn-notebook` one, holding the code as a `<pre>`, with what
+ *  `cellSpec` reads in its data attributes. Resolves to the mounted
+ *  Cells. [Element] -> {...} -> Promise<Cells> */
+export async function mountCells(placeholders, options = {}) {
+  const cfg = { ...DEFAULTS, header: false, contents: false, ...options };
+  const webrun = new URL(cfg.webrunURL, document.baseURI).href;
+  const web = await import(new URL("web.js", webrun.endsWith("/") ? webrun : webrun + "/").href);
+  web.loadStyle(new URL("notebook.css", HERE).href);
 
-class Notebook {
-  constructor(host, doc, cfg, web) {
-    this.host = host;
-    this.doc = doc;
+  const cells = new Cells(cfg, web);
+  [...placeholders].forEach((placeholder, index) =>
+    cells.cells.push(new Cell(cells, cellSpec(placeholder, index), placeholder)));
+  await cells.init();
+  return cells;
+}
+
+/** What a placeholder's data attributes say about its cell: the code is
+ *  the `<pre>`'s text, `data-readonly` and `data-error` are its
+ *  attributes, and `data-stdin` and `data-args` fill in its input.
+ *  Element -> Int -> {index, id, source, attrs, stdin, args} */
+export function cellSpec(placeholder, index) {
+  const data = placeholder.dataset;
+  return {
+    index,
+    id: placeholder.id || `cell-${index + 1}`,
+    source: placeholder.querySelector("pre")?.textContent ?? "",
+    attrs: { norun: false, readonly: "readonly" in data, error: "error" in data },
+    stdin: data.stdin ?? null,
+    args: data.args ?? null,
+  };
+}
+
+// ------------------------------------------------------------------- cells
+
+class Cells {
+  constructor(cfg, web) {
     this.cfg = cfg;
     this.web = web;
-    this.title = doc.title;
+    this.ui = {};
     this.runtime = web.createRuntime({ webrun: cfg.webrunURL, pyking: cfg.pykingURL });
     this.cells = [];
     this.queue = Promise.resolve();
@@ -99,11 +142,8 @@ class Notebook {
   }
 
   async init() {
-    this.buildDom();
     this.applyTheme();
     this.media?.addEventListener?.("change", () => this.applyTheme());
-    if (this.doc.math) this.renderMath();
-
     this.status("busy", "loading the compiler");
     try {
       await this.web.ensureEditor(
@@ -115,8 +155,173 @@ class Notebook {
       throw err;
     }
     for (const cell of this.cells) cell.attachEditor();
-    for (const pre of this.host.querySelectorAll("pre.pkn-code")) this.highlight(pre);
     this.status("ready", "ready");
+  }
+
+  /** The elements the theme is set on: the `.pkn-notebook` around each
+   *  cell. () -> [Element] */
+  themed() {
+    return [...new Set(this.cells.map((cell) => cell.element.closest(".pkn-notebook")))]
+      .filter(Boolean);
+  }
+
+  editorOptions() {
+    return {
+      theme: ACE_THEME[this.effectiveTheme()],
+      minLines: 1,
+      maxLines: Infinity,
+      fontSize: this.cfg.fontSize,
+      tabSize: 4,
+      useSoftTabs: true,
+      showPrintMargin: false,
+      useWorker: false,
+      fontFamily: "var(--pkn-mono)",
+    };
+  }
+
+  // -- theme -------------------------------------------------------------
+
+  effectiveTheme() {
+    if (this.themeChoice === "light" || this.themeChoice === "dark") return this.themeChoice;
+    return this.media?.matches ? "dark" : "light";
+  }
+
+  applyTheme() {
+    const theme = this.effectiveTheme();
+    for (const element of this.themed()) element.dataset.theme = theme;
+    if (this.ui.theme) {
+      this.ui.theme.innerHTML = ICON[this.themeChoice];
+      this.ui.theme.title = `Theme: ${this.themeChoice} (click to change)`;
+      this.ui.theme.setAttribute("aria-label", this.ui.theme.title);
+    }
+    for (const cell of this.cells) cell.editor?.setTheme(ACE_THEME[theme]);
+    for (const editor of this.statics ?? []) editor.setTheme(ACE_THEME[theme]);
+  }
+
+  cycleTheme() {
+    this.setTheme(THEMES[(THEMES.indexOf(this.themeChoice) + 1) % THEMES.length]);
+  }
+
+  /** Sets the theme, and remembers it in this browser unless `remember`
+   *  is false. String -> Bool -> () */
+  setTheme(choice, remember = true) {
+    this.themeChoice = THEMES.includes(choice) ? choice : "auto";
+    if (remember) saveTheme(this.themeChoice);
+    this.applyTheme();
+  }
+
+  // -- running -----------------------------------------------------------
+
+  /** Queues a cell to run; cells run one at a time, in the order asked.
+   *  Cell -> Promise */
+  enqueue(cell) {
+    const generation = this.generation;
+    cell.setState("queued");
+    this.queue = this.queue.then(async () => {
+      if (generation !== this.generation) return cell.setState("idle");
+      await this.execute(cell);
+    });
+    return this.queue;
+  }
+
+  async execute(cell) {
+    this.running = cell;
+    cell.begin();
+    this.status("busy", `running cell ${cell.spec.index + 1}`);
+    const started = performance.now();
+    try {
+      await this.runtime.ready();
+      const result = await this.runtime.runProgram(cell.source(), {
+        name: cell.name(),
+        onOutput: (text) => cell.write(text),
+        onDebug: (text) => {
+          cell.write(text, "pkn-debug");
+          console.log(text.replace(/\n$/, ""));
+        },
+        onInput: (text) => cell.write(text, "pkn-echo"),
+        ...cell.input(),
+      });
+      cell.finish(result, ++this.executions, performance.now() - started);
+      this.status("ready", "ready");
+    } catch (err) {
+      if (cell.stopped) {
+        cell.finishStopped();
+      } else {
+        cell.fail("The compiler failed: " + err.message);
+        this.status("error", "the compiler failed");
+      }
+    } finally {
+      this.running = null;
+    }
+  }
+
+  /** Ends the running cell and cancels every queued one. The compiler's
+   *  worker is terminated -- the only stop that works on a loop that
+   *  never checks for one -- and a fresh one boots behind it. */
+  stop() {
+    this.generation += 1;
+    const cell = this.running;
+    if (cell) cell.stopped = true;
+    this.runtime.stop();
+    this.status("busy", "restarting the compiler");
+    this.runtime.ready()
+      .then(() => this.status("ready", "ready"))
+      .catch(() => this.status("error", "the compiler did not restart"));
+  }
+
+  /** Runs the cell at index. Int -> Promise */
+  run(index) {
+    return this.enqueue(this.cells[index]);
+  }
+
+  /** Puts the cell at index back to what the document says. Int -> () */
+  reset(index) {
+    this.cells[index].reset();
+  }
+
+  /** Moves the keyboard to the cell after this one, if there is one.
+   *  Cell -> () */
+  focusAfter(cell) {
+    const next = this.cells[this.cells.indexOf(cell) + 1];
+    if (!next?.editor) {
+      cell.editor?.blur();
+      return;
+    }
+    // After the key that asked for it is finished with: Ace is still
+    // inside the keystroke's handling, and a read-only editor's input
+    // would otherwise lose the focus straight back to this one.
+    setTimeout(() => {
+      next.editor.focus();
+      next.element.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+  }
+
+  status(kind, text) {
+    if (!this.ui.status) return;
+    this.ui.status.className = "pkn-status pkn-" + kind;
+    this.ui.statusText.textContent = text;
+  }
+}
+
+// ---------------------------------------------------------------- notebook
+
+class Notebook extends Cells {
+  constructor(host, doc, cfg, web) {
+    super(cfg, web);
+    this.host = host;
+    this.doc = doc;
+    this.title = doc.title;
+  }
+
+  async init() {
+    this.buildDom();
+    if (this.doc.math) this.renderMath();
+    await super.init();
+    for (const pre of this.host.querySelectorAll("pre.pkn-code")) this.highlight(pre);
+  }
+
+  themed() {
+    return [this.host];
   }
 
   // -- the page ----------------------------------------------------------
@@ -217,20 +422,6 @@ class Notebook {
     this.statics = [...(this.statics ?? []), editor];
   }
 
-  editorOptions() {
-    return {
-      theme: ACE_THEME[this.effectiveTheme()],
-      minLines: 1,
-      maxLines: Infinity,
-      fontSize: this.cfg.fontSize,
-      tabSize: 4,
-      useSoftTabs: true,
-      showPrintMargin: false,
-      useWorker: false,
-      fontFamily: "var(--pkn-mono)",
-    };
-  }
-
   /** Typesets every math span with KaTeX, loaded only for a document
    *  that has some. A formula KaTeX cannot read is shown as written. */
   async renderMath() {
@@ -252,128 +443,6 @@ class Notebook {
         el.textContent = tex;
       }
     }
-  }
-
-  // -- theme -------------------------------------------------------------
-
-  effectiveTheme() {
-    if (this.themeChoice === "light" || this.themeChoice === "dark") return this.themeChoice;
-    return this.media?.matches ? "dark" : "light";
-  }
-
-  applyTheme() {
-    const theme = this.effectiveTheme();
-    this.host.dataset.theme = theme;
-    if (this.ui.theme) {
-      this.ui.theme.innerHTML = ICON[this.themeChoice];
-      this.ui.theme.title = `Theme: ${this.themeChoice} (click to change)`;
-      this.ui.theme.setAttribute("aria-label", this.ui.theme.title);
-    }
-    for (const cell of this.cells) cell.editor?.setTheme(ACE_THEME[theme]);
-    for (const editor of this.statics ?? []) editor.setTheme(ACE_THEME[theme]);
-  }
-
-  cycleTheme() {
-    this.setTheme(THEMES[(THEMES.indexOf(this.themeChoice) + 1) % THEMES.length]);
-  }
-
-  /** Sets the theme, and remembers it in this browser. String -> () */
-  setTheme(choice) {
-    this.themeChoice = THEMES.includes(choice) ? choice : "auto";
-    saveTheme(this.themeChoice);
-    this.applyTheme();
-  }
-
-  // -- running -----------------------------------------------------------
-
-  /** Queues a cell to run; cells run one at a time, in the order asked.
-   *  Cell -> Promise */
-  enqueue(cell) {
-    const generation = this.generation;
-    cell.setState("queued");
-    this.queue = this.queue.then(async () => {
-      if (generation !== this.generation) return cell.setState("idle");
-      await this.execute(cell);
-    });
-    return this.queue;
-  }
-
-  async execute(cell) {
-    this.running = cell;
-    cell.begin();
-    this.status("busy", `running cell ${cell.spec.index + 1}`);
-    const started = performance.now();
-    try {
-      await this.runtime.ready();
-      const result = await this.runtime.runProgram(cell.source(), {
-        name: cell.name(),
-        onOutput: (text) => cell.write(text),
-        onDebug: (text) => {
-          cell.write(text, "pkn-debug");
-          console.log(text.replace(/\n$/, ""));
-        },
-        onInput: (text) => cell.write(text, "pkn-echo"),
-        ...cell.input(),
-      });
-      cell.finish(result, ++this.executions, performance.now() - started);
-      this.status("ready", "ready");
-    } catch (err) {
-      if (cell.stopped) {
-        cell.finishStopped();
-      } else {
-        cell.fail("The compiler failed: " + err.message);
-        this.status("error", "the compiler failed");
-      }
-    } finally {
-      this.running = null;
-    }
-  }
-
-  /** Ends the running cell and cancels every queued one. The compiler's
-   *  worker is terminated -- the only stop that works on a loop that
-   *  never checks for one -- and a fresh one boots behind it. */
-  stop() {
-    this.generation += 1;
-    const cell = this.running;
-    if (cell) cell.stopped = true;
-    this.runtime.stop();
-    this.status("busy", "restarting the compiler");
-    this.runtime.ready()
-      .then(() => this.status("ready", "ready"))
-      .catch(() => this.status("error", "the compiler did not restart"));
-  }
-
-  /** Runs the cell at index. Int -> Promise */
-  run(index) {
-    return this.enqueue(this.cells[index]);
-  }
-
-  /** Puts the cell at index back to what the document says. Int -> () */
-  reset(index) {
-    this.cells[index].reset();
-  }
-
-  /** Moves the keyboard to the cell after this one, if there is one.
-   *  Cell -> () */
-  focusAfter(cell) {
-    const next = this.cells[this.cells.indexOf(cell) + 1];
-    if (!next?.editor) {
-      cell.editor?.blur();
-      return;
-    }
-    // After the key that asked for it is finished with: Ace is still
-    // inside the keystroke's handling, and a read-only editor's input
-    // would otherwise lose the focus straight back to this one.
-    setTimeout(() => {
-      next.editor.focus();
-      next.element.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    });
-  }
-
-  status(kind, text) {
-    if (!this.ui.status) return;
-    this.ui.status.className = "pkn-status pkn-" + kind;
-    this.ui.statusText.textContent = text;
   }
 }
 

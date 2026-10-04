@@ -15,3 +15,8 @@ _build/
 # library's OCaml implementation.
 lib/*/*_external.cmxs
 lib/*/*_external.digest
+# The website (make website), what tools/site/site.py stages for it, and
+# the Astro packages it installs.
+/website/
+tools/site/build/
+tools/site/node_modules/
