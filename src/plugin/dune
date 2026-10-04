@@ -1,0 +1,13 @@
+; The one module a plugin compiled from an external module's OCaml
+; implementation links against: the table its generated registration
+; code fills in, and the interpreter in `pyk` reads (see
+; docs/libraries.md, "How the interpreter reaches an OCaml
+; implementation"). A library of its own, and unwrapped, so that a
+; plugin compiled outside this build names it `Pyk_plugin` and finds its
+; .cmi beside the executable. It depends on the standard library alone.
+
+(library
+ (name pyk_plugin)
+ (wrapped false)
+ (flags
+  (:standard -warn-error -a)))

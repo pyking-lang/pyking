@@ -29,7 +29,7 @@
       env -- a persistent chain of frames.
       externals -- how a host reaches a module implemented in a target
         language.
-      host -- where print goes.
+      host -- where print and debug go.
       state -- a machine state; control, kont, frame, loop and runtime
         are its opaque parts.
 
@@ -37,6 +37,10 @@
       run_program stmts host -- runs a whole program to completion.
       run_modules units host -- runs a program of several modules, each
         in a top level of its own, in dependency order.
+      load_modules state units exports -- the same, into a machine
+        already running.
+      bind_imports state stmts exports -- an entry's imports, bound.
+      with_host state host -- the machine with another host.
       initial_state stmts host -- a machine about to run stmts.
       step state -- one small step.
       run state steps -- steps until the machine stops or steps run out.
@@ -98,7 +102,7 @@ type externals = {
   call : string -> string -> value list -> value;
 }
 
-(** Where print goes, and how an external module is reached. *)
+(** Where print and debug go, and how an external module is reached. *)
 type host
 
 (** What the machine does next. *)
@@ -135,9 +139,11 @@ type state = {
     in a terminal can call a target language's own code. host *)
 val console_host : host
 
-(** A host that hands each printed line to a function.
-    externals? -> (string -> ()) -> host *)
-val callback_host : ?externals:externals -> (string -> unit) -> host
+(** A host that hands each printed line to a function, and each `debug`
+    line to another -- standard error unless one is given.
+    externals? -> (string -> ())? -> (string -> ()) -> host *)
+val callback_host :
+  ?externals:externals -> ?debug_line:(string -> unit) -> (string -> unit) -> host
 
 (* --- running a program --- *)
 
@@ -157,6 +163,31 @@ val run_program : ?max_depth:int -> stmt list -> host -> state
     [(string, [stmt], [stmt])] -> host -> state *)
 val run_modules :
   ?max_depth:int -> (string * stmt list * stmt list) list -> host -> state
+
+(** Runs modules into a machine that is already running -- what a REPL
+    entry's imports do -- each in a top level of its own and in the order
+    given, against the modules `exports` already holds. Answers the
+    machine, with the modules' call-free table added to its own, and the
+    exports with theirs added; where one failed, the failed machine, so
+    `failure` and `stack_trace` report it.
+    state -> [(string, [stmt], [stmt])] -> [(string, [(string, value)])]
+    -> (state, [(string, [(string, value)])]) *)
+val load_modules :
+  state ->
+  (string * stmt list * stmt list) list ->
+  (string * (string * value) list) list ->
+  state * (string * (string * value) list) list
+
+(** machine with an entry's imports bound: each selected name under the
+    name it is known by here, and each field of a plain import under
+    `alias.field`, from the modules `exports` holds.
+    state -> [stmt] -> [(string, [(string, value)])] -> state *)
+val bind_imports : state -> stmt list -> (string * (string * value) list) list -> state
+
+(** machine with host in place of the one it had: how a REPL gives the
+    machine a module implemented in a target language once an entry has
+    imported one. state -> host -> state *)
+val with_host : state -> host -> state
 
 (** A machine about to run stmts, not yet stepped. `env`, if given, lets
     a caller continue an earlier session (default: a fresh top level).

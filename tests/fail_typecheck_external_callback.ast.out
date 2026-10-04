@@ -1,4 +1,4 @@
-'tests/fail_typecheck_external_callback_mod1.external.pyk' 5:0-5:45
+'tests/fail_typecheck_external_callback_mod1_external.pyk' 5:0-5:45
   Module error: 'apply' cannot be declared with a function type: an
   external module is implemented in a target language, and a function
   type does not cross that boundary

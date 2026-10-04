@@ -1,5 +1,5 @@
 /* The C implementation of the Pyking module declared in
-   external_all_mod1.external.pyk. The program that imports it declares
+   external_all_mod1_external.pyk. The program that imports it declares
    these from the signatures, so there is no header to write here: a
    name is <module>_<field>, and a String is a const char *.
 

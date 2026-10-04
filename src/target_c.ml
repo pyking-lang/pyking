@@ -179,7 +179,9 @@ type cstmt =
   | CVarDecl of info * ctype * string (* <type> name; *)
   | CAssign of info * string * cexpr (* name = expr; *)
   | CExprStmt of info * cexpr (* expr; *)
-  | CPrint of info * cexpr list (* printf("...", ...); *)
+  | CPrint of info * bool * cexpr list
+      (* printf("...", ...); -- fprintf(stderr, ...) when the flag is set,
+         which is `debug` *)
   | CIf of info * cexpr * cstmt list * cstmt list option
   | CWhile of info * cexpr * cstmt list
   | CLoop of info * cstmt list (* while (1) { body } *)
@@ -214,6 +216,7 @@ type cprogram = {
   main_body : cstmt list;
   uses_print : bool;
   uses_concat : bool;
+  conversions : string list;
   uses_strcmp : bool;
   uses_float : bool;
   uses_infinity : bool;
@@ -344,7 +347,13 @@ let reserved =
         volatile while alignas alignof bool constexpr false nullptr \
         static_assert thread_local true typeof _Alignas _Alignof _Atomic \
         _Bool _Complex _Generic _Imaginary _Noreturn _Static_assert \
-        _Thread_local main printf strcmp strlen malloc size_t pyk_concat")
+        _Thread_local main printf fprintf stderr strcmp strlen malloc size_t \
+        pyk_concat sprintf strtod pyk_int_str pyk_truncate pyk_int_of_string \
+        pyk_float_of_string pyk_float_str")
+
+(* The Float formatter, as a name in `conversions`: `string` of a Float
+   asks for it the way `print` of one does. *)
+let float_string = "pyk_float_str"
 
 (** The (C name, ctype) a Pyking name reads as; raises Unsupported for a
     name out of this function's reach or with no C representation.
@@ -491,6 +500,7 @@ type state = {
   called_early : StringSet.t;
   uses_print : bool;
   uses_concat : bool;
+  conversions : string list;
   uses_strcmp : bool;
   uses_float : bool;
   uses_infinity : bool;
@@ -667,7 +677,7 @@ let calls body c_name =
       ->
         in_expr e
     | CVarDecl _ | CBreak _ | CContinue _ -> false
-    | CPrint (_, args) -> List.exists in_expr args
+    | CPrint (_, _, args) -> List.exists in_expr args
     | CIf (_, cond, then_body, else_body) ->
         in_expr cond
         || List.exists in_stmt then_body
@@ -810,7 +820,8 @@ let rec expr state e scope allow_unit =
         unsupported (expr_info e)
           "the branches of an `if` expression must have the same type in C";
       (CCond (info, c, t, f, ctype_of t), state)
-  | ECall (_, EVar (_, name, _), _, _) when Builtin.crosses_host name ->
+  | ECall (_, EVar (_, name, _), _, _) when Builtin.crosses_host name
+         && not (List.mem_assoc name state.signatures) ->
       unsupported (expr_info e)
         (Printf.sprintf "`%s` may only be used as a statement, not as a value"
            name)
@@ -819,19 +830,48 @@ let rec expr state e scope allow_unit =
          under the C name that module gives it. *)
       let c_name, ctype = lookup (reached alias field) scope info in
       (CVar (info, c_name, ctype), state)
-  (* C's own conversions: widening an int is exact within the range a
-     double holds, and narrowing a double truncates toward zero, which
-     is the rounding Pyking's `int` and `/` both do. *)
-  | ECall (info, EVar (_, "float", _), [ (_, argument) ], _)
-    when not (List.mem_assoc "float" state.signatures) ->
+  (* The conversions, by the argument's type (builtin.ml, "what a
+     conversion reads"). C's own conversions are used where they agree:
+     widening an int is exact within the range a double holds, and a cast
+     truncates toward zero, which is the rounding Pyking's `int` and `/`
+     both do -- but a double with no int to truncate to, and every String,
+     go through a helper. *)
+  | ECall (info, EVar (_, (("string" | "int" | "float" | "bool") as name), _), [ (_, argument) ], _)
+    when not (List.mem_assoc name state.signatures) -> (
       let inner, state = expr state argument scope false in
-      require inner Int "`float`";
-      (CCast (info, Float, inner), { state with uses_float = true })
-  | ECall (info, EVar (_, "int", _), [ (_, argument) ], _)
-    when not (List.mem_assoc "int" state.signatures) ->
-      let inner, state = expr state argument scope false in
-      require inner Float "`int`";
-      (CCast (info, Int, inner), state)
+      let helper helper_name result state =
+        ( CCall (info, helper_name, [ inner ], result),
+          if List.mem helper_name state.conversions then state
+          else { state with conversions = state.conversions @ [ helper_name ] } )
+      in
+      match (name, ctype_of inner) with
+      | "string", String | "int", Int | "float", Float | "bool", Bool -> (inner, state)
+      | "string", Int -> helper "pyk_int_str" String state
+      | "string", Float ->
+          let state =
+            if List.mem float_string state.conversions then state
+            else { state with conversions = state.conversions @ [ float_string ] }
+          in
+          (CFloatStr (info, inner), { state with uses_float = true })
+      | "string", Bool ->
+          (CCond (info, inner, CStr (info, "true"), CStr (info, "false"), String), state)
+      | "int", Float -> helper "pyk_truncate" Int state
+      | "int", Bool -> (CCond (info, inner, CInt (info, 1), CInt (info, 0), Int), state)
+      | "int", String -> helper "pyk_int_of_string" Int state
+      | "float", Int -> (CCast (info, Float, inner), { state with uses_float = true })
+      | "float", Bool ->
+          ( CCond (info, inner, CFloat (info, 1.0), CFloat (info, 0.0), Float),
+            { state with uses_float = true } )
+      | "float", String ->
+          helper "pyk_float_of_string" Float
+            { state with uses_float = true; uses_infinity = true; uses_strcmp = true }
+      | "bool", Int -> (CBinary (info, "==", inner, CInt (info, 1), Bool), state)
+      | "bool", Float -> (CBinary (info, "==", inner, CFloat (info, 1.0), Bool), state)
+      | "bool", String ->
+          (CStrEq (info, inner, CStr (info, "true")), { state with uses_strcmp = true })
+      | _, ctype ->
+          unsupported (expr_info e)
+            (Printf.sprintf "`%s` of a value of type %s" name (ctype_name ctype)))
   | ECall (info, EQualified (_, alias, field, _), args, _) ->
       call state e (reached alias field) (arg_exprs args) scope allow_unit info
   | ECall (info, EVar (_, name, _), args, _) ->
@@ -969,8 +1009,12 @@ and tail_stmts state statements scope =
     statements. state -> stmt -> scope -> ([cstmt], state) *)
 and tail_stmt state s scope =
   match s with
+  (* `()` as a statement is unit, which is nothing to do: what a removed
+     `debug` leaves at the end of a body (src/release.ml). *)
+  | SExprStmt (_, ETuple (_, [], _), _) -> ([], state)
   | SExprStmt (_, ECall (_, EVar (_, name, _), _, _), _)
-    when Builtin.crosses_host name ->
+    when Builtin.crosses_host name
+         && not (List.mem_assoc name state.signatures) ->
       let translated, _, state = stmt state s scope in
       (translated, state)
   | SExprStmt (info, e, _) ->
@@ -1177,6 +1221,7 @@ and loop_block state statements scope =
     state -> stmt -> scope -> ([cstmt], state) *)
 and loop_tail state s scope =
   match s with
+  | SExprStmt (_, ETuple (_, [], _), _) -> ([], state)
   | SExprStmt (_, e, _) -> accumulate state e scope s
   | SIf (info, cond, then_body, else_body, _) -> (
       let condition, state = expr state cond scope false in
@@ -1327,8 +1372,10 @@ and stmt state s scope =
          loop, the return). *)
       let translated, state = tail_stmt state inner scope in
       (translated, scope, state)
+  | SExprStmt (_, ETuple (_, [], _), _) -> ([], scope, state)
   | SExprStmt (info, ECall (_, EVar (_, name, _), args, _), _)
-    when Builtin.crosses_host name ->
+    when Builtin.crosses_host name
+         && not (List.mem_assoc name state.signatures) ->
       (* `printf` is a call like any other, so its arguments are ordered
          the same way -- but this is a statement, and a statement can put
          them in front of itself rather than in a comma expression. *)
@@ -1340,7 +1387,7 @@ and stmt state s scope =
         else state
       in
       ( List.map (fun (temp, value) -> CAssign (info, temp, value)) steps
-        @ [ CPrint (info, ordered) ],
+        @ [ CPrint (info, Builtin.is_debug name, ordered) ],
         scope,
         state )
   | SExprStmt (info, e, _) ->
@@ -1438,46 +1485,97 @@ let includes state stmts =
       | _ -> names)
     names stmts
 
+(** The C type a declared type is carried as, or None where C has no
+    representation for it. Unit is `void`. typ -> ctype option *)
+let declared_ctype t =
+  match t with TTuple (_, [], _) -> Some Unit | t -> annotated_type (Some t)
+
+(** One declaration of a name the target's own source provides, named
+    `c_name`, or None where C cannot represent its type.
+    string -> typ -> cextern option *)
+let extern_of c_name type_ =
+  match type_ with
+  | TFunction (_, params, result, _, _, _, _) -> (
+      match (List.map declared_ctype params, declared_ctype result) with
+      | params, Some result when List.for_all (fun p -> p <> None) params ->
+          Some (CExternFunc (c_name, List.map Option.get params, result))
+      | _ -> None)
+  | t -> Option.map (fun ctype -> CExternValue (c_name, ctype)) (declared_ctype t)
+
 (** The C a module implemented in C is reached through: one declaration
-    per name it exports, taken from its signatures, so this translation
-    unit is told they exist without a header to include. A type C cannot
-    represent is refused here rather than emitted.
-    state -> [stmt] -> [cextern] *)
+    per name an import takes from the module's declaration half -- all of
+    an external module's, and the declared ones of a module in two halves
+    -- so this translation unit is told they exist without a header to
+    include. A name the program uses is declared only once however many
+    imports reach it, and a type C cannot represent is refused here
+    rather than emitted. state -> [stmt] -> [cextern] *)
 let external_declarations state stmts =
-  List.concat_map
-    (fun statement ->
-      match statement with
-      | SImport (info, name, _, _, _, _)
-        when List.mem name state.context.externals ->
-          let signatures =
-            try List.assoc name state.context.sigmaps with Not_found -> []
-          in
-          List.map
-            (fun (field, type_, _) ->
-              let qualified = name ^ "_" ^ field in
-              let ctype_of t what =
-                match t with
-                | TTuple (_, [], _) -> Unit
-                | t -> (
-                    match annotated_type (Some t) with
-                    | Some ctype -> ctype
+  let declared =
+    List.concat_map
+      (fun statement ->
+        match statement with
+        | SImport (info, name, _, _, fields, _) ->
+            let provided =
+              if List.mem name state.context.externals then List.map fst fields
+              else
+                List.filter
+                  (fun field ->
+                    List.mem field
+                      (Option.value
+                         (List.assoc_opt name state.context.external_fields)
+                         ~default:[]))
+                  (List.map fst fields)
+            in
+            let signatures =
+              try List.assoc name state.context.sigmaps with Not_found -> []
+            in
+            List.filter_map
+              (fun field ->
+                match List.find_opt (fun (n, _, _) -> n = field) signatures with
+                | None -> None
+                | Some (_, type_, _) -> (
+                    let qualified = module_name name field in
+                    match extern_of qualified type_ with
+                    | Some extern -> Some (qualified, extern)
                     | None ->
                         unsupported info
                           (Printf.sprintf
-                             "the external module '%s' declares '%s' with %s \
-                              this target has no C type for"
-                             name field what))
-              in
-              match type_ with
-              | TFunction (_, params, result, _, _, _, _) ->
-                  CExternFunc
-                    ( qualified,
-                      List.map (fun t -> ctype_of t "a parameter") params,
-                      ctype_of result "a return type" )
-              | t -> CExternValue (qualified, ctype_of t "a type"))
-            signatures
-      | _ -> [])
-    stmts
+                             "the external module '%s' declares '%s' with a \
+                              type this target has no C type for"
+                             name field)))
+              provided
+        | _ -> [])
+      stmts
+  in
+  List.rev
+    (List.fold_left
+       (fun kept (qualified, extern) ->
+         if List.mem_assoc qualified kept then kept else (qualified, extern) :: kept)
+       [] declared)
+  |> List.map snd
+
+(** The names this module's own declaration half provides, bound under
+    the C name the implementation defines them by, and declared here so
+    the Pyking half can call them. One C cannot represent is left out:
+    nothing the program reaches calls it, or its caller is refused where
+    it is translated. state -> scope -> (scope, state, [cextern]) *)
+let declare_own_externals state scope =
+  List.fold_left
+    (fun (scope, state, externs) (field, type_) ->
+      let c_name = module_name state.context.context_name field in
+      match (type_, extern_of c_name type_) with
+      | TFunction _, Some (CExternFunc (_, params, result) as extern) ->
+          ( scope,
+            {
+              state with
+              signatures = set_assoc field (c_name, params, result) state.signatures;
+              declared = set_assoc field c_name state.declared;
+            },
+            externs @ [ extern ] )
+      | _, Some (CExternValue (_, ctype) as extern) ->
+          (bind_exact field c_name ctype scope, state, externs @ [ extern ])
+      | _ -> (scope, state, externs))
+    (scope, state, []) state.context.own_declared
 
 (** This module's public bindings as the file-scope variables another
     module reads them through -- nothing for the program's own module,
@@ -1647,25 +1745,6 @@ let function_of state func scope =
     own module, and what the modules it imports export.
     [stmt] -> Module.context -> cprogram *)
 let translate_program stmts context =
-  (* A module in two halves needs the generated file to call into the
-     implementation beside it, which this backend does not emit yet: an
-     external module it can compile is one with no Pyking half. Refused
-     here rather than left to the host's own compiler, which would
-     report an undeclared name in generated code. *)
-  (match
-     List.assoc_opt context.Module.context_name context.Module.external_fields
-   with
-  | Some (field :: _) ->
-      unsupported
-        (match stmts with
-        | statement :: _ -> stmt_info statement
-        | [] -> { file = ""; row1 = 1; col1 = 0; row2 = 1; col2 = 0 })
-        (Printf.sprintf
-           "a module in two halves: '%s' declares '%s' for the host and is \
-            written in Pyking beside it, which this backend cannot compile \
-            yet -- an external module it can compile has no Pyking half"
-           context.Module.context_name field)
-  | _ -> ());
   let state =
     {
       context;
@@ -1675,6 +1754,7 @@ let translate_program stmts context =
       called_early = StringSet.empty;
       uses_print = false;
       uses_concat = false;
+      conversions = [];
       uses_strcmp = false;
       uses_float = false;
       uses_infinity = false;
@@ -1686,12 +1766,13 @@ let translate_program stmts context =
     }
   in
   let scope = empty_scope in
+  let scope, state, own_externs = declare_own_externals state scope in
   let scope, state = declare_imports state stmts scope in
   let scope, state = declare_functions state stmts scope in
   (* What an external module offers is checked before anything is
      translated, so a type C cannot carry is refused where it was
      declared rather than at the first call that trips over it. *)
-  let external_decls = external_declarations state stmts in
+  let external_decls = own_externs @ external_declarations state stmts in
   let functions, main_body, scope, state =
     List.fold_left
       (fun (functions, main_body, scope, state) s ->
@@ -1743,6 +1824,7 @@ let translate_program stmts context =
     main_body = leftover @ starts @ main_body;
     uses_print = state.uses_print;
     uses_concat = state.uses_concat;
+    conversions = state.conversions;
     uses_strcmp = state.uses_strcmp;
     uses_float = state.uses_float;
     uses_infinity = state.uses_infinity;
@@ -1883,8 +1965,10 @@ let rec pprint_c_stmt ?(level = 1) s standard =
   | CExprStmt (_, e) -> Printf.sprintf "%s%s;" pad (pprint_c_expr e standard)
   | CReturn (_, e) ->
       Printf.sprintf "%sreturn %s;" pad (pprint_c_expr e standard)
-  | CPrint (_, args) ->
-      Printf.sprintf "%sprintf(\"%s\\n\"%s);" pad
+  | CPrint (_, to_stderr, args) ->
+      Printf.sprintf "%s%s(%s\"%s\\n\"%s);" pad
+        (if to_stderr then "fprintf" else "printf")
+        (if to_stderr then "stderr, " else "")
         (String.concat " " (List.map (fun a -> format_of (ctype_of a)) args))
         (String.concat ""
            (List.map (fun a -> ", " ^ print_argument a standard) args))
@@ -1966,6 +2050,117 @@ and emit_block statements standard level =
 let comment text standard =
   if standard = "c89" then Printf.sprintf "/* %s */" text
   else Printf.sprintf "// %s" text
+
+(* The conversions C's own would get wrong (builtin.ml, "what a
+   conversion reads"), in the subset both standards accept. C89 has
+   neither NAN nor INFINITY, so both come from HUGE_VAL. A String is read
+   by hand rather than by strtol and strtod, which skip spaces and read
+   hex; strtod reads it only once it is known to be one. The Int's text
+   is malloc'd and never freed, like pyk_concat's. *)
+let conversion_helper name =
+  String.concat "\n"
+    (match name with
+    | "pyk_int_str" ->
+        [
+          "static const char *pyk_int_str(int n)";
+          "{";
+          "    char *out = malloc(24);";
+          "    sprintf(out, \"%d\", n);";
+          "    return out;";
+          "}";
+        ]
+    | "pyk_truncate" ->
+        [
+          "static int pyk_truncate(double x)";
+          "{";
+          "    if (x != x || x <= -2147483649.0 || x >= 2147483648.0) {";
+          "        return 0;";
+          "    }";
+          "    return (int)x;";
+          "}";
+        ]
+    | "pyk_int_of_string" ->
+        [
+          "static int pyk_int_of_string(const char *s)";
+          "{";
+          "    const char *p = s;";
+          "    double value = 0.0;";
+          "    int negative = 0;";
+          "    if (*p == '-' || *p == '+') {";
+          "        negative = *p == '-';";
+          "        p++;";
+          "    }";
+          "    if (*p == '\\0') {";
+          "        return 0;";
+          "    }";
+          "    for (; *p != '\\0'; p++) {";
+          "        if (*p < '0' || *p > '9') {";
+          "            return 0;";
+          "        }";
+          "        value = value * 10.0 + (*p - '0');";
+          "        if (value > 2147483648.0) {";
+          "            return 0;";
+          "        }";
+          "    }";
+          "    if (negative) {";
+          "        value = -value;";
+          "    }";
+          "    if (value > 2147483647.0) {";
+          "        return 0;";
+          "    }";
+          "    return (int)value;";
+          "}";
+        ]
+    | _ ->
+        [
+          "static double pyk_float_of_string(const char *s)";
+          "{";
+          "    const char *p = s;";
+          "    if (strcmp(s, \"inf\") == 0 || strcmp(s, \"+inf\") == 0) {";
+          "        return HUGE_VAL;";
+          "    }";
+          "    if (strcmp(s, \"-inf\") == 0) {";
+          "        return -HUGE_VAL;";
+          "    }";
+          "    if (strcmp(s, \"nan\") == 0) {";
+          "        return HUGE_VAL - HUGE_VAL;";
+          "    }";
+          "    if (*p == '-' || *p == '+') {";
+          "        p++;";
+          "    }";
+          "    if (*p < '0' || *p > '9') {";
+          "        return HUGE_VAL - HUGE_VAL;";
+          "    }";
+          "    while (*p >= '0' && *p <= '9') {";
+          "        p++;";
+          "    }";
+          "    if (*p == '.') {";
+          "        p++;";
+          "        if (*p < '0' || *p > '9') {";
+          "            return HUGE_VAL - HUGE_VAL;";
+          "        }";
+          "        while (*p >= '0' && *p <= '9') {";
+          "            p++;";
+          "        }";
+          "    }";
+          "    if (*p == 'e' || *p == 'E') {";
+          "        p++;";
+          "        if (*p == '-' || *p == '+') {";
+          "            p++;";
+          "        }";
+          "        if (*p < '0' || *p > '9') {";
+          "            return HUGE_VAL - HUGE_VAL;";
+          "        }";
+          "        while (*p >= '0' && *p <= '9') {";
+          "            p++;";
+          "        }";
+          "    }";
+          "    if (*p != '\\0') {";
+          "        return HUGE_VAL - HUGE_VAL;";
+          "    }";
+          "    return strtod(s, NULL);";
+          "}";
+        ])
 
 (* Written in the subset both standards accept, so one copy serves both
    (docs/target_c.md, "Strings"). *)
@@ -2092,9 +2287,12 @@ let headers (program : cprogram) standard =
   let needed =
     if standard = "c99" && declares_bool program then [ "stdbool.h" ] else []
   in
-  let needed = needed @ if program.uses_print then [ "stdio.h" ] else [] in
+  let converts = List.exists (fun name -> name <> float_string) program.conversions in
   let needed =
-    needed @ if program.uses_concat || program.uses_float then [ "stdlib.h" ] else []
+    needed @ if program.uses_print || List.mem "pyk_int_str" program.conversions then [ "stdio.h" ] else []
+  in
+  let needed =
+    needed @ if program.uses_concat || program.uses_float || converts then [ "stdlib.h" ] else []
   in
   let needed =
     needed
@@ -2261,6 +2459,12 @@ let pprint_c_program (program : cprogram) standard source =
   in
   let parts =
     parts
+    @ List.concat_map
+        (fun name -> if name = float_string then [] else [ ""; conversion_helper name ])
+        program.conversions
+  in
+  let parts =
+    parts
     @
     if program.uses_concat then
       [
@@ -2276,7 +2480,8 @@ let pprint_c_program (program : cprogram) standard source =
   let parts =
     parts
     @
-    if program.uses_float && program.uses_print then
+    if program.uses_float && (program.uses_print || List.mem float_string program.conversions)
+    then
       [
         "";
         comment

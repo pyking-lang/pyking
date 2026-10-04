@@ -139,7 +139,7 @@ always accept exactly the same programs:
 
 The subset table below has no column for the interpreter, because it
 would be the `ocaml5.5` column with one difference: the interpreter has
-closures and real `[Int]` lists, so `str`, `len` and `range` behave as
+closures and real `[Int]` lists, so `string`, `len` and `range` behave as
 the checker types them, and a function value can be passed, returned and
 printed. Everything the checker refuses, it refuses.
 
@@ -265,7 +265,9 @@ testing — could be built end to end before the language surface grew:
 | a lambda inside a loop, keeping that turn's values | ✅ (each loop-carried name it reads becomes a parameter defaulted to the turn's value) | ✅ (the same per-turn `const` a `def` gets) | ❌ | ❌ | ✅ |
 | tuples, destructuring | ✅ | ✅ (arrays) | ❌ | ❌ | ✅ |
 | value-form `x = if c:` / `x = match e:` | ✅ | ❌ | ❌ | ❌ | ✅ |
-| `str`, `len`, `range` | ✅ | ❌ (refused at compile time) | ❌ | ❌ | ✅ |
+| `string` | ✅ | ✅ | ✅ (of an Int, Float, String or Bool) | ✅ (the same) | ✅ |
+| `int`, `float`, `bool` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `len`, `range` | ✅ | ❌ (refused at compile time) | ❌ | ❌ | ✅ |
 | nested `def` | ✅ | ✅ | ❌ | ❌ | ✅ |
 | function must provably return on every path | n/a | n/a | n/a | ✅ (`javac` requires it; refused at compile time otherwise) | n/a |
 | modules: `import`, `from`, `public` | ✅ (Python's own `import`) | ✅ (one ES module each, `node` and `web` alike) | ✅ (one translation unit and a header each) | ✅ (one class each) | ✅ (one module and a `.mli` each) |
@@ -321,6 +323,23 @@ followed by a third difference, which is about the values themselves:
   behaviour in C. The interpreter is the exception, and has to be: its
   `step` is total, so it reports a Pyking runtime error with a stack
   trace like any other. Nothing guards the compiled output.
+
+### Standard error, `--release` and the exit status
+
+`debug` writes where each host keeps diagnostic output: standard error
+on Python, C, Java, OCaml and the interpreter, `console.error` on the
+three JavaScript targets -- which under node is standard error, and in a
+browser the console. `pyk compile --release` removes every call to
+`debug` before any backend sees the program, so a release build writes
+nothing there; the interpreter takes no `--release` and runs a program
+as written, and `iweb24`'s page is told to remove them before it runs.
+
+A program that ends by itself ends with status 0 on every target. One
+ending with `sys.exit(code)` ends with `code`, after what it printed is
+written out; one ending with a runtime error ends with a status that is
+not 0 -- 1 on most hosts, and whatever an uncaught OCaml exception gives
+on `ocaml5.5`. A page cannot end with a status, so it reports one that
+is not 0.
 
 ### Integers hold 32 bits, and overflow is undefined
 

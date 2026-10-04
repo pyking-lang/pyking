@@ -1,0 +1,29 @@
+# Standard input and standard output, as the host provides them.
+#
+# This is the external half of the module `io`; `io.pyk` beside it is
+# the other half, written in Pyking against what is declared here. The
+# two files are one module (docs/modules.md, "A module in two halves").
+#
+# Every type here is a String, a Bool or unit, so the boundary carries
+# all of it on every target. `print` writes to the same standard output
+# `write` and `write_line` do, so the two interleave in the order they
+# ran.
+#
+# A line is read without its line ending. At the end of the input a
+# line is the empty string, which is also what an empty line reads as;
+# `is_eof` is what tells the two apart. Every read writes out whatever
+# has been written so far first, so a prompt is on screen before the
+# program waits for an answer.
+
+public def write : (String) -> ()
+
+public def write_line : (String) -> ()
+
+public def read : () -> String
+
+public def is_eof : () -> Bool
+
+# The host's half of `read_line`: write the prompt, then read one line.
+# Private, because `read_line` in io.pyk is what a program calls -- its
+# prompt has a default, which a declaration cannot carry.
+def prompt_line : (String) -> String

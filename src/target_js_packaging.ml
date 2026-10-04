@@ -132,20 +132,53 @@ let float_js =
       "}";
     ]
 
+(* The conversions JavaScript's own `Number` and `parseInt` would get
+   wrong: both read strings Pyking does not ("0x1F", " 3", "1_000"), and
+   a truncated Float has to answer 0 where it is no Int (builtin.ml, "what
+   a conversion reads"). *)
+let conversion_js =
+  String.concat "\n"
+    [
+      "function pykParseInt(text) {";
+      "  if (!/^[+-]?[0-9]+$/.test(text)) return 0;";
+      "  const n = Number(text);";
+      "  return n >= -2147483648 && n <= 2147483647 && n !== 0 ? n : 0;";
+      "}";
+      "";
+      "function pykTrunc(x) {";
+      "  const t = Math.trunc(x);";
+      "  return t >= -2147483648 && t <= 2147483647 && t !== 0 ? t : 0;";
+      "}";
+      "";
+      "function pykParseFloat(text) {";
+      "  if (text === 'inf' || text === '+inf') return Infinity;";
+      "  if (text === '-inf') return -Infinity;";
+      "  if (text === 'nan') return NaN;";
+      "  return /^[+-]?[0-9]+(\\.[0-9]+)?([eE][+-]?[0-9]+)?$/.test(text) ? Number(text) : NaN;";
+      "}";
+    ]
+
 let header source =
   Printf.sprintf "// Generated from %s by the Pyking compiler. Do not edit."
     source
 
-(** A print implementing the runtime interface, emitting one line
-    through sink. string -> string *)
-let print_via sink =
+(** One host-crossing builtin implementing the runtime interface --
+    `print` or `debug` -- emitting one line through sink.
+    string -> string -> string *)
+let line_via name sink =
   String.concat "\n"
     [
-      "function print(...values) {";
+      Printf.sprintf "function %s(...values) {" name;
       Printf.sprintf "  %s(values.map((value) => pykFormat(value)).join(' '));"
         sink;
       "}";
     ]
+
+(* The browser's standard output: the `io` library's own browser
+   implementation, which a page embedding the program may replace. `print`
+   writes through it, so a program and an `io.write_line` share one
+   stream. *)
+let browser_io = "io_external.js"
 
 (* --- modules ---
 
@@ -203,7 +236,10 @@ let module_import statement =
 (** The jshost every JavaScript file uses: `print` imported from the
     runtime module, and imports written as ES imports. jshost *)
 let runtime_host =
-  { operations = [ ("print", "print") ]; importing = Some module_import }
+  {
+    operations = [ ("print", "print"); ("debug", "debug") ];
+    importing = Some module_import;
+  }
 
 (* --- the files a program becomes --- *)
 
@@ -216,10 +252,12 @@ let beside output_path name =
     Module.t -> string *)
 let source_of (unit : Module.t) = Filename.basename unit.path
 
-(** Whether a module reaches the world at all, and so needs `print`
-    brought in. [jsstmt] -> bool *)
-let prints js_program =
-  uses (function JsRuntimeCall _ -> true | _ -> false) js_program
+(** Whether a module calls one host-crossing builtin, and so needs it
+    brought in. [jsstmt] -> string -> bool *)
+let calls js_program name =
+  uses
+    (function JsRuntimeCall (_, used, _) -> used = name | _ -> false)
+    js_program
 
 (** Whether a module calls one of the runtime's formatters, which is how
     it says it needs that one imported. [jsstmt] -> string -> bool *)
@@ -259,26 +297,38 @@ let manifest_declares_module text =
   in
   go 0
 
-(** The host code every file of a program shares: `print`, and the
-    formatting builtin.ml lays down for it. Both targets print
-    with console.log -- the page's output goes to the browser console,
-    which is where a reader of a compiled program looks.
-    () -> string *)
-let shared_runtime () =
+(** The host code every file of a program shares: `print` and `debug`,
+    and the formatting builtin.ml lays down for them. On node `print`
+    writes with console.log; in a browser it writes through the `io`
+    library's `write_line`, which a page embedding the program may
+    replace. `debug` writes with console.error on both.
+    string -> string *)
+let shared_runtime target =
+  let browser = Targets.family_of target = Targets.Web in
   String.concat "\n"
-    [
-      "// The host half of a compiled Pyking program: what it needs from the";
-      "// world. Every module of the program imports this one.";
-      "";
-      format_js;
-      "";
-      float_js;
-      "";
-      print_via "console.log";
-      "";
-      "export { print, pykFloatStr, pykShaped };";
-      "";
-    ]
+    ([
+       "// The host half of a compiled Pyking program: what it needs from the";
+       "// world. Every module of the program imports this one.";
+     ]
+    @ (if browser then
+         [ Printf.sprintf "import { write_line } from './%s';" browser_io ]
+       else [])
+    @ [
+        "";
+        format_js;
+        "";
+        float_js;
+        "";
+        conversion_js;
+        "";
+        line_via "print" (if browser then "write_line" else "console.log");
+        "";
+        line_via "debug" "console.error";
+        "";
+        "export { print, debug, pykFormat, pykFloatStr, pykShaped, pykParseInt, pykTrunc,";
+        "  pykParseFloat };";
+        "";
+      ])
 
 (** One module of a program: its compiled body, `print` brought in where
     it needs it, its imports, and -- unless it is the program's own
@@ -298,9 +348,10 @@ let js_module (unit : Module.t) js_program renames main target =
     ]
   in
   let wanted =
-    (if prints js_program then [ "print" ] else [])
-    @ (if uses_name js_program "pykFloatStr" then [ "pykFloatStr" ] else [])
-    @ if uses_name js_program "pykShaped" then [ "pykShaped" ] else []
+    List.filter (calls js_program) [ "print"; "debug" ]
+    @ List.filter (uses_name js_program)
+        [ "pykFormat"; "pykFloatStr"; "pykShaped"; "pykParseInt"; "pykTrunc";
+          "pykParseFloat" ]
   in
   let lines =
     if wanted = [] then lines
@@ -323,7 +374,9 @@ let js_module (unit : Module.t) js_program renames main target =
 
 (** The page a `web` program is opened with: a loader and nothing else.
     The program prints to the browser console, so there is nothing for
-    the page itself to show. string -> string -> string *)
+    the page itself to show. The loader writes out a line `io.write` left
+    unfinished once the program stops, and reports a `sys.exit` with a
+    status other than 0. string -> string -> string *)
 let web_page module_name source =
   String.concat "\n"
     [
@@ -331,7 +384,17 @@ let web_page module_name source =
       "<html lang=\"en\">";
       "<meta charset=\"utf-8\">";
       Printf.sprintf "<title>%s</title>" source;
-      Printf.sprintf "<script type=\"module\" src=\"./%s\"></script>" module_name;
+      "<script type=\"module\">";
+      Printf.sprintf "import { flush } from './%s';" browser_io;
+      "try {";
+      Printf.sprintf "  await import('./%s');" module_name;
+      "} catch (error) {";
+      "  if (error === null || error.pykExit === undefined) throw error;";
+      "  if (error.pykExit !== 0) console.log(`exited with status ${error.pykExit}`);";
+      "} finally {";
+      "  flush();";
+      "}";
+      "</script>";
       "";
     ]
 
@@ -370,7 +433,7 @@ let package_program target units output_path stdout =
                     ( beside output_path (unit.name ^ ".js"),
                       js_module unit js_program renames false target ))
               (List.filteri (fun i _ -> i < count - 1) units)
-          @ [ (beside output_path runtime_module, shared_runtime ()) ]
+          @ [ (beside output_path runtime_module, shared_runtime target) ]
           (* The manifest is node's alone: it is what makes node read a
              plain `.js` as an ES module. A browser decides that from the
              script tag and never looks at a package.json, so the `web`
@@ -405,9 +468,11 @@ let interpreter_module = "pyking.js"
     program's own sources, and the call that runs them. The sources are
     inlined rather than fetched so the page needs no second round trip
     and no fetch permissions -- it is still served, because a module
-    script is.
-    string -> [string] -> [(string, string)] -> string *)
-let interpreted_page main sources externals =
+    script is. `release` has the page run the program with every call to
+    `debug` removed, which is what --release means for a program that is
+    interpreted rather than compiled.
+    bool -> string -> [string] -> [(string, string)] -> string *)
+let interpreted_page ?(release = false) main sources externals =
   let quoted text =
     (* Inlined into a <script>, so the one sequence that must not appear
        literally is a closing tag. *)
@@ -465,10 +530,16 @@ let interpreted_page main sources externals =
                (fun (name, _) -> Printf.sprintf "%s: pykExt_%s" name name)
                externals)
         ^ "};";
-        "globalThis.pykOnPrint = (line) => console.log(line.replace(/\\n$/, ''));";
+        "// `print` writes through the `io` library, as a compiled page's does,";
+        "// and `debug` to the console.";
+        "globalThis.pykOnPrint = (line) => pykExt_io.write(line);";
+        "globalThis.pykOnDebug = (line) => console.error(line.replace(/\\n$/, ''));";
         "";
-        Printf.sprintf "const result = JSON.parse(pykRunProgram('%s'));" main;
+        Printf.sprintf "const result = JSON.parse(pykRunProgram('%s%s'));" main
+          (if release then "\\nrelease" else "");
+        "pykExt_io.flush();";
         "if (!result.ok) console.error(result.text);";
+        "else if (result.exit) console.log(`exited with status ${result.exit}`);";
         "</script>";
         "";
       ])

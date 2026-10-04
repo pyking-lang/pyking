@@ -3,7 +3,7 @@ def added(n:Int) -> Int:
 def held(n:a) -> a:
     n
 def shown(v:Int) -> String:
-    str(v)
+    string(v)
 def kept(v:a) -> a:
     v
 def chosen(c:Bool, x:a) -> a:

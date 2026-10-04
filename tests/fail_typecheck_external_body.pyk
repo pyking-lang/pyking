@@ -1,6 +1,6 @@
 # A signature with no body, in a module that is not a declaration file.
 #
-# `.external.pyk` is what says "implemented for a target"; a plain
+# `_external.pyk` is what says "implemented for a target"; a plain
 # `.pyk` promises Pyking all the way down, so a signature there still
 # has to describe a `def` in the same block.
 #

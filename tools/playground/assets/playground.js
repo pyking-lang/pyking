@@ -12,7 +12,7 @@
 // directory can be moved or served from a sub-path unchanged.
 
 import {
-  JsRunner, createRuntime, ensureEditor, fetchJSON,
+  JsRunner, createRuntime, ensureEditor, fetchJSON, splitArguments,
 } from "../webrun/web.js";
 
 const STORAGE_KEY = "pyking-playground.settings";
@@ -89,6 +89,9 @@ class Playground {
     this.running = null;       // {origin, kind} while something executes
     this.stopped = false;      // last run ended by the user, not by itself
     this.settings = { ...DEFAULT_SETTINGS, ...loadSettings() };
+    // What the last run was given to read and as its arguments, offered
+    // again the next time a program asks for them.
+    this.input = { stdin: "", args: "" };
   }
 
   async init() {
@@ -180,6 +183,7 @@ class Playground {
       }
       if (event.key !== "Enter") return;
       if (!ui.modal.classList.contains("pyk-hidden")) return;
+      if (!ui.inputModal.classList.contains("pyk-hidden")) return;
       if (event.target?.closest?.(".ace_editor")) return;
       const accel = event.ctrlKey || event.metaKey;
       if (!accel && !event.shiftKey) return;
@@ -385,7 +389,10 @@ class Playground {
     try {
       if (!(await this.ensureRuntime())) return;
       this.clearError();
-      await this.executeProgram(this.left.getValue());
+      const source = this.left.getValue();
+      const input = await this.askForInput(source);
+      if (input === null) return;
+      await this.executeProgram(source, input);
     } finally {
       this.endRun();
     }
@@ -406,12 +413,75 @@ class Playground {
     }
   }
 
-  async executeProgram(source) {
+  /** What the program reads and is passed, asked of the user before it
+   *  runs -- and only where the program uses one: a program that never
+   *  reads standard input is not interrupted by a box asking for it.
+   *  Resolves to {stdin, args}, or to null if the dialog was cancelled.
+   *  A program that does not check is not asked about: running it reports
+   *  the refusal. String -> Promise<{stdin, args}?> */
+  async askForInput(source) {
+    let analysis;
+    try {
+      analysis = await this.runtime.analyze(source);
+    } catch {
+      return { stdin: "", args: [] };
+    }
+    if (!analysis.ok || !(analysis.stdin || analysis.args)) {
+      return { stdin: "", args: [] };
+    }
+    const { ui } = this;
+    ui.inputStdinField.classList.toggle("pyk-hidden", !analysis.stdin);
+    ui.inputArgsField.classList.toggle("pyk-hidden", !analysis.args);
+    ui.inputStdin.value = this.input.stdin;
+    ui.inputArgs.value = this.input.args;
+    ui.inputModal.classList.remove("pyk-hidden");
+    (analysis.stdin ? ui.inputStdin : ui.inputArgs).focus();
+    const chosen = await new Promise((resolve) => {
+      const done = (value) => {
+        ui.inputRun.removeEventListener("click", onRun);
+        ui.inputCancel.removeEventListener("click", onCancel);
+        ui.inputModal.removeEventListener("keydown", onKey);
+        ui.inputModal.classList.add("pyk-hidden");
+        resolve(value);
+      };
+      const onRun = () => done(true);
+      const onCancel = () => done(false);
+      const onKey = (event) => {
+        if (event.key === "Escape") done(false);
+        else if (event.key === "Enter" && (event.ctrlKey || event.metaKey
+                 || event.target === ui.inputArgs)) {
+          event.preventDefault();
+          done(true);
+        }
+      };
+      ui.inputRun.addEventListener("click", onRun);
+      ui.inputCancel.addEventListener("click", onCancel);
+      ui.inputModal.addEventListener("keydown", onKey);
+    });
+    this.left.focus();
+    if (!chosen) {
+      this.note("— not run —");
+      return null;
+    }
+    this.input = { stdin: ui.inputStdin.value, args: ui.inputArgs.value };
+    return {
+      stdin: analysis.stdin ? this.input.stdin : "",
+      args: analysis.args ? splitArguments(this.input.args) : [],
+    };
+  }
+
+  async executeProgram(source, input = { stdin: "", args: [] }) {
     try {
       const result = await this.runtime.runProgram(source, {
         onOutput: (text) => this.write(text),
+        onDebug: (text) => this.debugLine(text),
+        onInput: (text) => this.write(text, "input"),
+        stdin: input.stdin,
+        args: input.args,
       });
-      if (result.ok) {
+      if (result.ok && result.exit) {
+        this.error(`— exited with status ${result.exit} —`);
+      } else if (result.ok) {
         this.good("— finished —");
       } else {
         // A refusal and a runtime error arrive in the same shape; only a
@@ -435,6 +505,7 @@ class Playground {
         formatHelper: this.meta.formatHelper,
         main: this.current,
         onOutput: (text) => this.write(text),
+        onDebug: (text) => this.debugLine(text),
       });
       this.good(`— ${target} finished —`);
     } catch (err) {
@@ -556,6 +627,13 @@ class Playground {
     if (this.settings.scrollOutput) {
       this.ui.output.scrollTop = this.ui.output.scrollHeight;
     }
+  }
+  /** A `debug` line: in the pane, marked apart from what the program
+   *  printed, and on the console, which is where a JavaScript program's
+   *  `debug` goes. */
+  debugLine(text) {
+    this.write(text, "debug");
+    console.log(text.replace(/\n$/, ""));
   }
   note(text) { this.write(text + "\n", "note"); }
   good(text) { this.write(text + "\n", "good"); }
@@ -820,6 +898,35 @@ function buildDom(host, meta, cfg) {
           <pre class="pyk-output" data-r="output"></pre>
         </div>
       </section>
+    </div>
+    <div class="pyk-modal-backdrop pyk-hidden" data-r="inputModal">
+      <div class="pyk-modal" role="dialog" aria-modal="true"
+           aria-label="What the program reads">
+        <div class="pyk-modal-head">
+          <strong>Before it runs</strong>
+        </div>
+        <div class="pyk-modal-body">
+          <div class="pyk-field" data-r="inputStdinField">
+            <label for="pyk-input-stdin">Standard input</label>
+            <textarea id="pyk-input-stdin" class="pyk-input-text" rows="6"
+                      spellcheck="false" data-r="inputStdin"></textarea>
+            <p class="pyk-hint">What io.read_line, io.read and io.is_eof
+              read, one line at a time.</p>
+          </div>
+          <div class="pyk-field" data-r="inputArgsField">
+            <label for="pyk-input-args">Arguments</label>
+            <input id="pyk-input-args" class="pyk-input-line" type="text"
+                   spellcheck="false" data-r="inputArgs">
+            <p class="pyk-hint">What sys.args() answers: separated by spaces,
+              quoted to keep a space inside one.</p>
+          </div>
+          <div class="pyk-field-row pyk-input-buttons">
+            <span class="pyk-spacer"></span>
+            <button data-r="inputCancel">Cancel</button>
+            <button class="pyk-primary" data-r="inputRun">▶ Run</button>
+          </div>
+        </div>
+      </div>
     </div>
     <div class="pyk-modal-backdrop pyk-hidden" data-r="modal">
       <div class="pyk-modal" role="dialog" aria-modal="true"

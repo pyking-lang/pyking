@@ -17,7 +17,7 @@
       loop -- one `loop` in progress.
       runtime -- what a run never changes.
       state -- a machine state.
-      host -- where print goes.
+      host -- where print and debug go.
 
     Functions:
       run_program stmts host -- runs a whole program to completion.
@@ -26,6 +26,10 @@
       run state steps -- steps until the machine stops or steps run out.
       run_modules units host -- runs a program of several modules, each
         in a top level of its own, in dependency order.
+      load_modules state units exports -- the same, into a machine
+        already running.
+      bind_imports state stmts exports -- an entry's imports, bound.
+      with_host state host -- the machine with another host.
       eval_statement state stmt -- runs one statement in an existing
         machine's environment (for the REPL).
       format_value value / display_value value -- formats a value as
@@ -208,6 +212,9 @@ type externals = {
 
 type host = {
   print_line : string -> unit;
+  (* Where `debug` writes: the host's diagnostic channel, kept apart
+     from what the program prints. *)
+  debug_line : string -> unit;
   (* A module implemented in a target language has no AST to interpret,
      so a host that cannot call into that language leaves this None and
      a program importing one is refused before it runs (docs/modules.md,
@@ -221,12 +228,20 @@ type host = {
 let console_host =
   {
     print_line = (fun text -> print_string text; print_newline ());
+    debug_line = (fun text -> prerr_string text; prerr_newline ());
     externals = None;
   }
 
-(** A host that hands each printed line to a function.
-    (string -> ()) -> host *)
-let callback_host ?externals write_line = { print_line = write_line; externals }
+(** A host that hands each printed line to a function, and each `debug`
+    line to another -- standard error unless one is given.
+    externals? -> (string -> ())? -> (string -> ()) -> host *)
+let callback_host ?externals ?debug_line write_line =
+  let debug_line =
+    match debug_line with
+    | Some debug_line -> debug_line
+    | None -> fun text -> prerr_string text; prerr_newline ()
+  in
+  { print_line = write_line; debug_line; externals }
 
 (* --- environments --- *)
 
@@ -648,11 +663,27 @@ let range_list start stop step info =
 let apply_builtin name args info host =
   match (name, args) with
   | name, _ when Builtin.crosses_host name ->
-      host.print_line (String.concat " " (List.map format_value args));
+      let line = String.concat " " (List.map format_value args) in
+      if Builtin.is_debug name then host.debug_line line
+      else host.print_line line;
       unit_value
-  | "str", [ value ] -> VString (format_value value)
+  | "string", [ value ] -> VString (format_value value)
+  (* The conversions answer a default where there is no right answer,
+     by the rules builtin.ml states. *)
+  | "int", [ VInt n ] -> VInt n
+  | "int", [ VFloat x ] -> VInt (Builtin.truncate_float x)
+  | "int", [ VBool b ] -> VInt (if b then 1 else 0)
+  | "int", [ VString text ] ->
+      VInt (Option.value (Builtin.parse_int text) ~default:0)
   | "float", [ VInt n ] -> VFloat (float_of_int n)
-  | "int", [ VFloat x ] -> VInt (int_of_float (Float.trunc x))
+  | "float", [ VFloat x ] -> VFloat x
+  | "float", [ VBool b ] -> VFloat (if b then 1.0 else 0.0)
+  | "float", [ VString text ] ->
+      VFloat (Option.value (Builtin.parse_float text) ~default:Float.nan)
+  | "bool", [ VBool b ] -> VBool b
+  | "bool", [ VInt n ] -> VBool (n = 1)
+  | "bool", [ VFloat x ] -> VBool (x = 1.0)
+  | "bool", [ VString text ] -> VBool (text = "true")
   | "len", [ VString text ] -> VInt (String.length text)
   | "len", [ VList elements ] -> VInt (List.length elements)
   | "range", [ VInt stop ] -> range_list 0 stop 1 info
@@ -1661,8 +1692,23 @@ let run_entry state stmts =
     the spelling `EQualified` looks up. The same environment the checker
     builds for the same statements (Typesystem.import_env).
     [stmt] -> [(string, [(string, value)])] -> env *)
-let module_env stmts exports =
-  let brought =
+let rec module_env stmts exports =
+  let brought = imported_bindings stmts exports in
+  if brought = [] then top_level_env ()
+  else
+    {
+      bindings =
+        List.fold_left
+          (fun map (name, value) -> SMap.add name (ref value) map)
+          SMap.empty brought;
+      parent = Some (top_level_env ());
+    }
+
+(** What a module's imports bring in, as each name it is known by here
+    and its value: a selected name under its local name, and a field of a
+    plain import under `alias.field`.
+    [stmt] -> [(string, [(string, value)])] -> [(string, value)] *)
+and imported_bindings stmts exports =
     List.fold_left
       (fun brought statement ->
         match statement with
@@ -1678,16 +1724,6 @@ let module_env stmts exports =
               brought fields
         | _ -> brought)
       [] stmts
-  in
-  if brought = [] then top_level_env ()
-  else
-    {
-      bindings =
-        List.fold_left
-          (fun map (name, value) -> SMap.add name (ref value) map)
-          SMap.empty brought;
-      parent = Some (top_level_env ());
-    }
 
 (** What a module leaves for the modules that import it: the value each
     of its public names ended up with. Read from the environment the
@@ -1718,17 +1754,15 @@ let host_values signatures name host =
           | _ -> (field, externals.field name field))
         signatures
 
-(** Runs a program of several modules, each in a top level of its own,
-    in the order given -- which is dependency order, so a module runs
-    after everything it imports (docs/modules.md, "Running a program of
-    several modules"). The state answered is the last module's, so
-    `failure` and `stack_trace` report a failure in whichever module hit
-    it and the run stops there.
-    Each unit is a module's name, its Pyking half and its declaration
-    half -- a module is up to two files, and both are needed here: the
-    declarations are what the host answers for.
-    [(string, [stmt], [stmt])] -> host -> state *)
-let run_modules ?(max_depth = max_call_depth) units host =
+(** Runs modules into a machine that is already running -- what a REPL
+    entry's imports do -- each in a top level of its own and in the order
+    given, against the modules `exports` already holds. Answers the
+    machine, with the modules' call-free table added to its own, and the
+    exports with theirs added; where one failed, the failed machine, so
+    `failure` and `stack_trace` report it.
+    state -> [(string, [stmt], [stmt])] -> [(string, [(string, value)])]
+    -> (state, [(string, [(string, value)])]) *)
+let load_modules machine units exports =
   (* One call-free table for the whole program, not one per module: a
      closure a module exports is called from the module that imported
      it, and the table it is read against is the calling machine's.
@@ -1737,12 +1771,13 @@ let run_modules ?(max_depth = max_call_depth) units host =
   let simple =
     List.fold_left
       (fun simple (_, stmts, _) -> IntSet.union simple (call_free_symbols stmts))
-      IntSet.empty units
+      machine.runtime.simple units
   in
-  let runtime = { host; simple; max_depth } in
-  let rec go units exports last =
+  let runtime = { machine.runtime with simple } in
+  let host = runtime.host in
+  let rec go units exports =
     match units with
-    | [] -> last
+    | [] -> ({ machine with runtime }, exports)
     | (name, [], declarations) :: rest ->
         (* Only a declaration half: there is no top level to run, and
            what it exports is the host's, bound here for the modules
@@ -1750,7 +1785,6 @@ let run_modules ?(max_depth = max_call_depth) units host =
         go rest
           (exports
           @ [ (name, host_values (Module.external_signatures declarations) name host) ])
-          last
     | (name, stmts, declarations) :: rest ->
         (* A module's own declaration half is in scope in its Pyking
            half, unqualified and private ones included: the two files
@@ -1773,7 +1807,7 @@ let run_modules ?(max_depth = max_call_depth) units host =
             }
             stmts
         in
-        if failure state <> None then state
+        if failure state <> None then (state, exports)
         else
           go rest
             (exports
@@ -1786,7 +1820,32 @@ let run_modules ?(max_depth = max_call_depth) units host =
                          (Module.public_declarations declarations))
                       name host );
               ])
-            state
   in
-  go units []
-    (run (initial_state ~max_depth [] host))
+  go units exports
+
+(** Runs a program of several modules, each in a top level of its own,
+    in the order given -- which is dependency order, so a module runs
+    after everything it imports (docs/modules.md, "Running a program of
+    several modules"). The state answered is the last module's, so
+    `failure` and `stack_trace` report a failure in whichever module hit
+    it and the run stops there.
+    Each unit is a module's name, its Pyking half and its declaration
+    half -- a module is up to two files, and both are needed here: the
+    declarations are what the host answers for.
+    [(string, [stmt], [stmt])] -> host -> state *)
+let run_modules ?(max_depth = max_call_depth) units host =
+  fst (load_modules (run (initial_state ~max_depth [] host)) units [])
+
+(** machine with an entry's imports bound: each selected name under the
+    name it is known by here, and each field of a plain import under
+    `alias.field`, from the modules `exports` holds.
+    state -> [stmt] -> [(string, [(string, value)])] -> state *)
+let bind_imports machine stmts exports =
+  match imported_bindings stmts exports with
+  | [] -> machine
+  | brought -> { machine with env = extend_all machine.env brought }
+
+(** machine with host in place of the one it had: how a REPL gives the
+    machine a module implemented in a target language once an entry has
+    imported one. state -> host -> state *)
+let with_host machine host = { machine with runtime = { machine.runtime with host } }

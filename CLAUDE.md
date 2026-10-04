@@ -19,8 +19,10 @@ Concretely:
   outside the standard library — no opam packages — which is what lets
   `src/web/` compile the same code to JavaScript with js_of_ocaml for the
   playground; only the executable links `unix`, for the process handling
-  `--run` and the terminal handling the REPL need. `docs/build.md` is
-  the long form. The eventual self-hosted rewrite — the compiler written
+  `--run` and the terminal handling the REPL need, and `dynlink`, for
+  the interpreter's plugins (`src/plugin_host.ml`, with the one module a
+  plugin names in a library of its own, `src/plugin/`). `docs/build.md`
+  is the long form. The eventual self-hosted rewrite — the compiler written
   in Pyking itself — is meant to replace these modules in place, here,
   rather than live in a second, separate directory; there is no other
   reserved location for it.
@@ -101,7 +103,9 @@ last ones are the ones that get forgotten:
    you would notice: `symbolize` would leave the node at symbol `0`, and
    `children` would leave every whole-subtree question blind to it. Every
    *other* `match` over the AST the compiler does catch, which is the
-   whole reason the AST is a variant type. `typesystem.ml` does need a
+   whole reason the AST is a variant type -- `release.ml`'s rewrite
+   among them, which a construct holding an expression or a block needs
+   a case in so a `debug` inside it is removed. `typesystem.ml` does need a
    decision, but only a cheap one — either check the construct or let it
    fall through to `Construct is not supported`, which is what every
    construct it has not reached yet already does. But it is not really
@@ -333,7 +337,7 @@ The bootstrap is split into one module per compiler stage:
    only the stages after that need.
 
    **External modules** are here too, and **a module is up to two
-   files**: `sys.pyk` and `sys.external.pyk` are one module `sys`, the
+   files**: `sys.pyk` and `sys_external.pyk` are one module `sys`, the
    first written in Pyking against what the second declares. Either may
    stand alone. `module_file` answers with whichever halves a level
    holds -- both always come from one place -- and `read_module` keeps
@@ -352,8 +356,19 @@ The bootstrap is split into one module per compiler stage:
    `implementation_name` says what the implementation is called on each
    target -- always `<module>_external.<ext>`, because `sys.js` is the
    file generated from `sys.pyk` -- and `implementation_path` checks it
-   exists. `external_sigmap` is a declaration half's *public* names, and
-   `module_sigmap` is both halves together.
+   exists. JavaScript runs in two environments, so a module has one
+   implementation for each, **`<module>_external_node.js`** for `node24`
+   and **`<module>_external_browser.js`** for `web24` and `iweb24`, and
+   either is copied out as `<module>_external.js`. A file named
+   `<name>_external.pyk` is always a module's external half, so a name
+   ending in `_external` cannot be imported (`refuse_external_half`).
+   `found_implementation` finds a module's implementation the way an
+   import would find the module, which is how a browser page ships `io`
+   for `print` when the program imports nothing. `external_sigmap` is a
+   declaration half's *public* names, and `module_sigmap` is both halves
+   together. `Context.own_declared` is the module's own declarations with
+   their types, private ones included, which C and Java need to call
+   their own declaration half.
 
    **`reached_module` is the one place a backend asks which half
    provides a name**, so none of them decides for itself: `foo.g1`
@@ -361,17 +376,21 @@ The bootstrap is split into one module per compiler stage:
    written in Pyking, and the generated file imports the implementation
    too, which is what lets the Pyking half call a private declaration.
    C is the exception -- a name there is `<module>_<field>` whichever
-   half provides it -- and C and Java refuse a module in two halves
-   outright, since neither emits that call yet. `pyk.ml` copies the
-   implementation beside the program's output for any module with a
-   declaration half, skipping a copy onto itself, and a module
+   half provides it. C and Java both compile a module in two halves: the
+   generated file declares (C) or reaches through the implementation's
+   class (Java) the names its own declaration half provides. `pyk.ml`
+   copies the implementation beside the program's output for any module
+   with a declaration half, skipping a copy onto itself, and a module
    contributes *two* files to every file list, implementation first. See
-   `docs/modules.md`, "External modules". The two front ends that
-   compile a file with no program around it -- the REPL and the browser
-   playground -- run `check_publics` (it needs only the file) and let
-   `typesystem.available` refuse an import (it needs the program); the
-   playground additionally offers neither a program that imports nor a
-   module it imports as an example. See `docs/modules.md`.
+   `docs/modules.md`, "External modules". The playground's Compile
+   compiles a file with no program around it: it runs `check_publics`
+   (it needs only the file) and lets `typesystem.available` refuse an
+   import (it needs the program), and offers neither a program that
+   imports nor a module it imports as an example. The REPL and the
+   browser's Run are programs: **`load_imports`** reads the modules an
+   entry at the prompt newly reaches, prepared the way `load` prepares a
+   program's (both through `prepare`), and the browser reads the
+   standard library through the page. See `docs/modules.md`.
 5. **`src/analyses.ml`** — static analyses over the parsed AST, run
    between the parser and any backend; errors raise
    `Analysis_error (info, message)`. The one the driver runs is
@@ -486,6 +505,24 @@ The bootstrap is split into one module per compiler stage:
    *types*, which only the checker can see; `docs/optimization.md` is
    the long form, including that case and the `fail_tco_*` tests that
    pin it.
+
+   Two more passes of the same kind sit beside it. **`src/release.ml`**
+   is `--release`: every call to the builtin `debug` removed, arguments
+   and all, after `elaborate.ml` and before this pass, for every module
+   -- one in value position becomes `()`, and one written as a statement
+   is dropped wherever that leaves its block's value as it was, and is
+   otherwise the statement `()`, which every backend compiles to nothing
+   (C and Java emit no statement for it). The builtin is told from a
+   program's own `debug` by `tmap`: the checker records a type for a
+   callee it resolved to a definition and none for a builtin. See
+   `docs/release.md`. **`src/prune.ml`** is what a program uses of the
+   modules it imports, run by `pyk.ml` for the C and Java targets only:
+   every module but the program's own loses the definitions nothing
+   reaches, and every import is narrowed to the names used -- so a
+   library's function nobody calls, `sys.env_get` walking a list, does
+   not keep `sys.exit` out of C. See `docs/modules.md`, "What a program
+   uses". The browser bundle's `pykAnalyze` reads the same narrowed
+   imports.
 7. **`src/typesystem.ml`** — the type checker, run for every mode and
    every target, after `symbolize` and before anything else reads the
    program: Pyking is statically typed and there is no flag for it. It
@@ -701,9 +738,10 @@ The bootstrap is split into one module per compiler stage:
      already gets. Unification is sound, so it should never refuse
      anything, and it earns its keep twice over: it makes "a type this
      checker reports is one it enforces" true by construction, and its
-     *failure* is how the four overloaded names are handled at all. The
-     builtins `str` and `len` and the operators `==` and `++` each
-     accept several types and no one type, so
+     *failure* is how the overloaded names are handled at all. The
+     builtins `string`, `len`, `int`, `float` and `bool` and the
+     operators `==` and `++` each accept several types and no one type,
+     so
      a body using one on a parameter generalises to a promise it cannot
      keep; the re-check says so, the definition keeps its monotype, and
      the first call settles it.
@@ -748,11 +786,22 @@ The bootstrap is split into one module per compiler stage:
    further down.
 
 8. **`src/builtin.ml`** — the builtins: the names a Pyking program may
-   call without binding them (`print`, `range`, `str`, `len`, `float`,
-   `int`), and what
+   call without binding them (`print`, `debug`, `range`, `string`, `len`,
+   `int`, `float`, `bool`), and what
    every stage has to agree about each one — its arity, whether calling
    it can be observed outside the program (`crosses_host`), and what it
-   does. One table, read by the checker, the interpreter and every
+   does. **`debug`** is `print`'s twin, writing to standard error where
+   the host has one (`is_debug` says which of the two a call is), and
+   the builtin `--release` removes; every backend checks that a call
+   named `print` or `debug` reaches the builtin rather than a program's
+   own definition of that name. The conversions **`string`**, **`int`**,
+   **`float`** and **`bool`** answer a default where there is no right
+   answer (0, NaN, false) -- a stand-in for the option type they will
+   answer once Pyking has one -- and the rules for reading a String and
+   truncating a Float are here (`parse_int`, `parse_float`,
+   `truncate_float`, signed 32-bit), since no host's own parser reads
+   the same strings: every backend checks the text itself, in a helper
+   it emits only where one is used. One table, read by the checker, the interpreter and every
    backend, which is why it sits before `analyses.ml` in the module
    graph. Backend-agnostic by construction: it holds no Python and no
    JavaScript, and the value-formatting rules are stated here too, since
@@ -791,10 +840,18 @@ The bootstrap is split into one module per compiler stage:
    `web24` (the same modules plus an HTML file that loads them) and
    `iweb24` (which compiles nothing: the page ships the Pyking source
    and the interpreter). `node24` and `web24` emit *identical*
-   JavaScript -- ES modules printing with `console.log` -- so the only
-   difference between them is the extra page. It owns the JavaScript
-   side of the runtime interface: `pyk-runtime.js`, holding `print` and
-   the shared `pykFormat` that every module of a program imports.
+   JavaScript for a program's own modules, so the differences between
+   them are the extra page and where `print` goes. It owns the
+   JavaScript side of the runtime interface: `pyk-runtime.js`, holding
+   `print`, `debug` and the shared `pykFormat` that every module of a
+   program imports. `print` is `console.log` under node and, in a
+   browser, `write_line` from the `io` library's browser implementation
+   (`io_external.js`, shipped with every web program), so a page
+   embedding the program replaces one file to own its standard output;
+   `debug` is `console.error` everywhere. The web page is a loader that
+   flushes what `io.write` left unfinished and reports a nonzero
+   `sys.exit`; the `iweb24` page asks the bundle for
+   `pykRunProgram('<main>\nrelease')` under `--release`.
 11. **`src/target_c.ml`** — the C backend, serving both the `c89` and
    `c23` targets: a `C*` AST, translation, and a printer taking a
    `standard` parameter. One backend rather than two because the
@@ -977,9 +1034,15 @@ The bootstrap is split into one module per compiler stage:
    environment — what a prompt does, and what a debugger's "evaluate in
    this frame" will do), `result`, `failure`, `stack_trace`,
    `format_value`/`display_value` (emitting a value and showing one —
-   they differ over quoting a string), and the `Host` classes.
-   `Host` has one method per host-crossing entry in `builtin.ml`; the
-   formatting rules are that module's, implemented once here.
+   they differ over quoting a string), `load_modules`/`bind_imports`/
+   `with_host` (modules run into a machine already running, an entry's
+   imports bound, and another host -- what a REPL entry's imports need),
+   and the hosts. A host has one field per host-crossing entry in
+   `builtin.ml` -- `print_line`, and `debug_line`, standard error unless
+   a host says otherwise -- and `externals`, how a module implemented in
+   a target language is reached: `pyk`'s plugins (`plugin_host.ml`) in a
+   terminal, the page's JavaScript in a browser. The formatting rules
+   are `builtin.ml`'s, implemented once here.
 
    Two things that are language decisions rather than implementation
    ones: an `Int` holds **at least the signed 32-bit range, and
@@ -1005,11 +1068,18 @@ The bootstrap is split into one module per compiler stage:
    one written before it. Do not go back to checking the accumulated
    program as one block: that made the checker describe a program the
    machine was not running.
-   An **import is refused at the prompt**, and by the checker rather
-   than by anything here: an import needs the module system, and a
-   session is one file on its own. `typesystem.available` is where that
-   is said, so the REPL and the playground get the same words.
-   `Session(seen, state, types, store, kinds, sources)` holds the two
+   An **entry may import**: `import_modules` hands its imports to
+   `Module.load_imports`, checks each module they newly reach as a
+   program's would be checked (`check_import`), loads its plugin if it
+   is implemented in a target language, and runs its top level into the
+   session (`Interpreter.load_modules`); the checker's `store.modules`
+   and the machine's `exports` then hold what it exports, and
+   `Typesystem.import_env`/`Interpreter.bind_imports` bring the entry's
+   imported names into the two environments. A module is loaded once per
+   session. The program's standard input is the session's own, so at a
+   piped prompt `io.read_line()` reads the next line of the entries'
+   input. `Session(seen, state, types, store, kinds, sources, arguments,
+   libs, modules, sigmaps, exports, plugins)` holds the two
    environments --
    the machine's and the checker's, extended in step -- plus every
    statement the session has seen (which exists only so `symbolize` keeps
@@ -1081,9 +1151,15 @@ The bootstrap is split into one module per compiler stage:
    `module.load` gives: check against the signatures of the ones it
    imports, then take its own signature for the next one. Three commands:
    `pyk <file>` interprets it; `pyk repl` starts the REPL; `pyk compile`
-   (alias `pyk c`) compiles, which is what every flag above is for.
+   (alias `pyk c`) compiles, which is what every flag above is for, and
+   `--release` with it -- `release.ml` over every module, refused for any
+   other command. `pyk <file>` loads each external module's plugin first
+   (`Plugin_host.load`) and sets `Sys.argv` to the program's own, and
+   `pyk compile` hands the C and Java backends `Prune.program`'s output.
    Flags are shared by all three rather than per-command, so `--tokens`
-   means the same thing wherever it is written. Two more, `pyk notebook
+   means the same thing wherever it is written. `pyk plugins <dir>`
+   builds the plugin of every library in a directory of libraries, which
+   is what `make libs` runs over `lib/`. Two more, `pyk notebook
    FILE.md` and `pyk playground`, run no front end at all: `command_web`
    hands them to `web_tools.ml`, and `--port` is theirs alone.
    Errors: `ERROR_KINDS` pairs each front-end exception with its label,
@@ -1153,6 +1229,25 @@ The bootstrap is split into one module per compiler stage:
    the root. `pyk --version` prints it and `tools/packaging/` names
    packages by it. Bump `VERSION` for a release; nothing else holds the
    number.
+22. **`src/plugin_host.ml`** — how the interpreter reaches a module
+   implemented in a target language: its OCaml implementation,
+   `<module>_external.ml` -- the file the `ocaml5.5` target links --
+   compiled with a registration file generated from its declarations
+   into a `.cmxs` and loaded with Dynlink, so `pyk` runs every external
+   module without being rebuilt. The registration file records each
+   declared name in **`src/plugin/pyk_plugin.ml`**, a one-module library
+   of its own (unwrapped, linked only into the executable, its `.cmi`
+   copied to `build/plugin/` by `make` so a plugin compiled elsewhere
+   can name it), and a value crosses by its declared type. A plugin
+   beside the implementation is used where the digest beside it
+   (`<module>_external.digest`: the sources, the registration file, the
+   OCaml and pyk versions, the interface) is what it would be built from
+   now; otherwise one is compiled into `$XDG_CACHE_HOME/pyking/plugins/`
+   with `$OCAMLOPT`, which must be the OCaml `pyk` was built by. The
+   executable links `dynlink` and is `-linkall`, so a plugin may use any
+   of Stdlib and `unix`. `set_arguments` makes `Sys.argv` the program's
+   own through `caml_sys_modify_argv`. See `docs/libraries.md`, "How the
+   interpreter reaches an OCaml implementation".
 
 When extending the lexer (new operators, keywords, string escapes, etc.),
 follow the existing pattern: add an arm to the `match rest with`
@@ -1221,18 +1316,28 @@ swaps which checker runs, not how a refusal reads.
 
 `src/web/` compiles the same library to JavaScript with js_of_ocaml, for
 `tools/playground/`. Two files: `pyking_web.ml`, which registers
-`pykCompile`, `pykRun`, `pykTargets`, `pykFormatHelper`, `pykKeywords`
-and `pykBuiltins` on the global object, and `stub.js`, the four
-`//Provides:` primitives that let it. Nothing in it is compiler logic —
-every entry goes through the same functions `pyk.ml` calls, and reports
-a refusal with the same `format_error`.
+`pykCompile`, `pykRun`, `pykRunProgram`, `pykAnalyze`, `pykTargets`,
+`pykFormatHelper`, `pykKeywords` and `pykBuiltins` on the global object,
+and `stub.js`, the `//Provides:` primitives that let it. Nothing in it is
+compiler logic — every entry goes through the same functions `pyk.ml`
+calls, and reports a refusal with the same `format_error`.
+`pykRunProgram` reads a program of several modules from what the page
+supplies (`pykSources`, and `pykFetchSource` for a name it did not,
+which is how a page reads the standard library from `lib/`), reaches a
+module implemented in JavaScript through `pykExternals`, sends a
+`debug` line to `pykOnDebug`, and ends with `{"ok":true,"exit":N}` where
+`sys.exit` ended it -- the JavaScript implementation throws an error
+carrying `pykExit`, and `stub.js` answers it as data. `pykAnalyze` says
+which of a program's modules are implemented in JavaScript and whether
+it reads standard input or `sys.args()`, from `prune.ml`'s narrowed
+imports.
 
 Two rules follow from it and are easy to break:
 
 - **The library must stay dependency-free.** Nothing in `src/`'s library
   half may open a file, start a process, read a terminal or link `unix`;
-  that is why `pyk.ml`, `execution.ml` and `repl.ml` are in the
-  executable instead. A `Unix.` call added to a library module breaks
+  that is why `pyk.ml`, `execution.ml`, `repl.ml` and `plugin_host.ml`
+  are in the executable instead. A `Unix.` call added to a library module breaks
   the playground, not the compiler, so nothing local will tell you.
 - **js_of_ocaml's `int` is 32 bits**, where a native one is 63. Anything
   that depends on the width has to say so explicitly. A Pyking `Int`
@@ -1273,7 +1378,18 @@ anything both pages need there rather than copying it.
   it is reloaded; each cell is a whole program, run on its own.
   `tools/notebook/assets/markdown.js` is a hand-written renderer, pure so
   node can test it; `tools/notebook/README.md` lists what Markdown it
-  supports and the cell attributes (`norun`, `readonly`, `error`).
+  supports, the cell attributes (`norun`, `readonly`, `error`), and the
+  ```` ```stdin ```` and ```` ```args ```` blocks that fill in the input
+  of the cell right after them.
+- **A program run in either page may use the standard library.** The
+  server serves `lib/` (`common_site`), the worker fetches a module's
+  sources and its browser implementation from there as the program names
+  it, and supplies `io` and `sys` itself: standard output is the page's
+  output, standard input and the arguments are what the page asked for
+  -- a dialog in the playground, fields above the cell in the notebook,
+  shown only when `pykAnalyze` says the program reads them -- and
+  `sys.exit` ends the run. A `debug` line is shown apart from the output,
+  and on the console.
 - Both are libraries as well as pages: `mountNotebook(host, options)` and
   `mountPlayground(host, options)` embed them in another site. Keep the
   host `index.html` pages thin.
@@ -1285,8 +1401,9 @@ needed only to *build* it. The one extra dependency is **Python 3.10 or
 later, standard library only, and only for someone who uses the notebook
 or the playground**; `pyk` and each server check the version and say so
 in one line. A distribution is a subset of this repository's tree at the
-same relative paths -- `pyk`, `lib/`, `build/pyking.js`, `tools/webrun/`
-(with `vendor/`), `tools/notebook/`, `tools/playground/` -- so the one
+same relative paths -- `pyk`, `lib/` (with its plugins),
+`build/pyking.js`, `build/plugin/`, `tools/webrun/` (with `vendor/`),
+`tools/notebook/`, `tools/playground/` -- so the one
 rule "look beside the executable" finds everything in a checkout and an
 install alike. Keep it that way: a web tool may not need anything outside
 those directories, and the playground runs (with no example menu) when
@@ -1302,8 +1419,14 @@ format is one class in its `FORMATS` table -- `name`, `refusal()`,
 and every format ships the tree `stage()` builds: the table `SHIPPED`,
 filtered by file suffix so no backup or cache file can reach a package.
 A file a web tool or `pyk` needs at run time has to be in `SHIPPED`, or
-the installed copy will not have it. `release_assets(v)` is the one list
-of what a release holds; a format that adds files adds them there.
+the installed copy will not have it. The two exceptions are built rather
+than copied: `stage()` ships the `pyk_plugin.cmi` of the build that made
+the binary (`interface`), and **`build_plugins()`** compiles the
+standard library's plugins in the staged tree with that binary's own
+toolchain -- a plugin loads only into an executable its own compiler
+built, so a `.cmxs` is never copied from the checkout.
+`release_assets(v)` is the one list of what a release holds; a format
+that adds files adds them there.
 
 - **Homebrew** (macOS): a universal `pyk` (arm64 + x86_64,
   `MACOSX_DEPLOYMENT_TARGET=11.0`), built on an Apple Silicon Mac by two
@@ -1314,22 +1437,29 @@ of what a release holds; a format that adds files adds them there.
   floor, read with `otool -l`), since a runtime compiled for a newer
   macOS makes the floor a lie. The halves are joined with `lipo`, signed
   ad hoc, and refused if `otool -L` shows a library outside `/usr/lib`
-  and `/System`. Beside the tarball go two formulas: `homebrew/pyking.rb`,
+  and `/System`. The plugins are built per architecture, each in a tree
+  staged around that architecture's binary and by its own switch, and
+  each plugin's slices are joined with `lipo` and signed. Beside the
+  tarball go two formulas: `homebrew/pyking.rb`,
   naming the release, and `homebrew-local/pyking.rb`, naming the local
   file, which `make packaging-install` installs through the tap
   `pyking-lang/local`.
-- **Linux** (every distribution, and WSL): `pyk` linked fully static
-  against musl -- dune's `static` profile in `src/dune`, which nothing
-  else uses -- in an Alpine container per architecture
-  (`tools/packaging/linux/Dockerfile`; the image's tag hashes the
-  Dockerfile and the OCaml version), the other architecture emulated.
-  It is refused unless its ELF header (`elf_info`) says static and the
-  right architecture, then run in a plain Debian container. Each
+- **Linux** (every distribution, and WSL): `pyk` linked dynamically
+  against glibc 2.28 -- dynamically because the interpreter loads
+  plugins, which a static binary cannot -- in an AlmaLinux 8 container
+  per architecture (`tools/packaging/linux/Dockerfile`; the image's tag
+  hashes the Dockerfile and the OCaml version), the other architecture
+  emulated. It is refused unless its ELF header (`elf_info`) says
+  dynamically linked and the right architecture, and it asks for no
+  glibc past `GLIBC_FLOOR` (`glibc_needed`); its plugins are then built
+  in the same container, and the staged tree -- a program importing
+  libraries included -- is run in current Debian and in Debian 10. Each
   architecture gives a tarball, which `tools/packaging/install.sh`
   installs (POSIX sh; `~/.local` by default, `--system`, `--version`,
   `--uninstall`, checksums checked against `SHA256SUMS`), and a `.deb`
   that `deb()` writes directly (an `ar` of two tarballs, so no `dpkg` is
-  needed), with `Recommends: python3 (>= 3.10)` and no `Depends`. Both
+  needed), with `Depends: libc6 (>= 2.28)` and `Recommends: python3
+  (>= 3.10)`. Both
   also go out under fixed names (`pyking-linux-x86_64.tar.gz`,
   `pyking_amd64.deb`), which `latest` links and install.sh ask for.
   `make packaging-install` on Linux runs install.sh against `build/`
@@ -1378,10 +1508,11 @@ pyk repl                             start the REPL
 pyk compile [options] <filename>     compile it (alias: pyk c)
 pyk notebook [--port N] <file.md>    serve a notebook, print a link
 pyk playground [--port N]            serve the playground, print a link
+pyk plugins <dir>                    build the interpreter's library plugins
 pyk --version                        print the version (from VERSION)
 
 options: [--tokens] [--symbols] [--no-tail-call-opt]
-         [--no-typechecking] [--type-experiment] [--run]
+         [--no-typechecking] [--type-experiment] [--run] [--release]
          [--target|-t <target>]
          [--lib-path|-L <dir>] (repeatable)
          [--stdout | --output|-o <file>]
@@ -1460,6 +1591,9 @@ whatever else happens); `--symbols` adds each node's symbol as an `@n`
 suffix to what `-t pyking` prints. The other three select what
 `pyk compile` does, and none of them is required:
 
+- `--release` compiles in release mode: every call to `debug` is
+  removed (`src/release.ml`) and `print` is kept. `pyk compile` alone
+  takes it.
 - `--run` builds and runs what was compiled, with the commands that
   target's host uses (`src/execution.ml`), each printed before it runs
   on stderr. Cannot be combined with `--stdout`, which writes no file.
@@ -1513,11 +1647,12 @@ by running it, and takes away the handful of shapes OCaml cannot be
 given, which `docs/target_ocaml.md` lists. See `docs/architecture.md`
 for the subsets and the target table.
 
-A program that imports an **external module** cannot be interpreted at
-all: what such a module exports is written in a target language, so
-`pyk <file>` and `pyk repl` refuse it and it has to be compiled. Such a
-program lists no `interpret` target in the manifest, and the harness
-does not warn about its absence.
+A program that imports an **external module** is interpreted through
+the module's OCaml implementation, loaded as a plugin
+(`src/plugin_host.ml`): the standard library's are built by `make libs`
+and shipped, and a program's own is compiled on demand, which needs the
+OCaml `pyk` was built by. Such a program lists `interpret` like any
+other, and the harness warns where it does not.
 
 `pyk <file>` and `pyk repl` take no target: the interpreter emits
 nothing to name. What they accept is `src/typesystem.ml`'s fragment,
@@ -1533,8 +1668,10 @@ executable to `./pyk`. `make help` prints the list of targets, which is
 hand-written, as is the one in `tools/playground/Makefile` it is
 modelled on — add a target and you have to add its line too.
 
-`make clean` removes `_build/`, `./pyk`, `__pycache__` directories and
-`tools/packaging/build/` (delegated to that directory's Makefile);
+`make clean` removes `_build/`, `./pyk`, the plugins `make libs` wrote
+into `lib/` (`<name>_external.cmxs` and `.digest`), `__pycache__`
+directories and `tools/packaging/build/` (delegated to that directory's
+Makefile);
 `make distclean` also drops `tools/webrun/vendor/`, the download cache
 `make vendor` fills.
 Neither touches *compiled programs*: `pyk` writes them wherever the
@@ -1584,6 +1721,21 @@ to name them in that order to build the program at all, which is what
 the manifest's order is for. A module listed there is not a case of its
 own -- it is not a program -- but it is still accounted for, so the
 "not listed in the manifest" warning stays honest.
+
+Four more things a case may say, each where a run's input or a
+program's other output is written down: a sibling **`<name>.in`** is its
+standard input (every run is given one, empty without the file, so a
+program never reads the harness's own); a sibling **`<name>.err`** is
+what it must write to standard error on every target, `debug`'s lines
+(without one, standard error is not compared); **`exit_code = N`** is
+the status it must end with, 0 by default; and **`release = true`**
+compiles it with `--release` and holds every compiled target to writing
+nothing to standard error -- the interpreter takes no `--release` and
+runs it as written. Each runner is handed these as one `Invocation`,
+and `executed` answers an `Output` of both streams. The `web24` runner
+runs the page's own loader, taken out of the page, and the `iweb24`
+driver makes the request the page's script makes, with `print` writing
+through the shipped `io` implementation.
 
 Those (program, target) pairs are independent — each compiles into a
 temporary directory of its own, and nothing is written back into the
@@ -1683,13 +1835,23 @@ Pyking half, public `g1` from the host's, and `f2` from the Pyking half
 calling the host's *private* `g2` -- and `fail_typecheck_external_*` for
 what is refused: a bodiless signature in a plain `.pyk`, a declaration
 file that also holds a body, a declaration naming a function type, and
-reaching a private declaration from another module.
-A `.external.pyk` is listed under the importing program's `modules`
-like any other, and the harness knows not to expect `interpret` from a
-program that imports one. The one rule the suite does *not* pin is a
-missing implementation file: that refusal is per-target, and the
-`fail_typecheck_*` convention runs on `-t pyking`, which needs no
-implementation.
+reaching a private declaration from another module --
+and `fail_typecheck_module_external_half` for importing a module's
+`_external` half by that name. `module_external_mixed` runs on C and
+Java too, which compile a module in two halves.
+A `_external.pyk` is listed under the importing program's `modules`
+like any other, and every such program lists `interpret`: the
+interpreter loads its OCaml implementation as a plugin. The one rule
+the suite does *not* pin is a missing implementation file: that refusal
+is per-target, and the `fail_typecheck_*` convention runs on
+`-t pyking`, which needs no implementation.
+
+A sixth covers **the standard library's input, output and exit** and
+**`debug`**: `lib_io_write`, `lib_io_read` (reading its sibling
+`lib_io_read.in`), `lib_sys_exit` (`exit_code = 3`), `debug_basic` and
+`debug_values` (each with a sibling `.err`, what `debug` wrote to
+standard error), and `typecheck_release*` (`release = true`: compiled
+with `--release`, and held to writing nothing on standard error).
 
 **Four kinds of expected output**, two of them about the tail-call
 pass. `<name>.notail.ast.out` is what `-t pyking --no-tail-call-opt`

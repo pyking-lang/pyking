@@ -1,7 +1,7 @@
 def inner(xss:[[Int]]) -> String:
     answer: String = match xss:
         case [[a, ..more], ..rest]:
-            'first row starts ' ++ str(a)
+            'first row starts ' ++ string(a)
         case []:
             'no rows'
         case _:
@@ -10,7 +10,7 @@ def inner(xss:[[Int]]) -> String:
 def tagged(p:(String, [Int])) -> String:
     answer: String = match p:
         case ('id:' ++ name, [n, ..]):
-            name ++ '=' ++ str(n)
+            name ++ '=' ++ string(n)
         case ('id:' ++ name, []):
             name ++ '=none'
         case (other, _):
@@ -45,5 +45,5 @@ print(tagged(('id:x', [7])), tagged(('id:y', [])), tagged(('nope', [1])))
 print(both_ends('(hi)'), both_ends('[hi]'), both_ends('hi'))
 print(peel('ababc'), peel('xyz'), peel('abab'))
 print(depth([1, 2, 3, 4, 5]))
-print([str(a) for [a, ..] in rows])
+print([string(a) for [a, ..] in rows])
 print([n for 'id:' ++ n in words])

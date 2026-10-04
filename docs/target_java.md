@@ -68,7 +68,7 @@ type Java can represent -- exactly as in the C targets.
 ## What is not supported
 
 Everything the JavaScript and C targets refuse -- lists, tuples, `for`,
-`match`/`case`, comprehensions, value-form bindings, `str`/`len`/`range`
+`match`/`case`, comprehensions, value-form bindings, `len`/`range`
 -- plus the following. All are refused at compile time with a source
 position.
 
@@ -559,6 +559,19 @@ argument to `print` on its own (no concatenation to trigger) compiles
 just as directly -- `System.out.println` has an overload that takes a
 `boolean` argument, and it also prints `true`/`false`.
 
+The conversions go by the argument's type. Java's own are used where
+they agree -- a cast widens an int, `String.valueOf` writes an Int or a
+Bool -- and `bool` is a comparison (`s.equals("true")`, `n == 1`). A
+String goes through `pykIntOfString` and `pykFloatOfString`, and `int`
+of a double through `pykTruncate`, private helpers in the class emitted
+only where used: `Integer.parseInt` throws where Pyking answers 0.
+
+`debug` is the same statement on `System.err`. A program compiled with
+`--release` has none left, and a `debug` that was a block's last
+statement, where its block's value is used, is left as the statement
+`()` -- which this backend compiles to nothing. A program's own
+definition named `print` or `debug` is an ordinary call.
+
 ### Strings
 
 `String`, Java's own. Equality goes through `.equals()`, since `==` on
@@ -673,18 +686,26 @@ one another.
 
 ## External modules
 
-A module implemented in Java (declared in `sys.external.pyk` -- see
-[modules.md](modules.md)) lives in **`Sys.java`**, capitalised where the
-other targets' implementation files are not: javac requires the file
-name and the public class to match, and the generated program calls
-`Sys.loadfile(...)`. `Module.class_name` is the rule, the same one that
+A module implemented in Java (declared in `sys_external.pyk` -- see
+[modules.md](modules.md)) lives in **`SysExternal.java`**, capitalised
+where the other targets' implementation files are not: javac requires
+the file name and the public class to match, and the generated program
+calls `SysExternal.loadfile(...)`. `Module.class_name` is the rule, the same one that
 names a compiled module's file.
 
 Nothing is generated for it and nothing is declared: Java resolves the
 class by name, so the file is copied beside the program's output and
 handed to javac with it. An external module has no Pyking top level, so
-no `Sys.init()` is emitted or called.
+no `SysExternal.init()` is emitted or called.
 
 The boundary carries `Int`, `String`, `Bool` and unit. A declaration
-naming a tuple or a list is refused where it is written, before anything
-is translated -- this backend has neither.
+naming a tuple or a list is refused where a program imports it, before
+anything is translated -- this backend has neither. Only what a program
+uses of a library is compiled at all ([modules.md](modules.md), "What a
+program uses"), so `sys.exit` compiles here while `sys.args` is refused.
+
+**A module in two halves** is compiled too: its Pyking half reaches a
+name its own declaration half provides through the implementation's
+class, `IoExternal.prompt_line(...)`, as an importer reaches a public
+one. `io` and `sys` are both, and `tests/module_external_mixed.pyk` is
+the worked example.

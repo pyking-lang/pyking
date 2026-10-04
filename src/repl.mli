@@ -32,6 +32,14 @@ type session
 type reader
 
 (** Runs the REPL loop until end of input or `:quit`. `format_error` is
-    the driver's (pyk.ml). Answers the process's exit status.
-    reader? -> session? -> (exn -> string option) -> int *)
-val start : ?read:reader -> ?session:session -> (exn -> string option) -> int
+    the driver's (pyk.ml), and `libs` is where an imported module is
+    looked for after the current directory. Answers the process's exit
+    status.
+    reader? -> session? -> [Module.lib_entry]? -> (exn -> string option)
+    -> int *)
+val start :
+  ?read:reader ->
+  ?session:session ->
+  ?libs:Module.lib_entry list ->
+  (exn -> string option) ->
+  int

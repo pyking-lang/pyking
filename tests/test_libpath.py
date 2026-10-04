@@ -60,7 +60,7 @@ def library(directory, name, tag, external=False, body=True):
     if not body:
         return
     if external:
-        (folder / f"{name}.external.pyk").write_text(
+        (folder / f"{name}_external.pyk").write_text(
             f"public def tag : () -> String\n")
         return
     (folder / f"{name}.pyk").write_text(
@@ -154,15 +154,15 @@ def cases():
 
     def both_halves(root):
         # A level holding both files is one module, not a collision: the
-        # .pyk is its Pyking half and the .external.pyk the host's. What
+        # .pyk is its Pyking half and the _external.pyk the host's. What
         # proves it resolved as one module here is the refusal that
-        # follows -- the interpreter answers only for the libraries
-        # under lib/, so any other external half has to be compiled.
+        # follows -- the interpreter looks for the host half's OCaml
+        # implementation beside the declaration, and there is none.
         library(root / "libs", "mylib", "written")
-        (root / "libs" / "mylib" / "mylib.external.pyk").write_text(
+        (root / "libs" / "mylib" / "mylib_external.pyk").write_text(
             "public def other : () -> String\n")
         return ([f"-L{root / 'libs'}"], {},
-                "is an external module, implemented in a target language")
+                "OCaml implementation")
 
     return [
         ("from -Lpath", from_flag),

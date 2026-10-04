@@ -30,6 +30,11 @@ export const CELL_LANGUAGES = ["pyking", "pyk"];
 /** The attributes a Pyking fence may carry after its language. */
 export const CELL_ATTRIBUTES = ["norun", "readonly", "error"];
 
+/** The languages of the blocks that fill in the input of the cell right
+ *  after them: what it reads on standard input, and its arguments. Such
+ *  a block is not shown on its own. */
+export const INPUT_LANGUAGES = ["stdin", "args"];
+
 const CALLOUTS = {
   note: "Note", tip: "Tip", important: "Important",
   warning: "Warning", caution: "Caution",
@@ -52,6 +57,8 @@ export function renderMarkdown(source, options = {}) {
     footnotes: new Map(),
     footnoteOrder: [],
     cells: [],
+    // A ```stdin or ```args block's text, waiting for the cell after it.
+    input: {},
     headings: [],
     slugs: new Map(),
     math: false,
@@ -517,6 +524,9 @@ function renderBlocks(blocks, ctx, tight) {
 
 /** Renders one block node. Block -> Context -> Bool -> String */
 function renderBlock(block, ctx, tight) {
+  // An input block fills in the cell *right after* it, so anything else
+  // in between lets it go.
+  if (block.type !== "code") ctx.input = {};
   switch (block.type) {
     case "paragraph": {
       const inline = renderInline(block.text.trimEnd(), ctx);
@@ -576,15 +586,28 @@ function renderBlock(block, ctx, tight) {
   }
 }
 
-/** A code block: a cell placeholder for runnable Pyking, else a `<pre>`
- *  the notebook highlights. Block -> Context -> String */
+/** A code block: a cell placeholder for runnable Pyking, nothing for a
+ *  block filling in the next cell's input, else a `<pre>` the notebook
+ *  highlights. Block -> Context -> String */
 function renderCode(block, ctx) {
   const { language, attrs } = block.info;
+  if (INPUT_LANGUAGES.includes(language)) {
+    ctx.input = { ...ctx.input, [language]: block.text };
+    return "";
+  }
   const isPyking = CELL_LANGUAGES.includes(language);
+  const input = ctx.input;
+  ctx.input = {};
   if (isPyking && !attrs.norun) {
     const index = ctx.cells.length;
     const known = Object.fromEntries(CELL_ATTRIBUTES.map((a) => [a, !!attrs[a]]));
-    ctx.cells.push({ index, id: `cell-${index + 1}`, source: block.text, attrs: known });
+    ctx.cells.push({
+      index, id: `cell-${index + 1}`, source: block.text, attrs: known,
+      // Standard input is lines, each ending in a newline, as a file's are.
+      stdin: input.stdin === undefined ? null
+        : input.stdin === "" || input.stdin.endsWith("\n") ? input.stdin : input.stdin + "\n",
+      args: input.args !== undefined ? input.args.replace(/\n$/, "") : null,
+    });
     return `<div class="pkn-cell" id="cell-${index + 1}" data-cell="${index}">`
       + `<pre class="pkn-cell-fallback"><code>${escapeHTML(block.text)}</code></pre>`
       + "</div>\n";

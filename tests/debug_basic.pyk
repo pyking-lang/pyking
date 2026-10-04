@@ -1,0 +1,15 @@
+# `debug` writes its arguments the way `print` does, one line per call,
+# to standard error rather than standard output: debug_basic.out holds
+# what the program prints, and debug_basic.err what it debugs. Scalars
+# only, so every target runs it; debug_values.pyk has lists and tuples.
+
+def square(x: Int) -> Int:
+    debug("square of", x)
+    return x * x
+
+print("start")
+debug("an int", 42, "a bool", true, "a string")
+debug()
+print(square(7))
+debug(1.5, -2, false)
+print("end")

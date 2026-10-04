@@ -1,0 +1,7 @@
+# A file ending in `_external.pyk` is the external half of a module, not
+# a module of its own: `external_all_mod1_external.pyk` is imported as
+# `external_all_mod1`, and naming the half is refused.
+
+import external_all_mod1_external
+
+print(external_all_mod1_external.answer)

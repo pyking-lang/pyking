@@ -1,4 +1,4 @@
-# A plain module -- no `.external.` in its name -- so every name it
+# A plain module -- no `_external` in its name -- so every name it
 # exports has to be implemented here. A signature with no `def` to
 # describe is the error the checker already raised before external
 # modules existed, and it is unchanged.

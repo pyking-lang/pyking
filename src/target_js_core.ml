@@ -423,24 +423,39 @@ let rec translate_expr e scope =
       in
       JsMember (info, JsVar (info, reached), name)
   | ECall (info, EVar (_, name, _), args, _)
-    when Builtin.crosses_host name ->
+    when Builtin.crosses_host name && not (SMap.mem name scope.names) ->
       (* A call that leaves the program: see builtin.ml. *)
       JsRuntimeCall
         ( info,
           name,
           List.map (fun a -> printed_argument a scope) (arg_exprs args) )
-  (* A JavaScript number is already a double, so widening an Int is the
-     value itself; what makes it print as a Float is its type, which the
-     print site reads. *)
-  | ECall (_, EVar (_, "float", _), [ (_, argument) ], _)
-    when lookup "float" scope = "float" ->
-      translate_expr argument scope
-  | ECall (info, EVar (_, "int", _), [ (_, argument) ], _)
-    when lookup "int" scope = "int" ->
-      JsCall
-        ( info,
-          JsMember (info, JsVar (info, "Math"), "trunc"),
-          [ translate_expr argument scope ] )
+  | ECall (info, EVar (_, "string", _), [ (_, argument) ], _)
+    when not (SMap.mem "string" scope.names) -> (
+      (* What `print` would write, from the formatter the runtime holds:
+         a Float's text is its type's, which the argument's own shape
+         cannot say. *)
+      match printed_argument argument scope with
+      | JsCall _ as formatted -> formatted
+      | translated -> JsCall (info, JsVar (info, "pykFormat"), [ translated ]))
+  | ECall (info, EVar (_, (("int" | "float" | "bool") as name), _), [ (_, argument) ], _)
+    when not (SMap.mem name scope.names) -> (
+      (* A JavaScript number is already a double, so widening an Int is the
+         value itself; what makes it print as a Float is its type, which
+         the print site reads. The rest go by the argument's type
+         (builtin.ml, "what a conversion reads"). *)
+      let translated = translate_expr argument scope in
+      let runtime helper = JsCall (info, JsVar (info, helper), [ translated ]) in
+      let is value = JsBinary (info, "===", translated, value) in
+      match (name, type_of argument scope) with
+      | "int", Some (TString _) -> runtime "pykParseInt"
+      | "int", Some (TFloat _) -> runtime "pykTrunc"
+      | "float", Some (TString _) -> runtime "pykParseFloat"
+      | ("int" | "float"), Some (TBool _) ->
+          JsCond (info, translated, JsNum (info, 1), JsNum (info, 0))
+      | ("int" | "float"), _ -> translated
+      | _, Some (TBool _) -> translated
+      | _, Some (TString _) -> is (JsStr (info, "true"))
+      | _, _ -> is (JsNum (info, 1)))
   | ECall (info, EVar (_, name, _), _, _)
     when List.mem name Builtin.pure_names && lookup name scope = name ->
       ignore info;
@@ -680,12 +695,15 @@ and pattern_parts patterns places test scope =
   in
   go patterns places test [] scope
 
-(** Whether `e` is a call across the runtime interface (`print`). Those
-    yield unit, so a function whose tail is one needs no `return`:
-    JavaScript's own implicit `undefined` already is it. expr -> bool *)
-let yields_unit e =
+(** Whether `e` is a call across the runtime interface (`print` or
+    `debug`, and not a definition of the program's own by that name).
+    Those yield unit, so a function whose tail is one needs no `return`:
+    JavaScript's own implicit `undefined` already is it.
+    expr -> scope -> bool *)
+let yields_unit e scope =
   match e with
-  | ECall (_, EVar (_, name, _), _, _) -> Builtin.crosses_host name
+  | ECall (_, EVar (_, name, _), _, _) ->
+      Builtin.crosses_host name && not (SMap.mem name scope.names)
   | _ -> false
 
 (** Whether a `def` is written anywhere in these statements, at any
@@ -842,7 +860,7 @@ and translate_tail_stmt s scope =
          function's -- without this the arms would be plain expression
          statements and the function would return nothing. *)
       fst (translate_match s scope translate_tail_stmts)
-  | SExprStmt (_, e, _) when yields_unit e -> fst (translate_stmt s scope)
+  | SExprStmt (_, e, _) when yields_unit e scope -> fst (translate_stmt s scope)
   | SExprStmt (info, e, _) -> [ JsReturn (info, translate_expr e scope) ]
   | SIf (_, _, _, None, _) ->
       (* An `if` with no `else` supplies unit whatever its one branch

@@ -1,0 +1,7 @@
+# A call to `debug` in value position is worth unit, and --release
+# leaves the unit it was worth: the bindings below still hold `()`.
+
+nothing = debug("computing")
+print(nothing)
+answer = if 1 < 2 then debug("chosen") else ()
+print(answer, "done")

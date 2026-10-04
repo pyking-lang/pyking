@@ -1,0 +1,34 @@
+# Compiled with --release (the manifest's `release = true`): every call
+# to `debug` is removed, arguments and all, and `print` is kept. The
+# .ast.out is the program with them gone, and every compiled target is
+# held to writing nothing on standard error. The interpreter runs the
+# program as written, so its `debug` lines are there -- on standard
+# error, which is why the one .out serves both.
+
+def square(x: Int) -> Int:
+    debug("square of", x)
+    return x * x
+
+# The only statement of a branch: the branch is left doing nothing.
+def report(x: Int):
+    if x > 2:
+        debug("large", x)
+    else:
+        print("small", x)
+
+# The last statement of a body, after a print.
+def noisy(x: Int):
+    print("noisy", x)
+    debug("noisy", x)
+
+var total = 0
+var i = 0
+while i < 4:
+    total := total + square(i)
+    debug("total so far", total)
+    i := i + 1
+report(1)
+report(3)
+noisy(5)
+print(total)
+debug("done")

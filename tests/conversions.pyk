@@ -1,0 +1,34 @@
+# The four conversions, `string`, `int`, `float` and `bool`, on every
+# type each accepts -- scalars only, so every target runs it. Where there
+# is no right answer a conversion answers a default: 0 for `int`, NaN
+# for `float`, false for `bool` (PYKING.md, "Builtins").
+
+# string: what `print` would write.
+print(string(1), string(2.5), string(true), string("s"), string(-0.0))
+
+# int: a Float truncated toward zero, a Bool as 1 or 0.
+print(int(3), int(2.9), int(-2.9), int(true), int(false))
+
+# int of a String: an optional sign and decimal digits, and nothing else.
+print(int("42"), int("-17"), int("+5"), int("007"))
+print(int(" 3"), int("3 "), int("1_000"), int("0x1F"), int("1.5"), int(""), int("-"), int("+"))
+
+# The signed 32-bit range, and past it.
+print(int("2147483647"), int("-2147483648"), int("2147483648"), int("-2147483649"))
+print(int("99999999999999999999"))
+
+# A Float with no Int to truncate to.
+print(int(float("nan")), int(float("inf")), int(float("-inf")), int(1e10))
+print(int(-2147483648.5), int(2147483647.9), int(-0.5))
+
+# float: an Int widened, a Bool as 1.0 or 0.0.
+print(float(3), float(true), float(false), float(2.5))
+
+# float of a String: Pyking's own spellings, and what print writes.
+print(float("1"), float("2.5"), float("-1.5e-3"), float("+2E3"), float("1e400"))
+print(float("inf"), float("-inf"), float("nan"), float(string(0.1)) == 0.1)
+print(float("1."), float(".5"), float(" 1"), float("abc"), float("1e"), float(""))
+
+# bool: "true", 1 and 1.0 are true, and so is true; anything else is false.
+print(bool(true), bool(false), bool("true"), bool("false"), bool("True"), bool(""))
+print(bool(1), bool(0), bool(2), bool(-1), bool(1.0), bool(0.0), bool(0.5))

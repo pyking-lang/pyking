@@ -64,6 +64,9 @@ val interpreter_module : string
     program's own sources, and the call that runs them. The sources are
     inlined rather than fetched so the page needs no second round trip
     and no fetch permissions -- it is still served, because a module
-    script is.
-    string -> [string] -> [(string, string)] -> string *)
-val interpreted_page : string -> string list -> (string * string) list -> string
+    script is. `release` has the page run the program with every call to
+    `debug` removed, which is what --release means for a program that is
+    interpreted rather than compiled.
+    bool -> string -> [string] -> [(string, string)] -> string *)
+val interpreted_page :
+  ?release:bool -> string -> string list -> (string * string) list -> string

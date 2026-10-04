@@ -1,5 +1,5 @@
 // The Java implementation of the Pyking module declared in
-// external_float_mod1.external.pyk. Java requires the file name and the
+// external_float_mod1_external.pyk. Java requires the file name and the
 // public class to match, so this one file is capitalised where its
 // siblings are not. A Pyking Float is a Java double.
 

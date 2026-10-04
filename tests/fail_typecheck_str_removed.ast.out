@@ -1,0 +1,2 @@
+'tests/fail_typecheck_str_removed.pyk' 7:6-7:9 Name error: unbound
+  name 'str'

@@ -303,6 +303,7 @@ button.pkn-tag { cursor: pointer; }
 button.pkn-tag:hover { color: var(--pkn-text); border-color: var(--pkn-edge-strong); }
 
 .pkn-output { margin-top: .5rem; font-size: 14px; }
+.pkn-stdout-box { display: flex; flex-direction: column; gap: .2rem; }
 .pkn-stdout {
   margin: 0; padding: .55rem 1rem;
   font: 14px/1.5 var(--pkn-mono); white-space: pre-wrap; word-break: break-word;
@@ -311,6 +312,30 @@ button.pkn-tag:hover { color: var(--pkn-text); border-color: var(--pkn-edge-stro
   border-radius: 0 .4rem .4rem 0;
   max-height: 28rem; overflow-y: auto;
 }
+/* What `debug` wrote, kept apart from what the program printed, and a
+   line the program read, echoed as a terminal would show it. */
+.pkn-stdout .pkn-debug { color: var(--pkn-faint); font-style: italic; }
+.pkn-stdout .pkn-echo { color: var(--pkn-accent); }
+
+/* A cell's standard input and arguments, above its code, shown only for
+   a program that reads them. */
+.pkn-cell-inputs { display: grid; gap: .35rem; margin-bottom: .4rem; }
+.pkn-input { display: flex; flex-direction: column; gap: .2rem; }
+.pkn-input-label {
+  font: 12px/1.4 var(--pkn-mono); color: var(--pkn-faint);
+}
+.pkn-stdin, .pkn-args {
+  width: 100%; min-width: 0; box-sizing: border-box;
+  font: 13.5px/1.5 var(--pkn-mono); color: var(--pkn-text);
+  background: var(--pkn-sunken); border: 1px solid var(--pkn-edge);
+  border-radius: .4rem; padding: .3rem .55rem;
+}
+.pkn-stdin { resize: vertical; }
+.pkn-stdin:focus, .pkn-args:focus {
+  outline: none; border-color: var(--pkn-accent);
+  box-shadow: 0 0 0 3px var(--pkn-accent-soft);
+}
+
 .pkn-result { margin-top: .35rem; font-size: .76rem; color: var(--pkn-faint);
   display: flex; align-items: center; gap: .35rem; }
 .pkn-result pre {

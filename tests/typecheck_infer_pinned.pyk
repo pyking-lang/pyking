@@ -9,9 +9,9 @@
 def added(n): n + 1
 def held(n): n
 
-# A builtin asks. `str` takes several types but the signature can only
+# A builtin asks. `string` takes several types but the signature can only
 # name one, so the first call decides it.
-def shown(v): str(v)
+def shown(v): string(v)
 def kept(v): v
 
 # A condition asks: it has to be Bool.

@@ -35,6 +35,18 @@ function pyk_emit(line) {
   return 0;
 }
 
+// Where a running program's `debug` lines go: `pykOnDebug` where the page
+// supplied one, and the console otherwise -- debug output is for whoever
+// is debugging, and the console is where they look.
+//Provides: pyk_debug
+function pyk_debug(line) {
+  var sink = globalThis.pykOnDebug || function (text) {
+    console.error(text.replace(/\n$/, ""));
+  };
+  sink(line);
+  return 0;
+}
+
 // Calling into a module implemented in JavaScript, for the `iweb`
 // target: the page registers `pykExternal`, which answers what one of an
 // external module's exports is, or calls one of its functions. Values
@@ -56,7 +68,19 @@ function pyk_external(module_, field, argsJson) {
   if (argsJson === "") {
     return pyk_encode(value);
   }
-  var result = value.apply(null, JSON.parse(argsJson));
+  var result;
+  try {
+    result = value.apply(null, JSON.parse(argsJson));
+  } catch (error) {
+    // `sys.exit` stops the program by throwing an error carrying
+    // `pykExit`. It crosses back as data, which pyking_web.ml turns into
+    // the end of the run, rather than as a JavaScript exception unwinding
+    // through the interpreter.
+    if (error && error.pykExit !== undefined) {
+      return '{"pyk_exit":' + JSON.stringify(error.pykExit) + "}";
+    }
+    throw error;
+  }
   return pyk_encode(result);
 }
 
@@ -82,18 +106,41 @@ function pyk_encode(value) {
 // running a program of several modules: the page puts them in
 // `pykSources` as {name: text}, and the module system reads them
 // through these two exactly as it reads a directory.
+//
+// A name the page did not supply is asked of `pykFetchSource`, where the
+// page has one: that is how a program run in the playground or a notebook
+// imports the standard library, fetched the first time it is named.
 //Provides: pyk_file_exists
+//Requires: pyk_source
 function pyk_file_exists(name) {
-  return Object.prototype.hasOwnProperty.call(globalThis.pykSources || {}, name)
-    ? "1"
-    : "";
+  return pyk_source(name) === null ? "" : "1";
 }
 
 //Provides: pyk_file_read
+//Requires: pyk_source
 function pyk_file_read(name) {
-  var files = globalThis.pykSources || {};
-  if (!Object.prototype.hasOwnProperty.call(files, name)) {
+  var text = pyk_source(name);
+  if (text === null) {
     throw new Error("no source '" + name + "' was supplied");
   }
-  return files[name];
+  return text;
+}
+
+//Provides: pyk_source
+function pyk_source(name) {
+  var files = globalThis.pykSources || (globalThis.pykSources = {});
+  if (Object.prototype.hasOwnProperty.call(files, name)) return files[name];
+  var fetched = globalThis.pykFetchSource ? globalThis.pykFetchSource(name) : null;
+  if (typeof fetched !== "string") return null;
+  files[name] = fetched;
+  return fetched;
+}
+
+// A file of the standard library, by its path under lib/ -- what a page
+// compiling for `web` ships beside the program -- or the empty string
+// where the page cannot supply one.
+//Provides: pyk_library_file
+function pyk_library_file(path) {
+  var text = globalThis.pykLibraryFile ? globalThis.pykLibraryFile(path) : null;
+  return typeof text === "string" ? text : "";
 }

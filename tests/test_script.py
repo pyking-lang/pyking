@@ -37,6 +37,17 @@ straight:
                    the file it is given, so a program that imports
                    cannot list it.
 
+Beside those, two files a case may have and the manifest keys that go
+with them:
+
+  <name>.in        what the program reads on standard input. Every run
+                   is given one, empty without the file.
+  <name>.err       what it must write to standard error -- `debug`'s
+                   lines -- on every target it lists.
+  exit_code = N    the status it must end with, 0 by default.
+  release = true   compile it with --release; every compiled target must
+                   then write nothing to standard error.
+
 A `typecheck_*` program therefore has *both*: its types are pinned by the
 `.ast.out`, and it still runs on the backends like any other program, so
 the two halves cannot drift apart.
@@ -128,11 +139,6 @@ PYKING_TARGET = "pyking"
 # program is type-checked, so every program that runs at all lists it.
 INTERPRET_TARGET = "interpret"
 
-# An external module is declared in `<name>.external.pyk` and implemented
-# in the target's own language. A program that imports one has to be
-# compiled: the interpreter runs the AST, and there is none for what the
-# implementation provides (see docs/modules.md, "External modules").
-EXTERNAL_SUFFIX = ".external.pyk"
 # A `typecheck_*` program must type-check, and its `.ast.out` holds the
 # printed AST; it lists real backends too, so the program it describes is
 # one that actually runs. A `fail_typecheck_*` one must *not* check, and
@@ -156,6 +162,15 @@ NOSUGAR_FLAG = "--no-typechecking"
 # What the `pyking` target compares against, beside the `.out` every
 # backend shares.
 AST_SUFFIX = ".ast.out"
+# Beside a program, what it reads on standard input, and what it must
+# write to standard error -- `debug`'s lines, and nothing else. Neither
+# file is needed: a program with no `.in` reads an empty input, and one
+# with no `.err` has its standard error left unchecked.
+STDIN_EXTENSION = ".in"
+STDERR_EXTENSION = ".err"
+# A case with `release = true` is compiled with this, and must then
+# write nothing to standard error: every `debug` is gone.
+RELEASE_FLAG = "--release"
 # One variable every run's environment carries, so that a case reading
 # the environment has something pinned to compare against. The whole
 # environment differs per machine and cannot be an expected output; one
@@ -290,10 +305,14 @@ SCRIPT_RE = re.compile(r'<script type="module">\n(.*?)\n</script>', re.S)
 STEP_TIMEOUT = 300
 
 
-def run(cmd, cwd=None):
+def run(cmd, cwd=None, stdin=None):
+    """Runs cmd with `stdin` as its standard input -- always given, so a
+    program reading it reaches the end of it rather than the harness's
+    own terminal."""
     try:
         return subprocess.run(
-            cmd, capture_output=True, text=True, timeout=STEP_TIMEOUT, cwd=cwd
+            cmd, capture_output=True, text=True, timeout=STEP_TIMEOUT, cwd=cwd,
+            input=stdin or "",
         )
     except subprocess.TimeoutExpired as expired:
         return subprocess.CompletedProcess(
@@ -314,19 +333,47 @@ def run(cmd, cwd=None):
         )
 
 
-def executed(result):
-    """The output of a program that ran, as `(stdout, error)`.
+class Invocation:
+    """How one program is run: what it is passed, what it reads on its
+    standard input, the flags it is compiled with, and the exit status
+    it is expected to end with."""
+
+    def __init__(self, arguments=(), stdin=None, flags=(), exit_code=0,
+                 quiet=False):
+        self.arguments = list(arguments)
+        self.stdin = stdin
+        self.flags = list(flags)
+        self.exit_code = exit_code
+        # A release build has every `debug` removed, so it writes nothing
+        # to standard error at all.
+        self.quiet = quiet
+
+
+class Output:
+    """What a program that ran wrote: standard output, which every run
+    is compared on, and standard error, which a `.err` file pins."""
+
+    def __init__(self, stdout, stderr):
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+def executed(result, invocation):
+    """The output of a program that ran, as `(Output, error)`.
 
     A program that dies part-way still has whatever it printed first on
     stdout, so comparing that alone would call a crash a pass as long as
     the surviving prefix matched. The exit status is the difference, and
-    every runner goes through here so that none of them forgets it."""
-    if result.returncode != 0:
+    every runner goes through here so that none of them forgets it. The
+    status expected is the manifest's `exit_code`, 0 unless it says
+    otherwise."""
+    if result.returncode != invocation.exit_code:
         return None, (
-            f"the program exited with status {result.returncode}\n"
-            f"{result.stderr}"
+            f"the program exited with status {result.returncode}"
+            + (f", not {invocation.exit_code}" if invocation.exit_code else "")
+            + f"\n{result.stderr}"
         )
-    return result.stdout, None
+    return Output(result.stdout, result.stderr), None
 
 
 def compile_to(source, target, output, flags=()):
@@ -427,13 +474,14 @@ def _bracket_change(text):
     return depth
 
 
-def run_python(source, workdir, modules, arguments):
-    return _run_python(source, workdir, [], arguments)
+def run_python(source, workdir, modules, invocation):
+    return _run_python(source, workdir, [], invocation)
 
 
-def _run_python(source, workdir, flags, arguments):
+def _run_python(source, workdir, flags, invocation):
     generated = os.path.join(workdir, "program.py")
-    compiled = compile_to(source, "python14", generated, flags)
+    compiled = compile_to(source, "python14", generated,
+                          flags + invocation.flags)
     if compiled.returncode != 0:
         return None, compiled.stderr
     with open(generated) as f:
@@ -444,23 +492,29 @@ def _run_python(source, workdir, flags, arguments):
             "with no `def` inside a loop -- ordinary programs must compile to "
             "ordinary Python"
         )
-    return executed(run([sys.executable, generated] + arguments, cwd=workdir))
+    return executed(
+        run([sys.executable, generated] + invocation.arguments, cwd=workdir,
+            stdin=invocation.stdin),
+        invocation)
 
 
-def run_node(source, workdir, modules, arguments):
+def run_node(source, workdir, modules, invocation):
     """Runs the compiled ES module under node.
 
     The generated package.json beside it is what makes a plain `.js` an
     ES module to node; without it the `import` lines would be read as
     CommonJS and fail, so running this exercises that too."""
     generated = os.path.join(workdir, "program.js")
-    compiled = compile_to(source, "node24", generated)
+    compiled = compile_to(source, "node24", generated, invocation.flags)
     if compiled.returncode != 0:
         return None, compiled.stderr
-    return executed(run(NODE + [generated] + arguments, cwd=workdir))
+    return executed(
+        run(NODE + [generated] + invocation.arguments, cwd=workdir,
+            stdin=invocation.stdin),
+        invocation)
 
 
-def run_web(source, workdir, modules, arguments):
+def run_web(source, workdir, modules, invocation):
     """Compiles the page, then runs the module it loads, under node.
 
     The `web` target emits the same ES modules `node` does and prints to
@@ -469,20 +523,31 @@ def run_web(source, workdir, modules, arguments):
     module. A browser would be needed to prove it renders, and one is a
     heavy dependency for an otherwise stdlib-only repository."""
     page = os.path.join(workdir, "program.html")
-    compiled = compile_to(source, "web24", page)
+    compiled = compile_to(source, "web24", page, invocation.flags)
     if compiled.returncode != 0:
         return None, compiled.stderr
     with open(page) as f:
         text = f.read()
-    if '<script type="module" src="./program.js">' not in text:
+    if "await import('./program.js');" not in text:
         return None, "the generated page does not load ./program.js"
+    # What runs is the page's own script -- the loader that imports the
+    # program and writes out what `io.write` left unfinished -- taken out
+    # of the page as a module of its own.
+    found = re.search(r'<script type="module">\n(.*?)</script>', text, re.S)
+    if found is None:
+        return None, "the generated page has no module script"
+    loader = os.path.join(workdir, "page.js")
+    with open(loader, "w") as f:
+        f.write(found.group(1))
     # The `web` target writes no package.json -- a browser does not read
     # one -- so running its module under node needs the harness to say
     # what a browser would have taken for granted.
     with open(os.path.join(workdir, "package.json"), "w") as f:
         f.write('{\n  "type": "module"\n}\n')
     return executed(
-        run(NODE + [os.path.join(workdir, "program.js")] + arguments, cwd=workdir))
+        run(NODE + [loader] + invocation.arguments,
+            cwd=workdir, stdin=invocation.stdin),
+        invocation)
 
 
 # The driver that runs an `iweb` page's program outside a browser: the
@@ -518,9 +583,18 @@ for (const f of files) {
     globalThis.pykExternals[name] = await import(mjs);
   }
 }
-globalThis.pykOnPrint = (line) => process.stdout.write(line);
+// `print` writes through the `io` library's browser implementation,
+// which the page ships whatever the program imports -- as the page does.
+const io = globalThis.pykExternals.io;
+globalThis.pykOnPrint = (line) => io.write(line);
+globalThis.pykOnDebug = (line) => process.stderr.write(line);
 await import(here + '/pyking.js');
-const result = JSON.parse(pykRunProgram(process.argv[3]));
+// The request the page itself makes: the main file, and `release` on a
+// second line where the page was compiled with --release.
+const page = fs.readFileSync(here + '/program.html', 'utf8');
+const request = page.match(/pykRunProgram\\('([^']*)'\\)/)[1].replace(/\\\\n/g, '\\n');
+const result = JSON.parse(pykRunProgram(request));
+io.flush();
 if (!result.ok) {
   process.stderr.write(result.stage + ': ' + result.text + '\\n');
   process.exit(1);
@@ -528,7 +602,7 @@ if (!result.ok) {
 """
 
 
-def run_iweb(source, workdir, modules, arguments):
+def run_iweb(source, workdir, modules, invocation):
     """Runs an `iweb` program the way its page does, under node.
 
     Nothing is compiled for this target: the page ships the Pyking
@@ -537,23 +611,25 @@ def run_iweb(source, workdir, modules, arguments):
     language where a backend supports a subset -- and why its output is
     compared against the same `.out` as every other target."""
     page = os.path.join(workdir, "program.html")
-    compiled = compile_to(source, "iweb24", page)
+    compiled = compile_to(source, "iweb24", page, invocation.flags)
     if compiled.returncode != 0:
         return None, compiled.stderr
     driver = os.path.join(workdir, "run-iweb.mjs")
     with open(driver, "w") as f:
         f.write(IWEB_DRIVER)
     return executed(
-        run(NODE + [driver, workdir, os.path.basename(source)], cwd=workdir))
+        run(NODE + [driver, workdir, os.path.basename(source)]
+            + invocation.arguments, cwd=workdir, stdin=invocation.stdin),
+        invocation)
 
 
-def run_c(source, workdir, modules, arguments, standard):
+def run_c(source, workdir, modules, invocation, standard):
     """Compiles to C, builds it with the system compiler, runs the binary.
     `-pedantic` is on: the point of having a `c89` target at all is that
     its output really is C89, and a compiler that merely tolerates it
     would hide the difference from `c23`."""
     generated = os.path.join(workdir, "program.c")
-    compiled = compile_to(source, standard, generated)
+    compiled = compile_to(source, standard, generated, invocation.flags)
     if compiled.returncode != 0:
         return None, compiled.stderr
     binary = os.path.join(workdir, "program")
@@ -564,17 +640,20 @@ def run_c(source, workdir, modules, arguments, standard):
     )
     if built.returncode != 0:
         return None, built.stderr
-    return executed(run([binary] + arguments, cwd=workdir))
+    return executed(
+        run([binary] + invocation.arguments, cwd=workdir,
+            stdin=invocation.stdin),
+        invocation)
 
 
-def run_java(source, workdir, modules, arguments, version):
+def run_java(source, workdir, modules, invocation, version):
     """Compiles to Java, builds it with `javac --release <version>`, runs
     the class with `java`. The class is named `Program` here rather than
     whatever the backend would pick by default -- `--output` always names
     it explicitly (see `src/target_java.ml`), so the test harness's own
     naming choice never has to match the source file's."""
     generated = os.path.join(workdir, "Program.java")
-    compiled = compile_to(source, version, generated)
+    compiled = compile_to(source, version, generated, invocation.flags)
     if compiled.returncode != 0:
         return None, compiled.stderr
     release = version.removeprefix("java")
@@ -587,10 +666,12 @@ def run_java(source, workdir, modules, arguments, version):
     if built.returncode != 0:
         return None, built.stderr
     return executed(
-        run([JAVA_RUNTIME, "-cp", workdir, "Program"] + arguments, cwd=workdir))
+        run([JAVA_RUNTIME, "-cp", workdir, "Program"] + invocation.arguments,
+            cwd=workdir, stdin=invocation.stdin),
+        invocation)
 
 
-def run_ocaml(source, workdir, modules, arguments):
+def run_ocaml(source, workdir, modules, invocation):
     """Compiles to OCaml, builds it with `ocamlopt`, runs the binary.
 
     The bytecode compiler would do as well, but the native one is the
@@ -600,7 +681,7 @@ def run_ocaml(source, workdir, modules, arguments):
     exactly right for a translated Pyking program, where the top level's
     bindings are the program's own."""
     generated = os.path.join(workdir, "program.ml")
-    compiled = compile_to(source, "ocaml", generated)
+    compiled = compile_to(source, "ocaml", generated, invocation.flags)
     if compiled.returncode != 0:
         return None, compiled.stderr
     with open(generated) as f:
@@ -644,7 +725,10 @@ def run_ocaml(source, workdir, modules, arguments):
     complaints = about_the_code(built.stderr)
     if complaints:
         return None, f"the OCaml compiler warned about generated code:\n{complaints}"
-    return executed(run([binary] + arguments, cwd=workdir))
+    return executed(
+        run([binary] + invocation.arguments, cwd=workdir,
+            stdin=invocation.stdin),
+        invocation)
 
 
 # `$OCAMLOPT` may name a wrapper rather than the compiler, and
@@ -669,7 +753,7 @@ def about_the_code(stderr):
     )
 
 
-def run_interpret(source, workdir, modules, arguments):
+def run_interpret(source, workdir, modules, invocation):
     """Runs the program with the interpreter, and compares what it
     printed against the same `.out` every compiling target is compared
     against.
@@ -683,12 +767,15 @@ def run_interpret(source, workdir, modules, arguments):
     # writes it there; the path it is named by therefore has to be
     # absolute.
     # `--` so the program's arguments are not read as this compiler's.
-    passed = ["--"] + arguments if arguments else []
+    # `--release` is a compiling flag, so the interpreter never takes it.
+    passed = ["--"] + invocation.arguments if invocation.arguments else []
     return executed(
-        run(COMPILER + [os.path.abspath(source)] + passed, cwd=workdir))
+        run(COMPILER + [os.path.abspath(source)] + passed, cwd=workdir,
+            stdin=invocation.stdin),
+        invocation)
 
 
-def run_pyking(source, workdir, modules, arguments):
+def run_pyking(source, workdir, modules, invocation):
     """Compiles `source` to Pyking. Nothing is executed.
 
     For a `typecheck_*` program the result is its pretty-printed AST:
@@ -702,7 +789,7 @@ def run_pyking(source, workdir, modules, arguments):
     output to compare and type-checking cleanly is the failure."""
     return _pyking(
         source,
-        [],
+        invocation.flags,
         expect_failure=os.path.basename(source).startswith(FAIL_TYPECHECK_PREFIX),
     )
 
@@ -726,15 +813,15 @@ def _pyking(source, flags, expect_failure):
     return result.stdout, None
 
 
-def run_python_notail(source, workdir, modules, arguments):
+def run_python_notail(source, workdir, modules, invocation):
     """Runs the program with the tail-call pass off. Its output is
     compared against `.notail.out`, which must hold exactly what the
     `.out` does: the pass may make a program run in less space, never
     make it mean something else."""
-    return _run_python(source, workdir, [NOTAIL_FLAG], arguments)
+    return _run_python(source, workdir, [NOTAIL_FLAG], invocation)
 
 
-def run_pyking_notail(source, _workdir, modules, arguments):
+def run_pyking_notail(source, _workdir, modules, invocation):
     """Prints the program with the tail-call pass off, so the
     `.notail.ast.out` holds the program as it was written.
 
@@ -743,10 +830,10 @@ def run_pyking_notail(source, _workdir, modules, arguments):
     turn one into a program that does not (docs/optimization.md, "Why
     one check is enough"). What they disagree about is the *shape* they
     print."""
-    return _pyking(source, [NOTAIL_FLAG], expect_failure=False)
+    return _pyking(source, [NOTAIL_FLAG] + invocation.flags, expect_failure=False)
 
 
-def run_pyking_nosugar(source, _workdir, modules, arguments):
+def run_pyking_nosugar(source, _workdir, modules, invocation):
     """Prints the program with the front end stopped after symbolize, so
     the `.nosugar.ast.out` holds the defaults and named arguments as
     they were written rather than what Desugar_args built from them.
@@ -815,10 +902,6 @@ def load_cases():
         checks = name.startswith(TYPECHECK_PREFIX)
         fails = name.startswith(FAIL_TYPECHECK_PREFIX)
         uses_pyking = PYKING_TARGET in targets
-        # A program importing an external module cannot be interpreted:
-        # what that module exports is written in a target language.
-        external = any(module.endswith(EXTERNAL_SUFFIX)
-                       for module in case.get("modules", []))
 
         if (checks or fails) and not uses_pyking:
             print(
@@ -853,18 +936,18 @@ def load_cases():
         # The interpreter runs the checker's fragment, so a program whose
         # types are pinned is one it can run -- and the cheapest check
         # that the two agree is to actually run it.
-        if checks and INTERPRET_TARGET not in targets and not external:
+        if checks and INTERPRET_TARGET not in targets:
             print(
                 f"WARNING: {name} pins its types but does not list "
                 f'"{INTERPRET_TARGET}"; the interpreter runs exactly the '
                 f"fragment the checker accepts"
             )
         # Every program is type-checked, and the interpreter runs what
-        # the checker accepts, so a program that runs at all runs there.
-        # The exception is a program importing an external module: what
-        # that exports is written in a target language, and only a
-        # compiled program can reach it (see docs/modules.md).
-        if not fails and INTERPRET_TARGET not in targets and not external:
+        # the checker accepts, so a program that runs at all runs there
+        # -- one importing an external module included, which the
+        # interpreter reaches through its OCaml implementation (see
+        # docs/libraries.md).
+        if not fails and INTERPRET_TARGET not in targets:
             print(
                 f'WARNING: {name} does not list "{INTERPRET_TARGET}"; every '
                 f"program that runs at all runs under the interpreter"
@@ -898,16 +981,38 @@ def load_cases():
     return cases
 
 
+def invocation_for(case, target):
+    """How one case is run on one target: the manifest's `arguments`,
+    `exit_code` and `release`, and the sibling `.in` file as standard
+    input. `release` compiles with --release, which the interpreter
+    does not take -- it runs the program as written.
+    Case -> String -> Invocation"""
+    source = os.path.join("tests", case["file"])
+    stdin_path = os.path.splitext(source)[0] + STDIN_EXTENSION
+    stdin = None
+    if os.path.exists(stdin_path):
+        with open(stdin_path) as f:
+            stdin = f.read()
+    release = bool(case.get("release")) and target != INTERPRET_TARGET
+    return Invocation(
+        arguments=case.get("arguments", []),
+        stdin=stdin,
+        flags=[RELEASE_FLAG] if release else [],
+        exit_code=case.get("exit_code", 0),
+        quiet=release and target != PYKING_TARGET,
+    )
+
+
 def plan(cases):
     """Every (target, program) run the manifest declares, in the order
     their results are reported.
-    [Case] -> [(String, String, [String], [String])]"""
+    [Case] -> [(String, String, [String], Invocation)]"""
     return [
         (
             target,
             os.path.join("tests", case["file"]),
             module_names(case),
-            list(case.get("arguments", [])),
+            invocation_for(case, target),
         )
         for target in TARGETS
         for case in cases
@@ -923,18 +1028,14 @@ def module_names(case):
     may import a library.
 
     A module is up to two files, and each is a stem of its own: the
-    implementation of `foo.external.pyk` is `foo_external`, and the file
+    implementation of `foo_external.pyk` is `foo_external`, and the file
     generated from `foo.pyk` is `foo`. The implementation comes first,
     since the generated half calls into it. Case -> [String]"""
     stems = []
     for name in case.get("libs", []):
         stems += library_stems(name)
     for name in case.get("modules", []):
-        if name.endswith(".external.pyk"):
-            stems.append(os.path.splitext(os.path.splitext(name)[0])[0]
-                         + "_external")
-        else:
-            stems.append(os.path.splitext(name)[0])
+        stems.append(os.path.splitext(name)[0])
     return stems
 
 
@@ -943,7 +1044,7 @@ def library_stems(name):
     first. A library is up to two files and either may be absent.
     String -> [String]"""
     stems = []
-    if glob.glob(os.path.join("lib", "*", name + ".external.pyk")):
+    if glob.glob(os.path.join("lib", "*", name + "_external.pyk")):
         stems.append(name + "_external")
     if glob.glob(os.path.join("lib", "*", name + ".pyk")):
         stems.append(name)
@@ -965,24 +1066,46 @@ def java_class_name(module_name):
     )
 
 
-def run_case(target, source, modules, arguments):
+def run_case(target, source, modules, invocation):
     """Runs one program on one target and words the result, rather than
     printing it: a run this far from the reporting loop is one that can
     happen on any thread. `modules` names the modules the program
     imports, dependencies first, which the compiler writes beside the
     program's own output and which the targets that link a program have
-    to be given in that order. `arguments` is what the program itself is
-    passed, which is how `sys.arguments()` is tested at all -- the
-    manifest is the only place a run's arguments can be written down.
+    to be given in that order. `invocation` says what the program itself
+    is passed and reads, which is how `sys.args()` and `io` are tested at
+    all -- the manifest and the `.in` file are the only places a run's
+    input can be written down.
     String -> String -> [String] -> [String] -> (String, Bool)"""
     with open(expected_path(source, target)) as f:
         expected = f.read()
     with tempfile.TemporaryDirectory() as workdir:
-        actual, error = RUNNERS[target](source, workdir, modules, arguments)
+        actual, error = RUNNERS[target](source, workdir, modules, invocation)
 
     label = f"target {target}: {source}"
     if error is not None:
         return f"{label} FAILED\n--- compile/run error ---\n{error}", True
+    if isinstance(actual, Output):
+        stderr_path = os.path.splitext(source)[0] + STDERR_EXTENSION
+        if invocation.quiet and actual.stderr:
+            return (
+                f"{label} FAILED\n"
+                f"--- a release build wrote to standard error ---\n"
+                f"{actual.stderr}",
+                True,
+            )
+        if (not invocation.quiet and target != PYKING_TARGET
+                and os.path.exists(stderr_path)):
+            with open(stderr_path) as f:
+                expected_stderr = f.read()
+            if actual.stderr != expected_stderr:
+                return (
+                    f"{label} FAILED\n"
+                    f"--- expected standard error ---\n{expected_stderr}"
+                    f"--- actual standard error ---\n{actual.stderr}",
+                    True,
+                )
+        actual = actual.stdout
     if actual == expected:
         return f"{label} OK.\n", False
     return (

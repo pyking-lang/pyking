@@ -85,7 +85,7 @@ and typ =
       (* ?  -- a type nothing has decided yet. Never written in source. *)
   | TBuiltin of info * string * int
       (* the type of a name denoting a host operation: print, range,
-         str, len. Never written in source, never printed. *)
+         string, len. Never written in source, never printed. *)
   | TFunction of info * typ list * typ * int * int * stmt option
                  * implicit_param list
       (* (T1, T2, ..., implicit n: T) -> T. The middle two fields are

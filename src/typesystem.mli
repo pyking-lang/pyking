@@ -33,6 +33,7 @@
       builtin_env () -- the environment a program starts in.
       empty_store sigmaps -- the store a program starts checking in.
       declare_functions stmts env store -- binds every def of a block.
+      import_env stmts env store -- binds what a block's imports bring in.
       check_stmt / check_expr -- one statement, one expression.
       same_type a b -- whether two types are the same type.
       covers patterns -- whether patterns between them match everything.
@@ -155,6 +156,13 @@ val empty_store : (string * sigmap) list -> store
     is declared when that branch's block is checked.
     [stmt] -> env -> store -> (env, store) *)
 val declare_functions : stmt list -> env -> store -> env * store
+
+(** env extended with everything a module's imports bring into scope: a
+    selected name under the name it is known by here, and a field of a
+    plain import under `alias.field`. Every module imported has to be in
+    the store's `modules`. What an entry at the prompt does with its
+    imports before it is checked. [stmt] -> env -> store -> env *)
+val import_env : stmt list -> env -> store -> env
 
 (** Checks one statement. Answers what it supplies, the environment the
     statements after it should see, and the store.

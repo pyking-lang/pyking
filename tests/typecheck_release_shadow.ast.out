@@ -1,0 +1,3 @@
+def debug(x:Int) -> Int:
+    return x + 1
+print(debug(1))

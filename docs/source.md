@@ -17,7 +17,9 @@ prefix, and one module refers to another by that name directly. The
 library depends on nothing outside the standard library, which is what
 lets `src/web/` compile the same code to JavaScript with js_of_ocaml;
 only the executable adds `unix`, for the process handling `--run`
-needs. See [build.md](build.md).
+needs, and `dynlink`, for the interpreter's plugins -- with the one
+module a plugin names, `src/plugin/pyk_plugin.ml`, a library of its own.
+See [build.md](build.md).
 
 That flatness is not an oversight — these files are to be rewritten *in
 Pyking* one day, and Pyking's own module system is one file per module
@@ -43,9 +45,13 @@ and which module calls which.
 | [`walk.ml`](#walkml) | ~190 | One `children` function over every AST node, for the passes that ask a question of a whole subtree. |
 | [`typesystem.ml`](#typesystemml) | ~3010 | The type checker: one function per AST datatype, producing `tmap` (symbol → type). Also the type *inference*, which is the same machinery run at a call site rather than at a definition. Its fragment is the interpreter's, and nearly all of the OCaml backend's. |
 | [`type_experiment.ml`](#type_experimentml) | ~140 | An alternative checker, a fragment of one, run instead of the real one by `--type-experiment`. |
+| [`release.ml`](#releaseml) | ~180 | `--release`: every call to the builtin `debug` removed, before any backend sees the program. |
+| [`prune.ml`](#pruneml) | ~160 | What a program uses of the modules it imports, for the C and Java targets: the rest of each module removed, and every import narrowed. |
 | [`opt_tailcall.ml`](#opt_tailcallml) | ~1190 | Tail calls into loops: one AST-to-AST pass over a program the checker accepted, so every backend and the interpreter get tail recursion at once. |
-| [`builtin.ml`](#builtinml) | ~110 | The builtins (`print`, `range`, `str`, `len`): each one's name, arity, whether it crosses the host boundary, and what it does. One table, and no host code at all. |
+| [`builtin.ml`](#builtinml) | ~110 | The builtins (`print`, `debug`, `range`, `string`, `len`, ...): each one's name, arity, whether it crosses the host boundary, and what it does. One table, and no host code at all. |
 | [`interpreter.ml`](#interpreterml) | ~1670 | The interpreter: values, environments, and a resumable small-step machine that runs the AST. The reference for runtime semantics. |
+| [`plugin_host.ml`](#plugin_hostml) | ~330 | How the interpreter reaches a module implemented in a target language: its OCaml implementation, compiled to a plugin and loaded with Dynlink. |
+| [`plugin/pyk_plugin.ml`](#pluginpyk_pluginml) | ~20 | The registry a loaded plugin fills in. |
 | [`repl.ml`](#replml) | ~1160 | `pyk repl`: a session as a program written one entry at a time, and the multi-line editor it is typed into. |
 | [`target_python.ml`](#target_pythonml) | ~2410 | The Python backend, and the only one that compiles the whole language. |
 | [`target_js_core.ml`](#target_js_coreml) | ~1280 | The JavaScript backend's language half: a `Js*` AST, translation, printer. |
@@ -57,7 +63,7 @@ and which module calls which.
 | [`install.ml`](#installml) | ~20 | Where this installation keeps `lib/`, `build/` and `tools/`: the executable's directory, symbolic links resolved. |
 | [`version.ml`](#versionml) | 1 | The version, generated from `VERSION` by `src/dune`. |
 | [`web_tools.ml`](#web_toolsml) | ~100 | `pyk notebook` and `pyk playground`: checks Python and hands the process to the tool's server. |
-| [`pyk.ml`](#pykml) | ~780 | The driver: argv, stage sequencing, error reporting, the five commands. |
+| [`pyk.ml`](#pykml) | ~780 | The driver: argv, stage sequencing, error reporting, the six commands. |
 | [`web/pyking_web.ml`](#webpyking_webml) | ~320 | The browser entry point: the same library compiled to JavaScript, for the playground and the notebook. |
 
 Two shapes recur everywhere and are worth reading once rather than
@@ -337,7 +343,7 @@ the signature the next one is checked against. Errors are
   nothing else: what `--no-typechecking` stops at, which is why nothing
   a program imports is opened under that flag.
 - **`module_file directory name info`** — the file a module name means
-  and whether it declares an **external** module: `sys.external.pyk`
+  and whether it declares an **external** module: `sys_external.pyk`
   before `sys.pyk`, refusing a name that has both.
 - **`check_declaration stmts path`** / **`check_boundary_type`** — a
   declaration file holds public signatures and nothing else, and a
@@ -850,12 +856,19 @@ from the interpreter.
 - **`crosses_host(name)`** — whether the call leaves the program. Every
   backend has one arm gated on this; `interpreter.ml` performs the
   operation through its host there instead.
-- **`float_text(x)`** — a Float as `print` and `str` write it: the
+- **`float_text(x)`** — a Float as `print` and `string` write it: the
   shortest decimal that reads back as the same double, always with a
   point or an exponent. It is here rather than in a backend because
   every backend has to agree about it, and each emits the same algorithm
   in its own host language — no two hosts spell a double alike. See
   [builtin.md](builtin.md), "How a Float is written".
+- **`parse_int(text)` / `parse_float(text)` / `truncate_float(x)`** —
+  what `int` and `float` make of a String, and `int` of a Float: Pyking's
+  own grammar, in the signed 32-bit range (`int_min`, `int_max`), with
+  `None` -- or 0 -- where there is no answer. The interpreter calls them;
+  every backend emits the same rules as a helper of its own, since no
+  host's parser reads the same strings. See [builtin.md](builtin.md),
+  "Conversions".
 
 The formatting rules pinned here: arguments formatted individually and
 joined with single spaces, then a newline; a string bare on its own and
@@ -923,6 +936,50 @@ either feature exists.
   prompt's listing.
 - **`check_no_rename_clash stmts`** -- refuses a program that binds
   both `q::b` and the plain name it compiles to.
+
+---
+
+## `release.ml`
+
+**`--release`, as a pass.** Every call to the builtin `debug` removed,
+arguments and all: one in value position becomes `()`, under the call's
+own symbol so its recorded type still applies, and one written as a
+statement is dropped wherever that leaves its block's value as it was --
+and otherwise left as the statement `()`, which every backend compiles
+to nothing. The builtin is told from a definition a program named
+`debug` by `tmap`: the checker records a type for a callee it resolved
+to a definition and none for a builtin. Runs after `elaborate.ml` and
+before the tail-call pass, for every module.
+
+**Design, in depth:** [release.md](release.md).
+
+### Main functions
+
+- **`program tmap stmts -> [stmt]`** -- the entry point: one module with
+  its calls to `debug` removed.
+
+---
+
+## `prune.ml`
+
+**What a program uses of the modules it imports**, for the C and Java
+targets, which compile a subset of the language and must not refuse a
+library for a function the program never calls. Every module but the
+program's own keeps the definitions its importers name, the ones its
+top-level statements name, and the ones those call -- closed over each
+kept body, by name -- and every statement that is not a definition.
+Every import is narrowed to the names the importing module uses, which
+is what decides which declared names the C backend declares and the
+Java backend checks. The browser bundle's `pykAnalyze` reads the same
+narrowed imports to tell whether a program reads standard input.
+
+**Design, in depth:** [modules.md](modules.md), "What a program uses".
+
+### Main functions
+
+- **`program units -> units`** -- every module of a program, dependencies
+  first, pruned from the program's own module backwards, so a module is
+  pruned once everything that imports it has said what it needs.
 
 ---
 
@@ -1035,6 +1092,15 @@ three are design rather than accident:
   **`exported_values`** reads its own back out; **`run_entry`** is what
   runs a module's top level without putting an enclosing scope back
   afterwards, since there is none to go back to.
+  **`load_modules(state, units, exports)`** is the same into a machine
+  already running, which is what a REPL entry's imports do, and
+  **`bind_imports(state, stmts, exports)`** binds an entry's imports into
+  its environment. **`with_host(state, host)`** swaps the host, which is
+  how a session gains an external module's implementation.
+- **Hosts** -- `console_host` and `callback_host(externals?, debug_line?,
+  print_line)`: where `print` and `debug` go, and how an external module
+  is reached. `debug` writes to standard error unless a host says
+  otherwise.
 - **`declare_entry(state, stmts)` / `eval_in(state, stmt) -> state` /
   `eval_statement(state, stmt)`** — running statements in an existing
   machine's environment, which is what a prompt does. `declare_entry` is
@@ -1091,6 +1157,57 @@ three are design rather than accident:
 
 ---
 
+## `plugin_host.ml`
+
+**How the interpreter reaches a module implemented in a target
+language**: through its OCaml implementation, compiled with a generated
+registration file into a `.cmxs` and loaded into `pyk` with Dynlink. A
+value crosses by its declared type (`to_host`, `of_host`), since nothing
+else says whether an immediate OCaml value is an Int, a Bool or unit; a
+tuple is built as a block of its own, never an array, which the runtime
+would flatten for Floats. A plugin is used from beside the
+implementation where the digest written there says it was built from
+what it would be built from now, and is otherwise compiled into the
+cache with `$OCAMLOPT`, which must be the OCaml `pyk` was built by. In
+the executable, since it starts a process and loads code.
+
+**Design, in depth:** [libraries.md](libraries.md), "How the interpreter
+reaches an OCaml implementation".
+
+### Data structures
+
+- **`unit_ = { name; declared; declaration_path }`** -- one external
+  module: its name, every name it declares with its type, and where its
+  declaration half is, beside which its implementation is.
+
+### Main functions
+
+- **`load units`** -- loads every module's plugin, refusing one that
+  cannot be built or loaded with a `Module_error` at its declaration.
+- **`externals units -> Interpreter.externals`** -- the host's way into
+  those modules: a value, or a call, by the declared type.
+- **`build_plugin unit output`** / **`digest unit`** / **`built_from path
+  digest`** -- compiling one plugin, what it is built from, and whether
+  a plugin was built from that. `pyk plugins` and `make libs` use them.
+- **`set_arguments program arguments`** -- `Sys.argv` made what the
+  program would have been started with, through
+  `caml_sys_modify_argv`, since `sys_external.ml` reads its arguments
+  from there.
+
+## `plugin/pyk_plugin.ml`
+
+**The registry a loaded plugin fills in**: `(module, name)` -> the OCaml
+value implementing it, as an untyped `Obj.t`. A plugin's generated
+registration code calls `register` once per declared name when Dynlink
+loads it; `plugin_host.ml` reads it back with `find`. A library of its
+own, unwrapped and linked only into the executable, so a plugin compiled
+outside this build names it `Pyk_plugin` and finds its `.cmi` in
+`build/plugin/`. Its table is mutable because loading a plugin answers
+nothing: the plugin's initialisation runs for its effect, and this is
+where that effect lands.
+
+---
+
 ## `repl.ml`
 
 **`pyk repl`.** A session is a *program being written one entry at a
@@ -1111,9 +1228,13 @@ function written now is invisible to one written before it.
 
 ### Data structures
 
-- **`Session(seen, state, types, store, kinds, sources)`** — the
-  machine's environment, the checker's, and the mutability analysis's,
-  all extended in step, plus two records of what has arrived. `seen` exists for one narrow reason: `symbolize` numbers a
+- **`Session(seen, state, types, store, kinds, sources, arguments,
+  libs, modules, sigmaps, exports, plugins)`** — the machine's
+  environment, the checker's, and the mutability analysis's, all
+  extended in step, plus two records of what has arrived -- and what the
+  entries have imported: the modules as the module system prepared
+  them, what each exports for the checker and for the machine, and the
+  plugins of the ones implemented in a target language. `seen` exists for one narrow reason: `symbolize` numbers a
   tree from the highest symbol already in it, so handing it the
   accumulated statements is what keeps a later entry from reusing an
   earlier entry's symbols — which the machine's call-free table is keyed
@@ -1146,6 +1267,11 @@ function written now is invisible to one written before it.
   reported in exactly the words it would have been reported in from a
   file; the other two arguments let something other than a terminal drive
   the REPL (a transcript test, another front end).
+- **`import_modules(session, stmts)`** — an entry's imports first: the
+  modules they newly reach are loaded (`Module.load_imports`), checked
+  as a program's would be (`check_import`), their plugins loaded and
+  their top levels run into the session (`Interpreter.load_modules`),
+  and the entry comes back with its imports resolved.
 - **`submit(session, stmts, report, source)`** /
   **`check_entry(entry, types)`** — check the whole entry first, then run
   it a statement at a time, stopping at the first runtime error with both
@@ -1677,7 +1803,14 @@ It registers a handful of functions on the global object through the
 primitives in `src/web/stub.js` — `pykCompile` (a program and a target
 in, generated source or a formatted error out), `pykRun` (the
 interpreter, emitting each line as the program produces it),
-`pykTargets`, `pykFormatHelper`, `pykKeywords` and `pykBuiltins`. The
+`pykRunProgram` (a program of several modules, sources supplied by the
+page or fetched through its `pykFetchSource`, externals through
+`pykExternals`, and `release` on a second line), `pykAnalyze` (which of
+a program's modules are implemented in JavaScript, and whether it reads
+standard input or its arguments), `pykTargets`, `pykFormatHelper`,
+`pykKeywords` and `pykBuiltins`. A `debug` line goes to `pykOnDebug`; a
+`sys.exit` in a JavaScript implementation crosses back as data and ends
+the run with `{"ok":true,"exit":code}`. The
 last four are what the pages ask the bundle for when they load, so
 the page's target list, its syntax mode's keyword list and its JavaScript
 worker's formatter all come from the compiler rather than from a

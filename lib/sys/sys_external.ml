@@ -1,4 +1,4 @@
-(* The OCaml implementation of the names declared in sys.external.pyk.
+(* The OCaml implementation of the names declared in sys_external.pyk.
    OCaml's own module name comes from this file's name, which is what
    the generated code refers to.
 
@@ -39,3 +39,8 @@ let prog_path () =
   if Stdlib.Filename.is_relative directory then
     Stdlib.Filename.concat (Stdlib.Sys.getcwd ()) directory
   else directory
+
+(* `exit` writes out every channel before the process ends. Its type is
+   the declared `(Int) -> ()` rather than Stdlib.exit's own, which says it
+   never returns -- a statement after a call to it would be a warning. *)
+let exit (code : int) : unit = Stdlib.exit code

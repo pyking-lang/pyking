@@ -22,9 +22,9 @@ files, and needs Python 3.10 or later.
 | | |
 |---|---|
 | **▶** beside a cell | runs it |
-| `Shift`+`Enter` in a cell | runs it and moves to the next cell |
+| `Shift`+`Enter` in a cell, or in its stdin or args field | runs it and moves to the next cell |
 | `Ctrl`/`Cmd`+`Enter` | runs it and stays |
-| `Esc` | leaves the editor |
+| `Esc` | leaves the editor, or the field |
 | **■** while it runs | stops it — the worker is terminated and a fresh one boots |
 | **reset** (shown once edited) | puts back the code the document has |
 
@@ -36,6 +36,16 @@ is printed, so a program that prints and then loops still shows what it
 printed. An error is shown under the cell and underlined in the code at the
 span the compiler reported, in the words `pyk` would use. Edits are kept
 until the page is reloaded; nothing is saved.
+
+A cell may use the standard library. `print` and `io.write` write under
+the cell, and a `debug` line is shown there too, marked apart. A cell
+whose program reads standard input (`io.read_line`, `io.read`,
+`io.is_eof`) shows a **stdin** field above its code, and one reading
+`sys.args()` an **args** field -- only such a cell, asked of the
+compiler as the cell is edited. What the program reads is that text, one
+line at a time, and each line it reads is echoed under the cell; the
+arguments are split at spaces, with quotes keeping a space inside one.
+`sys.exit` ends the run, and a status other than 0 is shown.
 
 ## Writing a notebook
 
@@ -60,6 +70,28 @@ x := 2                              # meant to be refused
 def f(x): ...                       # highlighted only: a fragment
 ```
 ````
+
+A `stdin` or `args` block just before a cell fills in that cell's input,
+and is not shown on its own:
+
+````markdown
+```stdin
+Ada
+```
+
+```args
+first "second argument"
+```
+
+```pyking
+import io
+import sys
+print("hello", io.read_line("Name? "), sys.args())
+```
+````
+
+Anything between the input block and the cell -- a paragraph, a heading
+-- lets it go.
 
 An `error` cell shows its refusal as the intended result, labelled so, and
 warns if it unexpectedly runs. `{.pyking .norun}` is read the same as

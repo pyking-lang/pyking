@@ -197,10 +197,14 @@ arrives unqualified", and [implicits.md](implicits.md).
 
 ## One file on its own
 
-Two front ends compile a single file with no program around it: the REPL
-and the browser playground. Neither can resolve an import -- there is no
-other file to reach -- so `typesystem.available` refuses one in both, in
-the same words, rather than each saying it differently.
+The browser playground's Compile compiles a single file with no program
+around it, and cannot resolve an import -- there is no other file to
+reach -- so `typesystem.available` refuses one there. Its Run and a
+notebook's cells go through the module system instead, reading the
+standard library from `lib/` as a program names it. The REPL is a
+program written an entry at a time: an entry's imports are loaded,
+checked and run there (`Module.load_imports`), beside the current
+directory and on the search path.
 
 What a module *exports* is a different question, and one that needs only
 the file: `check_publics` refuses a name exported twice, or an exported
@@ -249,10 +253,11 @@ modules.
 ## External modules
 
 A module can be implemented in the target's own language instead of in
-Pyking. `sys.external.pyk` declares what it offers and at what type;
-`sys_external.py`, `sys_external.js`, `sys_external.c`,
-`SysExternal.java` and `sys_external.ml` implement it, one per target
-family.
+Pyking. `sys_external.pyk` declares what it offers and at what type;
+`sys_external.py`, `sys_external_node.js`, `sys_external_browser.js`,
+`sys_external.c`, `SysExternal.java` and `sys_external.ml` implement it,
+one per target family and two for JavaScript, which runs in two
+environments.
 
 ```
 public def loadfile : (String) -> String
@@ -264,7 +269,7 @@ exactly as it reaches an ordinary module -- a qualified name is an
 environment lookup, the checker holds every call to the type written
 here, and nothing about the call site says which kind of module it is.
 
-**`sys.external.pyk` is read; the implementation is not.** The compiler
+**`sys_external.pyk` is read; the implementation is not.** The compiler
 lexes and parses the declaration and nothing else. It never reads,
 rewrites or renames the implementation: it copies the one file for the
 target being compiled beside the program's own output, under the name
@@ -281,7 +286,7 @@ module `Sys`'s interface from `sys.ml`.
 ### Finding it
 
 `import sys` looks in the directory of the importing file for
-`sys.external.pyk` and `sys.pyk`, and takes whichever it finds -- or
+`sys_external.pyk` and `sys.pyk`, and takes whichever it finds -- or
 both, which is one module in two halves (see below). The first level of
 the search that holds *either* answers, so a library's two halves always
 come from one place.
@@ -289,16 +294,22 @@ come from one place.
 The implementation is `<module>_external.<ext>`, which is what the
 generated code refers to. The suffix is not decoration: a module may
 also have a Pyking half, and `sys.js` is then the file generated from
-`sys.pyk`.
+`sys.pyk`. A file whose name ends in `_external.pyk` is therefore a
+module's external half and never a module of its own: a name ending in
+`_external` cannot be imported.
 
 | target | implementation | what the generated program does |
 |---|---|---|
 | `python` | `sys_external.py` | `import sys_external` |
-| `node24` | `sys_external.js` | `import * as sys_external from './sys_external.js'` |
+| `node24` | `sys_external_node.js` | `import * as sys_external from './sys_external.js'` |
 | `c89`, `c23` | `sys_external.c` | declares `sys_loadfile` and calls it |
 | `java8`/`17`/`21` | `SysExternal.java` | `SysExternal.loadfile(...)` |
 | `ocaml5.5` | `sys_external.ml` | `Sys_external.loadfile ...` |
-| `web24`, `iweb24` | `sys_external.web.js`, else `sys_external.js` | `import * as sys_external from './sys_external.js'` |
+| `web24`, `iweb24` | `sys_external_browser.js` | `import * as sys_external from './sys_external.js'` |
+| interpreter | `sys_external.ml`, as a plugin | calls it through `Pyk_plugin` |
+
+Each JavaScript implementation is copied out as `sys_external.js`, the
+name every generated import uses.
 
 Java's is capitalised where the others are not, because javac requires
 the file name and the public class to match. C is the one target whose
@@ -316,7 +327,7 @@ translated, naming the module and the file it looked for.
 
 ### Why a declaration file holds nothing else
 
-A `.external.pyk` may contain signatures, and nothing but signatures --
+A `_external.pyk` may contain signatures, and nothing but signatures --
 no bodies and no top-level bindings. The file is a header, in the sense
 C and OCaml already have one: it says what something else provides.
 
@@ -328,17 +339,17 @@ crosses the boundary is the *call*, and the Pyking half makes it.
 
 ### A module in two halves
 
-`foo.pyk` and `foo.external.pyk` are one module `foo`. Either may stand
+`foo.pyk` and `foo_external.pyk` are one module `foo`. Either may stand
 alone -- a module written only in Pyking, or one only declared -- and
 together they are still one name to whoever imports it.
 
 ```
 lib/foo/foo.pyk            public def f1(x:Int): x * 2
                            public def f2(x:Int): g2(x)
-lib/foo/foo.external.pyk   public def g1 : (Int) -> Int
+lib/foo/foo_external.pyk   public def g1 : (Int) -> Int
                            def g2 : (Int) -> Int
-lib/foo/foo_external.js    export function g1(x) { ... }
-                           export function g2(x) { ... }
+lib/foo/foo_external_node.js    export function g1(x) { ... }
+                                export function g2(x) { ... }
 ```
 
 A program says `import foo` and calls `foo.f1`, `foo.f2` and `foo.g1`.
@@ -363,9 +374,30 @@ Pyking sees:
 
 C is the exception that shows the rule: a name there is
 `<module>_<field>` whichever half provides it, and both halves are
-linked into one program, so nothing needs rewriting. C and Java do not
-compile a module in two halves yet -- each refuses one with a message --
-though both compile a module that is only a declaration half.
+linked into one program, so nothing needs rewriting. The generated file
+declares the module's own declared names (`declare_own_externals`) so
+the Pyking half can call them, and a file importing the module declares
+the ones it takes. Java reaches a declared name through the
+implementation's class, `FooExternal.g1`, from either side. Both read the
+module's own declarations from `Module.context`'s `own_declared`.
+
+### What a program uses
+
+C and Java compile a subset of the language, so a library's function a
+program never calls must not decide whether it compiles: `sys.env_get`
+walks a list, and would otherwise keep `sys.exit` out of both.
+`src/prune.ml` gives those two targets only what the program reaches.
+Every module but the program's own keeps the definitions its importers
+name, the ones a top-level statement names and the ones those call; a
+statement that is not a definition always stays, since it runs when the
+module does. Every import is narrowed to the names the importing module
+uses, which is what decides which declared names get a C declaration or
+a Java type check at all.
+
+The test is by name, so a local sharing a definition's name keeps that
+definition too. That costs output and never correctness. The same
+narrowed imports are how the browser bundle's `pykAnalyze` decides
+whether a program reads standard input or its arguments.
 
 ### What may cross the boundary
 
@@ -402,11 +434,12 @@ its own shape to go on, so an external module cannot yet return a Float
 there. Nothing under `lib/` declares one, and every compiled target
 carries it (`tests/external_float.pyk`).
 
-**A `.web.js` may differ from a `.js`.** The `web` and `iweb` targets
-look for `sys_external.web.js` before `sys_external.js`, so a module
-that needs different code in a browser writes both and one that does not
-writes one. The file found is copied out as `sys_external.js` either
-way, which is the name every generated import uses.
+**A browser implementation differs from node's.** The `web` and `iweb`
+targets read `sys_external_browser.js` and `node24` reads
+`sys_external_node.js`: a page has no standard input, no filesystem and
+no process, and says so ([libraries.md](libraries.md), "In the
+browser"). The file is copied out as `sys_external.js` either way, which
+is the name every generated import uses.
 
 **A JavaScript list must say it is one**, and on the `iweb` target that
 marker has to survive JSON: a value crossing into the interpreted page
@@ -418,7 +451,7 @@ A Pyking list and a Pyking
 tuple are both arrays there, and the value formatter walks values rather
 than reading types, so a list carries `pykList === true` and a tuple
 does not. An implementation returning a plain array for a `[Int]` will
-have it printed as a tuple. `tests/external_shapes_mod1.js` is the
+have it printed as a tuple. `tests/external_shapes_mod1_external_node.js` is the
 worked example.
 
 **A C `Bool` is spelled differently by the two standards.** `c89`
@@ -427,7 +460,7 @@ each standard has, and the declaration the importing file carries says
 so. One `sys.c` serving both targets has to agree with whichever it is
 compiled under -- the usual `#if __STDC_VERSION__ >= 199901L` around
 `<stdbool.h>`, with a `typedef int bool` otherwise.
-`tests/external_all_mod1.c` is the worked example. Getting this wrong
+`tests/external_all_mod1_external.c` is the worked example. Getting this wrong
 links and appears to work on most ABIs, which is exactly why it is
 worth saying: the declaration and the definition are in different
 translation units, so no compiler sees both.
@@ -440,12 +473,15 @@ implementation cannot be polymorphic.
 
 ### Running one
 
-It cannot be interpreted. `pyk prog.pyk` and `pyk repl` run the AST, and
-what an external module exports has none -- it is written in a target
-language. Importing one is refused there, and a program that uses one
-has to be compiled. This is why such a program lists no `interpret`
-target in `tests/test_cases.toml`, and why the harness does not warn
-about its absence.
+`pyk prog.pyk` and `pyk repl` run the AST, and what an external module
+exports has none, so the interpreter runs its OCaml implementation --
+the file the `ocaml5.5` target links -- compiled to a plugin and loaded
+with Dynlink ([libraries.md](libraries.md), "How the interpreter reaches
+an OCaml implementation"). A module with no `<module>_external.ml` is
+refused there, naming the file. A program importing one therefore lists
+`interpret` like any other, and the harness warns where it does not.
+The browser's interpreter reaches the JavaScript implementation
+instead, through `pykExternals`.
 
 An external module has no Pyking top level either, so nothing runs
 before the program's own: it is not among the modules a backend starts,

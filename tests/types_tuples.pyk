@@ -10,18 +10,18 @@
 
 def describe_pair(p:(Int, Bool)) -> String:
     a, b = p
-    return "pair " ++ str(a) ++ " " ++ str(b)
+    return "pair " ++ string(a) ++ " " ++ string(b)
 
 
 def describe_single(p:(Int,)) -> String:
     (a,) = p
-    return "single " ++ str(a)
+    return "single " ++ string(a)
 
 
 def describe_wide(w:(Int, String, Int, (Bool, Bool))) -> String:
     a, b, c, d = w
     e, f = d
-    return "wide " ++ str(a) ++ b ++ str(c) ++ str(e) ++ str(f)
+    return "wide " ++ string(a) ++ b ++ string(c) ++ string(e) ++ string(f)
 
 
 def announce(label:String) -> ():

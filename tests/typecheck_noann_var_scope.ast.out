@@ -3,7 +3,7 @@ for a in range(3):
     for b in range(3):
         if a + b > deepest:
             deepest := a + b
-print(deepest, str(deepest))
+print(deepest, string(deepest))
 var level = 1
 def report() -> Int:
     return level * 100

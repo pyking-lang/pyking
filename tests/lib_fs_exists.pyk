@@ -2,7 +2,7 @@
 # nothing has written.
 #
 # `exists` is the whole of the library's error handling: reading a file
-# that is not there is undefined (lib/fs/fs.external.pyk), so asking
+# that is not there is undefined (lib/fs/fs_external.pyk), so asking
 # first is how a program stays inside what Pyking can say.
 
 import fs

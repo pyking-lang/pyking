@@ -2939,7 +2939,8 @@ and no_implicit info name wanted env store =
              name
          else "") )
 
-(** A call to print, str, len or range, checked by its own rule since
+(** A call to a builtin -- print, string, len, range or a conversion --
+    checked by its own rule since
     none of them has a TFunction type (PYKING.md, "Builtins").
     string -> expr -> env -> store -> (typ, store) *)
 and check_builtin_call name call env store =
@@ -2951,24 +2952,25 @@ and check_builtin_call name call env store =
   let types = List.map (fun t -> zonk t store) types in
   let given = List.length args in
   match (name, types) with
-  | "print", _ -> (unit_type info, store)
-  | "str", [ value ] ->
+  | ("print" | "debug"), _ -> (unit_type info, store)
+  | "string", [ value ] ->
       check_builtin_arity name info given;
       if not (every value [ KInt; KFloat; KString; KBool; KList; KTuple ]) then
         raise
           (builtin_argument_error name (List.hd args) value
              "Int, Float, String, Bool, a list or a tuple");
       (t_string info, store)
-  | "float", [ value ] ->
+  | ("int" | "float" | "bool"), [ value ] ->
       check_builtin_arity name info given;
-      if not (every value [ KInt ]) then
-        raise (builtin_argument_error name (List.hd args) value "Int");
-      (t_float info, store)
-  | "int", [ value ] ->
-      check_builtin_arity name info given;
-      if not (every value [ KFloat ]) then
-        raise (builtin_argument_error name (List.hd args) value "Float");
-      (t_int info, store)
+      if not (every value [ KInt; KFloat; KString; KBool ]) then
+        raise
+          (builtin_argument_error name (List.hd args) value
+             "Int, Float, String or Bool");
+      ( (match name with
+        | "int" -> t_int info
+        | "float" -> t_float info
+        | _ -> t_bool info),
+        store )
   | "len", [ value ] ->
       check_builtin_arity name info given;
       if not (every value [ KList; KString ]) then
@@ -2986,8 +2988,8 @@ and check_builtin_call name call env store =
       (t_list info (t_int info), store)
   | _ ->
       (* A builtin with the wrong number of arguments reaches here for
-         `str` and `len`, whose cases ask for exactly one; the arity
-         check says which and how many. *)
+         `string`, `len` and the conversions, whose cases ask for exactly
+         one; the arity check says which and how many. *)
       check_builtin_arity name info given;
       unsupported info
 
@@ -3415,7 +3417,7 @@ and verified node scheme store =
 
     That fallback is not a failure but the one thing unification cannot
     express: a body whose demands are *ad-hoc* rather than parametric --
-    `str(x)`, which accepts three types and no one type -- generalises to
+    `string(x)`, which accepts six types and no one type -- generalises to
     a promise it cannot keep, the re-check with `x` rigid says so, and
     the definition stays open for its first call to settle
     (docs/type_inference.md, "What is left of ad-hoc polymorphism").
@@ -3625,7 +3627,7 @@ and resolved_argument one store =
 let type_check ?(declared = []) stmts sigmaps =
   let store = empty_store sigmaps in
   (* A module's own declaration half is in scope here, unqualified and
-     with no import: `foo.pyk` and `foo.external.pyk` are one module, so
+     with no import: `foo.pyk` and `foo_external.pyk` are one module, so
      a name the target's source provides is a name of this module (see
      docs/modules.md, "A module in two halves"). It goes in before the
      imports, since it is the module's own. *)

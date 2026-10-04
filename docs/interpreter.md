@@ -235,6 +235,14 @@ An import itself is a no-op at run time -- its names were bound when the
 module's environment was built -- and `EQualified` is one `lookup` of a
 dotted name, so neither adds a value kind or a continuation.
 
+`run_modules` is `load_modules` started from an empty machine.
+`load_modules(state, units, exports)` runs modules into a machine that
+is already running -- what a REPL entry's imports do -- adding their
+call-free tables to its own and their exports to the ones it was given,
+and `bind_imports(state, stmts, exports)` binds an entry's imported names
+into the machine's environment, the way `module_env` does for a module's
+top level.
+
 ## `declare`/`define`: the one mutation, and why it exists
 
 Every other binding in this module is built by `extend`, immutably. `def`
@@ -379,14 +387,25 @@ from these nine shapes will.
 
 ## Hosts: where output actually goes
 
-`Host` is a tiny protocol — one method, `print`, matching
-`builtin.ml`'s host-crossing entries exactly (see that module's own page for
-what the interface itself specifies) — with two implementations
-serving two different embeddings: `ConsoleHost` writes to a real
-stream (`sys.stdout` by default, for `pyk <file>`); `CallbackHost` hands
-each line to a function, which is the shape both a debugger's "output"
-pane and a browser worker's message-passing need. None of the machine
-itself — `step`, `call`, `apply_builtin` — knows or cares which one is
-in play; `apply_builtin`'s `PRINT` case just calls `host.print(...)`,
-and *which* `Host` that is was fixed once, in `Runtime`, when the run
-began.
+`Host` is a tiny protocol — `print_line` and `debug_line`, one per
+`builtin.ml` host-crossing entry (see that module's own page for what
+the interface itself specifies), and `externals`, how a module
+implemented in a target language is reached — with two constructors
+serving two different embeddings: `console_host` writes to the real
+standard output and standard error; `callback_host` hands each line to a
+function, which is the shape both a debugger's "output" pane and a
+browser worker's message-passing need. `debug_line` defaults to standard
+error there too. None of the machine itself — `step`, `call`,
+`apply_builtin` — knows or cares which one is in play; `apply_builtin`'s
+host-crossing case calls `host.print_line` or `host.debug_line`, and
+*which* host that is was fixed in `Runtime` when the run began --
+`with_host` gives a machine another one, which is how a REPL session
+gains a module's implementation when an entry imports it.
+
+`externals` is `pyk`'s plugins (`src/plugin_host.ml`) in a terminal and
+the page's JavaScript (`pykExternals`) in a browser. A function a module
+declares is a `VHostFun`, called through `externals.call`; a value it
+declares is asked of `externals.field` when the module is loaded.
+`sys.exit` never reaches the machine as a value: the OCaml
+implementation ends the process, and in a browser the call raises an
+exception the bundle catches where it started the run.

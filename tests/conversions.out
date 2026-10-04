@@ -1,0 +1,14 @@
+1 2.5 true s -0.0
+3 2 -2 1 0
+42 -17 5 7
+0 0 0 0 0 0 0 0
+2147483647 -2147483648 0 0
+0
+0 0 0 0
+-2147483648 2147483647 0
+3.0 1.0 0.0 2.5
+1.0 2.5 -0.0015 2000.0 inf
+inf -inf nan true
+nan nan nan nan nan nan
+true false true false false false
+true false false false true false false

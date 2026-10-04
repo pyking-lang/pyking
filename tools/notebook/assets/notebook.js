@@ -57,6 +57,10 @@ const MODES = {
 // endless loop would otherwise grow the page until the tab dies.
 const OUTPUT_LIMIT = 200000;
 
+// How long an edited cell sits still before the page asks the compiler
+// whether it reads standard input or its arguments.
+const ANALYZE_DELAY = 400;
+
 /** Renders a document into host and makes its cells runnable. Resolves
  *  to the mounted Notebook. Element -> {...} -> Promise<Notebook> */
 export async function mountNotebook(host, options = {}) {
@@ -302,8 +306,14 @@ class Notebook {
     try {
       await this.runtime.ready();
       const result = await this.runtime.runProgram(cell.source(), {
-        name: `cell-${cell.spec.index + 1}.pyk`,
+        name: cell.name(),
         onOutput: (text) => cell.write(text),
+        onDebug: (text) => {
+          cell.write(text, "pkn-debug");
+          console.log(text.replace(/\n$/, ""));
+        },
+        onInput: (text) => cell.write(text, "pkn-echo"),
+        ...cell.input(),
       });
       cell.finish(result, ++this.executions, performance.now() - started);
       this.status("ready", "ready");
@@ -391,6 +401,18 @@ class Cell {
         <span class="pkn-count" data-r="count"></span>
       </div>
       <div class="pkn-cell-main">
+        <div class="pkn-cell-inputs pkn-hidden" data-r="inputs">
+          <label class="pkn-input pkn-hidden" data-r="stdinField">
+            <span class="pkn-input-label">stdin</span>
+            <textarea class="pkn-stdin" rows="2" spellcheck="false"
+                      data-r="stdin" aria-label="Standard input for cell ${spec.index + 1}"></textarea>
+          </label>
+          <label class="pkn-input pkn-hidden" data-r="argsField">
+            <span class="pkn-input-label">args</span>
+            <input class="pkn-args" type="text" spellcheck="false"
+                   data-r="args" aria-label="Arguments for cell ${spec.index + 1}">
+          </label>
+        </div>
         <div class="pkn-cell-frame">
           <div class="pkn-cell-editor" data-r="editorHost"></div>
           <div class="pkn-cell-tags">
@@ -401,7 +423,10 @@ class Cell {
           </div>
         </div>
         <div class="pkn-output pkn-hidden" data-r="output">
-          <pre class="pkn-stdout" data-r="stdout"></pre>
+          <div class="pkn-stdout-box" data-r="stdoutBox">
+            <span class="pkn-input-label">stdout</span>
+            <pre class="pkn-stdout" data-r="stdout"></pre>
+          </div>
           <div class="pkn-result pkn-hidden" data-r="result"></div>
         </div>
       </div>`;
@@ -413,9 +438,66 @@ class Cell {
     placeholder.replaceWith(element);
     this.element = element;
 
+    this.ui.stdin.value = spec.stdin ?? "";
+    this.ui.args.value = spec.args ?? "";
+    // The code editor's own keys, in the two input fields too, so a cell
+    // can be run from wherever its input is being typed.
+    for (const field of [this.ui.stdin, this.ui.args]) {
+      field.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          field.blur();
+        } else if (event.key === "Enter" && event.shiftKey
+                   && !event.ctrlKey && !event.metaKey) {
+          event.preventDefault();
+          this.run();
+          this.notebook.focusAfter(this);
+        } else if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+          event.preventDefault();
+          this.run();
+        }
+      });
+    }
     this.ui.run.addEventListener("click", () => this.run());
     this.ui.stop.addEventListener("click", () => this.notebook.stop());
     this.ui.reset.addEventListener("click", () => this.reset());
+    this.analyzeTimer = null;
+    this.uses = { stdin: false, args: false };
+  }
+
+  /** The file name a cell's program runs as. () -> String */
+  name() {
+    return `cell-${this.spec.index + 1}.pyk`;
+  }
+
+  /** What the cell's program reads and is passed, where it uses them.
+   *  () -> {stdin, args} */
+  input() {
+    return {
+      stdin: this.uses.stdin ? this.ui.stdin.value : "",
+      args: this.uses.args ? this.notebook.web.splitArguments(this.ui.args.value) : [],
+    };
+  }
+
+  /** Asks the compiler whether the program reads standard input or its
+   *  arguments, and shows the fields for whichever it does. A program
+   *  that does not check keeps the fields it had. () -> Promise */
+  async analyze() {
+    let analysis;
+    try {
+      analysis = await this.notebook.runtime.analyze(this.source(), this.name());
+    } catch {
+      return;
+    }
+    if (!analysis.ok) return;
+    this.uses = { stdin: analysis.stdin, args: analysis.args };
+    this.ui.stdinField.classList.toggle("pkn-hidden", !analysis.stdin);
+    this.ui.argsField.classList.toggle("pkn-hidden", !analysis.args);
+    this.ui.inputs.classList.toggle("pkn-hidden", !(analysis.stdin || analysis.args));
+  }
+
+  scheduleAnalyze() {
+    clearTimeout(this.analyzeTimer);
+    this.analyzeTimer = setTimeout(() => this.analyze(), ANALYZE_DELAY);
   }
 
   attachEditor() {
@@ -442,6 +524,7 @@ class Cell {
     editor.session.on("change", () => {
       this.clearMarker();
       this.ui.reset.classList.toggle("pkn-hidden", this.source() === this.spec.source);
+      this.scheduleAnalyze();
     });
     // Registered as Ace commands, since Ace handles keys on its own
     // textarea before any listener outside it would hear them.
@@ -455,6 +538,7 @@ class Cell {
     bind("pknLeave", { win: "Esc", mac: "Esc" }, () => editor.blur());
     this.editor = editor;
     if (this.notebook.running === this) editor.setReadOnly(true);
+    this.analyze();
   }
 
   source() {
@@ -499,13 +583,22 @@ class Cell {
     this.setState("idle");
   }
 
-  /** Appends a line the program printed. String -> () */
-  write(text) {
+  /** Appends what the program wrote -- marked with `kind` where it is a
+   *  `debug` line or a line the program read. String -> String? -> () */
+  write(text, kind = null) {
     if (this.outputSize >= OUTPUT_LIMIT) return;
     this.ui.output.classList.remove("pkn-hidden");
+    this.ui.stdoutBox.classList.remove("pkn-hidden");
     this.outputSize += text.length;
-    this.ui.stdout.textContent += this.outputSize < OUTPUT_LIMIT
-      ? text : text + "… (output truncated)\n";
+    const shown = this.outputSize < OUTPUT_LIMIT ? text : text + "… (output truncated)\n";
+    if (kind === null) {
+      this.ui.stdout.append(shown);
+    } else {
+      const span = document.createElement("span");
+      span.className = kind;
+      span.textContent = shown;
+      this.ui.stdout.append(span);
+    }
   }
 
   /** Shows how a run ended. A cell marked `error` is expected to be
@@ -515,7 +608,9 @@ class Cell {
     this.lastCount = count;
     this.end();
     const expectError = this.spec.attrs.error;
-    if (result.ok && !expectError) {
+    if (result.ok && result.exit && !expectError) {
+      this.result("pkn-error", `exited with status ${result.exit} after ${formatTime(elapsed)}`);
+    } else if (result.ok && !expectError) {
       this.result("pkn-ok", `${ICON.ok} ran in ${formatTime(elapsed)}`);
     } else if (result.ok) {
       this.result("pkn-surprise",
@@ -541,7 +636,7 @@ class Cell {
 
   result(kind, html) {
     this.ui.output.classList.remove("pkn-hidden");
-    this.ui.stdout.classList.toggle("pkn-hidden", this.ui.stdout.textContent === "");
+    this.ui.stdoutBox.classList.toggle("pkn-hidden", this.ui.stdout.textContent === "");
     this.ui.result.className = "pkn-result " + kind;
     this.ui.result.innerHTML = html;
   }

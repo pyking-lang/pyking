@@ -1,0 +1,25 @@
+# The process this program is running as, as the host provides it.
+#
+# This is the external half of the module `sys`; `sys.pyk` beside it is
+# the other half, written in Pyking against what is declared here. The
+# two files are one module: a program says `import sys` and reaches
+# both (docs/modules.md, "A module in two halves").
+#
+# A list and a tuple cross the boundary on python, node and ocaml and on
+# no other target, which is where most of `sys` reaches. Nothing here is
+# scalar for the sake of being scalar: the host answers with the shape
+# the caller wants. `exit` is the exception, and it reaches C and Java
+# as well.
+
+public def args : () -> [String]
+
+public def env : () -> [(String, String)]
+
+public def prog_name : () -> String
+
+public def prog_path : () -> String
+
+# Ends the program at once, with `code` as its exit status. Output
+# written so far is written out first. A program that ends without
+# calling it ends with status 0.
+public def exit : (Int) -> ()

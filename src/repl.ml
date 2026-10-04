@@ -49,7 +49,16 @@ let starts_with prefix text =
     kinds -- the mutability analysis's names -> kinds.
     sources -- each name's own source text, for `:edit`.
     arguments -- what Desugar_args knows about the defs written so far,
-      so a later entry may call an earlier one with its defaults. *)
+      so a later entry may call an earlier one with its defaults.
+    libs -- where an imported module is looked for after the current
+      directory.
+    modules -- every module an entry has imported, as the module system
+      prepared it.
+    sigmaps -- what each of them exports, for the checker.
+    exports -- the value of each name each of them exports, for the
+      machine.
+    plugins -- the ones implemented in a target language, which the
+      machine reaches through their OCaml plugins. *)
 type session = {
   seen : stmt list;
   high : int;
@@ -59,6 +68,11 @@ type session = {
   kinds : Analyses.env;
   sources : (string * string) list;
   arguments : Desugar_args.signatures;
+  libs : Module.lib_entry list;
+  modules : (string * Module.t) list;
+  sigmaps : (string * Typesystem.sigmap) list;
+  exports : (string * (string * Interpreter.value) list) list;
+  plugins : Plugin_host.unit_ list;
 }
 
 (** The mutability analysis's starting environment: the builtins, and
@@ -69,8 +83,10 @@ let builtin_kinds () =
       Analyses.SMap.add name Analyses.{ kind = Builtin; info = None } env)
     Analyses.SMap.empty Builtin.names
 
-(** An empty session: builtins in scope, nothing seen. () -> session *)
-let new_session () =
+(** An empty session: builtins in scope, nothing seen, and modules
+    looked for in `libs` after the current directory.
+    [Module.lib_entry] -> session *)
+let new_session ?(libs = []) () =
   {
     seen = [];
     high = 0;
@@ -80,6 +96,11 @@ let new_session () =
     kinds = builtin_kinds ();
     sources = [];
     arguments = Desugar_args.no_signatures;
+    libs;
+    modules = [];
+    sigmaps = [];
+    exports = [];
+    plugins = [];
   }
 
 (* --- reading --- *)
@@ -748,6 +769,7 @@ let rec set_source name text = function
     [stmt] -> Typesystem.env -> Typesystem.store
     -> ([(stmt, typ option, Typesystem.env, Typesystem.store)], typ IntMap.t) *)
 let check_entry entry types store =
+  let types = Typesystem.import_env entry types store in
   let types, store = Typesystem.declare_functions entry types store in
   let store =
     { store with Typesystem.tmap = IntMap.empty; Typesystem.qmap = IntMap.empty }
@@ -789,6 +811,94 @@ let show value type_ =
   | None | Some Interpreter.VUnit -> ()
   | Some value -> print_endline (value_text value ^ type_suffix type_)
 
+(** One module an entry imported, made ready to run the way pyk.ml makes a
+    program's: checked against what the modules it imports export, the
+    mutability rule applied, overloading and implicits removed and its
+    tail calls made loops. Answers what it exports, the statements to
+    run, and the highest symbol handed out. Raises the stages' own
+    errors. [(string, sigmap)] -> int -> Module.t -> (sigmap, [stmt], int) *)
+let check_import sigmaps high (unit : Module.t) =
+  if unit.is_external then (Module.external_sigmap unit.declarations, [], high)
+  else
+    let declared = Module.external_signatures unit.declarations in
+    let tmap, qmap =
+      Typesystem.type_check ~declared unit.stmts (Module.sigmaps_for unit sigmaps)
+    in
+    Analyses.analyze_mutability unit.stmts;
+    let sigmap = Module.module_sigmap unit.stmts unit.declarations tmap in
+    let elaborated, tmap = Elaborate.program qmap tmap unit.stmts in
+    let elaborated = Analyses.symbolize ~start:high elaborated in
+    let high = max high (Analyses.highest_sym elaborated) in
+    let optimized, _ = Opt_tailcall.optimize elaborated tmap in
+    let optimized = Analyses.symbolize ~start:high optimized in
+    (sigmap, Analyses.apply_signatures optimized, max high (Analyses.highest_sym optimized))
+
+(** The session with every module an entry's imports newly reach loaded,
+    checked and run, and the entry with its imports resolved against
+    them. A module implemented in a target language is reached through
+    its OCaml plugin, which is loaded here too. An entry with no import
+    comes back as it was. Raises the stages' own errors, and the one a
+    module's top level failed with. session -> [stmt] -> (session, [stmt]) *)
+let import_modules session stmts =
+  if not (List.exists (function SImport _ -> true | _ -> false) stmts) then
+    (session, stmts)
+  else
+    let modules, stmts, arguments, high =
+      Module.load_imports ~libs:session.libs ~loaded:session.modules
+        ~start:session.high ~signatures:session.arguments "" stmts
+    in
+    let sigmaps, units, high =
+      List.fold_left
+        (fun (sigmaps, units, high) (unit : Module.t) ->
+          let sigmap, running, high = check_import sigmaps high unit in
+          ( sigmaps @ [ (unit.name, sigmap) ],
+            units @ [ (unit.name, running, unit.declarations) ],
+            high ))
+        (session.sigmaps, [], high) modules
+    in
+    let added =
+      List.filter_map
+        (fun (unit : Module.t) ->
+          match unit.declaration_path with
+          | Some declaration_path when unit.declarations <> [] ->
+              Some
+                Plugin_host.
+                  {
+                    name = unit.name;
+                    declared = Module.external_signatures unit.declarations;
+                    declaration_path;
+                  }
+          | _ -> None)
+        modules
+    in
+    Plugin_host.load added;
+    let plugins = session.plugins @ added in
+    let state =
+      if added = [] then session.state
+      else
+        Interpreter.with_host session.state
+          (Interpreter.callback_host ~externals:(Plugin_host.externals plugins)
+             (fun line ->
+               print_string line;
+               print_newline ()))
+    in
+    let state, exports = Interpreter.load_modules state units session.exports in
+    (match Interpreter.failure state with Some error -> raise error | None -> ());
+    ( {
+        session with
+        high;
+        arguments;
+        state;
+        store = { session.store with Typesystem.modules = sigmaps };
+        modules =
+          session.modules
+          @ List.map (fun (unit : Module.t) -> (unit.name, unit)) modules;
+        sigmaps;
+        exports;
+        plugins;
+      },
+      stmts )
+
 (** Checks stmts as one entry (all of it, before any of it runs), then
     runs whichever of them the checker accepted, reporting any runtime
     error via report. `source` is kept per-name for `:edit`. Answers the
@@ -796,6 +906,20 @@ let show value type_ =
     handle rather than reported here.
     session -> [stmt] -> (exn -> ()) -> string -> (session, exn option) *)
 let submit session stmts report source =
+  (* What the entry imports comes first: the sugar has to know what an
+     imported definition's defaults are, and the checker what it
+     exports. *)
+  match
+    try Ok (import_modules session stmts) with
+    | Module.Module_error _ as e -> Error e
+    | Lexer.Lex_error _ as e -> Error e
+    | Parser.Parse_error _ as e -> Error e
+    | Analyses.Analysis_error _ as e -> Error e
+    | Typesystem.Type_error _ as e -> Error e
+    | Interpreter.Runtime_error _ as e -> Error e
+  with
+  | Error e -> (session, Some e)
+  | Ok (session, stmts) ->
   (* The sugar goes first, as it does in a file. The pass is over the
      entry alone and answers a possibly longer list, so `seen` is built
      from that rather than from what was typed. *)
@@ -865,6 +989,7 @@ let submit session stmts report source =
          handed out once must not be handed out again. *)
       let session = { session with seen; high; kinds } in
       let state = Interpreter.declare_entry session.state running in
+      let state = Interpreter.bind_imports state running session.exports in
       let rec run session state checked =
         match checked with
         | [] -> (session, None)
@@ -1181,7 +1306,7 @@ let defines_function stmts =
 
 (** Runs the REPL loop until end of input or `:quit`. `format_error` is
     the driver's (pyk.ml). (exn -> string option) -> int *)
-let start ?read ?session format_error =
+let start ?read ?session ?(libs = []) format_error =
   let reader = match read with Some reader -> reader | None -> make_reader () in
   let report error =
     match format_error error with
@@ -1230,4 +1355,6 @@ let start ?read ?session format_error =
                       report refused;
                       loop session "")))
   in
-  loop (match session with Some session -> session | None -> new_session ()) ""
+  loop
+    (match session with Some session -> session | None -> new_session ~libs ())
+    ""

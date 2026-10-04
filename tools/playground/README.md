@@ -215,11 +215,18 @@ frame of its own.
 
 Two consequences worth knowing:
 
-- **Output streams as it is produced.** `pykRun` posts each line across as
-  the interpreter produces it, through the `pyk_emit` primitive, rather than
+- **Output streams as it is produced.** The interpreter posts each line
+  across as it produces it, through the `pyk_emit` primitive, rather than
   the run returning everything at the end. So a program that prints and
   *then* hangs still shows what it printed — which is exactly the case you
-  want to see.
+  want to see. A `debug` line comes through `pyk_debug` and is shown
+  dimmed, and a line the program read from its input is echoed.
+- **A program may import the standard library, and read its input.**
+  Run asks the compiler first whether the program reads standard input
+  or `sys.args()`, and where it does, a dialog asks for them before the
+  program runs -- the last values offered again. `io` and `sys` are the
+  worker's own, so standard output is this pane; see
+  `../webrun/README.md`, "In the browser".
 - **Stopping costs the loaded compiler.** `terminate()` reclaims the thread
   whatever the interpreter was doing, which is the point, but the worker's
   copy of the compiler goes with it. A replacement starts immediately and is
@@ -512,6 +519,9 @@ answering. Any error on the console fails the run.
   fixes it can still be typed.
 - **C and Java output is display-only.** Copy it out and build it locally —
   the header comment in each generated file gives the exact command.
+- **Compile takes one file.** A program that imports runs, since Run
+  reads the standard library from `lib/`, but Compile refuses its import:
+  it compiles the file on its own.
 
 ## What the page does not offer
 

@@ -1,7 +1,7 @@
 # Dates and times: reading the clock, and rendering an instant.
 #
 # The Pyking half of `time`. What the host provides is declared in
-# time.external.pyk beside this file and is in scope here unqualified --
+# time_external.pyk beside this file and is in scope here unqualified --
 # the two files are one module -- so `year_of` below is the host's, and
 # it is private to this library.
 #
@@ -11,7 +11,7 @@
 # host's clock and calendar, and everything a reader sees is decided
 # here.
 #
-# All of it is UTC (see time.external.pyk).
+# All of it is UTC (see time_external.pyk).
 #
 # `format` recognises the six field tokens below and a fixed set of
 # separators. It cannot pass an arbitrary character through, because
@@ -31,8 +31,8 @@ public DATETIME: String = "yyyy-MM-dd HH:mm:ss"
 public COMPACT: String = "yyyyMMddHHmmss"
 
 
-# One digit as text. `str` would do it, but the JavaScript backends have
-# no `str` yet, and a library that cannot be compiled everywhere its
+# One digit as text. `string` would do it, but the JavaScript backends have
+# no `string` yet, and a library that cannot be compiled everywhere its
 # types allow is worth less than ten lines of match.
 def digit(n:Int) -> String:
     match n:

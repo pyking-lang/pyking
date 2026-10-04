@@ -30,9 +30,10 @@ provides:
   and an edit shows on the next reload. A path with `..` or a hidden
   component is refused.
 - **`common_site()`** — what both pages load: `/webrun/` (`assets/`),
-  `/vendor/` (`vendor/`), `/pyking/pyking.js` (`build/pyking.js` at the
-  root) and `/pyking/manifest.json`, whose stamp is a hash of the bundle,
-  which a page re-reads to notice a rebuild under an open tab.
+  `/vendor/` (`vendor/`), `/lib/` (the standard library, `lib/` at the
+  root), `/pyking/pyking.js` (`build/pyking.js` at the root) and
+  `/pyking/manifest.json`, whose stamp is a hash of the bundle, which a
+  page re-reads to notice a rebuild under an open tab.
 - **`serve()`** — a threaded server on `localhost`, a banner with a link, and
   a port: the one asked for with `--port`, else 8000 or the next free one.
 
@@ -62,13 +63,31 @@ must run without a network.
 
 | | |
 |---|---|
-| `createRuntime({webrun, pyking})` | a `PykingRuntime`, not yet booted |
+| `createRuntime({webrun, pyking, lib})` | a `PykingRuntime`, not yet booted |
+| `splitArguments(text)` | a line of arguments as a program receives them, split at spaces with quotes keeping one together |
 | `ensureEditor(runtime, {webrun, vendor}, onStatus)` | boots the compiler, loads Ace and the Pyking mode; answers the compiler's words |
 | `ensureKatex(vendor)` | loads KaTeX and its stylesheet |
 | `loadScript`, `loadStyle`, `fetchJSON`, `fetchText` | the obvious, once per URL where it matters |
 
 Every URL defaults to one beside `web.js` itself (`../vendor/`,
-`../pyking/`), which is the layout the server serves.
+`../pyking/`, `../lib/`), which is the layout the server serves.
+
+**A program run in a page may import the standard library.** The worker
+answers the bundle's `pykFetchSource` with a synchronous fetch of
+`lib/<module>/<file>` the first time a module is named, and runs a
+program in two steps: `analyze`, which asks the compiler which of its
+modules are implemented in JavaScript and whether it reads standard
+input or `sys.args()`, and `run`, which imports each of those modules'
+browser implementation from `lib/` and runs the program. `io` and `sys`
+are the worker's own: standard output is the page's output (`stdout`
+messages), standard input and the arguments are what `run` was given,
+each line the program reads is echoed (`stdin`), and `sys.exit` ends the
+run with `{ok: true, exit}`. A `debug` line arrives as a `debug` message,
+which a page shows apart from the output. The worker's `console.log`
+writes to the output too, since that is where a browser implementation
+says what it cannot do. A run needing no JavaScript module imported
+answers synchronously, which is what lets the notebook's test suite
+drive the worker under node.
 
 **The compiler is loaded before the editors are made**, because the Ace
 mode's word lists come from it: the worker's `words` request answers the

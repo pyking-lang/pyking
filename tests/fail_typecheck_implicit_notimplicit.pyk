@@ -11,7 +11,7 @@ def foo(x: Int, implicit bar: (Int) -> String) -> String:
     bar(x)
 
 def my3() -> ():
-    def bar(z: Int) -> String: str(z)
+    def bar(z: Int) -> String: string(z)
     print(foo(1))
 
 my3()

@@ -33,7 +33,7 @@ def apply(f:(Int) -> Int, n:Int) -> Int:
 
 def both_ways : (all x. (x) -> x) -> String
 def both_ways(f):
-    return f("a") ++ str(f(1))
+    return f("a") ++ string(f(1))
 
 
 # Fine: a polymorphic function where one of its instances is wanted.

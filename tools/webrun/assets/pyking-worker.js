@@ -9,66 +9,116 @@
 //
 // The compiler is one JavaScript file: src/ compiled by js_of_ocaml, which
 // registers `pykCompile`, `pykRun` and friends on the global object (see
-// src/web/pyking_web.ml). Nothing else is loaded, and nothing is fetched
-// while a program runs.
+// src/web/pyking_web.ml). A program that imports the standard library has
+// it fetched from lib/ the first time a module is named, and each module
+// implemented in JavaScript is imported from its browser implementation --
+// except `io` and `sys`, which this worker implements itself: standard
+// output is the page's output pane, standard input and the arguments are
+// what the page collected before the run, and `sys.exit` ends the run.
 //
 // Protocol. Every request carries an `id` and gets exactly one `result` or
-// `error` in reply; `status` and `stdout` may arrive in between, unsolicited.
+// `error` in reply; `status`, `stdout`, `debug` and `stdin` may arrive in
+// between, unsolicited -- the last is a line the program read, echoed so
+// the transcript reads the way a terminal's would.
 
 let loaded = false;
+let libURL = null;
 
 const reply = (id, value) => self.postMessage({ id, type: "result", value });
 const fail = (id, message) => self.postMessage({ id, type: "error", message });
 const status = (message) => self.postMessage({ type: "status", message });
 const stdout = (text) => self.postMessage({ type: "stdout", text });
+const debugOut = (text) => self.postMessage({ type: "debug", text });
+const stdinEcho = (text) => self.postMessage({ type: "stdin", text });
 
 // Where a running program's output goes: line by line as the program
 // produces it, rather than gathered up and returned at the end -- so output
 // made *before* a hang is still seen, which is exactly the case worth
-// seeing.
+// seeing. `debug` goes beside it, marked as what it is.
 self.pykOnPrint = (text) => stdout(text);
+self.pykOnDebug = (text) => debugOut(text);
+// A browser implementation writes what it has to say to the console --
+// that a function is not supported here, say -- and in this worker the
+// console is the output pane.
+console.log = (...parts) => stdout(parts.join(" ") + "\n");
+
+// The standard library's files, fetched once each: what a program's
+// imports read (`pykFetchSource`) and what a `web` compile ships beside the
+// program (`pykLibraryFile`). A module named in a program is looked for
+// under its own folder, so `io.pyk` and `io_external.pyk` are both
+// lib/io/'s.
+const library = new Map();
+
+function libraryFile(path) {
+  if (library.has(path)) return library.get(path);
+  let text = null;
+  if (libURL !== null) {
+    try {
+      text = fetchTextSync(libURL + path);
+    } catch {
+      text = null;
+    }
+  }
+  library.set(path, text);
+  return text;
+}
+
+self.pykLibraryFile = (path) => libraryFile(path);
+self.pykFetchSource = (name) => {
+  const found = /^([A-Za-z_][A-Za-z0-9_]*?)(_external)?\.pyk$/.exec(name);
+  return found ? libraryFile(`${found[1]}/${name}`) : null;
+};
 
 self.onmessage = (event) => {
   const message = event.data;
-  try {
-    switch (message.type) {
-      case "init":
-        reply(message.id, boot(message));
-        break;
-      case "compile":
-        // A JSON string, which crosses postMessage as-is.
-        reply(message.id, JSON.parse(
-          self.pykCompile(message.source, message.target, message.name)));
-        break;
-      case "words":
-        // What a page reads out of the compiler rather than keeping a copy
-        // of: the words its editor highlights, the targets it offers, and
-        // the value formatter generated JavaScript is run with.
-        reply(message.id, {
-          keywords: JSON.parse(self.pykKeywords()),
-          builtins: JSON.parse(self.pykBuiltins()),
-          targets: JSON.parse(self.pykTargets()),
-          formatHelper: self.pykFormatHelper(),
-        });
-        break;
-      case "run":
-        // The name travels on the first line, ahead of the program: one
-        // string in, so the boundary stays one primitive wide.
-        reply(message.id, JSON.parse(
-          self.pykRun(message.name + "\n" + message.source)));
-        break;
-      default:
-        fail(message.id, `unknown request '${message.type}'`);
+  const answer = (work) => {
+    try {
+      const value = work();
+      if (value && typeof value.then === "function") {
+        value.then((v) => reply(message.id, v),
+                   (err) => fail(message.id, describe(err)));
+      } else {
+        reply(message.id, value);
+      }
+    } catch (err) {
+      fail(message.id, describe(err));
     }
-  } catch (err) {
-    fail(message.id, err && err.message ? err.message : String(err));
+  };
+  switch (message.type) {
+    case "init":
+      return answer(() => boot(message));
+    case "compile":
+      // A JSON string, which crosses postMessage as-is.
+      return answer(() => JSON.parse(
+        self.pykCompile(message.source, message.target, message.name)));
+    case "words":
+      // What a page reads out of the compiler rather than keeping a copy
+      // of: the words its editor highlights, the targets it offers, and
+      // the value formatter generated JavaScript is run with.
+      return answer(() => ({
+        keywords: JSON.parse(self.pykKeywords()),
+        builtins: JSON.parse(self.pykBuiltins()),
+        targets: JSON.parse(self.pykTargets()),
+        formatHelper: self.pykFormatHelper(),
+      }));
+    case "analyze":
+      return answer(() => analyze(message));
+    case "run":
+      return answer(() => run(message));
+    default:
+      return fail(message.id, `unknown request '${message.type}'`);
   }
 };
 
-function boot({ pykingURL }) {
+function describe(err) {
+  return err && err.message ? err.message : String(err);
+}
+
+function boot({ pykingURL, libURL: lib }) {
+  libURL = lib ?? new URL("../lib/", pykingURL).href;
   if (loaded) return { stamp: self.pykStamp ?? null };
   status("loading compiler");
-  const manifest = fetchJSONSync(pykingURL + "manifest.json");
+  const manifest = JSON.parse(fetchTextSync(pykingURL + "manifest.json"));
   self.importScripts(pykingURL + manifest.bundle);
   if (typeof self.pykCompile !== "function") {
     throw new Error("the compiler bundle did not register pykCompile");
@@ -81,14 +131,111 @@ function boot({ pykingURL }) {
   return { stamp: self.pykStamp };
 }
 
-// Synchronous on purpose: `importScripts` is synchronous too, and the boot
-// has nothing to interleave with. A worker may block; the page may not.
-function fetchJSONSync(url) {
+/** The program as the only source the page supplied: everything else it
+ *  imports is the standard library, fetched as it is named. */
+function supply({ source, name }) {
+  self.pykSources = { [name]: source };
+}
+
+/** What a program needs before it runs: {ok, externals, stdin, args}, or
+ *  a refusal in `compile`'s own shape. */
+function analyze(message) {
+  supply(message);
+  return JSON.parse(self.pykAnalyze(message.name));
+}
+
+/** Runs a program with the interpreter. Answers {ok:true, exit?} or a
+ *  refusal. Synchronous where the program needs no JavaScript module
+ *  imported, so a caller that cannot wait -- the test suite -- need not. */
+function run(message) {
+  const analysis = analyze(message);
+  if (!analysis.ok) return analysis;
+  const mine = own(message);
+  const needed = analysis.externals.filter((name) => !(name in mine));
+  const start = (imported) => {
+    self.pykExternals = { ...imported, ...pick(mine, analysis.externals) };
+    supply(message);
+    return JSON.parse(self.pykRunProgram(
+      message.name + (message.release ? "\nrelease" : "")));
+  };
+  if (needed.length === 0) return start({});
+  return Promise.all(needed.map((name) => importExternal(name)))
+    .then((modules) => start(Object.fromEntries(
+      needed.map((name, k) => [name, modules[k]]))));
+}
+
+function pick(table, names) {
+  return Object.fromEntries(names.filter((n) => n in table).map((n) => [n, table[n]]));
+}
+
+/** A module's browser implementation, imported from lib/. */
+function importExternal(name) {
+  return import(libURL + `${name}/${name}_external_browser.js`);
+}
+
+/** The worker's own `io` and `sys`: the page's output pane for standard
+ *  output, the text it collected for standard input, and the arguments it
+ *  was given. The rest of `sys` answers as its browser implementation
+ *  does -- not supported -- saying so in the pane. */
+function own(message) {
+  const input = { text: message.stdin ?? "", at: 0 };
+  const atEnd = () => input.at >= input.text.length;
+  const line = () => {
+    if (atEnd()) return "";
+    const end = input.text.indexOf("\n", input.at);
+    const stop = end < 0 ? input.text.length : end;
+    let taken = input.text.slice(input.at, stop);
+    input.at = end < 0 ? input.text.length : end + 1;
+    if (taken.endsWith("\r")) taken = taken.slice(0, -1);
+    return taken;
+  };
+  const list = (items) => {
+    const array = items.slice();
+    array.pykList = true;
+    return array;
+  };
+  const unsupported = (what) =>
+    stdout(`sys.${what}: not supported in a browser\n`);
+  return {
+    io: {
+      write: (text) => stdout(text),
+      write_line: (text) => stdout(text + "\n"),
+      prompt_line: (prompt) => {
+        stdout(prompt);
+        const read = line();
+        stdinEcho(read + "\n");
+        return read;
+      },
+      read: () => {
+        const rest = input.text.slice(input.at);
+        input.at = input.text.length;
+        return rest;
+      },
+      is_eof: () => atEnd(),
+    },
+    sys: {
+      args: () => list(message.args ?? []),
+      env: () => { unsupported("env"); return list([]); },
+      prog_name: () => { unsupported("prog_name"); return ""; },
+      prog_path: () => { unsupported("prog_path"); return ""; },
+      exit: (code) => {
+        const stop = new Error(`exit ${code}`);
+        stop.pykExit = code;
+        throw stop;
+      },
+    },
+  };
+}
+
+// Synchronous on purpose: `importScripts` is synchronous too, and neither
+// the boot nor an import resolved in the middle of checking a program has
+// anything to interleave with. A worker may block; the page may not.
+function fetchTextSync(url) {
   const request = new XMLHttpRequest();
   request.open("GET", url, false);
   request.send(null);
   if (request.status !== 200 && request.status !== 0) {
     throw new Error(`cannot fetch ${url}: ${request.status}`);
   }
-  return JSON.parse(request.responseText);
+  return request.responseText;
 }

@@ -309,7 +309,7 @@ whatever its value has — which is what `-t pyking` is for.
 
 ## Builtins: a type of their own
 
-`print`, `range`, `str` and `len` are bound to `TBuiltin(name)` from the
+`print`, `range`, `string` and `len` are bound to `TBuiltin(name)` from the
 first environment `type_check` builds, rather than to a `TFunction`,
 because none of the four fits one. `print` takes any number of arguments
 of any type, which no fixed parameter list expresses, and none of them is
@@ -317,7 +317,7 @@ a value in the sense `builtin.ml` means: they are host
 *operations*, callable and nothing else.
 
 `check_builtin_call` gives each its own rule, applied only at a call.
-Using one any other way — `x = print`, passing `str` as an argument — is
+Using one any other way — `x = print`, passing `string` as an argument — is
 refused, exactly as the C and Java backends refuse `print` as a value.
 
 `TBuiltin` is a variant of `syntax.ml`'s `Type` rather than a class of

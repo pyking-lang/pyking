@@ -19,7 +19,7 @@ def map(f, lst):
         case [x] ++ xs: [f(x)] ++ map(f, xs)
         case []: []
 
-def show(n): 'n=' ++ str(n)
+def show(n): 'n=' ++ string(n)
 
 print(id(4), id('hi'))
 print(map(id, [1, 2, 3]))

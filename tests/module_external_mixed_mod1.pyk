@@ -1,6 +1,6 @@
 # The Pyking half of the module `module_external_mixed_mod1`.
 #
-# `f1` is ordinary Pyking. `f2` calls `g2`, which the .external.pyk
+# `f1` is ordinary Pyking. `f2` calls `g2`, which the _external.pyk
 # beside this file declares and the host implements -- written
 # unqualified, because the two files are one module, and reached
 # through the implementation in the generated code.

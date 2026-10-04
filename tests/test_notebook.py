@@ -138,37 +138,66 @@ for (const [source, want] of plan.cases) {
         "got " + JSON.stringify(got));
 }
 
+// 2b. A ```stdin or ```args block fills in the cell right after it, and
+//     only that one.
+const inputs = renderMarkdown(
+  "```stdin\nfirst\nsecond\n```\n```args\na 'b c'\n```\n```pyking\nprint(1)\n```\n"
+  + "\n```stdin\nlost\n```\n\nA paragraph.\n\n```pyking\nprint(2)\n```\n");
+check("a stdin and an args block fill in the next cell",
+      inputs.cells[0]?.stdin === "first\nsecond\n" && inputs.cells[0]?.args === "a 'b c'",
+      JSON.stringify(inputs.cells[0]));
+check("an input block is not shown on its own", !inputs.html.includes("first"),
+      inputs.html);
+check("anything between lets an input block go",
+      inputs.cells[1]?.stdin === null, JSON.stringify(inputs.cells[1]));
+
 // 3. The worker, loaded as the page loads it: `self` is the global
-//    object, `importScripts` evaluates a file, and the one synchronous
-//    fetch it makes is answered from the manifest below.
+//    object, `importScripts` evaluates a file, and a synchronous fetch is
+//    answered from the manifest below or, for the standard library, from
+//    lib/ -- which is where a program's `import io` reads io.pyk from.
 globalThis.self = globalThis;
 globalThis.require = createRequire(import.meta.url);
+// The worker makes the console its output pane, so the answer this
+// driver prints goes through the console as it was.
+const report = console.log.bind(console);
 const replies = [];
 self.postMessage = (message) => replies.push(message);
 self.importScripts = (url) => (0, eval)(fs.readFileSync(plan.bundle, "utf8"));
+const libURL = pathToFileURL(plan.lib).href + "/";
 globalThis.XMLHttpRequest = class {
   open(method, url) { this.url = url; }
   send() {
+    if (this.url.startsWith(libURL)) {
+      const path = decodeURIComponent(this.url.slice("file://".length));
+      this.status = fs.existsSync(path) ? 200 : 404;
+      this.responseText = this.status === 200 ? fs.readFileSync(path, "utf8") : "";
+      return;
+    }
     this.status = 200;
     this.responseText = JSON.stringify({ bundle: "pyking.js", stamp: "test" });
   }
 };
 (0, eval)(fs.readFileSync(plan.worker, "utf8"));
 let nextId = 1;
-const ask = (message) => {
+const ask = async (message) => {
   const id = nextId++;
-  const printed = [];
   replies.length = 0;
   self.onmessage({ data: { id, ...message } });
-  for (const reply of replies) if (reply.type === "stdout") printed.push(reply.text);
+  // A run that imports a JavaScript module answers once that import is
+  // done; everything else answers before `onmessage` returns.
+  for (let spins = 0; !replies.some((reply) => reply.id === id) && spins < 1000; spins++) {
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+  const text = (type) =>
+    replies.filter((reply) => reply.type === type).map((reply) => reply.text).join("");
   const answer = replies.find((reply) => reply.id === id);
-  return { answer, printed: printed.join("") };
+  return { answer, printed: text("stdout"), debugged: text("debug"), read: text("stdin") };
 };
 
-const booted = ask({ type: "init", pykingURL: "http://test/pyking/" });
+const booted = await ask({ type: "init", pykingURL: "http://test/pyking/", libURL });
 check("the worker boots", booted.answer?.type === "result",
       JSON.stringify(booted.answer));
-const words = ask({ type: "words" }).answer?.value ?? {};
+const words = (await ask({ type: "words" })).answer?.value ?? {};
 check("the worker answers the word lists",
       words.keywords?.includes("def") && words.builtins?.includes("print")
       && words.targets?.includes("pyking") && words.formatHelper?.includes("pykFormat"),
@@ -181,7 +210,7 @@ for (const document of plan.documents) {
   for (const cell of rendered.cells) {
     cells += 1;
     const label = `${document.name} cell ${cell.index + 1}`;
-    const ran = ask({ type: "run", source: cell.source, name: `cell-${cell.index + 1}.pyk` });
+    const ran = await ask({ type: "run", source: cell.source, name: `cell-${cell.index + 1}.pyk` });
     const result = ran.answer?.value;
     if (cell.attrs.error) {
       check(label + " is refused, as marked", result?.ok === false,
@@ -196,7 +225,37 @@ for (const document of plan.documents) {
     }
   }
 }
-console.log(JSON.stringify({ checks, cells, failures }));
+// 4. The standard library in the page: io and sys are the worker's own,
+//    reading what the page collected and writing to the pane.
+const program = [
+  "import io", "import sys",
+  "name = io.read_line(\"who? \")",
+  "debug(\"read\", name)",
+  "print(\"hello\", name, sys.args(), io.is_eof() == false)",
+  "print(io.read())",
+  "sys.exit(3)",
+  "print(\"never\")",
+].join("\n") + "\n";
+const analysis = (await ask({ type: "analyze", source: program, name: "reads.pyk" })).answer?.value;
+check("a program reading stdin and sys.args says so",
+      analysis?.ok && analysis.stdin && analysis.args
+      && JSON.stringify(analysis.externals) === '["io","sys"]', JSON.stringify(analysis));
+const quiet = (await ask({ type: "analyze", source: "import io\nio.write_line(\"x\")\n",
+                           name: "w.pyk" })).answer?.value;
+check("a program that only writes reads nothing", quiet?.ok && !quiet.stdin && !quiet.args,
+      JSON.stringify(quiet));
+const ran = await ask({ type: "run", source: program, name: "reads.pyk",
+                        stdin: "Ada\nthe rest\n", args: ["a", "b c"] });
+check("it runs to sys.exit(3)", ran.answer?.value?.ok && ran.answer.value.exit === 3,
+      JSON.stringify(ran.answer));
+check("it reads stdin and its arguments",
+      ran.printed === "who? hello Ada ['a', 'b c'] true\nthe rest\n\n",
+      JSON.stringify(ran.printed));
+check("what it read is echoed", ran.read === "Ada\n", JSON.stringify(ran.read));
+check("its debug line is marked apart", ran.debugged === "read Ada\n",
+      JSON.stringify(ran.debugged));
+
+report(JSON.stringify({ checks, cells, failures }));
 
 function firstDifference(a, b) {
   if (!b) return "features.html is missing; run with --update";
@@ -217,6 +276,7 @@ def run_driver(update):
         "markdown": str(MARKDOWN),
         "worker": str(WORKER),
         "bundle": str(BUNDLE),
+        "lib": str(REPO / "lib"),
         "features": str(FEATURES),
         "golden": str(FIXTURES / "features.html"),
         "update": update,
@@ -329,7 +389,9 @@ def check_server(compiler):
             for path in ["/", "/notebook/notebook.js", "/notebook/markdown.js",
                          "/notebook/notebook.css", "/webrun/web.js",
                          "/webrun/pyking-worker.js", "/webrun/pyking-runtime.js",
-                         "/webrun/pyking-mode.js"]:
+                         "/webrun/pyking-mode.js", "/lib/io/io.pyk",
+                         "/lib/io/io_external.pyk",
+                         "/lib/io/io_external_browser.js"]:
                 status, _ = fetch(port, path)
                 check(f"it serves {path}", status == 200, f"status {status}")
             status, body = fetch(port, "/notebook.json")

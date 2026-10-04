@@ -1,8 +1,0 @@
-# An external module with a browser-specific implementation.
-#
-# `external_web_mod1.js` serves node; `external_web_mod1.web.js` serves
-# the `web` and `iweb` targets, which prefer it. Both must answer the
-# same thing here -- what differs in real code is how, not what.
-# See docs/modules.md, "Finding it".
-
-public def origin : String

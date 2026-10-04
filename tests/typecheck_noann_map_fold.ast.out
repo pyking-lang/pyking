@@ -24,7 +24,7 @@ def filter(keep:(a) -> Bool, xs:[a]) -> [a]:
 def double(n:Int) -> Int:
     return n * 2
 def show(n:Int) -> String:
-    return str(n)
+    return string(n)
 def add(total:Int, n:Int) -> Int:
     return total + n
 def bigger(best:Int, n:Int) -> Int:

@@ -48,7 +48,7 @@ def double(n):
 
 def show : (Int) -> String
 def show(n):
-    return str(n)
+    return string(n)
 
 
 def add : (Int, Int) -> Int

@@ -22,7 +22,7 @@ def middle(xs:[String]) -> [String]:
 
 def last_two(xs:[Int]) -> String:
     answer = match xs:
-        case [.., a, b]: str(a) ++ "," ++ str(b)
+        case [.., a, b]: string(a) ++ "," ++ string(b)
         case _: "too short"
     return answer
 

@@ -10,7 +10,7 @@ def foo(x: a, implicit bar: (a) -> b) -> (b, b):
     (bar(x), bar(x))
 
 def my1() -> ():
-    implicit def bar(z: Int) -> String: str(z) ++ "!"
+    implicit def bar(z: Int) -> String: string(z) ++ "!"
     print(foo(78))                      # ('78!', '78!')
 ```
 
@@ -190,7 +190,7 @@ the **call** is written, whatever that call's callee is:
 ```pyking
 def apply_twice(f: (Int, implicit bar: (Int) -> String) -> (String, String),
                 n: Int) -> (String, String):
-    implicit def bar(z: Int) -> String: str(z * 2)
+    implicit def bar(z: Int) -> String: string(z * 2)
     f(n)                                # `bar` resolved here
 ```
 

@@ -27,7 +27,7 @@ print(doubled, greeting, big)
 # A function may be called from inside another one, and the inner one is
 # worked out the same way -- when the outer one's body is checked.
 def announce(n):
-    greet(str(double(n)))
+    greet(string(double(n)))
 
 print(announce(4))
 

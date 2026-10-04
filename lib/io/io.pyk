@@ -1,0 +1,16 @@
+# Standard input and standard output.
+#
+# The Pyking half of `io`. What the host provides is declared in
+# io_external.pyk beside this file and is in scope here unqualified --
+# the two files are one module -- so `prompt_line` below is the host's.
+#
+# `read_line` is written here rather than declared so that its prompt
+# can have a default: a program asks for a line with `io.read_line()`
+# and for an answer to a question with `io.read_line("Name? ")`.
+
+
+# One line of standard input, without its line ending, after writing
+# `prompt` -- with no newline -- to standard output. At the end of the
+# input it is the empty string; `is_eof` tells that from an empty line.
+public def read_line(prompt: String = "") -> String:
+    return prompt_line(prompt)

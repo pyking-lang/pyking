@@ -1,0 +1,14 @@
+# The io library's output half. `write` adds no line ending and
+# `write_line` adds one, and both write to the standard output `print`
+# does, so the three interleave in the order they ran.
+
+import io
+
+io.write("one")
+io.write(", two")
+io.write_line(", three")
+print("a print")
+io.write("then ")
+print("a print ends the line")
+io.write_line("")
+io.write_line("after an empty line")

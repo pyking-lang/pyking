@@ -7,7 +7,7 @@ value = 10
 
 # A parameter shadows the module-level `n` throughout the body.
 def describe(n):
-    "param " ++ str(n)
+    "param " ++ string(n)
 
 
 print(describe(1), n)
@@ -26,9 +26,9 @@ print(twice(4), value)
 # `n` and `value` here are the pattern's, not the module's.
 def classify(point):
     match point:
-        case (n, 0): "on x at " ++ str(n)
-        case (0, n): "on y at " ++ str(n)
-        case (n, value): str(n) ++ "/" ++ str(value)
+        case (n, 0): "on x at " ++ string(n)
+        case (0, n): "on y at " ++ string(n)
+        case (n, value): string(n) ++ "/" ++ string(value)
 
 
 print(classify((3, 0)))
@@ -70,7 +70,7 @@ def step(k):
 
 def local_step(k):
     step = "not a function"
-    return step ++ ", " ++ str(k)
+    return step ++ ", " ++ string(k)
 
 
 print(step(3), local_step(2))

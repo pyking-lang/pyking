@@ -1,5 +1,5 @@
-'tests/fail_typecheck_external_bodies_mod1.external.pyk' 8:0-9:9
+'tests/fail_typecheck_external_bodies_mod1_external.pyk' 8:0-9:9
   Module error:
-  'tests/fail_typecheck_external_bodies_mod1.external.pyk' declares an
+  'tests/fail_typecheck_external_bodies_mod1_external.pyk' declares an
   external module, so it holds signatures and nothing else: what it
   exports is implemented for each target, not here

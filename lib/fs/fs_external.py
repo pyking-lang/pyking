@@ -1,5 +1,5 @@
 # The Python implementation of the Pyking module declared in
-# fs.external.pyk. Text is read and written as UTF-8 on every target,
+# fs_external.pyk. Text is read and written as UTF-8 on every target,
 # so one program moves the same bytes whichever one compiled it.
 
 

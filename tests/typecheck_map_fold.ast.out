@@ -29,7 +29,7 @@ def double(n):
     return n * 2
 def show : (Int) -> String
 def show(n):
-    return str(n)
+    return string(n)
 def add : (Int, Int) -> Int
 def add(total, n):
     return total + n

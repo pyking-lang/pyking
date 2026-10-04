@@ -1,4 +1,4 @@
-# The Python implementation of what module_external_mixed_mod1.external.pyk
+# The Python implementation of what module_external_mixed_mod1_external.pyk
 # declares. `g2` is private to that module, which is a Pyking rule: as
 # far as this file is concerned both are ordinary functions.
 

@@ -18,7 +18,7 @@ def run(f: (Int, implicit bar: (Int) -> String) -> String) -> String:
     f(2)
 
 def outer() -> String:
-    implicit def bar(z: Int) -> String: str(z)
+    implicit def bar(z: Int) -> String: string(z)
     run(foo)
 
 print(outer())

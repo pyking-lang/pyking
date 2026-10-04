@@ -4,11 +4,11 @@
 # out; writing it is always allowed, and is the way to override what the
 # search would have found (PYKING.md, "Implicits").
 
-implicit def fmt(n: Int) -> String: str(n)
+implicit def fmt(n: Int) -> String: string(n)
 
 def show(n: Int, implicit fmt: (Int) -> String) -> String: fmt(n)
 
-def loud(n: Int) -> String: str(n) ++ "!"
+def loud(n: Int) -> String: string(n) ++ "!"
 
 print(show(3))
 print(show(3, loud))

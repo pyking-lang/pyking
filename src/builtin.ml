@@ -5,9 +5,13 @@
     the checker, the interpreter and every backend. See docs/builtin.md.
 
     A builtin that `crosses_host` is one whose call leaves the program:
-    `print` is the only one today, and it is what a backend emits host
-    output for. The other three compute, and are observed only through
-    what they answer with.
+    `print` and `debug` are the two today, and they are what a backend
+    emits host output for -- `print` to standard output, `debug` to
+    standard error. The others compute, and are observed only through
+    what they answer with. The conversions `string`, `int`, `float` and
+    `bool` are four of those, and the rules for reading a String and
+    truncating a Float are stated here, since every backend implements
+    them the same way.
 
     Two things are deliberately not here, because neither can be said
     without a type or a value: which argument types a builtin accepts is
@@ -22,6 +26,9 @@
       names -- every builtin's name, in the order the table lists them.
       pure_names -- the names that do not cross the host boundary.
       lookup name -- the builtin a name denotes, or None.
+      is_debug name -- whether name is `debug`.
+      parse_int / parse_float text -- a String as `int` / `float` reads it.
+      truncate_float x -- a Float as `int` reads it.
       crosses_host name -- whether calling name leaves the program.
       float_text x -- a Float as print and str write it. *)
 
@@ -58,6 +65,19 @@ let all =
          JavaScript ones.";
     };
     {
+      name = "debug";
+      min_args = 0;
+      max_args = None;
+      crosses_host = true;
+      doc =
+        "Write the arguments the way `print` does, as one line of \
+         diagnostic output: standard error where the host has one, the \
+         console in a browser. Yields unit, like `print`. A program \
+         compiled with `--release` has every call to it removed, \
+         arguments and all. Unlike `print`, a call to it will be allowed \
+         in a pure function.";
+    };
+    {
       name = "range";
       min_args = 1;
       max_args = Some 3;
@@ -70,15 +90,15 @@ let all =
          no lazy-sequence type.";
     };
     {
-      name = "str";
+      name = "string";
       min_args = 1;
       max_args = Some 1;
       crosses_host = false;
       doc =
         "Answer the argument as a String, formatted the way `print` writes \
          it -- so a Bool is `true`/`false` and unit is `()`, in Pyking's own \
-         spelling rather than the host's. Accepts an Int, a String, a Bool, \
-         a list or a tuple.";
+         spelling rather than the host's. Accepts an Int, a Float, a String, \
+         a Bool, a list or a tuple.";
     };
     {
       name = "len";
@@ -95,8 +115,10 @@ let all =
       max_args = Some 1;
       crosses_host = false;
       doc =
-        "Answer an Int as a Float. Exact for a magnitude below 2^53; above \
-         it, the nearest double. Pyking converts nothing on its own, so \
+        "Answer the argument as a Float: an Int exactly for a magnitude \
+         below 2^53 and as the nearest double above it, a Bool as 1.0 or \
+         0.0, a Float as itself, and a String read by `parse_float` -- NaN \
+         where it is not a number. Pyking converts nothing on its own, so \
          this and `int` are the only way an Int and a Float meet.";
     };
     {
@@ -105,10 +127,21 @@ let all =
       max_args = Some 1;
       crosses_host = false;
       doc =
-        "Answer a Float as an Int, truncating toward zero -- the rounding \
-         `/` already does. A value with no Int to truncate to (a NaN, an \
-         infinity, one past the Int range) is undefined, as an Int \
-         overflow is.";
+        "Answer the argument as an Int: a Float truncated toward zero -- the \
+         rounding `/` already does -- a Bool as 1 or 0, an Int as itself, \
+         and a String read by `parse_int`. Where there is no Int to answer \
+         -- a String that is not one, a NaN, an infinity, a value outside \
+         the signed 32-bit range -- it is 0.";
+    };
+    {
+      name = "bool";
+      min_args = 1;
+      max_args = Some 1;
+      crosses_host = false;
+      doc =
+        "Answer the argument as a Bool: true for the String \"true\", the \
+         Int 1 and the Float 1.0, a Bool as itself, and false for anything \
+         else.";
     };
   ]
 
@@ -118,6 +151,99 @@ let names = List.map (fun builtin -> builtin.name) all
 (** The builtin a name denotes, or None if it is an ordinary Pyking
     name. string -> t option *)
 let lookup name = List.find_opt (fun builtin -> builtin.name = name) all
+
+(** Whether name is `debug`, the builtin whose output is diagnostic
+    rather than the program's own. string -> bool *)
+let is_debug name = name = "debug"
+
+(* --- what a conversion reads ---
+
+   The rules every target implements for `int`, `float` and `bool` of a
+   String, and for `int` of a Float, stated once here and implemented by
+   each backend in its own host language: no host's own parser accepts
+   the same strings (see docs/builtin.md, "Conversions"). Today a failed
+   conversion answers a default; once Pyking has an option type it will
+   answer none instead. *)
+
+(** The Int range a conversion answers within: signed 32 bits, the
+    range the lexer bounds a literal by. int *)
+let int_min = -2147483648
+
+let int_max = 2147483647
+
+(** Whether every character of text from index `from` is a decimal
+    digit, and there is at least one. string -> int -> bool *)
+let digits_from text from =
+  let length = String.length text in
+  from < length
+  && String.for_all (fun c -> c >= '0' && c <= '9')
+       (String.sub text from (length - from))
+
+(** A String as `int` reads it: an optional sign, then decimal digits,
+    within the signed 32-bit range -- nothing else, not even a space.
+    string -> int option *)
+let parse_int text =
+  let signed = String.length text > 0 && (text.[0] = '-' || text.[0] = '+') in
+  if not (digits_from text (if signed then 1 else 0)) then None
+  else
+    let negative = signed && text.[0] = '-' in
+    (* Accumulated as a negative number, which reaches int_min without
+       passing through a value the browser build's 32-bit int cannot
+       hold. *)
+    let rec go i n =
+      if i = String.length text then Some n
+      else
+        let d = Char.code text.[i] - Char.code '0' in
+        if n < int_min / 10 || (n = int_min / 10 && d > -(int_min mod 10)) then None
+        else go (i + 1) ((n * 10) - d)
+    in
+    match go (if signed then 1 else 0) 0 with
+    | Some n when negative -> Some n
+    | Some n when n >= -int_max -> Some (-n)
+    | _ -> None
+
+(** A String as `float` reads it: an optional sign, digits, an optional
+    `.` and digits, an optional exponent -- or `inf`, `-inf` or `nan`,
+    which is what `print` writes for those. string -> float option *)
+let parse_float text =
+  match text with
+  | "inf" | "+inf" -> Some infinity
+  | "-inf" -> Some neg_infinity
+  | "nan" -> Some nan
+  | _ ->
+      let length = String.length text in
+      let rec digits i = if i < length && text.[i] >= '0' && text.[i] <= '9' then digits (i + 1) else i in
+      let start = if length > 0 && (text.[0] = '-' || text.[0] = '+') then 1 else 0 in
+      let whole = digits start in
+      if whole = start then None
+      else
+        let after_fraction =
+          if whole < length && text.[whole] = '.' then
+            let fraction = digits (whole + 1) in
+            if fraction = whole + 1 then None else Some fraction
+          else Some whole
+        in
+        let after_exponent =
+          match after_fraction with
+          | Some i when i < length && (text.[i] = 'e' || text.[i] = 'E') ->
+              let sign = if i + 1 < length && (text.[i + 1] = '-' || text.[i + 1] = '+') then i + 2 else i + 1 in
+              let exponent = digits sign in
+              if exponent = sign then None else Some exponent
+          | found -> found
+        in
+        match after_exponent with
+        | Some i when i = length -> float_of_string_opt text
+        | _ -> None
+
+(** A Float as `int` reads it: truncated toward zero, and 0 where that is
+    no Int in the signed 32-bit range -- a NaN, an infinity, a value past
+    the range. float -> int *)
+let truncate_float x =
+  if Float.is_nan x then 0
+  else
+    let t = Float.trunc x in
+    if t < float_of_int int_min || t > float_of_int int_max then 0
+    else int_of_float t
 
 (** The names that do not cross the host boundary, which is what a
     backend with no translation for them has to refuse. [string] *)
@@ -150,7 +276,7 @@ let shortest_digits a =
   in
   search 0
 
-(** A Float as `print` and `str` write it. float -> string *)
+(** A Float as `print` and `string` write it. float -> string *)
 let float_text x =
   if x <> x then "nan"
   else if x = infinity then "inf"

@@ -343,9 +343,9 @@ things:
 
 ## 9. What is left of ad-hoc polymorphism
 
-Hindley-Milner has no overloading. Pyking has four overloaded things —
-`str`, `len`, `==` and `++` — each accepting several unrelated types and
-no single type. A body that uses one on a parameter has made a demand
+Hindley-Milner has no overloading. Pyking has several overloaded things —
+`string`, `len`, the conversions `int`, `float` and `bool`, `==` and `++`
+— each accepting several unrelated types and no single type. A body that uses one on a parameter has made a demand
 unification cannot express.
 
 The rule:
@@ -358,7 +358,7 @@ The rule:
    2. generalisation proposes a scheme  all a. (a) -> String
                               │
    3. `verified` re-checks the body with `a` RIGID
-      → `str(a)` is refused, because `a` is not one of the three
+      → `string(a)` is refused, because `a` is not one of the three
                               │
    4. the proposal is dropped; the definition keeps its monotype,
       with the variable still open
@@ -368,7 +368,7 @@ The rule:
 
 ```pyking
 def announce(value):
-    'got ' ++ str(value)     # `str` asks what it was given
+    'got ' ++ string(value)     # `string` asks what it was given
 
 print(announce(1))           # announce : (Int) -> String
 # print(announce(true))      # error: argument 1 has type Bool, but Int
@@ -415,7 +415,7 @@ implicit parameter, and the error message names it.
 
 `Int` and `Float` make `+ - * /` overloaded as well, and they are the
 case §9's mechanism does *not* cover. The difference is what the
-operator answers: `str` and `==` give one type whichever argument they
+operator answers: `string` and `==` give one type whichever argument they
 take, so the answer can be reported while the argument stays open. `+`
 gives back what it was given, so it cannot.
 

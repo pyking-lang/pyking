@@ -1,4 +1,4 @@
-'tests/fail_typecheck_external_overload_mod1.external.pyk' 6:0-6:36
+'tests/fail_typecheck_external_overload_mod1_external.pyk' 6:0-6:36
   Module error: 'int::twice' cannot be declared here: a '::' name is
   resolved and renamed by the compiler, and what a declaration names
   is provided by the target's own source under the name written

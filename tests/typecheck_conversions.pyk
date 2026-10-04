@@ -1,0 +1,13 @@
+# The types a conversion settles. Each accepts several types, so an
+# unannotated parameter used only in one is decided by the first call,
+# as it is for `string` and `len` (PYKING.md, "Type checking").
+
+def parsed(text) -> Int:
+    return int(text)
+
+def flag(n: Int):
+    return bool(n)
+
+total = parsed("40") + int(2.9)
+ratio = float(total) / float("4")
+print(total, ratio, flag(1), string(ratio))

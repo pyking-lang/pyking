@@ -107,6 +107,7 @@ type oprogram = {
   needs_quote : bool;
   needs_float : bool;
   needs_range : bool;
+  conversions : string list;
   program_name : string;
   main : bool;
   interface : (string * string) list;
@@ -456,6 +457,7 @@ type acc = {
   needs_list_printer : bool;
   needs_float : bool;
   needs_range : bool;
+  conversions : string list;
 }
 
 (** The OCaml name a Pyking name is translated to, as `plan_names`
@@ -987,6 +989,64 @@ let range_helper_def =
       "  go start []";
     ]
 
+(* The conversions OCaml's own would get wrong (builtin.ml, "what a
+   conversion reads"): `int_of_string` reads "0x1F" and "1_000", and
+   `int_of_float` of a NaN is whatever the hardware gives. *)
+
+let int_helper = "pyk_int_of_string"
+let truncate_helper = "pyk_truncate"
+let float_parse_helper = "pyk_float_of_string"
+
+(** The text of one conversion helper. string -> string *)
+let conversion_def name =
+  String.concat "\n"
+    (if name = int_helper then
+       [
+         Printf.sprintf "let %s s =" name;
+         "  let n = String.length s in";
+         "  let start = if n > 0 && (s.[0] = '-' || s.[0] = '+') then 1 else 0 in";
+         "  let rec digits i = i = n || (s.[i] >= '0' && s.[i] <= '9' && digits (i + 1)) in";
+         "  if start = n || not (digits start) then 0";
+         "  else";
+         "    match int_of_string_opt s with";
+         "    | Some v when v >= -2147483648 && v <= 2147483647 -> v";
+         "    | Some _ | None -> 0";
+       ]
+     else if name = truncate_helper then
+       [
+         Printf.sprintf "let %s x =" name;
+         "  if Float.is_nan x then 0";
+         "  else";
+         "    let t = Float.trunc x in";
+         "    if t < -2147483648.0 || t > 2147483647.0 then 0 else int_of_float t";
+       ]
+     else
+       [
+         Printf.sprintf "let %s s =" name;
+         "  let n = String.length s in";
+         "  let rec digits i = if i < n && s.[i] >= '0' && s.[i] <= '9' then digits (i + 1) else i in";
+         "  let signed i = if i < n && (s.[i] = '-' || s.[i] = '+') then i + 1 else i in";
+         "  let whole = digits (signed 0) in";
+         "  let fraction =";
+         "    if whole < n && s.[whole] = '.' then";
+         "      let e = digits (whole + 1) in";
+         "      if e = whole + 1 then -1 else e";
+         "    else whole";
+         "  in";
+         "  let exponent =";
+         "    if fraction >= 0 && fraction < n && (s.[fraction] = 'e' || s.[fraction] = 'E') then";
+         "      let from = signed (fraction + 1) in";
+         "      let e = digits from in";
+         "      if e = from then -1 else e";
+         "    else fraction";
+         "  in";
+         "  if s = \"inf\" || s = \"+inf\" then infinity";
+         "  else if s = \"-inf\" then neg_infinity";
+         "  else if s = \"nan\" then nan";
+         "  else if whole > signed 0 && exponent = n then float_of_string s";
+         "  else nan";
+       ])
+
 let quote_helper = "pyk_quote"
 
 let quote_helper_def =
@@ -1054,8 +1114,11 @@ let rec expr ctx acc e =
   | ETuple (_, elements, _) ->
       let pieces, sequence, acc = in_order ctx acc elements in
       (sequence (OTuple pieces), acc)
-  | ECall (_, EVar (_, name, _), args, _)
-    when Builtin.crosses_host name ->
+  (* The checker records a type for a callee it resolved to a definition
+     and none for a builtin, which is how a program's own `debug` is told
+     from the builtin. *)
+  | ECall (_, EVar (_, name, callee), args, _)
+    when Builtin.crosses_host name && not (IntMap.mem callee ctx.tmap) ->
       print_call ctx acc e (arg_exprs args)
   | ECall (_, EVar (_, name, _), args, _) when List.mem name Builtin.pure_names ->
       builtin_call ctx acc e name (arg_exprs args)
@@ -1176,10 +1239,20 @@ and in_order ctx acc exprs =
     in
     (translated, sequence, acc)
 
-(** print(...): the arguments formatted per builtin.ml and
-    written as one line. ctx -> acc -> expr -> [expr] -> (oexpr, acc) *)
-and print_call ctx acc _call args =
-  if args = [] then (OApp (OVar "print_newline", [ OUnit ]), acc)
+(** print(...) or debug(...): the arguments formatted per builtin.ml and
+    written as one line, to standard error for debug.
+    ctx -> acc -> expr -> [expr] -> (oexpr, acc) *)
+and print_call ctx acc call args =
+  let to_stderr =
+    match call with
+    | ECall (_, EVar (_, name, _), _, _) -> Builtin.is_debug name
+    | _ -> false
+  in
+  let newline, endline =
+    if to_stderr then ("prerr_newline", "prerr_endline")
+    else ("print_newline", "print_endline")
+  in
+  if args = [] then (OApp (OVar newline, [ OUnit ]), acc)
   else
     let ordered, sequence, acc = in_order ctx acc args in
     let pieces, acc =
@@ -1203,7 +1276,7 @@ and print_call ctx acc _call args =
       | last :: earlier ->
           List.fold_left (fun text piece -> OBin ("^", piece, text)) last earlier
     in
-    (sequence (OApp (OVar "print_endline", [ text ])), acc)
+    (sequence (OApp (OVar endline, [ text ])), acc)
 
 (** One printed argument, as an OCaml string expression. `translated` is
     arg's OCaml form when the caller already produced it.
@@ -1305,19 +1378,35 @@ and tuple_string ctx acc element_types translated info =
         false ),
     acc )
 
-(** Translates a call to str, len or range.
+(** Translates a call to string, len, range or a conversion.
     ctx -> acc -> expr -> string -> [expr] -> (oexpr, acc) *)
 and builtin_call ctx acc call name args =
   match (name, args) with
-  | "str", [ value ] -> as_string ctx acc value None
-  | "float", [ value ] ->
+  | "string", [ value ] -> as_string ctx acc value None
+  | (("int" | "float" | "bool") as name), [ value ] -> (
+      let type_ = type_of ctx value in
       let o_value, acc = expr ctx acc value in
-      (OApp (OVar "float_of_int", [ o_value ]), acc)
-  | "int", [ value ] ->
-      (* OCaml's own conversion truncates toward zero, which is the
-         rounding Pyking's `int` and `/` both do. *)
-      let o_value, acc = expr ctx acc value in
-      (OApp (OVar "int_of_float", [ o_value ]), acc)
+      let helper helper_name =
+        ( OApp (OVar helper_name, [ o_value ]),
+          if List.mem helper_name acc.conversions then acc
+          else { acc with conversions = acc.conversions @ [ helper_name ] } )
+      in
+      match (name, type_) with
+      | "int", TString _ -> helper int_helper
+      (* Truncating toward zero is OCaml's own rounding, and Pyking's; the
+         helper is for the Floats with no Int to answer. *)
+      | "int", TFloat _ -> helper truncate_helper
+      | "int", TBool _ -> (OIf (o_value, OInt 1, Some (OInt 0)), acc)
+      | "float", TString _ -> helper float_parse_helper
+      | "float", TInt _ -> (OApp (OVar "float_of_int", [ o_value ]), acc)
+      | "float", TBool _ -> (OIf (o_value, OFloat 1.0, Some (OFloat 0.0)), acc)
+      | "bool", TString _ -> (OBin ("=", o_value, OStr "true"), acc)
+      | "bool", TInt _ -> (OBin ("=", o_value, OInt 1), acc)
+      | "bool", TFloat _ -> (OBin ("=", o_value, OFloat 1.0), acc)
+      | ("int" | "float" | "bool"), (TInt _ | TFloat _ | TBool _) -> (o_value, acc)
+      | _ ->
+          unsupported (expr_info call)
+            (Printf.sprintf "`%s` of a value of type %s" name (name_of type_)))
   | "len", [ value ] -> (
       let type_ = type_of ctx value in
       let o_value, acc = expr ctx acc value in
@@ -2851,6 +2940,9 @@ let pprint_ocaml_program program source =
     parts @ if program.needs_float then [ ""; float_helper_def ] else []
   in
   let parts =
+    parts @ List.concat_map (fun name -> [ ""; conversion_def name ]) program.conversions
+  in
+  let parts =
     parts @ List.concat_map (fun item -> [ ""; pprint_item item ]) program.items
   in
   String.concat "\n" parts ^ "\n"
@@ -2927,6 +3019,7 @@ let translate_program stmts tmap (context : Module.context) =
       needs_list_printer = false;
       needs_float = false;
       needs_range = false;
+      conversions = [];
     }
   in
   let built, acc = items ctx acc stmts in
@@ -2941,6 +3034,7 @@ let translate_program stmts tmap (context : Module.context) =
     needs_quote = acc.needs_quote;
     needs_float = acc.needs_float;
     needs_range = acc.needs_range;
+    conversions = acc.conversions;
     program_name = context.context_name;
     main = context.main;
     interface =

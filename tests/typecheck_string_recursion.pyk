@@ -1,5 +1,5 @@
 # Building strings by recursion, with the two things a Pyking program has
-# for the purpose: `+` on strings and `str` on numbers.
+# for the purpose: `+` on strings and `string` on numbers.
 #
 # There is no indexing, no slicing and no loop, so every function here
 # builds its answer out of a smaller answer and one more piece -- which
@@ -21,14 +21,14 @@ def repeat(piece:String, times:Int) -> String:
 def bar(width:Int) -> String:
     repeat("#", width)
 
-# Numbers become text through `str`, and the separator is only written
+# Numbers become text through `string`, and the separator is only written
 # between elements -- which is why the last step is a special case rather
 # than a trailing comma.
 def countdown(from_:Int) -> String:
     if from_ <= 1:
         "1"
     else:
-        str(from_) ++ ", " ++ countdown(from_ - 1)
+        string(from_) ++ ", " ++ countdown(from_ - 1)
 
 # Roman numerals: subtract the largest value that fits, name it, and ask
 # the same question about what is left. Every branch is a step down, so
@@ -114,7 +114,7 @@ def longer(left:String, right:String) -> String:
 def label(count:Int, thing:String) -> String:
     if count == 1:
         return "1 " ++ thing
-    return str(count) ++ " " ++ thing ++ "s"
+    return string(count) ++ " " ++ thing ++ "s"
 
 print(bar(5), repeat("ab", 3))
 print(countdown(5))

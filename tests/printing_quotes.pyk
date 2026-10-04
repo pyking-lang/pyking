@@ -34,5 +34,5 @@ print("plain")
 print([])
 print(())
 
-# The same values through `str` are in printing_quotes_str.pyk, which
+# The same values through `string` are in printing_quotes_str.pyk, which
 # the JavaScript backends cannot take.

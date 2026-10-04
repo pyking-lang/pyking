@@ -1,6 +1,6 @@
 # A builtin used as a value rather than called.
 #
-# `print`, `range`, `str` and `len` are host *operations*, not functions
+# `print`, `range`, `string` and `len` are host *operations*, not functions
 # with types: `runtime_interface.py` says so, the C and Java backends
 # refuse `print` as a value, and none of them has a type this checker
 # could write down anyway (a variadic `print` is not a `(T) -> ()`). So

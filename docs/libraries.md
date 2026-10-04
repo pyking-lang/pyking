@@ -11,15 +11,20 @@ A library is a folder under `lib/` named after the module a program
 imports. A module is up to two files and a library shows both shapes:
 
 ```
-lib/fs/     fs.external.pyk        fs_external.{py,js,c,ml}  FsExternal.java
-lib/sys/    sys.pyk  sys.external.pyk   sys_external.{py,js,ml}
-lib/time/   time.pyk  time.external.pyk  time_external.{py,js,ml}
+lib/fs/     fs_external.pyk        fs_external.{py,c,ml}  FsExternal.java
+lib/io/     io.pyk  io_external.pyk     io_external.{py,c,ml}  IoExternal.java
+lib/sys/    sys.pyk  sys_external.pyk   sys_external.{py,c,ml} SysExternal.java
+lib/time/   time.pyk  time_external.pyk  time_external.{py,ml}
 ```
 
+and every one of them `<name>_external_node.js` and
+`<name>_external_browser.js`, the two JavaScript environments (see
+"In the browser" below).
+
 `fs` is entirely the host's: every name it offers is declared, and there
-is no Pyking half because there would be nothing in it. `sys` and `time`
-have both halves -- what the host provides, and what is written in
-Pyking against it -- and a program importing either says `import sys`
+is no Pyking half because there would be nothing in it. `io`, `sys` and
+`time` have both halves -- what the host provides, and what is written
+in Pyking against it -- and a program importing one says `import sys`
 and reaches everything under that one name. See
 [modules.md](modules.md), "A module in two halves".
 
@@ -38,7 +43,7 @@ decomposers behind `of_instant` are declared **private** -- they are how
 `of_instant` is written, not something a program should call:
 
 ```pyking
-# time.external.pyk
+# time_external.pyk
 public def now : () -> (Int, Int, Int, Int, Int, Int)
 
 def year_of : (Int) -> Int
@@ -50,11 +55,23 @@ public def of_instant(t:Int) -> (Int, Int, Int, Int, Int, Int):
     return (year_of(t), month_of(t), day_of(t), hour_of(t), minute_of(t), second_of(t))
 ```
 
-`sys` is the same shape the other way up: `args`, `env`, `prog_name` and
-`prog_path` are the host's and are declared directly, at the types a
-caller wants -- a `[String]`, a `[(String, String)]`. `env_get` and
-`env_has` are written in Pyking over `env()`, so every host answers them
-the same way rather than each reimplementing the same scan.
+`sys` is the same shape the other way up: `args`, `env`, `prog_name`,
+`prog_path` and `exit` are the host's and are declared directly, at the
+types a caller wants -- a `[String]`, a `[(String, String)]`. `env_get`
+and `env_has` are written in Pyking over `env()`, so every host answers
+them the same way rather than each reimplementing the same scan.
+`exit(code)` ends the program at once with that status, after writing
+out what was printed; a program that ends without it ends with 0.
+
+`io` is standard input and standard output. `write`, `write_line`,
+`read` and `is_eof` are declared; `read_line(prompt = "")` is written in
+Pyking over the private `prompt_line`, because a declaration cannot carry
+a default. A line is read without its line ending, and at the end of the
+input every read is `""` -- which an empty line also is, so `is_eof` is
+what tells the two apart. Every read writes out what has been written so
+far first, so a prompt is on screen before the program waits. `print`
+writes to the same standard output, so the two interleave in the order
+they ran.
 
 `now` is one call, which is what makes a reading atomic: six separate
 clock calls could straddle a second and report a date that never
@@ -66,8 +83,11 @@ library that formatted differently per target would be no use.
 
 A declared type has to be one the target can carry. A list or a tuple is
 refused on C and Java ([modules.md](modules.md), "What may cross the
-boundary"), which is why `sys` and `time` reach neither -- the shape a
-caller wants is worth more than two targets that could not carry it.
+boundary"), which is why `time` and most of `sys` reach neither -- the
+shape a caller wants is worth more than two targets that could not carry
+it. Those two compile only what a program uses of a library
+([modules.md](modules.md), "What a program uses"), so `sys.exit` reaches
+them while `sys.args` does not.
 
 ## Failure, where the language has none
 
@@ -92,10 +112,10 @@ a missing one.
 A module name is looked for in four places, in this order, and the first
 level that has it wins:
 
-1. the importing file's own directory, flat — `<dir>/<name>.external.pyk`
+1. the importing file's own directory, flat — `<dir>/<name>_external.pyk`
    then `<dir>/<name>.pyk`
 2. each `-L` / `--lib-path`, in the order written, as
-   `<entry>/<name>/<name>.external.pyk` then `<entry>/<name>/<name>.pyk`
+   `<entry>/<name>/<name>_external.pyk` then `<entry>/<name>/<name>.pyk`
 3. each entry of `PYKING_LIB_PATH`, same shape — separated by `:` on
    Linux and macOS and `;` on Windows, the platform's own
 4. `lib/` beside the `pyk` executable
@@ -111,9 +131,11 @@ variable exported, and being last means anything a caller says overrides
 it. Level 1 is what makes a library's own internal imports work, and
 what lets a program shadow a library with a file of its own.
 
-A level holding *both* a `.pyk` and a `.external.pyk` for one name is
-refused: a module is either written in Pyking or implemented for a
-target, and which was meant would be a guess.
+A level holding *both* a `.pyk` and a `_external.pyk` for one name holds
+one module in two halves, and both come from that level: a library
+cannot be half shadowed. A name ending in `_external` cannot be imported
+at all -- `io_external.pyk` is the external half of `io`, imported as
+`io`.
 
 A name no level has names every path it looked in, in order, with where
 each came from — a search path that will not say where it looked is the
@@ -121,9 +143,9 @@ hardest kind to fix:
 
 ```
 Module error: cannot read module 'mylib': looked for
-  '/here/mylib.external.pyk' (local), '/here/mylib.pyk' (local),
-  '/libs/mylib/mylib.external.pyk' (-L), '/libs/mylib/mylib.pyk' (-L),
-  '/opt/pyk/lib/mylib/mylib.external.pyk' (built-in), … A module is
+  '/here/mylib_external.pyk' (local), '/here/mylib.pyk' (local),
+  '/libs/mylib/mylib_external.pyk' (-L), '/libs/mylib/mylib.pyk' (-L),
+  '/opt/pyk/lib/mylib/mylib_external.pyk' (built-in), … A module is
   beside the file that imports it, or in a library folder on the search
   path (-L, PYKING_LIB_PATH)
 ```
@@ -135,46 +157,100 @@ too and may do neither, so the assembled list is handed to
 
 ## Running one with the interpreter
 
-An external module has no Pyking body, so `pyk prog.pyk` used to refuse
-any program that imported one. `src/stdlib_host.ml` implements the
-standard library's externals in OCaml, and `pyk.ml` hands them to the
-interpreter, so a program using `fs`, `sys` or `time` runs under it as
-well as under a backend — which is what lets every library test compare
-`interpret` against the same `.out` the compiled targets are held to.
+An external module has no Pyking body, so the interpreter reaches it the
+way the `ocaml5.5` target does: through its OCaml implementation,
+`<name>_external.ml`. `pyk` loads it as a **plugin**, a `.cmxs` compiled
+from that file with Dynlink, so every library -- and a program's own
+external module -- runs under `pyk prog.pyk`, `pyk repl` and every
+library test's `interpret` without `pyk` being rebuilt.
 
-The list of modules it answers for is **closed** (`Stdlib_host.modules`),
-and deliberately: were it open, a folder named `fs` on a `-L` path would
-be answered by this executable's own OCaml rather than by the file that
-actually resolved, and the interpreter would silently disagree with
-every compiled target. Any other external module keeps the old refusal.
+### How the interpreter reaches an OCaml implementation
 
-`stdlib_host.ml` lives in the executable, not the library, because it
-reads files, the clock and the environment, and nothing in the library
-half may.
+A plugin is two files compiled together: the implementation, and a
+registration file `src/plugin_host.ml` generates from the module's
+declarations, which records each declared name in `Pyk_plugin` (the one
+module of `pyk` a plugin names, `src/plugin/`) when Dynlink loads it. A
+value crosses by its declared type, since nothing else says whether an
+immediate OCaml value is an Int, a Bool or unit.
+
+A plugin is found in one of two places, and is used only when it was
+built from what it would be built from now -- the implementation, the
+registration file, the OCaml and pyk versions and `pyk_plugin.cmi`,
+recorded as one digest in `<name>_external.digest` beside it:
+
+1. **Beside the implementation**, as `<name>_external.cmxs`. `make libs`
+   (which plain `make` runs) writes the standard library's there with
+   `pyk plugins lib`, and every package ships them, so the standard
+   library needs no OCaml installed.
+2. **In the cache**, `$XDG_CACHE_HOME/pyking/plugins/<digest>.cmxs`
+   (`~/.cache/pyking/plugins/` by default), compiled on demand with
+   `$OCAMLOPT` or `ocamlopt`. That compiler must be the version `pyk` was
+   built by -- a plugin loads only into an executable its own compiler
+   built -- and `pyk` refuses with the version it needs otherwise.
+
+A plugin may use `Stdlib` and `unix`, since `pyk` links both whole
+(`-linkall`); a library outside those is not there to be linked against.
+
+`pyk` sets `Sys.argv` to the program's file and its own arguments before
+it runs, so `sys_external.ml` reads the arguments where a compiled
+program has them.
+
+The REPL loads plugins the same way when an entry imports a module. Its
+standard input is the session's own, so a program reading it at a piped
+prompt reads the next entries' lines.
+
+`plugin_host.ml` lives in the executable, not the library, because it
+starts a process and loads code, and nothing in the library half may.
+
+## In the browser
+
+JavaScript runs in two environments, so every library has two
+implementations: `<name>_external_node.js` for `node24` and
+`<name>_external_browser.js` for `web24` and `iweb24`. A browser has a
+console and nothing else, so each browser implementation writes standard
+output to `console.log` a line at a time, and every function a page
+cannot provide -- reading standard input, the filesystem, the arguments,
+the environment -- says on the console that it is not supported and
+answers as the empty or missing thing would. `sys.exit` stops the
+program, and the page reports a status other than 0.
+
+`print` writes through `io`'s browser implementation on both browser
+targets, so the page ships `io_external.js` whether or not the program
+imports `io` ([target_js.md](target_js.md), "Standard output in a
+browser").
+
+The playground and the notebook run programs with the interpreter in a
+worker, and supply `io` and `sys` themselves: standard output is the
+output pane, standard input and the arguments are what the page asked
+for before the run -- only when the program reads them -- and
+`sys.exit` ends the run. Every other library is its browser
+implementation, fetched from `lib/` with the library's Pyking sources.
+See tools/webrun/README.md.
 
 ## What each library reaches
 
 | | python14 | node24 | web24 | iweb24 | c89/99/23 | java8/17/21 | ocaml5.5 | interpret |
 |---|---|---|---|---|---|---|---|---|
-| `fs` | yes | yes | no | no | yes | yes | yes | yes |
-| `sys` | yes | yes | no | no | no | no | yes | yes |
+| `fs` | yes | yes | not supported | not supported | yes | yes | yes | yes |
+| `io` | yes | yes | output only | output only | yes | yes | yes | yes |
+| `sys` | yes | yes | `exit` only | `exit` only | `exit` only | `exit` only | yes | yes |
 | `time` | yes | yes | yes | yes | no | no | yes | yes |
 
-`fs` reaches everything that has a filesystem. It claims no
-`web24`/`iweb24`: a browser has none, and an implementation that always
-failed would be worse than an import that was never offered. `sys` is
-the same for arguments and an environment.
+"Not supported" and "output only" are the browser implementations above:
+the import compiles and a function the page cannot provide says so.
 
-`sys` and `time` do not reach C or Java for two reasons at once: they
-answer with a list and a tuple, which neither target can carry across a
-boundary, and neither backend compiles a module in two halves yet --
-each refuses one with a message rather than emitting code that will not
-link.
+On C and Java, `sys` offers `exit` alone. `args` and `env` answer a list,
+which neither target can carry, and `prog_name` and `prog_path` need the
+program's own `argv`, which an implementation file cannot see -- so
+`sys_external.c` and `SysExternal.java` define `exit` only, and a program
+using another name does not link. `time` answers a tuple, and does not
+reach either.
 
-`sys` and `time` both reach `ocaml5.5`, and both need it linked with
-`unix`: nothing in OCaml's `Stdlib` enumerates the environment or reads
-the clock as a calendar, so `sys_external.ml` and `time_external.ml`
-need it. See [target_ocaml.md](target_ocaml.md), "Linking unix".
+`io`, `sys` and `time` reach `ocaml5.5`, and `sys` and `time` need it
+linked with `unix`: nothing in OCaml's `Stdlib` enumerates the
+environment or reads the clock as a calendar, so `sys_external.ml` and
+`time_external.ml` need it. See [target_ocaml.md](target_ocaml.md),
+"Linking unix".
 
 Two gaps that used to be here were compiler defects rather than
 properties of the libraries, and both reproduced with an ordinary user
@@ -185,7 +261,8 @@ module and no library at all. Both are fixed:
   `time` before any sibling `time.py`. Such a module is now loaded by
   path, through a prelude helper emitted only where one is imported —
   see [target_python.md](target_python.md), "Module names Python has
-  already taken".
+  already taken". `io` is one of them: Python imports its own at
+  startup.
 - **A module exporting a JavaScript reserved word emitted invalid
   JavaScript**: `public def arguments()` became `export { arguments };`,
   a name nothing declared. The body already renamed it, so the export
@@ -225,6 +302,10 @@ Three things make a library testable at all:
   sits, so only that each says *something* is checked,
   and `time` is rendered from a fixed instant rather than from the
   clock.
+- **A case may read standard input**, from a sibling `.in` file, and
+  **end with a status**, which an `exit_code` key expects -- 0 where it
+  says nothing. `tests/lib_io_read.pyk` and `tests/lib_sys_exit.pyk` are
+  those cases.
 - **A case may pass the program arguments**, with an `arguments` key,
   which is the only place a run's arguments can be written down. Each
   target gets them its own way -- after `--` for the interpreter, and
@@ -247,15 +328,15 @@ which library was actually found.
 
 ## Adding a library
 
-1. `lib/<name>/`, with `<name>.external.pyk` if the host provides it
-   directly, or `<name>.pyk` plus `<name>_ext.external.pyk` if anything
+1. `lib/<name>/`, with `<name>_external.pyk` if the host provides it
+   directly, or `<name>.pyk` plus `<name>_external.pyk` if anything
    list- or tuple-shaped is involved.
 2. One implementation per target the library claims, named as
-   [modules.md](modules.md) says (`<name>.py`, `<name>.js`, `<name>.c`,
-   `<Name>.java`, `<name>.ml`).
-3. An entry in `Stdlib_host.modules` and a case per function in
-   `stdlib_host.ml`, or the library cannot be interpreted.
-4. At least two cases in `tests/`, with `libs` naming its modules in
+   [modules.md](modules.md) says (`<name>_external.py`,
+   `<name>_external_node.js`, `<name>_external_browser.js`,
+   `<name>_external.c`, `<Name>External.java`, `<name>_external.ml`).
+   The OCaml one is what the interpreter loads, so it is not optional.
+3. At least two cases in `tests/`, with `libs` naming its modules in
    dependency order, and `interpret` among the targets.
-5. A row in the table above, with the reason for every target it does
+4. A row in the table above, with the reason for every target it does
    *not* claim.

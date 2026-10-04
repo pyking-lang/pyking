@@ -58,9 +58,13 @@ next: `state` (`interpreter.State` — the machine's names to values),
 half of the type checker has worked out — see `typesystem.ml`'s own
 page and `type_inference.md`), `kinds` (the mutability analysis's names
 to binding kinds, so `:=` at the prompt is held to the same rule a file
-is), `sources` (each name's own defining text, for `:edit`), and
+is), `sources` (each name's own defining text, for `:edit`),
 `arguments` (what `desugar_args.ml` knows about the defs written so
-far). `types`/`store` and `state` are genuinely two
+far), and what the entries have imported: `libs` (where a module is
+looked for after the current directory), `modules` (each as the module
+system prepared it), `sigmaps` (what each exports, for the checker),
+`exports` (the values each exports, for the machine) and `plugins` (the
+ones implemented in a target language). `types`/`store` and `state` are genuinely two
 separate environments, extended by two separate modules
 (`typesystem.declare_functions`/`check_stmt` for the first,
 `interpreter.declare_entry`/`eval_in` for the second) — the REPL keeps
@@ -200,14 +204,38 @@ the concrete mechanism behind PYKING.md's promise that mutual recursion
 works at the REPL prompt the same way it works in a file — the *first*
 half of it is never treated as a mistake, only as incomplete.
 
-## Imports are refused, and not by this module
+## Imports: a module arrives with the entry that names it
 
-A session is one file on its own: there is no program around it, and
-nothing for `import list` to reach. That refusal is the *checker's*
-(`typesystem.available`), not something this module tests for, and for
-the same reason `undefined_name` reads `analyses.ml`'s wording rather
-than restating it -- the browser playground compiles one file too, and
-the two should not be able to say it differently.
+An entry's imports are handled before the entry is desugared, since the
+sugar has to know an imported definition's defaults and the checker what
+it exports. `import_modules` hands the entry to `Module.load_imports`,
+which reads every module it newly reaches -- beside the current
+directory, then on the search path `pyk.ml` assembled -- and answers them
+in dependency order, prepared the way `Module.load` prepares a program's,
+with the entry's own imports resolved against them. Each module is then
+checked as a program's would be (`check_import`: the checker against
+what the modules it imports export, the mutability rule, elaboration and
+the tail-call pass), its plugin loaded if it is implemented in a target
+language, and its top level run into the session's machine
+(`Interpreter.load_modules`). What each exports goes into the checker's
+store (`store.modules`) and the machine's `exports`; `check_entry`
+brings the entry's imported names into the checker's environment with
+`Typesystem.import_env`, and `submit` into the machine's with
+`Interpreter.bind_imports`.
+
+A module is loaded once per session, whichever entry reaches it first.
+A later entry naming it reads what was loaded, and a later entry that
+imports under another alias binds the same values under that name. The
+imports themselves are remembered for the sugar (`Desugar_args`'s
+`imports`), so an omitted default in a later entry -- `io.read_line()`
+-- is filled in as it would be in a file.
+
+A module implemented in a target language gives the machine a new host:
+`Interpreter.with_host` with `Plugin_host.externals` over every plugin
+the session has loaded. A program's standard input is the session's own,
+so at a piped prompt `io.read_line()` reads the next line of the input
+the entries are read from, and `sys.exit` ends the session with its
+status.
 
 The playground goes one step further and runs `module.check_publics` as
 well; a session does not, and the difference is the model rather than an

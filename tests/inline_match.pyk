@@ -34,7 +34,7 @@ def describe(n):
         case 0: 'nothing'
         case 1:
             doubled = n + n
-            'one, doubled is ' ++ str(doubled)
+            'one, doubled is ' ++ string(doubled)
         case _: 'several'
 
 

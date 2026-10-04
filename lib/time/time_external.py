@@ -1,4 +1,4 @@
-# The Python implementation of the names declared in time.external.pyk.
+# The Python implementation of the names declared in time_external.pyk.
 # Decomposition is UTC: `gmtime`, never `localtime`.
 
 import time as _time

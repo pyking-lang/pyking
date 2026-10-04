@@ -31,7 +31,7 @@ Nearly all of the fragment `src/typesystem.ml` checks. The list this
 backend maintains is the short one of what it *refuses*, in the next
 section; everything else compiles:
 
-- `print`, and the builtins `str`, `len`, `float`, `int` and `range`;
+- `print`, and the builtins `string`, `len`, `float`, `int` and `range`;
 - `def`, annotated or not — recursion, mutual recursion, nested
   functions, and a body written on the header's own line (`def f(x): e`);
 - functions as values: passed as arguments, returned, and called;
@@ -207,7 +207,7 @@ take: a name or `_`. A literal or a nested list there is refused.
 **every expression**, not just the ones an annotation could be written
 on. This backend is the reason that is true. Two decisions need it:
 
-- **`print` is the only thing that needs a type.** Pyking's `+` and
+- **`print` and `debug` are the only things that need a type.** Pyking's `+` and
   `++` map straight onto OCaml's `+` and `^`, so nothing has to ask an
   operand's type to choose between them.
 - **Type variables need nothing, up to a point.** This backend writes no
@@ -434,7 +434,7 @@ def described(n:Int) -> String:
         if k == 13:
             return "unlucky"
         k * 3
-    "reached " ++ str(reached)
+    "reached " ++ string(reached)
 ```
 
 ```ocaml
@@ -549,17 +549,25 @@ let () =
   print_endline (string_of_int 1 ^ " " ^ "two" ^ " " ^ string_of_bool true)
 ```
 
+`debug` is the same line through `prerr_endline`, on standard error. A
+program compiled with `--release` has no `debug` left in it. The checker
+records a type for a callee it resolved to a definition and none for a
+builtin, which is how a program's own `debug` is told from the builtin.
+
 ### Builtins
 
 | Pyking | OCaml |
 |---|---|
-| `str(n)` | `string_of_int n` (or `string_of_bool`, or nothing at all for a `String`) |
+| `string(n)` | `string_of_int n` (or `string_of_bool`, or nothing at all for a `String`) |
 | `len(s)` | `String.length s` |
 | `len(xs)` | `List.length xs` |
 | `range(n)` | `List.init (max 0 n) Fun.id` |
 | `range(a, b)`, `range(a, b, s)` | `pyk_range a b s`, a generated helper |
-| `float(n)` | `float_of_int n` |
-| `int(x)` | `int_of_float x` |
+| `float(n)`, `float(b)` | `float_of_int n`; `if b then 1.0 else 0.0` |
+| `float(s)` | `pyk_float_of_string s`, a generated helper |
+| `int(b)` | `if b then 1 else 0` |
+| `int(x)`, `int(s)` | `pyk_truncate x`, `pyk_int_of_string s`, generated helpers |
+| `bool(s)`, `bool(n)`, `bool(x)` | `s = "true"`, `n = 1`, `x = 1.0` |
 | printing a list | `pyk_string_of_int_list`, the one generated helper |
 
 The helper exists because a Pyking list prints the way Python prints one
@@ -774,7 +782,7 @@ would leave the call inside it naming nothing.
 
 ## External modules
 
-A module implemented in OCaml (`sys.ml`, declared in `sys.external.pyk`
+A module implemented in OCaml (`sys.ml`, declared in `sys_external.pyk`
 -- see [modules.md](modules.md)) needs **no `.mli`**. The compiler
 generates nothing for it, and `ocamlopt` infers module `Sys`'s interface
 from `sys.ml` itself; the file is copied beside the program's output and

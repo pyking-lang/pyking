@@ -15,14 +15,14 @@
 
 def head_tail(xs:[Int]) -> String:
     answer = match xs:
-        case [x] ++ rest: "head " ++ str(x)
+        case [x] ++ rest: "head " ++ string(x)
         case _: "empty"
     return answer
 
 
 def last_three(xs:[Int]) -> String:
     answer = match xs:
-        case start ++ [x, y, z]: str(x) ++ str(y) ++ str(z)
+        case start ++ [x, y, z]: string(x) ++ string(y) ++ string(z)
         case _: "too short"
     return answer
 

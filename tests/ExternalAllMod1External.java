@@ -1,5 +1,5 @@
 // The Java implementation of the Pyking module declared in
-// external_all_mod1.external.pyk. Java requires the file name and the
+// external_all_mod1_external.pyk. Java requires the file name and the
 // public class to match, so this one file is capitalised where its
 // siblings are not: the generated program calls ExternalAllMod1External.shout.
 

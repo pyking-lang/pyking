@@ -1005,7 +1005,7 @@ targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "printing_quotes_str.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "typecheck_pyking_reparse.pyk"
@@ -1190,14 +1190,19 @@ file = "fail_typecheck_module_public_value.pyk"
 targets = ["pyking"]
 
 [[cases]]
+file = "fail_typecheck_module_external_half.pyk"
+modules = ["external_all_mod1_external.pyk"]
+targets = ["pyking"]
+
+[[cases]]
 file = "external_all.pyk"
-modules = ["external_all_mod1.external.pyk"]
-targets = ["python14", "node24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5"]
+modules = ["external_all_mod1_external.pyk"]
+targets = ["python14", "node24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "external_shapes.pyk"
-modules = ["external_shapes_mod1.external.pyk"]
-targets = ["python14", "node24", "ocaml5.5"]
+modules = ["external_shapes_mod1_external.pyk"]
+targets = ["python14", "node24", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "fail_typecheck_external_body.pyk"
@@ -1206,23 +1211,23 @@ targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_external_private.pyk"
-modules = ["fail_typecheck_external_private_mod1.external.pyk", "fail_typecheck_external_private_mod1.pyk"]
+modules = ["fail_typecheck_external_private_mod1_external.pyk", "fail_typecheck_external_private_mod1.pyk"]
 targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_external_bodies.pyk"
-modules = ["fail_typecheck_external_bodies_mod1.external.pyk"]
+modules = ["fail_typecheck_external_bodies_mod1_external.pyk"]
 targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_external_callback.pyk"
-modules = ["fail_typecheck_external_callback_mod1.external.pyk"]
+modules = ["fail_typecheck_external_callback_mod1_external.pyk"]
 targets = ["pyking"]
 
 [[cases]]
 file = "external_web.pyk"
-modules = ["external_web_mod1.external.pyk"]
-targets = ["node24", "web24", "iweb24"]
+modules = ["external_web_mod1_external.pyk"]
+targets = ["node24", "web24", "iweb24", "interpret"]
 
 # The standard library under lib/. A `libs` entry is a library module,
 # not a file in tests/: the compiler finds it on its own search path and
@@ -1233,8 +1238,8 @@ targets = ["node24", "web24", "iweb24"]
 # `fs` is the one library whose whole boundary is scalar -- a String and
 # a Bool cross on every target -- so it is the one that reaches the C
 # and Java targets. It claims no web24/iweb24: a browser has no
-# filesystem, and an implementation that always failed would be worse
-# than an import that was never offered.
+# filesystem, so its browser implementation only says so on the console,
+# and there is no output to compare.
 
 [[cases]]
 file = "lib_fs_roundtrip.pyk"
@@ -1247,7 +1252,8 @@ libs = ["fs"]
 targets = ["python14", "node24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 # `sys` and `time` build a list and a tuple, which the C and Java
-# targets have no representation for, so neither library reaches them.
+# targets have no representation for, so neither library's lists and
+# tuples reach them -- `sys.exit` does, below.
 # `time` skips ocaml5.5 for a reason of its own -- `format` parses its
 # format string with a text pattern, which that backend refuses.
 # See docs/libraries.md.
@@ -1309,18 +1315,71 @@ file = "lib_two_libraries.pyk"
 libs = ["sys", "fs"]
 targets = ["python14", "node24", "ocaml5.5", "interpret"]
 
+# The io library: standard output beside `print`, and standard input.
+# A case reading its input has a sibling .in file, which is what it is
+# given on standard input. The browser has no standard input, so only
+# writing reaches web24 and iweb24, where `print` writes through `io`
+# too.
+
+[[cases]]
+file = "lib_io_write.pyk"
+libs = ["io"]
+targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "lib_io_read.pyk"
+libs = ["io"]
+targets = ["python14", "node24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+
+# sys.exit, with the status the program ends with in `exit_code`. A
+# page reports the status rather than ending with it, so the browser
+# targets are not run.
+
+[[cases]]
+file = "lib_sys_exit.pyk"
+libs = ["sys"]
+exit_code = 3
+targets = ["python14", "node24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+
+# `debug`: `print`'s twin, writing to standard error. A sibling .err file
+# holds what it wrote, and every target is compared against it.
+
+[[cases]]
+file = "debug_basic.pyk"
+targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "debug_values.pyk"
+targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
+
+# `release = true` compiles with --release: every call to `debug` is
+# removed, so each compiled target must write nothing to standard error,
+# and the .ast.out shows the program without them. The interpreter takes
+# no --release, and runs the program as written.
+
+[[cases]]
+file = "typecheck_release.pyk"
+release = true
+targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_release_values.pyk"
+release = true
+targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret", "pyking"]
+
+[[cases]]
+file = "typecheck_release_shadow.pyk"
+release = true
+targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret", "pyking"]
+
 # A module in two halves: `f1` from the Pyking half, `g1` public from
 # the host's, and `f2` from the Pyking half calling the host's *private*
 # `g2`. One module from the import side, three routes in the output.
-# No `interpret`: the interpreter answers only for the libraries under
-# lib/ (src/stdlib_host.ml), so a program's own external module has to
-# be compiled. Not C or Java either: neither compiles a module in two
-# halves yet, and both refuse it with a message.
 
 [[cases]]
 file = "module_external_mixed.pyk"
-modules = ["module_external_mixed_mod1.external.pyk", "module_external_mixed_mod1.pyk"]
-targets = ["python14", "node24", "web24", "ocaml5.5"]
+modules = ["module_external_mixed_mod1_external.pyk", "module_external_mixed_mod1.pyk"]
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "float_arithmetic.pyk"
@@ -1344,7 +1403,7 @@ targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "float_str.pyk"
-targets = ["python14", "iweb24", "ocaml5.5", "interpret"]
+targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "float_var.pyk"
@@ -1376,8 +1435,8 @@ targets = ["pyking"]
 
 [[cases]]
 file = "external_float.pyk"
-modules = ["external_float_mod1.external.pyk"]
-targets = ["python14", "node24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5"]
+modules = ["external_float_mod1_external.pyk"]
+targets = ["python14", "node24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "typecheck_defaults.pyk"
@@ -1453,8 +1512,8 @@ file = "fail_typecheck_defaults_missing.pyk"
 targets = ["pyking"]
 
 [[cases]]
-file = "fail_typecheck_defaults_external.pyk"
-modules = ["external_all_mod1.external.pyk"]
+file = "fail_typecheck_external_defaults.pyk"
+modules = ["external_all_mod1_external.pyk"]
 targets = ["pyking"]
 
 [[cases]]
@@ -1594,7 +1653,7 @@ targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_external_overload.pyk"
-modules = ["fail_typecheck_external_overload_mod1.external.pyk"]
+modules = ["fail_typecheck_external_overload_mod1_external.pyk"]
 targets = ["pyking"]
 
 [[cases]]
@@ -1623,4 +1682,36 @@ targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_overload_named.pyk"
+targets = ["pyking"]
+
+# The conversions `string`, `int`, `float` and `bool`: every type each
+# accepts, and every shape of String each refuses, on every target --
+# each implements the same reading rather than its host's own. A
+# conversion with no right answer answers a default (PYKING.md,
+# "Builtins"). `conversions_values` takes lists, and `typecheck_*`
+# leaves a parameter's type to its first call, which C and Java guess
+# rather than infer.
+
+[[cases]]
+file = "conversions.pyk"
+targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "conversions_values.pyk"
+targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "typecheck_conversions.pyk"
+targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret", "pyking"]
+
+[[cases]]
+file = "fail_typecheck_conversion_list.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_conversion_unit.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_str_removed.pyk"
 targets = ["pyking"]

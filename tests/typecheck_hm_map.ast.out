@@ -3,7 +3,7 @@ def identity(x:a) -> a:
 def double(n:Int) -> Int:
     n * 2
 def show(n:Int) -> String:
-    'n=' ++ str(n)
+    'n=' ++ string(n)
 def map(f:(a) -> b, lst:[a]) -> [b]:
     match lst:
         case [x, ..xs]:

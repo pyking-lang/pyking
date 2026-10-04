@@ -1,0 +1,4 @@
+'tests/fail_typecheck_module_external_half.pyk' 5:0-5:33 Module error:
+  cannot import 'external_all_mod1_external': a name ending in
+  '_external' is the external half of a module, and is imported by the
+  module's own name 'external_all_mod1'

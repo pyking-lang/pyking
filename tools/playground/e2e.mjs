@@ -207,6 +207,72 @@ async function main() {
   expect(`${sweep.pairs} example/target pairs compile`, sweep.wrong.length === 0,
          "\n         " + sweep.wrong.slice(0, 10).join("\n         "));
 
+  // A program may import the standard library, and one that reads its
+  // input is asked for it before it runs: a dialog, only for a program
+  // that reads. `io` and `sys` are the worker's own, so what it writes is
+  // this pane, a `debug` line is marked apart, and `sys.exit` ends it.
+  console.log("The standard library");
+  await page.evaluate(() => {
+    window.pykingPlayground.left.setValue([
+      "import io", "import sys",
+      "debug(\"starting\")",
+      "name = io.read_line(\"Name? \")",
+      "print(\"hello\", name, sys.args())",
+      "sys.exit(3)", "print(\"never\")", "",
+    ].join("\n"), -1);
+  });
+  await page.click('[data-r="runLeft"]');
+  await page.waitForSelector('[data-r="inputModal"]:not(.pyk-hidden)', { timeout: 60000 });
+  expect("a program reading its input is asked for it first",
+         await page.evaluate(() =>
+           !document.querySelector('[data-r="inputStdinField"]').classList.contains("pyk-hidden")
+           && !document.querySelector('[data-r="inputArgsField"]').classList.contains("pyk-hidden")));
+  await page.fill('[data-r="inputStdin"]', "Ada\nnot read\n");
+  await page.fill('[data-r="inputArgs"]', "a 'b c'");
+  await page.click('[data-r="inputRun"]');
+  await settled(page);
+  await page.waitForTimeout(2000);
+  const ran = await page.evaluate(() => {
+    const output = document.querySelector('[data-r="output"]');
+    return {
+      text: output.textContent,
+      debug: [...output.querySelectorAll(".debug")].map((e) => e.textContent).join(""),
+    };
+  });
+  expect("it reads what it was given, and is passed its arguments",
+         ran.text.includes("Name? Ada\nhello Ada ['a', 'b c']"), JSON.stringify(ran.text));
+  expect("its debug line is marked apart", ran.debug === "starting\n",
+         JSON.stringify(ran.debug));
+  expect("sys.exit ends it, with the status shown",
+         ran.text.includes("exited with status 3") && !ran.text.includes("never"),
+         JSON.stringify(ran.text));
+  await page.evaluate(() => {
+    window.pykingPlayground.left.setValue("import io\nio.write_line(\"quiet\")\n", -1);
+  });
+  await page.click('[data-r="runLeft"]');
+  await settled(page);
+  await page.waitForTimeout(2000);
+  expect("a program that only writes is not asked for anything",
+         await page.evaluate(() =>
+           document.querySelector('[data-r="inputModal"]').classList.contains("pyk-hidden"))
+         && /finished/.test(await lastLine(page)), await lastLine(page));
+  // `print` on a `web` target writes through the shipped io_external.js.
+  await page.evaluate(() => {
+    window.pykingPlayground.left.setValue("print(\"from the page\", 1)\n", -1);
+  });
+  await page.selectOption('[data-r="target"]', "web24");
+  await page.click('[data-r="compile"]');
+  await settled(page);
+  await page.waitForTimeout(500);
+  await page.click('[data-r="runRight"]');
+  await settled(page);
+  await page.waitForTimeout(2000);
+  const web = await page.evaluate(
+    () => document.querySelector('[data-r="output"]').textContent);
+  expect("a web program prints through its io_external.js",
+         web.includes("from the page 1") && /finished/.test(await lastLine(page)),
+         JSON.stringify(web));
+
   // A Pyking loop need never end (PYKING.md, "Leaving a loop"), so the
   // page has to stay answerable while one is running -- which is the
   // whole point of running it in a worker. Nothing headless can show

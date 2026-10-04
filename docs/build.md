@@ -6,17 +6,19 @@ what each module *holds*, see [source.md](source.md); for the pipeline
 they form, see [architecture.md](architecture.md).
 
 ```
-make                build the compiler into ./pyk
+make                build the compiler into ./pyk, then make libs
+make libs           build the interpreter's library plugins in lib/
 make test           the test suite (make stest for one at a time)
 make playground     serve the web playground (pyk playground)
 make notebook       serve PYKING-TUTORIAL.md as a notebook (pyk notebook)
 make vendor         download the browser libraries the two above need
 make packaging      build the installable packages (on a Mac)
-make clean          remove _build/, ./pyk, __pycache__/
+make clean          remove _build/, ./pyk, lib/'s plugins, __pycache__/
 ```
 
-`make` builds two things: `./pyk`, the compiler, and
-`build/pyking.js`, the same compiler as JavaScript. The second is what
+`make` builds three things: `./pyk`, the compiler,
+`build/pyking.js`, the same compiler as JavaScript, and a plugin for
+every library under `lib/` (`make libs`, below). The second is what
 the `iweb` target ships beside a program and what the playground runs,
 and it is built here so there is one copy of it — the playground and
 the notebook serve this file rather than building their own.
@@ -42,11 +44,35 @@ AST, the analyses, the type checker, the optimizer, the interpreter, and
 every backend. It depends on nothing outside the OCaml standard library.
 Nothing in it opens a file, starts a process, or reads a terminal.
 
-**The executable `pyk`** adds the three modules that do talk to the
-outside world — `pyk.ml` (the driver, which reads the source file and
-writes the output), `execution.ml` (`--run`, which starts processes) and
-`repl.ml` (the prompt, which puts a terminal in raw mode) — and is the
-only half that links `unix`.
+**The executable `pyk`** adds the modules that do talk to the outside
+world — `pyk.ml` (the driver, which reads the source file and writes the
+output), `execution.ml` (`--run`, which starts processes), `repl.ml`
+(the prompt, which puts a terminal in raw mode) and `plugin_host.ml`
+(which compiles and loads an external module's OCaml implementation) —
+and is the only half that links `unix` and `dynlink`. It is linked
+`-linkall`, so every module of the standard library and of `unix` is in
+it: a plugin may use one `pyk` never does itself.
+
+**The library `pyk_plugin`** (`src/plugin/`) is one module, the registry
+a plugin fills in when it is loaded. It is a library of its own,
+unwrapped and linked only into the executable, because a plugin is
+compiled outside this build and has to name it by a stable name --
+`Pyk_plugin` -- and find its interface: `make` copies
+`pyk_plugin.cmi` to `build/plugin/`, beside `build/pyking.js`, and a
+package ships it there.
+
+## The library plugins
+
+`make libs` runs `./pyk plugins lib`, which compiles each
+`lib/<name>/<name>_external.ml`, with a registration file generated from
+its declarations, into `<name>_external.cmxs` beside it, and writes
+`<name>_external.digest` -- what it was built from -- beside that. The
+interpreter loads those to run the standard library, and uses one only
+where its digest is what it would build now; a plugin that is already
+is left alone, so a second `make` builds nothing. Both files are build
+output, ignored by git and removed by `make clean`. See
+[libraries.md](libraries.md), "How the interpreter reaches an OCaml
+implementation".
 
 The line between them is not tidiness. It is what makes the second build
 possible: a library that cannot touch a process or a terminal is a
@@ -120,7 +146,9 @@ Running the *generated code* needs whatever that target's host needs —
 `node` for the JavaScript targets, a C compiler for `c89`/`c23`, a JDK
 for the Java ones, `ocamlopt` for `ocaml5.5` — but none of that is needed
 to *produce* the code, and none at all to run a program with
-`pyk <file>`, which is the interpreter.
+`pyk <file>`, which is the interpreter. The one exception is a program
+importing an external module of its own: the interpreter compiles that
+module's plugin on demand, which needs the OCaml `pyk` was built by.
 
 The test harness (`tests/test_script.py`) is Python 3.11+. The web tools'
 servers (`tools/webrun/server.py`) need Python 3.10+ and check for it.
@@ -153,8 +181,9 @@ way, after `make vendor` has downloaded Ace and KaTeX once.
 
 The compiler is one native executable with no OCaml runtime to install:
 `./pyk` needs nothing but the C library to compile or interpret a
-program. OCaml, dune and js_of_ocaml are needed to *build* it, never to
-use it.
+program, the standard library included, since its plugins ship beside
+it. OCaml, dune and js_of_ocaml are needed to *build* it, never to use
+it -- save to interpret a program with an external module of its own.
 
 The web tools add one dependency, and only for someone who uses them:
 Python 3.10 or later, standard library only. A distribution is a subset
@@ -164,8 +193,9 @@ alike:
 
 ```
 pyk                   the compiler
-lib/                  the standard library
+lib/                  the standard library, with its plugins
 build/pyking.js       the compiler as JavaScript, for the pages
+build/plugin/         what a plugin is compiled against
 tools/webrun/         including vendor/, downloaded before packaging
 tools/notebook/
 tools/playground/
@@ -184,8 +214,10 @@ in, and the tree is beside the target, not beside the link.
 
 `make packaging` builds that tree into installable packages, with
 `tools/packaging/packaging.py`, writing them into `tools/packaging/build/`,
-and `make release` publishes them. Two formats, each holding a `pyk` with
-no dependencies:
+and `make release` publishes them. Two formats, each holding a `pyk`
+that needs nothing but the system's C library, and the library plugins
+compiled by the toolchain that built that `pyk`, since a plugin loads
+only into an executable its own compiler built:
 
 - **Homebrew**, for macOS 11 or later: a tarball holding a universal
   `pyk` (arm64 and x86_64) and a formula that installs it. It is built on
@@ -194,13 +226,17 @@ no dependencies:
   and the halves are joined with `lipo`. An everyday switch is refused:
   its runtime was compiled for the macOS it was created on, and linking
   it would break the macOS 11 promise. A binary that links anything
-  outside the system's own libraries is refused too.
-- **Linux**, for every distribution and WSL: a `pyk` linked fully
-  static against musl, built in an Alpine container per architecture
-  (x86_64 and aarch64, one of them emulated), shipped as a tarball --
-  which the one-line installer `install.sh` installs -- and as a `.deb`.
-  The static link is dune's `static` profile in `src/dune`, used by
-  nothing else.
+  outside the system's own libraries is refused too. Each
+  architecture's plugins are compiled by its own switch and joined with
+  `lipo` like the binary.
+- **Linux**, for every distribution and WSL: a `pyk` linked against
+  glibc 2.28, built in an AlmaLinux 8 container per architecture (x86_64
+  and aarch64, one of them emulated), shipped as a tarball -- which the
+  one-line installer `install.sh` installs -- and as a `.deb`. It is
+  dynamically linked because the interpreter loads plugins, which a
+  static binary cannot; one asking for a glibc newer than the floor is
+  refused, and the built tree is run, plugins and all, in current Debian
+  and in Debian 10.
 
 A partial build (`FORMATS=`, `ARCHS=`) is possible and cannot be
 published. `make packaging-setup` makes the toolchains once. One release

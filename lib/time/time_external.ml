@@ -1,4 +1,4 @@
-(* The OCaml implementation of the names declared in time.external.pyk.
+(* The OCaml implementation of the names declared in time_external.pyk.
    OCaml's own module name comes from this file's name, which is what
    the generated code refers to.
 

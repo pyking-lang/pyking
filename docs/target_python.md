@@ -392,6 +392,27 @@ matter of spelling: `__pyk_str` walks a value, so a `None` sitting
 inside a list or tuple would show up there too.
 `tests/unit_values.pyk` covers both positions.
 
+`debug` is Python's own `print` on standard error, reached through
+`__import__('sys')` since a Pyking module may be called `sys` too:
+
+```pyking                          # generated Python
+debug("n", 2)                      print('n', 2, file=__import__('sys').stderr)
+```
+
+A program compiled with `--release` has no `debug` left in it. A
+program's own definition named `print` or `debug` is an ordinary call.
+
+### The conversions
+
+`string(x)` is Python's `str` over the argument `print` would write, so
+it formats a Bool and a Float as `print` does. `int`, `float` and `bool`
+go by the argument's type. Python's own `int` and `float` are used where
+they agree -- `int(b)` of a Bool, `float(n)` of an Int -- and `bool` is a
+comparison (`s == 'true'`, `n == 1`). A String goes through
+`__pyk_int` and `__pyk_float_of`, and `int` of a Float through
+`__pyk_trunc`, prelude helpers emitted only where used: Python's `int`
+reads `" 3"` and `"1_000"` and raises on a NaN, where Pyking answers 0.
+
 ### A `def` inside a loop
 
 A loop binds afresh on every turn, so a function written in one keeps
@@ -853,7 +874,7 @@ it.
 ## External modules
 
 A module implemented in Python (`sys.py`, declared in
-`sys.external.pyk` -- see [modules.md](modules.md)) is an ordinary
+`sys_external.pyk` -- see [modules.md](modules.md)) is an ordinary
 module: the generated program writes `import sys` and reaches it as
 `sys.loadfile(...)`, exactly as it would a compiled one. The file is
 copied beside the program's output, where `import` finds it.

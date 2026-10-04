@@ -4,12 +4,17 @@ publishes them. Each package format is one entry in FORMATS:
 
   homebrew  macOS: a universal (arm64 + x86_64) `pyk` in a tarball, and a
             Homebrew formula for it. Built on an Apple Silicon Mac.
-  linux     Linux and WSL: a static `pyk` per architecture, as a tarball
-            (which install.sh installs) and a .deb. Built in Docker.
+  linux     Linux and WSL: a `pyk` per architecture, linked against an
+            old glibc, as a tarball (which install.sh installs) and a
+            .deb. Built in Docker.
 
 Every format ships the same tree, which `stage` builds: the executable,
-lib/, build/pyking.js and the web tools, at the paths they have in the
+lib/ with each library's interpreter plugin, build/pyking.js,
+build/plugin/ and the web tools, at the paths they have in the
 repository, since that is where `pyk` looks for them (src/install.ml).
+The plugins are compiled by `build_plugins` with the toolchain that
+built the executable, since a plugin loads only into the `pyk` its
+compiler built.
 Everything is written under build/ beside this file, and one release on
 GitHub holds every platform's files. See README.md beside this file and
 docs/build.md ("Packaging").
@@ -32,9 +37,11 @@ Data structures:
 Functions:
     version() -- the version, from VERSION.
     stage(binary, destination) -- the shipped tree, with this binary.
+    build_plugins(tree, prefix) -- the tree's library plugins, compiled.
     tarball(source, output) -- a reproducible .tar.gz; answers its sha256.
     macho_archs(path) -- the architectures a Mach-O file holds.
     elf_info(path) -- an ELF file's architecture, and whether it is static.
+    glibc_needed(path) -- the newest glibc version an ELF file asks for.
     deb(tree, arch, output) -- a .deb installing the tree.
     formula(url, sha256, archs) -- a Homebrew formula, as text.
     release_assets(v) -- every file a release of v holds.
@@ -50,6 +57,7 @@ import io
 import json
 import os
 import platform
+import re
 import shlex
 import shutil
 import struct
@@ -116,6 +124,14 @@ SHIPPED = [
 ]
 SHIPPED_SUFFIXES = {".pyk", ".js", ".ml", ".mli", ".py", ".c", ".h", ".java",
                     ".css", ".html", ".json", ".md", ".woff2"}
+# What a library plugin is compiled against: the interface of the one
+# module of `pyk` a plugin names. `stage` ships the one from the build
+# that made the binary, never this checkout's by accident, and a plugin
+# itself (a .cmxs) is never copied -- `build_plugins` compiles it for the
+# binary it will be loaded into.
+PLUGIN_DIRECTORY = Path("build") / "plugin"
+PLUGIN_INTERFACE = REPO / PLUGIN_DIRECTORY / "pyk_plugin.cmi"
+PLUGIN_BUILT = Path("default") / "src" / "plugin" / ".pyk_plugin.objs" / "byte" / "pyk_plugin.cmi"
 
 # CPU types in a Mach-O header (mach/machine.h).
 CPU_TYPES = {0x01000007: "x86_64", 0x0100000C: "arm64"}
@@ -190,14 +206,20 @@ def _shipped(path):
     return path.suffix in SHIPPED_SUFFIXES and not path.name.startswith((".", "#"))
 
 
-def stage(binary, destination, vendor=True):
-    """Builds the shipped tree in destination, with `binary` as its `pyk`.
+def stage(binary, destination, vendor=True, interface=None):
+    """Builds the shipped tree in destination, with `binary` as its `pyk`
+    and `interface` -- the pyk_plugin.cmi of the build that made it,
+    this checkout's by default -- as what its library plugins are
+    compiled against. The plugins themselves are `build_plugins`'s.
     Refuses when something it ships has not been built or downloaded;
     `vendor` false ships whatever of vendor/ there is, for a test that
-    renders no page. Path -> Path -> Bool -> Path"""
+    renders no page. Path -> Path -> Bool -> Path? -> Path"""
+    interface = Path(interface) if interface else PLUGIN_INTERFACE
     shipped = [(s, t) for s, t in SHIPPED
                if vendor or s != "tools/webrun/vendor" or (REPO / s).exists()]
     missing = [source for source, _ in shipped if not (REPO / source).exists()]
+    if not interface.exists():
+        missing.append(str(shown(interface)))
     if vendor:
         missing += [str(shown(path)) for path, _ in server.vendor_files()
                     if not path.exists()][:1]
@@ -209,6 +231,8 @@ def stage(binary, destination, vendor=True):
     destination.mkdir(parents=True)
     shutil.copy2(binary, destination / "pyk")
     (destination / "pyk").chmod(0o755)
+    (destination / PLUGIN_DIRECTORY).mkdir(parents=True)
+    shutil.copy2(interface, destination / PLUGIN_DIRECTORY / interface.name)
     for source, target in shipped:
         origin = REPO / source
         if origin.is_file():
@@ -221,6 +245,25 @@ def stage(binary, destination, vendor=True):
                 copy.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(path, copy)
     return destination
+
+
+def plugin_sources(tree):
+    """Every library under a tree's lib/ with an OCaml implementation, as
+    the plugin it is to have. Path -> [Path]"""
+    return sorted(ml.with_suffix(".cmxs") for ml in (tree / "lib").glob("*/*_external.ml"))
+
+
+def build_plugins(tree, prefix=(), env=None):
+    """Compiles the plugin of every library in a staged tree, with the
+    tree's own `pyk` run through `prefix` -- the command that reaches the
+    toolchain the binary was built with -- and refuses a library left
+    without one. Path -> [String] -> {..}? -> [Path]"""
+    run(list(prefix) + [tree / "pyk", "plugins", tree / "lib"], env=env)
+    plugins = plugin_sources(tree)
+    missing = [str(p.relative_to(tree)) for p in plugins if not p.exists()]
+    if missing:
+        raise Refusal("no plugin was built for " + ", ".join(missing))
+    return plugins
 
 
 def tarball(source, output):
@@ -290,6 +333,20 @@ def elf_info(path):
     return ELF_MACHINES.get(machine, hex(machine)), not interpreter
 
 
+# The newest glibc a Linux `pyk` may ask for: AlmaLinux 8's, which is
+# what the build image has, and Debian 10's.
+GLIBC_FLOOR = (2, 28)
+
+
+def glibc_needed(path):
+    """The newest glibc version an ELF file asks for, read from the
+    version names its dynamic symbols carry. (0,) for a file naming none.
+    Path -> (Int, ...)"""
+    found = re.findall(rb"GLIBC_(\d+)\.(\d+)(?:\.(\d+))?", path.read_bytes())
+    versions = [tuple(int(n) for n in groups if n) for groups in found]
+    return max(versions, default=(0,))
+
+
 def canonical_arch(name):
     """An architecture's name as this module spells it. String -> String"""
     return ARCH_ALIASES.get(name, name)
@@ -343,7 +400,7 @@ def deb(tree, arch, output):
     """A .deb installing the tree in /usr/lib/pyking/, with /usr/bin/pyk a
     link to its pyk. Written directly -- it is an ar archive of two
     tarballs -- so building one needs no dpkg. Recommends Python for the
-    web tools and depends on nothing. Answers its sha256.
+    web tools and depends on the C library alone. Answers its sha256.
     Path -> String -> Path -> String"""
     prefix = "./usr/lib/pyking"
     data, sums, size = [], [], 0
@@ -370,15 +427,17 @@ Version: {version()}
 Architecture: {DEB_ARCH[arch]}
 Maintainer: {MAINTAINER}
 Installed-Size: {(size + len(copyright_text) + 1023) // 1024}
+Depends: libc6 (>= {'.'.join(map(str, GLIBC_FLOOR))})
 Recommends: python3 (>= {PYTHON_MINIMUM})
 Section: devel
 Priority: optional
 Homepage: {HOMEPAGE}
 Description: {DESCRIPTION}
  Pyking is a small, statically typed language with Python's syntax. This
- package holds its compiler and interpreter, pyk, as one static binary
- with no dependencies. `pyk notebook` and `pyk playground` use Python
- {PYTHON_MINIMUM} or later, which is why it is recommended.
+ package holds its compiler and interpreter, pyk, which needs nothing but
+ the C library, and its standard library. `pyk notebook` and `pyk
+ playground` use Python {PYTHON_MINIMUM} or later, which is why it is
+ recommended.
 """
     control_tar = _tar_gz([
         _tar_entry("./", "dir"),
@@ -651,7 +710,12 @@ class Homebrew:
         v = version()
         suffix = "" if set(archs) >= set(ARCHS) else "-" + "-".join(archs)
         top = f"{NAME}-{v}"
-        tree = stage(universal, BUILD / "stage" / top)
+        interfaces = [BUILD / f"_build-{arch}" / PLUGIN_BUILT for arch in archs]
+        if len({path.read_bytes() for path in interfaces}) > 1:
+            raise Refusal("the architectures' pyk_plugin.cmi differ, so a plugin "
+                          "compiled against the shipped one would not load into both")
+        tree = stage(universal, BUILD / "stage" / top, interface=interfaces[0])
+        self.plugins(tree, archs, binaries)
         name = f"{NAME}-{v}-macos{suffix}.tar.gz"
         archive = BUILD / name
         sha = tarball(tree, archive)
@@ -669,6 +733,27 @@ class Homebrew:
         if suffix:
             print(f"homebrew: NOTE this package holds {', '.join(archs)} only; "
                   "do not publish it as the release.")
+
+    def plugins(self, tree, archs, binaries):
+        """Builds the tree's library plugins universal: each architecture's
+        compiled by its own toolchain, in a tree of its own staged around
+        that architecture's binary, and the slices joined with lipo.
+        Path -> [String] -> [Path] -> ()"""
+        slices = {}
+        for arch, binary in zip(archs, binaries):
+            own = stage(binary, BUILD / "stage-plugins" / arch, vendor=False,
+                        interface=BUILD / f"_build-{arch}" / PLUGIN_BUILT)
+            build_plugins(own, self.toolchain(arch), env=self.environment())
+            slices[arch] = own
+        for plugin in plugin_sources(tree):
+            parts = [slices[arch] / plugin.relative_to(tree) for arch in archs]
+            if len(parts) > 1:
+                run(["lipo", "-create", "-output", plugin] + parts)
+            else:
+                shutil.copy2(parts[0], plugin)
+            run(["codesign", "--force", "--sign", "-", plugin])
+            if sorted(macho_archs(plugin)) != archs:
+                raise Refusal(f"{plugin} holds {macho_archs(plugin)}, not {archs}")
 
     def install_local(self):
         """Installs the local build through the tap pyking-lang/local.
@@ -833,15 +918,19 @@ class Homebrew:
 
 
 class Linux:
-    """The Linux format: `pyk` linked fully static against musl, in an
-    Alpine container per architecture, so one binary runs on every
-    distribution and on WSL. Ships a tarball per architecture (what
-    install.sh installs) and a .deb."""
+    """The Linux format: `pyk` linked against glibc, in a Debian container
+    per architecture whose glibc is old enough for one binary to run on
+    every current distribution and on WSL. Dynamically linked because the
+    interpreter loads library plugins, which a static binary cannot; the
+    glibc it may ask for is GLIBC_FLOOR at most. Ships a tarball per
+    architecture (what install.sh installs) and a .deb."""
 
     name = "linux"
     PLATFORM = {"arm64": "linux/arm64", "x86_64": "linux/amd64"}
     OCAML_ARCH = {"arm64": "arm64", "x86_64": "amd64"}
-    RUN_IMAGE = "debian:stable-slim"
+    # The images a built tree is run in: a current distribution, and the
+    # oldest the glibc floor promises.
+    RUN_IMAGES = ("debian:stable-slim", "debian:10-slim")
 
     def refusal(self):
         """Why this machine cannot build the format, or None.
@@ -922,38 +1011,58 @@ class Linux:
                                                     lambda arch=arch: self.preflight(arch))))
         return rows
 
+    def user(self):
+        """Runs a container as the caller, so what it writes into a mounted
+        directory is the caller's. () -> [String]"""
+        return [] if sys.platform == "win32" else ["--user", f"{os.getuid()}:{os.getgid()}"]
+
     def binary(self, arch):
-        """Builds a static pyk for arch in its image, into a dune build
-        directory of its own in the repository, which the container sees
-        mounted; answers its path. String -> Path"""
+        """Builds pyk for arch in its image, into a dune build directory of
+        its own in the repository, which the container sees mounted, and
+        refuses one asking for a glibc newer than GLIBC_FLOOR; answers its
+        path. String -> Path"""
         directory = BUILD / f"_build-linux-{arch}"
         BUILD.mkdir(parents=True, exist_ok=True)
         inside = "/src/" + directory.relative_to(REPO).as_posix()
-        user = [] if sys.platform == "win32" else ["--user", f"{os.getuid()}:{os.getgid()}"]
-        run(["docker", "run", "--rm", "--platform", self.PLATFORM[arch], *user,
+        run(["docker", "run", "--rm", "--platform", self.PLATFORM[arch], *self.user(),
              "-v", f"{REPO}:/src", "-w", "/src", self.image(arch),
-             "dune", "build", "--root", "/src", "--build-dir", inside,
-             "--profile", "static", "src/pyk.exe"])
+             "dune", "build", "--root", "/src", "--build-dir", inside, "src/pyk.exe"])
         path = directory / "default" / "src" / "pyk.exe"
         info = elf_info(path)
-        if info != (arch, True):
-            raise Refusal(f"{path} is {info}, not a static {arch} binary")
+        if info != (arch, False):
+            raise Refusal(f"{path} is {info}, not a dynamically linked {arch} binary")
+        needed = glibc_needed(path)
+        if needed > GLIBC_FLOOR:
+            raise Refusal(f"{path} asks for glibc {'.'.join(map(str, needed))}, and "
+                          f"the package promises {'.'.join(map(str, GLIBC_FLOOR))}")
         return path
 
-    def check_runs(self, arch, binary):
-        """Runs the binary in a plain container of another distribution:
-        its version, and a program. String -> Path -> ()"""
+    def plugins(self, arch, tree):
+        """Builds the staged tree's library plugins in arch's image, with
+        the tree's own pyk and the image's OCaml -- the one that built it.
+        The tree is mounted at its own path, so the paths agree inside and
+        out. String -> Path -> ()"""
+        build_plugins(tree, ["docker", "run", "--rm", "--platform", self.PLATFORM[arch],
+                             *self.user(), "-v", f"{tree}:{tree}", self.image(arch)])
+
+    def check_runs(self, arch, tree):
+        """Runs the staged tree in plain containers of other distributions
+        -- the oldest the glibc floor promises among them: its version, a
+        program, and one importing libraries, which loads their plugins.
+        String -> Path -> ()"""
         with tempfile.TemporaryDirectory(prefix="pyk-linux-") as directory:
-            shutil.copy2(binary, Path(directory) / "pyk")
             (Path(directory) / "hello.pyk").write_text('print("hello", 1 + 2)\n')
-            result = subprocess.run(
-                ["docker", "run", "--rm", "--platform", self.PLATFORM[arch],
-                 "-v", f"{directory}:/p:ro", self.RUN_IMAGE, "sh", "-c",
-                 "/p/pyk --version && /p/pyk /p/hello.pyk"],
-                capture_output=True, text=True)
-        if result.stdout.splitlines() != [f"pyk {version()}", "hello 3"]:
-            raise Refusal(f"the {arch} binary does not run in {self.RUN_IMAGE}: "
-                          + (result.stdout + result.stderr).strip()[-300:])
+            (Path(directory) / "library.pyk").write_text(
+                'import io\nimport time\nio.write_line("io " ++ str(time.instant() > 0))\n')
+            for image in self.RUN_IMAGES:
+                result = subprocess.run(
+                    ["docker", "run", "--rm", "--platform", self.PLATFORM[arch],
+                     "-v", f"{tree}:/t:ro", "-v", f"{directory}:/p:ro", image, "sh", "-c",
+                     "/t/pyk --version && /t/pyk /p/hello.pyk && /t/pyk /p/library.pyk"],
+                    capture_output=True, text=True)
+                if result.stdout.splitlines() != [f"pyk {version()}", "hello 3", "io true"]:
+                    raise Refusal(f"the {arch} package does not run in {image}: "
+                                  + (result.stdout + result.stderr).strip()[-300:])
 
     def build(self, archs):
         """Builds, for each architecture, the tarball (under both names)
@@ -964,9 +1073,11 @@ class Linux:
         v = version()
         for arch in archs:
             binary = self.binary(arch)
-            self.check_runs(arch, binary)
             u, d = UNAME_ARCH[arch], DEB_ARCH[arch]
-            tree = stage(binary, BUILD / f"stage-linux-{arch}" / f"{NAME}-{v}")
+            tree = stage(binary, BUILD / f"stage-linux-{arch}" / f"{NAME}-{v}",
+                         interface=BUILD / f"_build-linux-{arch}" / PLUGIN_BUILT)
+            self.plugins(arch, tree)
+            self.check_runs(arch, tree)
             archive = BUILD / f"{NAME}-{v}-linux-{u}.tar.gz"
             sha = tarball(tree, archive)
             shutil.copy2(archive, BUILD / f"{NAME}-linux-{u}.tar.gz")

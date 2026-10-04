@@ -19,7 +19,7 @@ def summarize(matrix:[[Int]], label:String) -> (String, Int):
 
 def report(data:(String, [Int], Bool)) -> String:
     (name, numbers, flag) = data
-    return "ok: " ++ name ++ " " ++ str(numbers) ++ " " ++ str(flag)
+    return "ok: " ++ name ++ " " ++ string(numbers) ++ " " ++ string(flag)
 
 
 print(classify(0))

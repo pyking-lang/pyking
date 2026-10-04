@@ -1,5 +1,5 @@
 /* The C implementation of the Pyking module declared in
-   fs.external.pyk. The program that imports it declares these from the
+   fs_external.pyk. The program that imports it declares these from the
    signatures, so there is no header to write here: a name is
    <module>_<field>, and a String is a const char *.
 
@@ -28,7 +28,7 @@ const char *fs_read_text(const char *filename);
 void fs_write_text(const char *filename, const char *text);
 bool fs_exists(const char *filename);
 
-/* Reading a file that is not there is undefined (fs.external.pyk), and
+/* Reading a file that is not there is undefined (fs_external.pyk), and
    the empty string is this host's version of undefined: there is no
    value in Pyking that means "no file". */
 const char *fs_read_text(const char *filename)

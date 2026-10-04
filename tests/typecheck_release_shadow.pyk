@@ -1,0 +1,8 @@
+# A program may name a definition of its own `debug`, and a call to that
+# is an ordinary call: --release removes calls to the builtin and to
+# nothing else.
+
+def debug(x: Int) -> Int:
+    return x + 1
+
+print(debug(1))

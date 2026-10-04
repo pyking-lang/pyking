@@ -7,10 +7,10 @@
 # Int -- and its type says so with a variable, which is what lets the
 # same definition serve the calls below.
 #
-# `announce` is the other half of the same rule. `str` asks what it was
+# `announce` is the other half of the same rule. `string` asks what it was
 # given, so the parameter is pinned to what the first call passed and
 # the definition means `(Int) -> String` from then on. That is a real
-# limit and not an oversight: `str` accepts Int, String and Bool, and
+# limit and not an oversight: `string` accepts Int, String and Bool, and
 # Pyking has no way yet to say "any of those" in a signature. See
 # fail_typecheck_infer_pinned.pyk for the refusal that follows.
 
@@ -18,7 +18,7 @@ def echo(x):
     x
 
 def announce(value):
-    'got ' ++ str(value)
+    'got ' ++ string(value)
 
 number = echo(1)
 word = echo('two')

@@ -43,7 +43,7 @@ def double(n):
 
 
 def show(n):
-    return str(n)
+    return string(n)
 
 
 def add(total, n):

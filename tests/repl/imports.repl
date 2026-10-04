@@ -1,0 +1,13 @@
+import io
+io.write_line("written by io")
+answer = io.read_line("name? ")
+Ada
+print("hello,", answer)
+from io import write
+write("no newline, ")
+print("then print")
+import time
+time.instant() > 0
+import sys
+sys.exit(0)
+print("never reached")

@@ -140,6 +140,8 @@ let synopsis =
   \  --stdout              print the generated code instead of writing it\n\
   \  --run                 build and run what was compiled, with the\n\
   \                        target's own commands\n\
+  \  --release             compile in release mode: every call to debug()\n\
+  \                        is removed, and print() is kept\n\
   \  --port <n>            serve the notebook or playground on port <n>\n\
   \  --                    everything after it is the program's own\n\
   \                        arguments, read by sys.args()\n\
@@ -230,7 +232,13 @@ let usage_full () =
      -L directory, then in each entry of $PYKING_LIB_PATH (separated by ':'\n\
      here), then in the lib/ beside this executable -- which is where the\n\
      standard library is found with no flag at all. A -L directory holds one\n\
-     folder per library: -L libs finds libs/fs/fs.external.pyk for `fs`.\n\n\
+     folder per library: -L libs finds libs/fs/fs_external.pyk for `fs`.\n\n\
+     A module implemented in a target language is interpreted through its\n\
+     OCaml implementation, loaded as a plugin: `<name>_external.cmxs` beside\n\
+     `<name>_external.ml` where it is up to date, and otherwise one compiled\n\
+     on demand into ~/.cache/pyking with $OCAMLOPT, which must be the OCaml\n\
+     pyk was built by. `pyk plugins <dir>` builds them beside every library\n\
+     in a directory of libraries; `make libs` runs it over lib/.\n\n\
      `pyk notebook <file.md>` serves a Markdown document whose Pyking code\n\
      blocks can be edited and run in the browser, and `pyk playground`\n\
      serves the compiler's playground. Both print a link to open, need\n\
@@ -253,6 +261,7 @@ let commands =
     ("c", "compile");
     ("notebook", "notebook");
     ("playground", "playground");
+    ("plugins", "plugins");
   ]
 let default_command = "interpret"
 
@@ -267,6 +276,7 @@ type options = {
   symbols : bool;
   tokens : bool;
   tail_calls : bool;
+  release : bool;
   typecheck : bool;
   type_experiment : bool;
   lib_paths : string list;
@@ -285,6 +295,7 @@ let default_options command =
     symbols = false;
     tokens = false;
     tail_calls = true;
+    release = false;
     typecheck = true;
     type_experiment = false;
     lib_paths = [];
@@ -370,6 +381,7 @@ let parse_args argv =
         exit 0
     | "--tokens" :: rest -> go { options with tokens = true } positional rest
     | "--run" :: rest -> go { options with run = true } positional rest
+    | "--release" :: rest -> go { options with release = true } positional rest
     | "--symbols" :: rest -> go { options with symbols = true } positional rest
     | "--no-tail-call-opt" :: rest ->
         go { options with tail_calls = false } positional rest
@@ -452,6 +464,14 @@ let parse_args argv =
   let options, positional = go (default_options command) [] argv in
   if options.run && options.stdout then
     usage_error "--run needs a file to run, so it cannot be used with --stdout";
+  if options.release && command <> "compile" then
+    usage_error
+      "--release says how a program is compiled, so it only applies to 'pyk \
+       compile'";
+  if options.release && not options.typecheck then
+    usage_error
+      "--release needs the types the checker works out, so it cannot be used \
+       with --no-typechecking";
   let web = command = "notebook" || command = "playground" in
   if options.port <> None && not web then
     usage_error "--port only applies to 'pyk notebook' and 'pyk playground'";
@@ -677,6 +697,10 @@ let front_end options =
                declared public. The names are the source's own, since
                that is what the module importing this one writes. *)
             let sigmap = Module.module_sigmap unit.stmts unit.declarations tmap in
+            let elaborated =
+              if options.release then Release.program tmap elaborated
+              else elaborated
+            in
             let elaborated = Analyses.symbolize ~start:highest elaborated in
             let highest = max highest (Analyses.highest_sym elaborated) in
             let stmts, tmap, highest =
@@ -716,36 +740,25 @@ let trace_limit = 10
     own. [(Module.t, typ IntMap.t option)] -> int *)
 let command_interpret checked arguments =
   (* The interpreter runs the AST, and an external module has none: what
-     it exports is written in a target language. A compiled program
-     reaches that language's own file; an interpreted one reaches
-     src/stdlib_host.ml, which implements the standard library's
-     externals and nothing else -- so a library under lib/ runs here
-     too, and any *other* external module is still refused. Keeping the
-     list closed is deliberate: a folder named `fs` on a `-L` path must
-     not be answered by this executable instead of by the file that
-     resolved. *)
-  List.iter
-    (fun ((unit : Module.t), _) ->
-      List.iter
-        (fun statement ->
-          match statement with
-          | Syntax.SImport (info, name, _, _, _, _)
-            when (not (Stdlib_host.implements name))
-                 && List.exists
-                      (fun ((other : Module.t), _) ->
-                        other.name = name && other.declarations <> [])
-                      checked ->
-              fail
-                (Module.Module_error
-                   ( info,
-                     Printf.sprintf
-                       "'%s' is an external module, implemented in a target \
-                        language; a program that imports one has to be \
-                        compiled, not interpreted"
-                       name ))
-          | _ -> ())
-        unit.stmts)
-    checked;
+     it exports is written in a target language. An interpreted program
+     reaches the module's OCaml implementation, loaded as a plugin
+     (src/plugin_host.ml), which is what the ocaml5.5 target links. *)
+  let plugins =
+    List.filter_map
+      (fun ((unit : Module.t), _) ->
+        match unit.declaration_path with
+        | Some declaration_path when unit.declarations <> [] ->
+            Some
+              Plugin_host.
+                {
+                  name = unit.name;
+                  declared = Module.external_signatures unit.declarations;
+                  declaration_path;
+                }
+        | _ -> None)
+      checked
+  in
+  (try Plugin_host.load plugins with Module.Module_error _ as e -> fail e);
   let units =
     List.map
       (fun ((unit : Module.t), _) ->
@@ -766,9 +779,10 @@ let command_interpret checked arguments =
     | ((unit : Module.t), _) :: _ -> unit.path
     | [] -> ""
   in
+  Plugin_host.set_arguments program arguments;
   let host =
     Interpreter.callback_host
-      ~externals:(Stdlib_host.externals program arguments)
+      ~externals:(Plugin_host.externals plugins)
       (fun line ->
         print_string line;
         print_newline ())
@@ -898,6 +912,9 @@ let compile_unit (unit : Module.t) tmap target path options checked =
          name. *)
       raise (Invalid_argument target)
 
+(* The library whose implementation a browser's `print` writes through. *)
+let browser_io_module = "io"
+
 (** Every file the program compiles to, as (path, contents), and the
     text of the one `--stdout` prints -- the program's own module, since
     a module it imports is a file and `--stdout` writes none. A module
@@ -906,6 +923,15 @@ let compile_unit (unit : Module.t) tmap target path options checked =
     [(Module.t, typ IntMap.t option)] -> string -> string option
     -> options -> ([(string, string)], string) *)
 let compile_program checked target output_path options =
+  (* C and Java compile a subset of the language, so they are given only
+     what the program uses of the modules it imports: a library's
+     function nobody calls is not refused for using what they lack
+     (docs/modules.md, "What a program uses"). *)
+  let checked =
+    if List.mem (Targets.family_of target) [ Targets.C; Targets.Java ] then
+      Prune.program checked
+    else checked
+  in
   let main_unit = fst (List.nth checked (List.length checked - 1)) in
   let directory = dirname (Option.value output_path ~default:"") in
   (* Every module the program reaches must have an implementation for
@@ -937,23 +963,54 @@ let compile_program checked target output_path options =
               compiler; run `make` to build it."
              target Target_js_packaging.interpreter_module)
   in
+  (* In a browser `print` writes through the `io` library's own
+     implementation (docs/target_js.md, "Standard output in a browser"),
+     so a page ships it whether or not the program imports `io`. Found
+     on the library search path like any import of it. *)
+  let browser = List.mem (Targets.family_of target) [ Targets.Web; Targets.Iweb ] in
+  let imports_io =
+    List.exists
+      (fun ((unit : Module.t), _) ->
+        unit.name = browser_io_module && unit.declarations <> [])
+      checked
+  in
+  let browser_io () =
+    if (not browser) || imports_io then []
+    else
+      let source =
+        try
+          Module.found_implementation ~libs:(library_path options)
+            (dirname main_unit.path) browser_io_module target
+            { Lexer.file = main_unit.path; row1 = 1; col1 = 0; row2 = 1; col2 = 0 }
+        with Module.Module_error _ as e -> fail e
+      in
+      [
+        ( join directory
+            (Option.get (Module.implementation_name browser_io_module target)),
+          Module.read_whole_file source );
+      ]
+  in
   (* Every external module's implementation, as a file to write beside
      the program's output. Nothing is generated for one, and a copy onto
      itself -- compiling beside the implementation -- is skipped rather
      than truncating it. *)
   let external_copies () =
     List.filter_map
-      (fun ((unit : Module.t), _) ->
-        if unit.declarations = [] then None
-        else
-          let source = external_implementation unit target in
-          let destination =
-            join directory
-              (Option.get (Module.implementation_name unit.name target))
-          in
-          if absolute source = absolute destination then None
-          else Some (destination, Module.read_whole_file source))
-      checked
+      (fun (destination, contents, source) ->
+        if absolute source = absolute destination then None
+        else Some (destination, contents))
+      (List.filter_map
+         (fun ((unit : Module.t), _) ->
+           if unit.declarations = [] then None
+           else
+             let source = external_implementation unit target in
+             let destination =
+               join directory
+                 (Option.get (Module.implementation_name unit.name target))
+             in
+             Some (destination, Module.read_whole_file source, source))
+         checked)
+    @ browser_io ()
   in
   if Targets.family_of target = Targets.Iweb then
     (* Nothing is compiled: the program ships as Pyking and is
@@ -961,7 +1018,7 @@ let compile_program checked target output_path options =
        (see docs/target_js.md, "The interpreted target"). *)
     let main_name = basename main_unit.Module.path in
     let page =
-      Target_js_packaging.interpreted_page main_name
+      Target_js_packaging.interpreted_page ~release:options.release main_name
         (* Every module's Pyking file, an external module's declaration
            included: the module system reads that to know what the
            module offers, and only the *implementation* is JavaScript. *)
@@ -979,7 +1036,14 @@ let compile_program checked target output_path options =
                Some
                  ( unit.name,
                    Option.get (Module.implementation_name unit.name target) ))
-           checked)
+           checked
+        @
+        if imports_io then []
+        else
+          [
+            ( browser_io_module,
+              Option.get (Module.implementation_name browser_io_module target) );
+          ])
     in
     match output_path with
     | None -> ([], page)
@@ -1168,6 +1232,47 @@ let command_compile checked options =
         options.arguments
     else 0)
 
+(** Runs `pyk plugins <dir>`: builds the plugin of every library in a
+    directory of libraries -- each `<dir>/<name>` holding a
+    `<name>_external.pyk` and a `<name>_external.ml` -- beside its
+    implementation, where the interpreter looks first. A plugin already
+    built from what it would be built from now is left as it is. `make
+    libs` runs it over lib/. options -> int *)
+let command_plugins options =
+  let directory = Option.get options.filename in
+  let names =
+    try List.sort compare (Array.to_list (Sys.readdir directory))
+    with Sys_error message -> usage_error message
+  in
+  List.iter
+    (fun name ->
+      let folder = join directory name in
+      let declaration = join folder (name ^ Module.external_extension) in
+      let source = join folder (name ^ "_external.ml") in
+      let output = join folder (name ^ "_external.cmxs") in
+      if
+        Sys.is_directory folder && Sys.file_exists declaration
+        && Sys.file_exists source
+      then
+        let unit =
+          try Module.read_file declaration None with
+          | Lexer.Lex_error _ as e -> fail e
+          | Parser.Parse_error _ as e -> fail e
+        in
+        let plugin =
+          {
+            Plugin_host.name;
+            declared = Module.external_signatures unit.stmts;
+            declaration_path = declaration;
+          }
+        in
+        if not (Plugin_host.built_from output (Plugin_host.digest plugin)) then (
+          (try Plugin_host.build_plugin plugin output
+           with Module.Module_error _ as e -> fail e);
+          Printf.printf "plugins: %s\n" output))
+    names;
+  0
+
 (** `pyk notebook` and `pyk playground`: hands the process to the web
     tool's server, and answers 1 only if that could not be done.
     Web_tools.tool -> options -> int *)
@@ -1178,7 +1283,8 @@ let command_web tool options =
 (** Runs pyk. [string] -> int *)
 let main argv =
   let options = parse_args argv in
-  if options.command = "repl" then Repl.start format_error
+  if options.command = "repl" then Repl.start ~libs:(library_path options) format_error
+  else if options.command = "plugins" then command_plugins options
   else if options.command = "notebook" then command_web Web_tools.Notebook options
   else if options.command = "playground" then command_web Web_tools.Playground options
   else

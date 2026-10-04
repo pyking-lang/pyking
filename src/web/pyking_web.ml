@@ -9,13 +9,17 @@
 
       pykCompile(source, target, name)  compile, as JSON
       pykRun(source, name)              run with the interpreter, as JSON
+      pykRunProgram(main)               run a program of several modules
+      pykAnalyze(main)                  what a program needs to be run
       pykTargets()                      the targets, as JSON
       pykFormatHelper()                 the JS value formatter's source
       pykKeywords() / pykBuiltins()     the language's own word lists
 
     A running program's output goes to `pykOnPrint`, one line at a time
     as it is produced, so output made before a program hangs is still
-    seen -- which is the case worth seeing.
+    seen -- which is the case worth seeing. Its `debug` lines go to
+    `pykOnDebug` in the same way, or to the console where the page gave
+    none.
 
     Functions:
       compile_source source target name -- compile, as a JSON string.
@@ -30,6 +34,7 @@ external register3 : string -> (string -> string -> string -> string) -> unit
   = "pyk_register3"
 
 external emit : string -> unit = "pyk_emit"
+external emit_debug : string -> unit = "pyk_debug"
 
 (* Reaching a module implemented in JavaScript: the module's name, the
    field, and the arguments as a JSON array -- or the empty string for a
@@ -40,6 +45,15 @@ external external_call : string -> string -> string -> string = "pyk_external"
    directory: what lets a program of several modules run in a browser. *)
 external file_exists : string -> string = "pyk_file_exists"
 external file_read : string -> string = "pyk_file_read"
+
+(* A file of the standard library by its path under lib/, or "" where
+   the page supplies none. *)
+external library_file : string -> string = "pyk_library_file"
+
+(** How a module implemented in JavaScript ends the program: `sys.exit`,
+    with the status it was given. Raised from a call into the module and
+    caught where the run was started. *)
+exception Program_exit of int
 
 (* --- JSON ---
    Written out for every answer this module gives, and read back for the
@@ -180,6 +194,10 @@ let value_of_json text =
   and marked_at i =
     let i = skip i in
     if literal i "\"pyk_float\":" then float_at (skip (i + 12))
+    else if literal i "\"pyk_exit\":" then
+      match value (i + 11) with
+      | Interpreter.VInt code, _ -> raise (Program_exit code)
+      | _ -> fail ()
     else tuple_at i
   and float_at i =
     match value i with
@@ -329,6 +347,7 @@ let lone_context () =
       external_fields = [];
       sigmaps = [];
       externals = [];
+      own_declared = [];
     }
 
 (** The program's files, as the module system reads them: supplied by
@@ -336,79 +355,128 @@ let lone_context () =
 let browser_sources =
   Module.{ exists = (fun name -> file_exists name = "1"); contents = file_read }
 
+(** Every module a program reaches -- the file named, and every module it
+    imports -- checked and made ready to run, dependencies first: the same
+    sequence pyk.ml runs, module by module, each checked against what the
+    ones it imports export. `release` removes every call to `debug`.
+    Raises the front end's own errors. string -> bool -> [Module.t] *)
+let checked_program main release =
+  let units = Module.load ~from:browser_sources main in
+  (* The tail-call pass builds nodes and so hands out more symbols; they
+     continue past the highest in the whole program, since one numbering
+     spans every module of it. pyk.ml does the same. *)
+  let highest =
+    List.fold_left
+      (fun highest (unit : Module.t) -> max highest (Analyses.highest_sym unit.stmts))
+      0 units
+  in
+  let _, _, checked =
+    List.fold_left
+      (fun (sigmaps, highest, checked) (unit : Module.t) ->
+        if unit.is_external then
+          ( sigmaps @ [ (unit.name, Module.external_sigmap unit.declarations) ],
+            highest,
+            checked @ [ unit ] )
+        else
+          let declared = Module.external_signatures unit.declarations in
+          let tmap, qmap =
+            Typesystem.type_check ~declared unit.stmts
+              (Module.sigmaps_for unit sigmaps)
+          in
+          Analyses.analyze_mutability unit.stmts;
+          let sigmap = Module.module_sigmap unit.stmts unit.declarations tmap in
+          let elaborated, tmap = Elaborate.program qmap tmap unit.stmts in
+          let elaborated =
+            if release then Release.program tmap elaborated else elaborated
+          in
+          let elaborated = Analyses.symbolize ~start:highest elaborated in
+          let highest = max highest (Analyses.highest_sym elaborated) in
+          let optimized, _ = Opt_tailcall.optimize elaborated tmap in
+          (* Without this the nodes the pass built keep symbol 0, and the
+             interpreter's call-free table -- which is keyed by symbol --
+             would answer for the wrong node. *)
+          let optimized = Analyses.symbolize ~start:highest optimized in
+          ( sigmaps @ [ (unit.name, sigmap) ],
+            max highest (Analyses.highest_sym optimized),
+            checked @ [ { unit with stmts = optimized } ] ))
+      ([], highest, []) units
+  in
+  checked
+
+(** A failure before anything ran, as the page reads one: the front
+    end's own refusal in `failed`'s shape, or anything else as an
+    internal error, since a page that stops answering is no way to find
+    a bug in the compiler. exn -> string *)
+let refused e =
+  match front_end_error e with
+  | Some (stage, info, message) -> failed stage info message
+  | None ->
+      json_object
+        [
+          ("ok", json_bool false);
+          ("stage", json_string "Internal error");
+          ("text", json_string (Printexc.to_string e));
+        ]
+
+(** How a run ended: `{"ok":true}`, with the status where `sys.exit`
+    ended it, or a runtime error's text with its stack trace and span.
+    Interpreter.state -> string *)
+let run_result state =
+  match Interpreter.failure state with
+  | None -> json_object [ ("ok", json_bool true) ]
+  | Some error ->
+      let text =
+        match front_end_error error with
+        | Some (stage, info, message) ->
+            Printf.sprintf "%s %s: %s" (Lexer.pprint_info info) stage message
+        | None -> "Runtime error"
+      in
+      let trace =
+        List.map
+          (fun (function_name, info) ->
+            Printf.sprintf "  in '%s', called at %s" function_name
+              (Lexer.pprint_info info))
+          (Interpreter.stack_trace state)
+      in
+      let span =
+        match front_end_error error with
+        | Some (_, info, _) ->
+            [
+              ( "info",
+                json_object
+                  [
+                    ("row1", json_int info.row1);
+                    ("col1", json_int info.col1);
+                    ("row2", json_int info.row2);
+                    ("col2", json_int info.col2);
+                  ] );
+            ]
+        | None -> []
+      in
+      json_object
+        ([
+           ("ok", json_bool false);
+           ("stage", json_string "Runtime error");
+           ("text", json_string (String.concat "\n" (text :: trace)));
+         ]
+        @ span)
+
 (** Runs a whole program -- the file named, and every module it reaches
     -- with the interpreter, in a browser. The sources come from the
-    page (`pykSources`), and a module implemented in JavaScript is
-    reached through `pykExternals`, so a program that imports one runs
-    here where `pyk <file>` refuses it: this host really can call the
-    target language. string -> string *)
-let run_program main =
-  match
-    try
-      let units = Module.load ~from:browser_sources main in
-      (* The same sequence pyk.ml runs, module by module in dependency
-         order: each is checked against what the ones it imports export,
-         and an external module contributes what it declared. *)
-      (* The tail-call pass builds nodes and so hands out more symbols;
-         they continue past the highest in the whole program, since one
-         numbering spans every module of it. pyk.ml does the same. *)
-      let highest =
-        List.fold_left
-          (fun highest (unit : Module.t) ->
-            max highest (Analyses.highest_sym unit.stmts))
-          0 units
-      in
-      let _, _, checked =
-        List.fold_left
-          (fun (sigmaps, highest, checked) (unit : Module.t) ->
-            if unit.is_external then
-              ( sigmaps @ [ (unit.name, Module.external_sigmap unit.declarations) ],
-                highest,
-                checked @ [ unit ] )
-            else
-              let declared = Module.external_signatures unit.declarations in
-              let tmap, qmap =
-                Typesystem.type_check ~declared unit.stmts
-                  (Module.sigmaps_for unit sigmaps)
-              in
-              Analyses.analyze_mutability unit.stmts;
-              let sigmap =
-                Module.module_sigmap unit.stmts unit.declarations tmap
-              in
-              let elaborated, tmap = Elaborate.program qmap tmap unit.stmts in
-              let elaborated = Analyses.symbolize ~start:highest elaborated in
-              let highest = max highest (Analyses.highest_sym elaborated) in
-              let optimized, _ = Opt_tailcall.optimize elaborated tmap in
-              (* Without this the nodes the pass built keep symbol 0,
-                 and the interpreter's call-free table -- which is keyed
-                 by symbol -- would answer for the wrong node. *)
-              let optimized = Analyses.symbolize ~start:highest optimized in
-              ( sigmaps @ [ (unit.name, sigmap) ],
-                max highest (Analyses.highest_sym optimized),
-                checked @ [ { unit with stmts = optimized } ] ))
-          ([], highest, []) units
-      in
-      Ok checked
-    with e -> Error e
-  with
-  | Error e -> (
-      match front_end_error e with
-      | Some (stage, info, message) -> failed stage info message
-      (* Anything else is a bug in the compiler rather than in the
-         program, but a page that stops answering is no way to find out,
-         so it is reported like any other refusal. *)
-      | None ->
-          json_object
-            [
-              ("ok", json_bool false);
-              ("stage", json_string "Internal error");
-              ("text", json_string (Printexc.to_string e));
-            ])
-  | Ok checked -> (
+    page (`pykSources`, and `pykFetchSource` for a name it did not
+    supply), and a module implemented in JavaScript is reached through
+    `pykExternals`. `release` removes every call to `debug` first, as
+    `pyk compile --release` does. string -> bool -> string *)
+let run_program main release =
+  match checked_program main release with
+  | exception e -> refused e
+  | checked -> (
       let host =
-        Interpreter.callback_host ~externals (fun line -> emit (line ^ "\n"))
+        Interpreter.callback_host ~externals
+          ~debug_line:(fun line -> emit_debug (line ^ "\n"))
+          (fun line -> emit (line ^ "\n"))
       in
-      let state =
+      match
         Interpreter.run_modules
           (List.map
              (fun (unit : Module.t) ->
@@ -420,22 +488,49 @@ let run_program main =
                  unit.declarations ))
              checked)
           host
+      with
+      | exception Program_exit code ->
+          json_object [ ("ok", json_bool true); ("exit", json_int code) ]
+      | state -> run_result state)
+
+(** What a page needs to know about a program before running it: which
+    of its modules are implemented in JavaScript, so it can supply them,
+    and whether what the program uses reads standard input or its
+    arguments, so it can ask for them. Answered from what the program
+    reaches, not from what it imports: an `import io` that only writes
+    reads nothing. A program that does not check is refused in `failed`'s
+    shape. string -> string *)
+let analyze main =
+  match checked_program main false with
+  | exception e -> refused e
+  | checked ->
+      let pruned = Prune.program (List.map (fun unit -> (unit, ())) checked) in
+      let takes module_ names =
+        List.exists
+          (fun ((unit : Module.t), ()) ->
+            List.exists
+              (fun statement ->
+                match statement with
+                | Syntax.SImport (_, imported, _, _, fields, _) ->
+                    imported = module_
+                    && List.exists (fun (field, _) -> List.mem field names) fields
+                | _ -> false)
+              unit.stmts)
+          pruned
       in
-      match Interpreter.failure state with
-      | None -> json_object [ ("ok", json_bool true) ]
-      | Some error ->
-          let text =
-            match front_end_error error with
-            | Some (stage, info, message) ->
-                Printf.sprintf "%s %s: %s" (Lexer.pprint_info info) stage message
-            | None -> "Runtime error"
-          in
-          json_object
-            [
-              ("ok", json_bool false);
-              ("stage", json_string "Runtime error");
-              ("text", json_string text);
-            ])
+      json_object
+        [
+          ("ok", json_bool true);
+          ( "externals",
+            json_array
+              (List.filter_map
+                 (fun (unit : Module.t) ->
+                   if unit.declarations = [] then None
+                   else Some (json_string unit.name))
+                 checked) );
+          ("stdin", json_bool (takes "io" [ "read_line"; "read"; "is_eof" ]));
+          ("args", json_bool (takes "sys" [ "args" ]));
+        ]
 
 (** Compile `source` for `target`.
     Answers `{"ok":true,"files":{label:source},"views":[label,...]}` --
@@ -513,7 +608,13 @@ let compile_source source target name =
                 [ (unit, js, renames) ]
                 (Some out) false
             in
-            done_ files
+            (* In a browser `print` writes through the `io` library's own
+               implementation, which the page supplies. *)
+            let io = library_file "io/io_external_browser.js" in
+            done_
+              (if Targets.family_of target = Targets.Web && io <> "" then
+                 files @ [ ("io_external.js", io) ]
+               else files)
           else if Targets.family_of target = Targets.C then
             let c = Target_c.translate_program program (lone_context ()) in
             done_ [ (stem ^ ".c", Target_c.pprint_c_program c target name) ]
@@ -569,7 +670,11 @@ let run_source source name =
       | None -> raise e)
   | program, _ -> (
       let program = Analyses.apply_signatures program in
-      let host = Interpreter.callback_host (fun line -> emit (line ^ "\n")) in
+      let host =
+        Interpreter.callback_host
+          ~debug_line:(fun line -> emit_debug (line ^ "\n"))
+          (fun line -> emit (line ^ "\n"))
+      in
       let state = Interpreter.run_program program host in
       match Interpreter.failure state with
       | None -> json_object [ ("ok", json_bool true) ]
@@ -636,7 +741,16 @@ let () =
           run_source
             (String.sub request (i + 1) (String.length request - i - 1))
             (String.sub request 0 i));
-  register1 "pykRunProgram" run_program;
+  register1 "pykAnalyze" analyze;
+  register1 "pykRunProgram" (fun request ->
+      (* The program's main file, and on a second line the word
+         `release` where the page was compiled with --release. *)
+      match String.index_opt request '\n' with
+      | None -> run_program request false
+      | Some i ->
+          run_program (String.sub request 0 i)
+            (String.sub request (i + 1) (String.length request - i - 1)
+            = "release"));
   register0 "pykTargets" targets_json;
   register0 "pykFormatHelper" format_helper;
   register0 "pykKeywords" (fun () ->

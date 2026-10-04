@@ -34,12 +34,14 @@ type parameter = { name : string; default : string option; implicit : bool }
 type meta = { parameters : parameter list; exported : bool }
 
 (** One module: its definitions, the other names its top level binds,
-    and whether it is written in another language, in which case the
-    sugar may not reach into it. *)
+    whether it is written in another language, in which case the sugar
+    may not reach into it, and the imports it has written so far -- which
+    a module extended an entry at a time still has in scope. *)
 type module_info = {
   functions : meta SMap.t;
   others : SSet.t;
   foreign : bool;
+  imports : stmt list;
 }
 
 type signatures = module_info SMap.t
@@ -52,7 +54,7 @@ let no_signatures = SMap.empty
     signatures -> String -> signatures *)
 let external_module signatures name =
   SMap.add name
-    { functions = SMap.empty; others = SSet.empty; foreign = true }
+    { functions = SMap.empty; others = SSet.empty; foreign = true; imports = [] }
     signatures
 
 (** What a name means where a call uses it. *)
@@ -736,10 +738,10 @@ let desugar signatures name stmts =
   (* A module already known under this name is one being extended an
      entry at a time, which is what the prompt does: what it defined
      before is in scope for what it defines now. *)
-  let known, before =
+  let known, before, imported =
     match SMap.find_opt name signatures with
-    | Some info_ -> (info_.functions, info_.others)
-    | None -> (SMap.empty, SSet.empty)
+    | Some info_ -> (info_.functions, info_.others, info_.imports)
+    | None -> (SMap.empty, SSet.empty, [])
   in
   let scope =
     SMap.fold
@@ -755,7 +757,7 @@ let desugar signatures name stmts =
   let scope =
     List.fold_left
       (fun scope statement -> import_scope signatures statement scope)
-      scope stmts
+      scope (imported @ stmts)
   in
   let out = block signatures scope stmts in
   let definitions = block_definitions stmts in
@@ -777,4 +779,8 @@ let desugar signatures name stmts =
   let functions =
     SMap.filter (fun name _ -> not (SSet.mem name others)) functions
   in
-  (out, SMap.add name { functions; others; foreign = false } signatures)
+  let imports =
+    imported
+    @ List.filter (function SImport _ -> true | _ -> false) stmts
+  in
+  (out, SMap.add name { functions; others; foreign = false; imports } signatures)

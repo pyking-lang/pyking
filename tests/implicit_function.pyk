@@ -10,7 +10,7 @@ def foo(x: a, implicit bar: (a) -> b) -> (b, b):
 
 def my1() -> ():
     implicit def bar(z: Int) -> String:
-        str(z) ++ "!"
+        string(z) ++ "!"
     print(foo(78), foo(10))
 
 def my2() -> ():
@@ -26,7 +26,7 @@ my2()
 # what makes this work at all.
 def apply_twice(f: (Int, implicit bar: (Int) -> String) -> (String, String),
                 n: Int) -> (String, String):
-    implicit def bar(z: Int) -> String: str(z * 2)
+    implicit def bar(z: Int) -> String: string(z * 2)
     f(n)
 
 print(apply_twice(foo, 5))

@@ -1,0 +1,18 @@
+def square(x:Int) -> Int:
+    return x * x
+def report(x:Int) -> ():
+    if x > 2:
+        ()
+    else:
+        print('small', x)
+def noisy(x:Int) -> ():
+    print('noisy', x)
+var total = 0
+var i = 0
+while i < 4:
+    total := total + square(i)
+    i := i + 1
+report(1)
+report(3)
+noisy(5)
+print(total)

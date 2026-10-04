@@ -19,14 +19,14 @@ def repeat(piece, times):
 def bar(width):
     repeat("#", width)
 
-# Numbers become text through `str`, and the separator is only written
+# Numbers become text through `string`, and the separator is only written
 # between elements -- which is why the last step is a special case rather
 # than a trailing comma.
 def countdown(from_):
     if from_ <= 1:
         "1"
     else:
-        str(from_) ++ ", " ++ countdown(from_ - 1)
+        string(from_) ++ ", " ++ countdown(from_ - 1)
 
 # Roman numerals: subtract the largest value that fits, name it, and ask
 # the same question about what is left. Every branch is a step down, so
@@ -112,7 +112,7 @@ def longer(left, right):
 def label(count, thing):
     if count == 1:
         return "1 " ++ thing
-    return str(count) ++ " " ++ thing ++ "s"
+    return string(count) ++ " " ++ thing ++ "s"
 
 print(bar(5), repeat("ab", 3))
 print(countdown(5))

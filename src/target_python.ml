@@ -70,6 +70,8 @@ type pyexpr =
   | PyLambda of info * (string * pyexpr option) list * pyexpr
       (* lambda a, b=e: body. A parameter with a default is one a
          lambda inside a loop pins to the turn it was built in. *)
+  | PyKeyword of info * string * pyexpr
+      (* name=value, a keyword argument; only ever a PyCall's argument *)
 
 and pypattern =
   | PyPInt of info * int (* case 0: *)
@@ -127,6 +129,7 @@ type pyprogram = {
   formats : bool;  (* whether the prelude holds the Bool walker *)
   floats : bool;  (* whether the prelude holds the Float formatter *)
   float_helper : string;  (* what that formatter is called *)
+  conversions : string list;  (* the conversion helpers the prelude holds *)
   stmts : pystmt list;
 }
 
@@ -226,6 +229,8 @@ let rec pprint_py_expr ?(min_prec = 0) e =
   | PyListComp (_, e, clauses) ->
       Printf.sprintf "[%s %s]" (pprint_py_expr e)
         (String.concat " " (List.map pprint_py_comp_clause clauses))
+  | PyKeyword (_, name, value) ->
+      Printf.sprintf "%s=%s" name (pprint_py_expr value)
   | PyLambda (_, params, body) ->
       (* Python's `lambda` binds as loosely as its conditional
          expression, so the same precedence 0: as an operand of
@@ -487,10 +492,50 @@ let float_helper_def name =
       "    return sign + digits[:decpt] + '.' + digits[decpt:]";
     ]
 
+(* The conversions a Python builtin would get wrong, each a fixed block
+   of host text in the prelude, emitted only where the program uses it:
+   Python's own `int` and `float` read strings Pyking does not (" 3",
+   "1_000", "0x1F" through `int(s, 0)`) and raise where Pyking answers a
+   default (builtin.ml, "what a conversion reads"). *)
+
+let int_helper = "__pyk_int"
+let truncate_helper = "__pyk_trunc"
+let float_parse_helper = "__pyk_float_of"
+
+(** The text of one conversion helper. string -> string *)
+let conversion_def name =
+  String.concat "\n"
+    (if name = int_helper then
+       [
+         Printf.sprintf "def %s(s):" name;
+         "    digits = s[1:] if s[:1] in ('-', '+') else s";
+         "    if not (digits.isascii() and digits.isdigit()):";
+         "        return 0";
+         "    n = int(s)";
+         "    return n if -2147483648 <= n <= 2147483647 else 0";
+       ]
+     else if name = truncate_helper then
+       [
+         Printf.sprintf "def %s(x):" name;
+         "    if x != x or x in (float('inf'), float('-inf')):";
+         "        return 0";
+         "    n = int(x)";
+         "    return n if -2147483648 <= n <= 2147483647 else 0";
+       ]
+     else
+       [
+         Printf.sprintf "def %s(s):" name;
+         "    if s in ('inf', '+inf', '-inf', 'nan'):";
+         "        return float(s)";
+         "    if __import__('re').fullmatch(r'[+-]?[0-9]+(\\.[0-9]+)?([eE][+-]?[0-9]+)?', s):";
+         "        return float(s)";
+         "    return float('nan')";
+       ])
+
 (** program as Python source text. pyprogram -> string *)
 let pprint_py_program program =
   let body = String.concat "\n" (render_block program.stmts 0) in
-  if program.prelude = [] && not program.floats then body
+  if program.prelude = [] && not program.floats && program.conversions = [] then body
   else
     let rendered = render_block program.prelude 0 in
     (* The Float formatter is a fixed block of host text, like every
@@ -500,6 +545,12 @@ let pprint_py_program program =
         rendered @ (if rendered = [] then [] else [ "" ])
         @ [ float_helper_def program.float_helper ]
       else rendered
+    in
+    let rendered =
+      List.fold_left
+        (fun rendered name ->
+          rendered @ (if rendered = [] then [] else [ "" ]) @ [ conversion_def name ])
+        rendered program.conversions
     in
     let prelude_body = String.concat "\n" rendered in
     let opening =
@@ -536,6 +587,7 @@ type gen = {
   float_name : string;  (* what the Float formatter is called *)
   divide_def : pystmt option;
   import_def : pystmt option;
+  conversions : string list;  (* the conversion helpers used so far *)
   (* Which of each module's names the target's own source provides, and
      which modules have no Pyking half at all. A qualified name reaches
      the implementation where the field is one of the first. *)
@@ -1190,7 +1242,7 @@ let escaped info char =
 let shadowed_modules =
   [
     "array"; "atexit"; "binascii"; "builtins"; "cmath"; "errno";
-    "faulthandler"; "fcntl"; "gc"; "grp"; "itertools"; "marshal"; "msvcrt";
+    "faulthandler"; "fcntl"; "gc"; "grp"; "io"; "itertools"; "marshal"; "msvcrt";
     "nt"; "posix"; "pwd"; "pyexpat"; "select"; "sys"; "syslog"; "time";
     "unicodedata"; "winreg"; "zlib";
   ]
@@ -1677,11 +1729,14 @@ let is_builtin_range e scope =
   | ECall (_, EVar (_, "range", _), _, _) -> not (is_bound "range" scope)
   | _ -> false
 
-(** Whether expr is a call that crosses the host boundary (print),
-    which needs no return emitted in tail position. expr -> bool *)
-let yields_unit e =
+(** Whether expr is a call that crosses the host boundary (print or
+    debug, and not a definition of the program's own by that name),
+    which needs no return emitted in tail position.
+    expr -> scope -> bool *)
+let yields_unit e scope =
   match e with
-  | ECall (_, EVar (_, name, _), _, _) -> Builtin.crosses_host name
+  | ECall (_, EVar (_, name, _), _, _) ->
+      Builtin.crosses_host name && not (is_bound name scope)
   | _ -> false
 
 (** A target read back as an expression: what a loop's accumulator holds
@@ -2006,7 +2061,7 @@ let rec translate_expr e scope gen =
       binary (fun i a b -> PyGreatThanEq (i, a, b)) info l r
   | EEq (info, l, r, _) -> binary (fun i a b -> PyEq (i, a, b)) info l r
   | ECall (info, EVar (_, name, _), args, _)
-    when Builtin.crosses_host name ->
+    when Builtin.crosses_host name && not (is_bound name scope) ->
       (* Python's own `print` answers None, and Pyking's answers unit --
          which this backend spells `()`, as the `return ()` on a
          unit-returning `def` does. In *value* position the two have to
@@ -2017,9 +2072,12 @@ let rec translate_expr e scope gen =
       ( PyIndex
           (info, PyTuple (info, [ call; PyTuple (info, []) ]), PyInt (info, 1)),
         gen )
-  | ECall (info, EVar (_, "str", _), [ (_, argument) ], _)
-    when not (is_bound "str" scope) ->
-      (* str follows print's own Bool formatting rule. *)
+  | ECall (info, EVar (_, (("int" | "float" | "bool") as name), _), [ (_, argument) ], _)
+    when not (is_bound name scope) ->
+      conversion info name argument scope gen
+  | ECall (info, EVar (_, "string", _), [ (_, argument) ], _)
+    when not (is_bound "string" scope) ->
+      (* string follows print's own Bool formatting rule. *)
       let translated, gen = translate_expr argument scope gen in
       let wrapped, gen = wrap_print_argument argument translated info gen in
       (PyCall (info, PyVar (info, "str"), [ wrapped ]), gen)
@@ -2145,7 +2203,30 @@ and wrap_print_argument pyking_expr translated info gen =
     let name, gen = format_helper_name info gen in
     (PyCall (info, PyVar (info, name), [ translated; PyBool (info, true) ]), gen)
 
-(** One host-crossing call (print), as the bare Python call. A call's
+(** `int`, `float` or `bool` of one argument, by the argument's type:
+    Python's own builtin where it agrees with Pyking, a comparison for
+    `bool`, and a prelude helper where Python would read a String
+    differently or raise on a Float with no Int to truncate to.
+    info -> string -> expr -> scope -> gen -> (pyexpr, gen) *)
+and conversion info name argument scope gen =
+  let translated, gen = translate_expr argument scope gen in
+  let helper helper_name gen =
+    ( PyCall (info, PyVar (info, helper_name), [ translated ]),
+      if List.mem helper_name gen.conversions then gen
+      else { gen with conversions = gen.conversions @ [ helper_name ] } )
+  in
+  match (name, IntMap.find_opt (expr_sym argument) gen.types) with
+  | "int", Some (TString _) -> helper int_helper gen
+  | "int", Some (TFloat _) -> helper truncate_helper gen
+  | "int", Some (TInt _) | "float", Some (TFloat _) | "bool", Some (TBool _) ->
+      (translated, gen)
+  | "float", Some (TString _) -> helper float_parse_helper gen
+  | ("int" | "float"), _ -> (PyCall (info, PyVar (info, name), [ translated ]), gen)
+  | _, Some (TString _) -> (PyEq (info, translated, PyString (info, "true")), gen)
+  | _, Some (TFloat _) -> (PyEq (info, translated, PyFloat (info, 1.0)), gen)
+  | _, _ -> (PyEq (info, translated, PyInt (info, 1)), gen)
+
+(** One host-crossing call (print or debug), as the bare Python call. A call's
     arguments are formatted, not merely translated -- see
     `wrap_print_argument`.
     info -> string -> [expr] -> scope -> gen -> (pyexpr, gen) *)
@@ -2158,7 +2239,22 @@ and runtime_call info name args scope gen =
         (out @ [ wrapped ], gen))
       ([], gen) args
   in
-  (PyCall (info, PyVar (info, name), py_args), gen)
+  (* `debug` is Python's own `print`, sent to standard error. The host's
+     `sys` is reached through `__import__`, since a Pyking module may be
+     called `sys` too. *)
+  if Builtin.is_debug name then
+    let stderr =
+      PyAttr
+        ( info,
+          PyCall (info, PyVar (info, "__import__"), [ PyString (info, "sys") ]),
+          "stderr" )
+    in
+    ( PyCall
+        ( info,
+          PyVar (info, "print"),
+          py_args @ [ PyKeyword (info, "file", stderr) ] ),
+      gen )
+  else (PyCall (info, PyVar (info, name), py_args), gen)
 
 (** Expands one Pyking CompFor into one or two Python comprehension
     clauses -- one for an irrefutable pattern, two (raw items, then a
@@ -2454,7 +2550,7 @@ and translate_stmt s scope gen =
   | SReturn (info, e, _) ->
       let py_expr, gen = translate_expr e scope gen in
       ([ PyReturn (info, py_expr) ], scope, gen)
-  | SExprStmt (_, e, _) when yields_unit e ->
+  | SExprStmt (_, e, _) when yields_unit e scope ->
       (* Nothing reads what a statement is worth, so `print(x)` is
          written as itself rather than as the value form. *)
       let py_stmt, gen = runtime_call_stmt e scope gen in
@@ -2559,7 +2655,7 @@ and translate_tail_block stmts scope gen =
     statements. stmt -> scope -> gen -> ([pystmt], gen) *)
 and translate_tail_stmt s scope gen =
   match s with
-  | SExprStmt (_, e, _) when yields_unit e ->
+  | SExprStmt (_, e, _) when yields_unit e scope ->
       let py_stmts, _, gen = translate_stmt s scope gen in
       (py_stmts, gen)
   | SExprStmt (info, e, _) ->
@@ -2841,6 +2937,7 @@ let translate_program ?(external_fields = []) ?(externals = []) ?(own = "")
       float_name = float_name;
       divide_def = None;
       import_def = None;
+      conversions = [];
       external_fields;
       externals;
       own_module = own;
@@ -2878,5 +2975,6 @@ let translate_program ?(external_fields = []) ?(externals = []) ?(own = "")
     formats = gen.format_def <> None;
     floats = gen.floats;
     float_helper = gen.float_name;
+    conversions = gen.conversions;
     stmts = own_import @ gen.pending @ translated;
   }

@@ -156,7 +156,9 @@ type jstmt =
   | JNoEffect of info * string
       (* // a Pyking statement with nothing to run *)
   | JExprStmt of info * jexpr (* expr; *)
-  | JPrint of info * jexpr option (* System.out.println(...); *)
+  | JPrint of info * bool * jexpr option
+      (* System.out.println(...); -- System.err when the flag is set,
+         which is `debug` *)
   | JIf of info * jexpr * jstmt list * jstmt list option
   | JWhile of info * jexpr * jstmt list
   | JLoop of info * jstmt list (* while (true) { body } *)
@@ -191,6 +193,7 @@ type jprogram = {
   main_body : jstmt list;
   program_name : string;
   uses_float : bool;
+  conversions : string list;
   main : bool;
   separate : bool;
   starts : string list;
@@ -506,8 +509,8 @@ let calls body java_name =
     | JDecl (_, _, _, e, _) | JAssign (_, _, e) | JExprStmt (_, e)
     | JReturn (_, e) ->
         in_expr e
-    | JPrint (_, Some e) -> in_expr e
-    | JPrint (_, None) | JNoEffect _ | JBreak _ | JContinue _ -> false
+    | JPrint (_, _, Some e) -> in_expr e
+    | JPrint (_, _, None) | JNoEffect _ | JBreak _ | JContinue _ -> false
     | JIf (_, cond, then_body, else_body) ->
         in_expr cond
         || List.exists in_stmt then_body
@@ -561,7 +564,7 @@ let check_reachable statements =
   let info_of s =
     match s with
     | JDecl (i, _, _, _, _) | JAssign (i, _, _) | JNoEffect (i, _)
-    | JExprStmt (i, _) | JPrint (i, _) | JIf (i, _, _, _) | JWhile (i, _, _)
+    | JExprStmt (i, _) | JPrint (i, _, _) | JIf (i, _, _, _) | JWhile (i, _, _)
     | JLoop (i, _) | JBreak i | JContinue i | JReturn (i, _) ->
         i
   in
@@ -655,6 +658,7 @@ type state = {
   loops : jloop list;
   temporaries : int;
   uses_float : bool;
+  conversions : string list;
 }
 
 let rec set_assoc key value = function
@@ -730,19 +734,37 @@ let rec expr state e scope allow_unit =
       require_numeric left "`+`";
       require right (jtype_of left) "`+`";
       (JBinary (info, "+", left, right, jtype_of left), state)
-  (* Java's own conversions: widening an int is exact within the range a
-     double holds, and narrowing a double truncates toward zero, which
-     is the rounding Pyking's `int` and `/` both do. *)
-  | ECall (info, EVar (_, "float", _), [ (_, argument) ], _)
-    when not (List.mem_assoc "float" state.signatures) ->
+  (* The conversions, by the argument's type (builtin.ml, "what a
+     conversion reads"). Java's own are used where they agree: widening an
+     int is exact within the range a double holds, and a cast truncates
+     toward zero, which is the rounding Pyking's `int` and `/` both do --
+     but a double with no int to truncate to, and every String, go through
+     a helper. *)
+  | ECall (info, EVar (_, (("string" | "int" | "float" | "bool") as name), _), [ (_, argument) ], _)
+    when not (List.mem_assoc name state.signatures) -> (
       let inner, state = expr state argument scope false in
-      require inner Int "`float`";
-      (JCast (info, Float, inner), state)
-  | ECall (info, EVar (_, "int", _), [ (_, argument) ], _)
-    when not (List.mem_assoc "int" state.signatures) ->
-      let inner, state = expr state argument scope false in
-      require inner Float "`int`";
-      (JCast (info, Int, inner), state)
+      let helper helper_name result state =
+        ( JCall (info, helper_name, [ inner ], result),
+          if List.mem helper_name state.conversions then state
+          else { state with conversions = state.conversions @ [ helper_name ] } )
+      in
+      match (name, jtype_of inner) with
+      | "string", String | "int", Int | "float", Float | "bool", Bool -> (inner, state)
+      | "string", (Int | Bool) -> (JCall (info, "String.valueOf", [ inner ], String), state)
+      | "string", Float -> (JFloatStr (info, inner), { state with uses_float = true })
+      | "int", Float -> helper "pykTruncate" Int state
+      | "int", Bool -> (JCond (info, inner, JInt (info, 1), JInt (info, 0), Int), state)
+      | "int", String -> helper "pykIntOfString" Int state
+      | "float", Int -> (JCast (info, Float, inner), state)
+      | "float", Bool ->
+          (JCond (info, inner, JFloat (info, 1.0), JFloat (info, 0.0), Float), state)
+      | "float", String -> helper "pykFloatOfString" Float state
+      | "bool", Int -> (JBinary (info, "==", inner, JInt (info, 1), Bool), state)
+      | "bool", Float -> (JBinary (info, "==", inner, JFloat (info, 1.0), Bool), state)
+      | "bool", String -> (JEquals (info, inner, JStr (info, "true")), state)
+      | _, jtype ->
+          unsupported (expr_info e)
+            (Printf.sprintf "`%s` of a value of type %s" name (jtype_name jtype)))
   | EConcat (info, l, r, _) ->
       (* Java spells concatenation `+` too, so the two Pyking operators
          differ here only in the type they demand. *)
@@ -767,7 +789,8 @@ let rec expr state e scope allow_unit =
         unsupported (expr_info e)
           "the branches of an `if` expression must have the same type in Java";
       (JCond (info, c, t, f, jtype_of t), state)
-  | ECall (_, EVar (_, name, _), _, _) when Builtin.crosses_host name ->
+  | ECall (_, EVar (_, name, _), _, _) when Builtin.crosses_host name
+         && not (List.mem_assoc name state.signatures) ->
       unsupported (expr_info e)
         (Printf.sprintf "`%s` may only be used as a statement, not as a value"
            name)
@@ -876,8 +899,12 @@ and tail_stmts state statements scope =
     statements. state -> stmt -> scope -> ([jstmt], state) *)
 and tail_stmt state s scope =
   match s with
+  (* `()` as a statement is unit, which is nothing to do: what a removed
+     `debug` leaves at the end of a body (src/release.ml). *)
+  | SExprStmt (_, ETuple (_, [], _), _) -> ([], state)
   | SExprStmt (_, ECall (_, EVar (_, name, _), _, _), _)
-    when Builtin.crosses_host name ->
+    when Builtin.crosses_host name
+         && not (List.mem_assoc name state.signatures) ->
       let translated, _, state = stmt state s scope in
       (translated, state)
   | SExprStmt (info, e, _) ->
@@ -1068,6 +1095,7 @@ and loop_block state statements scope =
     state -> stmt -> scope -> ([jstmt], state) *)
 and loop_tail state s scope =
   match s with
+  | SExprStmt (_, ETuple (_, [], _), _) -> ([], state)
   | SExprStmt (_, e, _) -> accumulate state e scope s
   | SIf (info, cond, then_body, else_body, _) -> (
       let condition, state = expr state cond scope false in
@@ -1194,8 +1222,10 @@ and stmt state s scope =
   | SReturn (info, e, _) ->
       let value, state = expr state e scope false in
       ([ JReturn (info, value) ], scope, state)
+  | SExprStmt (_, ETuple (_, [], _), _) -> ([], scope, state)
   | SExprStmt (info, ECall (_, EVar (_, name, _), args, _), _)
-    when Builtin.crosses_host name ->
+    when Builtin.crosses_host name
+         && not (List.mem_assoc name state.signatures) ->
       let translated, state =
         List.fold_left
           (fun (out, state) a ->
@@ -1208,7 +1238,9 @@ and stmt state s scope =
           { state with uses_float = true }
         else state
       in
-      ([ JPrint (info, build_print_expr translated) ], scope, state)
+      ( [ JPrint (info, Builtin.is_debug name, build_print_expr translated) ],
+        scope,
+        state )
   | SExprStmt (info, e, _) -> (
       (* docs/target_java.md, "An expression statement that is not a
          call". *)
@@ -1465,16 +1497,21 @@ let function_of state func scope =
         scope,
         state )
 
-(** Refuses an external module whose declaration names a type Java has
-    no representation for. Java calls the implementation directly, so
-    there is nothing to declare here -- but the type still has to be one
-    this subset can carry, and saying so where it was declared beats
-    failing at the first call. [stmt] -> Module.context -> () *)
+(** Refuses a name an import takes from a module's declaration half --
+    any of an external module's, or a declared one of a module in two
+    halves -- whose type Java has no representation for. Java calls the
+    implementation directly, so there is nothing to declare here -- but
+    the type still has to be one this subset can carry, and saying so
+    where it was imported beats failing at the first call.
+    [stmt] -> Module.context -> () *)
 let check_externals stmts (context : Module.context) =
   List.iter
     (fun statement ->
       match statement with
-      | SImport (info, name, _, _, _, _) when List.mem name context.externals ->
+      | SImport (info, name, _, _, fields, _) ->
+          let declared =
+            Option.value (List.assoc_opt name context.external_fields) ~default:[]
+          in
           let signatures =
             try List.assoc name context.sigmaps with Not_found -> []
           in
@@ -1491,39 +1528,55 @@ let check_externals stmts (context : Module.context) =
                             this target has no Java type for"
                            name field what)
               in
-              match type_ with
-              | TFunction (_, params, result, _, _, _, _) ->
-                  List.iter (fun t -> check t "a parameter") params;
-                  check result "a return type"
-              | t -> check t "a type")
+              if
+                List.mem_assoc field fields
+                && (List.mem name context.externals || List.mem field declared)
+              then
+                match type_ with
+                | TFunction (_, params, result, _, _, _, _) ->
+                    List.iter (fun t -> check t "a parameter") params;
+                    check result "a return type"
+                | t -> check t "a type")
             signatures
       | _ -> ())
     stmts
+
+(** The names this module's own declaration half provides, bound to the
+    implementation's class so the Pyking half can call them. One Java
+    cannot represent is left out: nothing the program reaches calls it,
+    or its caller is refused where it is translated.
+    state -> scope -> (scope, state) *)
+let declare_own_externals state scope =
+  let held = default_class_name (state.context.context_name ^ "_external") in
+  List.fold_left
+    (fun (scope, state) (field, type_) ->
+      let java_name = Printf.sprintf "%s.%s" held field in
+      match type_ with
+      | TFunction (_, params, result, _, _, _, _) ->
+          let param_types = List.map (fun p -> annotated_type (Some p)) params in
+          let result = Option.value (annotated_type (Some result)) ~default:Unit in
+          if List.for_all (fun p -> p <> None) param_types then
+            ( scope,
+              {
+                state with
+                signatures =
+                  set_assoc field
+                    (java_name, List.map Option.get param_types, result)
+                    state.signatures;
+                declared = set_assoc field java_name state.declared;
+              } )
+          else (scope, state)
+      | t -> (
+          match annotated_type (Some t) with
+          | Some jtype -> (bind_exact field java_name jtype scope, state)
+          | None -> (scope, state)))
+    (scope, state) state.context.own_declared
 
 (** One module of a program as a jprogram. `context` says what is true of
     it only as part of a program -- its name, whether it is the program's
     own module, and what the modules it imports export.
     [stmt] -> Module.context -> jprogram *)
 let translate_program stmts context =
-  (* A module in two halves needs the generated file to call into the
-     implementation beside it, which this backend does not emit yet: an
-     external module it can compile is one with no Pyking half. Refused
-     here rather than left to the host's own compiler, which would
-     report an undeclared name in generated code. *)
-  (match
-     List.assoc_opt context.Module.context_name context.Module.external_fields
-   with
-  | Some (field :: _) ->
-      unsupported
-        (match stmts with
-        | statement :: _ -> stmt_info statement
-        | [] -> { file = ""; row1 = 1; col1 = 0; row2 = 1; col2 = 0 })
-        (Printf.sprintf
-           "a module in two halves: '%s' declares '%s' for the host and is \
-            written in Pyking beside it, which this backend cannot compile \
-            yet -- an external module it can compile has no Pyking half"
-           context.Module.context_name field)
-  | _ -> ());
   check_externals stmts context;
   let state =
     {
@@ -1535,9 +1588,11 @@ let translate_program stmts context =
       loops = [];
       temporaries = 0;
       uses_float = false;
+      conversions = [];
     }
   in
   let scope = empty_scope in
+  let scope, state = declare_own_externals state scope in
   let scope, state = declare_imports state stmts scope in
   let scope, state = declare_functions state stmts scope in
   let functions, main_body, scope, state =
@@ -1576,6 +1631,7 @@ let translate_program stmts context =
     main_body;
     program_name = context.context_name;
     uses_float = state.uses_float;
+    conversions = state.conversions;
     main = context.main;
     separate = context.separate;
     starts = List.map default_class_name context.starts;
@@ -1681,9 +1737,13 @@ let rec pprint_java_stmt ?(level = 1) s version =
   | JExprStmt (_, e) -> Printf.sprintf "%s%s;" pad (pprint_java_expr e version)
   | JReturn (_, e) ->
       Printf.sprintf "%sreturn %s;" pad (pprint_java_expr e version)
-  | JPrint (_, None) -> Printf.sprintf "%sSystem.out.println();" pad
-  | JPrint (_, Some e) ->
-      Printf.sprintf "%sSystem.out.println(%s);" pad (pprint_java_expr e version)
+  | JPrint (_, to_stderr, None) ->
+      Printf.sprintf "%sSystem.%s.println();" pad
+        (if to_stderr then "err" else "out")
+  | JPrint (_, to_stderr, Some e) ->
+      Printf.sprintf "%sSystem.%s.println(%s);" pad
+        (if to_stderr then "err" else "out")
+        (pprint_java_expr e version)
   | JIf (_, cond, then_body, else_body) ->
       let lines =
         [ Printf.sprintf "%sif (%s) {" pad (pprint_java_expr cond version);
@@ -1784,6 +1844,51 @@ let pprint_main (program : jprogram) version level =
    and one .out file is compared against every target. Double.toString
    is not used either -- it was not the shortest round trip before
    JDK 19, and java8 is the floor here. *)
+(* The conversions Java's own would get wrong (builtin.ml, "what a
+   conversion reads"): Integer.parseInt and Double.parseDouble read
+   strings Pyking does not, and throw where Pyking answers a default. *)
+let conversion_helper name =
+  String.concat "\n"
+    (match name with
+    | "pykIntOfString" ->
+        [
+          "    private static int pykIntOfString(String s) {";
+          "        if (!s.matches(\"[+-]?[0-9]+\")) {";
+          "            return 0;";
+          "        }";
+          "        try {";
+          "            long n = Long.parseLong(s.startsWith(\"+\") ? s.substring(1) : s);";
+          "            return n >= -2147483648L && n <= 2147483647L ? (int) n : 0;";
+          "        } catch (NumberFormatException tooLong) {";
+          "            return 0;";
+          "        }";
+          "    }";
+        ]
+    | "pykTruncate" ->
+        [
+          "    private static int pykTruncate(double x) {";
+          "        if (Double.isNaN(x) || x <= -2147483649.0 || x >= 2147483648.0) {";
+          "            return 0;";
+          "        }";
+          "        return (int) x;";
+          "    }";
+        ]
+    | _ ->
+        [
+          "    private static double pykFloatOfString(String s) {";
+          "        if (s.equals(\"inf\") || s.equals(\"+inf\")) {";
+          "            return Double.POSITIVE_INFINITY;";
+          "        }";
+          "        if (s.equals(\"-inf\")) {";
+          "            return Double.NEGATIVE_INFINITY;";
+          "        }";
+          "        if (!s.matches(\"[+-]?[0-9]+(\\\\.[0-9]+)?([eE][+-]?[0-9]+)?\")) {";
+          "            return Double.NaN;";
+          "        }";
+          "        return Double.parseDouble(s);";
+          "    }";
+        ])
+
 let float_helper =
   String.concat "\n"
     [
@@ -1865,6 +1970,9 @@ let pprint_java_program (program : jprogram) version class_name source =
         float_helper;
       ]
     else []
+  in
+  let parts =
+    parts @ List.concat_map (fun name -> [ ""; conversion_helper name ]) program.conversions
   in
   let parts =
     parts

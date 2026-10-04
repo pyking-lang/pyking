@@ -55,7 +55,7 @@ type C can represent.
 ## What is not supported
 
 Everything the JavaScript targets refuse — lists, tuples, `for`,
-`match`/`case`, comprehensions, value-form bindings, `str`/`len`/`range`
+`match`/`case`, comprehensions, value-form bindings, `len`/`range`
 — plus the following, each because C demands an answer Pyking never had
 to give. All are refused at compile time with a source position.
 
@@ -571,7 +571,25 @@ strings, and `%s` plus a ternary for booleans:
 
 ```pyking                          /* generated C */
 print(1, "two", 3 < 4)             printf("%d %s %s\n", 1, "two", 3 < 4 ? "true" : "false");
+debug("n", 2)                      fprintf(stderr, "%s %d\n", "n", 2);
 ```
+
+The conversions go by the argument's type. C's own are used where they
+agree -- a cast widens an int, and `b ? 1 : 0` is a Bool -- and `bool`
+is a comparison (`strcmp(s, "true") == 0`, `n == 1`). `string` of an
+Int is `pyk_int_str`, of a Float the `pyk_float_str` `print` uses, of a
+Bool a conditional. A String goes through `pyk_int_of_string` and
+`pyk_float_of_string`, and `int` of a double through `pyk_truncate`:
+static helpers emitted only where used, reading the text by hand, since
+`strtol` skips spaces and reads hex. C89 has no `NAN`, so NaN is
+`HUGE_VAL - HUGE_VAL`.
+
+`debug` is the same call on `stderr`. A program compiled with
+`--release` has none left, and a `debug` that was a block's last
+statement, where its block's value is used, is left as the statement
+`()` -- which this backend compiles to nothing. A program's own
+definition named `print` or `debug` is an ordinary call: the builtin is
+the name only where no signature of the program's claims it.
 
 ### Strings
 
@@ -780,7 +798,7 @@ harness both do.
 
 ## External modules
 
-A module implemented in C (`sys.c`, declared in `sys.external.pyk` --
+A module implemented in C (`sys.c`, declared in `sys_external.pyk` --
 see [modules.md](modules.md)) is reached with **no header**. The
 compiler generates nothing for it, so instead of `#include "sys.h"` the
 file that imports it carries the declarations, taken from the
@@ -801,8 +819,17 @@ An external module has no Pyking top level, so no `sys_init()` is
 declared and none is called.
 
 The boundary carries what this backend carries: `Int`, `String`, `Bool`
-and unit. A declaration naming a tuple or a list is refused where it is
-written, before anything is translated -- C has neither.
+and unit. A declaration naming a tuple or a list is refused where a
+program imports it, before anything is translated -- C has neither.
+Only what a program uses is declared, and only what it uses of a
+library is compiled at all ([modules.md](modules.md), "What a program
+uses"), so `sys.exit` compiles here while `sys.args` is refused.
+
+**A module in two halves** is compiled too. Its generated file declares
+the names its own declaration half provides, so its Pyking half calls
+them as `<module>_<field>`, and a file importing it declares the ones it
+takes. `io` and `sys` are both, and `tests/module_external_mixed.pyk`
+is the worked example.
 
 `Bool` is the one type the two targets spell differently: the
 declaration says `int` under `c89` and `bool` under `c23`, following

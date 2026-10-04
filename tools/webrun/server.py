@@ -70,6 +70,9 @@ VENDOR = HERE / "vendor"
 # installation's root in a distribution, which mirrors the same tree.
 ROOT = HERE.parent.parent
 BUNDLE = ROOT / "build" / "pyking.js"
+# The standard library, which a program run in the page imports from:
+# its Pyking sources, and each module's browser implementation.
+LIB = ROOT / "lib"
 
 DEFAULT_PORT = 8000
 
@@ -224,11 +227,11 @@ class Site:
 
 
 def common_site():
-    """What every tool serves: the shared scripts, the vendored libraries
-    and the compiler bundle, each at the path the pages expect them.
-    () -> Site"""
+    """What every tool serves: the shared scripts, the vendored libraries,
+    the compiler bundle and the standard library, each at the path the
+    pages expect them. () -> Site"""
     return Site(
-        mounts={"/webrun/": ASSETS, "/vendor/": VENDOR},
+        mounts={"/webrun/": ASSETS, "/vendor/": VENDOR, "/lib/": LIB},
         files={"/pyking/pyking.js": BUNDLE},
         answers={"/pyking/manifest.json": (bundle_manifest, "application/json")},
     )

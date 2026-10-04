@@ -138,6 +138,9 @@ Expressions:
   `Float`, unary minus (`-x`, and negative literals like `-5`), and
   parenthesized expressions. Nothing is converted implicitly: `float(n)`
   and `int(x)` are how the two numeric types meet
+- Conversions `string(x)`, `int(x)`, `float(x)` and `bool(x)` between
+  `Int`, `Float`, `String` and `Bool`, each answering a default (0, NaN,
+  false) where there is no right answer (see "Conversions")
 - Concatenation (`++`) for strings and lists — Pyking extension; a
   separate operator from `+`, which only ever adds
 - Comparison operators (`<`, `<=`, `>`, `>=`, `==`)
@@ -210,6 +213,10 @@ Statements:
   written `[a] ++ rest`; `"get " ++ rest` splits a string) that
   destructure a tuple or list value
 - Expression statements
+- Output with `print`, and diagnostic output with `debug` — Pyking
+  extension; `debug` writes the way `print` does, where diagnostics go,
+  and a program built in release mode has none of it (see "Builtins"
+  under "Type checking")
 - A block written on its header's own line (`def f(x): x * x`,
   `if c: print(1)`, `case 0: "zero"`) — one expression, meaning exactly
   what the indented form means
@@ -1351,7 +1358,7 @@ n = "outer"
 
 
 def describe(n):
-    "param " ++ str(n)
+    "param " ++ string(n)
 
 
 print(describe(1), n)
@@ -1585,7 +1592,8 @@ print(top(1))
 **Checking.** All of this is checked statically, before any code is
 generated, and reported as a `Name error` against the offending source
 position. A handful of names are predefined and count as bound
-everywhere — `print`, `range`, `str`, `len`, `float` and `int` — since no
+everywhere — `print`, `debug`, `range`, `string`, `len`, `int`, `float`
+and `bool` — since no
 Pyking program
 declares them; every other unbound name is an error. They are host
 *operations*, not values: each may be called, and using one as a value
@@ -2295,8 +2303,8 @@ Three rules follow, and each is refused where it is written:
 - **A plain definition is not a member of any set.** If a block binds
   `twice` with no qualifier, `twice(...)` means that one and is a type
   error if it does not fit.
-- **A builtin's name is never part of a set.** `str(1)` is the builtin
-  whatever `q::str` definitions are in scope.
+- **A builtin's name is never part of a set.** `string(1)` is the builtin
+  whatever `q::string` definitions are in scope.
 
 Resolution needs the argument types to be decided. Inside a function
 whose parameter could be anything, they are not, and the call is
@@ -2341,7 +2349,7 @@ def foo(x: a, implicit bar: (a) -> b) -> (b, b):
     (bar(x), bar(x))
 
 def my1() -> ():
-    implicit def bar(z: Int) -> String: str(z) ++ "!"
+    implicit def bar(z: Int) -> String: string(z) ++ "!"
     print(foo(78))                  # ('78!', '78!')
 
 def my2() -> ():
@@ -2367,7 +2375,7 @@ invisible to the search:
 
 ```pyking
 def my3() -> ():
-    def bar(z: Int) -> String: str(z)
+    def bar(z: Int) -> String: string(z)
     print(foo(1))       # error: there is a 'bar', but it is not
                         #        declared 'implicit'
 ```
@@ -2410,7 +2418,7 @@ resolution happens where the **call** is written:
 ```pyking
 def apply_twice(f: (Int, implicit bar: (Int) -> String) -> (String, String),
                 n: Int) -> (String, String):
-    implicit def bar(z: Int) -> String: str(z * 2)
+    implicit def bar(z: Int) -> String: string(z * 2)
     f(n)
 
 print(apply_twice(foo, 5))          # ('10', '10')
@@ -2494,7 +2502,7 @@ def describe(n):
         case 1:
             return "one"
         case value:
-            return "many: " ++ str(value)
+            return "many: " ++ string(value)
 
 
 for i in [0, 1, 5]:
@@ -2548,19 +2556,19 @@ def describe(xs):
         case []:
             return "empty"
         case [x]:
-            return "exactly one: " ++ str(x)
+            return "exactly one: " ++ string(x)
         case [a, b, c]:
             return "exactly three"
         case [first, ..rest]:
-            return "prefix + rest, first=" ++ str(first)
+            return "prefix + rest, first=" ++ string(first)
         case [..init, last]:
-            return "rest + suffix, last=" ++ str(last)
+            return "rest + suffix, last=" ++ string(last)
         case [p, q, ..mid, r]:
             return "matched middle"
         case [u, v, ..]:
             return "two elements, rest ignored"
         case [_, ..w]:
-            return "first ignored, rest=" ++ str(w)
+            return "first ignored, rest=" ++ string(w)
 
 
 print(describe([]))
@@ -2677,7 +2685,7 @@ def describe(point):
         case (0, y):
             side = if y > 0 then "up" else "down"
             "on the y axis, " ++ side
-        case (x, y): "at " ++ str(x) ++ "," ++ str(y)
+        case (x, y): "at " ++ string(x) ++ "," ++ string(y)
     return text
 
 
@@ -2720,7 +2728,7 @@ y = 2
 z =
     match y:
         case 2: "hi"
-        case xx: str(xx)
+        case xx: string(xx)
 
 print(z)
 ```
@@ -3101,7 +3109,7 @@ There is no "one of these" type. A value is an `Int` or it is a
 would make such a thing usable. A function that has to serve several
 types serves them the way `map` does — with a variable, which says the
 *caller* chooses and the body does not care. Where the body does care
-— `str(value)`, say, which asks what it was given — there is nothing to
+— `string(value)`, say, which asks what it was given — there is nothing to
 write and nothing to infer, and the definition means the one type it
 was first used at. Closing that gap needs something like type classes,
 which Pyking does not have.
@@ -3417,32 +3425,93 @@ Nothing is taken on faith: the declared type is what the body is checked
 *against*, and a body that does not honour it is refused. The same
 applies to nested functions, per block.
 
-**Builtins.** `print`, `range`, `str`, `len`, `float` and `int` are
-checked at the call, each by its own rule, because none of them is a
-function *value*: a builtin is a host operation (see "Names and
-scoping"), it has no type that can be written down, and it may be called
-and nothing else.
+**Builtins.** `print`, `debug`, `range`, `string`, `len`, `int`,
+`float` and `bool` are checked at the call, each by its own rule,
+because none of them is a function *value*: a builtin is a host operation (see "Names
+and scoping"), it has no type that can be written down, and it may be
+called and nothing else.
 
 | call | accepts | gives |
 |---|---|---|
 | `print(…)` | any number of arguments, of any type | `()` |
-| `str(x)` | one `Int`, `Float`, `String`, `Bool`, list or tuple | `String` |
+| `debug(…)` | any number of arguments, of any type | `()` |
+| `string(x)` | one `Int`, `Float`, `String`, `Bool`, list or tuple | `String` |
 | `len(x)` | one list or `String` | `Int` |
 | `range(n)` | one to three `Int`s | `[Int]` |
-| `float(n)` | one `Int` | `Float` |
-| `int(x)` | one `Float` | `Int` |
+| `int(x)` | one `Int`, `Float`, `String` or `Bool` | `Int` |
+| `float(x)` | one `Int`, `Float`, `String` or `Bool` | `Float` |
+| `bool(x)` | one `Int`, `Float`, `String` or `Bool` | `Bool` |
 
 ```pyking
 count = len("hello")          # Int
-label = "n = " ++ str(count)   # String
+label = "n = " ++ string(count)   # String
 numbers = range(4)            # [Int]
 ratio = float(count) / 2.0    # Float
 
 print(label, numbers, count, ratio)  # anything, any number of them
 ```
 
+**Conversions.** `string`, `int`, `float` and `bool` are how a value of
+one type becomes another — Pyking converts nothing on its own. `string`
+writes a value exactly as `print` would. The other three answer every
+argument they accept, and where there is no right answer they answer a
+**default**: 0 for `int`, NaN for `float`, false for `bool`.
+
+- `int` truncates a Float toward zero, takes true to 1 and false to 0,
+  and reads a String written as an optional `+` or `-` and decimal digits,
+  with nothing around them — not a space, not a point, not `0x`. An
+  answer outside the signed 32-bit range, and a Float with no Int to
+  truncate to (a NaN, an infinity), is 0.
+- `float` widens an Int, takes true to 1.0 and false to 0.0, and reads a
+  String written the way a Float literal is — digits, an optional
+  fraction, an optional exponent, and an optional sign — or as `inf`,
+  `-inf` or `nan`, which is how `print` writes those. So
+  `float(string(x))` is `x`.
+- `bool` is true for `true`, the String `"true"`, the Int 1 and the Float
+  1.0, and false for anything else — `"True"` and 2 included.
+
+Each accepts its own type too, and answers it unchanged.
+
+```pyking
+print(int("42"), int("4 2"), int(-2.9), int(true))   # 42 0 -2 1
+print(float("1e3"), float("one"), float(false))       # 1000.0 nan 0.0
+print(bool("true"), bool("yes"), bool(1), bool(2.0))  # true false true false
+print(string(1.5) ++ "!", string([1, 2]))             # 1.5! [1, 2]
+```
+
+The defaults stand in for an answer Pyking cannot yet give. Once it has
+an **option type**, `int`, `float` and `bool` will answer either no value
+or the value converted, so a program can tell `int("0")` from
+`int("zero")`; until then it has to check the String itself.
+
 Using one as a value rather than calling it is an error — `shout = print`
 is refused — which is also what the C and Java backends do with `print`.
+
+`debug` is `print`'s twin for diagnostic output — Pyking extension. It
+takes and formats its arguments exactly as `print` does, and writes the
+line where diagnostics go rather than to the program's output, so
+tracing a program never changes what it prints. A program built in
+**release mode** has every call to `debug` removed, arguments and all,
+and `print` kept:
+
+```pyking
+def square(x: Int) -> Int:
+    debug("square of", x)       # a diagnostic line, gone in release mode
+    return x * x
+
+print(square(7))                # 49, in both modes
+```
+
+A call removed in release mode is worth the unit it always was, so a
+program means the same thing in both modes except for its diagnostics —
+and for anything an argument to `debug` would have done, which does not
+happen at all. That difference is also the reason `debug` exists beside
+`print`: writing a diagnostic is not something a program is *observed*
+to do, so `debug` will be allowed in a pure function, where `print` will
+not.
+
+A program may define a `debug` of its own, like any other name; a call to
+it is an ordinary call, and release mode leaves it alone.
 
 Anything of function type may be called, not only a `def`'s own name, so
 a parameter annotated with a function type is callable inside the body
@@ -3540,7 +3609,7 @@ polymorphic, rather than one at whatever single type the caller picked.
 ```pyking
 def both_ways : (all x. (x) -> x) -> String
 def both_ways(f):
-    return f('a') ++ str(f(1))       # f used at two types, in one body
+    return f('a') ++ string(f(1))       # f used at two types, in one body
 ```
 
 Without the inner `all` the variable would be bound at the top, and `f`
@@ -3714,13 +3783,13 @@ same = echo                  # same : (a) -> a
 ```
 
 A parameter the body asks a question no *one* type answers is the
-exception. `str` accepts an Int, a String and a Bool, and Pyking has no
-way to say "any of those" — so such a parameter cannot become a variable
+exception. `string` accepts an Int, a Float, a String, a Bool, a list
+and a tuple, and Pyking has no way to say "any of those" — so such a parameter cannot become a variable
 and is fixed instead to what the first call passed:
 
 ```pyking
 def announce(value):
-    'got ' ++ str(value)     # `str` asks what it was given
+    'got ' ++ string(value)     # `string` asks what it was given
 
 
 print(announce(1))           # announce : (Int) -> String
@@ -4140,9 +4209,11 @@ another directory.
 ### A module implemented elsewhere
 
 A module can be implemented in a target language rather than in Pyking.
-A file called `sys.external.pyk` is still the module `sys`, but it holds
+A file called `sys_external.pyk` is still the module `sys`, but it holds
 *signatures only* — every name it exports is written down with its type
-and left without a body:
+and left without a body. A name ending in `_external` therefore never
+names a module of its own: `import sys_external` is refused, and the
+module is imported as `sys`.
 
 ```pyking
 public def loadfile : (String) -> String
@@ -4171,13 +4242,13 @@ Two rules hold of such a file, and each is refused where it is broken:
 A plain `sys.pyk` is unaffected: a signature there still has to describe
 a `def` in the same file, exactly as before.
 
-**A module may be written in both.** `sys.pyk` and `sys.external.pyk`
+**A module may be written in both.** `sys.pyk` and `sys_external.pyk`
 are one module `sys`, not two: the first is written in Pyking against
 what the second declares, and a program that imports `sys` reaches
 everything either half offers, under the one name.
 
 ```pyking
-# clock.external.pyk -- what the host provides
+# clock_external.pyk -- what the host provides
 public def now : () -> Int
 
 def raw : () -> Int
@@ -4208,10 +4279,9 @@ files rather than anything new:
   one name.
 
 Everything else about such a module — which file implements it for which
-target, what each Pyking type becomes on the other side, and why a
-program that imports one cannot be interpreted — is about *compiling*
-rather than about the language, and lives in
-[docs/modules.md](docs/modules.md).
+target, what each Pyking type becomes on the other side, and how the
+interpreter reaches it — is about *compiling* rather than about the
+language, and lives in [docs/modules.md](docs/modules.md).
 
 ### Modules and types
 

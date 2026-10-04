@@ -1,5 +1,6 @@
 // What the Pyking web tools share in the browser: loading Ace with the
-// Pyking mode, loading KaTeX, and booting the compiler. The playground
+// Pyking mode, loading KaTeX, booting the compiler, and parsing the
+// arguments a reader types for a program. The playground
 // (tools/playground/assets/playground.js) and the notebook
 // (tools/notebook/assets/notebook.js) both import this, and neither keeps
 // a copy of any of it. See tools/webrun/README.md.
@@ -16,11 +17,12 @@ export { JsRunner } from "./pyking-runtime.js";
 const HERE = new URL(".", import.meta.url);
 
 /** The default locations, beside this module: this directory, the
- *  vendored libraries, and the compiler bundle. */
+ *  vendored libraries, the compiler bundle, and the standard library. */
 export const DEFAULT_URLS = {
   webrun: HERE.href,
   vendor: new URL("../vendor/", HERE).href,
   pyking: new URL("../pyking/", HERE).href,
+  lib: new URL("../lib/", HERE).href,
 };
 
 /** A directory URL, absolute and ending in `/`. String -> String */
@@ -29,12 +31,13 @@ export function directoryURL(url) {
   return absolute.endsWith("/") ? absolute : absolute + "/";
 }
 
-/** A compiler worker, not yet booted. {webrun, pyking} -> PykingRuntime */
+/** A compiler worker, not yet booted. {webrun, pyking, lib} -> PykingRuntime */
 export function createRuntime(urls = {}) {
-  const { webrun, pyking } = { ...DEFAULT_URLS, ...urls };
+  const { webrun, pyking, lib } = { ...DEFAULT_URLS, ...urls };
   return new PykingRuntime({
     pykingURL: directoryURL(pyking),
     workerURL: directoryURL(webrun) + "pyking-worker.js",
+    libURL: directoryURL(lib),
   });
 }
 
@@ -120,4 +123,33 @@ export async function fetchText(url) {
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) throw new Error(`cannot fetch ${url}: ${response.status}`);
   return response.text();
+}
+
+/** A line of arguments as a program receives them: split at spaces, with
+ *  single or double quotes keeping a space inside one argument, and a
+ *  backslash taking the next character as it is. String -> [String] */
+export function splitArguments(text) {
+  const out = [];
+  let current = null;
+  let quote = null;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quote) {
+      if (c === quote) quote = null;
+      else if (c === "\\" && quote === '"' && i + 1 < text.length) current += text[++i];
+      else current += c;
+    } else if (c === "'" || c === '"') {
+      quote = c;
+      current = current ?? "";
+    } else if (c === "\\" && i + 1 < text.length) {
+      current = (current ?? "") + text[++i];
+    } else if (/\s/.test(c)) {
+      if (current !== null) out.push(current);
+      current = null;
+    } else {
+      current = (current ?? "") + c;
+    }
+  }
+  if (current !== null) out.push(current);
+  return out;
 }

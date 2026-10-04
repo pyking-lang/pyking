@@ -1,4 +1,4 @@
-# The Python implementation of the names declared in sys.external.pyk.
+# The Python implementation of the names declared in sys_external.pyk.
 #
 # The environment is read once, into a list, so that the pairs a caller
 # walks are one consistent picture of it.
@@ -24,3 +24,8 @@ def prog_name():
 
 def prog_path():
     return _path.dirname(_path.abspath(_sys.argv[0]))
+
+
+def exit(code):
+    _sys.stdout.flush()
+    _sys.exit(code)

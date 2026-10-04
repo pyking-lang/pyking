@@ -10,8 +10,8 @@ boundary".
 
 ## Four readers, one table
 
-`print`, `range`, `str`, `len`, `float` and `int` are in scope in every
-program and are bound by nothing. Four parts of the compiler need that
+`print`, `debug`, `range`, `string`, `len`, `int`, `float` and `bool` are
+in scope in every program and are bound by nothing. Four parts of the compiler need that
 fact, and each needs something different about it:
 
 - `typesystem.ml` puts the names in the environment before the first
@@ -47,8 +47,8 @@ type t = {
 ```
 
 `max_args` is an option, and `None` *is* variadic — there is no separate
-flag that could disagree with the bounds. `print` is `(0, None)`, which
-is why it never fails an arity check; `str`, `len`, `float` and `int`
+flag that could disagree with the bounds. `print` and `debug` are
+`(0, None)`, which is why they never fail an arity check; `string`, `len`, `float` and `int`
 are `(1, Some 1)`; `range` is `(1, Some 3)`.
 
 The order of the table is the order the playground publishes as its word
@@ -56,7 +56,7 @@ list (`pykBuiltins`), so it is the order someone writing Pyking sees.
 
 The table itself is private. A caller asks for `names`, for
 `pure_names`, for one entry by `lookup`, or for the single property a
-backend branches on, `crosses_host` — the same arrangement
+backend branches on, `crosses_host` and `is_debug` — the same arrangement
 `src/targets.ml` uses for the target table, and for the same reason: a
 caller reading rows would be free to ask a question the module has not
 agreed to answer.
@@ -69,10 +69,12 @@ written into first.
 ## The host boundary is a field, not a module
 
 A Pyking program on its own only computes: it cannot reach a console, a
-file or a clock. `print` is the only thing a program can be *observed*
-to do, and that distinction is worth keeping — but it is a property of
-an operation rather than a reason for a second module, so it is the
-`crosses_host` field.
+file or a clock. `print` and `debug` are the only things a program can
+be *observed* to do without a library, and that distinction is worth
+keeping — but it is a property of an operation rather than a reason for
+a second module, so it is the `crosses_host` field. `is_debug` says
+which of the two a call is: `print` writes the program's own output and
+`debug` diagnostic output, to standard error where the host has one.
 
 Every backend consults it at the same point in translation, recognising
 that a call is one that leaves the program rather than a call to an
@@ -92,12 +94,26 @@ backend:
   JavaScript targets disagree about.
 - `target_c.ml` and `target_java.ml` emit `printf(...)` and
   `System.out.println(...)`, each with its own formatting glue for the
-  parts C and Java do not spell the way Pyking does.
+  parts C and Java do not spell the way Pyking does -- and
+  `fprintf(stderr, ...)` and `System.err.println(...)` for `debug`.
 - `target_ocaml.ml` emits `print_endline`, needing almost no glue:
   OCaml already spells `true`, `false` and `()` as Pyking does.
+  `prerr_endline` for `debug`.
+- `target_python.ml` emits Python's own `print`, with
+  `file=__import__('sys').stderr` for `debug`.
 - `interpreter.ml` does not translate anything — it *performs* the
   operation, through a host, since it runs a program rather than
-  emitting one.
+  emitting one: `print_line` for `print` and `debug_line` for `debug`.
+
+Every one of those checks that the call reaches the builtin, and not a
+program's own definition that took the name: the checker records a type
+for a callee it resolved to a definition and none for a builtin, and a
+backend without the checker's table asks its own scope.
+
+`debug` is the builtin `--release` removes (src/release.ml). It is
+`print`'s twin in every other respect, and the one a future *pure*
+function will be allowed to call: writing diagnostic output is not
+something a program is observed to do.
 
 `pure_names` is the other side of the same field: the builtins that do
 not cross the boundary, which is exactly the list a backend with no
@@ -110,11 +126,13 @@ Two things cannot be said in this module, and the module graph is why.
 `builtin.ml` sits before `analyses.ml`, because everything downstream
 reads it, so it can depend on nothing that comes later.
 
-**Which argument types a builtin accepts** is `typesystem.ml`'s. `str`
-and `len` are two of the four overloaded names in the language — `str`
-takes an Int, a String, a Bool, a list or a tuple; `len` takes a list or
-a String — and those sets are not checked by comparison but settled by
-unification against the checker's own metavariables. Writing them here
+**Which argument types a builtin accepts** is `typesystem.ml`'s. `string`,
+`len` and the three conversions are overloaded names in the language —
+`string` takes an Int, a Float, a String, a Bool, a list or a tuple;
+`len` takes a list or a String; `int`, `float` and `bool` each take an
+Int, a Float, a String or a Bool — and those sets are not checked by
+comparison but settled by unification against the checker's own
+metavariables. Writing them here
 would mean a `Syntax.typ` in a table that otherwise needs nothing from
 the AST, and a second place for a rule the checker would still have to
 apply.
@@ -131,10 +149,39 @@ ceiling, and it is a real one: adding a builtin still touches the
 checker, the interpreter and each backend. What it no longer touches is
 four lists that could drift.
 
+## Conversions
+
+`string`, `int`, `float` and `bool` convert between Int, Float, String
+and Bool, and what each answers is a rule of the language rather than of
+any host (PYKING.md, "Conversions"). The two rules no host shares are
+here, as `parse_int`, `parse_float` and `truncate_float`, because the
+interpreter uses them and every backend implements them:
+
+- **A String is read by Pyking's own grammar.** `int` accepts an
+  optional sign and decimal digits, in the signed 32-bit range; `float`
+  accepts an optional sign, digits, an optional fraction and an optional
+  exponent, or `inf`, `-inf` and `nan`. Nothing else -- no space around
+  it, no `0x`, no `_`. Every host's own parser disagrees somewhere:
+  Python's `int` reads `" 3"` and `"1_000"`, OCaml's `int_of_string`
+  reads `"0x1F"` and `"1_000"`, JavaScript's `Number` reads `" 3"` and
+  `"0x1F"`, and C's `strtol` skips spaces. So each backend checks the
+  text itself, and hands it to its host's parser only once it is known
+  to be one.
+- **A Float with no Int is 0.** `int` truncates toward zero, and a NaN,
+  an infinity or a value outside the signed 32-bit range answers 0,
+  where the hosts raise (Python, Java), answer whatever the hardware
+  gives (C, OCaml) or answer NaN (JavaScript).
+
+A conversion with no right answer answers a default -- 0, NaN, false --
+because Pyking has no option type yet; once it has one, these will
+answer none instead. `parse_int` accumulates as a negative number, so it
+reaches the bottom of the range without passing through a value the
+browser build's 32-bit `int` cannot hold.
+
 ## The formatting rules
 
 Every backend has to agree on these before one program can print the
-same characters everywhere, and they are `print`'s and `str`'s meaning
+same characters everywhere, and they are `print`'s and `string`'s meaning
 rather than any host's:
 
 - arguments are formatted individually and joined with single spaces,

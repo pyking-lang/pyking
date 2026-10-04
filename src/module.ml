@@ -18,7 +18,7 @@
       context -- what a backend is told about the module it is compiling
         beyond its statements.
 
-    An *external* module is declared in `sys.external.pyk` and
+    An *external* module is declared in `sys_external.pyk` and
     implemented in the target's own language (`sys.py`, `sys.js`,
     `Sys.java`, ...). The declaration file holds signatures and nothing
     else; the implementation is read by the host toolchain, never by
@@ -28,6 +28,8 @@
     Functions:
       load path -- every module the program at path needs, dependencies
         first, parsed, symbolized and with every import resolved.
+      load_imports loaded start signatures directory entry -- the modules
+        an entry at the prompt newly reaches, prepared the same way.
       read_file path info -- one file, lexed and parsed, and nothing else.
       context units unit -- what a backend needs to know about one
         module of a program beyond its statements.
@@ -45,6 +47,8 @@
         implementation file is called on that target.
       implementation_path directory name target info -- that file, checked
         to exist.
+      found_implementation directory name target info -- the same for a
+        module found the way an import of it would be.
       external_signatures stmts -- an external module's declared names
         and their types.
       check_declaration stmts path -- refuses anything but a public
@@ -60,11 +64,13 @@ open Syntax
    has no search path (see docs/modules.md, "Finding a module"). *)
 let extension = ".pyk"
 
-(* An external module's declaration file. `sys.external.pyk` says what
+(* An external module's declaration file. `sys_external.pyk` says what
    `sys` offers and at what type; `sys.py`, `sys.js`, `Sys.java` and
    the rest implement it, one per target. Only the declaration is
    Pyking, and only the declaration is read here. *)
-let external_extension = ".external.pyk"
+let external_marker = "_external"
+
+let external_extension = external_marker ^ extension
 
 (** A module-level failure -- a missing module, a cycle, a collision, a
     name that is not exported -- with the source position. *)
@@ -128,7 +134,8 @@ let reached_module external_fields module_ field =
     type, which is how a backend that must know a type for an imported
     name finds one; and which of them are external, since a backend
     reaches one through the host's own source rather than through a file
-    this compiler wrote. *)
+    this compiler wrote; and every name the module's own declaration half
+    declares, private ones included, with its type. *)
 type context = {
   context_name : string;
   main : bool;
@@ -137,6 +144,7 @@ type context = {
   sigmaps : (string * (string * typ * bool) list) list;
   external_fields : (string * string list) list;
   externals : string list;
+  own_declared : (string * typ) list;
 }
 
 (* --- ordered tables ---
@@ -193,9 +201,10 @@ let absolute path =
 (** The module name a file has: its stem. string -> string *)
 let module_name path =
   let stem = Filename.remove_extension (Filename.basename path) in
-  (* `sys.external.pyk` is module `sys`: the marker is part of the file
+  (* `sys_external.pyk` is module `sys`: the marker is part of the file
      name, not of the name another module imports it by. *)
-  if Filename.extension stem = ".external" then Filename.remove_extension stem
+  if Filename.check_suffix path external_extension then
+    Filename.chop_suffix stem external_marker
   else stem
 
 (** The file a module name means, in the directory of the file that
@@ -267,7 +276,7 @@ let not_found name tried =
        (List.map (fun (path, origin) -> Printf.sprintf "'%s' (%s)" path origin) tried))
 
 (** The files one module name means. A module is written in Pyking, or
-    declared for a target, or **both**: `foo.pyk` and `foo.external.pyk`
+    declared for a target, or **both**: `foo.pyk` and `foo_external.pyk`
     are one module `foo`, the second saying what the target's own source
     provides and the first written in Pyking against it (see
     docs/modules.md, "A module in two halves").
@@ -636,33 +645,46 @@ let implementation_path directory name target info =
                target name ))
   | Some file ->
       (* Where the implementation is *read* from, which is not always
-         what it is called in the output. A browser may need different
-         code from node, and `<name>_external.web.js` is where that
-         goes -- but most modules need none, so a plain
-         `<name>_external.js` serves both. Whichever is found is copied
+         what it is called in the output. JavaScript runs in two
+         environments, so a module has one source for each:
+         `<name>_external_node.js` for node and
+         `<name>_external_browser.js` for web and iweb. Either is copied
          out as `<name>_external.js`, which is what every generated
          import names. *)
-      let browser =
+      let source =
         match Targets.family_of target with
+        | Targets.Node -> join directory (name ^ "_external_node.js")
         | Targets.Web | Targets.Iweb ->
-            [ join directory (name ^ "_external.web.js") ]
-        | _ -> []
+            join directory (name ^ "_external_browser.js")
+        | _ -> join directory file
       in
-      let candidates = browser @ [ join directory file ] in
-      (match List.find_opt Sys.file_exists candidates with
-      | Some path -> path
-      | None ->
-          raise
-            (Module_error
-               ( info,
-                 Printf.sprintf
-                   "the external module '%s' has no implementation for target \
-                    '%s': there is no file %s"
-                   name target
-                   (String.concat " and no "
-                      (List.map
-                         (fun path -> Printf.sprintf "'%s'" (Filename.basename path))
-                         candidates)) )))
+      if Sys.file_exists source then source
+      else
+        raise
+          (Module_error
+             ( info,
+               Printf.sprintf
+                 "the external module '%s' has no implementation for target \
+                  '%s': there is no file '%s'"
+                 name target (Filename.basename source) ))
+
+(** The implementation a module has for a target, found the way an
+    import of it from `directory` would find the module: what a page
+    ships for a library the program never imports. Raises Module_error
+    where the module or its implementation is missing, or where the
+    module has no external half. sources -> [lib_entry] -> string ->
+    string -> string -> info -> string *)
+let found_implementation ?(from = disk) ?(libs = []) directory name target info =
+  match (module_file ~from ~libs directory name (Some info)).declared with
+  | Some declared -> implementation_path (dirname declared) name target info
+  | None ->
+      raise
+        (Module_error
+           ( info,
+             Printf.sprintf
+               "target '%s' needs the external module '%s', and the '%s' found \
+                has no external half"
+               target name name ))
 
 (* --- resolving what an import means --- *)
 
@@ -791,6 +813,19 @@ let cycle_message name stack =
   ^ ". Pyking has no circular imports: a module is compiled, and run, after \
      everything it imports"
 
+(** Refuses an import naming a module's external half, which is not a
+    module of its own: `foo_external.pyk` is imported as `foo`.
+    info -> string -> 'a *)
+let refuse_external_half info name =
+  raise
+    (Module_error
+       ( info,
+         Printf.sprintf
+           "cannot import '%s': a name ending in '%s' is the external half of \
+            a module, and is imported by the module's own name '%s'"
+           name external_marker
+           (Filename.chop_suffix name external_marker) ))
+
 (** Depth-first over the import graph, appending each module to `order`
     after everything it imports. `stack` is the path of imports being
     followed, which is what a cycle is reported from.
@@ -826,6 +861,9 @@ let rec visit ?(from = disk) ?(libs = []) name found info parsed order stack =
       List.fold_left
         (fun (parsed, order) statement ->
           match statement with
+          | SImport (import_info, imported_name, _, _, _, _)
+            when Filename.check_suffix imported_name external_marker ->
+              refuse_external_half import_info imported_name
           | SImport (import_info, imported_name, _, _, _, _) ->
               let imported =
                 module_file ~from ~libs directory imported_name
@@ -839,6 +877,39 @@ let rec visit ?(from = disk) ?(libs = []) name found info parsed order stack =
     in
     (parsed, order @ [ name ])
 
+(** The modules `order` names, taken from `parsed` and made ready in
+    that order: the sugar removed, symbolized past `highest`, what each
+    exports settled again, and every import resolved against the modules
+    before it. Answers the highest symbol handed out, the sugar's
+    signatures, every module ready so far, and the ones made ready here.
+    [(string, t)] -> [string] -> int -> signatures -> [(string, t)] ->
+    (int, signatures, [(string, t)], [t]) *)
+let prepare parsed order highest signatures loaded =
+  List.fold_left
+    (fun (highest, signatures, loaded, modules) name ->
+      let module_ = List.assoc name parsed in
+      (* The sugar goes first, so what every later stage sees is
+         ordinary Pyking; dependency order is what lets a call reach an
+         imported definition's parameters. *)
+      let stmts, signatures =
+        if module_.is_external then
+          (module_.stmts, Desugar_args.external_module signatures name)
+        else Desugar_args.desugar signatures name module_.stmts
+      in
+      let module_ =
+        {
+          module_ with
+          stmts = Analyses.symbolize ~start:highest stmts;
+          (* The defs holding a public function's defaults are public
+             too, so what the module offers is settled again here. *)
+          publics = check_publics (stmts @ module_.declarations);
+        }
+      in
+      let highest = max highest (Analyses.highest_sym module_.stmts) in
+      let module_ = resolve_imports module_ loaded in
+      (highest, signatures, loaded @ [ (name, module_) ], modules @ [ module_ ]))
+    (highest, signatures, loaded, []) order
+
 (** Every module the program in `path` needs, dependencies first and the
     program itself last: read, parsed, symbolized with one numbering
     across the whole program, and with every import resolved. Raises
@@ -848,7 +919,7 @@ let load ?(from = disk) ?(libs = []) path =
      resolved, but a name with both files is still a name meaning two
      things, so it is refused here too. *)
   (* The program's own file is named on the command line, so it is taken
-     as given -- but a `foo.pyk` named there still has its `foo.external.pyk`
+     as given -- but a `foo.pyk` named there still has its `foo_external.pyk`
      half beside it, which is what makes the two one module however the
      module was reached. *)
   let found =
@@ -859,35 +930,43 @@ let load ?(from = disk) ?(libs = []) path =
     visit ~from ~libs (module_name path) found None [] [] []
   in
   let _, _, _, modules =
-    List.fold_left
-      (fun (highest, signatures, loaded, modules) name ->
-        let module_ = List.assoc name parsed in
-        (* The sugar goes first, so what every later stage sees is
-           ordinary Pyking; dependency order is what lets a call reach
-           an imported definition's parameters. *)
-        let stmts, signatures =
-          if module_.is_external then
-            (module_.stmts, Desugar_args.external_module signatures name)
-          else Desugar_args.desugar signatures name module_.stmts
-        in
-        let module_ =
-          {
-            module_ with
-            stmts = Analyses.symbolize ~start:highest stmts;
-            (* The defs holding a public function's defaults are public
-               too, so what the module offers is settled again here. *)
-            publics = check_publics (stmts @ module_.declarations);
-          }
-        in
-        let highest = Analyses.highest_sym module_.stmts in
-        let module_ = resolve_imports module_ loaded in
-        ( highest,
-          signatures,
-          loaded @ [ (name, module_) ],
-          modules @ [ module_ ] ))
-      (0, Desugar_args.no_signatures, [], []) order
+    prepare parsed order 0 Desugar_args.no_signatures []
   in
   modules
+
+(** The modules an entry typed at the prompt reaches through its imports
+    and the session has not loaded yet, prepared as `load` prepares a
+    program's -- dependencies first, the sugar removed, symbolized past
+    `start`, every import resolved -- and the entry with its own imports
+    resolved against them. `loaded` is every module the session has, so
+    none is read twice; `signatures` is what the sugar knows so far, and
+    comes back extended, with the highest symbol handed out. A module is
+    looked for beside `directory` and then on the search path.
+    sources -> [lib_entry] -> [(string, t)] -> int -> signatures ->
+    string -> [stmt] -> ([t], [stmt], signatures, int) *)
+let load_imports ?(from = disk) ?(libs = []) ~loaded ~start ~signatures directory
+    entry =
+  let prompt = { name = "<repl>"; path = "<repl>"; tokens = []; stmts = entry;
+                 declarations = []; declaration_path = None; imports = [];
+                 publics = []; sigmap = None; is_external = false } in
+  let parsed, order =
+    List.fold_left
+      (fun (parsed, order) statement ->
+        match statement with
+        | SImport (info, name, _, _, _, _) when not (List.mem_assoc name parsed) ->
+            if Filename.check_suffix name external_marker then
+              refuse_external_half info name;
+            let found = module_file ~from ~libs directory name (Some info) in
+            visit ~from ~libs name found (Some info) parsed order
+              [ (prompt.name, None) ]
+        | _ -> (parsed, order))
+      (loaded, []) entry
+  in
+  let highest, signatures, loaded, modules =
+    prepare parsed order start signatures loaded
+  in
+  let resolved = resolve_imports prompt loaded in
+  (modules, resolved.stmts, signatures, highest)
 
 (* --- what the type checker is given --- *)
 
@@ -942,6 +1021,7 @@ let context units unit =
       List.filter_map
         (fun ((other : t), _) -> if other.is_external then Some other.name else None)
         units;
+    own_declared = external_signatures unit.declarations;
   }
 
 (** A module's exported names and the types the checker worked out for

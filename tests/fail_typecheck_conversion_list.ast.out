@@ -1,0 +1,2 @@
+'tests/fail_typecheck_conversion_list.pyk' 7:10-7:16 Type error: 'int'
+  cannot be applied to [Int]; it accepts Int, Float, String or Bool

@@ -55,7 +55,7 @@ name = "outer"
 
 
 def describe(name):
-    label = "param " ++ str(name)
+    label = "param " ++ string(name)
     if 1 < 2:
         label = "inner " ++ label
         print(label)
@@ -103,7 +103,7 @@ def classify(v):
             tag = "zero"
             tag
         case other:
-            tag = "other " ++ str(other)
+            tag = "other " ++ string(other)
             tag
 
 

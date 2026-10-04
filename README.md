@@ -125,9 +125,10 @@ On Linux and WSL, any distribution, into `~/.local` with no sudo:
 curl -fsSL https://github.com/pyking-lang/pyking-releases/releases/latest/download/install.sh | sh
 ```
 
-Either way `pyk` is one compiled binary with no dependencies: universal
-on macOS 11 or later (Apple Silicon and Intel), fully static on Linux
-(x86_64 and aarch64). Debian and Ubuntu users can install the release's
+Either way `pyk` is one compiled binary needing nothing but the
+system's C library: universal on macOS 11 or later (Apple Silicon and
+Intel), and linked against glibc 2.28 or later on Linux (x86_64 and
+aarch64), with the standard library's plugins beside it. Debian and Ubuntu users can install the release's
 `.deb` instead. `pyk notebook` and `pyk playground` additionally need
 Python 3.10 or later on the `PATH`, and running what a target compiled
 needs that target's own tools. See [tools/packaging/](tools/packaging/)
@@ -195,8 +196,11 @@ and math libraries and caches them, which is why the cache only goes on
   keeps its own turn's bindings: the mechanism, the shape that used to
   defeat it, and what it still costs in generated code.
 - **[docs/libraries.md](docs/libraries.md)** — the standard library
-  under `lib/`: what each library offers, how `pyk` finds one, and why
-  each reaches the targets it does.
+  under `lib/`: what each library offers, how `pyk` finds one, why
+  each reaches the targets it does, and how the interpreter and a
+  browser reach one implemented in a target language.
+- **[docs/release.md](docs/release.md)** — `pyk compile --release`: how
+  every call to `debug` is removed before any backend sees the program.
 - **[docs/modules.md](docs/modules.md)** — the module system: how a file
   becomes a module and a program becomes a graph of them, what each one
   exports, in what order they are compiled and run, and what each target

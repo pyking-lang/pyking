@@ -1,0 +1,4 @@
+nothing: () = ()
+print(nothing)
+answer: () = if 1 < 2 then () else ()
+print(answer, 'done')

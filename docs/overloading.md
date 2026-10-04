@@ -172,9 +172,9 @@ pins every resolution this feature makes.
   change to the checker's shape rather than an addition to it.
 - **No overloaded values and no nullary overloads**, for the same
   reason: there would be nothing to resolve them by.
-- **A builtin's name is never part of a set.** `str`, `len`, `print`,
+- **A builtin's name is never part of a set.** `string`, `len`, `print`,
   `range`, `float` and `int` are `TBuiltin` and are checked by
   `check_builtin_call` rather than by unification; joining the two
   rules would mean one call site using both.
 - **A declaration half may not carry a qualified name.** An external
-  module's `.external.pyk` writes signatures, which no pass renames.
+  module's `_external.pyk` writes signatures, which no pass renames.

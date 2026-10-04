@@ -18,7 +18,7 @@
     that compile a file with no program around it and therefore call
     `check_publics` directly.
 
-    An *external* module is declared in `sys.external.pyk` and
+    An *external* module is declared in `sys_external.pyk` and
     implemented in the target's own language (`sys.py`, `sys.js`,
     `Sys.java`, ...). The declaration file holds signatures and nothing
     else; the implementation is read by the host toolchain, never by
@@ -37,6 +37,8 @@
     Functions:
       load path -- every module the program at path needs, dependencies
         first, parsed, symbolized and with every import resolved.
+      load_imports loaded start signatures directory entry -- the modules
+        an entry at the prompt newly reaches, prepared the same way.
       read_file path info -- one file, lexed and parsed, and nothing else.
       read_whole_file path -- the contents of a file.
       context units unit -- what a backend needs to know about one
@@ -62,6 +64,8 @@
         implementation file is called on that target.
       implementation_path directory name target info -- that file,
         checked to exist.
+      found_implementation directory name target info -- the same for a
+        module found the way an import of it would be.
       dirname path / join a b / absolute path -- the path helpers the
         compiler needs, in the shapes Python's os.path gives them. *)
 
@@ -111,7 +115,8 @@ type t = {
     type, which is how a backend that must know a type for an imported
     name finds one; and which of them are external, since a backend
     reaches one through the host's own source rather than through a file
-    this compiler wrote. *)
+    this compiler wrote; and every name the module's own declaration half
+    declares, private ones included, with its type. *)
 type context = {
   context_name : string;
   main : bool;
@@ -120,6 +125,7 @@ type context = {
   sigmaps : (string * (string * typ * bool) list) list;
   external_fields : (string * string list) list;
   externals : string list;
+  own_declared : (string * typ) list;
 }
 
 (** Every file a module is written in, the declaration half first: a
@@ -158,7 +164,7 @@ type sources = { exists : string -> bool; contents : string -> string }
     something only src/pyk.ml may do (see docs/build.md). *)
 type lib_entry = { lib_directory : string; lib_origin : string }
 
-(** An external module's declaration file: `sys.external.pyk` says what
+(** An external module's declaration file: `sys_external.pyk` says what
     `sys` offers and at what type, and only the declaration is Pyking.
     string *)
 val external_extension : string
@@ -192,6 +198,27 @@ val read_whole_file : string -> string
     errors for a module that does not lex or parse.
     sources -> [lib_entry] -> string -> [t] *)
 val load : ?from:sources -> ?libs:lib_entry list -> string -> t list
+
+(** The modules an entry typed at the prompt reaches through its imports
+    and the session has not loaded yet, prepared as `load` prepares a
+    program's -- dependencies first, the sugar removed, symbolized past
+    `start`, every import resolved -- and the entry with its own imports
+    resolved against them. `loaded` is every module the session has, so
+    none is read twice; `signatures` is what the sugar knows so far, and
+    comes back extended, with the highest symbol handed out. A module is
+    looked for beside `directory` and then on the search path. Raises
+    Module_error as `load` does.
+    sources -> [lib_entry] -> [(string, t)] -> int -> signatures ->
+    string -> [stmt] -> ([t], [stmt], signatures, int) *)
+val load_imports :
+  ?from:sources ->
+  ?libs:lib_entry list ->
+  loaded:(string * t) list ->
+  start:int ->
+  signatures:Desugar_args.signatures ->
+  string ->
+  stmt list ->
+  t list * stmt list * Desugar_args.signatures * int
 
 
 (** One file, lexed and parsed, and nothing else: no import resolved and
@@ -269,3 +296,18 @@ val implementation_name : string -> string -> string option
     target needs and has not got.
     string -> string -> string -> info -> string *)
 val implementation_path : string -> string -> string -> Lexer.info -> string
+
+(** The implementation a module has for a target, found the way an
+    import of it from `directory` would find the module: what a page
+    ships for a library the program never imports. Raises Module_error
+    where the module or its implementation is missing, or where the
+    module has no external half. sources -> [lib_entry] -> string ->
+    string -> string -> info -> string *)
+val found_implementation :
+  ?from:sources ->
+  ?libs:lib_entry list ->
+  string ->
+  string ->
+  string ->
+  Lexer.info ->
+  string

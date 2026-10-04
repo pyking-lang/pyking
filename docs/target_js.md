@@ -16,10 +16,11 @@
 - They implement a **subset** of the language: no lists, tuples, `for`,
   `match`, comprehensions or value-form bindings. Anything outside it is
   refused with a source position.
-- `print` is the one thing crossing the runtime boundary
-  (`src/builtin.ml`), and the three targets bind it three
-  ways: `console.log`, a page element, or a function the embedder passes
-  in.
+- `print` and `debug` are the two things crossing the runtime boundary
+  (`src/builtin.ml`). `print` is `console.log` under node, and in a
+  browser writes through the `io` library's own implementation, which
+  a page embedding the program may replace. `debug` is `console.error`
+  everywhere, and `--release` removes it.
 - Least optimal at: integer range — a JavaScript number is a double, so
   a program past the signed 32-bit range prints what double arithmetic
   gives — and renaming more shadowed bindings than JavaScript strictly
@@ -33,22 +34,52 @@
 | `web24` | `web` | `foo.js`, `pyk-runtime.js`, `foo.html` | a browser, over HTTP |
 | `iweb24` | `iweb` | `foo.html`, `pyking.js`, the `.pyk` sources | a browser, over HTTP |
 
-**`node24` and `web24` emit the same JavaScript.** Both are ES modules,
-both print with `console.log`, and both compile a Pyking module to a
-`.js` module of its own. The only difference is the entry point: `web24`
-adds an HTML file that loads the program, and nothing else.
+**`node24` and `web24` emit the same JavaScript** for a program's own
+modules. Both are ES modules, and both compile a Pyking module to a
+`.js` module of its own. They differ in the entry point -- `web24` adds
+an HTML file that loads the program -- and in the shared
+`pyk-runtime.js`, which is where `print` goes (see "Standard output in a
+browser" below).
 
 ```html
 <!doctype html>
 <html lang="en">
 <meta charset="utf-8">
 <title>foo.pyk</title>
-<script type="module" src="./foo.js"></script>
+<script type="module">
+import { flush } from './io_external.js';
+try {
+  await import('./foo.js');
+} catch (error) {
+  if (error === null || error.pykExit === undefined) throw error;
+  if (error.pykExit !== 0) console.log(`exited with status ${error.pykExit}`);
+} finally {
+  flush();
+}
+</script>
 ```
 
 That is the whole page. Output goes to the browser console, not onto the
 page: what a compiled program prints is what `node foo.js` prints, and a
 reader comparing the two should not have to account for a difference.
+The loader writes out a line `io.write` left unfinished once the program
+stops, and reports a `sys.exit` whose status is not 0.
+
+### Standard output in a browser
+
+In a browser `print` is not `console.log` directly: it writes through
+`write_line` in the `io` library's browser implementation,
+`lib/io/io_external_browser.js`, copied beside the program as
+`io_external.js` whether or not the program imports `io`. That one file
+is where a page's standard output is, so a page embedding the program --
+the playground, a notebook -- replaces it, and `print` and `io.write`
+share one stream in order. The implementation writes to `console.log` a
+line at a time, since `console.log` always ends a line: `io.write` holds
+text back until a newline completes it, and `flush` writes the rest.
+
+`debug` writes with `console.error` on all three targets, which on node
+is standard error. A program compiled with `--release` has no `debug`
+left in it.
 
 **The `package.json` is `node`'s alone.** `{ "type": "module" }` is what
 lets a program be plain `.js` there: node decides a file's module system
@@ -95,18 +126,29 @@ it in the browser:
 ```html
 <script type="module">
 import './pyking.js';
+import * as pykExt_io from './io_external.js';
 
 const sources = {};
 sources['foo.pyk'] = await (await fetch('./foo.pyk')).text();
 
 globalThis.pykSources = sources;
-globalThis.pykExternals = {};
-globalThis.pykOnPrint = (line) => console.log(line.replace(/\n$/, ''));
+globalThis.pykExternals = {io: pykExt_io};
+// `print` writes through the `io` library, as a compiled page's does,
+// and `debug` to the console.
+globalThis.pykOnPrint = (line) => pykExt_io.write(line);
+globalThis.pykOnDebug = (line) => console.error(line.replace(/\n$/, ''));
 
 const result = JSON.parse(pykRunProgram('foo.pyk'));
+pykExt_io.flush();
 if (!result.ok) console.error(result.text);
+else if (result.exit) console.log(`exited with status ${result.exit}`);
 </script>
 ```
+
+`--release` is honoured by the page rather than by a compilation: it
+asks for `pykRunProgram('foo.pyk\nrelease')`, and the page's front end
+removes every call to `debug` before it runs the program, as
+`pyk compile --release` does for a compiled target.
 
 The point is coverage. A backend supports a subset; the interpreter
 supports everything `src/typesystem.ml` accepts, so `for`, `while`,
@@ -131,10 +173,9 @@ in `foo.pyk`'s own directory is the ordinary case, and works.
 **Modules and external modules work exactly as they do for `web24`.**
 Every module's `.pyk` file ships, including an external module's
 declaration — the module system runs in the page, reading those instead
-of a directory. An external module's *implementation* is still
-JavaScript, imported by the page and reached through a host hook, which
-is why `iweb24` runs a program that `pyk foo.pyk` refuses: a terminal
-cannot call JavaScript, and a browser can.
+of a directory. An external module's *implementation* is its browser
+JavaScript, imported by the page and reached through a host hook, where
+`pyk foo.pyk` reaches the OCaml one.
 
 ## What is supported
 
@@ -156,7 +197,7 @@ Refused at compile time, with the source position:
 |---|---|
 | `for` loops | needs the iterable protocol |
 | value-form `x = if c:` / `x = match e:` | a JavaScript block is not an expression, so a value taken from one needs a temporary this backend does not build |
-| `str`, `len`, `range` | no JavaScript standard-library shim yet |
+| `len`, `range` | no JavaScript standard-library shim yet |
 
 `++` is `pykConcat`, which looks at its left operand: a Pyking list is
 an array and JavaScript's `+` would stringify one, so which of the two
@@ -493,20 +534,34 @@ zone, the backend renames whenever a name is already in scope. That is
 always correct and sometimes unnecessary, so generated code occasionally
 says `x2` where plain `x` would have been fine.
 
-### `str`, `range` and `len`
+### The conversions
+
+`string(x)` is the runtime's own `pykFormat` -- or `pykFloatStr` and
+`pykShaped` where a Float is in it -- which is what `print` writes with.
+`String(x)` is not Pyking's `string`: the two disagree about tuples and
+about how a Float is written.
+
+`int`, `float` and `bool` go by the argument's type. A number is one
+JavaScript type, so `float` of an Int is the value itself, and a Bool is
+`b ? 1 : 0`. A String goes through `pykParseInt` and `pykParseFloat`,
+and `int` of a Float through `pykTrunc`, in `pyk-runtime.js`, since
+`Number` and `parseInt` read strings Pyking does not (`" 3"`, `"0x1F"`)
+and `Math.trunc` answers a NaN where Pyking answers 0. `bool` is a
+comparison: `x === "true"`, or `x === 1`.
+
+### `range` and `len`
 
 ```
-Unsupported by target 'node24': the builtin `str` is not supported yet
+Unsupported by target 'node24': the builtin `len` is not supported yet
 ```
 
-Refused at compile time rather than emitted. `String(x)` is not Pyking's
-`str` — the two disagree about booleans, among other things — and a
-Pyking list is not a JavaScript array here, so `range` and `len` have
-nothing to compile to either. Until they do, a call to one is a compile
-error with a source position; emitting it would produce a file that
-loads and then dies with `str is not defined` at the moment it runs.
+Refused at compile time rather than emitted. A Pyking list is not a
+JavaScript array here, so `range` and `len` have nothing to compile to.
+Until they do, a call to one is a compile error with a source position;
+emitting it would produce a file that loads and then dies at the moment
+it runs.
 
-A program that defines its own `str` is naming its own function and
+A program that defines its own `len` is naming its own function and
 compiles as usual.
 
 ### Functions used before they are written
@@ -645,7 +700,7 @@ import { greet as hello } from './helper.js';
 ```
 
 `pyk-runtime.js` is the one file the program does not get from its own
-source: `print` and the value formatting `builtin.ml` lays
+source: `print`, `debug` and the value formatting `builtin.ml` lays
 down, shared by every module rather than repeated in each.
 
 **Privacy leaves no trace.** JavaScript's own privacy is what a module
@@ -668,30 +723,36 @@ Nothing needs saying in the output.
 
 ## External modules
 
-A module implemented in JavaScript (`sys.js`, declared in
-`sys.external.pyk` -- see [modules.md](modules.md)) is an **ES module**:
-it uses `export`, and the compiler emits `import * as sys from
-'./sys.js'` to reach it.
+A module implemented in JavaScript (declared in `sys_external.pyk` --
+see [modules.md](modules.md)) is an **ES module**: it uses `export`, and
+the compiler emits `import * as sys_external from './sys_external.js'`
+to reach it.
 
 Every JavaScript target emits ES modules, so nothing special is needed
 to reach one: the implementation is imported like any other module and
-copied beside the program's output as `sys.js`.
+copied beside the program's output as `sys_external.js`.
 
-**A browser may need different code from node**, and `sys.web.js` is
-where that goes. The `web` and `iweb` targets look for it first and fall
-back to `sys.js`, so a module needing no browser-specific code writes
-one file and a module needing it writes two. Whichever is found is
-copied out as `sys.js`, which is what the generated import names.
+**A browser needs different code from node**, so a module has one
+implementation for each environment: `sys_external_node.js` for `node24`
+and `sys_external_browser.js` for `web24` and `iweb24`. Either is copied
+out as `sys_external.js`, which is what the generated import names. A
+standard library's browser implementation says on the console what a
+page cannot do ([libraries.md](libraries.md), "In the browser").
+
+`sys.exit` stops a program by throwing an error carrying `pykExit`:
+under node its implementation installs an `uncaughtException` handler
+that makes that the process's status, which writes out everything
+already printed before the process ends -- `process.exit` may drop what
+is still being written to a pipe. In a browser, the page reads it.
 
 Under `iweb24` the implementation is reached from *interpreted* code:
 the page imports it, puts it in `pykExternals`, and the interpreter
-calls through a host hook, with values crossing as JSON. That is why
-`iweb24` runs a program `pyk foo.pyk` refuses -- see
-[modules.md](modules.md), "Running one".
+calls through a host hook, with values crossing as JSON; an exit crosses
+back as `{"pyk_exit": code}`.
 
 One thing an implementation has to know: **a Pyking list and a Pyking
 tuple are both JavaScript arrays**, and the formatter walks values
 rather than reading types, so a list carries `pykList === true` and a
 tuple does not. Returning a plain array where the declaration says
-`[Int]` prints it as a tuple. `tests/external_shapes_mod1.js` is the
-worked example.
+`[Int]` prints it as a tuple. `tests/external_shapes_mod1_external_node.js`
+is the worked example.

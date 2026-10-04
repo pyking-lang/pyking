@@ -7,7 +7,7 @@ y = 2
 z =
     match y:
         case 2: "hi"
-        case xx: str(xx)
+        case xx: string(xx)
 
 print(z)
 

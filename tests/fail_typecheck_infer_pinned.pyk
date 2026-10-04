@@ -1,6 +1,6 @@
 # A parameter its body asked about cannot be used at another type.
 #
-# `announce` calls `str`, which asks what it was given. `str` accepts an
+# `announce` calls `string`, which asks what it was given. `string` accepts an
 # Int, a String or a Bool, but a signature can only name one of them, so
 # the parameter is pinned to what the first call passed and the
 # definition means `(Int) -> String` from then on.
@@ -10,14 +10,14 @@
 # reads exactly like a mismatch against a written one.
 #
 # Annotating `announce` does not help today either -- there is no type
-# to write. Saying "any type `str` accepts" needs something Pyking does
+# to write. Saying "any type `string` accepts" needs something Pyking does
 # not have yet.
 #
 # This program is expected to FAIL type checking. Its `.ast.out` holds
 # the error message, not a program's output.
 
 def announce(value):
-    'got ' ++ str(value)
+    'got ' ++ string(value)
 
 print(announce(1))
 print(announce(true))

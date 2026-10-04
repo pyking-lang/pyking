@@ -6,10 +6,11 @@ publishes them. Two formats:
 | Format | For | Holds |
 |---|---|---|
 | **Homebrew** | macOS 11 or later | a universal `pyk` (Apple Silicon and Intel) and a formula |
-| **Linux** | every distribution, and WSL | a static `pyk` per architecture (x86_64, aarch64), as a tarball and a `.deb` |
+| **Linux** | every distribution, and WSL | a `pyk` per architecture (x86_64, aarch64), linked against glibc 2.28, as a tarball and a `.deb` |
 
-Both hold a `pyk` with no dependencies, and one release on GitHub holds
-every platform's files.
+Both hold a `pyk` that needs nothing but the system's C library, and the
+standard library's interpreter plugins, compiled by the toolchain that
+built that `pyk`. One release on GitHub holds every platform's files.
 
 ```sh
 make packaging-setup     # once: the toolchains the packages are built with
@@ -72,8 +73,13 @@ apt repository, so `apt upgrade` does not update it: install the next
 ### What it needs
 
 Nothing: `pyk` is one binary, linked against macOS's own libraries on a
-Mac and fully static on Linux. Two things need more, and only when used:
+Mac and against glibc 2.28 or later on Linux -- every current
+distribution has it -- and the standard library's plugins ship beside
+it. Three things need more, and only when used:
 
+- Interpreting a program with an external module of its own needs **the
+  OCaml `pyk` was built by** (5.5.0), to compile that module's plugin.
+  `pyk` says so, with the version, if it is missing.
 - `pyk notebook` and `pyk playground` need **Python 3.10 or later** on the
   `PATH` (or named by `$PYTHON`). They say so if it is missing. On WSL,
   the printed link opens in the Windows browser.
@@ -119,7 +125,7 @@ with the one-time setup below done:
    pyking-0.2.0-macos.tar.gz          Homebrew: universal pyk
    homebrew/pyking.rb                 its formula, naming the release
    homebrew-local/pyking.rb           the same, naming the file above
-   pyking-0.2.0-linux-x86_64.tar.gz   Linux: static pyk, per architecture
+   pyking-0.2.0-linux-x86_64.tar.gz   Linux: pyk, per architecture
    pyking-0.2.0-linux-aarch64.tar.gz
    pyking-linux-x86_64.tar.gz         the same two, under the names
    pyking-linux-aarch64.tar.gz          install.sh downloads
@@ -134,14 +140,22 @@ with the one-time setup below done:
    - **macOS:** `pyk` is built twice -- arm64 natively, x86_64 under
      Rosetta -- by toolchains compiled for macOS 11, joined with `lipo`,
      signed ad hoc, and refused if it links anything outside `/usr/lib`
-     and `/System`.
-   - **Linux:** `pyk` is built in an Alpine container per architecture
-     (the other architecture emulated), linked fully static against musl
-     (dune's `static` profile, `src/dune`). It is refused unless its ELF
-     header says it is a static binary for the right architecture, and it
-     is then run -- `pyk --version` and a program -- in a plain Debian
-     container, to show it runs outside the system it was built on. The
-     `.deb` is written directly by `packaging.py`, so no `dpkg` is needed.
+     and `/System`. The library plugins are built the same way: each
+     architecture's `pyk plugins` by its own switch, in a tree of its own,
+     and each plugin's slices joined with `lipo` and signed.
+   - **Linux:** `pyk` is built in an AlmaLinux 8 container per
+     architecture (the other architecture emulated), linked dynamically
+     against its glibc 2.28 -- dynamically because the interpreter loads
+     plugins, which a static binary cannot. It is refused unless its ELF
+     header says it is a dynamically linked binary for the right
+     architecture and it asks for no glibc newer than 2.28
+     (`GLIBC_FLOOR`). Its plugins are then built in the same container
+     with the staged `pyk plugins`, and the staged tree is run --
+     `pyk --version`, a program, and one importing libraries, which
+     loads their plugins -- in current Debian and in Debian 10, to show
+     it runs outside the system it was built on and on the oldest glibc
+     it promises. The `.deb` is written directly by `packaging.py`, so no
+     `dpkg` is needed; it depends on `libc6 (>= 2.28)` and nothing else.
 
    Every format is checked before any is built, so a machine that cannot
    build one says so at once. `FORMATS=linux` (or `homebrew`) builds some
@@ -370,7 +384,8 @@ stages the shipped tree around the machine's own `pyk`, then:
 
 When `tools/packaging/build/` holds packages, it also unpacks them and
 checks each `pyk` -- the Mac's architectures from the Mach-O header, each
-Linux one's architecture and that it is static from the ELF header, which
+Linux one's architecture, that it is dynamically linked and the glibc it
+asks for from the ELF file, and every package's library plugins, which
 needs neither system -- checks `SHA256SUMS` and both formulas against the
 files, and runs what this machine can run. It never runs `brew`, `dpkg -i`
 or a release; `make packaging-install` is the test that installs.

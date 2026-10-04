@@ -43,9 +43,10 @@ respects that, which is what makes the library link.
 ┌──── the entry points ────────────────────────────────────────────────┐
 │                                                                      │
 │  pyk.ml              the driver: argv, the stages, and one of        │
-│                      five commands. Links unix, and with it          │
-│                      repl.ml, execution.ml, web_tools.ml, and        │
-│                      install.ml and version.ml.                      │
+│                      six commands. Links unix and dynlink, and       │
+│                      with them repl.ml, execution.ml,                │
+│                      plugin_host.ml, web_tools.ml, and install.ml    │
+│                      and version.ml.                                 │
 │  web/pyking_web.ml   the playground: the same stages, answering      │
 │                      JSON. Compiled to JavaScript by js_of_ocaml.    │
 │                                                                      │
@@ -60,6 +61,12 @@ respects that, which is what makes the library link.
 │                                  typed into                          │
 │  execution.ml    execute,        what --run builds and runs          │
 │                  pyking_target                                       │
+│  plugin_host.ml  load,           an external module's OCaml          │
+│                  externals,      implementation, loaded as a plugin  │
+│                  build_plugin,                                       │
+│                  set_arguments                                       │
+│  plugin/pyk_plugin.ml            register, find: what a plugin fills │
+│                                  in -- a library of its own          │
 │  web_tools.ml    start, tool     pyk notebook / pyk playground:      │
 │                                  hands over to the tool's server     │
 │  install.ml      root            where lib/, build/, tools/ are      │
@@ -76,12 +83,15 @@ respects that, which is what makes the library link.
 │                              │                                       │
 │                              ▼                                       │
 │  interpreter.ml  the embedding API: run_program, run_modules,        │
+│                  load_modules/bind_imports/with_host,                │
 │                  initial_state/step/run, result/failure/             │
 │                  stack_trace, declare_entry/eval_in, and the         │
 │                  value a prompt or a page shows                      │
 │                              │                                       │
 │                              ▼                                       │
 │  opt_tailcall.ml optimize                                            │
+│  prune.ml        program: what a program uses of its modules         │
+│  release.ml      program: every `debug` out of the AST               │
 │                              │                                       │
 │                              ▼                                       │
 │  typesystem.ml   type_check, and what checking a session one         │
@@ -89,8 +99,9 @@ respects that, which is what makes the library link.
 │  type_experiment.ml   type_check, for the fragment it covers         │
 │                              │                                       │
 │                              ▼                                       │
-│  module.ml       load, make_sigmap, check_publics, the path          │
-│                  helpers, and what a backend is told (context)       │
+│  module.ml       load, load_imports, make_sigmap, check_publics,     │
+│                  the path helpers, and what a backend is told        │
+│                  (context)                                           │
 │  elaborate.ml    program: overloading and implicits out of the AST   │
 │                              │                                       │
 │        ┌──────────┬──────┴─────────┬────────────────┐               │
@@ -110,7 +121,8 @@ respects that, which is what makes the library link.
 │             walk.ml             builtin.ml         names.ml          │
 │             children, fold,     names, pure_names, is_qualified,     │
 │             exists, fold_stmts, lookup,            base, renamed,    │
-│             exists_stmts,       crosses_host       qualifier, field  │
+│             exists_stmts,       crosses_host,      qualifier, field  │
+│                                 is_debug                             │
 │             name_field                                               │
 │                    │                                                 │
 │                    ▼                                                 │
@@ -161,10 +173,14 @@ compile, with the crossing named at each step:
    │                                                    sigmap
    │
    ├─ pyk <file>
-   │    └─ Interpreter.run_modules units Interpreter.console_host
-   │         then Interpreter.failure / .stack_trace
+   │    ├─ Plugin_host.load units, .set_arguments     each external
+   │    │                                             module's plugin
+   │    └─ Interpreter.run_modules units host         host: Plugin_host
+   │         then Interpreter.failure / .stack_trace   .externals
    │
    └─ pyk compile -t <target>
+        ├─ --release, per module: Release.program tmap stmts
+        ├─ C and Java: Prune.program units
         ├─ Target_python.translate_program stmts tmap
         │    └─ Target_python.pprint_py_program
         ├─ Target_js_core.translate_program ~taken stmts
@@ -203,10 +219,11 @@ Three crossings are worth naming because they are not the pipeline:
 
 The two other front ends call the same library functions the driver
 does. `repl.ml` is the only caller of the type checker's entry-at-a-time
-half (`builtin_env`, `empty_store`, `declare_functions`, `check_stmt`,
-`check_expr`, `zonk`, `displayed`, `settled_type`) and of the
-interpreter's (`initial_state`, `declare_entry`, `eval_in`, `result`,
-`bindings_in_scope`); `web/pyking_web.ml` calls `Module.load` with its
+half (`builtin_env`, `empty_store`, `declare_functions`, `import_env`,
+`check_stmt`, `check_expr`, `zonk`, `displayed`, `settled_type`), of the
+interpreter's (`initial_state`, `declare_entry`, `eval_in`,
+`load_modules`, `bind_imports`, `with_host`, `result`,
+`bindings_in_scope`) and of `Module.load_imports`; `web/pyking_web.ml` calls `Module.load` with its
 own `sources`, so a program of several modules can run in a page with no
 filesystem under it.
 
@@ -237,11 +254,14 @@ Beyond that:
 | `cprogram`, `jprogram`, `oprogram`, `pyprogram` | the four other backends | abstract | `translate_program` is the only thing that makes one and the printer the only thing that reads one |
 | `Elaborate.program` | `elaborate.mli` | -- | takes `qmap` and `tmap` and answers the rewritten module and an extended `tmap`; the pass keeps nothing |
 | `Repl.session`, `.reader` | `repl.mli` | abstract | `start`'s own parameters, for driving a session without a terminal |
+| `Plugin_host.unit_` | `plugin_host.mli` | public | the driver and the REPL build one per external module from what it declared |
+| `Release.program`, `Prune.program` | `release.mli`, `prune.mli` | -- | each takes a module (or a program) and answers it rewritten; neither keeps anything |
 
 **`Typesystem.store` is the one interface here that is wider than it
 should be.** It is the whole of what inference has worked out — eleven
-fields — and `repl.ml` needs exactly one of them: it starts each entry
-with an empty `tmap` and reads the table back afterwards. Two accessors
+fields — and `repl.ml` needs two of them: it starts each entry
+with an empty `tmap` and reads the table back afterwards, and it adds
+what each module an entry imports exports to `modules`. Two accessors
 in `typesystem.ml` (`tmap` of a store, and a store with an empty one)
 would let the type be abstract like the interpreter's `env`. Until then
 the fields are visible, and nothing but `repl.ml` reads them.

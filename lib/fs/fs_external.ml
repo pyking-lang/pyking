@@ -1,5 +1,5 @@
 (* The OCaml implementation of the Pyking module declared in
-   fs.external.pyk. OCaml's own module name comes from this file's name,
+   fs_external.pyk. OCaml's own module name comes from this file's name,
    which is what the generated code refers to.
 
    `Sys` is written `Stdlib.Sys`, and has to be: a Pyking module
@@ -8,7 +8,7 @@
    directory, and an unqualified `Sys.file_exists` would resolve to
    *that* one. *)
 
-(* Reading a file that is not there is undefined (fs.external.pyk), and
+(* Reading a file that is not there is undefined (fs_external.pyk), and
    the empty string is this host's version of undefined: there is no
    value in Pyking that means "no file". *)
 let read_text filename =

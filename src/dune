@@ -7,26 +7,18 @@
 ; docs/build.md). The library is unwrapped, so its modules are reached
 ; by their own names -- `Parser.parse`, not `Pyking.Parser.parse`.
 ;
-; The executable adds the three modules that do talk to the outside
-; world -- the driver, `--run`, and the REPL with its editor -- and they
-; are the only ones that link `unix`.
+; The executable adds the modules that do talk to the outside world --
+; the driver, `--run`, the REPL with its editor, and the plugin host that
+; loads an external module's OCaml implementation -- and they are the
+; only ones that link `unix` and `dynlink`.
 ;
 ; Warnings are on but never fatal, so a build fails only on a real
 ; error.
-;; `--profile static` is for the Linux packages only
-;; (tools/packaging/linux/Dockerfile): it links pyk with no shared
-;; library at all, which musl makes possible. Every other build is
-;; unaffected.
-(env
- (static
-  (link_flags
-   (:standard -ccopt -static))))
-
 (library
  (name pyking)
  (wrapped false)
  (modules targets lexer names syntax walk builtin analyses desugar_args parser module
-   typesystem elaborate opt_tailcall interpreter target_python target_js_core target_js_packaging target_ocaml target_c target_java type_experiment)
+   typesystem elaborate release prune opt_tailcall interpreter target_python target_js_core target_js_packaging target_ocaml target_c target_java type_experiment)
  (flags
   (:standard -warn-error -a)))
 
@@ -41,9 +33,13 @@
    version.ml
    (echo "let version = \"%{read-lines:../VERSION}\"\n"))))
 
+;; dynlink is for the interpreter's plugins (src/plugin_host.ml), and
+;; -linkall puts every module of the standard library and of unix into
+;; the executable, since a plugin may use one pyk itself never does.
 (executable
  (name pyk)
- (modules pyk execution repl stdlib_host web_tools install version)
- (libraries pyking unix)
+ (modules pyk execution repl plugin_host web_tools install version)
+ (libraries pyking pyk_plugin unix dynlink)
+ (link_flags (:standard -linkall))
  (flags
   (:standard -warn-error -a)))

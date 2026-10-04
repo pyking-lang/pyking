@@ -152,6 +152,23 @@
 .pyk-output .note { color: var(--pyk-dim); }
 .pyk-output .err  { color: var(--pyk-bad); }
 .pyk-output .good { color: var(--pyk-good); }
+/* What `debug` wrote, kept apart from what the program printed, and a
+   line the program read, echoed as a terminal would show it. */
+.pyk-output .debug { color: var(--pyk-dim); font-style: italic; }
+.pyk-output .input { color: var(--pyk-accent); }
+.pyk-input-text, .pyk-input-line {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--pyk-edge);
+  border-radius: 4px;
+  padding: .4rem .5rem;
+}
+.pyk-input-text { resize: vertical; }
+.pyk-input-buttons { gap: .5rem; }
 .pyk-hidden { display: none !important; }
 
 /* --- drag handles between the three panes --- */

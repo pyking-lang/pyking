@@ -1,0 +1,7 @@
+# `debug` formats a value exactly as `print` does -- a list, a tuple, a
+# string inside one quoted -- and writes it to standard error.
+
+pairs = [(1, "one"), (2, "two")]
+debug(pairs)
+debug((true, [1.5, 2.0]), "and", ())
+print(pairs)

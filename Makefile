@@ -1,6 +1,7 @@
 # The Pyking compiler.
 #
-#   make            build the compiler and build/pyking.js
+#   make            build the compiler, build/pyking.js and the library
+#                   plugins the interpreter loads
 #   make test       the compiler's own test suite, run in parallel
 #                   (TARGET=c23 or TARGET=c for one target or family)
 #   make stest      the same suite, one test at a time
@@ -11,14 +12,15 @@
 # Run `make help` for the full list. The compiler is OCaml in src/,
 # built by dune into the executable this directory calls ./pyk.
 
-.PHONY: all help build test stest check-node playground notebook vendor \
+.PHONY: all help build libs test stest check-node playground notebook vendor \
 	packaging packaging-setup packaging-install packaging-uninstall \
 	release \
 	clean clean-pycache clean-build distclean
 
 # `make` builds the compiler: it is the one thing someone typing `make`
-# in a compiler's directory is asking for.
-all: build
+# in a compiler's directory is asking for. The standard library's
+# plugins are part of that, since the interpreter loads them.
+all: build libs
 
 # dune writes the executable into _build/default/src, where nobody would
 # think to run it from, so it is copied out to ./pyk. `cp -f` rather than
@@ -46,15 +48,27 @@ build:
 	  echo "       keep _build/, ./pyk and build/ out of whatever syncs the"; \
 	  echo "       tree; .gitignore already lists all three."; \
 	  exit 1; }
-	@mkdir -p build
+	@mkdir -p build build/plugin
 	@cp -f _build/default/src/web/pyking_web.bc.js build/pyking.js
-	@echo "build: ./pyk and build/pyking.js"
+	@cp -f _build/default/src/plugin/.pyk_plugin.objs/byte/pyk_plugin.cmi \
+	  build/plugin/pyk_plugin.cmi
+	@echo "build: ./pyk, build/pyking.js and build/plugin/"
+
+# The interpreter reaches a library implemented in a target language
+# through its OCaml implementation, compiled to a plugin it loads
+# (src/plugin_host.ml). This builds one beside each implementation under
+# lib/, so the standard library runs with no OCaml installed; a plugin
+# already newer than what it is built from is left alone.
+libs: build
+	@./pyk plugins lib
 
 # Kept in the same shape as `make -C tools/playground help`, so the two
 # read alike. Both are hand-written and neither has anything to generate
 # them from, so update this list whenever a target is added or renamed.
 help:
-	@echo "make              build the compiler into ./pyk"
+	@echo "make              build the compiler into ./pyk, then make libs"
+	@echo "make libs         compile each lib/*/<name>_external.ml into the"
+	@echo "                  plugin the interpreter loads, <name>_external.cmxs"
 	@echo "make test         all six suites, then a combined summary: every"
 	@echo "                  tests/*.pyk on every target tests/test_cases.toml"
 	@echo "                  lists it for, run in parallel (JOBS=n to say how"
@@ -90,8 +104,8 @@ help:
 	@echo "                          pyking-lang/homebrew-tap, then (asked) the"
 	@echo "                          tag release-<VERSION> in pyking-lang/pyking"
 	@echo "                          (asks first; YES=1 does not)"
-	@echo "make clean        remove generated files: _build/, ./pyk, __pycache__/"
-	@echo "                  and tools/packaging/build/"
+	@echo "make clean        remove generated files: _build/, ./pyk, lib/'s"
+	@echo "                  plugins, __pycache__/ and tools/packaging/build/"
 	@echo "make distclean    also remove tools/webrun/vendor/, the download cache"
 	@echo "                  (refetching it needs the network)"
 	@echo
@@ -211,8 +225,8 @@ distclean: clean
 # the note on `clean` above).
 clean-build:
 	@rm -rf _build build
-	@rm -f pyk
-	@echo "clean: removed _build, build/ and ./pyk"
+	@rm -f pyk lib/*/*_external.cmxs lib/*/*_external.digest
+	@echo "clean: removed _build, build/, ./pyk and lib/'s plugins"
 
 # .venv/ and .git/ are pruned rather than filtered: their caches belong to
 # installed packages and to git, not to anything this repository builds,

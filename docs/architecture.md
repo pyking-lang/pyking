@@ -54,6 +54,9 @@ threaded through rather than state mutated in place.
                     └────────┬────────┘   implicit parameters → ordinary
                              │            arguments, by qmap
                     ┌────────▼────────┐
+                    │ src/release.ml  │   with --release only: every call
+                    └────────┬────────┘   to `debug` removed
+                    ┌────────▼────────┐
                     │src/opt_tailcall │   tail calls → loops, for a program
                     │      .ml        │   the checker accepted; then
                     └────────┬────────┘   symbolize again for what it built
@@ -85,7 +88,9 @@ A program of several modules runs the middle of that pipeline once per
 module, in the order `src/module.ml` puts them in, each checked against
 what the ones it imports export; then every module goes through the
 backend, and a module the program imports is written beside the
-program's own output. See [modules.md](modules.md).
+program's own output. The C and Java backends are given only what the
+program uses of the modules it imports (`src/prune.ml`). See
+[modules.md](modules.md).
 
 Everything above the split is target-independent, and every backend —
 and the interpreter — starts from the same checked AST. The `pyking`
@@ -105,13 +110,15 @@ repl`) rather than a `--target`.
 | `src/lexer.ml` | Characters → tokens. `Info` (file, row/column span) is attached to every token and rides along on every later node, so any stage can report an error against the source. |
 | `src/parser.ml` | Recursive descent, tokens → the AST in `syntax.ml`. Also enforces the few rules the grammar cannot state (duplicate pattern bindings, "every branch of a bound `if` yields a value", one statement per line, what a block written on its header's own line may hold, and where a `break`/`continue` may stand). |
 | `src/syntax.ml` | The AST itself — one variant type per node group — plus a pretty printer that prints Pyking back out. |
-| `src/module.ml` | The module system: which modules a program is made of, in what order, what each exports, and what each import means. Runs first — it is what reads the files at all — and again between checks, since a module is checked against the signature `make_sigmap` took from the last one. Also owns *external* modules: a `<name>.external.pyk` declares what a module implemented in the target's own language offers, and this is where that is resolved, checked and named. |
+| `src/module.ml` | The module system: which modules a program is made of, in what order, what each exports, and what each import means. Runs first — it is what reads the files at all — and again between checks, since a module is checked against the signature `make_sigmap` took from the last one. Also owns *external* modules: a `<name>_external.pyk` declares what a module implemented in the target's own language offers, and this is where that is resolved, checked and named. |
 | `src/desugar_args.ml` | Default parameters and named arguments, removed before anything reasons about the program. A default becomes a generated zero-argument `def` in the block the definition is written in, and an omitted argument becomes a call to it; a named argument is put back in its parameter's position. AST in, AST out, inside `module.load` and before `symbolize`, so no later stage knows the sugar exists and every target supports it. See [desugar_args.md](desugar_args.md). |
 | `src/analyses.ml` | Static passes over the AST. `symbolize` gives every node a unique integer `sym`, rebuilding the tree (nodes are frozen), and runs before anything reasons about the program. `analyze_mutability` runs *after* the checker and applies the one rule a type cannot state: `:=` may only name a `var`, and nothing may shadow one. It only rejects, never rewrites. `Effects` is a third pass the driver never runs: the C and OCaml backends ask it which expressions can print, since their host languages leave evaluation order unspecified. |
 | `src/typesystem.ml` | The type checker, and the only pass that checks *names*: its environment is a scope, so an unbound name is refused here, as an `Analyses.Analysis_error`. It runs for every mode and every target, since Pyking is statically typed — there is no flag and no way round it. It covers only part of the language; it leaves the AST alone and reports what it inferred in `tmap`, a symbol → type table, which is what `-t pyking` then prints from. It answers a second table beside it, `qmap`: what each call it resolved denotes, which is what `elaborate.ml` rewrites the program by. It is given the signature of every module this one imports, and all it sees of another module is that. |
 | `src/names.ml` | The spelling rules for a qualified name (`int::leq`): the one place one is taken apart, and the one place the plain name it compiles to is decided. See [overloading.md](overloading.md). |
 | `src/elaborate.ml` | Overloading and implicits, removed after the checker and before anything else reads the program: a qualified name becomes a plain one, a resolved call names the definition it reaches, and an implicit parameter becomes an ordinary argument. It reads `qmap`, the checker's second table, and extends `tmap` for the nodes it builds -- the checker does not run again. AST in, AST out, so no backend and not the interpreter knows either feature exists. See [implicits.md](implicits.md). |
 | `src/execution.ml` | What `--run` runs: the commands each target's host uses to build and run what was compiled. One table, so the driver stays a sequencer. |
+| `src/release.ml` | `--release`: every call to the builtin `debug` removed, arguments and all -- a call in value position becomes `()`, and a statement is dropped wherever that leaves its block's value as it was. AST in, AST out, after the checker and before the tail-call pass, so no backend knows it exists. See [release.md](release.md). |
+| `src/prune.ml` | What a program uses of the modules it imports: every module but the program's own with the definitions nothing reaches removed, and every import narrowed to the names used. The C and Java targets are given its output, since they compile a subset and a library's unused function must not decide whether a program compiles. See [modules.md](modules.md), "What a program uses". |
 | `src/opt_tailcall.ml` | Tail calls into loops: a function that calls itself in tail position becomes a `loop` carrying its parameters, and a group that tail-calls each other becomes one loop they share. AST in, AST out, after the checker and only for a program it accepted — the types decide which groups can share a loop, and what a slot a narrower member does not fill is entered with. `--no-tail-call-opt` turns it off. |
 | `src/target_python.ml` | Python backend: its own `Py*` AST, translation, printer. |
 | `src/target_js_core.ml` | JavaScript AST, translation, printer — with no knowledge of packaging. Reads `tmap` for one thing only: a JavaScript number cannot say whether Pyking called it an Int or a Float, so the type decides how a printed value is written. |
@@ -120,7 +127,9 @@ repl`) rather than a `--target`.
 | `src/target_java.ml` | Java AST, translation, printer, for `java8`, `java17` and `java21` — one backend with a `version` parameter, the same shape as `target_c.ml`. Infers types the same way; also checks that every function provably returns, since `javac` (unlike C) refuses one that doesn't. |
 | `src/target_ocaml.ml` | OCaml AST, translation, printer. The one backend that infers nothing: it *runs* `typesystem.ml` and reads the types back out of `tmap`, so a program that does not check is refused with the checker's own message. Its subset is nearly all of what the checker accepts, less a short list of shapes OCaml cannot be given (target_ocaml.md, "What is not supported"). Emits no type annotations. |
 | `src/interpreter.ml` | The interpreter: runtime values, environments, and a resumable small-step machine over the AST. Runs the fragment the checker accepts, and is the reference for what a program *means* at run time. |
-| `src/repl.ml` | `pyk repl`: a session as a program written one statement at a time — checked as one program, run one statement at a time. |
+| `src/plugin_host.ml` | How the interpreter reaches a module implemented in a target language: its OCaml implementation, compiled to a plugin (`.cmxs`) and loaded with Dynlink, with each value crossing by its declared type. In the executable, since it starts a process and loads code. See [libraries.md](libraries.md), "How the interpreter reaches an OCaml implementation". |
+| `src/plugin/pyk_plugin.ml` | The registry a loaded plugin fills in: the one module of `pyk` a plugin names, a library of its own linked only into the executable. |
+| `src/repl.ml` | `pyk repl`: a session as a program written one statement at a time — checked as one program, run one statement at a time. An entry's imports are loaded, checked and run into the session. |
 | `src/builtin.ml` | The builtins: each one's name, arity, and whether it crosses the host/IO boundary. Backend-agnostic. |
 | `src/install.ml` | Where this installation keeps `lib/`, `build/` and `tools/`: the executable's directory, with symbolic links resolved, so a package manager's link to `pyk` works. |
 | `src/version.ml` | The version, generated from the root's `VERSION` file by `src/dune`; `pyk --version` prints it. |
@@ -129,8 +138,8 @@ repl`) rather than a `--target`.
 
 ## The builtins and the host boundary
 
-`print`, `range`, `str`, `len`, `float` and `int` are in scope in every
-program and are
+`print`, `debug`, `range`, `string`, `len`, `int`, `float` and `bool`
+are in scope in every program and are
 bound by nothing. `src/builtin.ml` is the one table that says so: each
 one's name, how many arguments it takes, whether calling it can be
 observed outside the program, and what it does. See
@@ -479,6 +488,14 @@ with a target past that range. What each host does, and why none is
 forced to agree, is in
 [targets.md](targets.md#integers-hold-32-bits-and-overflow-is-undefined).
 
+**A host is where output goes and how an external module is reached**:
+`print_line` for `print`, `debug_line` for `debug`, and `externals` for a
+module implemented in a target language. `pyk` gives it the plugins
+`src/plugin_host.ml` loaded; the browser gives it the page's JavaScript.
+`sys.exit` does not go through the machine at all: the OCaml
+implementation ends the process, and in a browser the call answers an
+exit the bundle turns into the end of the run.
+
 `src/interpreter.ml`'s own docstring and [source.md](source.md) carry the
 detail; `design/plan-eval-lsp.md` is where the debugger, DAP and LSP
 built on top of it are planned.
@@ -494,8 +511,8 @@ pages it links to; what follows is the shape of the mechanism.
 |---|---|---|
 | `python14` | `foo.py` | Python's own `print` |
 | `node24` | `foo.js`, `pyk-runtime.js`, `package.json` | `console.log` — `node foo.js` |
-| `web24` | those, plus `foo.html` | `console.log` — the browser's console, over HTTP |
-| `iweb24` | `foo.html`, `pyking.js`, the `.pyk` sources | `console.log`, from the interpreter |
+| `web24` | those, plus `foo.html` and `io_external.js` | the `io` library's browser implementation, which writes to the console, over HTTP |
+| `iweb24` | `foo.html`, `pyking.js`, the `.pyk` sources, `io_external.js` | the same, from the interpreter |
 | `c89` | `foo.c` | `printf`, from a C89-conforming file |
 | `c99` | `foo.c` | `printf`, from a C99 file |
 | `c23` | `foo.c` | `printf`, from a C23 file |
@@ -568,6 +585,7 @@ module fetched over `file://`, and both load one. `--run` starts
 pyk [options] <filename>          run it with the interpreter
 pyk repl                          start the REPL
 pyk compile [options] <filename>  compile it (alias: pyk c)
+pyk plugins <dir>                 build the interpreter's library plugins
 ```
 
 `pyk` at the repository root is the compiled driver itself: `make`
@@ -596,7 +614,13 @@ The flags are shared by every command rather than being per-command, so
 `--tokens` and `--symbols` mean the same thing wherever they are
 written. `--target`/`-t`, `--output`/`-o`, `--stdout` and `--run` only
 affect `pyk compile`, which with none of them writes a file the compiler
-names (see "Naming the output" above).
+names (see "Naming the output" above). `--release` is accepted by `pyk
+compile` alone, and removes every call to `debug`
+([release.md](release.md)).
+
+`pyk plugins <dir>` builds the plugin of every library in a directory of
+libraries beside its OCaml implementation, which is where the
+interpreter looks first; `make libs` runs it over `lib/`.
 
 `--no-typechecking` is the one flag only a single target accepts. It stops
 the front end after `symbolize` — no checker, and so no mutability
@@ -733,6 +757,20 @@ and it is compiled and run only as part of the one that imports it — but
 it is still accounted for, so the "not listed in the manifest" warning
 stays honest.
 
+Four more things a case may say, each where a run's input or a
+program's other output is written down:
+
+- a sibling `<name>.in` is the program's standard input; without one it
+  reads an empty input, never the harness's own;
+- a sibling `<name>.err` is what it must write to standard error --
+  `debug`'s lines -- on every target; without one standard error is not
+  compared;
+- `exit_code = N` is the status it must end with, 0 where it says
+  nothing;
+- `release = true` compiles it with `--release`, and every compiled
+  target must then write nothing to standard error. The interpreter
+  takes no `--release`, so it runs the program as written.
+
 `make test` runs `tests/test_all.py`, which sequences the four suites and
 prints a combined summary at the end. The first of them,
 `tests/test_script.py`, walks that manifest,
@@ -767,12 +805,12 @@ Each target is executed the way a user would run it: `python3` on the
 generated `.py`, `node` on the generated `.js`, `cc -std=… -pedantic` and
 then the binary for `c89`/`c99`/`c23`, `javac --release <8|17|21>` and
 then `java` for `java8`/`java17`/`java21`, `ocamlopt -w +a` and then
-the binary for `ocaml5.5`. `web24` runs the module its page loads, under
-node — the page is a loader and the program prints to the console, so
-what runs is the same program either way — and `iweb24` runs its page's
-own three lines of glue with node's filesystem in place of `fetch`,
-which exercises the interpreter, the shipped sources and the external
-modules. The JavaScript runners pass `--no-experimental-detect-module`, so node
+the binary for `ocaml5.5`. `web24` runs its page's own loader under node,
+taken out of the page -- the program prints to the console, so what runs
+is the same program either way -- and `iweb24` runs its page's own glue
+with node's filesystem in place of `fetch`, which exercises the
+interpreter, the shipped sources and the external modules, `print`
+writing through the shipped `io` implementation as the page's does. The JavaScript runners pass `--no-experimental-detect-module`, so node
 does not guess whether a `.js` file is an ES module: what is tested is
 what the compiler declares, a `package.json` or a `.mjs` name, rather
 than what a recent node infers and an older one does not.

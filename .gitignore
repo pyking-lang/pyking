@@ -11,3 +11,7 @@ _build/
 /build/
 /pyk
 \.DS_Store
+# The interpreter's plugins, which `make libs` builds beside each
+# library's OCaml implementation.
+lib/*/*_external.cmxs
+lib/*/*_external.digest

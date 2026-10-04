@@ -9,7 +9,7 @@ greeting: String = greet('pyking')
 big: Bool = is_big(5)
 print(doubled, greeting, big)
 def announce(n:Int) -> String:
-    greet(str(double(n)))
+    greet(string(double(n)))
 print(announce(4))
 announced: String = announce(1)
 print(announced ++ '!')

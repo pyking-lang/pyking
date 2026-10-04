@@ -1,0 +1,10 @@
+# `string` of a list and a tuple, which is written the way `print`
+# writes it; the targets without lists and tuples are left out. The
+# conversions of a value read at run time, as a program reading its
+# input would.
+
+print(string([1, 2]), string((1, "a", true)), string([[0.5]]))
+words = ["12", "x", "-3"]
+print([int(w) for w in words])
+print([float(w) for w in ["0.25", "?"]])
+print([bool(w) for w in ["true", "yes"]])

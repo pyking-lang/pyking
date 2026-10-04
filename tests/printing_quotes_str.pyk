@@ -1,13 +1,13 @@
-# printing_quotes.pyk's question asked through `str`, which follows
-# print's own formatting rules (runtime_interface.py). Split out because
-# the JavaScript backends do not support `str` yet.
+# printing_quotes.pyk's question asked through `string`, which follows
+# print's own formatting rules (builtin.ml). Split out because it takes
+# `string` of a list and a tuple, which the C and Java backends refuse.
 
-print(str(["it's"]))
-print(str("it's"))
-print(str(("a\nb", 2)))
-print(str([["a'b"]]))
-print(str([1, 2]))
-print(str(()))
+print(string(["it's"]))
+print(string("it's"))
+print(string(("a\nb", 2)))
+print(string([["a'b"]]))
+print(string([1, 2]))
+print(string(()))
 
 # A string built at run time rather than written as a literal, so
 # nothing can decide its spelling from the source form alone.
@@ -16,4 +16,4 @@ def apostrophe(word: String) -> String:
 
 
 print([apostrophe("cat")])
-print(str([apostrophe("dog")]))
+print(string([apostrophe("dog")]))

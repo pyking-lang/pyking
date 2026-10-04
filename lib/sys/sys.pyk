@@ -2,7 +2,7 @@
 # its environment.
 #
 # The Pyking half of `sys`. What the host provides is declared in
-# sys.external.pyk beside this file and is in scope here unqualified --
+# sys_external.pyk beside this file and is in scope here unqualified --
 # the two files are one module -- so `env()` below is the host's.
 #
 # `env_get` and `env_has` are written here rather than declared so that

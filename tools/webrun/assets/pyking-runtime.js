@@ -22,11 +22,16 @@ export class PykingRuntime {
     // for /assets/pyking/. An absolute URL means the worker can sit
     // anywhere without the caller having to know.
     this.pykingURL = absoluteURL(options.pykingURL || "./pyking/");
+    // The standard library a program imports from, served beside the
+    // compiler bundle.
+    this.libURL = absoluteURL(options.libURL || new URL("../lib/", this.pykingURL).href);
     this.workerURL = options.workerURL || "./assets/pyking-worker.js";
     this.worker = null;
     this.pending = new Map();      // request id -> {resolve, reject}
     this.nextId = 1;
     this.onOutput = null;          // set for the duration of a run
+    this.onDebug = null;           // likewise, for `debug`
+    this.onInput = null;           // likewise, for a line the program read
     this.onStatus = () => {};
     this._starting = null;
     this._ready = false;
@@ -50,7 +55,8 @@ export class PykingRuntime {
 
   async _boot() {
     this._spawn();
-    const booted = await this._send("init", { pykingURL: this.pykingURL });
+    const booted = await this._send("init", {
+      pykingURL: this.pykingURL, libURL: this.libURL });
     this.stamp = booted?.stamp ?? null;
     this._ready = true;
     this._starting = null;
@@ -70,6 +76,8 @@ export class PykingRuntime {
   _receive(message) {
     if (message.type === "status") return this.onStatus(message.message);
     if (message.type === "stdout") return this.onOutput?.(message.text);
+    if (message.type === "debug") return this.onDebug?.(message.text);
+    if (message.type === "stdin") return this.onInput?.(message.text);
     const waiting = this.pending.get(message.id);
     if (!waiting) return;
     this.pending.delete(message.id);
@@ -153,22 +161,42 @@ export class PykingRuntime {
     await this.ready(this.onStatus);
   }
 
+  /** What a program needs before it is run: {ok:true, externals, stdin,
+   *  args} -- the modules it reaches that are implemented in JavaScript,
+   *  and whether what it uses reads standard input or its arguments -- or
+   *  a refusal in `compile`'s own shape. What a page asks to know whether
+   *  to ask for either. */
+  async analyze(source, name = "playground.pyk") {
+    this._require();
+    return this._send("analyze", { source, name });
+  }
+
   /** Run Pyking source with the interpreter, which is what the language
    *  *means* (docs/interpreter.md): every program the checker accepts runs
    *  here, whatever a target can or cannot compile. `onOutput` is called
-   *  with each line as it is printed, so output produced before a hang is
-   *  not lost.
+   *  with each piece of output as it is written, so output produced
+   *  before a hang is not lost; `onDebug` with each `debug` line, and
+   *  `onInput` with each line the program read. `stdin` is what the
+   *  program reads, and `args` what `sys.args()` answers.
    *
-   *  Resolves to {ok:true}, or to a refusal in `compile`'s own shape --
-   *  {ok:false, text, info?} -- since running compiles first and a program
+   *  Resolves to {ok:true, exit?} -- `exit` being the status `sys.exit`
+   *  ended the run with -- or to a refusal in `compile`'s own shape,
+   *  {ok:false, text, info?}, since running compiles first and a program
    *  that does not check is refused the same way either way. */
-  async runProgram(source, { onOutput, name = "playground.pyk" } = {}) {
+  async runProgram(source, {
+    onOutput, onDebug, onInput, name = "playground.pyk", stdin = "", args = [],
+    release = false,
+  } = {}) {
     this._require();
     this.onOutput = onOutput || null;
+    this.onDebug = onDebug || null;
+    this.onInput = onInput || null;
     try {
-      return await this._send("run", { source, name });
+      return await this._send("run", { source, name, stdin, args, release });
     } finally {
       this.onOutput = null;
+      this.onDebug = null;
+      this.onInput = null;
     }
   }
 
@@ -232,7 +260,7 @@ export class JsRunner {
    *  them `code` is -- the worker wires them together and imports it.
    *  `formatHelper` is the compiler's value formatter (`words()`).
    *  Resolves when the program finishes; rejects if it threw. */
-  run(code, { files = {}, main, onOutput, formatHelper = "" } = {}) {
+  run(code, { files = {}, main, onOutput, onDebug, formatHelper = "" } = {}) {
     this.stop();
     return new Promise((resolve, reject) => {
       // A module worker: generated code is imported as a real module,
@@ -246,6 +274,7 @@ export class JsRunner {
       };
       worker.onmessage = ({ data }) => {
         if (data.type === "stdout") onOutput?.(data.data);
+        else if (data.type === "debug") (onDebug ?? onOutput)?.(data.data);
         else if (data.type === "done") finish(resolve, undefined);
         else if (data.type === "failed") finish(reject, new Error(data.data));
       };

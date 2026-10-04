@@ -142,7 +142,7 @@ much a literal value as `123' is, not a keyword like `if' or `return'.")
   "Regexp matching any name in `pyking-mode-constants' as a whole symbol.")
 
 (defconst pyking-mode-builtins
-  '("print" "range" "str" "len" "float" "int")
+  '("print" "debug" "range" "string" "len" "float" "int" "bool")
   "Well-known Python builtin function names used in Pyking source.
 
 Pyking's own grammar has no notion of a builtin -- any identifier can be

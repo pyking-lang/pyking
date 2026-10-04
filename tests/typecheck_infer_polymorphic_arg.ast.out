@@ -7,7 +7,7 @@ def map(f:(a) -> b, lst:[a]) -> [b]:
         case []:
             []
 def show(n:Int) -> String:
-    'n=' ++ str(n)
+    'n=' ++ string(n)
 print(id(4), id('hi'))
 print(map(id, [1, 2, 3]))
 print(map(show, [4, 5]))

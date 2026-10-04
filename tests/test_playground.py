@@ -83,8 +83,9 @@ const check = (label, ok, detail) => {
 // 1. The entry points the page calls. stub.js registers them on the
 //    global object; a rename in src/web/pyking_web.ml that the page was
 //    not told about looks like this.
-for (const name of ["pykCompile", "pykRun", "pykRunProgram", "pykTargets",
-                    "pykFormatHelper", "pykKeywords", "pykBuiltins"]) {
+for (const name of ["pykCompile", "pykRun", "pykRunProgram", "pykAnalyze",
+                    "pykTargets", "pykFormatHelper", "pykKeywords",
+                    "pykBuiltins"]) {
   check("entry point " + name, typeof globalThis[name] === "function",
         "not registered on the global object");
 }
@@ -132,6 +133,18 @@ check("the smoke program's output",
         JSON.stringify(plan.smokeOutput),
       JSON.stringify(printed));
 
+// 3b. In a browser `print` writes through the `io` library's own
+//     implementation, so a `web` program ships it -- read, as the page's
+//     worker reads it, from the library beside the tools.
+globalThis.pykLibraryFile = (path) =>
+  fs.readFileSync(plan.lib + "/" + path, "utf8");
+const page = JSON.parse(pykCompile(plan.smoke, "web24", "smoke.pyk"));
+check("a web program ships io_external.js",
+      page.ok && typeof page.files?.["io_external.js"] === "string"
+        && page.files["io_external.js"].includes("export function write_line"),
+      JSON.stringify(Object.keys(page.files ?? {})));
+delete globalThis.pykLibraryFile;
+
 // 4. Every example the page offers, on every target it claims. A
 //    `fail_typecheck_*` example is offered to be *refused*, and every
 //    target checks the program, so one of them answering is enough.
@@ -171,6 +184,7 @@ def plan():
         "leftOut": sorted(playground.NOT_IN_THE_PAGE),
         "smoke": SMOKE,
         "smokeOutput": SMOKE_OUTPUT,
+        "lib": str(REPO / "lib"),
         "examples": [
             {
                 "file": entry["file"],

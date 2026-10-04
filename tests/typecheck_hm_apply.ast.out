@@ -5,7 +5,7 @@ def id(x:a) -> a:
 def bump(n:Int) -> Int:
     n + 1
 def show(n:Int) -> String:
-    'n=' ++ str(n)
+    'n=' ++ string(n)
 print(apply(id, 3))
 print(apply(id, 'hi'))
 print(apply(bump, 1))

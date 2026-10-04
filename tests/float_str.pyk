@@ -1,17 +1,17 @@
-# `str` on a Float, which writes exactly what `print` writes.
+# `string` on a Float, which writes exactly what `print` writes.
 #
-# Kept apart from the other Float cases because the JavaScript, C and
-# Java backends refuse `str` altogether, so a program using it reaches
+# Kept apart from the other Float cases because it takes `string` of a
+# list and a tuple, which the C and Java backends refuse, so it reaches
 # fewer targets than the Float support itself does.
 
-print(str(1.0))
-print(str(0.1))
-print(str(1e300))
-print("value: " ++ str(-2.5))
+print(string(1.0))
+print(string(0.1))
+print(string(1e300))
+print("value: " ++ string(-2.5))
 
 zero: Float = 0.0
 one: Float = 1.0
-print(str(one / zero))
-print(str(zero / zero))
-print(str([1.0, 0.5]))
-print(str((1.0, 2)))
+print(string(one / zero))
+print(string(zero / zero))
+print(string([1.0, 0.5]))
+print(string((1.0, 2)))

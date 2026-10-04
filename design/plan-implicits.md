@@ -72,7 +72,7 @@ Switching to a generated `def` is a change to one function in
 | 19 | Auto-import is **not transitive** | What is in scope stays what this file says. The cost -- a library cannot re-export another's orderings -- is stated in PYKING.md rather than fixed |
 | 20 | After `import mod`: `int::leq(...)` works unqualified, and `mod.leq(...)` resolves among `mod`'s public `q::leq` | Both are the same rule applied in the two places a name can be written |
 | 21 | Two imported modules exporting the same implicit is an error **only when a resolution finds two fits** | Implicits arrive silently, so an eager collision check would make two unrelated libraries un-importable together |
-| 22 | A `.external.pyk` declaration may be `implicit`; `check_boundary_type` keeps refusing what it already refuses | An implicit *function* cannot cross a boundary that refuses function types anyway, so this costs one flag and no rule |
+| 22 | A `_external.pyk` declaration may be `implicit`; `check_boundary_type` keeps refusing what it already refuses | An implicit *function* cannot cross a boundary that refuses function types anyway, so this costs one flag and no rule |
 | 23 | `sigmap` becomes `(string * typ * bool) list` -- the third component is implicitness | Implicitness is a property of the binding, not of the type, and the sigmap is internal |
 
 ## Decisions: lambdas, and the pipeline

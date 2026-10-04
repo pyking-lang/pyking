@@ -1,5 +1,5 @@
 /* The C implementation of the Pyking module declared in
-   external_float_mod1.external.pyk. A Pyking Float is a double, which
+   external_float_mod1_external.pyk. A Pyking Float is a double, which
    both C standards spell the same way -- so unlike a Bool, this file
    needs nothing to serve c89 and c23 alike. */
 

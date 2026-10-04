@@ -1,0 +1,18 @@
+# The io library's input half, reading lib_io_read.in. A line comes
+# without its line ending; `read` takes all that is left; and at the end
+# of the input every read is the empty string, which `is_eof` tells from
+# an empty line.
+
+import io
+
+name = io.read_line("Name? ")
+print()
+print("hello,", name)
+print("more to come:", io.is_eof() == false)
+print("second:", io.read_line())
+blank = io.read_line()
+print("an empty line:", blank == "", "and not the end:", io.is_eof() == false)
+rest = io.read()
+print("the rest:", rest)
+print("now at the end:", io.is_eof())
+print("a line there:", io.read_line() == "", "and all of it:", io.read() == "")

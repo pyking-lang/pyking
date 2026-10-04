@@ -1,5 +1,5 @@
 y = nosuchname
 1 / 0
-import helper
+import io_external
 :type
 :ls

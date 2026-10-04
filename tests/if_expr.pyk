@@ -8,7 +8,7 @@ def clamp(x, lo, hi):
 
 def label(n):
     prefix = if n < 10 then "small " else "big "
-    return prefix ++ str(n)
+    return prefix ++ string(n)
 
 
 print(sign(-5))
@@ -29,7 +29,7 @@ print(if if 1 < 2 then true else false then "yes" else "no")
 print(if 1 < 2 then if 3 < 4 then "both" else "first" else "neither")
 
 # Inside a call argument, a list, and a tuple.
-print(str(if 2 > 1 then 10 else 20))
+print(string(if 2 > 1 then 10 else 20))
 print([if 1 < 2 then "a" else "b", if 2 < 1 then "c" else "d"])
 print((if 1 < 2 then 1 else 2, 9))
 

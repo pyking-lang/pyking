@@ -60,7 +60,8 @@ self.onmessage = async (event) => {
     formatInstalled = true;
   }
   console.log = (...args) => send("stdout", args.join(" ") + "\n");
-  console.error = console.log;
+  // `debug` writes with console.error, and the page shows it apart.
+  console.error = (...args) => send("debug", args.join(" ") + "\n");
   let urls = {};
   try {
     // The pane's text wins: the user may have edited what is displayed.
@@ -68,6 +69,9 @@ self.onmessage = async (event) => {
     urls = link(program, main);
     if (!urls[main]) throw new Error("could not resolve the program's imports");
     await import(urls[main]);
+    // What the page loader does when a `web` program stops: write out a
+    // line `io.write` left unfinished.
+    if (urls["io_external.js"]) (await import(urls["io_external.js"])).flush?.();
     send("done");
   } catch (err) {
     send("failed", err && err.message ? err.message : String(err));

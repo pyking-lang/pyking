@@ -7,7 +7,7 @@
 def inner(xss:[[Int]]) -> String:
     answer = match xss:
         # The element of the outer list is itself split.
-        case [[a] ++ more] ++ rest: "first row starts " ++ str(a)
+        case [[a] ++ more] ++ rest: "first row starts " ++ string(a)
         case [] : "no rows"
         case _: "other"
     return answer
@@ -16,7 +16,7 @@ def inner(xss:[[Int]]) -> String:
 def tagged(p:(String, [Int])) -> String:
     answer = match p:
         # A `++` pattern on each side of a tuple at once.
-        case ("id:" ++ name, [n] ++ _): name ++ "=" ++ str(n)
+        case ("id:" ++ name, [n] ++ _): name ++ "=" ++ string(n)
         case ("id:" ++ name, []): name ++ "=none"
         case (other, _): "?" ++ other
     return answer
@@ -56,5 +56,5 @@ print(tagged(("id:x", [7])), tagged(("id:y", [])), tagged(("nope", [1])))
 print(both_ends("(hi)"), both_ends("[hi]"), both_ends("hi"))
 print(peel("ababc"), peel("xyz"), peel("abab"))
 print(depth([1, 2, 3, 4, 5]))
-print([str(a) for [a] ++ _ in rows])
+print([string(a) for [a] ++ _ in rows])
 print([n for "id:" ++ n in words])

@@ -8,9 +8,9 @@ def classify3(t:(Int, Int, Int)) -> String:
     match t:
         case (0, 0, 0):
             return "zero vector"
-        case (x, 0, 0): "on x axis: " ++ str(x)
+        case (x, 0, 0): "on x axis: " ++ string(x)
         case (x, y, z):
-            return "general: " ++ str(x + y + z)
+            return "general: " ++ string(x + y + z)
 
 
 def unpack_nested(data):

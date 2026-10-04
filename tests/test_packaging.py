@@ -14,6 +14,9 @@ Then, from a directory outside the repository:
   - `pyk --version` says the version in VERSION;
   - a program runs, and a program importing the standard library
     compiles, which needs lib/ found through the links;
+  - the standard library runs under the interpreter from the plugins
+    the tree ships, compiled beside it by `build_plugins` -- none is
+    compiled again into the cache;
   - the `iweb24` target compiles, which needs build/pyking.js;
   - `pyk notebook` and `pyk playground` start and serve their pages;
   - the tree holds what it should and nothing else;
@@ -29,8 +32,9 @@ macOS, and uninstalling. SHA256SUMS and the ELF reader are checked too.
 
 The last part runs only when tools/packaging/build/ holds packages
 (`make packaging`): it unpacks each one, checks its `pyk` -- the Mac's
-architectures from the Mach-O header, each Linux one's architecture and
-that it is static from the ELF header, which needs neither system --
+architectures from the Mach-O header, each Linux one's architecture,
+that it is dynamically linked and the glibc it asks for from the ELF
+file, and each package's library plugins, which needs neither system --
 checks SHA256SUMS and both formulas against the files, and runs what
 this machine can run. It never runs `brew`, `dpkg -i` or a release.
 
@@ -77,6 +81,11 @@ HELLO_OUTPUT = "hello from the package 3\n"
 # A program that imports the standard library: compiling it at all means
 # lib/ was found beside the resolved executable.
 IMPORTS = "import sys\n\nprint(len(sys.args()))\n"
+# One that runs the standard library through the interpreter, which loads
+# each library's plugin from the tree.
+LIBRARY = ('import io\nimport sys\nio.write_line("read " ++ io.read_line())\n'
+           'print(sys.args())\n')
+LIBRARY_OUTPUT = "read typed\n['a', 'b']\n"
 
 
 class Checks:
@@ -124,6 +133,7 @@ def check_stage(check, compiler):
         tree = root / "Cellar" / "pyking" / version / "libexec"
         try:
             packaging.stage(compiler, tree, vendor=vendored)
+            plugins = packaging.build_plugins(tree)
         except packaging.Refusal as refusal:
             check("the tree stages", False, str(refusal))
             return
@@ -131,9 +141,13 @@ def check_stage(check, compiler):
         # beside a script it runs.
         files = {str(p.relative_to(tree)) for p in tree.rglob("*") if p.is_file()}
         for wanted in ["pyk", "LICENSE", "PYKING-TUTORIAL.md", "build/pyking.js",
-                       "lib/sys/sys.pyk", "tools/webrun/server.py",
+                       "build/plugin/pyk_plugin.cmi", "lib/sys/sys.pyk",
+                       "lib/io/io_external.cmxs", "tools/webrun/server.py",
                        "tools/notebook/notebook.py", "tools/playground/playground.py"]:
             check(f"the tree holds {wanted}", wanted in files)
+        check("every library with an OCaml implementation has its plugin",
+              all(plugin.exists() for plugin in plugins) and len(plugins) >= 4,
+              ", ".join(str(p.relative_to(tree)) for p in plugins))
         stray = sorted(f for f in files if f.endswith(("~", ".DS_Store", "Makefile",
                                                         "e2e.mjs", ".pyc"))
                        or f.startswith("tests/") or "/#" in f)
@@ -157,6 +171,20 @@ def check_stage(check, compiler):
         result = run([pyk, "compile", "-t", "pyking", "--stdout", "imports.pyk"], work, env)
         check("the standard library is found through the links",
               result.returncode == 0, result.stderr.strip())
+        # The plugins the tree ships are the ones loaded: with a cache of
+        # its own, which a plugin compiled on demand would be written to,
+        # the interpreter leaves it empty.
+        (work / "library.pyk").write_text(LIBRARY)
+        cache = root / "cache"
+        cache.mkdir()
+        result = subprocess.run([pyk, "library.pyk", "--", "a", "b"], cwd=work,
+                                env=dict(env, XDG_CACHE_HOME=str(cache)), input="typed\n",
+                                capture_output=True, text=True, timeout=TIMEOUT)
+        check("the interpreter runs the standard library from its plugins",
+              result.stdout == LIBRARY_OUTPUT, result.stdout + result.stderr)
+        check("the plugins it loads are the tree's own, compiled for it",
+              not any(cache.rglob("*.cmxs")),
+              ", ".join(str(p) for p in cache.rglob("*.cmxs")))
         result = run([pyk, "compile", "-t", "iweb24", "-o", "page.html", "hello.pyk"],
                      work, env)
         check("build/pyking.js is found for the iweb24 target",
@@ -259,7 +287,9 @@ def check_deb(check, tree):
                             ("Recommends", f"python3 (>= {packaging.PYTHON_MINIMUM})")]:
             check(f"the .deb's control says {key}: {wanted}", fields.get(key) == wanted,
                   fields.get(key, "(missing)"))
-        check("the .deb depends on nothing", "Depends" not in fields)
+        floor = ".".join(map(str, packaging.GLIBC_FLOOR))
+        check("the .deb depends on the C library alone",
+              fields.get("Depends") == f"libc6 (>= {floor})", fields.get("Depends", "(missing)"))
         data = tarfile.open(fileobj=io.BytesIO(members[2][1]))
         link = data.getmember("./usr/bin/pyk")
         check("the .deb links /usr/bin/pyk into /usr/lib/pyking",
@@ -411,8 +441,17 @@ def check_built(check):
             tops = list(Path(directory).iterdir())
             pyk = tops[0] / "pyk" if len(tops) == 1 else Path(directory) / "missing"
             info = packaging.elf_info(pyk) if pyk.exists() else None
-            check(f"{archive.name}'s pyk is a static {arch} binary", info == (arch, True),
-                  str(info))
+            check(f"{archive.name}'s pyk is a dynamically linked {arch} binary",
+                  info == (arch, False), str(info))
+            if pyk.exists():
+                needed = packaging.glibc_needed(pyk)
+                check(f"{archive.name}'s pyk asks for no glibc past the floor",
+                      needed <= packaging.GLIBC_FLOOR, ".".join(map(str, needed)))
+            plugins = sorted(tops[0].glob("lib/*/*_external.cmxs")) if len(tops) == 1 else []
+            check(f"{archive.name} holds the library plugins",
+                  len(plugins) >= 4 and all((packaging.elf_info(p) or ("",))[0] == arch
+                                            for p in plugins),
+                  ", ".join(p.name for p in plugins))
             if platform.system() == "Linux" and HOST_UNAME == u:
                 result = run([pyk, "--version"], directory, dict(os.environ))
                 check(f"{archive.name}'s pyk runs here",
@@ -453,6 +492,11 @@ def check_built(check):
             check(f"{name} holds the web tools and the library",
                   (tops[0] / "tools" / "notebook" / "notebook.py").exists()
                   and (tops[0] / "lib").is_dir() and (tops[0] / "build" / "pyking.js").exists())
+            plugins = sorted(tops[0].glob("lib/*/*_external.cmxs"))
+            check(f"{name} holds the library plugins, each {' + '.join(wanted)}",
+                  len(plugins) >= 4 and all(sorted(packaging.macho_archs(p)) == wanted
+                                            for p in plugins),
+                  ", ".join(f"{p.name} {packaging.macho_archs(p)}" for p in plugins))
             if sys.platform == "darwin" and platform.machine() in wanted:
                 result = run([pyk, "--version"], directory, dict(os.environ))
                 check(f"{name}'s pyk runs here",

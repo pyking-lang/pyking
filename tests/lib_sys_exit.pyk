@@ -1,0 +1,16 @@
+# sys.exit ends the program at once with the status given -- 3 here,
+# which the manifest's `exit_code` expects -- after writing out what
+# was printed so far. Nothing after the call runs.
+
+import sys
+
+def check(n: Int):
+    if n > 2:
+        print("stopping at", n)
+        sys.exit(3)
+    print("checked", n)
+
+check(1)
+check(2)
+check(3)
+print("never printed")

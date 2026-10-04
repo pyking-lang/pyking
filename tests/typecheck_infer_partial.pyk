@@ -12,7 +12,7 @@ def scale(n:Int, factor:Int):
 
 # The parameters are missing; the return type is not.
 def label(n) -> String:
-    'n = ' ++ str(n)
+    'n = ' ++ string(n)
 
 # One of each.
 def total(a:Int, b) -> Int:

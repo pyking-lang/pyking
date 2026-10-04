@@ -41,7 +41,7 @@ def show(nodes:[(Int, Int, Int)], index:Int) -> String:
     node = at(nodes, index)
     text = match node:
         case (0, value, _):
-            str(value)
+            string(value)
         case (1, left, right):
             "(" ++ show(nodes, left) ++ " + " ++ show(nodes, right) ++ ")"
         case (2, left, right):

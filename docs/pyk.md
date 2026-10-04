@@ -27,7 +27,7 @@ each know their own business.
 
 `options` is a single record carrying the command, the filename, and
 every flag — `target`, `output`, `stdout`, `run`, `symbols`, `tokens`,
-`tail_calls`, `typecheck`, `type_experiment` — regardless of which command was
+`tail_calls`, `release`, `typecheck`, `type_experiment` — regardless of which command was
 actually invoked. That's a deliberate choice over, say, three different
 per-command option types: it's what makes `--tokens` and `--symbols`
 mean the *same thing* wherever they're written, since there's exactly
@@ -134,6 +134,16 @@ moved carries its own identity through. `--no-tail-call-opt` is the one
 flag that turns a stage *off* rather than asking for output, which is
 why it is documented under `--help` rather than in the usage every
 mistyped command prints.
+
+`--release` is the one that removes something a program wrote: every
+call to `debug`, by `release.ml` over each module after `elaborate.ml`
+and before the tail-call pass. It changes what is *compiled*, so
+`parse_args` refuses it for any command but `compile`, and for
+`--no-typechecking`, since the pass reads the checker's table to tell
+the builtin from a program's own `debug`. The C and Java targets are
+handed what `Prune.program` leaves of the modules a program imports
+(`compile_program`), since both compile a subset and a library's
+function nobody calls must not decide whether a program compiles.
 
 `--no-typechecking` is the second flag that turns a stage off, and it
 turns off four: the module system, the checker, the mutability analysis
@@ -317,6 +327,25 @@ the interpreter.
 `--run` with `--stdout` is refused in `parse_args` rather than here,
 because it is a statement about the *arguments*: `--stdout` writes no
 file, so there is nothing for `--run` to run.
+
+## `pyk <file>`: the interpreter, and the plugins it loads first
+
+`command_interpret` loads the plugin of every module the program reaches
+with a declaration half (`Plugin_host.load`, which refuses one with no
+OCaml implementation, or whose plugin cannot be built or loaded, as a
+`Module error`), sets `Sys.argv` to the program's own file and
+arguments, and runs the modules with a host whose `externals` are those
+plugins. `pyk plugins <dir>` (`command_plugins`) builds plugins ahead of
+time, beside each library's implementation, skipping one whose digest
+says it is current; `make libs` runs it over `lib/`. See
+[libraries.md](libraries.md), "How the interpreter reaches an OCaml
+implementation".
+
+A web program's `print` writes through the `io` library, so
+`compile_program` ships that library's browser implementation with every
+`web24` and `iweb24` program -- found the way an import of `io` would
+find it (`Module.found_implementation`) -- where the program does not
+import `io` itself.
 
 ## `pyk notebook` and `pyk playground`: handed over, not served
 
