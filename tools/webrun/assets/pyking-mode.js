@@ -35,11 +35,11 @@ ace.define("ace/mode/pyking_highlight_rules", [], function (require, exports) {
       start: [
         { token: "comment", regex: "#.*$" },
         // Strings: both quote forms, with the backslash escapes scan_string
-        // decodes. An unterminated literal is marked invalid rather than
-        // swallowing the rest of the file.
+        // decodes. An unterminated literal is a string to the end of its
+        // line rather than swallowing the rest of the file.
         { token: "string", regex: "'(?:[^'\\\\]|\\\\.)*'" },
         { token: "string", regex: '"(?:[^"\\\\]|\\\\.)*"' },
-        { token: "string.invalid", regex: "['\"].*$" },
+        { token: "string", regex: "['\"].*$" },
         { token: "constant.numeric", regex: "\\b\\d+(?:\\.\\d+)?\\b" },
         // `def name` -- colour the name being defined, not just the keyword.
         { token: ["keyword", "text", "entity.name.function"],
