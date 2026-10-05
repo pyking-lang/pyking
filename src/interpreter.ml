@@ -24,6 +24,10 @@
       initial_state stmts host -- a machine about to run stmts.
       step state -- one small step.
       run state steps -- steps until the machine stops or steps run out.
+      apply state callee args -- a function value called in a finished
+        machine, which is how a host delivers an event.
+      callback state info callee args -- the same, answering the value,
+        for a host calling back during an external call.
       run_modules units host -- runs a program of several modules, each
         in a top level of its own, in dependency order.
       load_modules state units exports -- the same, into a machine
@@ -204,10 +208,11 @@ let describe value =
 
 (** How a host reaches a module implemented in a target language: what
     one of its value exports is, and how to call one of its functions.
-    Both take the module's name and the field's. *)
+    Both take the module's name and the field's; `call` is handed
+    first how to call back a Pyking function it was given. *)
 type externals = {
   field : string -> string -> value;
-  call : string -> string -> value list -> value;
+  call : (value -> value list -> value) -> string -> string -> value list -> value;
 }
 
 type host = {
@@ -1041,7 +1046,7 @@ let start_loop state loop =
 
 (** Applies callee (a builtin or closure) to args.
     state -> expr -> value -> [value] -> env -> kont option -> state *)
-let call state call_node callee args env rest =
+let rec call state call_node callee args env rest =
   let info = expr_info call_node in
   match callee with
   | VBuiltin name -> (
@@ -1065,8 +1070,10 @@ let call state call_node callee args env rest =
                module_ field)
       | Some externals -> (
           match
-            try Ok (externals.call module_ field args)
-            with Trap (info, message) -> Error (info, message)
+            try Ok (externals.call (callback state info) module_ field args)
+            with
+            | Trap (info, message) | Runtime_error (info, message) ->
+                Error (info, message)
           with
           | Error (info, message) -> failed state info message
           | Ok value -> { state with control = CApply value; env; kont = rest }))
@@ -1119,10 +1126,26 @@ let call state call_node callee args env rest =
         (Printf.sprintf "this call applies %s, which is not a function"
            (describe callee))
 
+(** Applies callee to args in a machine of its own, sharing state's
+    runtime, and answers the value -- how a host calls back a Pyking
+    function it was handed. A failure raises Runtime_error.
+    state -> info -> value -> [value] -> value *)
+and callback state info callee args =
+  let rec drive state =
+    match state.control with
+    | CDone value -> value
+    | CFailed (info, message) -> raise (Runtime_error (info, message))
+    | _ -> drive (step state)
+  in
+  drive
+    (call
+       { state with control = CApply unit_value; kont = None; stack = None; loops = None }
+       (ETuple (info, [], 0)) callee args state.env None)
+
 (** Evaluates the next argument, or makes the call if todo is empty.
     state -> expr -> value -> [value] -> [expr] -> env -> kont option
     -> state *)
-let start_arguments state call_node callee done_ todo env rest =
+and start_arguments state call_node callee done_ todo env rest =
   match todo with
   | next :: more ->
       {
@@ -1137,7 +1160,7 @@ let start_arguments state call_node callee done_ todo env rest =
     if todo is empty. The two are one path because they differ only in
     what is built at the end.
     state -> expr -> [value] -> [expr] -> env -> kont option -> state *)
-let start_elements state node done_ todo env rest =
+and start_elements state node done_ todo env rest =
   match todo with
   | next :: more ->
       {
@@ -1163,18 +1186,18 @@ let start_elements state node done_ todo env rest =
    comprehension calling a printing function interleave correctly. *)
 
 (** The clauses a comprehension was written with. expr -> [comp_clause] *)
-let comp_clauses node =
+and comp_clauses node =
   match node with EListComp (_, _, clauses, _) -> clauses | _ -> []
 
 (** The element expression a comprehension was written with. expr -> expr *)
-let comp_element node =
+and comp_element node =
   match node with EListComp (_, element, _, _) -> element | _ -> node
 
 (** Drives a comprehension one step: enters the next clause, or takes the
     next item, or builds the list when nothing is left.
     state -> expr -> [(int, [value], env)] -> [value] -> env -> env
     -> kont option -> state *)
-let comprehend state node frames done_ env outer rest =
+and comprehend state node frames done_ env outer rest =
   let clauses = comp_clauses node in
   let index = List.length frames in
   if index = List.length clauses then
@@ -1212,7 +1235,7 @@ let comprehend state node frames done_ env outer rest =
     pattern does not match, and unwinds a frame that has run out.
     state -> expr -> [(int, [value], env)] -> [value] -> env
     -> kont option -> state *)
-let rec take state node frames done_ outer rest =
+and take state node frames done_ outer rest =
   match frames with
   | [] ->
       { state with control = CApply (VList done_); env = outer; kont = rest }
@@ -1234,7 +1257,7 @@ let rec take state node frames done_ outer rest =
 (** One value a comprehension asked for has arrived.
     state -> expr -> want -> int -> [(int, [value], env)] -> [value]
     -> value -> env -> env -> kont option -> state *)
-let comprehended state node want index frames done_ value env outer rest =
+and comprehended state node want index frames done_ value env outer rest =
   let clause_info () =
     match List.nth (comp_clauses node) index with
     | CompFor (info, _, _, _) | CompIf (info, _, _) -> info
@@ -1263,7 +1286,7 @@ let comprehended state node want index frames done_ value env outer rest =
 (** Starts on an expression: evaluates it directly if call-free,
     otherwise pushes the first continuation it needs.
     state -> expr -> state *)
-let step_eval state e =
+and step_eval state e =
   if IntSet.mem (expr_sym e) state.runtime.simple then
     match evaluate e state.env with
     | value -> { state with control = CApply value }
@@ -1306,7 +1329,7 @@ let step_eval state e =
 
 (** Starts on a statement: delivers what it supplies (PYKING.md, "Tail
     position") to its continuation. state -> stmt -> state *)
-let step_stmt state stmt =
+and step_stmt state stmt =
   match stmt with
   | SLet (_, target, e, _, _, _, _) ->
       {
@@ -1408,7 +1431,7 @@ let step_stmt state stmt =
 
 (** Hands value to whatever was waiting for it (state.kont).
     state -> value -> state *)
-let step_apply state value =
+and step_apply state value =
   match state.kont with
   | None -> { state with control = CDone value }
   | Some (KSeq (stmts, index, exit_env, rest)) ->
@@ -1570,7 +1593,7 @@ let step_apply state value =
 
 (** One small step. Total: every state, including a finished or failed
     one, has a successor. state -> state *)
-let step state =
+and step state =
   match state.control with
   | CEval e -> step_eval state e
   | CStmt stmt -> step_stmt state stmt
@@ -1637,6 +1660,17 @@ let stack_trace state =
         go frame.frame_parent ((frame.frame_name, frame.frame_info) :: trace)
   in
   go state.stack []
+
+(** Applies callee to args in finished machine's environment, as a
+    machine of its own run to completion: how a host delivers an event
+    to a callback after the program's top level has ended.
+    state -> value -> [value] -> state *)
+let apply state callee args =
+  let info = { Lexer.file = "<callback>"; row1 = 1; col1 = 0; row2 = 1; col2 = 0 } in
+  run
+    (call
+       { state with control = CApply unit_value; kont = None; stack = None; loops = None }
+       (ETuple (info, [], 0)) callee args state.env None)
 
 (** Runs a whole (already checked and symbolized) program to completion.
     [stmt] -> host -> state *)

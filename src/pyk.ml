@@ -172,6 +172,23 @@ let more_options =
   \                        those need -- so most programs are refused with\n\
   \                        'Construct is not supported'. It is there to be\n\
   \                        grown, and this flag is how it is run.\n\
+  \  --headless            run a program that needs a page -- one using\n\
+  \                        tinyweb -- here with the interpreter, showing\n\
+  \                        nothing, rather than serving its page. Two\n\
+  \                        environment variables, each holding a file\n\
+  \                        path, say what happens instead:\n\
+  \                          PYKING_PAGE_LOG=<file>  the file each command\n\
+  \                            sent to the page is appended to, one line\n\
+  \                            each, with a `> ` line per event delivered\n\
+  \                            (/dev/stderr shows it in the terminal)\n\
+  \                          PYKING_PAGE_EVENTS=<file>  a file you write,\n\
+  \                            read once the program's top level has\n\
+  \                            ended: one event per line -- click ID,\n\
+  \                            slide ID VALUE, frame T, mouse ID X Y,\n\
+  \                            key NAME\n\
+  \                        e.g. PYKING_PAGE_LOG=page.log\n\
+  \                             PYKING_PAGE_EVENTS=clicks.txt\n\
+  \                             pyk --headless prog.pyk\n\
   \  --no-tail-call-opt    leave tail calls as calls. A function that calls\n\
   \                        itself in tail position is otherwise rewritten\n\
   \                        into a `loop` carrying its parameters, and a\n\
@@ -279,6 +296,7 @@ type options = {
   release : bool;
   typecheck : bool;
   type_experiment : bool;
+  headless : bool;
   lib_paths : string list;
   arguments : string list;
   port : int option;
@@ -298,6 +316,7 @@ let default_options command =
     release = false;
     typecheck = true;
     type_experiment = false;
+    headless = false;
     lib_paths = [];
     arguments = [];
     port = None;
@@ -389,6 +408,7 @@ let parse_args argv =
         go { options with typecheck = false } positional rest
     | "--type-experiment" :: rest ->
         go { options with type_experiment = true } positional rest
+    | "--headless" :: rest -> go { options with headless = true } positional rest
     | "--stdout" :: rest -> go { options with stdout = true } positional rest
     | ("--target" | "-t") :: rest -> (
         match rest with
@@ -472,6 +492,8 @@ let parse_args argv =
     usage_error
       "--release needs the types the checker works out, so it cannot be used \
        with --no-typechecking";
+  if options.headless && command <> default_command then
+    usage_error "--headless only applies to running a program with the interpreter";
   let web = command = "notebook" || command = "playground" in
   if options.port <> None && not web then
     usage_error "--port only applies to 'pyk notebook' and 'pyk playground'";
@@ -788,7 +810,19 @@ let command_interpret checked arguments =
         print_newline ())
   in
   let state = Interpreter.run_modules units host in
-  match Interpreter.failure state with
+  (* What a plugin asked to run once the top level ended -- events
+     delivered to the callbacks it was handed -- runs only after a top
+     level that succeeded. *)
+  let failure =
+    match Interpreter.failure state with
+    | None -> (
+        try
+          Pyk_plugin.run_after_program ();
+          None
+        with Interpreter.Runtime_error _ as error -> Some error)
+    | failure -> failure
+  in
+  match failure with
   | None -> 0
   | Some error ->
       (match format_error error with
@@ -994,6 +1028,30 @@ let compile_program checked target output_path options =
      the program's output. Nothing is generated for one, and a copy onto
      itself -- compiling beside the implementation -- is skipped rather
      than truncating it. *)
+  (* A library's `<name>_assets/` directory -- tinyweb's samples -- goes
+     beside a page under the same name, so the library's browser
+     implementation finds it beside itself wherever it is served from. *)
+  let library_assets () =
+    if not (List.mem (Targets.family_of target) [ Targets.Web; Targets.Iweb ]) then []
+    else
+      List.concat_map
+        (fun ((unit : Module.t), _) ->
+          match unit.declaration_path with
+          | None -> []
+          | Some path ->
+              let name = unit.name ^ "_assets" in
+              let assets = join (dirname path) name in
+              if not (Sys.file_exists assets && Sys.is_directory assets) then []
+              else
+                List.filter_map
+                  (fun file ->
+                    let source = join assets file in
+                    if Sys.is_directory source || file.[0] = '.' then None
+                    else
+                      Some (join (join directory name) file, Module.read_whole_file source))
+                  (List.sort compare (Array.to_list (Sys.readdir assets))))
+        checked
+  in
   let external_copies () =
     List.filter_map
       (fun (destination, contents, source) ->
@@ -1010,7 +1068,7 @@ let compile_program checked target output_path options =
              in
              Some (destination, Module.read_whole_file source, source))
          checked)
-    @ browser_io ()
+    @ browser_io () @ library_assets ()
   in
   if Targets.family_of target = Targets.Iweb then
     (* Nothing is compiled: the program ships as Pyking and is
@@ -1173,7 +1231,7 @@ let command_compile checked options =
       usage_error
         (Printf.sprintf "cannot write '%s': the directory '%s' does not exist."
            path directory);
-    let channel = open_out path in
+    let channel = open_out_bin path in
     output_string channel contents;
     close_out channel
   in
@@ -1198,6 +1256,16 @@ let command_compile checked options =
     print_string primary;
     0)
   else (
+    (* A library's assets go in a directory of their own beside the
+       output, which this makes where the output's own directory is. *)
+    List.iter
+      (fun (path, _) ->
+        let assets = dirname path in
+        if Filename.check_suffix assets "_assets"
+           && Sys.file_exists (dirname assets)
+           && not (Sys.file_exists assets)
+        then Sys.mkdir assets 0o755)
+      files;
     List.iter
       (fun (path, contents) ->
         if basename path = Target_js_packaging.module_manifest then
@@ -1280,6 +1348,44 @@ let command_web tool options =
   prerr_endline (wrap (Web_tools.start tool options.port options.filename));
   1
 
+(** Whether a program imports a library that needs a page to be seen
+    on: one whose directory holds `<name>.page` beside its declaration
+    half. [(Module.t, typ IntMap.t option)] -> bool *)
+let needs_page checked =
+  List.exists
+    (fun ((unit : Module.t), _) ->
+      match unit.declaration_path with
+      | Some path -> Sys.file_exists (join (dirname path) (unit.name ^ ".page"))
+      | None -> false)
+    checked
+
+(** Runs `pyk <file>` for a program that needs a page: compiles it for
+    iweb24 into a directory of its own and serves it, as `pyk compile -t
+    iweb24 --run` would. [(Module.t, typ IntMap.t option)] -> options ->
+    int *)
+let command_serve checked options =
+  if options.arguments <> [] then
+    usage_error
+      "this program needs a page, and a page is served rather than invoked, \
+       so there is nothing to pass the arguments after -- to; add --headless \
+       to run it here";
+  let filename = Option.get options.filename in
+  let directory = Filename.temp_dir "pyking-page-" "" in
+  prerr_endline
+    (wrap
+       (Printf.sprintf
+          "'%s' needs a page to show it, so it is served rather than run here \
+           (--headless runs it here, showing nothing)."
+          filename));
+  command_compile checked
+    {
+      options with
+      target = "iweb24";
+      output = Some (join directory (stem filename ^ ".html"));
+      stdout = false;
+      run = true;
+    }
+
 (** Runs pyk. [string] -> int *)
 let main argv =
   let options = parse_args argv in
@@ -1290,6 +1396,7 @@ let main argv =
   else
     let checked = front_end options in
     if options.command = "compile" then command_compile checked options
+    else if needs_page checked && not options.headless then command_serve checked options
     else command_interpret checked options.arguments
 
 let () = exit (main (List.tl (Array.to_list Sys.argv)))

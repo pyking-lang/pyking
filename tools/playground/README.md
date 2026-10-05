@@ -244,6 +244,21 @@ asked of the compiler (`pykFormatHelper`) when the page loads and handed to
 the worker with each program rather than hand-copied, so the playground
 cannot disagree with `node prog.js` about how a value prints.
 
+### The Page tab
+
+The right-hand pane has two tabs, **Compiled code** and **Page**. A
+program using `tinyweb` draws on the Page tab, which Run switches to the
+first time the program sends its page anything; its standard output
+stays in the output pane. Such a program goes on running after its last
+line, since the page calls back the functions it handed over, so **Stop
+stays armed**: pressing it lets the program go, and what the page shows
+stays. The page is mounted with `PageHost` (`../webrun/README.md`, "A
+program may show a page"). Compile switches back to the code.
+
+A program that imports cannot be compiled in the page (it has no
+program around it), so a tinyweb program is run with the interpreter,
+the left Run button.
+
 ### The Stop button
 
 **Run becomes Stop while a program is running**, and turns back into Run when

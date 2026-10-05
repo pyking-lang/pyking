@@ -1,0 +1,13 @@
+# An external module whose functions take a Pyking function and call it
+# back: a callback's parameters are types that cross the boundary, and
+# it answers (). `later` keeps its callback and calls it once the
+# program's top level has ended, which is how an event reaches a
+# program. See docs/modules.md, "What may cross the boundary".
+
+public def each : ((Int) -> (), Int) -> ()
+
+public def with_float : ((Float) -> (), Float) -> ()
+
+public def with_pair : ((Int, String) -> (), Int, String) -> ()
+
+public def later : (() -> ()) -> ()

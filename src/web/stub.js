@@ -70,7 +70,7 @@ function pyk_external(module_, field, argsJson) {
   }
   var result;
   try {
-    result = value.apply(null, JSON.parse(argsJson));
+    result = value.apply(null, pyk_revive(JSON.parse(argsJson)));
   } catch (error) {
     // `sys.exit` stops the program by throwing an error carrying
     // `pykExit`. It crosses back as data, which pyking_web.ml turns into
@@ -82,6 +82,49 @@ function pyk_external(module_, field, argsJson) {
     throw error;
   }
   return pyk_encode(result);
+}
+
+// An argument as the JavaScript value it stands for: a Float written as
+// {"pyk_float":text} becomes a number, and a Pyking function written as
+// {"pyk_callback":id} becomes a JavaScript function calling it back
+// through `pykCallback`. A failure in that call goes to `pykOnError`
+// where the page supplied one, and `sys.exit` to `pykOnExit`.
+function pyk_revive(value) {
+  if (Array.isArray(value)) {
+    return value.map(pyk_revive);
+  }
+  if (value !== null && typeof value === "object") {
+    if (typeof value.pyk_float === "string") {
+      var text = value.pyk_float;
+      return text === "nan" ? NaN : text === "inf" ? Infinity
+        : text === "-inf" ? -Infinity : Number(text);
+    }
+    if (typeof value.pyk_callback === "number") {
+      var id = value.pyk_callback;
+      return function () {
+        var args = Array.prototype.slice.call(arguments);
+        var answer = JSON.parse(
+          globalThis.pykCallback(id + "\n" + pyk_encode(args.map(pyk_list))));
+        if (!answer.ok) {
+          (globalThis.pykOnError || function (text) { console.error(text); })(answer.text);
+        } else if (answer.exit !== undefined && globalThis.pykOnExit) {
+          globalThis.pykOnExit(answer.exit);
+        }
+      };
+    }
+  }
+  return value;
+}
+
+// An argument handed to a Pyking function: an array becomes a list, as
+// JavaScript code calling back means one, unless it is marked otherwise.
+function pyk_list(value) {
+  if (Array.isArray(value) && !value.pykList) {
+    var copy = value.map(pyk_list);
+    copy.pykList = true;
+    return copy;
+  }
+  return value;
 }
 
 // A Pyking list and a Pyking tuple are both arrays here, told apart by

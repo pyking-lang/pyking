@@ -1,0 +1,22 @@
+# Animation kept in time with sound: each frame is drawn for the time
+# the page gives it, and each beat is scheduled half a second ahead on
+# the same clock, so it sounds where the picture says it is. The
+# .events file delivers four frames.
+
+import tinyweb as tw
+
+c = tw.canvas(200, 100)
+kick = tw.load_sample("kick1.wav")
+beat = 0.5
+var next_beat = 0.0
+
+def draw(t: Float):
+    tw.clear(c, "#111111")
+    tw.circle(c, int(t * 100.0), 50, 10, "#ffcc00")
+    if t >= next_beat:
+        print("beat scheduled at " ++ string(next_beat + beat) ++ ", drawn at " ++ string(t))
+        tw.play(kick, at = next_beat + beat)
+        next_beat := next_beat + beat
+
+tw.on_frame(draw)
+print(tw.time())

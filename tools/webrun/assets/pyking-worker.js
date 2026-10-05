@@ -20,9 +20,23 @@
 // `error` in reply; `status`, `stdout`, `debug` and `stdin` may arrive in
 // between, unsolicited -- the last is a line the program read, echoed so
 // the transcript reads the way a terminal's would.
+//
+// A library that needs a page -- tinyweb -- posts {type: "page", module,
+// data} itself, and the page answers with {type: "event", module, data},
+// which carries no `id` and gets no reply: it is handed to that module's
+// `pykDeliver`, which calls the functions the program gave it. So a run
+// can go on after `run` has answered, until the next run or a stop.
+// What a function called that way fails with arrives as `failure`, and a
+// `sys.exit` in one as `exit` (docs/libraries.md, "A library that needs
+// a page").
 
 let loaded = false;
 let libURL = null;
+// How many runs there have been, which makes each run's modules fresh
+// instances rather than the last run's (`importExternal`); and the
+// modules the latest run imported, which a page's event is delivered to.
+let runs = 0;
+let live = {};
 
 const reply = (id, value) => self.postMessage({ id, type: "result", value });
 const fail = (id, message) => self.postMessage({ id, type: "error", message });
@@ -37,6 +51,8 @@ const stdinEcho = (text) => self.postMessage({ type: "stdin", text });
 // seeing. `debug` goes beside it, marked as what it is.
 self.pykOnPrint = (text) => stdout(text);
 self.pykOnDebug = (text) => debugOut(text);
+self.pykOnError = (text) => self.postMessage({ type: "failure", text });
+self.pykOnExit = (code) => self.postMessage({ type: "exit", code });
 // A browser implementation writes what it has to say to the console --
 // that a function is not supported here, say -- and in this worker the
 // console is the output pane.
@@ -105,6 +121,13 @@ self.onmessage = (event) => {
       return answer(() => analyze(message));
     case "run":
       return answer(() => run(message));
+    case "event":
+      try {
+        live[message.module]?.pykDeliver?.(message.data);
+      } catch (err) {
+        self.pykOnError(describe(err));
+      }
+      return undefined;
     default:
       return fail(message.id, `unknown request '${message.type}'`);
   }
@@ -152,7 +175,10 @@ function run(message) {
   if (!analysis.ok) return analysis;
   const mine = own(message);
   const needed = analysis.externals.filter((name) => !(name in mine));
+  runs += 1;
+  live = {};
   const start = (imported) => {
+    live = imported;
     self.pykExternals = { ...imported, ...pick(mine, analysis.externals) };
     supply(message);
     return JSON.parse(self.pykRunProgram(
@@ -168,9 +194,10 @@ function pick(table, names) {
   return Object.fromEntries(names.filter((n) => n in table).map((n) => [n, table[n]]));
 }
 
-/** A module's browser implementation, imported from lib/. */
+/** A module's browser implementation, imported from lib/ -- a fresh
+ *  instance for each run, since a module keeps what a program gave it. */
 function importExternal(name) {
-  return import(libURL + `${name}/${name}_external_browser.js`);
+  return import(libURL + `${name}/${name}_external_browser.js?run=${runs}`);
 }
 
 /** The worker's own `io` and `sys`: the page's output pane for standard

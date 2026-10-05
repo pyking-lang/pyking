@@ -496,6 +496,15 @@ module implemented in a target language. `pyk` gives it the plugins
 implementation ends the process, and in a browser the call answers an
 exit the bundle turns into the end of the run.
 
+**A host may call a Pyking function back.** An external call is handed
+`callback`, which runs a closure in a machine of its own sharing the
+caller's runtime and answers its value, so a host can call a function it
+was given during the call or at any time after; `apply` is the same for
+a finished machine. In a terminal, what a plugin asked
+`Pyk_plugin.after_program` for runs once the top level has ended, which
+is how `tinyweb`'s headless implementation delivers its events
+([modules.md](modules.md), "What may cross the boundary").
+
 `src/interpreter.ml`'s own docstring and [source.md](source.md) carry the
 detail; `design/plan-eval-lsp.md` is where the debugger, DAP and LSP
 built on top of it are planned.

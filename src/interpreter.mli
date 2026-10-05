@@ -44,6 +44,8 @@
       initial_state stmts host -- a machine about to run stmts.
       step state -- one small step.
       run state steps -- steps until the machine stops or steps run out.
+      apply state callee args -- a function value called in a finished
+        machine, which is how a host delivers an event.
       result state / failure state / stack_trace state -- what a stopped
         machine answers.
       declare_entry state stmts / eval_in state stmt /
@@ -96,10 +98,11 @@ and env
 
 (** How a host reaches a module implemented in a target language: what
     one of its value exports is, and how to call one of its functions.
-    Both take the module's name and the field's. *)
+    Both take the module's name and the field's; `call` is handed
+    first how to call back a Pyking function it was given. *)
 type externals = {
   field : string -> string -> value;
-  call : string -> string -> value list -> value;
+  call : (value -> value list -> value) -> string -> string -> value list -> value;
 }
 
 (** Where print and debug go, and how an external module is reached. *)
@@ -201,6 +204,12 @@ val step : state -> state
 (** Steps until the machine stops or `steps` steps have been taken,
     whichever comes first. int? -> state -> state *)
 val run : ?steps:int -> state -> state
+
+(** Applies callee to args in finished machine's environment, as a
+    machine of its own run to completion: how a host delivers an event
+    to a callback after the program's top level has ended.
+    state -> value -> [value] -> state *)
+val apply : state -> value -> value list -> state
 
 (** The value a finished machine produced, or None if it failed or has
     not finished. state -> value option *)

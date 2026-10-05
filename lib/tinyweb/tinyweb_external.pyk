@@ -1,0 +1,58 @@
+# The external half of `tinyweb`: what the host provides. tinyweb.pyk
+# beside it is the Pyking half, and the two files are one module
+# (docs/modules.md, "A module in two halves").
+#
+# The private declarations are what tinyweb.pyk wraps to give an
+# argument a default, which a declaration cannot carry. Every function
+# here sends one command to the page; see docs/libraries.md, "tinyweb",
+# for the commands and how they reach the page.
+
+## A new canvas, `width` by `height` pixels, placed below what the page
+## already shows. The number answered names it to the drawing functions.
+public def canvas : (Int, Int) -> Int
+
+def fill_canvas : (Int, String) -> ()
+
+def draw_circle : (Int, Int, Int, Int, String) -> ()
+
+def draw_rect : (Int, Int, Int, Int, Int, String) -> ()
+
+def draw_line : (Int, Int, Int, Int, Int, String, Int) -> ()
+
+def draw_text : (Int, Int, Int, String, String, Int) -> ()
+
+def make_button : (String, () -> ()) -> Int
+
+## A line of text, placed below what the page already shows. The number
+## answered names it to `set_label`.
+public def label : (String) -> Int
+
+## Replaces the text of the label `id` with `text`.
+public def set_label : (Int, String) -> ()
+
+def make_slider : (Int, Int, Int, (Int) -> ()) -> Int
+
+## Starts loading the sound file `name` and answers a number naming it
+## to `play`. The name is looked up beside the page first, and then
+## among the samples tinyweb ships: kick1.wav, snare1.wav, hihat1.wav
+## and piano_c1.wav.
+public def load_sample : (String) -> Int
+
+def play_sample : (Int, Float, Float, Float) -> ()
+
+## The page's clock, in seconds: the audio clock once sound has started,
+## so a time read here is a time `play` can be given.
+public def time : () -> Float
+
+## Calls `draw` before each frame the page shows, with the time the
+## frame is for, as `time` reads it.
+public def on_frame : ((Float) -> ()) -> ()
+
+## Calls `click` with the position, in pixels from the top left corner,
+## of every click on the canvas `c`.
+public def on_mouse : (Int, (Int, Int) -> ()) -> ()
+
+## Calls `pressed` with the name of every key pressed while the page has
+## the focus: a letter or digit as itself, and otherwise the browser's
+## name for it, such as "ArrowLeft", "Enter" or " ".
+public def on_key : ((String) -> ()) -> ()

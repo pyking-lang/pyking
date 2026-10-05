@@ -831,6 +831,11 @@ them as `<module>_<field>`, and a file importing it declares the ones it
 takes. `io` and `sys` are both, and `tests/module_external_mixed.pyk`
 is the worked example.
 
+**A declaration taking a callback is refused**, with the position of the
+call that reaches it: a callback is a Pyking function handed to the
+host, and C has no closure to hand it as (`tests/external_callback.pyk`
+does not list this target). `tinyweb` reaches neither for that reason.
+
 `Bool` is the one type the two targets spell differently: the
 declaration says `int` under `c89` and `bool` under `c23`, following
 each standard. An implementation file serving both has to agree with

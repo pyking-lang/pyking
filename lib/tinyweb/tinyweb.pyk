@@ -1,0 +1,84 @@
+## Graphics, widgets and sound on a web page, kept in time with each
+## other.
+##
+## A program builds its page by calling the functions below: each
+## canvas, button, label and slider goes below the ones before it. A
+## canvas is drawn on with `clear`, `circle`, `rect`, `line` and `text`,
+## in pixels from its top left corner, and a color is a CSS color such
+## as "#ff0000" or "red".
+##
+## A program that handed the page a function -- `on_click`, `on_frame`
+## and the rest -- keeps running after its last line: the page calls the
+## function each time the event happens. Sound and pictures are kept in
+## step by one clock, `time`: a frame is drawn for a time, and `play`
+## can start a sound at one.
+##
+## tinyweb needs a page to show. `pyk program.pyk` serves one and prints
+## its address, and the notebook and the playground show it beside the
+## program.
+#
+# The Pyking half of `tinyweb`. The host's half is declared in
+# tinyweb_external.pyk beside this file and is in scope here
+# unqualified; what is written here is what needs a default.
+
+
+def nothing():
+    ()
+
+
+def ignore(value: Int):
+    ()
+
+
+## Fills the whole canvas `c` with `color`.
+public def clear(c: Int, color: String = "#ffffff") -> ():
+    fill_canvas(c, color)
+
+
+## A filled circle on the canvas `c`, centred at (`x`, `y`).
+public def circle(c: Int, x: Int, y: Int, radius: Int, color: String = "#000000") -> ():
+    draw_circle(c, x, y, radius, color)
+
+
+## A filled rectangle on the canvas `c`, with its top left corner at
+## (`x`, `y`).
+public def rect(c: Int, x: Int, y: Int, width: Int, height: Int, color: String = "#000000") -> ():
+    draw_rect(c, x, y, width, height, color)
+
+
+## A straight line on the canvas `c`, from (`x1`, `y1`) to (`x2`, `y2`),
+## `width` pixels wide.
+public def line(c: Int, x1: Int, y1: Int, x2: Int, y2: Int, color: String = "#000000", width: Int = 1) -> ():
+    draw_line(c, x1, y1, x2, y2, color, width)
+
+
+## `words` written on the canvas `c`, with the top left corner of the
+## text at (`x`, `y`), `size` pixels high.
+public def text(c: Int, x: Int, y: Int, words: String, color: String = "#000000", size: Int = 16) -> ():
+    draw_text(c, x, y, words, color, size)
+
+
+## A button showing `title`, placed below what the page already shows,
+## which calls `on_click` each time it is pressed. The number answered
+## names it.
+public def button(title: String, on_click: () -> () = nothing) -> Int:
+    make_button(title, on_click)
+
+
+## A slider from `low` to `high`, starting at `value`, placed below what
+## the page already shows, which calls `on_change` with each new value
+## it is moved to. The number answered names it.
+public def slider(low: Int, high: Int, value: Int, on_change: (Int) -> () = ignore) -> Int:
+    make_slider(low, high, value, on_change)
+
+
+## Plays the sample `sample`, which `load_sample` answered: at the time
+## `at` on the page's clock, or now if that has passed; `volume` times as
+## loud, and `rate` times as fast, which raises its pitch as much.
+public def play(sample: Int, at: Float = 0.0, volume: Float = 1.0, rate: Float = 1.0) -> ():
+    play_sample(sample, at, volume, rate)
+
+
+## Plays the sound file `name` now, loading it first if nothing has.
+public def play_file(name: String) -> ():
+    play(load_sample(name))

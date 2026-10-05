@@ -1101,6 +1101,14 @@ three are design rather than accident:
   print_line)`: where `print` and `debug` go, and how an external module
   is reached. `debug` writes to standard error unless a host says
   otherwise.
+- **`callback(state, info, callee, args) -> value`** /
+  **`apply(state, callee, args) -> state`** — a function value called in
+  a machine of its own that shares `state`'s runtime: how a host calls
+  back a Pyking function it was handed. An external call hands
+  `externals.call` the first, so a host may call back during the call or
+  later; `apply` is the same for a finished machine, answering its
+  state. `call` and `step` are one recursive group so that `call` can
+  run one.
 - **`declare_entry(state, stmts)` / `eval_in(state, stmt) -> state` /
   `eval_statement(state, stmt)`** — running statements in an existing
   machine's environment, which is what a prompt does. `declare_entry` is
@@ -1185,7 +1193,9 @@ reaches an OCaml implementation".
 - **`load units`** -- loads every module's plugin, refusing one that
   cannot be built or loaded with a `Module_error` at its declaration.
 - **`externals units -> Interpreter.externals`** -- the host's way into
-  those modules: a value, or a call, by the declared type.
+  those modules: a value, or a call, by the declared type. A callback
+  parameter becomes a curried OCaml function that calls the closure back
+  through the interpreter (`to_host`'s `TFunction` case).
 - **`build_plugin unit output`** / **`digest unit`** / **`built_from path
   digest`** -- compiling one plugin, what it is built from, and whether
   a plugin was built from that. `pyk plugins` and `make libs` use them.
@@ -1204,7 +1214,10 @@ own, unwrapped and linked only into the executable, so a plugin compiled
 outside this build names it `Pyk_plugin` and finds its `.cmi` in
 `build/plugin/`. Its table is mutable because loading a plugin answers
 nothing: the plugin's initialisation runs for its effect, and this is
-where that effect lands.
+where that effect lands. `after_program f` asks for `f` to run once the
+program's top level has ended, and `pyk.ml` runs them
+(`run_after_program`) after a top level that succeeded: how a plugin
+delivers events to the callbacks it was handed.
 
 ---
 
@@ -1737,8 +1750,14 @@ pyk playground          serve the playground (web_tools.ml)
 - **`command_web tool options`** — `pyk notebook` and `pyk playground`,
   which run no front end: `Web_tools.start` replaces the process, and
   this prints why when it could not.
+- **`needs_page checked` / `command_serve checked options`** — whether a
+  program imports a library marked `<name>.page`, and running one: it is
+  compiled for `iweb24` into a fresh directory and served, unless
+  `--headless` says to interpret it here (docs/libraries.md, "A library
+  that needs a page").
 - **`command_interpret` / `command_compile`**, and `Repl.start` for the
-  third. The REPL is *handed* this module's `format_error` rather than
+  third. `command_compile` also writes a library's `<name>_assets/`
+  beside a web page (`library_assets`). The REPL is *handed* this module's `format_error` rather than
   importing it, which is what keeps the dependency one-way — a cycle
   between two modules of one library does not link.
 - **`format_error error -> string option`** — any front-end error as one
@@ -1808,7 +1827,11 @@ page or fetched through its `pykFetchSource`, externals through
 `pykExternals`, and `release` on a second line), `pykAnalyze` (which of
 a program's modules are implemented in JavaScript, and whether it reads
 standard input or its arguments), `pykTargets`, `pykFormatHelper`,
-`pykKeywords` and `pykBuiltins`. A `debug` line goes to `pykOnDebug`; a
+`pykKeywords` and `pykBuiltins`, and `pykCallback` (a Pyking function
+handed to JavaScript, called back by the id it crossed as). A value
+crosses by its declared type (`externals_for`, `json_of_typed`,
+`coerce`), so a callback becomes `{"pyk_callback":id}` and an integral
+number declared `Float` comes back a `Float`. A `debug` line goes to `pykOnDebug`; a
 `sys.exit` in a JavaScript implementation crosses back as data and ends
 the run with `{"ok":true,"exit":code}`. The
 last four are what the pages ask the bundle for when they load, so

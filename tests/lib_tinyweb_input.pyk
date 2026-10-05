@@ -1,0 +1,29 @@
+# The mouse, the keyboard and a slider, each reported on a label, and
+# the other drawing functions. The .events file clicks the canvas,
+# presses two keys -- the second Enter -- and moves the slider.
+
+import tinyweb as tw
+
+c = tw.canvas(300, 200)
+tw.rect(c, 0, 0, 300, 200, "#eeeeee")
+tw.line(c, 0, 0, 300, 200)
+tw.line(c, 0, 200, 300, 0, "red", width = 3)
+tw.text(c, 10, 10, "click \"me\"", size = 20)
+status = tw.label("nothing yet")
+
+def clicked(x: Int, y: Int):
+    tw.set_label(status, "clicked at " ++ string(x) ++ ", " ++ string(y))
+    tw.circle(c, x, y, 5, "blue")
+
+def pressed(key: String):
+    print("key [" ++ key ++ "]")
+    if key == "Enter":
+        tw.play_file("snare1.wav")
+
+def moved(value: Int):
+    tw.set_label(status, "slider at " ++ string(value))
+
+tw.on_mouse(c, clicked)
+tw.on_key(pressed)
+tw.slider(0, 10, 5, on_change = moved)
+tw.slider(1, 3, 2)

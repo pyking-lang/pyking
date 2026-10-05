@@ -709,3 +709,8 @@ name its own declaration half provides through the implementation's
 class, `IoExternal.prompt_line(...)`, as an importer reaches a public
 one. `io` and `sys` are both, and `tests/module_external_mixed.pyk` is
 the worked example.
+
+**A declaration taking a callback is refused**, with the position of the
+call that reaches it: a callback is a Pyking function handed to the
+host, and Java has no closure to hand it as (`tests/external_callback.pyk`
+does not list this target). `tinyweb` reaches neither for that reason.

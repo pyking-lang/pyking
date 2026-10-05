@@ -32,6 +32,13 @@ export class PykingRuntime {
     this.onOutput = null;          // set for the duration of a run
     this.onDebug = null;           // likewise, for `debug`
     this.onInput = null;           // likewise, for a line the program read
+    this.onPage = null;            // likewise, for what a program sends its page
+    this.onFailure = null;         // a failure after the run has answered
+    this.onExit = null;            // likewise, for a `sys.exit`
+    this.onEnd = null;             // called when a live run is let go
+    // Whether the latest run sent its page anything, which keeps it live
+    // -- its callbacks attached -- after it has answered.
+    this._live = false;
     this.onStatus = () => {};
     this._starting = null;
     this._ready = false;
@@ -78,6 +85,12 @@ export class PykingRuntime {
     if (message.type === "stdout") return this.onOutput?.(message.text);
     if (message.type === "debug") return this.onDebug?.(message.text);
     if (message.type === "stdin") return this.onInput?.(message.text);
+    if (message.type === "page") {
+      this._live = true;
+      return this.onPage?.(message.module, message.data);
+    }
+    if (message.type === "failure") return this.onFailure?.(message.text);
+    if (message.type === "exit") return this.onExit?.(message.code);
     const waiting = this.pending.get(message.id);
     if (!waiting) return;
     this.pending.delete(message.id);
@@ -184,20 +197,58 @@ export class PykingRuntime {
    *  {ok:false, text, info?}, since running compiles first and a program
    *  that does not check is refused the same way either way. */
   async runProgram(source, {
-    onOutput, onDebug, onInput, name = "playground.pyk", stdin = "", args = [],
-    release = false,
+    onOutput, onDebug, onInput, onPage, onFailure, onExit, onEnd,
+    name = "playground.pyk", stdin = "", args = [], release = false,
   } = {}) {
     this._require();
+    this.endLive();
     this.onOutput = onOutput || null;
     this.onDebug = onDebug || null;
     this.onInput = onInput || null;
+    this.onPage = onPage || null;
+    this.onFailure = onFailure || null;
+    this.onExit = onExit || null;
+    this._live = false;
     try {
       return await this._send("run", { source, name, stdin, args, release });
     } finally {
-      this.onOutput = null;
-      this.onDebug = null;
-      this.onInput = null;
+      // A program that sent its page something goes on after answering
+      // -- the page calls back the functions it gave it -- so it keeps
+      // its callbacks until the next run, `endLive` or `stop`.
+      if (this._live) this.onEnd = onEnd || null;
+      else this._detach();
     }
+  }
+
+  /** Whether the latest run is still live: it sent its page something,
+   *  and nothing has let it go since. () -> Bool */
+  get isLive() { return this._live; }
+
+  /** Hands an event to the live run's `module`, as its page reports one:
+   *  {ev: "click", id} and the rest (docs/libraries.md, "A library that
+   *  needs a page"). String -> Object -> () */
+  sendEvent(module, data) {
+    if (this._live && this.worker) this.worker.postMessage({ type: "event", module, data });
+  }
+
+  /** Lets the live run go: its callbacks are detached and its `onEnd`
+   *  called, so its page can stop asking for events. () -> () */
+  endLive() {
+    const onEnd = this.onEnd;
+    const wasLive = this._live;
+    this._detach();
+    if (wasLive) onEnd?.();
+  }
+
+  _detach() {
+    this._live = false;
+    this.onOutput = null;
+    this.onDebug = null;
+    this.onInput = null;
+    this.onPage = null;
+    this.onFailure = null;
+    this.onExit = null;
+    this.onEnd = null;
   }
 
   /** End whatever is running, immediately.
@@ -209,6 +260,7 @@ export class PykingRuntime {
    *  usually warm again before the next run is asked for.
    */
   stop() {
+    this.endLive();
     if (!this.worker) return false;
     this.worker.terminate();
     this.worker = null;

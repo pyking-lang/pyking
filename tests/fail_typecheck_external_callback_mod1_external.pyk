@@ -1,5 +1,5 @@
-# A function cannot cross the boundary: handing a Pyking closure to a
-# host would need a calling convention on the other side, and there is
-# none yet. See docs/modules.md, "What may cross the boundary".
+# A callback that answers a value cannot cross the boundary: a host may
+# call a Pyking function back only for its effect. See docs/modules.md,
+# "What may cross the boundary".
 
 public def apply : ((Int) -> Int, Int) -> Int

@@ -517,9 +517,10 @@ let external_signatures stmts =
 (** Refuses a type that cannot cross the boundary between Pyking and a
     target language: a type variable, because a host function is one
     implementation and cannot be polymorphic, and a function anywhere
-    inside the signature, because passing a Pyking closure to a host
-    would need a calling convention there is none of yet (see
-    docs/modules.md, "What may cross the boundary").
+    but as a parameter that is a callback -- a function of boundary
+    types answering () -- since a host can call a Pyking function back
+    and has no convention for anything more (see docs/modules.md, "What
+    may cross the boundary").
     typ -> string -> info -> () *)
 let check_boundary_type type_ name info =
   let refuse what =
@@ -544,7 +545,20 @@ let check_boundary_type type_ name info =
     | TTuple (_, elements, _) -> List.iter (walk nested) elements
     | _ -> ()
   in
-  walk false type_
+  let callback type_ =
+    match type_ with
+    | TFunction (_, params, result, _, _, _, _) ->
+        (match result with
+        | TTuple (_, [], _) -> ()
+        | _ -> refuse "a callback answering a value");
+        List.iter (walk true) params
+    | type_ -> walk true type_
+  in
+  match type_ with
+  | TFunction (_, params, result, _, _, _, _) ->
+      List.iter callback params;
+      walk true result
+  | type_ -> walk false type_
 
 (** Refuses anything but a signature in a declaration file: a body there
     would have to be compiled into the very file the target's own

@@ -1,0 +1,3 @@
+tinyweb needs a page to be seen on: `pyk program.pyk` serves one
+rather than running the program in the terminal (docs/libraries.md,
+"A library that needs a page").

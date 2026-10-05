@@ -1,0 +1,4 @@
+'tests/fail_typecheck_external_callback_result_mod1_external.pyk'
+  6:0-6:35 Module error: 'make' cannot be declared with a function
+  type: an external module is implemented in a target language, and a
+  function type does not cross that boundary

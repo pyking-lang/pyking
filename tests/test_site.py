@@ -9,13 +9,15 @@ None of it needs Astro, which `make website` installs on first use and
 FILE`), the reference for what a program means; the page runs the same
 compiler as JavaScript, which tests/test_notebook.py covers.
 
-Four parts:
+Five parts:
 
   docs      lib/ through tools/site/libdoc.py: nothing undocumented, and
             every module has a page naming each thing it exports.
   exports   for each module, a program importing every name libdoc found
             compiles, so the pages name nothing the library does not
             export.
+  copies    a library's node implementation that its browser one says
+            is a copy of it is one.
   plugin    tools/site/src/remark-pyking-cells.mjs, under node, on a
             small tree: cells, attributes, norun, and stdin/args blocks.
   cells     every runnable ```pyking block in sitesrc/ and in the
@@ -27,6 +29,7 @@ Usage: python3 tests/test_site.py [--compiler CMD]
 Functions:
     check_docs() -- the docs part.
     check_exports(compiler) -- the exports part.
+    check_copies() -- the copies part.
     check_plugin() -- the plugin part.
     blocks(text) -- the runnable Pyking blocks of a Markdown page.
     check_cells(compiler) -- the cells part.
@@ -133,6 +136,22 @@ def check_exports(compiler):
     return results
 
 
+def check_copies():
+    """Each lib/<name>/<name>_external_node.js that the browser
+    implementation beside it names as a copy of itself is the same file.
+    () -> [(String, String?)]"""
+    results = []
+    for browser in sorted(libdoc.LIB.glob("*/*_external_browser.js")):
+        name = browser.name[: -len("_external_browser.js")]
+        node = browser.with_name(f"{name}_external_node.js")
+        if f"{node.name} is a copy of this file" not in browser.read_text():
+            continue
+        same = node.exists() and node.read_bytes() == browser.read_bytes()
+        results.append((f"{node.name} is a copy of {browser.name}",
+                        None if same else "they differ; copy the browser one over"))
+    return results
+
+
 def check_plugin():
     """The remark plugin, under node, on a hand-made tree.
     () -> [(String, String?)]"""
@@ -233,7 +252,7 @@ def main(argv):
         print("usage: test_site.py [--compiler CMD]", file=sys.stderr)
         return 2
     cells, count = check_cells(compiler)
-    results = check_docs() + check_exports(compiler) + check_plugin() + cells
+    results = check_docs() + check_exports(compiler) + check_copies() + check_plugin() + cells
     failed = 0
     for name, detail in results:
         if detail is None:

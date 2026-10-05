@@ -1,0 +1,30 @@
+# A canvas, two circles, two samples and buttons that play them: the
+# first tinyweb program. Its .events file presses the buttons, and its
+# .page file is what it sends the page, which every target must send
+# alike (see docs/libraries.md, "Testing a page").
+
+import tinyweb as tw
+
+kick = tw.load_sample("kick1.wav")
+snare = tw.load_sample("snare1.wav")
+
+canvas = tw.canvas(400, 200)
+
+tw.circle(canvas, 100, 50, 30, "#ff0000")   # canvas, x, y, radius, color
+tw.circle(canvas, 100, 50, 20)              # the color defaults to "#000000"
+
+var presses = 0
+
+def play_kick():
+    tw.play(kick)
+
+def play_sound():
+    presses := presses + 1
+    print("snare, press " ++ string(presses))
+    tw.play(snare, volume = 0.5)
+
+tw.button("Play kick", on_click = play_kick)
+tw.button("Play snare", on_click = play_sound)
+tw.button("Does nothing")                 # on_click is optional
+
+print("built the page")

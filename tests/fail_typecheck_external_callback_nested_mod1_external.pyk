@@ -1,0 +1,6 @@
+# A callback that itself takes a function cannot cross the boundary: a
+# host can call a Pyking function back, but has no way to hand it a
+# function of its own. See docs/modules.md, "What may cross the
+# boundary".
+
+public def apply : (((Int) -> ()) -> ()) -> ()

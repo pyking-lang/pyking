@@ -12,6 +12,7 @@ tools/webrun/
     web.js               loading Ace, KaTeX and the compiler (ES module)
     pyking-runtime.js    the compiler as an object: PykingRuntime, JsRunner
     pyking-worker.js     the compiler on a thread of its own
+    pages.js             PageHost: where a library that needs a page shows it
     pyking-mode.js       the Ace mode for Pyking
   vendor/                Ace and KaTeX, downloaded by `make vendor`
 ```
@@ -68,6 +69,7 @@ must run without a network.
 | `ensureEditor(runtime, {webrun, vendor}, onStatus)` | boots the compiler, loads Ace and the Pyking mode; answers the compiler's words |
 | `ensureKatex(vendor)` | loads KaTeX and its stylesheet |
 | `loadScript`, `loadStyle`, `fetchJSON`, `fetchText` | the obvious, once per URL where it matters |
+| `new PageHost(element, {libURL, send})` | shows what a program sends its page, with the library's own renderer |
 
 Every URL defaults to one beside `web.js` itself (`../vendor/`,
 `../pyking/`, `../lib/`), which is the layout the server serves.
@@ -88,6 +90,22 @@ writes to the output too, since that is where a browser implementation
 says what it cannot do. A run needing no JavaScript module imported
 answers synchronously, which is what lets the notebook's test suite
 drive the worker under node.
+
+**A program may show a page.** A library that needs one -- `tinyweb` --
+posts `{type: "page", module, data}` from the worker itself; the runtime
+hands it to the run's `onPage`, and a page shows it with a `PageHost`,
+which mounts the library's renderer (`mountPage` from
+`lib/<module>/<module>_external_browser.js`) in an element the page
+chose. What the renderer reports goes back with
+`runtime.sendEvent(module, event)` as an `event` message, which carries
+no `id` and gets no reply: the worker hands it to the module's
+`pykDeliver`. A run that sent its page anything is *live* after it
+answers -- its `onOutput` and the rest stay attached -- until the next
+run, `endLive()` or `stop()`, which call its `onEnd`. A callback that
+fails arrives as `failure`, and a `sys.exit` in one as `exit`. Each run
+imports fresh instances of the libraries, so one run's callbacks never
+answer another's events. See `docs/libraries.md`, "A library that needs
+a page".
 
 **The compiler is loaded before the editors are made**, because the Ace
 mode's word lists come from it: the worker's `words` request answers the

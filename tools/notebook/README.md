@@ -47,6 +47,14 @@ line at a time, and each line it reads is echoed under the cell; the
 arguments are split at spaces, with quotes keeping a space inside one.
 `sys.exit` ends the run, and a status other than 0 is shown.
 
+A cell using `tinyweb` shows its page under the cell, above its standard
+output: canvases, buttons, labels and sliders, drawn by the library's own
+renderer (`../webrun/README.md`, "A program may show a page"). Such a
+program goes on running after its last line -- a click calls back the
+function it handed over, and output it prints then is added under the
+cell -- until the cell is run again, another cell runs, or **■** is
+pressed; the page then stays as it was, and stops answering.
+
 ## Writing a notebook
 
 A notebook is an ordinary `.md` file. A fenced block whose language is

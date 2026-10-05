@@ -47,6 +47,11 @@ with them:
   exit_code = N    the status it must end with, 0 by default.
   release = true   compile it with --release; every compiled target must
                    then write nothing to standard error.
+  <name>.events    the events a page delivers to it once its top level
+                   has ended -- `click 4`, `frame 0.5` -- one per line.
+  <name>.page      what it sends its page: the commands a headless
+                   tinyweb writes, one per line, compared on every
+                   target it lists (docs/libraries.md, "Testing a page").
 
 A `typecheck_*` program therefore has *both*: its types are pinned by the
 `.ast.out`, and it still runs on the backends like any other program, so
@@ -96,6 +101,7 @@ import argparse
 import glob
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -177,6 +183,20 @@ RELEASE_FLAG = "--release"
 # known variable in it can be. See tests/lib_sys_environment.pyk.
 TEST_ENVIRONMENT = {"PYKING_TEST_ENV": "hello"}
 os.environ.update(TEST_ENVIRONMENT)
+# A page with no browser to show it -- tinyweb under node or the
+# interpreter -- writes each command it is sent to $PYKING_PAGE_LOG and
+# delivers the events $PYKING_PAGE_EVENTS lists. Both are named relative
+# to the directory a program runs in, which is its own workdir, so every
+# run has files of its own. The `.events` file is copied there before
+# the run and the log read back after it.
+EVENTS_EXTENSION = ".events"
+PAGE_EXTENSION = ".page"
+PAGE_LOG = "pyking-page.log"
+PAGE_EVENTS = "pyking-page.events"
+os.environ.update({"PYKING_PAGE_LOG": PAGE_LOG, "PYKING_PAGE_EVENTS": PAGE_EVENTS})
+# The interpreter serves a page for a program that needs one, rather
+# than running it; this runs it here instead, headless.
+HEADLESS_FLAG = "--headless"
 
 # How many runs to keep in flight, when neither `--jobs` nor this says.
 # See `default_jobs`.
@@ -770,7 +790,7 @@ def run_interpret(source, workdir, modules, invocation):
     # `--release` is a compiling flag, so the interpreter never takes it.
     passed = ["--"] + invocation.arguments if invocation.arguments else []
     return executed(
-        run(COMPILER + [os.path.abspath(source)] + passed, cwd=workdir,
+        run(COMPILER + [HEADLESS_FLAG, os.path.abspath(source)] + passed, cwd=workdir,
             stdin=invocation.stdin),
         invocation)
 
@@ -1079,8 +1099,15 @@ def run_case(target, source, modules, invocation):
     String -> String -> [String] -> [String] -> (String, Bool)"""
     with open(expected_path(source, target)) as f:
         expected = f.read()
+    stem = os.path.splitext(source)[0]
+    page = None
     with tempfile.TemporaryDirectory() as workdir:
+        if os.path.exists(stem + EVENTS_EXTENSION):
+            shutil.copyfile(stem + EVENTS_EXTENSION, os.path.join(workdir, PAGE_EVENTS))
         actual, error = RUNNERS[target](source, workdir, modules, invocation)
+        if os.path.exists(os.path.join(workdir, PAGE_LOG)):
+            with open(os.path.join(workdir, PAGE_LOG)) as f:
+                page = f.read()
 
     label = f"target {target}: {source}"
     if error is not None:
@@ -1103,6 +1130,17 @@ def run_case(target, source, modules, invocation):
                     f"{label} FAILED\n"
                     f"--- expected standard error ---\n{expected_stderr}"
                     f"--- actual standard error ---\n{actual.stderr}",
+                    True,
+                )
+        page_path = stem + PAGE_EXTENSION
+        if target != PYKING_TARGET and os.path.exists(page_path):
+            with open(page_path) as f:
+                expected_page = f.read()
+            if page != expected_page:
+                return (
+                    f"{label} FAILED\n"
+                    f"--- expected page ---\n{expected_page}"
+                    f"--- actual page ---\n{page or ''}",
                     True,
                 )
         actual = actual.stdout

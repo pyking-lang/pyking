@@ -273,6 +273,65 @@ async function main() {
          web.includes("from the page 1") && /finished/.test(await lastLine(page)),
          JSON.stringify(web));
 
+  // A program using tinyweb shows its page on the Page tab, and goes on
+  // running there after its top level has ended: a click calls back the
+  // function it handed over, and a frame callback keeps being called
+  // until Stop. The canvas is read back pixel by pixel.
+  console.log("A page");
+  await page.evaluate(() => {
+    window.pykingPlayground.left.setValue([
+      "import tinyweb as tw",
+      "c = tw.canvas(200, 100)",
+      "tw.circle(c, 50, 50, 30, \"#ff0000\")",
+      "status = tw.label(\"waiting\")",
+      "var frames = 0",
+      "def pressed():",
+      "    print(\"pressed\")",
+      "    tw.circle(c, 150, 50, 30, \"#0000ff\")",
+      "def draw(t: Float):",
+      "    frames := frames + 1",
+      "    if frames == 3:",
+      "        tw.set_label(status, \"three frames\")",
+      "tw.button(\"Press\", on_click = pressed)",
+      "tw.on_frame(draw)",
+      "",
+    ].join("\n"), -1);
+  });
+  await page.click('[data-r="runLeft"]');
+  const canvas = '[data-r="page"] canvas';
+  await page.waitForSelector(canvas, { timeout: 60000 });
+  const pixel = (x, y) => page.evaluate(([selector, x, y]) => {
+    const element = document.querySelector(selector);
+    const ratio = element.width / 200;
+    const data = element.getContext("2d")
+      .getImageData(Math.round(x * ratio), Math.round(y * ratio), 1, 1).data;
+    return [...data.slice(0, 3)].join(",");
+  }, [canvas, x, y]);
+  expect("the page is shown on the Page tab", await page.evaluate(() =>
+    !document.querySelector('[data-r="page"]').classList.contains("pyk-hidden")
+    && document.querySelector('[data-r="viewPage"]').classList.contains("active")));
+  expect("the canvas has the circle drawn", (await pixel(50, 50)) === "255,0,0",
+         await pixel(50, 50));
+  await page.waitForFunction(() =>
+    document.querySelector('[data-r="page"]').textContent.includes("three frames"),
+    null, { timeout: 30000 }).catch(() => {});
+  expect("frames are delivered to the program", await page.evaluate(() =>
+    document.querySelector('[data-r="page"]').textContent.includes("three frames")));
+  await page.click('[data-r="page"] button');
+  await page.waitForTimeout(1500);
+  expect("a click calls the program back",
+         (await pixel(150, 50)) === "0,0,255"
+         && (await page.evaluate(() =>
+           document.querySelector('[data-r="output"]').textContent)).includes("pressed\n"),
+         await pixel(150, 50));
+  expect("Stop stays armed while the page is live", await page.evaluate(() =>
+    !document.querySelector('[data-r="stopLeft"]').classList.contains("pyk-hidden")));
+  await page.click('[data-r="stopLeft"]');
+  await page.waitForTimeout(500);
+  expect("Stop lets it go", await page.evaluate(() =>
+    document.querySelector('[data-r="stopLeft"]').classList.contains("pyk-hidden")));
+  await page.click('[data-r="viewCode"]');
+
   // A Pyking loop need never end (PYKING.md, "Leaving a loop"), so the
   // page has to stay answerable while one is running -- which is the
   // whole point of running it in a worker. Nothing headless can show

@@ -125,6 +125,16 @@
   overflow-x: auto;
 }
 .pyk-files:empty { display: none; }
+.pyk-views {
+  display: flex; gap: .3rem; padding: .3rem .7rem; flex: none;
+  background: var(--pyk-panel); border-bottom: 1px solid var(--pyk-edge);
+}
+/* What a program using tinyweb shows. Light, so a canvas drawn in the
+   default black reads the way it would on a page of its own. */
+.pyk-page {
+  flex: 1 1 auto; min-height: 0; overflow: auto;
+  padding: .8rem; background: #f6f6f4; color: #1d1f21;
+}
 .pyk-playground .pyk-file {
   font-size: .78rem; padding: .18rem .5rem; border-radius: 4px;
   background: transparent; border: 1px solid transparent;

@@ -13,6 +13,7 @@ import { PykingRuntime } from "./pyking-runtime.js";
 
 export { PykingRuntime };
 export { JsRunner } from "./pyking-runtime.js";
+export { PageHost } from "./pages.js";
 
 const HERE = new URL(".", import.meta.url);
 

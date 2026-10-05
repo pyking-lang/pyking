@@ -316,6 +316,14 @@ button.pkn-tag:hover { color: var(--pkn-text); border-color: var(--pkn-edge-stro
    line the program read, echoed as a terminal would show it. */
 .pkn-stdout .pkn-debug { color: var(--pkn-faint); font-style: italic; }
 .pkn-stdout .pkn-echo { color: var(--pkn-accent); }
+.pkn-stdout .pkn-failure { color: var(--pkn-bad); }
+/* What a program using tinyweb shows, above its standard output. */
+.pkn-page {
+  padding: .55rem 1rem; margin-bottom: .4rem;
+  border-left: 3px solid var(--pkn-accent);
+  border-radius: 0 .4rem .4rem 0;
+  overflow-x: auto;
+}
 
 /* A cell's standard input and arguments, above its code, shown only for
    a program that reads them. */

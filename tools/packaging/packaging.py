@@ -123,7 +123,7 @@ SHIPPED = [
     ("tools/playground/assets", "tools/playground/assets"),
 ]
 SHIPPED_SUFFIXES = {".pyk", ".js", ".ml", ".mli", ".py", ".c", ".h", ".java",
-                    ".css", ".html", ".json", ".md", ".woff2"}
+                    ".css", ".html", ".json", ".md", ".woff2", ".wav", ".page"}
 # What a library plugin is compiled against: the interface of the one
 # module of `pyk` a plugin names. `stage` ships the one from the build
 # that made the binary, never this checkout's by accident, and a plugin

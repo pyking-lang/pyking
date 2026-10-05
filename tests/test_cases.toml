@@ -1225,6 +1225,21 @@ modules = ["fail_typecheck_external_callback_mod1_external.pyk"]
 targets = ["pyking"]
 
 [[cases]]
+file = "fail_typecheck_external_callback_nested.pyk"
+modules = ["fail_typecheck_external_callback_nested_mod1_external.pyk"]
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_external_callback_result.pyk"
+modules = ["fail_typecheck_external_callback_result_mod1_external.pyk"]
+targets = ["pyking"]
+
+[[cases]]
+file = "external_callback.pyk"
+modules = ["external_callback_mod1_external.pyk"]
+targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
+
+[[cases]]
 file = "external_web.pyk"
 modules = ["external_web_mod1_external.pyk"]
 targets = ["node24", "web24", "iweb24", "interpret"]
@@ -1715,3 +1730,22 @@ targets = ["pyking"]
 [[cases]]
 file = "fail_typecheck_str_removed.pyk"
 targets = ["pyking"]
+
+# tinyweb: a program building a page. Its .events file is what the page
+# delivers once the top level has ended, and its .page file the commands
+# it sends the page, written by the headless implementation every
+# target here uses (docs/libraries.md, "Testing a page").
+[[cases]]
+file = "lib_tinyweb_sound_graphics1.pyk"
+libs = ["tinyweb"]
+targets = ["node24", "web24", "iweb24", "interpret"]
+
+[[cases]]
+file = "lib_tinyweb_frames.pyk"
+libs = ["tinyweb"]
+targets = ["node24", "web24", "iweb24", "interpret"]
+
+[[cases]]
+file = "lib_tinyweb_input.pyk"
+libs = ["tinyweb"]
+targets = ["node24", "web24", "iweb24", "interpret"]

@@ -1,0 +1,15 @@
+load 1 "kick1.wav"
+load 2 "snare1.wav"
+canvas 3 400 200
+circle 3 100 50 30 #ff0000
+circle 3 100 50 20 #000000
+button 4 "Play kick"
+button 5 "Play snare"
+button 6 "Does nothing"
+> click 4
+play 1 0.000 1.000 1.000
+> click 5
+play 2 0.000 0.500 1.000
+> click 5
+play 2 0.000 0.500 1.000
+> click 6

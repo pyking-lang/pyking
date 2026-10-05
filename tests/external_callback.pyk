@@ -1,0 +1,22 @@
+# A program handing Pyking functions to an external module, which calls
+# them back: a named function, lambdas of each parameter shape, and one
+# called only after the top level has ended.
+
+import external_callback_mod1 as cb
+
+def show(n: Int):
+    print("each " ++ string(n))
+
+cb.each(show, 3)
+cb.with_float((x: Float) => print(x), 1.25)
+cb.with_pair((n: Int, s: String) => print(string(n) ++ " " ++ s), 41, "hi")
+
+var count = 0
+
+def tick():
+    count := count + 1
+    print("later, count is " ++ string(count))
+
+cb.later(tick)
+count := 10
+print("end of program")

@@ -4235,8 +4235,10 @@ Two rules hold of such a file, and each is refused where it is broken:
 
 - **Signatures and nothing else.** No bodies, no top-level bindings. The
   file says what the module offers; something else provides it.
-- **No functions and no type variables in a signature.** A function
-  cannot cross the boundary, and one implementation cannot be
+- **No type variables, and no functions but callbacks, in a
+  signature.** A parameter may be a function whose own parameters cross
+  the boundary and which answers `()`: the host calls it back, for its
+  effect. No other function crosses, and one implementation cannot be
   polymorphic.
 
 A plain `sys.pyk` is unaffected: a signature there still has to describe

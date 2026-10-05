@@ -11,6 +11,7 @@
       pykRun(source, name)              run with the interpreter, as JSON
       pykRunProgram(main)               run a program of several modules
       pykAnalyze(main)                  what a program needs to be run
+      pykCallback(id\nargs)             call a function handed to JavaScript
       pykTargets()                      the targets, as JSON
       pykFormatHelper()                 the JS value formatter's source
       pykKeywords() / pykBuiltins()     the language's own word lists
@@ -161,9 +162,19 @@ let value_of_json text =
     let j = ref i in
     if !j < length && text.[!j] = '-' then incr j;
     while !j < length && text.[!j] >= '0' && text.[!j] <= '9' do incr j done;
-    (* A fraction or an exponent is not an Int, and Pyking has no other
-       number, so it is refused rather than rounded. *)
-    if !j < length && (text.[!j] = '.' || text.[!j] = 'e' || text.[!j] = 'E') then fail ();
+    (* A fraction or an exponent is a Float. *)
+    if !j < length && (text.[!j] = '.' || text.[!j] = 'e' || text.[!j] = 'E') then begin
+      while
+        !j < length
+        && (match text.[!j] with
+           | '0' .. '9' | '.' | 'e' | 'E' | '+' | '-' -> true
+           | _ -> false)
+      do incr j done;
+      match float_of_string_opt (String.sub text i (!j - i)) with
+      | Some x -> (Interpreter.VFloat x, !j)
+      | None -> fail ()
+    end
+    else
     match int_of_string_opt (String.sub text i (!j - i)) with
     | Some n -> (Interpreter.VInt n, !j)
     | None -> fail ()
@@ -241,18 +252,82 @@ let value_of_json text =
   in
   fst (value 0)
 
-(** How the interpreter reaches a module implemented in JavaScript: the
-    page puts the imported modules in `pykExternals`, and this asks it
-    for a value or calls one of its functions. Interpreter.externals *)
-let externals =
+(** Every Pyking function handed to JavaScript, by the id it crossed
+    as: its parameter types, how to call it back, and the function. A
+    page calls one with `pykCallback`, after the run that handed it over
+    has ended as well as during it. *)
+let callbacks :
+    ( int,
+      Syntax.typ list
+      * (Interpreter.value -> Interpreter.value list -> Interpreter.value)
+      * Interpreter.value )
+    Hashtbl.t =
+  Hashtbl.create 16
+
+let next_callback = ref 0
+
+(** value as the declared type says it is, where JSON could not say: an
+    integral number declared Float, and an unmarked array declared a
+    tuple. typ -> value -> value *)
+let rec coerce type_ value =
+  match (type_, value) with
+  | Syntax.TFloat _, Interpreter.VInt n -> Interpreter.VFloat (float_of_int n)
+  | Syntax.TList (_, element, _), Interpreter.VList items ->
+      Interpreter.VList (List.map (coerce element) items)
+  | Syntax.TTuple (_, types, _), (Interpreter.VTuple items | Interpreter.VList items)
+    when types <> [] && List.length types = List.length items ->
+      Interpreter.VTuple (List.map2 coerce types items)
+  | _ -> value
+
+(** A Pyking value as JSON, as its declared type says it crosses: a
+    function becomes `{"pyk_callback":id}`, recorded in `callbacks` with
+    back, how to call it.
+    (value -> [value] -> value) -> typ -> value -> string *)
+let rec json_of_typed back type_ value =
+  match (type_, value) with
+  | ( Syntax.TFunction (_, params, _, _, _, _, _),
+      (Interpreter.VClosure _ | Interpreter.VBuiltin _ | Interpreter.VHostFun _) ) ->
+      incr next_callback;
+      Hashtbl.replace callbacks !next_callback (params, back, value);
+      Printf.sprintf "{\"pyk_callback\":%d}" !next_callback
+  | Syntax.TList (_, element, _), Interpreter.VList items ->
+      json_array (List.map (json_of_typed back element) items)
+  | Syntax.TTuple (_, types, _), Interpreter.VTuple items
+    when List.length types = List.length items ->
+      json_array (List.map2 (json_of_typed back) types items)
+  | _ -> json_of_value value
+
+(** How the interpreter reaches the modules of a program implemented in
+    JavaScript: the page puts them in `pykExternals`, and this asks it
+    for a value or calls one of its functions, converting by what each
+    declaration says. [Module.t] -> Interpreter.externals *)
+let externals_for (units : Module.t list) =
+  let declared module_ field =
+    match List.find_opt (fun (unit : Module.t) -> unit.name = module_) units with
+    | None -> None
+    | Some unit -> List.assoc_opt field (Module.external_signatures unit.declarations)
+  in
   Interpreter.
     {
-      field = (fun module_ field -> value_of_json (external_call module_ field ""));
+      field =
+        (fun module_ field ->
+          let value = value_of_json (external_call module_ field "") in
+          match declared module_ field with
+          | Some type_ -> coerce type_ value
+          | None -> value);
       call =
-        (fun module_ field args ->
-          value_of_json
-            (external_call module_ field
-               (json_array (List.map json_of_value args))));
+        (fun back module_ field args ->
+          match declared module_ field with
+          | Some (Syntax.TFunction (_, params, result, _, _, _, _))
+            when List.length params = List.length args ->
+              coerce result
+                (value_of_json
+                   (external_call module_ field
+                      (json_array (List.map2 (json_of_typed back) params args))))
+          | _ ->
+              value_of_json
+                (external_call module_ field
+                   (json_array (List.map json_of_value args))));
     }
 
 (* --- the compiler's answers --- *)
@@ -472,7 +547,7 @@ let run_program main release =
   | exception e -> refused e
   | checked -> (
       let host =
-        Interpreter.callback_host ~externals
+        Interpreter.callback_host ~externals:(externals_for checked)
           ~debug_line:(fun line -> emit_debug (line ^ "\n"))
           (fun line -> emit (line ^ "\n"))
       in
@@ -492,6 +567,40 @@ let run_program main release =
       | exception Program_exit code ->
           json_object [ ("ok", json_bool true); ("exit", json_int code) ]
       | state -> run_result state)
+
+(** Calls the Pyking function that crossed to JavaScript as id, with
+    the arguments as a JSON array: `{"ok":true}`, with the status where
+    `sys.exit` ended it, or the runtime error it stopped on.
+    int -> string -> string *)
+let invoke id arguments =
+  match Hashtbl.find_opt callbacks id with
+  | None ->
+      json_object
+        [
+          ("ok", json_bool false);
+          ("stage", json_string "Internal error");
+          ("text", json_string (Printf.sprintf "no callback %d" id));
+        ]
+  | Some (params, back, callee) -> (
+      match
+        let args =
+          match value_of_json arguments with
+          | Interpreter.VList args | Interpreter.VTuple args -> args
+          | _ -> []
+        in
+        let args =
+          if List.length args = List.length params then List.map2 coerce params args
+          else args
+        in
+        back callee args
+      with
+      | exception Program_exit code ->
+          json_object [ ("ok", json_bool true); ("exit", json_int code) ]
+      | exception Interpreter.Runtime_error (info, message) ->
+          failed "Runtime error" info message
+      | exception Interpreter.Trap (info, message) ->
+          failed "Runtime error" info message
+      | _ -> json_object [ ("ok", json_bool true) ])
 
 (** What a page needs to know about a program before running it: which
     of its modules are implemented in JavaScript, so it can supply them,
@@ -751,6 +860,15 @@ let () =
           run_program (String.sub request 0 i)
             (String.sub request (i + 1) (String.length request - i - 1)
             = "release"));
+  register1 "pykCallback" (fun request ->
+      (* The callback's id, and on a second line its arguments as a
+         JSON array. *)
+      match String.index_opt request '\n' with
+      | None -> invoke (int_of_string request) "[]"
+      | Some i ->
+          invoke
+            (int_of_string (String.sub request 0 i))
+            (String.sub request (i + 1) (String.length request - i - 1)));
   register0 "pykTargets" targets_json;
   register0 "pykFormatHelper" format_helper;
   register0 "pykKeywords" (fun () ->

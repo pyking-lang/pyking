@@ -311,22 +311,34 @@ let load units = List.iter load_one units
 
 (* --- values across the boundary --- *)
 
-(** A Pyking value as the OCaml value its declared type says it is.
-    typ -> Interpreter.value -> Obj.t *)
-let rec to_host type_ value =
+(** A Pyking value as the OCaml value its declared type says it is. A
+    function becomes a curried OCaml function that calls it back through
+    back. (value -> [value] -> value) -> typ -> Interpreter.value -> Obj.t *)
+let rec to_host back type_ value =
   match (type_, value) with
+  | TFunction (_, params, _, _, _, _, _),
+    (Interpreter.VClosure _ | Interpreter.VBuiltin _ | Interpreter.VHostFun _) ->
+      let rec curried types got =
+        match types with
+        | [] ->
+            ignore (back value (List.rev got));
+            Obj.repr ()
+        | t :: rest -> Obj.repr (fun (a : Obj.t) -> curried rest (of_host t a :: got))
+      in
+      if params = [] then Obj.repr (fun () -> ignore (back value []))
+      else curried params []
   | TInt _, Interpreter.VInt n -> Obj.repr n
   | TFloat _, Interpreter.VFloat x -> Obj.repr x
   | TString _, Interpreter.VString text -> Obj.repr text
   | TBool _, Interpreter.VBool b -> Obj.repr b
   | TTuple (_, [], _), _ -> Obj.repr ()
   | TList (_, element, _), Interpreter.VList items ->
-      Obj.repr (List.map (to_host element) items)
+      Obj.repr (List.map (to_host back element) items)
   | TTuple (_, types, _), Interpreter.VTuple items
     when List.length types = List.length items ->
       let block = Obj.new_block 0 (List.length items) in
       List.iteri
-        (fun index (t, item) -> Obj.set_field block index (to_host t item))
+        (fun index (t, item) -> Obj.set_field block index (to_host back t item))
         (List.combine types items);
       block
   | _ ->
@@ -337,7 +349,7 @@ let rec to_host type_ value =
 
 (** An OCaml value as the Pyking value its declared type says it is.
     typ -> Obj.t -> Interpreter.value *)
-let rec of_host type_ value =
+and of_host type_ value =
   match type_ with
   | TInt _ -> Interpreter.VInt (Obj.obj value : int)
   | TFloat _ -> Interpreter.VFloat (Obj.obj value : float)
@@ -356,7 +368,7 @@ let rec of_host type_ value =
 (** Applies an OCaml function to its arguments one at a time -- a curried
     function takes them that way whatever its arity -- or to unit where
     it takes none. Obj.t -> [Obj.t] -> Obj.t *)
-let apply f args =
+let apply_host f args =
   match args with
   | [] -> (Obj.obj f : unit -> Obj.t) ()
   | args -> List.fold_left (fun f a -> (Obj.obj f : Obj.t -> Obj.t) a) f args
@@ -384,7 +396,7 @@ let externals units =
           | Some type_ -> of_host type_ (implementation module_ field)
           | None -> trap (Printf.sprintf "'%s.%s' is not declared" module_ field));
       call =
-        (fun module_ field args ->
+        (fun back module_ field args ->
           match declared module_ field with
           | Some (TFunction (_, params, result, _, _, _, _)) ->
               (* A call with no arguments arrives with none, or with the
@@ -395,7 +407,7 @@ let externals units =
                   (Printf.sprintf "'%s.%s' takes %d argument(s), not %d" module_
                      field (List.length params) (List.length args));
               of_host result
-                (apply (implementation module_ field) (List.map2 to_host params args))
+                (apply_host (implementation module_ field) (List.map2 (to_host back) params args))
           | _ -> trap (Printf.sprintf "'%s.%s' is not a function" module_ field));
     }
 

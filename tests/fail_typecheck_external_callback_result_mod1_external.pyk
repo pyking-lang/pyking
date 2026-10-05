@@ -1,0 +1,6 @@
+# A function an external module answers with cannot cross the boundary:
+# a host can call a Pyking function back, but a Pyking program has no
+# way to call one of the host's. See docs/modules.md, "What may cross
+# the boundary".
+
+public def make : () -> (Int) -> ()

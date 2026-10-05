@@ -183,6 +183,13 @@ process with that script (`execvp`), passing `--port` and the document
 on. `make playground` and `make notebook` go through `./pyk` the same
 way, after `make vendor` has downloaded Ace and KaTeX once.
 
+A program using a library that needs a page -- `tinyweb` -- is shown by
+both pages with that library's own renderer, mounted by
+`tools/webrun/assets/pages.js` from `lib/`: the notebook under the cell,
+the playground on its Page tab. `pyk program.pyk` serves such a program
+as an `iweb24` page rather than running it in the terminal (see
+[libraries.md](libraries.md), "A library that needs a page").
+
 ### What a distribution needs
 
 The compiler is one native executable with no OCaml runtime to install:

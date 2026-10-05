@@ -428,11 +428,10 @@ converted at the boundary — but a JavaScript number cannot say whether
 it is an Int or a Float, so an implementation is free to answer `2`
 where the declaration says `Float` and the value is right either way.
 What makes it *print* as `2.0` is the declared type, which the importing
-module compiles from. The one gap is the `iweb` target, where the
-interpreter runs in the page: a value coming back through JSON has only
-its own shape to go on, so an external module cannot yet return a Float
-there. Nothing under `lib/` declares one, and every compiled target
-carries it (`tests/external_float.pyk`).
+module compiles from. On the `iweb` target, where the interpreter runs
+in the page, a value coming back through JSON is converted by its
+declared type for the same reason (`tinyweb.time` is one), and every
+compiled target carries it (`tests/external_float.pyk`).
 
 **A browser implementation differs from node's.** The `web` and `iweb`
 targets read `sys_external_browser.js` and `node24` reads
@@ -465,11 +464,38 @@ links and appears to work on most ABIs, which is exactly why it is
 worth saying: the declaration and the definition are in different
 translation units, so no compiler sees both.
 
-**A function may not cross at all.** Handing a Pyking closure to a host
-would need a calling convention on the other side, and there is none
-yet, so a declaration naming a function type anywhere inside itself is
-refused. A type variable is refused for a related reason: one
+**A function crosses only as a callback.** A parameter may have a
+function type whose own parameters are types from the table above and
+whose result is `()`: `((Int) -> (), Int) -> ()`. The host receives a
+function of its own language and may call it at any time -- during the
+call, or after the program's top level has ended, which is how an event
+reaches a program (`lib/tinyweb`). Anything else that is a function is
+refused: a callback answering a value, a callback taking a function,
+and a function in a result. A type variable is refused because one
 implementation cannot be polymorphic.
+
+| host | what a callback is |
+|---|---|
+| python14 | the Python function |
+| node24, web24 | the JavaScript function the program compiled to |
+| iweb24 | a JavaScript function calling `pykCallback`, which runs the closure in the page's interpreter |
+| ocaml5.5 | the OCaml function, curried |
+| interpreter | a curried OCaml function that runs the closure in a machine of its own (`Interpreter.callback`) |
+| c89/99/23, java8/17/21 | refused: the declaration names a type these targets have no type for |
+
+On `iweb24` a callback crosses JSON as `{"pyk_callback":id}`;
+`src/web/stub.js` turns it into a function, and its arguments come back
+through `pykCallback(id, args)`, which `pyking_web.ml` converts by the
+callback's declared parameter types. A failure in a callback goes to
+`pykOnError`, and a `sys.exit` in one to `pykOnExit`. The same declared
+types now convert a result, so an external module can return a `Float`
+on `iweb24` as well.
+
+A host that delivers events after the top level has ended needs the
+program to stay alive until then: node and a page do by themselves, and
+the interpreter in a terminal runs what a plugin asked
+`Pyk_plugin.after_program` for once the top level has ended
+(`tests/external_callback.pyk`).
 
 ### Running one
 

@@ -12,7 +12,7 @@
 // directory can be moved or served from a sub-path unchanged.
 
 import {
-  JsRunner, createRuntime, ensureEditor, fetchJSON, splitArguments,
+  JsRunner, PageHost, createRuntime, ensureEditor, fetchJSON, splitArguments,
 } from "../webrun/web.js";
 
 const STORAGE_KEY = "pyking-playground.settings";
@@ -122,12 +122,17 @@ class Playground {
 
     ui.target.addEventListener("change", () => this.onTargetChange());
     ui.example.addEventListener("change", () => this.loadExample(ui.example.value));
-    ui.compile.addEventListener("click", () => this.compile());
+    ui.compile.addEventListener("click", () => {
+      this.showView("code");
+      this.compile();
+    });
     ui.runLeft.addEventListener("click", () => this.runFromSource());
     ui.runRight.addEventListener("click", () => this.runGenerated());
     ui.stopLeft.addEventListener("click", () => this.stopRun());
     ui.stopRight.addEventListener("click", () => this.stopRun());
     ui.copy.addEventListener("click", () => this.copyRight());
+    ui.viewCode.addEventListener("click", () => this.showView("code"));
+    ui.viewPage.addEventListener("click", () => this.showView("page"));
     ui.clear.addEventListener("click", () => this.clearOutput());
 
     this.installSplitters();
@@ -394,8 +399,43 @@ class Playground {
       if (input === null) return;
       await this.executeProgram(source, input);
     } finally {
-      this.endRun();
+      // A program that sent its page something goes on running there --
+      // the page calls back what it was given -- so Stop stays armed.
+      if (!(this.runtime.isLive && this.running)) this.endRun();
     }
+  }
+
+  /** Shows the compiled code or the program's page in the right-hand
+   *  pane. "code" | "page" -> () */
+  showView(view) {
+    const { ui } = this;
+    const page = view === "page";
+    ui.viewCode.classList.toggle("active", !page);
+    ui.viewPage.classList.toggle("active", page);
+    ui.files.classList.toggle("pyk-hidden", page);
+    ui.rightEditor.classList.toggle("pyk-hidden", page);
+    ui.copy.classList.toggle("pyk-hidden", page);
+    ui.page.classList.toggle("pyk-hidden", !page);
+    if (!page) this.right.resize();
+  }
+
+  /** Removes the last run's page, if it had one. () -> () */
+  closePage() {
+    this.pageHost?.close();
+    this.pageHost = null;
+  }
+
+  /** Shows what the running program sent its page, on the Page tab.
+   *  String -> [Object] -> () */
+  pageReceive(module, data) {
+    if (!this.pageHost) {
+      this.pageHost = new PageHost(this.ui.page, {
+        libURL: this.runtime.libURL,
+        send: (name, event) => this.runtime.sendEvent(name, event),
+      });
+      this.showView("page");
+    }
+    this.pageHost.receive(module, data);
   }
 
   /** The Run button in the generated pane: execute exactly what is shown. */
@@ -472,10 +512,22 @@ class Playground {
 
   async executeProgram(source, input = { stdin: "", args: [] }) {
     try {
+      this.closePage();
+      const run = this.running;
       const result = await this.runtime.runProgram(source, {
         onOutput: (text) => this.write(text),
         onDebug: (text) => this.debugLine(text),
         onInput: (text) => this.write(text, "input"),
+        onPage: (module, data) => this.pageReceive(module, data),
+        onFailure: (text) => this.error(text.trimEnd()),
+        onExit: (code) => {
+          this.error(`— exited with status ${code} —`);
+          this.runtime.endLive();
+        },
+        onEnd: () => {
+          this.pageHost?.freeze();
+          if (this.running === run) this.endRun();
+        },
         stdin: input.stdin,
         args: input.args,
       });
@@ -548,6 +600,16 @@ class Playground {
     if (!this.running) return;
     const { kind } = this.running;
     this.stopped = true;
+    // A program that has answered and is only waiting for its page's
+    // events is let go rather than killed: nothing is running to stop.
+    const waiting = kind === "pyking" && this.runtime.isLive
+      && !this.runtime.pending.size;
+    if (waiting) {
+      this.runtime.endLive();
+      this.endRun();
+      this.error("— stopped —");
+      return;
+    }
     if (kind === "pyking") this.runtime.stop();
     else this.jsRunner.stop();
     this.endRun();
@@ -885,8 +947,15 @@ function buildDom(host, meta, cfg) {
                rendered as an empty box. A word always renders. -->
           <button data-r="copy" title="Copy the generated code">Copy</button>
         </div>
+        <div class="pyk-views" data-r="views" role="tablist">
+          <button class="pyk-file pyk-view active" data-r="viewCode" role="tab"
+                  title="The code the compiler wrote">Compiled code</button>
+          <button class="pyk-file pyk-view" data-r="viewPage" role="tab"
+                  title="What the program shows: a program using tinyweb draws here">Page</button>
+        </div>
         <div class="pyk-files" data-r="files"></div>
         <div class="pyk-editor" data-r="rightEditor"></div>
+        <div class="pyk-page pyk-hidden" data-r="page"></div>
         <div class="pyk-gutter pyk-gutter-h" data-r="gutterH" role="separator"
              aria-orientation="horizontal" title="Drag to resize"></div>
         <div class="pyk-output-wrap" data-r="outputWrap">

@@ -227,6 +227,78 @@ for before the run -- only when the program reads them -- and
 implementation, fetched from `lib/` with the library's Pyking sources.
 See tools/webrun/README.md.
 
+## tinyweb
+
+`lib/tinyweb` is graphics, widgets and sound on a web page, kept in time
+by one clock. Its two halves are `tinyweb_external.pyk`, which declares
+what the host does, and `tinyweb.pyk`, which wraps the declarations that
+need a default argument. A program builds a page by calling it: a
+canvas, button, label or slider goes below the ones before it, and every
+one is named by the `Int` its function answers. A sample is an `Int` as
+well, from `load_sample`.
+
+**Commands and events.** Every function sends the page one *command*, a
+plain object such as `{op: "circle", c, x, y, radius, color}`, and the
+page answers with *events*, such as `{ev: "click", id}`, which call the
+functions the program handed over. A program that handed over a
+function keeps running after its top level ends, as long as the page
+does. Each event carries the page's clock (`t`) and whether audio has
+started, which is what `time()` answers from between events.
+
+**One file, three transports.** `tinyweb_external_browser.js` holds the
+program's side, the page's side (`mountPage`, the renderer) and the
+choice between them:
+
+| where the program runs | how a command reaches the page |
+|---|---|
+| on the page (`web24`, `iweb24`) | the renderer is mounted on `pykPageRoot`, or on the body, and called directly |
+| in a worker (playground, notebook) | posted as `{type: "page", module: "tinyweb", data: [...]}`; events come back through `pykDeliver` |
+| nowhere (node, the harness) | headless: one line per command in `$PYKING_PAGE_LOG` |
+
+`tinyweb_external_node.js` is a copy of it, since under node there is no
+page and the same code is headless; `tests/test_site.py` checks the two
+are the same. `tinyweb_external.ml` is the interpreter's plugin, and is
+headless too.
+
+**Keeping sound and pictures in time.** The page's clock is the audio
+clock once sound has started, and before that the seconds since the
+page was mounted, joined so it never goes back. A frame callback is
+given the time the frame is for, and `play(sample, at = t)` schedules a
+sample on the audio clock, so a sound starts exactly when the picture
+says it does whatever the delay between the worker and the page. A
+browser starts audio only after a gesture, so every click and key press
+on the page starts it. The page asks a worker for the next frame only
+once the last one's commands have arrived (`frame_done`), so a slow
+program drops frames rather than queueing them.
+
+**Samples.** `load_sample(name)` fetches `name` beside the page, and
+then from `tinyweb_assets/` beside the implementation, which holds four
+CC0 samples from freesound.org. `pyk compile` copies a library's
+`<name>_assets/` directory beside a `web24` or `iweb24` page, so the
+same relative URL works from `lib/` and from a compiled page.
+
+## A library that needs a page
+
+A library whose directory holds `<name>.page` needs a page to be seen
+on. `pyk program.pyk` then compiles the program for `iweb24` into a
+directory of its own and serves it, as `pyk compile -t iweb24 --run`
+does, rather than running it in the terminal; `--headless` runs it in
+the terminal instead, showing nothing. The driver names no library: the
+marker file is the whole of the rule.
+
+The playground and the notebook show such a page with
+`tools/webrun/assets/pages.js`'s `PageHost`: on the first `page` message
+from the worker it imports `lib/<name>/<name>_external_browser.js`,
+calls its `mountPage(element, send)`, and hands it each batch; `send`
+posts an event back to the worker, which delivers it to the module's
+`pykDeliver`. The worker imports a fresh instance of every library for
+each run, so one program's callbacks never answer another's events. A
+run that sent its page anything stays *live* after it answers, its
+output still reaching the pane, until the next run or Stop
+(`PykingRuntime.endLive`). The notebook shows the page under the cell,
+above its standard output; the playground shows it on the Page tab
+beside the compiled code.
+
 ## What each library reaches
 
 | | python14 | node24 | web24 | iweb24 | c89/99/23 | java8/17/21 | ocaml5.5 | interpret |
@@ -235,9 +307,16 @@ See tools/webrun/README.md.
 | `io` | yes | yes | output only | output only | yes | yes | yes | yes |
 | `sys` | yes | yes | `exit` only | `exit` only | `exit` only | `exit` only | yes | yes |
 | `time` | yes | yes | yes | yes | no | no | yes | yes |
+| `tinyweb` | no | headless | yes | yes | no | no | no | headless |
 
 "Not supported" and "output only" are the browser implementations above:
 the import compiles and a function the page cannot provide says so.
+
+`tinyweb` draws and plays on a page, so a host with no page runs it
+*headless*: nothing is shown, and the commands it would send are what a
+test compares (below, "Testing a page"). It hands the page callbacks,
+which C and Java cannot carry, and has no Python or OCaml-target
+implementation.
 
 On C and Java, `sys` offers `exit` alone. `args` and `env` answer a list,
 which neither target can carry, and `prog_name` and `prog_path` need the
@@ -325,6 +404,36 @@ wording of a failure are things no (program, target) pair can express.
 Each case builds a throwaway tree of tiny libraries, each exporting a
 `tag()` naming itself, and runs the program — so what is printed says
 which library was actually found.
+
+## Testing a page
+
+A program using `tinyweb` is tested by what it sends its page, not by
+pixels. Two files beside it say so:
+
+- `<name>.events` -- what the page delivers once the top level has
+  ended, one event per line: `click ID`, `slide ID VALUE`, `frame T`,
+  `mouse CANVAS X Y` and `key NAME`.
+- `<name>.page` -- every command the program sent, one per line, with
+  each delivered event as a `> ` line where it happened:
+
+```
+canvas 3 400 800
+circle 3 1 50 30 #ff0000
+button 4 "Play kick"
+> click 4
+play 1 0.000 1.000 1.000
+```
+
+The harness copies the `.events` file into each run's workdir, points
+`$PYKING_PAGE_EVENTS` and `$PYKING_PAGE_LOG` there, and compares the log
+with the `.page` file on every target the case lists. Every headless
+implementation writes the same lines -- strings as JSON, times to three
+decimals -- so one `.page` file holds for `node24`, `web24`, `iweb24`
+and the interpreter, which is run with `--headless`.
+`tests/lib_tinyweb_*.pyk` are the cases. The renderer itself -- what is
+drawn, a click reaching the program, frames -- is checked in a real
+browser by `make -C tools/playground e2e`, which reads the canvas back
+pixel by pixel.
 
 ## Adding a library
 

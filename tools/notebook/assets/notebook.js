@@ -239,6 +239,12 @@ class Cells {
           console.log(text.replace(/\n$/, ""));
         },
         onInput: (text) => cell.write(text, "pkn-echo"),
+        // A program using a library that needs a page shows it under the
+        // cell, and goes on running there after this run has answered.
+        onPage: (module, data) => cell.page(module, data),
+        onFailure: (text) => cell.write(text.trimEnd() + "\n", "pkn-failure"),
+        onExit: (code) => cell.write(`exited with status ${code}\n`, "pkn-failure"),
+        onEnd: () => cell.host?.freeze(),
         ...cell.input(),
       });
       cell.finish(result, ++this.executions, performance.now() - started);
@@ -492,6 +498,7 @@ class Cell {
           </div>
         </div>
         <div class="pkn-output pkn-hidden" data-r="output">
+          <div class="pkn-page pkn-hidden" data-r="page"></div>
           <div class="pkn-stdout-box" data-r="stdoutBox">
             <span class="pkn-input-label">stdout</span>
             <pre class="pkn-stdout" data-r="stdout"></pre>
@@ -644,6 +651,24 @@ class Cell {
     this.ui.result.className = "pkn-result pkn-hidden";
     this.ui.result.textContent = "";
     this.ui.output.classList.add("pkn-hidden");
+    this.host?.close();
+    this.host = null;
+    this.ui.page.classList.add("pkn-hidden");
+  }
+
+  /** Shows what the program sent its page, mounting the page the first
+   *  time. String -> [Object] -> () */
+  page(module, data) {
+    if (!this.host) {
+      const runtime = this.notebook.runtime;
+      this.host = new this.notebook.web.PageHost(this.ui.page, {
+        libURL: runtime.libURL,
+        send: (name, event) => runtime.sendEvent(name, event),
+      });
+    }
+    this.ui.output.classList.remove("pkn-hidden");
+    this.ui.page.classList.remove("pkn-hidden");
+    this.host.receive(module, data);
   }
 
   end() {
