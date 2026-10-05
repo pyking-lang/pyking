@@ -20,3 +20,5 @@ lib/*/*_external.digest
 /website/
 tools/site/build/
 tools/site/node_modules/
+web_examples/
+web_docs/
