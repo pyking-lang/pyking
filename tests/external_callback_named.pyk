@@ -1,0 +1,29 @@
+# The callbacks of external_callback.pyk written as named functions, the
+# one shape C and Java can hand to a host: a top-level `def` is a C
+# function pointer or a Java lambda, and reads and writes what the top
+# level bound, which is a file-scope variable or a static field there.
+
+import external_callback_mod1 as cb
+
+def show(n: Int):
+    print("each " ++ string(n))
+
+def twice(x: Float):
+    print(x)
+
+def pair(n: Int, s: String):
+    print(string(n) ++ " " ++ s)
+
+cb.each(show, 3)
+cb.with_float(twice, 1.25)
+cb.with_pair(pair, 41, "hi")
+
+var count = 0
+
+def tick():
+    count := count + 1
+    print("later, count is " ++ string(count))
+
+cb.later(tick)
+count := 10
+print("end of program")

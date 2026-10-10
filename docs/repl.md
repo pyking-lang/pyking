@@ -237,6 +237,17 @@ so at a piped prompt `io.read_line()` reads the next line of the input
 the entries are read from, and `sys.exit` ends the session with its
 status.
 
+A plugin may also want the session's idle time: tinyweb's, once an
+entry has called `web_init`, serves a page whose events have to reach
+the callbacks while the prompt waits. `start` hands the reader an
+`idle` that runs `Pyk_plugin.run_idle` and reports what it raises the
+way an entry's mistakes are reported; the terminal editor waits on
+`Pyk_plugin.idle_descriptors ()` beside standard input and runs it
+whenever one is ready, writing what it prints above the entry and
+drawing the entry again, and the pipe reader runs it before each line.
+tinyweb's refusals are runtime errors here, so a session goes on after
+a call made before `web_init` (`tests/repl/tinyweb.repl`).
+
 The playground goes one step further and runs `module.check_publics` as
 well; a session does not, and the difference is the model rather than an
 oversight. The playground compiles **a file**, and what a file exports is

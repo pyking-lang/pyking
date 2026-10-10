@@ -71,7 +71,7 @@ let unsupported info message =
    The three kinds of value a Pyking program in this subset can hold,
    plus Pyking's unit type (), spelled void in Java. *)
 
-type jtype = Int | Float | Bool | String | Unit
+type jtype = Int | Float | Bool | String | Unit | Func of jtype list * jtype
 
 let jtype_name t =
   match t with
@@ -80,7 +80,23 @@ let jtype_name t =
   | Bool -> "Bool"
   | String -> "String"
   | Unit -> "Unit"
+  | Func _ -> "a function"
 
+(** A value type as a type argument, which Java writes boxed.
+    jtype -> string *)
+let boxed t =
+  match t with
+  | Int -> "Integer"
+  | Float -> "Double"
+  | Bool -> "Boolean"
+  | String -> "String"
+  | Unit | Func _ -> "Void"
+
+(** A type's Java spelling. A Pyking function is the java.util.function
+    interface of its shape -- `Runnable` for `() -> ()`, `Consumer<A>`
+    for `(A) -> ()`, `BiFunction<A, B, R>` for `(A, B) -> R` -- so a
+    Java caller can hand one a lambda (docs/target_java.md, "Functions as
+    values"). jtype -> string *)
 let java_type t =
   match t with
   | Int -> "int"
@@ -88,17 +104,51 @@ let java_type t =
   | Bool -> "boolean"
   | String -> "String"
   | Unit -> "void"
+  | Func (params, result) -> (
+      let args = String.concat ", " (List.map boxed params) in
+      let package = "java.util.function." in
+      match (params, result) with
+      | [], Unit -> "Runnable"
+      | [], r -> package ^ "Supplier<" ^ boxed r ^ ">"
+      | [ _ ], Unit -> package ^ "Consumer<" ^ args ^ ">"
+      | [ _ ], r -> package ^ "Function<" ^ args ^ ", " ^ boxed r ^ ">"
+      | _, Unit -> package ^ "BiConsumer<" ^ args ^ ">"
+      | _, r -> package ^ "BiFunction<" ^ args ^ ", " ^ boxed r ^ ">")
+
+(** The method a function's interface is called through.
+    jtype -> string *)
+let apply_method t =
+  match t with
+  | Func ([], Unit) -> "run"
+  | Func ([], _) -> "get"
+  | Func (_, Unit) -> "accept"
+  | _ -> "apply"
 
 (** The type an annotation names, or None if it names one Java has no
     representation for here (a tuple or list). Nothing checks
     annotations, so an unrepresentable one is ignored in favour of
-    inference rather than treated as an error. typ option -> jtype option *)
-let annotated_type annotation =
+    inference rather than treated as an error. A function type is one
+    of at most two parameters, each a value, answering a value or unit:
+    what java.util.function has an interface for.
+    typ option -> jtype option *)
+let rec annotated_type annotation =
   match annotation with
   | Some (TInt _) -> Some Int
   | Some (TFloat _) -> Some Float
   | Some (TString _) -> Some String
   | Some (TBool _) -> Some Bool
+  | Some (TFunction (_, params, result, _, _, _, _)) when List.length params <= 2 -> (
+      let value t =
+        match annotated_type (Some t) with Some (Func _) | None -> None | found -> found
+      in
+      let params = List.map value params in
+      let result =
+        match result with TTuple (_, [], _) -> Some Unit | result -> value result
+      in
+      match result with
+      | Some result when List.for_all Option.is_some params ->
+          Some (Func (List.map Option.get params, result))
+      | _ -> None)
   | _ -> None
 
 (** Whether a written type names a type variable anywhere inside it.
@@ -148,6 +198,8 @@ type jexpr =
   | JEquals of info * jexpr * jexpr (* left.equals(right) *)
   | JCast of info * jtype * jexpr (* (type) operand *)
   | JFloatStr of info * jexpr (* pykFloatStr(operand) *)
+  | JLambda of info * string * jtype
+      (* (p$1, p$2) -> name(p$1, p$2): a method as a value *)
 
 type jstmt =
   | JDecl of info * jtype * string * jexpr * bool
@@ -198,6 +250,9 @@ type jprogram = {
   separate : bool;
   starts : string list;
   globals : jglobal list;
+  (* The top level's own bindings, as static fields: what every method
+     reads them through. *)
+  statics : (jtype * string) list;
 }
 
 (** The type a Java expression carries. jexpr -> jtype *)
@@ -215,13 +270,14 @@ let jtype_of e =
   | JEquals _ -> Bool
   | JCast (_, t, _) -> t
   | JFloatStr _ -> String
+  | JLambda (_, _, t) -> t
 
 (** The source position a Java expression carries. jexpr -> info *)
 let jexpr_info e =
   match e with
   | JInt (i, _) | JFloat (i, _) | JStr (i, _) | JBool (i, _) -> i
   | JCast (i, _, _) | JFloatStr (i, _) -> i
-  | JVar (i, _, _) -> i
+  | JVar (i, _, _) | JLambda (i, _, _) -> i
   | JUnary (i, _, _, _) -> i
   | JBinary (i, _, _, _, _) -> i
   | JCall (i, _, _, _) -> i
@@ -246,7 +302,6 @@ let default_class_name = Module.class_name
    a rebinding may hold a different type. *)
 
 type scope = {
-  outside : StringSet.t;
   names : (string * jtype) SMap.t;
   block : StringSet.t;
   taken : StringSet.t;
@@ -254,7 +309,6 @@ type scope = {
 
 let empty_scope =
   {
-    outside = StringSet.empty;
     names = SMap.empty;
     block = StringSet.empty;
     taken = StringSet.empty;
@@ -292,16 +346,8 @@ let lookup name scope info =
   match SMap.find_opt name scope.names with
   | Some found -> found
   | None ->
-      if StringSet.mem name scope.outside then
-        unsupported info
-          (Printf.sprintf
-             "'%s' is bound outside this function -- these are static \
-              methods, with no closure over the code around them: a method \
-              reads its parameters and calls other methods, nothing else"
-             name)
-      else
-        unsupported info
-          (Printf.sprintf "'%s' is not a value this backend can compile" name)
+      unsupported info
+        (Printf.sprintf "'%s' is not a value this backend can compile" name)
 
 (** name2, name3, ... -- the first not already used.
     string -> scope -> string *)
@@ -324,7 +370,6 @@ let fresh_java_name name scope =
     string -> string -> jtype -> scope -> scope *)
 let bind_exact name java_name jtype scope =
   {
-    scope with
     names = SMap.add name (java_name, jtype) scope.names;
     block = StringSet.add name scope.block;
     taken = StringSet.add java_name scope.taken;
@@ -705,13 +750,12 @@ let rec expr state e scope allow_unit =
   | EString (info, s, _) -> (JStr (info, s), state)
   | EBool (info, v, _) -> (JBool (info, v), state)
   | EVar (info, name, _) when is_function_value state name scope ->
-      (* A def's own name used as a value (docs/target_java.md, "A
-         function used as a value"). *)
-      unsupported info
-        (Printf.sprintf
-           "`%s` is a function used as a value -- these are static methods, \
-            not values: only a call can name one"
-           name)
+      (* A def's own name used as a value is a lambda calling the method
+         (docs/target_java.md, "Functions as values"). *)
+      function_value state info name
+  | EQualified (info, alias, field, _)
+    when List.mem_assoc (reached alias field) state.signatures ->
+      function_value state info (reached alias field)
   | EVar (info, name, _) ->
       let java_name, jtype = lookup name scope info in
       (JVar (info, java_name, jtype), state)
@@ -815,18 +859,54 @@ let rec expr state e scope allow_unit =
           (JBinary (expr_info e, op, left, right, jtype), state)
       | _ -> unsupported (expr_info e) (expr_kind_name e))
 
+(** A def's name as a value: a lambda calling its method, typed by the
+    interface of its shape. state -> info -> string -> (jexpr, state) *)
+and function_value state info name =
+  match List.assoc_opt name state.signatures with
+  | None -> unsupported info (Printf.sprintf "'%s' is not a function" name)
+  | Some (java_name, param_types, ret) ->
+      let state =
+        if StringSet.mem name state.defined then state
+        else { state with called_early = StringSet.add name state.called_early }
+      in
+      if List.exists (fun t -> match t with Func _ -> true | _ -> false) (ret :: param_types)
+      then
+        unsupported info
+          (Printf.sprintf
+             "`%s` is used as a value and itself takes or answers a function \
+              -- this backend has an interface for a function over values, \
+              and none for one over functions"
+             name);
+      if List.length param_types > 2 then
+        unsupported info
+          (Printf.sprintf
+             "`%s` is used as a value and takes %d parameters -- \
+              java.util.function has an interface for at most two"
+             name (List.length param_types));
+      (JLambda (info, java_name, Func (param_types, ret)), state)
+
 (** Translates a call to a named function -- one written here, or one
     another module exports. `name` is the key its signature is registered
     under. state -> expr -> string -> [expr] -> scope -> bool -> info
     -> (jexpr, state) *)
 and call state e name args scope allow_unit info =
-  match List.assoc_opt name state.signatures with
+  let callee, through =
+    if is_function_value state name scope then (List.assoc_opt name state.signatures, None)
+    else
+      (* A name holding a function -- a parameter, or a binding -- is
+         called through its interface's method. *)
+      match SMap.find_opt name scope.names with
+      | Some (java_name, (Func (param_types, ret) as t)) ->
+          (Some (java_name ^ "." ^ apply_method t, param_types, ret), Some ret)
+      | _ -> (None, None)
+  in
+  match callee with
   | None ->
       unsupported (expr_info e)
         (Printf.sprintf "call to unknown function `%s`" name)
   | Some (java_name, param_types, ret) ->
       let state =
-        if StringSet.mem name state.defined then state
+        if StringSet.mem name state.defined || through <> None then state
         else { state with called_early = StringSet.add name state.called_early }
       in
       if List.length args <> List.length param_types then
@@ -863,7 +943,12 @@ and call state e name args scope allow_unit info =
                  (jtype_name (jtype_of argument))
                  (jtype_name wanted)))
         translated;
-      (JCall (info, java_name, translated, ret), state)
+      let called = JCall (info, java_name, translated, ret) in
+      (* An interface answers its result boxed; a cast unboxes it, so
+         that `==` compares values rather than objects. *)
+      match through with
+      | Some (Int | Float | Bool) -> (JCast (info, ret, called), state)
+      | _ -> (called, state)
 
 (** Translates a statement sequence, threading the scope through it;
     raises Unsupported for code after an unconditional return
@@ -908,8 +993,11 @@ and tail_stmt state s scope =
       let translated, _, state = stmt state s scope in
       (translated, state)
   | SExprStmt (info, e, _) ->
-      let value, state = expr state e scope false in
-      ([ JReturn (info, value) ], state)
+      (* A call worth unit ends a method that returns nothing: it is a
+         statement, not a value to return. *)
+      let value, state = expr state e scope true in
+      if jtype_of value = Unit then ([ JExprStmt (info, value) ], state)
+      else ([ JReturn (info, value) ], state)
   | SMatch _ ->
       let built, _, state =
         match_chain state s scope (fun state body inner ->
@@ -1418,17 +1506,10 @@ let function_of state func scope =
             set_assoc name (java_name, param_types, provisional) state.signatures;
         }
       in
-      (* A function body starts from nothing but its own parameters; no
-         closures, so `outside` remembers what it cannot see
-         (`lookup`). *)
-      let body_scope =
-        {
-          empty_scope with
-          outside =
-            SMap.fold (fun key _ set -> StringSet.add key set) scope.names
-              StringSet.empty;
-        }
-      in
+      (* A method is written at the top level, and what the top level
+         has bound so far is a static field it reads like any other
+         (docs/target_java.md, "The top level"). *)
+      let body_scope = block_scope scope in
       let java_params, body_scope =
         List.fold_left2
           (fun (out, body_scope) (Param (_, param_name, _, _, _)) jtype ->
@@ -1615,15 +1696,35 @@ let translate_program stmts context =
      other, and `init` ends by handing what it worked out to the
      field. *)
   let globals = exported_values state stmts scope in
+  (* Each binding the top level makes is a static field, assigned where
+     the binding is, so that a method can read it. *)
+  let statics, main_body =
+    List.fold_left
+      (fun (statics, out) s ->
+        match s with
+        | JDecl (info, jtype, name, init, _) ->
+            (statics @ [ (jtype, name) ], out @ [ JAssign (info, name, init) ])
+        | s -> (statics, out @ [ s ]))
+      ([], []) main_body
+  in
+  (* An exported value whose field is the binding's own needs nothing
+     more: the field is public, and the assignment above fills it in. *)
+  let own g = g.global_from = g.global_name && List.exists (fun (_, n) -> n = g.global_name) statics in
   let main_body =
     main_body
-    @ List.map
+    @ List.filter_map
         (fun g ->
-          JAssign
-            ( g.global_info,
-              field_name state g.global_name,
-              JVar (g.global_info, g.global_from, g.global_jtype) ))
+          if own g then None
+          else
+            Some
+              (JAssign
+                 ( g.global_info,
+                   field_name state g.global_name,
+                   JVar (g.global_info, g.global_from, g.global_jtype) )))
         globals
+  in
+  let statics =
+    List.filter (fun (_, name) -> not (List.exists (fun g -> g.global_name = name) globals)) statics
   in
   check_reachable main_body;
   {
@@ -1636,6 +1737,7 @@ let translate_program stmts context =
     separate = context.separate;
     starts = List.map default_class_name context.starts;
     globals;
+    statics;
   }
 
 (* --- printer: Java AST -> Java source text --- *)
@@ -1691,6 +1793,13 @@ let rec pprint_java_expr ?(min_prec = 0) e version =
         (Printf.sprintf "(%s) %s" (java_type jtype)
            (at (unary_precedence + 1) operand))
   | JFloatStr (_, operand) -> Printf.sprintf "pykFloatStr(%s)" (plain operand)
+  (* `$` is in no Pyking name, so the parameters shadow nothing. *)
+  | JLambda (_, name, jtype) ->
+      let count = match jtype with Func (params, _) -> List.length params | _ -> 0 in
+      let params = List.init count (fun i -> Printf.sprintf "p$%d" (i + 1)) in
+      parens conditional_precedence min_prec
+        (Printf.sprintf "(%s) -> %s(%s)" (String.concat ", " params) name
+           (String.concat ", " params))
   | JStr (_, s) -> quote s
   | JBool (_, v) -> if v then "true" else "false"
   | JVar (_, name, _) -> name
@@ -1716,7 +1825,10 @@ let rec pprint_java_expr ?(min_prec = 0) e version =
 (** The keyword a local declaration uses for its type: `var` from java17
     on, else the type's Java spelling. jtype -> string -> string *)
 let local_type jtype version =
-  if var_locals version then "var" else java_type jtype
+  match jtype with
+  (* A lambda has no type of its own for `var` to infer. *)
+  | Func _ -> java_type jtype
+  | _ -> if var_locals version then "var" else java_type jtype
 
 (** s as Java source text, indented to level. jstmt -> string -> int
     -> string *)
@@ -1988,6 +2100,22 @@ let pprint_java_program (program : jprogram) version class_name source =
             Printf.sprintf "    public static %s %s;" (java_type g.global_jtype)
               g.global_name)
           program.globals
+    else []
+  in
+  let parts =
+    parts
+    @
+    if program.statics <> [] then
+      [
+        "";
+        "    // What the top level binds, where every method can read it; the";
+        Printf.sprintf "    // top level in `%s` below is what fills each of them in."
+          (if program.main then "main" else "init");
+      ]
+      @ List.map
+          (fun (jtype, name) ->
+            Printf.sprintf "    private static %s %s;" (java_type jtype) name)
+          program.statics
     else []
   in
   let parts =

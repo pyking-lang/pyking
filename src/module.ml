@@ -662,14 +662,19 @@ let implementation_path directory name target info =
          what it is called in the output. JavaScript runs in two
          environments, so a module has one source for each:
          `<name>_external_node.js` for node and
-         `<name>_external_browser.js` for web and iweb. Either is copied
-         out as `<name>_external.js`, which is what every generated
-         import names. *)
+         `<name>_external_browser.js` for web and iweb -- except that
+         iweb, where the interpreter runs the program, takes
+         `<name>_external_interpreter.js` where there is one. Each is
+         copied out as `<name>_external.js`, which is what every
+         generated import names. *)
       let source =
         match Targets.family_of target with
         | Targets.Node -> join directory (name ^ "_external_node.js")
-        | Targets.Web | Targets.Iweb ->
-            join directory (name ^ "_external_browser.js")
+        | Targets.Web -> join directory (name ^ "_external_browser.js")
+        | Targets.Iweb ->
+            let interpreted = join directory (name ^ "_external_interpreter.js") in
+            if Sys.file_exists interpreted then interpreted
+            else join directory (name ^ "_external_browser.js")
         | _ -> join directory file
       in
       if Sys.file_exists source then source

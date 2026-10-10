@@ -1217,7 +1217,12 @@ nothing: the plugin's initialisation runs for its effect, and this is
 where that effect lands. `after_program f` asks for `f` to run once the
 program's top level has ended, and `pyk.ml` runs them
 (`run_after_program`) after a top level that succeeded: how a plugin
-delivers events to the callbacks it was handed.
+delivers events to the callbacks it was handed. `on_idle descriptors
+handle` asks for the REPL's idle time: `repl.ml` waits on
+`idle_descriptors ()` beside standard input and calls `run_idle ()` when
+one is ready. `set_directory`/`directory` are where each module's
+implementation was found, which `plugin_host.ml` records before it loads
+the plugin. It links `unix`, whose descriptors those are.
 
 ---
 
@@ -1265,7 +1270,13 @@ function written now is invisible to one written before it.
   reasoned about without a terminal in sight.
 - **`Editor`** — a small multi-line editor over a terminal in raw mode.
   It holds only what is unavoidably stateful: the tty, the history of
-  *entries*, and how much of the screen the last redraw used.
+  *entries*, and how much of the screen the last redraw used. While a
+  plugin waits on descriptors (`Pyk_plugin.idle_descriptors`) -- a page
+  `tinyweb.web_init` serves -- waiting for a key is also waiting for
+  them: what a ready one runs is written above the entry, with the
+  terminal back in its own mode, and the entry is drawn again below it.
+  Piped input, which takes the plain reader, lets plugins answer what is
+  waiting before each line instead.
 - **`META`** — the meta-commands, each `(session, argument, report) ->
   session`, so one that changes the session and one that only reports
   have the same shape.
@@ -1562,6 +1573,12 @@ meaning, so `standard` reaches only the printer.
   its top level.
 - Prototypes are emitted ahead of the definitions, so a call may name a
   function written further down.
+- **`statics`** -- what the top level binds, lifted to `static`
+  file-scope variables, so a function reads them; and **`Func`**, the
+  type of a top-level `def` used as a value, a pointer to the C
+  function written through a guarded typedef (`function_type_name`,
+  `typedef`, `function_types`). `function_value` makes one, and `call`
+  calls through a name holding one.
 
 ---
 
@@ -1590,6 +1607,11 @@ that page focuses on the differences); [target_java.md](target_java.md)
   (nothing follows a statement that always returns, or such a loop).
   Both are refused at compile time with a position.
 - **`pprint_java_program(program, version, class_name, source)`**.
+- **`statics`** -- what the top level binds, as static fields -- and
+  **`Func`**, a function type, written as the `java.util.function`
+  interface of its shape (`java_type`, called through `apply_method`);
+  a top-level `def` used as a value is a **`JLambda`** calling its
+  method.
 - **`default_class_name(stem)`** — Java requires the file and its public
   class to match exactly, so `foo_bar.pyk` becomes `FooBar.java`. The
   driver applies it; deriving a class name from an explicit `--output` is

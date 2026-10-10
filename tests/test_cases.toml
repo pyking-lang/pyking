@@ -244,7 +244,7 @@ targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "function_types.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
+targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "if_expr.pyk"
@@ -260,7 +260,7 @@ targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17"
 
 [[cases]]
 file = "lexical_capture.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
+targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "lexical_capture_group.pyk"
@@ -320,7 +320,7 @@ targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "loop_early_return.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+targets = ["python14", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "loop_unit.pyk"
@@ -424,7 +424,7 @@ targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "tail_return_nested.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+targets = ["python14", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "tail_return_subset.pyk"
@@ -468,7 +468,7 @@ targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_function_types.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
+targets = ["pyking", "python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "typecheck_for_value.pyk"
@@ -480,7 +480,7 @@ targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_functions.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
+targets = ["pyking", "python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "typecheck_higher_order.pyk"
@@ -492,7 +492,7 @@ targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_infer_basic.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+targets = ["pyking", "python14", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "typecheck_infer_higher_order.pyk"
@@ -504,7 +504,7 @@ targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17"
 
 [[cases]]
 file = "typecheck_infer_mutual.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_notail"]
+targets = ["pyking", "pyking_notail", "python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "typecheck_infer_nested_recursion.pyk"
@@ -512,7 +512,7 @@ targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17"
 
 [[cases]]
 file = "typecheck_infer_partial.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+targets = ["pyking", "python14", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "typecheck_infer_recursion.pyk"
@@ -729,7 +729,7 @@ targets = ["python14", "python14_notail", "node24", "web24", "c89", "c99", "c23"
 
 [[cases]]
 file = "typecheck_tco_declined.pyk"
-targets = ["python14", "python14_notail", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_notail"]
+targets = ["pyking", "pyking_notail", "python14", "python14_notail", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "typecheck_tco_declined_group.pyk"
@@ -1240,6 +1240,11 @@ modules = ["external_callback_mod1_external.pyk"]
 targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
 
 [[cases]]
+file = "external_callback_named.pyk"
+modules = ["external_callback_mod1_external.pyk"]
+targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+
+[[cases]]
 file = "external_web.pyk"
 modules = ["external_web_mod1_external.pyk"]
 targets = ["node24", "web24", "iweb24", "interpret"]
@@ -1422,7 +1427,7 @@ targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "float_var.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
+targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "typecheck_float.pyk"
@@ -1581,7 +1586,7 @@ targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "implicit_explicit_arg.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+targets = ["python14", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "typecheck_implicit_nested.pyk"
@@ -1734,18 +1739,20 @@ targets = ["pyking"]
 # tinyweb: a program building a page. Its .events file is what the page
 # delivers once the top level has ended, and its .page file the commands
 # it sends the page, written by the headless implementation every
-# target here uses (docs/libraries.md, "Testing a page").
+# target here uses (docs/libraries.md, "Testing a page"). web24 is not
+# among them: its implementation draws on a page and has no headless
+# form, and tests/test_tinyweb.py holds it to drawing what these do.
 [[cases]]
 file = "lib_tinyweb_sound_graphics1.pyk"
 libs = ["tinyweb"]
-targets = ["node24", "web24", "iweb24", "interpret"]
+targets = ["python14", "node24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "lib_tinyweb_frames.pyk"
 libs = ["tinyweb"]
-targets = ["node24", "web24", "iweb24", "interpret"]
+targets = ["python14", "node24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "lib_tinyweb_input.pyk"
 libs = ["tinyweb"]
-targets = ["node24", "web24", "iweb24", "interpret"]
+targets = ["python14", "node24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]

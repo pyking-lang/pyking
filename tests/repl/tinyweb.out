@@ -1,0 +1,7 @@
+Pyking REPL.  :help for commands, :quit to leave.
+> > '<repl>' 1:4-1:21 Runtime error: tinyweb: call tinyweb.web_init(port)
+  before anything else, or set PYKING_TINYWEB_LOG
+> the session goes on
+> '<repl>' 1:0-1:18 Runtime error: tinyweb: cannot serve the page on
+  port 70000: a port is a number from 0 to 65535
+> 

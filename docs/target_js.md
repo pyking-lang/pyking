@@ -734,8 +734,12 @@ copied beside the program's output as `sys_external.js`.
 
 **A browser needs different code from node**, so a module has one
 implementation for each environment: `sys_external_node.js` for `node24`
-and `sys_external_browser.js` for `web24` and `iweb24`. Either is copied
-out as `sys_external.js`, which is what the generated import names. A
+and `sys_external_browser.js` for `web24` and `iweb24` -- and `iweb24`
+takes `sys_external_interpreter.js` instead where a library has one, as
+tinyweb does, since there the interpreter runs the program and talks to
+its page in commands. Each is copied out as `sys_external.js`, which is
+what the generated import names; tinyweb's renderer, `tinyweb_page.js`,
+goes beside it on `iweb24`. A
 standard library's browser implementation says on the console what a
 page cannot do ([libraries.md](libraries.md), "In the browser").
 

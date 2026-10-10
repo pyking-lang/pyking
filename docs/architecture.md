@@ -502,8 +502,13 @@ caller's runtime and answers its value, so a host can call a function it
 was given during the call or at any time after; `apply` is the same for
 a finished machine. In a terminal, what a plugin asked
 `Pyk_plugin.after_program` for runs once the top level has ended, which
-is how `tinyweb`'s headless implementation delivers its events
-([modules.md](modules.md), "What may cross the boundary").
+is how `tinyweb` delivers its events -- from its events file, or from the
+page it serves -- and the REPL waits on what a plugin asked
+`Pyk_plugin.on_idle` for while it waits for a key, which is how a page a
+session serves stays live at the prompt ([modules.md](modules.md),
+"What may cross the boundary"; [libraries.md](libraries.md),
+"tinyweb"). An implementation refusing a call raises `Failure`, which
+the plugin host turns into a runtime error at the call.
 
 `src/interpreter.ml`'s own docstring and [source.md](source.md) carry the
 detail; `design/plan-eval-lsp.md` is where the debugger, DAP and LSP

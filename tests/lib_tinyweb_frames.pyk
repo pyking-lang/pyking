@@ -5,6 +5,8 @@
 
 import tinyweb as tw
 
+tw.web_init(0)
+
 c = tw.canvas(200, 100)
 kick = tw.load_sample("kick1.wav")
 beat = 0.5

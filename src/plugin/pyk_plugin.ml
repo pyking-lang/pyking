@@ -13,12 +13,19 @@
       table -- (module, name) -> implementation.
       pending -- what a plugin asked to run once the program's top
         level has ended, in the order asked.
+      directories -- module -> the directory its implementation is in.
+      idle -- what a plugin serves while the REPL waits for a line.
 
     Functions:
       register module_ name value -- records one implementation.
       find module_ name -- the implementation recorded, or None.
       after_program f -- asks for f to run once the top level has ended.
-      run_after_program () -- runs, in order, everything asked for. *)
+      run_after_program () -- runs, in order, everything asked for.
+      set_directory module_ directory -- where a module's plugin is from.
+      directory module_ -- that directory, or None.
+      on_idle descriptors handle -- asks to be handed the REPL's idle time.
+      idle_descriptors () -- every descriptor a plugin is waiting on.
+      run_idle () -- lets every plugin answer what is waiting. *)
 
 let table : (string * string, Obj.t) Hashtbl.t = Hashtbl.create 64
 
@@ -43,3 +50,27 @@ let run_after_program () =
   let todo = !pending in
   pending := [];
   List.iter (fun f -> f ()) todo
+
+let directories : (string, string) Hashtbl.t = Hashtbl.create 8
+
+(** Records the directory a module's implementation is in, before its
+    plugin is loaded. string -> string -> () *)
+let set_directory module_ directory = Hashtbl.replace directories module_ directory
+
+(** The directory a module's implementation is in, or None.
+    string -> string option *)
+let directory module_ = Hashtbl.find_opt directories module_
+
+let idle : ((unit -> Unix.file_descr list) * (unit -> unit)) list ref = ref []
+
+(** Asks for the REPL's idle time: while it waits for a line it also
+    waits on what `descriptors` answers, and calls `handle` when any of
+    them is ready. (() -> [file_descr]) -> (() -> ()) -> () *)
+let on_idle descriptors handle = idle := !idle @ [ (descriptors, handle) ]
+
+(** Every descriptor a plugin is waiting on now. () -> [file_descr] *)
+let idle_descriptors () = List.concat_map (fun (descriptors, _) -> descriptors ()) !idle
+
+(** Lets every plugin answer what is waiting, without blocking.
+    () -> () *)
+let run_idle () = List.iter (fun (_, handle) -> handle ()) !idle

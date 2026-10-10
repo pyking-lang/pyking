@@ -66,7 +66,8 @@ respects that, which is what makes the library link.
 │                  build_plugin,                                       │
 │                  set_arguments                                       │
 │  plugin/pyk_plugin.ml            register, find: what a plugin fills │
-│                                  in -- a library of its own          │
+│                                  in -- a library of its own; also    │
+│                                  after_program, on_idle, directory   │
 │  web_tools.ml    start, tool     pyk notebook / pyk playground:      │
 │                                  hands over to the tool's server     │
 │  install.ml      root            where lib/, build/, tools/ are      │

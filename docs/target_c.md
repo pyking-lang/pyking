@@ -12,6 +12,11 @@
   types** — `Int`, `String`, `Bool` — for every binding, parameter and
   function. That inference is what most of the unsupported list comes
   from.
+- What the top level binds is a file-scope variable, so a function
+  reads it as Pyking says it may, and a top-level `def` is a value: a
+  pointer to the C function, which may be bound, passed and handed to an
+  external module as a callback. A nested `def` and a lambda are not:
+  C has no closures.
 - Output is one `.c` file with no dependencies beyond the C standard
   library, and only the headers the program actually uses.
 - `/` is C's own `/`: Pyking divides integers truncating toward zero,
@@ -46,8 +51,10 @@ written under the header or on the header's own line (`def f(x): e`);
 `if` / `else if` / `else`;
 `while`; `loop` with `break` and `continue`; `=`, `var`, `:=`; `if … then … else …` expressions;
 integers, strings and booleans; `+ - *`, unary minus, comparisons, and
-calls. Tail position, `return if c:`, and unit-returning (`void`)
-functions are supported too — see below.
+calls; a function reading or writing what the top level bound; and a
+top-level `def` as a value -- bound, passed, called through and handed
+to an external module. Tail position, `return if c:`, and unit-returning
+(`void`) functions are supported too — see below.
 
 Type annotations are *used* here rather than erased, when they name a
 type C can represent.
@@ -91,10 +98,9 @@ Unsupported by target 'c23': lambdas, which C has no closures for
 
 A lambda is an anonymous function that closes over what is bound where
 it is written, and both halves are out of reach: C has no anonymous
-functions and no closures. In practice most lambdas are refused one step
-earlier, since a lambda has to be passed somewhere or called, and a
-function-typed parameter is refused already; a lambda bound to a name of
-its own is what reaches this message.
+functions and no closures. A top-level `def` is the way to write a
+function that is passed somewhere: it is a C function, and a pointer to
+it is the value ("Functions as values", below).
 
 ### Nested `def`
 
@@ -105,17 +111,16 @@ file scope without closures
 ```
 
 C has no nested functions. Hoisting one to file scope works only if it
-reads nothing from around it — which is to say, only without closures.
+reads nothing from around it but the top level — which is to say, only
+without closures.
 
-A **default parameter** whose expression reads a binding from around
-the definition is refused here for the same reason: a default is
-compiled as a generated `def` in the block the definition stands in
-(docs/desugar_args.md), so it is a function like any other and reads
-only its own parameters and other functions.
+A **default parameter** is compiled as a generated `def` in the block
+the definition stands in (docs/desugar_args.md), so one written at the
+top level reads what the top level bound like any other function:
 
 ```pyking
 size = 10
-def scaled(x: Int = size) -> Int: x * 2     # refused here
+def scaled(x: Int = size) -> Int: x * 2     # fine: `size` is file scope
 def step(n: Int = 1) -> Int: n * 10         # fine: a literal
 ```
 
@@ -182,35 +187,17 @@ function whose body has not been read yet the return type can only come
 from its annotation — so without one it starts as `Int`. Adding
 `-> String` or `-> Bool` resolves both.
 
-### A function reading a binding from around it
+### A function over functions, as a value
 
 ```
-Unsupported by target 'c23': 'x' is bound outside this function --
-C has no closures: a function here reads its parameters and calls other functions, nothing else
+Unsupported by target 'c23': `apply` is used as a value and itself takes or answers a function -- C has a type for a function over values, and none for one over functions
 ```
 
-Pyking's functions may read the bindings in scope where they are written
-(PYKING.md, "Names and scoping"); this backend's cannot. A function body
-here starts from its own parameters, reaches other functions by name,
-and sees nothing else. Passing the value in as a parameter is the fix.
-
-Until this was checked, such a program compiled and then failed in the
-host compiler with a message about a name this backend had emitted --
-which is exactly what refusing it at compile time, with a Pyking source
-position, exists to avoid.
-
-### A function used as a value
-
-```
-Unsupported by target 'c23': `double` is a function used as a value -- C has no function values here: a `def` becomes a C function, and only a call can name one
-```
-
-A `def`'s name may be *called* here, and nothing else. Binding it
-(`twice = double`) or passing it on would emit a bare method name in
-Java and a function pointer assigned to an `int` in C — code that does
-not compile, and did not, before this was checked. Under C89 it was
-merely a warning, which is why the same program built there and failed
-under C23.
+A function value is a pointer to a C function over values ("Functions
+as values", below). One whose own parameters or result are functions
+would need a pointer type naming another, which the typedefs this
+backend writes do not cover; calling such a function is fine, using it
+as a value is not.
 
 ### Forward references and mutual recursion
 
@@ -229,6 +216,89 @@ int is_odd(int n);
 Prototypes are emitted for all of them rather than only those that need
 one, so the output does not depend on the order the definitions happen
 to be in — which is what the language says does not matter.
+
+## The top level
+
+Pyking's functions may read, and `:=` may write, what is bound where
+they are written (PYKING.md, "Names and scoping"), and a function here
+is always written at the top level -- a nested `def` is refused above.
+So what the top level binds is a **file-scope variable**, declared
+`static` above the functions and assigned where the binding is:
+
+```pyking
+canvas = tw.canvas(400, 200)
+var presses = 0
+
+def play_sound():
+    presses := presses + 1
+    print("snare, press " ++ string(presses))
+```
+
+```c
+static int canvas;
+static int presses;
+
+static void play_sound(void)
+{
+    presses = presses + 1;
+    printf("%s\n", pyk_concat("snare, press ", pyk_int_str(presses)));
+}
+
+int main(void)
+{
+    canvas = tinyweb_canvas(400, 200);
+    presses = 0;
+    ...
+}
+```
+
+A rebinding is a variable of its own (`canvas2`), as it is in a block,
+so a function keeps the value it was written after. A block's bindings
+stay locals: no function can see them. A Pyking program never reads a
+binding before it is made, so the zero C gives a file-scope variable is
+never seen.
+
+## Functions as values
+
+A top-level `def` used as a value is a **pointer to the C function**,
+and a function type is written through a typedef named for its shape --
+one letter per parameter, then one for the result (`i`, `f`, `b`, `s`,
+`v` for unit):
+
+```c
+#ifndef PYK_FN_II_V
+#define PYK_FN_II_V
+typedef void (*pyk_fn_ii_v)(int, int);
+#endif
+```
+
+Each is guarded, so a module's header and the file including it may
+both carry one. A parameter annotated with a function type is such a
+pointer, and calling it is an ordinary C call:
+
+```pyking
+def twice(f: (Int) -> (), n: Int):
+    f(n)
+    f(n)
+```
+
+```c
+static void twice(pyk_fn_i_v f, int n)
+{
+    f(n);
+    f(n);
+}
+```
+
+That is also what an external module is handed for a callback, so its
+implementation declares the parameter as a plain function pointer --
+`void (*on_click)(void)` -- and calls it. A function type is one over
+values: its parameters are each a value and its result a value or unit,
+which covers everything a callback may be (modules.md, "What may cross
+the boundary"). Only a top-level `def` can be one, since neither a
+nested `def` nor a lambda exists here; a parameter's function type must
+be written down, as the type of an unannotated parameter is inferred
+from what the body does with strings and numbers.
 
 ## How types are inferred
 
@@ -533,12 +603,15 @@ def double(n):                     int double2(int n)
                                    }
 ```
 
-The list (`RESERVED` in `src/target_c.ml`) is one list for both
+The list (`reserved` in `src/target_c.ml`) is one list for both
 standards -- C89 plus the C99/C11/C23 additions -- since a name renamed
 under `c23` but not `c89` would make the two targets disagree about the
 generated code for no good reason. It also holds `main`, `printf`,
 `strcmp` and the generated helpers: not keywords, but a Pyking function
-shadowing one would break the file just as thoroughly.
+shadowing one would break the file just as thoroughly. So does
+everything the headers this backend includes declare at file scope
+(`library_names`): a function or a top-level binding called `remove`,
+`puts` or `y1` would be declared over `<stdio.h>`'s or `<math.h>`'s.
 
 ### Booleans
 
@@ -831,10 +904,13 @@ them as `<module>_<field>`, and a file importing it declares the ones it
 takes. `io` and `sys` are both, and `tests/module_external_mixed.pyk`
 is the worked example.
 
-**A declaration taking a callback is refused**, with the position of the
-call that reaches it: a callback is a Pyking function handed to the
-host, and C has no closure to hand it as (`tests/external_callback.pyk`
-does not list this target). `tinyweb` reaches neither for that reason.
+**A declaration taking a callback** takes a pointer to a C function
+("Functions as values"), so the program hands it a top-level `def`, which
+reads what the top level bound through file-scope variables.
+`tests/external_callback_named.pyk` is the worked example, and `tinyweb`
+the library: `tinyweb_external.c` serves a program's page from one
+`select` loop it runs from `atexit`, once `main` has returned
+(libraries.md, "tinyweb").
 
 `Bool` is the one type the two targets spell differently: the
 declaration says `int` under `c89` and `bool` under `c23`, following

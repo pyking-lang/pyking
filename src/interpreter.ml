@@ -1072,6 +1072,9 @@ let rec call state call_node callee args env rest =
           match
             try Ok (externals.call (callback state info) module_ field args)
             with
+            (* A refusal the host made itself is written nowhere in the
+               program, so it is reported at the call. *)
+            | Trap (where, message) when where.file = "<host>" -> Error (info, message)
             | Trap (info, message) | Runtime_error (info, message) ->
                 Error (info, message)
           with

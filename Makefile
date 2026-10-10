@@ -71,18 +71,20 @@ help:
 	@echo "make              build the compiler into ./pyk, then make libs"
 	@echo "make libs         compile each lib/*/<name>_external.ml into the"
 	@echo "                  plugin the interpreter loads, <name>_external.cmxs"
-	@echo "make test         all seven suites, then a combined summary: every"
+	@echo "make test         all eight suites, then a combined summary: every"
 	@echo "                  tests/*.pyk on every target tests/test_cases.toml"
 	@echo "                  lists it for, run in parallel (JOBS=n to say how"
 	@echo "                  parallel), then the REPL's own cases in tests/repl/,"
 	@echo "                  then the library search path's, then the"
 	@echo "                  playground's compiler bundle, then the notebook's"
 	@echo "                  renderer and server, then the packaged tree's,"
-	@echo "                  then the website's pages and library docs."
+	@echo "                  then the website's pages and library docs, then"
+	@echo "                  tinyweb's pages and servers (in Chromium where one"
+	@echo "                  is found)."
 	@echo "                  Every suite runs even"
 	@echo "                  if an earlier one failed"
 	@echo "                  TARGET=c23 runs one target; TARGET=c runs every"
-	@echo "                  version of that family (the last six suites are"
+	@echo "                  version of that family (the last seven suites are"
 	@echo "                  skipped, since none of them is a target)"
 	@echo "make stest        the same suite, one test at a time"
 	@echo "make playground   serve the web playground (pyk playground), then print"
@@ -132,36 +134,39 @@ help:
 # tests/test_repl.py runs after it, and is a suite of its own because it
 # runs *sessions* rather than (program, target) pairs: the .pyk suite
 # compiles files, so nothing in it reaches the REPL.
-# The JavaScript targets are named for the node they promise to run on
-# -- node24, web24, iweb24 -- and tests/test_playground.py drives the
-# compiler bundle under node as well, so an older one cannot run any of
-# it. Checked once, here, because a version failure inside a runner
-# reads as a broken test rather than as a missing tool. Skipped for a
-# TARGET that needs no node at all.
+# The JavaScript targets run under node, and tests/test_playground.py
+# and tests/test_tinyweb.py drive the compiler bundle and Chromium under
+# node as well. 22.7 is the oldest node the suites run on: it is the
+# first with --no-experimental-detect-module, which every JavaScript
+# runner passes, and it has the WebSocket tests/tinyweb/chrome.mjs uses.
+# Checked once, here, because a version failure inside a runner reads
+# as a broken test rather than as a missing tool. Skipped for a TARGET
+# that needs no node at all.
 check-node:
 	@case "$(TARGET)" in \
 	  ""|*node*|*web*) ;; \
 	  *) exit 0 ;; \
 	esac; \
 	if ! command -v node >/dev/null 2>&1; then \
-	  echo "make: node not found, and node 24 or above is required."; \
+	  echo "make: node not found, and node 22.7 or above is required."; \
 	  echo "      The JavaScript targets are node24, web24 and iweb24, and"; \
-	  echo "      the playground suite runs the compiler under node too."; \
+	  echo "      the playground and tinyweb suites run under node too."; \
 	  exit 1; \
 	fi; \
 	version=$$(node --version 2>&1); \
 	major=$$(printf '%s' "$$version" | sed 's/^v//; s/\..*//'); \
-	case "$$major" in \
-	  ''|*[!0-9]*) \
+	minor=$$(printf '%s' "$$version" | sed 's/^v[0-9]*\.//; s/\..*//'); \
+	case "$$major.$$minor" in \
+	  .*|*.|*[!0-9.]*) \
 	    echo "make: could not read node's version from '$$version'."; \
-	    echo "      node 24 or above is required."; \
+	    echo "      node 22.7 or above is required."; \
 	    exit 1 ;; \
 	esac; \
-	if [ "$$major" -lt 24 ]; then \
-	  echo "make: found node $$version, but node 24 or above is required."; \
-	  echo "      The JavaScript targets are named for it -- node24, web24"; \
-	  echo "      and iweb24 -- and the playground suite runs the compiler"; \
-	  echo "      under node too."; \
+	if [ "$$major" -lt 22 ] || { [ "$$major" -eq 22 ] && [ "$$minor" -lt 7 ]; }; then \
+	  echo "make: found node $$version, but node 22.7 or above is required."; \
+	  echo "      It is the first node with --no-experimental-detect-module,"; \
+	  echo "      which the JavaScript tests pass so that node cannot guess"; \
+	  echo "      what the compiler did not declare."; \
 	  exit 1; \
 	fi
 

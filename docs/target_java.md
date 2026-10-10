@@ -11,9 +11,15 @@
 - Java is statically typed and Pyking is not, so this backend **infers
   types** -- `int`, `String`, `boolean` -- for every binding, parameter
   and function, by the same three rules `target_c.ml` uses.
+- What the top level binds is a static field, so a method reads it as
+  Pyking says it may, and a top-level `def` is a value: the
+  `java.util.function` interface of its shape, as a lambda calling the
+  method, which may be bound, passed and handed to an external module as
+  a callback. A nested `def` and a Pyking lambda are not.
 - Output is one `.java` file with no imports: string concatenation is
   Java's own `+`, string equality is `.equals()`, and `System.out` needs
-  nothing declared.
+  nothing declared; a function type is written with its full name
+  (`java.util.function.Consumer<Integer>`).
 - `/` is Java's own `/` on `int`: Pyking divides integers truncating
   toward zero, which is what Java does.
 - **Unlike C, a function must provably return on every path.** `javac`
@@ -59,8 +65,11 @@ written under the header or on the header's own line (`def f(x): e`);
 `if` / `else if` / `else`;
 `while`; `loop` with `break` and `continue`; `=`, `var`, `:=`; `if … then … else …` expressions;
 integers, strings and booleans; `+ - *`, unary minus, comparisons, and
-calls. Tail position, `return if c:`, and unit-returning (`void`)
-methods are supported too -- see below.
+calls; a method reading or writing what the top level bound; and a
+top-level `def` of at most two parameters as a value -- bound, passed,
+called through and handed to an external module. Tail position,
+`return if c:`, and unit-returning (`void`) methods are supported too
+-- see below.
 
 Type annotations are *used* here rather than erased, when they name a
 type Java can represent -- exactly as in the C targets.
@@ -79,10 +88,11 @@ Unsupported by target 'java21': lambdas, which this backend has no
 closure semantics for
 ```
 
-Java *has* lambdas, and refuses Pyking's for the reason it refuses a
-nested `def`: one would need a functional-interface type this backend
-does not infer. The two are the same construct from here, so they get
-the same answer.
+Java *has* lambdas, and a top-level `def` used as a value is compiled
+to one ("Functions as values", below). A Pyking lambda is refused for
+the reason a nested `def` is: it closes over what is around it, which a
+Java lambda can read but not reassign. The two are the same construct
+from here, so they get the same answer.
 
 ### Nested `def`
 
@@ -223,48 +233,17 @@ translated, and for a body that has not been read yet the return type
 can only come from the annotation, so without one it starts as `Int`.
 Adding `-> String` or `-> Bool` resolves both.
 
-### A function reading a binding from around it
+### A function value Java has no interface for
 
 ```
-Unsupported by target 'java21': 'x' is bound outside this function --
-these are static methods, with no closure over the code around them: a method reads its parameters and calls other methods, nothing else
+Unsupported by target 'java21': `add3` is used as a value and takes 3 parameters -- java.util.function has an interface for at most two
 ```
 
-Pyking's functions may read the bindings in scope where they are written
-(PYKING.md, "Names and scoping"); this backend's cannot. A function body
-here starts from its own parameters, reaches other functions by name,
-and sees nothing else. Passing the value in as a parameter is the fix.
-
-Until this was checked, such a program compiled and then failed in the
-host compiler with a message about a name this backend had emitted --
-which is exactly what refusing it at compile time, with a Pyking source
-position, exists to avoid.
-
-A **default parameter** whose expression reads a binding from around
-the definition is refused here for the same reason: a default is
-compiled as a generated `def` in the block the definition stands in
-(docs/desugar_args.md), so it is a function like any other and reads
-only its own parameters and other functions.
-
-```pyking
-size = 10
-def scaled(x: Int = size) -> Int: x * 2     # refused here
-def step(n: Int = 1) -> Int: n * 10         # fine: a literal
-```
-
-
-### A function used as a value
-
-```
-Unsupported by target 'java21': `double` is a function used as a value -- these are static methods, not values: only a call can name one
-```
-
-A `def`'s name may be *called* here, and nothing else. Binding it
-(`twice = double`) or passing it on would emit a bare method name in
-Java and a function pointer assigned to an `int` in C — code that does
-not compile, and did not, before this was checked. Under C89 it was
-merely a warning, which is why the same program built there and failed
-under C23.
+A function value is the `java.util.function` interface of its shape
+("Functions as values", below), and the package stops at two
+parameters. One whose own parameters or result are functions is refused
+the same way, since the interfaces are written for values. Calling
+either is fine; using one as a value is not.
 
 ### An expression statement that is not a call
 
@@ -289,6 +268,67 @@ These are supported, and need less than they do in C: every `def`'s
 signature is registered before any body is translated, and that is all —
 these are static methods of one class, so Java itself does not care what
 order they are written in and nothing has to be declared ahead.
+
+## The top level
+
+Pyking's methods may read, and `:=` may write, what is bound where they
+are written (PYKING.md, "Names and scoping"), and a method here is
+always written at the top level -- a nested `def` is refused above. So
+what the top level binds is a **static field** of the class, assigned
+where the binding is, in `main` (or `init`, for a module the program
+imports):
+
+```java
+public final class Program {
+    private static int status;
+
+    private static void moved(final int value) {
+        TinywebExternal.set_label(status, "slider at " + String.valueOf(value));
+    }
+
+    public static void main(String[] args) {
+        status = TinywebExternal.label("nothing yet");
+        ...
+    }
+}
+```
+
+A rebinding is a field of its own (`status2`), as it is a local of its
+own in a block, so a method keeps the value it was written after. A
+block's bindings stay locals. An exported value's field is the binding's
+own, made `public`.
+
+## Functions as values
+
+A function type is the `java.util.function` interface of its shape,
+with its values boxed:
+
+| Pyking | Java | called with |
+|---|---|---|
+| `() -> ()` | `Runnable` | `run()` |
+| `() -> R` | `Supplier<R>` | `get()` |
+| `(A) -> ()` | `Consumer<A>` | `accept(a)` |
+| `(A) -> R` | `Function<A, R>` | `apply(a)` |
+| `(A, B) -> ()` | `BiConsumer<A, B>` | `accept(a, b)` |
+| `(A, B) -> R` | `BiFunction<A, B, R>` | `apply(a, b)` |
+
+A top-level `def` used as a value is a lambda calling its method, with
+parameters named `p$1`, `p$2` -- `$` is in no Pyking name, so they
+shadow nothing:
+
+```java
+TinywebExternal.on_mouse(c, (p$1, p$2) -> clicked(p$1, p$2));
+```
+
+A parameter annotated with a function type is the interface, called
+through its method; a result that comes back boxed is cast to its
+primitive (`(int) f.apply(n)`), so `==` compares values rather than
+objects. A local holding one spells its type out even where `var` is
+used, since a lambda has no type of its own to infer. That is also what
+an external module is handed for a callback, so its implementation
+declares the parameter as the interface and a Java caller hands it a
+lambda. Only a top-level `def` can be a value, and a parameter's
+function type must be written down.
 
 ## How types are inferred
 
@@ -515,7 +555,7 @@ def static(n):                     private static int static2(final int n) {
                                    }
 ```
 
-The list (`RESERVED` in `src/target_java.ml`) also holds `String`,
+The list (`reserved` in `src/target_java.ml`) also holds `String`,
 `System`, `args` and `main`: not keywords, but a Pyking function
 shadowing one would break the generated file just as thoroughly. And
 `_`, which is a keyword in Java 9 and later and an unnamed variable
@@ -710,7 +750,10 @@ class, `IoExternal.prompt_line(...)`, as an importer reaches a public
 one. `io` and `sys` are both, and `tests/module_external_mixed.pyk` is
 the worked example.
 
-**A declaration taking a callback is refused**, with the position of the
-call that reaches it: a callback is a Pyking function handed to the
-host, and Java has no closure to hand it as (`tests/external_callback.pyk`
-does not list this target). `tinyweb` reaches neither for that reason.
+**A declaration taking a callback** takes the interface of the
+callback's shape ("Functions as values"), so the program hands it a
+top-level `def`, as a lambda, which reads what the top level bound
+through static fields. `tests/external_callback_named.pyk` is the worked
+example, and `tinyweb` the library: `TinywebExternal.java` serves a
+program's page with the JDK's own HTTP server and runs the callbacks on
+a thread that waits for `main` to return (libraries.md, "tinyweb").

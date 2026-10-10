@@ -306,6 +306,7 @@ module's external half and never a module of its own: a name ending in
 | `java8`/`17`/`21` | `SysExternal.java` | `SysExternal.loadfile(...)` |
 | `ocaml5.5` | `sys_external.ml` | `Sys_external.loadfile ...` |
 | `web24`, `iweb24` | `sys_external_browser.js` | `import * as sys_external from './sys_external.js'` |
+| `iweb24`, where there is one | `sys_external_interpreter.js` | the same |
 | interpreter | `sys_external.ml`, as a plugin | calls it through `Pyk_plugin` |
 
 Each JavaScript implementation is copied out as `sys_external.js`, the
@@ -437,8 +438,11 @@ compiled target carries it (`tests/external_float.pyk`).
 targets read `sys_external_browser.js` and `node24` reads
 `sys_external_node.js`: a page has no standard input, no filesystem and
 no process, and says so ([libraries.md](libraries.md), "In the
-browser"). The file is copied out as `sys_external.js` either way, which
-is the name every generated import uses.
+browser"). `iweb`, where the interpreter runs in the page, reads
+`sys_external_interpreter.js` instead where a library has one -- tinyweb
+does, since there it talks to its page in commands. The file is copied
+out as `sys_external.js` whichever it was, which is the name every
+generated import uses.
 
 **A JavaScript list must say it is one**, and on the `iweb` target that
 marker has to survive JSON: a value crossing into the interpreted page
@@ -481,7 +485,8 @@ implementation cannot be polymorphic.
 | iweb24 | a JavaScript function calling `pykCallback`, which runs the closure in the page's interpreter |
 | ocaml5.5 | the OCaml function, curried |
 | interpreter | a curried OCaml function that runs the closure in a machine of its own (`Interpreter.callback`) |
-| c89/99/23, java8/17/21 | refused: the declaration names a type these targets have no type for |
+| c89/99/23 | a pointer to the C function a top-level `def` compiled to |
+| java8/17/21 | the `java.util.function` interface of its shape (`Runnable`, `Consumer<A>`, `BiConsumer<A, B>`), as a lambda calling the method |
 
 On `iweb24` a callback crosses JSON as `{"pyk_callback":id}`;
 `src/web/stub.js` turns it into a function, and its arguments come back
@@ -491,11 +496,18 @@ callback's declared parameter types. A failure in a callback goes to
 types now convert a result, so an external module can return a `Float`
 on `iweb24` as well.
 
+C and Java hand a host only a top-level `def`, which reads what the top
+level bound through a file-scope variable or a static field
+([target_c.md](target_c.md), [target_java.md](target_java.md),
+"Functions as values"); `tests/external_callback_named.pyk` is that
+case, beside `tests/external_callback.pyk`'s lambdas.
+
 A host that delivers events after the top level has ended needs the
-program to stay alive until then: node and a page do by themselves, and
-the interpreter in a terminal runs what a plugin asked
-`Pyk_plugin.after_program` for once the top level has ended
-(`tests/external_callback.pyk`).
+program to stay alive until then: node and a page do by themselves, a
+compiled C, OCaml or Python program runs its host's `atexit` handler, a
+Java one a thread that waits for `main`, and the interpreter in a
+terminal runs what a plugin asked `Pyk_plugin.after_program` for once
+the top level has ended (`tests/external_callback.pyk`).
 
 ### Running one
 

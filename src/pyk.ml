@@ -172,23 +172,6 @@ let more_options =
   \                        those need -- so most programs are refused with\n\
   \                        'Construct is not supported'. It is there to be\n\
   \                        grown, and this flag is how it is run.\n\
-  \  --headless            run a program that needs a page -- one using\n\
-  \                        tinyweb -- here with the interpreter, showing\n\
-  \                        nothing, rather than serving its page. Two\n\
-  \                        environment variables, each holding a file\n\
-  \                        path, say what happens instead:\n\
-  \                          PYKING_PAGE_LOG=<file>  the file each command\n\
-  \                            sent to the page is appended to, one line\n\
-  \                            each, with a `> ` line per event delivered\n\
-  \                            (/dev/stderr shows it in the terminal)\n\
-  \                          PYKING_PAGE_EVENTS=<file>  a file you write,\n\
-  \                            read once the program's top level has\n\
-  \                            ended: one event per line -- click ID,\n\
-  \                            slide ID VALUE, frame T, mouse ID X Y,\n\
-  \                            key NAME\n\
-  \                        e.g. PYKING_PAGE_LOG=page.log\n\
-  \                             PYKING_PAGE_EVENTS=clicks.txt\n\
-  \                             pyk --headless prog.pyk\n\
   \  --no-tail-call-opt    leave tail calls as calls. A function that calls\n\
   \                        itself in tail position is otherwise rewritten\n\
   \                        into a `loop` carrying its parameters, and a\n\
@@ -256,6 +239,23 @@ let usage_full () =
      on demand into ~/.cache/pyking with $OCAMLOPT, which must be the OCaml\n\
      pyk was built by. `pyk plugins <dir>` builds them beside every library\n\
      in a directory of libraries; `make libs` runs it over lib/.\n\n\
+     A program using tinyweb shows its page wherever it runs. In a browser\n\
+     the page is there already; anywhere else, tinyweb.web_init(port)\n\
+     serves it and prints its address (port 0 picks a free one). Two\n\
+     environment variables, each holding a file path, run it with no page\n\
+     at all, on every target -- which is how it is tested:\n\
+    \  PYKING_TINYWEB_LOG=<file>     each command the program sends its\n\
+    \                                page is appended to the file, one line\n\
+    \                                each, with a `> ` line per event\n\
+    \                                delivered (/dev/stderr shows it in the\n\
+    \                                terminal). Setting it is what turns\n\
+    \                                the page off.\n\
+    \  PYKING_TINYWEB_EVENTS=<file>  a file you write, read once the\n\
+    \                                program's top level has ended: one\n\
+    \                                event per line -- click ID, slide ID\n\
+    \                                VALUE, frame T, mouse ID X Y, key NAME\n\
+     e.g. PYKING_TINYWEB_LOG=page.log PYKING_TINYWEB_EVENTS=clicks.txt\n\
+    \     pyk prog.pyk\n\n\
      `pyk notebook <file.md>` serves a Markdown document whose Pyking code\n\
      blocks can be edited and run in the browser, and `pyk playground`\n\
      serves the compiler's playground. Both print a link to open, need\n\
@@ -296,7 +296,6 @@ type options = {
   release : bool;
   typecheck : bool;
   type_experiment : bool;
-  headless : bool;
   lib_paths : string list;
   arguments : string list;
   port : int option;
@@ -316,7 +315,6 @@ let default_options command =
     release = false;
     typecheck = true;
     type_experiment = false;
-    headless = false;
     lib_paths = [];
     arguments = [];
     port = None;
@@ -408,7 +406,6 @@ let parse_args argv =
         go { options with typecheck = false } positional rest
     | "--type-experiment" :: rest ->
         go { options with type_experiment = true } positional rest
-    | "--headless" :: rest -> go { options with headless = true } positional rest
     | "--stdout" :: rest -> go { options with stdout = true } positional rest
     | ("--target" | "-t") :: rest -> (
         match rest with
@@ -492,8 +489,6 @@ let parse_args argv =
     usage_error
       "--release needs the types the checker works out, so it cannot be used \
        with --no-typechecking";
-  if options.headless && command <> default_command then
-    usage_error "--headless only applies to running a program with the interpreter";
   let web = command = "notebook" || command = "playground" in
   if options.port <> None && not web then
     usage_error "--port only applies to 'pyk notebook' and 'pyk playground'";
@@ -1029,10 +1024,12 @@ let compile_program checked target output_path options =
      itself -- compiling beside the implementation -- is skipped rather
      than truncating it. *)
   (* A library's `<name>_assets/` directory -- tinyweb's samples -- goes
-     beside a page under the same name, so the library's browser
-     implementation finds it beside itself wherever it is served from. *)
+     beside the program under the same name, so the library's
+     implementation finds it beside itself wherever it is served from:
+     a page on the web targets, and the page a program serves itself on
+     the rest. *)
   let library_assets () =
-    if not (List.mem (Targets.family_of target) [ Targets.Web; Targets.Iweb ]) then []
+    if Targets.family_of target = Targets.Pyking then []
     else
       List.concat_map
         (fun ((unit : Module.t), _) ->
@@ -1041,6 +1038,19 @@ let compile_program checked target output_path options =
           | Some path ->
               let name = unit.name ^ "_assets" in
               let assets = join (dirname path) name in
+              (* A library's page, `<name>_page.js`, is what its command
+                 implementation mounts on an iweb page, beside itself. *)
+              let renderer = unit.name ^ "_page.js" in
+              let page =
+                if
+                  Targets.family_of target = Targets.Iweb
+                  && Sys.file_exists (join (dirname path) renderer)
+                then
+                  [ (join directory renderer, Module.read_whole_file (join (dirname path) renderer)) ]
+                else []
+              in
+              page
+              @
               if not (Sys.file_exists assets && Sys.is_directory assets) then []
               else
                 List.filter_map
@@ -1261,8 +1271,9 @@ let command_compile checked options =
     List.iter
       (fun (path, _) ->
         let assets = dirname path in
+        let parent = dirname assets in
         if Filename.check_suffix assets "_assets"
-           && Sys.file_exists (dirname assets)
+           && (parent = "" || Sys.file_exists parent)
            && not (Sys.file_exists assets)
         then Sys.mkdir assets 0o755)
       files;
@@ -1348,44 +1359,6 @@ let command_web tool options =
   prerr_endline (wrap (Web_tools.start tool options.port options.filename));
   1
 
-(** Whether a program imports a library that needs a page to be seen
-    on: one whose directory holds `<name>.page` beside its declaration
-    half. [(Module.t, typ IntMap.t option)] -> bool *)
-let needs_page checked =
-  List.exists
-    (fun ((unit : Module.t), _) ->
-      match unit.declaration_path with
-      | Some path -> Sys.file_exists (join (dirname path) (unit.name ^ ".page"))
-      | None -> false)
-    checked
-
-(** Runs `pyk <file>` for a program that needs a page: compiles it for
-    iweb24 into a directory of its own and serves it, as `pyk compile -t
-    iweb24 --run` would. [(Module.t, typ IntMap.t option)] -> options ->
-    int *)
-let command_serve checked options =
-  if options.arguments <> [] then
-    usage_error
-      "this program needs a page, and a page is served rather than invoked, \
-       so there is nothing to pass the arguments after -- to; add --headless \
-       to run it here";
-  let filename = Option.get options.filename in
-  let directory = Filename.temp_dir "pyking-page-" "" in
-  prerr_endline
-    (wrap
-       (Printf.sprintf
-          "'%s' needs a page to show it, so it is served rather than run here \
-           (--headless runs it here, showing nothing)."
-          filename));
-  command_compile checked
-    {
-      options with
-      target = "iweb24";
-      output = Some (join directory (stem filename ^ ".html"));
-      stdout = false;
-      run = true;
-    }
-
 (** Runs pyk. [string] -> int *)
 let main argv =
   let options = parse_args argv in
@@ -1396,7 +1369,6 @@ let main argv =
   else
     let checked = front_end options in
     if options.command = "compile" then command_compile checked options
-    else if needs_page checked && not options.headless then command_serve checked options
     else command_interpret checked options.arguments
 
 let () = exit (main (List.tl (Array.to_list Sys.argv)))

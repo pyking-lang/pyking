@@ -184,11 +184,12 @@ on. `make playground` and `make notebook` go through `./pyk` the same
 way, after `make vendor` has downloaded Ace and KaTeX once.
 
 A program using a library that needs a page -- `tinyweb` -- is shown by
-both pages with that library's own renderer, mounted by
-`tools/webrun/assets/pages.js` from `lib/`: the notebook under the cell,
-the playground on its Page tab. `pyk program.pyk` serves such a program
-as an `iweb24` page rather than running it in the terminal (see
-[libraries.md](libraries.md), "A library that needs a page").
+both pages with that library's own renderer, `lib/tinyweb/tinyweb_page.js`,
+mounted by `tools/webrun/assets/pages.js` from `lib/`: the notebook
+under the cell, the playground on its Page tab. Everywhere else the
+program serves its page itself, once it calls `tinyweb.web_init(port)`
+-- `pyk program.pyk` and the REPL as much as a compiled program (see
+[libraries.md](libraries.md), "tinyweb").
 
 ### What a distribution needs
 

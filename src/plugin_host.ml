@@ -9,7 +9,9 @@
 
     A plugin is the implementation together with a registration file
     generated from the module's declarations, which records each
-    declared name in `Pyk_plugin` when the plugin is loaded. A value
+    declared name in `Pyk_plugin` when the plugin is loaded, and with
+    `<module>_external_plugin.ml` between the two where the library has
+    one. A value
     crosses the boundary by its declared type: nothing else says whether
     an immediate OCaml value is an Int, a Bool or unit.
 
@@ -29,6 +31,7 @@
 
     Functions:
       shim name declared -- the registration file for a module.
+      glue unit_ -- the file joining an implementation to the interpreter.
       digest unit_ -- what a module's plugin is built from, as a digest.
       build_plugin unit_ output -- compiles a module's plugin to output.
       load units -- loads every module's plugin, refusing one that
@@ -75,6 +78,13 @@ let implementation_module name = String.capitalize_ascii (name ^ "_external")
     unit_ -> string *)
 let implementation (unit : unit_) =
   Filename.concat (Filename.dirname unit.declaration_path) (unit.name ^ "_external.ml")
+
+(** The file a module's implementation may have beside it to join it to
+    the interpreter: compiled into the plugin after the implementation,
+    and the one place the implementation may name Pyk_plugin.
+    unit_ -> string *)
+let glue (unit : unit_) =
+  Filename.concat (Filename.dirname unit.declaration_path) (unit.name ^ "_external_plugin.ml")
 
 (** The plugin `make libs` writes beside an implementation.
     unit_ -> string *)
@@ -180,6 +190,7 @@ let digest (unit : unit_) =
             own_version;
             Version.version;
             Module.read_whole_file (implementation unit);
+            (if Sys.file_exists (glue unit) then Module.read_whole_file (glue unit) else "");
             shim unit.name unit.declared;
             (if Sys.file_exists interface then Digest.to_hex (Digest.file interface) else "");
           ]))
@@ -223,6 +234,13 @@ let build_plugin (unit : unit_) output =
     close_out channel
   in
   write copied (Module.read_whole_file source);
+  let glued =
+    if Sys.file_exists (glue unit) then (
+      let path = Filename.concat scratch (Filename.basename (glue unit)) in
+      write path (Module.read_whole_file (glue unit));
+      [ path ])
+    else []
+  in
   write shim_file (shim unit.name unit.declared);
   let built = Filename.concat scratch (unit.name ^ "_external.cmxs") in
   let status, text =
@@ -230,6 +248,9 @@ let build_plugin (unit : unit_) output =
       (compiler ()
       @ [
           "-shared";
+          (* Not the directory pyk runs in, where a program may have
+             been compiled with a module of the same name. *)
+          "-nocwd";
           "-I";
           "+unix";
           "-I";
@@ -239,8 +260,8 @@ let build_plugin (unit : unit_) output =
           "-o";
           built;
           copied;
-          shim_file;
-        ])
+        ]
+      @ glued @ [ shim_file ])
       (Filename.concat scratch "log")
   in
   if status <> 0 then
@@ -279,6 +300,7 @@ let registered (unit : unit_) =
     one compiled into the cache. unit_ -> () *)
 let load_one (unit : unit_) =
   let source = implementation unit in
+  Pyk_plugin.set_directory unit.name (Filename.dirname unit.declaration_path);
   if registered unit then ()
   else if not (Sys.file_exists source) then
     refuse unit
@@ -406,8 +428,12 @@ let externals units =
                 trap
                   (Printf.sprintf "'%s.%s' takes %d argument(s), not %d" module_
                      field (List.length params) (List.length args));
+              (* An implementation refuses a call by failing: that is a
+                 Pyking runtime error here, with the implementation's
+                 own words. *)
               of_host result
-                (apply_host (implementation module_ field) (List.map2 (to_host back) params args))
+                (try apply_host (implementation module_ field) (List.map2 (to_host back) params args)
+                 with Failure message -> trap message)
           | _ -> trap (Printf.sprintf "'%s.%s' is not a function" module_ field));
     }
 

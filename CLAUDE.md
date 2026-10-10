@@ -358,8 +358,10 @@ The bootstrap is split into one module per compiler stage:
    file generated from `sys.pyk` -- and `implementation_path` checks it
    exists. JavaScript runs in two environments, so a module has one
    implementation for each, **`<module>_external_node.js`** for `node24`
-   and **`<module>_external_browser.js`** for `web24` and `iweb24`, and
-   either is copied out as `<module>_external.js`. A file named
+   and **`<module>_external_browser.js`** for `web24` and `iweb24` --
+   except that `iweb24` takes **`<module>_external_interpreter.js`**
+   where a library has one, as tinyweb does -- and each is copied out as
+   `<module>_external.js`. A file named
    `<name>_external.pyk` is always a module's external half, so a name
    ending in `_external` cannot be imported (`refuse_external_half`).
    `found_implementation` finds a module's implementation the way an
@@ -873,7 +875,15 @@ The bootstrap is split into one module per compiler stage:
    one construct that fixes an order *inside* a C expression, which is
    what a `while` condition and an `if` expression's branches need.
    `target_ocaml.ml` does the same with `let` for the same reason; keep
-   both reading `Effects` rather than deciding for themselves.
+   both reading `Effects` rather than deciding for themselves. What the
+   top level binds is a `static` file-scope variable (`statics`), which
+   is what lets a function read it, and a top-level `def` is a value: a
+   pointer to the C function, its type a `Func` ctype written through a
+   guarded typedef named for its shape (`pyk_fn_ii_v`), which is also
+   what an external module is handed for a callback. `library_names`
+   reserves what the C library declares, since a file-scope name could
+   collide with it. See `docs/target_c.md`, "The top level" and
+   "Functions as values".
 12. **`src/target_java.ml`** — the Java backend, serving `java8`,
    `java17` and `java21`: a `J*` AST, translation, and a printer taking a
    `version` parameter, the same shape `target_c.ml` uses for `standard`
@@ -890,7 +900,12 @@ The bootstrap is split into one module per compiler stage:
    `.equals()`. The output file and its class are named in Java's own
    style rather than the source's, since Java requires the two to match
    (`default_class_name`; see `pyk.ml` below for where the exception
-   is applied).
+   is applied). What the top level binds is a static field (`statics`),
+   and a top-level `def` is a value: the `java.util.function` interface
+   of its shape (`Runnable`, `Consumer`, `BiFunction`, ...; `java_type`,
+   `apply_method`), written as a lambda over `p$1`, `p$2` -- `$` is in no
+   Pyking name -- calling the method (`JLambda`). See
+   `docs/target_java.md`, "The top level" and "Functions as values".
 13. **`src/target_ocaml.ml`** — the OCaml backend, serving the `ocaml5.5`
    target: an `O*` AST, translation, and a printer. The only backend
    that infers nothing — it *runs* `typesystem.type_check` and reads the
@@ -965,7 +980,9 @@ The bootstrap is split into one module per compiler stage:
    `docs/gap.md` and `tests/lexical_capture_group.pyk`. The test script
    additionally refuses a factory in any program with no `def` inside a
    loop, which is what keeps ordinary output ordinary. C and Java instead *refuse* a function that
-   reads a binding from around it — they have no closures.
+   reads a binding from around it — they have no closures — except what
+   the top level binds, which they make a file-scope variable and a
+   static field.
 
    Two more things this backend has to say out loud where no other one
    does. **A `def` that writes a `var` bound outside it opens with
@@ -1246,8 +1263,15 @@ The bootstrap is split into one module per compiler stage:
    with `$OCAMLOPT`, which must be the OCaml `pyk` was built by. The
    executable links `dynlink` and is `-linkall`, so a plugin may use any
    of Stdlib and `unix`. `set_arguments` makes `Sys.argv` the program's
-   own through `caml_sys_modify_argv`. See `docs/libraries.md`, "How the
-   interpreter reaches an OCaml implementation".
+   own through `caml_sys_modify_argv`. A library may add
+   `<module>_external_plugin.ml` (`glue`), compiled into the plugin after
+   the implementation: the one file that may name `Pyk_plugin`, which a
+   compiled program does not have -- tinyweb's registers what runs after
+   the top level and what the REPL waits on while it waits for a key
+   (`Pyk_plugin.on_idle`), and `Pyk_plugin.directory` tells it where the
+   library is. An implementation raising `Failure` is a runtime error at
+   the call. See `docs/libraries.md`, "How the interpreter reaches an
+   OCaml implementation".
 
 When extending the lexer (new operators, keywords, string escapes, etc.),
 follow the existing pattern: add an arm to the `match rest with`
@@ -1421,6 +1445,11 @@ both, and the runtime the pages run, in `tools/site/build/`
 (gitignored) and Astro builds from there; nothing is generated into
 `sitesrc/` or `lib/`.
 
+- **tinyweb has pages for using it without Pyking**, one per language
+  it is implemented in, written by `tools/site/tinywebdoc.py` with the
+  library renamed (`tinyweb.py`, `tinyweb.ml`/`.mli`, `tinyweb.c`/`.h`,
+  ...), an example from `tools/site/tinyweb/`, and the tests compiled
+  for that language.
 - **A library is documented by its `##` comments.** A `##` block opening
   one of a module's two files describes the module; a `##` block directly
   above a `public` line describes that export, whose own line (without
@@ -1721,13 +1750,13 @@ version of that family; with no `TARGET` every target runs, which is
 what `make test` means. The REPL suite runs only when no `TARGET` was
 given, since it is not a target.
 
-**`make test` runs `tests/test_all.py`**, which sequences the seven
+**`make test` runs `tests/test_all.py`**, which sequences the eight
 suites below rather than each being a line of the Makefile. Three things
 follow, and all three are the point: every suite runs even when an
 earlier one failed, so one broken case does not hide what the other
-six would have said; each suite's output is opened by a banner and
+seven would have said; each suite's output is opened by a banner and
 closed by one footer line of a fixed shape; and the run ends with a
-combined summary over all seven. Their counts reach it through
+combined summary over all eight. Their counts reach it through
 `$PYK_TEST_TALLY`, a file each suite appends one line to
 (`tests/suite.py`), so a suite run on its own prints exactly what it
 prints here. Each remains a script of its own, with its own
@@ -1871,6 +1900,25 @@ and that every runnable ```` ```pyking ```` block in `sitesrc/` and in the
 generated library pages runs under `pyk` -- or is refused, where it is
 marked `error`. It takes `--compiler CMD` like the others.
 
+**`tests/test_tinyweb.py` is the eighth suite**, and covers what a
+tinyweb program's log cannot: that every native implementation carries
+the page as it is in `lib/tinyweb/` (`tools/tinyweb/embed_page.py
+--check`); that on each native target a program calling anything
+before `web_init`, or asking for a port there is none of, ends with
+status 1 and says why; that each `lib_tinyweb_*` program, run with no
+log set, serves its page, and that what arrives on `/commands` with its
+`.events` posted to `/events` is its `.page`; that compiling one with
+no `--output` brings `tinyweb_assets/` along on every target; and that
+the web24
+implementation, which draws directly and has no log, draws what the
+command one does through `tinyweb_page.js` -- under node against a
+recording page (`tests/tinyweb/dom.mjs`), and, where a Chromium is found
+(`$PYKING_CHROME`, the `PATH`, or Playwright's download), in a real one
+driven over the DevTools protocol (`tests/tinyweb/chrome.mjs`), along
+with the iweb24 page and the page a program serves itself. Without a
+Chromium that part says it was skipped. See `docs/libraries.md`,
+"Testing a page".
+
 A fifth family covers **external modules**: `external_*` for a module
 implemented in a target language -- `external_all` on every host, and
 `external_shapes` on the four whose boundary can carry a tuple and a
@@ -1896,6 +1944,12 @@ A sixth covers **the standard library's input, output and exit** and
 `debug_values` (each with a sibling `.err`, what `debug` wrote to
 standard error), and `typecheck_release*` (`release = true`: compiled
 with `--release`, and held to writing nothing on standard error).
+
+A seventh covers **tinyweb**: `lib_tinyweb_*`, each with an `.events`
+file and a `.page` file, run headless on every target but web24 --
+`PYKING_TINYWEB_LOG` and `PYKING_TINYWEB_EVENTS` are set for every run
+-- and `external_callback_named`, the callbacks C and Java can carry.
+web24 and the servers are `tests/test_tinyweb.py`'s.
 
 **Four kinds of expected output**, two of them about the tail-call
 pass. `<name>.notail.ast.out` is what `-t pyking --no-tail-call-opt`

@@ -9,7 +9,7 @@ None of it needs Astro, which `make website` installs on first use and
 FILE`), the reference for what a program means; the page runs the same
 compiler as JavaScript, which tests/test_notebook.py covers.
 
-Five parts:
+Six parts:
 
   docs      lib/ through tools/site/libdoc.py: nothing undocumented, and
             every module has a page naming each thing it exports.
@@ -20,6 +20,8 @@ Five parts:
             is a copy of it is one.
   plugin    tools/site/src/remark-pyking-cells.mjs, under node, on a
             small tree: cells, attributes, norun, and stdin/args blocks.
+  sidebar   site.py's sidebar lists every page of Getting started and
+            Libraries, tinyweb's pages for other languages included.
   cells     every runnable ```pyking block in sitesrc/ and in the
             generated library pages: an `error` block must be refused,
             every other must run, with its ```stdin and ```args.
@@ -31,11 +33,13 @@ Functions:
     check_exports(compiler) -- the exports part.
     check_copies() -- the copies part.
     check_plugin() -- the plugin part.
+    check_sidebar() -- the sidebar part.
     blocks(text) -- the runnable Pyking blocks of a Markdown page.
     check_cells(compiler) -- the cells part.
     main(argv) -- the command-line entry point.
 """
 
+import importlib.util
 import json
 import re
 import shlex
@@ -51,6 +55,12 @@ sys.path.insert(0, str(REPO / "tools" / "site"))
 
 import suite  # noqa: E402  (after sys.path, which is what finds it)
 import libdoc  # noqa: E402
+import tinywebdoc  # noqa: E402
+
+# tools/site/site.py, by its path: `import site` is Python's own module.
+_spec = importlib.util.spec_from_file_location("website", REPO / "tools" / "site" / "site.py")
+website = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(website)
 
 SOURCES = REPO / "sitesrc"
 PLUGIN = REPO / "tools" / "site" / "src" / "remark-pyking-cells.mjs"
@@ -176,6 +186,46 @@ def check_plugin():
     return [("the remark plugin makes cells, as the notebook does", detail)]
 
 
+def check_sidebar():
+    """site.py's sidebar_items, over the pages of Getting started and of
+    Libraries staged in a temporary directory, links every one of them.
+    () -> [(String, String?)]"""
+    results = []
+    with tempfile.TemporaryDirectory(prefix="pyk-site-") as directory:
+        content = Path(directory)
+        libraries = content / "libraries"
+        libdoc.write_pages(libdoc.read_modules(libdoc.LIB), libraries)
+        languages = libraries / "tinyweb-languages"
+        languages.mkdir()
+        (languages / "index.md").write_text(tinywebdoc.index_page())
+        for language in tinywebdoc.LANGUAGES:
+            (languages / f"{language.slug}.md").write_text(
+                f"---\ntitle: tinyweb for {language.name}\nsidebar:\n"
+                f"  label: {language.name}\n---\n")
+        (content / "getstarted").mkdir()
+        for page in (REPO / "sitesrc" / "getstarted").glob("*.md"):
+            (content / "getstarted" / page.name).write_text(page.read_text())
+        for name in ("getstarted", "libraries"):
+            linked = set()
+            pending = website.sidebar_items(content / name, f"/{name}/")
+            while pending:
+                item = pending.pop()
+                pending.extend(item.get("items", []))
+                if "link" in item:
+                    linked.add(item["link"])
+            pages = {f"/{page.parent.relative_to(content).as_posix()}/"
+                     + ("" if page.stem == "index" else f"{page.stem}/")
+                     for page in (content / name).rglob("*.md")}
+            missing = sorted(pages - linked)
+            results.append((f"the sidebar links every page under {name}/",
+                            f"missing: {', '.join(missing)}" if missing else None))
+    links = tinywebdoc.see_also("tinyweb-languages")
+    missing = [l.slug for l in tinywebdoc.LANGUAGES if f"/{l.slug}/)" not in links]
+    results.append(("the tinyweb page links each language's page",
+                    f"missing: {', '.join(missing)}" if missing else None))
+    return results
+
+
 def blocks(text):
     """The runnable Pyking blocks of a Markdown page, as the remark
     plugin finds them: each with its words, and the stdin and args
@@ -252,7 +302,7 @@ def main(argv):
         print("usage: test_site.py [--compiler CMD]", file=sys.stderr)
         return 2
     cells, count = check_cells(compiler)
-    results = check_docs() + check_exports(compiler) + check_copies() + check_plugin() + cells
+    results = check_docs() + check_exports(compiler) + check_copies() + check_plugin() + check_sidebar() + cells
     failed = 0
     for name, detail in results:
         if detail is None:

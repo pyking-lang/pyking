@@ -13,9 +13,12 @@
 ## step by one clock, `time`: a frame is drawn for a time, and `play`
 ## can start a sound at one.
 ##
-## tinyweb needs a page to show. `pyk program.pyk` serves one and prints
-## its address, and the notebook and the playground show it beside the
-## program.
+## tinyweb needs a page to show. A program starts with
+## `web_init(port)`, which serves one and prints its address wherever
+## the program runs -- `pyk program.pyk`, the REPL, or any compiled
+## target -- and does nothing in a browser, where the page is there
+## already: on a web page, and beside the program in the notebook and
+## the playground.
 #
 # The Pyking half of `tinyweb`. The host's half is declared in
 # tinyweb_external.pyk beside this file and is in scope here

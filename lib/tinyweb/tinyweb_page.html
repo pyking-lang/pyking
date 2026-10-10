@@ -1,0 +1,43 @@
+<!doctype html>
+<!-- The page a program serves after tinyweb.web_init: tinyweb_page.js
+     carries out the commands the program sends over /commands, and every
+     event is posted back to /events, in order. Each native
+     implementation carries a copy of this file, written into it by
+     tools/tinyweb/embed_page.py. See docs/libraries.md, "tinyweb". -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tinyweb</title>
+<style>
+  body { margin: 16px; font-family: system-ui, sans-serif; background: #ffffff; color: #111111; }
+  .tinyweb-ended { margin-top: 12px; color: #666666; font-size: 14px; }
+</style>
+</head>
+<body>
+<script type="module">
+import { mountPage } from "./tinyweb_page.js";
+
+// One event at a time, so the program sees them in the order they
+// happened.
+let posting = Promise.resolve();
+function post(event) {
+  posting = posting
+    .then(() => fetch("/events", { method: "POST", body: JSON.stringify(event) }))
+    .catch(() => {});
+}
+
+const page = mountPage(document.body, post, { standalone: true });
+const stream = new EventSource("/commands");
+stream.onmessage = (message) => page.receive(JSON.parse(message.data));
+stream.onerror = () => {
+  stream.close();
+  page.freeze();
+  const ended = document.createElement("div");
+  ended.className = "tinyweb-ended";
+  ended.textContent = "The program has stopped.";
+  document.body.appendChild(ended);
+};
+</script>
+</body>
+</html>

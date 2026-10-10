@@ -3,7 +3,9 @@
 
 The site is Astro with Starlight (astro.config.mjs beside this file). Its
 pages are the Markdown files in sitesrc/ and one page per library,
-generated from lib/ by libdoc.py; its runtime -- the compiler bundle, the
+generated from lib/ by libdoc.py, and tinyweb's pages for using it from
+other languages, with their downloads, written by tinywebdoc.py; its
+runtime -- the compiler bundle, the
 notebook's cells, the playground, the shared web scripts, the vendored
 editor and the standard library -- is the same set of files `pyk
 playground` serves, written out under runtime/. Everything is staged in
@@ -17,7 +19,9 @@ Functions:
     install() -- runs `npm ci` when node_modules/ is missing or stale.
     grammar(bundle) -- the Pyking TextMate grammar, from the compiler's words.
     export_runtime(directory) -- writes the runtime into directory.
-    stage() -- fills build/ with the pages, the static files and the runtime.
+    sidebar_items(directory, path) -- the sidebar entries for staged pages.
+    stage() -- fills build/ with the pages, the static files, the runtime
+        and the sidebar.
     astro(command, args) -- runs Astro's own command line.
     main(argv) -- the command-line entry point.
 """
@@ -39,6 +43,7 @@ sys.path.insert(0, str(HERE))
 import server  # noqa: E402  (after sys.path, which is what finds it)
 import playground  # noqa: E402
 import libdoc  # noqa: E402
+import tinywebdoc  # noqa: E402
 
 SOURCES = REPO / "sitesrc"
 OUTPUT = REPO / "website"
@@ -168,10 +173,54 @@ def export_runtime(directory):
         target.write_bytes(make())
 
 
+def _front_matter(page):
+    """A page's title, and its sidebar label, order and whether it is
+    hidden, from its front matter. Path -> (String, String, Int, Bool)"""
+    lines = page.read_text().split("\n")
+    fields, section = {}, ""
+    for line in lines[1:lines.index("---", 1)] if lines[0] == "---" else []:
+        key, _, value = line.strip().partition(":")
+        value = value.strip().strip('"')
+        if not line.startswith(" "):
+            section = key
+        fields[(section if line.startswith(" ") else "") + "." + key] = value
+    title = fields.get(".title", page.stem)
+    order = fields.get("sidebar.order", "")
+    return (title, fields.get("sidebar.label") or title,
+            int(order) if order.lstrip("-").isdigit() else 1000,
+            fields.get("sidebar.hidden") == "true")
+
+
+def sidebar_items(directory, path):
+    """The sidebar entries for the staged pages in directory, served
+    under path: a link per page and a group per subdirectory, labelled
+    by its index page, each sorted by sidebar order and then label.
+    Path -> String -> [{String: ...}]"""
+    entries = []
+    for page in sorted(directory.iterdir()):
+        if page.is_file() and page.suffix in (".md", ".mdx") and not page.name.startswith("_"):
+            _, label, order, hidden = _front_matter(page)
+            if not hidden:
+                link = path if page.stem == "index" else f"{path}{page.stem}/"
+                entries.append(((order, label), {"label": label, "link": link}))
+        elif page.is_dir():
+            items = sidebar_items(page, f"{path}{page.name}/")
+            index = page / "index.md"
+            _, label, order, _ = (_front_matter(index) if index.exists()
+                                  else (page.name, page.name, 1000, False))
+            here = f"{path}{page.name}/"
+            items = ([{**item, "label": "Overview"} for item in items if item.get("link") == here]
+                     + [item for item in items if item.get("link") != here])
+            if items:
+                entries.append(((order, label), {"label": label, "items": items}))
+    return [entry for _, entry in sorted(entries, key=lambda e: e[0])]
+
+
 def stage():
-    """Fills build/: content/ from sitesrc/ and the library pages,
-    public/ from public/ and the runtime, and the grammar; and empties
-    Astro's cache. () -> ()"""
+    """Fills build/: content/ from sitesrc/, the library pages and
+    tinyweb's pages for other languages, public/ from public/, the
+    runtime and tinyweb's downloads, and the grammar; and empties Astro's
+    cache. () -> ()"""
     server.check_bundle("website")
     server.check_vendor("website")
     # The cache too: Astro keeps the pages it rendered, and would not
@@ -184,7 +233,16 @@ def stage():
         print("website: warning: " + line)
     libdoc.write_pages(modules, STAGE / "content" / "libraries")
     _copy_tree(HERE / "public", STAGE / "public")
+    # tinyweb's implementations as libraries of their own, with the code
+    # Pyking generates for its tests, which needs the compiler.
+    tinywebdoc.write(STAGE / "content" / "libraries" / "tinyweb-languages",
+                     STAGE / "public" / "tinyweb", [str(REPO / "pyk")])
     export_runtime(STAGE / "public" / "runtime")
+    # Starlight's own `autogenerate` finds pages under src/content/docs/
+    # only, and these are staged elsewhere.
+    (STAGE / "sidebar.json").write_text(json.dumps(
+        {name: sidebar_items(STAGE / "content" / name, f"/{name}/")
+         for name in ("getstarted", "libraries")}, indent=2) + "\n")
     (STAGE / "pyking.tmLanguage.json").write_text(
         json.dumps(grammar(server.BUNDLE), indent=2) + "\n")
 

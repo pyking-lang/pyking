@@ -39,6 +39,8 @@ lib/                        the libraries the reference is generated from
 tools/site/
   site.py                   what make website runs: stage, install, build
   libdoc.py                 lib/ -> one Markdown page per module
+  tinywebdoc.py             tinyweb for other languages: pages and downloads
+  tinyweb/                  the example in each language those pages show
   astro.config.mjs          Starlight: title, sidebar, header, highlighting
   src/sections.mjs          the four sections, for the header and sidebar
   src/content.config.mjs    the pages come from build/content/
@@ -53,7 +55,21 @@ tools/site/
 `site.py build` does three things in order:
 
 1. **Stages** into `build/`: `content/` is a copy of `sitesrc/` plus
-   `libraries/`, written by `libdoc.py`. `public/` is `public/` plus
+   `libraries/`, written by `libdoc.py`, and
+   `libraries/tinyweb-languages/`, written by `tinywebdoc.py`: one page
+   per language tinyweb is implemented in, for using it with no Pyking.
+   Each has a zip in `public/tinyweb/<language>/` holding the library
+   under that language's own name (`tinyweb.py`, `tinyweb.js`,
+   `tinyweb.ml` and `tinyweb.mli`, `tinyweb.c` and `tinyweb.h`,
+   `Tinyweb.java`), the example from `tinyweb/` and the samples, and one
+   zip per tinyweb test, compiled with `./pyk` for that language. The
+   functions' descriptions are one table in `tinywebdoc.py`; the `.h`
+   and `.mli` are written from it. The tinyweb page ends with links to
+   them. `tests/test_tinyweb.py` builds and
+   runs each language's library and example. `sidebar.json` lists the
+   pages of Getting started and Libraries for `astro.config.mjs`, since
+   Starlight's `autogenerate` finds pages only under
+   `src/content/docs/`. `public/` is `public/` plus
    `runtime/`, which holds what `pyk playground` serves (the shared web
    scripts, `vendor/`, the bundle and its manifest, `lib/`, the playground's
    assets and examples) and the notebook's scripts, each at the URL path the
@@ -71,8 +87,10 @@ after editing `sitesrc/` or `lib/`.
 ## Writing a page
 
 A page is Markdown with Starlight's front matter (`title`, `description`,
-and `sidebar.order` for its place in its section). A new file under
-`sitesrc/getstarted/` appears in Getting started by itself.
+and `sidebar.order` for its place in its section, then `sidebar.label`
+or `title`). A new file under `sitesrc/getstarted/` appears in Getting
+started by itself, and a subdirectory of a section is a group labelled
+by its `index.md`.
 
 A ```` ```pyking ```` block is a **cell**: a whole program a reader can edit
 and run. The fences are the notebook's (`tools/notebook/README.md`):

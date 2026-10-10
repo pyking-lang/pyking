@@ -4,6 +4,8 @@
 
 import tinyweb as tw
 
+tw.web_init(0)
+
 c = tw.canvas(300, 200)
 tw.rect(c, 0, 0, 300, 200, "#eeeeee")
 tw.line(c, 0, 0, 300, 200)

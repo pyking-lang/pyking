@@ -183,20 +183,17 @@ RELEASE_FLAG = "--release"
 # known variable in it can be. See tests/lib_sys_environment.pyk.
 TEST_ENVIRONMENT = {"PYKING_TEST_ENV": "hello"}
 os.environ.update(TEST_ENVIRONMENT)
-# A page with no browser to show it -- tinyweb under node or the
-# interpreter -- writes each command it is sent to $PYKING_PAGE_LOG and
-# delivers the events $PYKING_PAGE_EVENTS lists. Both are named relative
-# to the directory a program runs in, which is its own workdir, so every
-# run has files of its own. The `.events` file is copied there before
-# the run and the log read back after it.
+# tinyweb with $PYKING_TINYWEB_LOG set shows no page: it writes each
+# command it is sent to that file and delivers the events
+# $PYKING_TINYWEB_EVENTS lists. Both are named relative to the directory
+# a program runs in, which is its own workdir, so every run has files of
+# its own. The `.events` file is copied there before the run and the log
+# read back after it.
 EVENTS_EXTENSION = ".events"
 PAGE_EXTENSION = ".page"
 PAGE_LOG = "pyking-page.log"
 PAGE_EVENTS = "pyking-page.events"
-os.environ.update({"PYKING_PAGE_LOG": PAGE_LOG, "PYKING_PAGE_EVENTS": PAGE_EVENTS})
-# The interpreter serves a page for a program that needs one, rather
-# than running it; this runs it here instead, headless.
-HEADLESS_FLAG = "--headless"
+os.environ.update({"PYKING_TINYWEB_LOG": PAGE_LOG, "PYKING_TINYWEB_EVENTS": PAGE_EVENTS})
 
 # How many runs to keep in flight, when neither `--jobs` nor this says.
 # See `default_jobs`.
@@ -584,24 +581,28 @@ globalThis.pykSources = Object.fromEntries(
   files.filter((f) => f.endsWith('.pyk'))
        .map((f) => [f, fs.readFileSync(here + '/' + f, 'utf8')]));
 globalThis.pykExternals = {};
-for (const f of files) {
-  if (f.endsWith('.js') && f !== 'pyking.js') {
-    // An external module is an ES module, but node decides that from
-    // the file extension and the nearest package.json -- and an `iweb`
-    // program has neither, because nothing about it runs under node: a
-    // browser reading `<script type="module">` needs no such hint. So
-    // the copy this driver imports is named .mjs, which says it outright
-    // and leaves pyking.js (a classic script) read as one.
-    const mjs = here + '/' + f.slice(0, -3) + '.pyk-test.mjs';
-    fs.copyFileSync(here + '/' + f, mjs);
-    // An implementation is `<module>_external.js`, and the compiler asks
-    // for it by the *module's* name -- a module is up to two files and
-    // this is the host's half of one.
-    const stem = f.slice(0, -3);
-    const name = stem.endsWith('_external')
-      ? stem.slice(0, -'_external'.length) : stem;
-    globalThis.pykExternals[name] = await import(mjs);
-  }
+const modules = files.filter((f) => f.endsWith('.js') && f !== 'pyking.js');
+for (const f of modules) {
+  // An external module is an ES module, but node decides that from
+  // the file extension and the nearest package.json -- and an `iweb`
+  // program has neither, because nothing about it runs under node: a
+  // browser reading `<script type="module">` needs no such hint. So
+  // the copy this driver imports is named .mjs, which says it outright
+  // and leaves pyking.js (a classic script) read as one. A sibling it
+  // imports -- tinyweb's page -- is renamed the same way, so every copy
+  // is made before any is imported.
+  fs.writeFileSync(here + '/' + f.slice(0, -3) + '.pyk-test.mjs',
+    fs.readFileSync(here + '/' + f, 'utf8')
+      .replace(/from "\\.\\/([A-Za-z0-9_]+)\\.js"/g, 'from "./$1.pyk-test.mjs"'));
+}
+for (const f of modules) {
+  // An implementation is `<module>_external.js`, and the compiler asks
+  // for it by the *module's* name -- a module is up to two files and
+  // this is the host's half of one.
+  const stem = f.slice(0, -3);
+  const name = stem.endsWith('_external')
+    ? stem.slice(0, -'_external'.length) : stem;
+  globalThis.pykExternals[name] = await import(here + '/' + stem + '.pyk-test.mjs');
 }
 // `print` writes through the `io` library's browser implementation,
 // which the page ships whatever the program imports -- as the page does.
@@ -790,7 +791,7 @@ def run_interpret(source, workdir, modules, invocation):
     # `--release` is a compiling flag, so the interpreter never takes it.
     passed = ["--"] + invocation.arguments if invocation.arguments else []
     return executed(
-        run(COMPILER + [HEADLESS_FLAG, os.path.abspath(source)] + passed, cwd=workdir,
+        run(COMPILER + [os.path.abspath(source)] + passed, cwd=workdir,
             stdin=invocation.stdin),
         invocation)
 

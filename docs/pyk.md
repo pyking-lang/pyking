@@ -335,7 +335,12 @@ with a declaration half (`Plugin_host.load`, which refuses one with no
 OCaml implementation, or whose plugin cannot be built or loaded, as a
 `Module error`), sets `Sys.argv` to the program's own file and
 arguments, and runs the modules with a host whose `externals` are those
-plugins. `pyk plugins <dir>` (`command_plugins`) builds plugins ahead of
+plugins. Once the top level has ended it runs what a plugin asked
+`Pyk_plugin.after_program` for -- tinyweb's events, from its events file
+or from the page it serves -- and reports a runtime error a callback
+raises like any other. A program using tinyweb is run here like any
+other: it serves its own page once it calls `web_init`.
+`pyk plugins <dir>` (`command_plugins`) builds plugins ahead of
 time, beside each library's implementation, skipping one whose digest
 says it is current; `make libs` runs it over `lib/`. See
 [libraries.md](libraries.md), "How the interpreter reaches an OCaml

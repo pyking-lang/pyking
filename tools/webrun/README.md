@@ -95,8 +95,10 @@ drive the worker under node.
 posts `{type: "page", module, data}` from the worker itself; the runtime
 hands it to the run's `onPage`, and a page shows it with a `PageHost`,
 which mounts the library's renderer (`mountPage` from
-`lib/<module>/<module>_external_browser.js`) in an element the page
-chose. What the renderer reports goes back with
+`lib/<module>/<module>_page.js`) in an element the page chose. The
+worker imports a library's `<module>_external_interpreter.js` where it
+has one -- tinyweb's sends commands -- and its
+`<module>_external_browser.js` otherwise. What the renderer reports goes back with
 `runtime.sendEvent(module, event)` as an `event` message, which carries
 no `id` and gets no reply: the worker hands it to the module's
 `pykDeliver`. A run that sent its page anything is *live* after it

@@ -2,14 +2,14 @@
 """Runs every test suite and reports them together: what `make test`
 calls.
 
-The seven suites stay seven separate scripts, each runnable on its own --
+The eight suites stay eight separate scripts, each runnable on its own --
 this one sequences them, keeps their output intact, and adds the
 combined summary at the end. It runs *all* of them even when one fails,
-so a single broken case does not hide what the other six would have
+so a single broken case does not hide what the other seven would have
 said, and exits non-zero if any did.
 
 `--target` narrows the program suite to one target or one family, and
-the other six are skipped: none of them is a target, and none would
+the other seven are skipped: none of them is a target, and none would
 mean anything narrowed to one.
 
 Usage: python3 tests/test_all.py [--jobs N] [--target T] [--compiler CMD]
@@ -51,7 +51,7 @@ def parse_args(argv):
 
 def suites(args):
     """The suites to run, in order: (name, script, arguments). The last
-    six are skipped when a target was named, since none of them is a
+    seven are skipped when a target was named, since none of them is a
     target. {String: String} -> [(String, String, [String])]"""
     compiler = ["--compiler", args["--compiler"]] if "--compiler" in args else []
     program = []
@@ -69,6 +69,7 @@ def suites(args):
         ("notebook", "test_notebook.py", compiler),
         ("packaging", "test_packaging.py", compiler),
         ("site", "test_site.py", compiler),
+        ("tinyweb", "test_tinyweb.py", compiler),
     ]
 
 

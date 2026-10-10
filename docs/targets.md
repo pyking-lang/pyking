@@ -201,9 +201,9 @@ for the feature.
 
 What a target may still refuse is the **default expression**, by its own
 rules: the generated def is a function like any other, so C and Java
-refuse one that reads a binding from around it, exactly as they refuse
-any other closure, and any target refuses a default built from a
-construct it does not take. A default built from literals and calls
+take one that reads what the top level bound and refuse one that reads
+a block's binding, exactly as they refuse any other closure, and any
+target refuses a default built from a construct it does not take. A default built from literals and calls
 compiles everywhere.
 
 `--no-typechecking -t pyking` is where the sugar can still be seen; it
@@ -254,8 +254,8 @@ testing — could be built end to end before the language surface grew:
 | `/` (integer division, truncating) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `/` (IEEE float division) | ✅ (a helper: Python raises on a zero divisor where IEEE answers) | ✅ | ✅ | ✅ | ✅ |
 | type annotations | erased | erased | used, when they name `Int`/`Float`/`String`/`Bool` | used, when they name `Int`/`Float`/`String`/`Bool` | checked, then erased — the output has none |
-| functions as values (passing a `def`, calling a parameter) | ✅ | ✅ | ❌ (refused: a function used as a value, or a call to an unknown one) | ❌ (same) | ✅ |
-| a function reading a binding from around it (a closure) | ✅ | ✅ | ❌ (no closures) | ❌ (no closures) | ✅ |
+| functions as values (passing a `def`, calling a parameter) | ✅ | ✅ | ✅ (a top-level `def`, as a function pointer) | ✅ (a top-level `def` of at most two parameters, as a `java.util.function` lambda) | ✅ |
+| a function reading a binding from around it (a closure) | ✅ | ✅ | ✅ for the top level, a file-scope variable; ❌ for anything else (no closures) | ✅ for the top level, a static field; ❌ for anything else (no closures) | ✅ |
 | a function *writing* a `var` from around it | ✅ (`global`/`nonlocal`) | ✅ | ❌ (same) | ❌ (same) | ✅ (the `ref` it closes over) |
 | a `def` inside a loop, keeping that turn's values | ✅ (a per-turn factory) | ✅ (a per-turn `const`) | ❌ | ❌ | ✅ |
 | static overloading (`def int::leq(...)`) | ✅ | ✅ | ✅ | ✅ | ✅ |

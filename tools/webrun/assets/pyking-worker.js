@@ -194,10 +194,14 @@ function pick(table, names) {
   return Object.fromEntries(names.filter((n) => n in table).map((n) => [n, table[n]]));
 }
 
-/** A module's browser implementation, imported from lib/ -- a fresh
- *  instance for each run, since a module keeps what a program gave it. */
+/** A module's implementation for the interpreter, imported from lib/ --
+ *  `<name>_external_interpreter.js` where the library has one, and its
+ *  browser implementation otherwise; a fresh instance for each run,
+ *  since a module keeps what a program gave it. */
 function importExternal(name) {
-  return import(libURL + `${name}/${name}_external_browser.js?run=${runs}`);
+  const at = (kind) => libURL + `${name}/${name}_external_${kind}.js`;
+  const kind = existsSync(at("interpreter")) ? "interpreter" : "browser";
+  return import(at(kind) + `?run=${runs}`);
 }
 
 /** The worker's own `io` and `sys`: the page's output pane for standard
@@ -252,6 +256,18 @@ function own(message) {
       },
     },
   };
+}
+
+/** Whether the server has a file at url. String -> Bool */
+function existsSync(url) {
+  const request = new XMLHttpRequest();
+  request.open("HEAD", url, false);
+  try {
+    request.send(null);
+  } catch {
+    return false;
+  }
+  return request.status === 200;
 }
 
 // Synchronous on purpose: `importScripts` is synchronous too, and neither

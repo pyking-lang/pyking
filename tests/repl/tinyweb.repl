@@ -1,0 +1,5 @@
+import tinyweb as tw
+c = tw.canvas(10, 20)
+print("the session goes on")
+tw.web_init(70000)
+:quit

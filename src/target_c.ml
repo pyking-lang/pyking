@@ -66,7 +66,7 @@ let unsupported info message =
    the C spelling of a boolean is one of the things the standards
    disagree about. *)
 
-type ctype = Int | Float | Bool | String | Unit
+type ctype = Int | Float | Bool | String | Unit | Func of ctype list * ctype
 
 (** What a module implemented in C exports, as this translation unit has
     to declare it: a function with its parameter and return types, or a
@@ -82,9 +82,29 @@ let ctype_name t =
   | Bool -> "Bool"
   | String -> "String"
   | Unit -> "Unit"
+  | Func _ -> "a function"
+
+(** One letter per type, which is how a function type is named.
+    ctype -> string *)
+let type_code t =
+  match t with
+  | Int -> "i"
+  | Float -> "f"
+  | Bool -> "b"
+  | String -> "s"
+  | Unit -> "v"
+  | Func _ -> "x"
+
+(** The typedef a function type is written through, `pyk_fn_ii_v` for
+    `(Int, Int) -> ()`: a pointer to a function, which is all a Pyking
+    function is in C (docs/target_c.md, "Functions as values").
+    [ctype] -> ctype -> string *)
+let function_type_name params result =
+  "pyk_fn_" ^ String.concat "" (List.map type_code params) ^ "_" ^ type_code result
 
 let c_type_text standard t =
   match (standard, t) with
+  | _, Func (params, result) -> function_type_name params result
   | _, Int -> "int"
   | _, Float -> "double"
   (* C89 has no boolean type; C99 gained `bool` through <stdbool.h>,
@@ -106,16 +126,31 @@ let format_of t =
   | Bool -> "%s"
   | String -> "%s"
   | Unit -> "%s"
+  | Func _ -> "%s"
 
 (** The type an annotation names, or None for one C cannot represent
-    (docs/target_c.md, "How types are inferred"). typ option -> ctype
-    option *)
-let annotated_type annotation =
+    (docs/target_c.md, "How types are inferred"). A function type is one
+    whose parameters are each a value and whose result is a value or
+    unit: what a pointer to a C function can be.
+    typ option -> ctype option *)
+let rec annotated_type annotation =
   match annotation with
   | Some (TInt _) -> Some Int
   | Some (TFloat _) -> Some Float
   | Some (TString _) -> Some String
   | Some (TBool _) -> Some Bool
+  | Some (TFunction (_, params, result, _, _, _, _)) -> (
+      let value t =
+        match annotated_type (Some t) with Some (Func _) | None -> None | found -> found
+      in
+      let params = List.map value params in
+      let result =
+        match result with TTuple (_, [], _) -> Some Unit | result -> value result
+      in
+      match result with
+      | Some result when List.for_all Option.is_some params ->
+          Some (Func (List.map Option.get params, result))
+      | _ -> None)
   | _ -> None
 
 (** Whether a written type names a type variable anywhere inside it.
@@ -230,6 +265,9 @@ type cprogram = {
   external_decls : cextern list;
   starts : string list;
   globals : cglobal list;
+  (* The top level's own bindings, as file-scope variables: what every
+     function reads them through. *)
+  statics : (ctype * string) list;
 }
 
 (** The type a C expression carries. cexpr -> ctype *)
@@ -270,14 +308,11 @@ let cexpr_info e =
    C variable, since C cannot declare one name twice in a block and a
    rebinding may hold a different type. *)
 
-(** The names in scope during translation: what is bound in the Pyking
-    program but not reachable here (this backend's functions have no
-    closures), each Pyking name's C name and type, the names the
-    innermost block binds, and every C name already spoken for -- which
-    `names` cannot say, since it holds only each Pyking name's *current*
-    C name. *)
+(** The names in scope during translation: each Pyking name's C name and
+    type, the names the innermost block binds, and every C name already
+    spoken for -- which `names` cannot say, since it holds only each
+    Pyking name's *current* C name. *)
 type scope = {
-  outside : StringSet.t;
   names : (string * ctype) SMap.t;
   block : StringSet.t;
   taken : StringSet.t;
@@ -285,13 +320,12 @@ type scope = {
 
 let empty_scope =
   {
-    outside = StringSet.empty;
     names = SMap.empty;
     block = StringSet.empty;
     taken = StringSet.empty;
   }
 
-(** The scope for a nested block: sees outside and names; drops block.
+(** The scope for a nested block: sees names; drops block.
     scope -> scope *)
 let block_scope scope = { scope with block = StringSet.empty }
 
@@ -310,7 +344,6 @@ let reserve names scope =
     string -> string -> ctype -> scope -> scope *)
 let bind_exact name c_name ctype scope =
   {
-    scope with
     names = SMap.add name (c_name, ctype) scope.names;
     block = StringSet.add name scope.block;
     taken = StringSet.add c_name scope.taken;
@@ -332,10 +365,42 @@ let reached alias field = Printf.sprintf "%s.%s" alias field
     it. string -> string -> string *)
 let module_name module_ name = Printf.sprintf "%s_%s" module_ name
 
+(* What the headers a translation unit may include declare at file scope
+   -- <stdio.h>, <stdlib.h>, <string.h>, <float.h> and <math.h>, with
+   the extensions some C libraries add to them -- which a function or a
+   top-level binding of the same name would be declared over. *)
+let library_names =
+  String.split_on_char ' '
+    "remove rename tmpfile tmpnam fclose fflush fopen freopen setbuf setvbuf \
+     fscanf scanf sscanf vfprintf vprintf vsprintf fgetc fgets fputc fputs \
+     getc getchar gets putc putchar puts ungetc fread fwrite fgetpos fseek \
+     fsetpos ftell rewind clearerr feof ferror perror snprintf vsnprintf \
+     vscanf vfscanf vsscanf fpos_t FILE stdin stdout EOF BUFSIZ getline \
+     getdelim fileno popen pclose dprintf fdopen ctermid FILENAME_MAX \
+     FOPEN_MAX L_tmpnam SEEK_CUR SEEK_END SEEK_SET TMP_MAX NULL atof atoi \
+     atol atoll strtof strtold strtol strtoll strtoul strtoull rand srand \
+     calloc free realloc abort atexit exit _Exit getenv system bsearch qsort \
+     abs labs llabs div ldiv lldiv div_t ldiv_t lldiv_t mblen mbtowc wctomb \
+     mbstowcs wcstombs aligned_alloc at_quick_exit quick_exit random srandom \
+     setenv unsetenv putenv mkstemp realpath posix_memalign drand48 erand48 \
+     lrand48 mrand48 srand48 EXIT_FAILURE EXIT_SUCCESS MB_CUR_MAX RAND_MAX \
+     memcpy memmove strcpy strncpy strcat strncat memcmp strcoll strncmp \
+     strxfrm memchr strchr strcspn strpbrk strrchr strspn strstr strtok \
+     memset strerror strdup strndup index rindex bzero bcopy bcmp strcasecmp \
+     strncasecmp stpcpy strsep strlcpy strlcat memccpy acos asin atan atan2 \
+     cos sin tan cosh sinh tanh exp frexp ldexp log log10 modf pow sqrt ceil \
+     fabs floor fmod acosh asinh atanh exp2 expm1 ilogb log1p log2 logb \
+     scalbn scalbln cbrt hypot erf erfc lgamma tgamma trunc round lround \
+     llround nearbyint rint lrint llrint remainder remquo copysign nan \
+     nextafter nexttoward fdim fmax fmin fma j0 j1 jn y0 y1 yn gamma \
+     signgam isnan isinf isfinite signbit fpclassify HUGE_VAL INFINITY NAN \
+     DBL_MAX DBL_MIN DBL_EPSILON DBL_DIG DBL_MANT_DIG FLT_MAX FLT_MIN \
+     FLT_EPSILON FLT_DIG FLT_RADIX FLT_ROUNDS LDBL_MAX LDBL_MIN"
+
 (* Legal Pyking identifiers that are reserved in C (both standards'
    keywords, plus main/printf/the generated helpers, so a shadowing def
-   cannot break the file). See docs/target_c.md, "Names that are
-   keywords in C". *)
+   cannot break the file, and what the C library declares). See
+   docs/target_c.md, "Names that are keywords in C". *)
 let reserved =
   List.fold_left
     (fun set name -> StringSet.add name set)
@@ -349,7 +414,8 @@ let reserved =
         _Bool _Complex _Generic _Imaginary _Noreturn _Static_assert \
         _Thread_local main printf fprintf stderr strcmp strlen malloc size_t \
         pyk_concat sprintf strtod pyk_int_str pyk_truncate pyk_int_of_string \
-        pyk_float_of_string pyk_float_str")
+        pyk_float_of_string pyk_float_str"
+    @ library_names)
 
 (* The Float formatter, as a name in `conversions`: `string` of a Float
    asks for it the way `print` of one does. *)
@@ -362,16 +428,8 @@ let lookup name scope info =
   match SMap.find_opt name scope.names with
   | Some found -> found
   | None ->
-      if StringSet.mem name scope.outside then
-        unsupported info
-          (Printf.sprintf
-             "'%s' is bound outside this function -- C has no closures: a \
-              function here reads its parameters and calls other functions, \
-              nothing else"
-             name)
-      else
-        unsupported info
-          (Printf.sprintf "'%s' is not a value this backend can compile" name)
+      unsupported info
+        (Printf.sprintf "'%s' is not a value this backend can compile" name)
 
 (** name2, name3, ... -- the first not already used.
     string -> scope -> string *)
@@ -767,13 +825,12 @@ let rec expr state e scope allow_unit =
   | EString (info, s, _) -> (CStr (info, s), state)
   | EBool (info, v, _) -> (CBool (info, v), state)
   | EVar (info, name, _) when is_function_value state name scope ->
-      (* A def's own name used as a value (docs/target_c.md, "A function
-         used as a value"). *)
-      unsupported info
-        (Printf.sprintf
-           "`%s` is a function used as a value -- C has no function values \
-            here: a `def` becomes a C function, and only a call can name one"
-           name)
+      (* A def's own name used as a value is a pointer to the C function
+         (docs/target_c.md, "Functions as values"). *)
+      function_value state info name
+  | EQualified (info, alias, field, _)
+    when List.mem_assoc (reached alias field) state.signatures ->
+      function_value state info (reached alias field)
   | EVar (info, name, _) ->
       let c_name, ctype = lookup name scope info in
       (CVar (info, c_name, ctype), state)
@@ -891,18 +948,50 @@ let rec expr state e scope allow_unit =
             state )
       | _ -> unsupported (expr_info e) (expr_kind_name e))
 
+(** A def's name as a value: the C function's own name, as a pointer
+    to it. state -> info -> string -> (cexpr, state) *)
+and function_value state info name =
+  match List.assoc_opt name state.signatures with
+  | None -> unsupported info (Printf.sprintf "'%s' is not a function" name)
+  | Some (c_name, param_types, ret) ->
+      let state =
+        if StringSet.mem name state.defined then state
+        else { state with called_early = StringSet.add name state.called_early }
+      in
+      (match List.find_opt (fun t -> match t with Func _ -> true | _ -> false)
+               (ret :: param_types) with
+      | Some _ ->
+          unsupported info
+            (Printf.sprintf
+               "`%s` is used as a value and itself takes or answers a function \
+                -- C has a type for a function over values, and none for one \
+                over functions"
+               name)
+      | None -> ());
+      (CVar (info, c_name, Func (param_types, ret)), state)
+
 (** Translates a call to a named function -- one written here, or one
     another module exports. `name` is the key its signature is registered
     under. state -> expr -> string -> [expr] -> scope -> bool -> info
     -> (cexpr, state) *)
 and call state e name args scope allow_unit info =
-  match List.assoc_opt name state.signatures with
+  let callee =
+    if is_function_value state name scope then List.assoc_opt name state.signatures
+    else
+      (* A name holding a function -- a parameter, or a binding --
+         is called through the pointer it holds. *)
+      match SMap.find_opt name scope.names with
+      | Some (c_name, Func (param_types, ret)) -> Some (c_name, param_types, ret)
+      | _ -> None
+  in
+  match callee with
   | None ->
       unsupported (expr_info e)
         (Printf.sprintf "call to unknown function `%s`" name)
   | Some (c_name, param_types, ret) ->
       let state =
-        if StringSet.mem name state.defined then state
+        if StringSet.mem name state.defined || not (List.mem_assoc name state.signatures)
+        then state
         else { state with called_early = StringSet.add name state.called_early }
       in
       if List.length args <> List.length param_types then
@@ -1018,8 +1107,11 @@ and tail_stmt state s scope =
       let translated, _, state = stmt state s scope in
       (translated, state)
   | SExprStmt (info, e, _) ->
-      let value, state = expr state e scope false in
-      ([ CReturn (info, value) ], state)
+      (* A call worth unit ends a function that returns nothing: it is a
+         statement, not a value to return. *)
+      let value, state = expr state e scope true in
+      if ctype_of value = Unit then ([ CExprStmt (info, value) ], state)
+      else ([ CReturn (info, value) ], state)
   | SIf (info, cond, then_body, else_body, _) ->
       let condition, state = expr state cond scope false in
       require condition Bool "an `if` condition";
@@ -1656,17 +1748,10 @@ let function_of state func scope =
             set_assoc name (c_name, param_types, provisional) state.signatures;
         }
       in
-      (* A function body starts from nothing but its own parameters; no
-         closures, so `outside` remembers what it cannot see
-         (`lookup`). *)
-      let body_scope =
-        {
-          empty_scope with
-          outside =
-            SMap.fold (fun key _ set -> StringSet.add key set) scope.names
-              StringSet.empty;
-        }
-      in
+      (* A function is written at the top level, and what the top level
+         has bound so far is a file-scope variable it reads like any
+         other (docs/target_c.md, "The top level"). *)
+      let body_scope = block_scope scope in
       let c_params, body_scope =
         List.fold_left2
           (fun (out, body_scope) (Param (_, param_name, _, _, _)) ctype ->
@@ -1794,6 +1879,18 @@ let translate_program stmts context =
      translated as any other, and `<module>_init` ends by handing what it
      worked out to the variable another module can see. *)
   let globals = exported_values state stmts scope in
+  (* Each binding the top level makes is a file-scope variable, assigned
+     where the binding is, so that a function can read it. *)
+  let statics, main_body =
+    List.fold_left
+      (fun (statics, out) s ->
+        match s with
+        | CDecl (info, ctype, name, init) ->
+            (statics @ [ (ctype, name) ], out @ [ CAssign (info, name, init) ])
+        | CVarDecl (_, ctype, name) -> (statics @ [ (ctype, name) ], out)
+        | s -> (statics, out @ [ s ]))
+      ([], []) main_body
+  in
   let main_body =
     main_body
     @ List.map
@@ -1835,6 +1932,7 @@ let translate_program stmts context =
     external_decls;
     starts = context.starts;
     globals;
+    statics;
   }
 
 (* --- printer: C AST -> C source text --- *)
@@ -2243,12 +2341,20 @@ let float_helper =
       "}";
     ]
 
+(** Whether a type is written with `bool`: a Bool, or a function type
+    taking or answering one. ctype -> bool *)
+let rec mentions_bool t =
+  match t with
+  | Bool -> true
+  | Func (params, result) -> List.exists mentions_bool (result :: params)
+  | Int | Float | String | Unit -> false
+
 (** Whether a statement declares a boolean anywhere inside it -- what
     decides, under C99, whether <stdbool.h> is needed.
     cstmt -> bool *)
 let rec stmt_declares_bool statement =
   match statement with
-  | CDecl (_, ctype, _, _) | CVarDecl (_, ctype, _) -> ctype = Bool
+  | CDecl (_, ctype, _, _) | CVarDecl (_, ctype, _) -> mentions_bool ctype
   | CIf (_, _, then_body, else_body) ->
       List.exists stmt_declares_bool then_body
       || (match else_body with
@@ -2262,20 +2368,84 @@ let rec stmt_declares_bool statement =
     defines, in what it declares for an external module, or in a local.
     cprogram -> bool *)
 let declares_bool (program : cprogram) =
-  List.exists (fun g -> g.global_ctype = Bool) program.globals
+  List.exists (fun g -> mentions_bool g.global_ctype) program.globals
+  || List.exists (fun (t, _) -> mentions_bool t) program.statics
   || List.exists
        (fun e ->
          match e with
-         | CExternFunc (_, params, result) -> result = Bool || List.mem Bool params
-         | CExternValue (_, ctype) -> ctype = Bool)
+         | CExternFunc (_, params, result) -> List.exists mentions_bool (result :: params)
+         | CExternValue (_, ctype) -> mentions_bool ctype)
        program.external_decls
   || List.exists
        (fun f ->
-         f.ret_type = Bool
-         || List.exists (fun (t, _) -> t = Bool) f.func_params
+         mentions_bool f.ret_type
+         || List.exists (fun (t, _) -> mentions_bool t) f.func_params
          || List.exists stmt_declares_bool f.func_body)
        program.functions
   || List.exists stmt_declares_bool program.main_body
+
+(** Every function type a list of statements declares something at.
+    [cstmt] -> [ctype] *)
+let rec declared_types statements =
+  List.concat_map
+    (fun s ->
+      match s with
+      | CDecl (_, ctype, _, _) | CVarDecl (_, ctype, _) -> [ ctype ]
+      | CIf (_, _, then_body, else_body) ->
+          declared_types then_body @ declared_types (Option.value else_body ~default:[])
+      | CWhile (_, _, body) | CLoop (_, body) -> declared_types body
+      | CAssign _ | CExprStmt _ | CPrint _ | CBreak _ | CContinue _ | CReturn _ -> [])
+    statements
+
+(** The function types a translation unit writes, each once, in the
+    order they are first met; `public_only` keeps those its header
+    needs. cprogram -> bool -> [ctype] *)
+let function_types ?(public_only = false) (program : cprogram) =
+  let functions =
+    List.filter (fun f -> f.func_public || not public_only) program.functions
+  in
+  let types =
+    List.concat_map (fun f -> f.ret_type :: List.map fst f.func_params) functions
+    @ List.map (fun g -> g.global_ctype) program.globals
+    @
+    if public_only then []
+    else
+      List.concat_map (fun f -> declared_types f.func_body) program.functions
+      @ declared_types program.main_body
+      @ List.map fst program.statics
+      @ List.concat_map
+          (fun e ->
+            match e with
+            | CExternFunc (_, params, result) -> result :: params
+            | CExternValue (_, ctype) -> [ ctype ])
+          program.external_decls
+  in
+  List.fold_left
+    (fun found t ->
+      match t with
+      | Func _ when not (List.mem t found) -> found @ [ t ]
+      | _ -> found)
+    [] types
+
+(** The typedef a function type is written through, guarded so that a
+    header and the file including it may both carry it.
+    string -> ctype -> string *)
+let typedef standard t =
+  match t with
+  | Func (params, result) ->
+      let name = function_type_name params result in
+      let guard = String.uppercase_ascii name in
+      String.concat "\n"
+        [
+          "#ifndef " ^ guard;
+          "#define " ^ guard;
+          Printf.sprintf "typedef %s (*%s)(%s);" (c_type_text standard result) name
+            (match params with
+            | [] -> "void"
+            | params -> String.concat ", " (List.map (c_type_text standard) params));
+          "#endif";
+        ]
+  | Int | Float | Bool | String | Unit -> ""
 
 (** The #include lines the program actually needs.
     cprogram -> string -> [string] *)
@@ -2365,6 +2535,8 @@ let pprint_c_header (program : cprogram) standard source =
       parts @ [ ""; "#include <stdbool.h>" ]
     else parts
   in
+  let typedefs = List.map (typedef standard) (function_types ~public_only:true program) in
+  let parts = parts @ if typedefs = [] then [] else "" :: typedefs in
   let exported =
     List.map
       (fun g ->
@@ -2428,6 +2600,16 @@ let pprint_c_program (program : cprogram) standard source =
       Printf.sprintf "#include \"%s.h\"" program.program_name :: included
   in
   let parts = parts @ if included = [] then [] else "" :: included in
+  let typedefs = List.map (typedef standard) (function_types program) in
+  let parts =
+    parts
+    @
+    if typedefs = [] then []
+    else
+      ""
+      :: comment "A Pyking function is a pointer to a C function." standard
+      :: typedefs
+  in
   (* A module implemented in C has no generated header, so what it
      exports is declared here (docs/modules.md, "External modules"). *)
   let declared =
@@ -2508,6 +2690,22 @@ let pprint_c_program (program : cprogram) standard source =
           (fun g ->
             Printf.sprintf "%s;" (declaration g.global_ctype g.global_name standard))
           program.globals
+    else []
+  in
+  let parts =
+    parts
+    @
+    if program.statics <> [] then
+      [
+        "";
+        comment
+          "What the top level binds, where every function can read it; the \
+           top level below is what fills each of them in."
+          standard;
+      ]
+      @ List.map
+          (fun (ctype, name) -> Printf.sprintf "static %s;" (declaration ctype name standard))
+          program.statics
     else []
   in
   let parts =

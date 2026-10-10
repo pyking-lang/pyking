@@ -13,6 +13,8 @@ const base = process.env.PYKING_SITE_BASE ?? "/";
 const prefix = base.replace(/\/$/, "");
 const grammar = JSON.parse(fs.readFileSync(STAGE + "/pyking.tmLanguage.json", "utf8"));
 const section = (label) => SECTIONS.find((s) => s.label === label);
+// The pages of each sidebar group, which site.py lists from what it staged.
+const pages = JSON.parse(fs.readFileSync(STAGE + "/sidebar.json", "utf8"));
 
 export default defineConfig({
   base,
@@ -34,8 +36,8 @@ export default defineConfig({
       expressiveCode: { shiki: { langs: [grammar] } },
       sidebar: [
         { label: "Install", link: section("Install").path },
-        { label: "Getting started", items: [{ autogenerate: { directory: "getstarted" } }] },
-        { label: "Libraries", items: [{ autogenerate: { directory: "libraries" } }] },
+        { label: "Getting started", items: pages.getstarted },
+        { label: "Libraries", items: pages.libraries },
         { label: "Playground", link: section("Playground").path },
       ],
     }),

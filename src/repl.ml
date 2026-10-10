@@ -429,11 +429,11 @@ let terminal_columns () =
     mode, with history of whole entries (not lines, unlike readline).
     `is_complete` and `indent_for` are the only things it needs to know
     about the language: whether Enter submits, and how far the next line
-    indents. The history, the width and where the last drawing left the
+    indents. `idle` lets a plugin answer what is waiting for it. The history, the width and where the last drawing left the
     cursor are the terminal's own state, so they are cells rather than
     threaded values.
-    (string -> bool) -> (string -> string) -> reader *)
-let editor is_complete indent_for =
+    (string -> bool) -> (string -> string) -> (() -> ()) -> reader *)
+let editor is_complete indent_for idle =
   let history = ref [] in
   let rows_up = ref 0 in
   let rows_total = ref 1 in
@@ -553,6 +553,37 @@ let editor is_complete indent_for =
       | Some "[" -> control_sequence ""
       | _ -> "ignored"
   in
+  (* The terminal as it was before the editor took it over, which is
+     how a plugin's output is written while an entry is being typed. *)
+  let cooked = try Some (Unix.tcgetattr Unix.stdin) with Unix.Unix_error _ -> None in
+  (* While a plugin serves something -- tinyweb's page -- waiting for a
+     key is also waiting for it: what it does is written above the entry
+     being typed, which is then drawn again below it. *)
+  let rec wait_for_key buf =
+    match Pyk_plugin.idle_descriptors () with
+    | [] -> ()
+    | watched ->
+        let ready =
+          match Unix.select (Unix.stdin :: watched) [] [] (-1.0) with
+          | ready, _, _ -> ready
+          | exception Unix.Unix_error (Unix.EINTR, _, _) -> []
+        in
+        if not (List.mem Unix.stdin ready) then begin
+          if ready <> [] then begin
+            if !rows_up > 0 then write (Printf.sprintf "\x1b[%dA" !rows_up);
+            write "\r\x1b[J";
+            let raw = Unix.tcgetattr Unix.stdin in
+            Option.iter (Unix.tcsetattr Unix.stdin Unix.TCSADRAIN) cooked;
+            idle ();
+            flush stdout;
+            Unix.tcsetattr Unix.stdin Unix.TCSADRAIN raw;
+            rows_up := 0;
+            rows_total := 1;
+            draw buf
+          end;
+          wait_for_key buf
+        end
+  in
   (* The next key, as `Text characters` or `Key name`. *)
   let key () =
     match read_char () with
@@ -608,6 +639,7 @@ let editor is_complete indent_for =
         rows_total := 1;
         draw buf;
         let rec loop buf live index =
+          wait_for_key buf;
           match key () with
           | `Text char ->
               let buf = insert buf char in
@@ -705,10 +737,12 @@ let read_entry read_line =
 
 (** Reads entries from something that is not a terminal (a pipe, a
     transcript). Ignores `initial` and answers every `ask` with "cancel".
-    () -> reader *)
-let pipe_reader () =
+    `idle` runs before each line is read.
+    (() -> ()) -> reader *)
+let pipe_reader idle =
   let read _initial =
     read_entry (fun shown ->
+        idle ();
         print_string shown;
         flush stdout;
         match input_line stdin with
@@ -717,10 +751,12 @@ let pipe_reader () =
   in
   { read; ask = (fun _ -> "cancel"); interactive = false }
 
-(** An editor if stdin is a terminal, a pipe reader otherwise.
-    () -> reader *)
-let make_reader () =
-  if Unix.isatty Unix.stdin then editor complete next_indent else pipe_reader ()
+(** An editor if stdin is a terminal, a pipe reader otherwise. `idle`
+    lets a plugin answer what is waiting for it.
+    (() -> ()) -> reader *)
+let make_reader idle =
+  if Unix.isatty Unix.stdin then editor complete next_indent idle
+  else pipe_reader idle
 
 (* --- accepting an entry --- *)
 
@@ -1307,12 +1343,15 @@ let defines_function stmts =
 (** Runs the REPL loop until end of input or `:quit`. `format_error` is
     the driver's (pyk.ml). (exn -> string option) -> int *)
 let start ?read ?session ?(libs = []) format_error =
-  let reader = match read with Some reader -> reader | None -> make_reader () in
   let report error =
     match format_error error with
     | Some text -> prerr_endline text
     | None -> raise error
   in
+  (* What a plugin does while the prompt waits -- a callback a page's
+     event reached -- is reported like an entry's own mistakes. *)
+  let idle () = try Pyk_plugin.run_idle () with error -> report error in
+  let reader = match read with Some reader -> reader | None -> make_reader idle in
   print_endline banner;
   let rec loop session pending =
     match reader.read pending with

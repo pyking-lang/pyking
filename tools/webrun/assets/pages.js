@@ -1,9 +1,9 @@
 // Where a program's page is shown, in a page that runs programs on a
 // worker: the playground and the notebook. A library that needs a page
-// (lib/<name>/<name>.page) sends it what to show as {type: "page",
-// module, data} from the worker; a PageHost mounts that library's own
-// renderer -- `mountPage`, exported by lib/<name>/<name>_external_browser.js
-// -- in an element the page chose, hands it each batch, and sends back
+// sends it what to show as {type: "page", module, data} from the
+// worker; a PageHost mounts that library's own renderer -- `mountPage`,
+// exported by lib/<name>/<name>_page.js -- in an element the page
+// chose, hands it each batch, and sends back
 // what the renderer reports. Nothing here knows any one library: see
 // docs/libraries.md, "A library that needs a page".
 
@@ -27,7 +27,7 @@ export class PageHost {
    *  they arrive. String -> [Object] -> () */
   receive(module, data) {
     if (!this.pages.has(module)) {
-      const url = `${this.libURL}${module}/${module}_external_browser.js`;
+      const url = `${this.libURL}${module}/${module}_page.js`;
       this.pages.set(module, import(url)
         .then((library) => library.mountPage(
           this.element, (event) => this.send(module, event)))
