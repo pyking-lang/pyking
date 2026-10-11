@@ -4,12 +4,14 @@
 ; docs/libraries.md, "How the interpreter reaches an OCaml
 ; implementation"). A library of its own, and unwrapped, so that a
 ; plugin compiled outside this build names it `Pyk_plugin` and finds its
-; .cmi beside the executable. It depends on the standard library and
-; unix, whose descriptors are what the REPL waits on for a plugin.
+; .cmi beside the executable. It depends on the standard library alone:
+; its .cmi is shipped once for every architecture of a package, and an
+; interface it names from another library would tie it to that
+; library's build, so the descriptors the REPL waits on for a plugin
+; cross it as Obj.t.
 
 (library
  (name pyk_plugin)
  (wrapped false)
- (libraries unix)
  (flags
   (:standard -warn-error -a)))

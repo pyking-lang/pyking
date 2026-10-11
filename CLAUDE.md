@@ -1503,15 +1503,25 @@ standard library's plugins in the staged tree with that binary's own
 toolchain -- a plugin loads only into an executable its own compiler
 built, so a `.cmxs` is never copied from the checkout.
 `release_assets(v)` is the one list of what a release holds; a format
-that adds files adds them there.
+that adds files adds them there. **`CHANGELOG.md`** (Keep a Changelog)
+is shipped, and its section for `VERSION` is the release's notes
+(`changelog_notes`): `make release` refuses a `-dev` version and a
+section that is missing, empty or still `Unreleased`. Add to the
+`Unreleased` section as changes are made.
 
 - **Homebrew** (macOS): a universal `pyk` (arm64 + x86_64,
   `MACOSX_DEPLOYMENT_TARGET=11.0`), built on an Apple Silicon Mac by two
   opam switches called `pyking-release` whose OCaml was itself compiled
   for macOS 11 -- the x86_64 one under Rosetta -- reached by the command
   prefixes in `$PYK_ARM64` / `$PYK_X86_64`. Both are checked before
-  anything is built (architecture, dune, and a runtime no newer than the
-  floor, read with `otool -l`), since a runtime compiled for a newer
+  anything is built (architecture, the OCaml version, dune, and a runtime
+  no newer than the floor, read with `otool -l`), and so is that they are
+  the same compiler: their `Stdlib` checksums must agree, since one
+  `pyk_plugin.cmi` serves both halves, and `STDLIB_CHECKSUMS` says which
+  switch is the odd one. Both switches are built without zstd
+  (`SWITCH_PACKAGES`: `ocaml-option-no-compression`), since zstd changes
+  every interface's checksum and only the arm64 build can find
+  Homebrew's, since a runtime compiled for a newer
   macOS makes the floor a lie. The halves are joined with `lipo`, signed
   ad hoc, and refused if `otool -L` shows a library outside `/usr/lib`
   and `/System`. The plugins are built per architecture, each in a tree

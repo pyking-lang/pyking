@@ -1222,7 +1222,9 @@ handle` asks for the REPL's idle time: `repl.ml` waits on
 `idle_descriptors ()` beside standard input and calls `run_idle ()` when
 one is ready. `set_directory`/`directory` are where each module's
 implementation was found, which `plugin_host.ml` records before it loads
-the plugin. It links `unix`, whose descriptors those are.
+the plugin. It depends on the standard library alone, so its `.cmi`
+is the same for every architecture a package ships: a descriptor crosses
+it as an `Obj.t`, converted back to a `Unix.file_descr` by `repl.ml`.
 
 ---
 

@@ -178,6 +178,30 @@ need Python 3.10 or later. Neither is built: each is served from
 and math libraries and caches them, which is why the cache only goes on
 `make distclean`. See [docs/build.md](docs/build.md), "The web tools".
 
+## Building a release
+
+The packages are built from this tree by `make packaging` and published
+by `make release`, after setting `VERSION` and dating its section in
+[CHANGELOG.md](CHANGELOG.md), which the GitHub release shows as what has
+changed. Both need toolchains, which
+`make packaging-setup` makes once and checks (`FORMATS=linux` on a Linux
+machine):
+
+- **macOS** (an Apple Silicon Mac): two opam switches named
+  `pyking-release`, one arm64 and one x86_64 under Rosetta (in
+  `~/.opam-x86_64`). Both are built for macOS 11 and must have the same
+  OCaml, the `OCAML_VERSION` in `tools/packaging/packaging.py`.
+- **Linux**: Docker, with one AlmaLinux 8 build image per architecture.
+
+[tools/packaging/README.md](tools/packaging/README.md) is the long
+form:
+- [One-time setup](tools/packaging/README.md#one-time-setup), including
+  [macOS: the release toolchains](tools/packaging/README.md#macos-the-release-toolchains)
+  and [Linux: the build images](tools/packaging/README.md#linux-the-build-images);
+- [Building a release](tools/packaging/README.md#building-a-release):
+  what is built, checked and published;
+- [Trying a build locally](tools/packaging/README.md#trying-a-build-locally).
+
 ## Documentation
 
 - **[PYKING.md](PYKING.md)** — the language: feature summary, full EBNF

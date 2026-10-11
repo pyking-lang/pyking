@@ -116,9 +116,15 @@ is what makes all three work.
 On an Apple Silicon Mac with Docker (Docker Desktop, OrbStack or Colima),
 with the one-time setup below done:
 
-1. Set the version in `VERSION` (e.g. `0.2.0`) and commit it. It is
-   compiled into the binary (`pyk --version`) and names the release and
-   its files.
+1. Set the version in `VERSION` (e.g. `0.2.0`, not `0.2.0-dev`), date its
+   section in `CHANGELOG.md` (`## [0.2.0] - 2026-11-01`, where it said
+   `Unreleased`), and commit both. The version is compiled into the
+   binary (`pyk --version`) and names the release and its files; the
+   section is what the release says has changed. Between releases,
+   `VERSION` says the next version with `-dev`, and `CHANGELOG.md` collects
+   its changes under `## [0.2.1] - Unreleased`, in the sections [Keep a
+   Changelog](https://keepachangelog.com/en/1.1.0/) names (Added,
+   Changed, Fixed, ...).
 2. `make packaging` builds every format, into `tools/packaging/build/`:
 
    ```
@@ -168,8 +174,9 @@ with the one-time setup below done:
 4. `make release` publishes it. The code repository `pyking-lang/pyking`
    stays private: nothing about it is published.
 
-   - It checks everything first: that every file of the release above
-     exists for `VERSION` and matches `SHA256SUMS`, that the formula
+   - It checks everything first: that `VERSION` is not a `-dev` one, that
+     `CHANGELOG.md` has a dated, non-empty section for it, that every file
+     of the release above exists for `VERSION` and matches `SHA256SUMS`, that the formula
      describes the Mac tarball, that `gh` is logged in, that git has a
      name and an email for the tap commit, that both repositories below
      exist and are public, and that release `v0.2.0` does not exist yet.
@@ -181,7 +188,8 @@ with the one-time setup below done:
      not ask, here or at the tag.
    - It creates the release `v0.2.0` of **`pyking-lang/pyking-releases`**
      with every file, marked *latest* so the one-liner's `latest` link
-     names it, then downloads each file back -- and install.sh once more
+     names it, and with notes that are the version's section of
+     `CHANGELOG.md` ("What's changed") followed by how to install it, then downloads each file back -- and install.sh once more
      through `latest` -- and checks it against `SHA256SUMS`.
    - It clones **`pyking-lang/homebrew-tap`**, commits the formula as
      `Formula/pyking.rb` ("pyking 0.2.0") and pushes it. `brew upgrade`
@@ -258,7 +266,7 @@ exit status).
 ### Linux: the build images
 
 One Docker image per architecture, `pyking-linux-build:<arch>-<hash>`,
-from `linux/Dockerfile`: Alpine, with an opam switch holding OCaml and
+from `linux/Dockerfile`: AlmaLinux 8, with an opam switch holding OCaml and
 dune. Its tag carries a hash of the Dockerfile and the OCaml version, so
 changing either makes the next setup build a new image. Building one
 compiles OCaml -- several minutes natively, 30-60 emulated.
@@ -318,7 +326,8 @@ switch.
 **arm64**, beside your usual switches:
 
 ```sh
-MACOSX_DEPLOYMENT_TARGET=11.0 opam switch create pyking-release 5.5.0 --no-switch
+MACOSX_DEPLOYMENT_TARGET=11.0 opam switch create pyking-release \
+  --packages=ocaml-variants.5.5.0+options,ocaml-option-no-compression --no-switch
 opam install --switch pyking-release dune
 ```
 
@@ -331,7 +340,8 @@ curl -fL -o ~/.local/bin/opam-x86_64 \
   https://github.com/ocaml/opam/releases/download/2.6.0/opam-2.6.0-x86_64-macos
 chmod +x ~/.local/bin/opam-x86_64
 arch -x86_64 ~/.local/bin/opam-x86_64 init --root ~/.opam-x86_64 --bare --no-setup
-arch -x86_64 /usr/bin/env MACOSX_DEPLOYMENT_TARGET=11.0 ~/.local/bin/opam-x86_64 switch create --root ~/.opam-x86_64 pyking-release 5.5.0
+arch -x86_64 /usr/bin/env MACOSX_DEPLOYMENT_TARGET=11.0 ~/.local/bin/opam-x86_64 switch create --root ~/.opam-x86_64 pyking-release \
+  --packages=ocaml-variants.5.5.0+options,ocaml-option-no-compression
 arch -x86_64 ~/.local/bin/opam-x86_64 install --root ~/.opam-x86_64 --switch pyking-release dune
 ```
 
@@ -349,9 +359,37 @@ arch -x86_64 ~/.local/bin/opam-x86_64 exec --root ~/.opam-x86_64 --switch pyking
 
 Those two command prefixes are what `make packaging` builds with. Before
 building anything it checks each one: that it answers, builds for its
-architecture, has dune, and has a runtime compiled for macOS 11 or older.
-A failed check prints the commands above; `make packaging-setup` runs
-them. To use other toolchains, put
+architecture, is OCaml 5.5.0, has dune, and has a runtime compiled for
+macOS 11 or older. A failed check prints the commands above; `make
+packaging-setup` runs them.
+
+Both switches are the release built **without zstd**
+(`ocaml-option-no-compression`, which needs `ocaml-variants`; it is
+still the official release). Since 5.1, OCaml compresses its compiled
+files with zstd when it finds the library while it is built, and that
+changes the checksum of every interface. The arm64 build finds
+Homebrew's zstd and the x86_64 one under Rosetta cannot, so without the
+option the two halves of `pyk` would disagree about the plugin
+interface. A switch built with zstd is refused, and `make
+packaging-setup` replaces it.
+
+It also checks that the two are the same compiler: a plugin is compiled
+against one `pyk_plugin.cmi` and has to load into both halves of the
+universal `pyk`, so their standard libraries must have the same
+checksum. Every build of a release without zstd has the same one, on
+every architecture, and `STDLIB_CHECKSUMS` in `packaging.py` records it
+for `OCAML_VERSION`: when the version is bumped, add the new one, read
+from a fresh switch with
+
+```sh
+opam exec --switch pyking-release -- sh -c 'ocamlobjinfo "$(ocamlopt -where)/stdlib.cmi"' | grep -m1 Stdlib
+```
+
+A switch with another checksum was built differently -- with zstd, or
+from a download opam kept in its cache from before the release was
+final -- and the refusal says which switch, and how to make it again
+from a fresh download (`opam update`, `opam clean --download-cache`,
+`opam switch remove`, then `make packaging-setup`). To use other toolchains, put
 their prefixes in `PYK_ARM64` and `PYK_X86_64`:
 
 ```sh

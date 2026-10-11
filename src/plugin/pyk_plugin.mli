@@ -41,12 +41,14 @@ val set_directory : string -> string -> unit
 val directory : string -> string option
 
 (** Asks for the REPL's idle time: while it waits for a line it also
-    waits on what `descriptors` answers, and calls `handle` when any of
-    them is ready. (() -> [file_descr]) -> (() -> ()) -> () *)
-val on_idle : (unit -> Unix.file_descr list) -> (unit -> unit) -> unit
+    waits on what `descriptors` answers -- each a Unix.file_descr, as an
+    Obj.t -- and calls `handle` when any of them is ready.
+    (() -> [Obj.t]) -> (() -> ()) -> () *)
+val on_idle : (unit -> Obj.t list) -> (unit -> unit) -> unit
 
-(** Every descriptor a plugin is waiting on now. () -> [file_descr] *)
-val idle_descriptors : unit -> Unix.file_descr list
+(** Every descriptor a plugin is waiting on now, each a
+    Unix.file_descr as an Obj.t. () -> [Obj.t] *)
+val idle_descriptors : unit -> Obj.t list
 
 (** Lets every plugin answer what is waiting, without blocking.
     () -> () *)

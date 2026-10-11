@@ -560,7 +560,7 @@ let editor is_complete indent_for idle =
      key is also waiting for it: what it does is written above the entry
      being typed, which is then drawn again below it. *)
   let rec wait_for_key buf =
-    match Pyk_plugin.idle_descriptors () with
+    match List.map (fun d : Unix.file_descr -> Obj.obj d) (Pyk_plugin.idle_descriptors ()) with
     | [] -> ()
     | watched ->
         let ready =

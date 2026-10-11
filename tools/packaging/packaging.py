@@ -36,6 +36,7 @@ Data structures:
 
 Functions:
     version() -- the version, from VERSION.
+    changelog_notes(v) -- CHANGELOG.md's section for v, which a release shows.
     stage(binary, destination) -- the shipped tree, with this binary.
     build_plugins(tree, prefix) -- the tree's library plugins, compiled.
     tarball(source, output) -- a reproducible .tar.gz; answers its sha256.
@@ -51,6 +52,7 @@ Functions:
 """
 
 import argparse
+import datetime
 import gzip
 import hashlib
 import io
@@ -109,6 +111,7 @@ DOCKERFILE = HERE / "linux" / "Dockerfile"
 # out of a package without listing them.
 SHIPPED = [
     ("LICENSE", "LICENSE"),
+    ("CHANGELOG.md", "CHANGELOG.md"),
     ("PYKING-TUTORIAL.md", "PYKING-TUTORIAL.md"),
     ("lib", "lib"),
     ("build/pyking.js", "build/pyking.js"),
@@ -117,6 +120,7 @@ SHIPPED = [
     ("tools/webrun/assets", "tools/webrun/assets"),
     ("tools/webrun/vendor", "tools/webrun/vendor"),
     ("tools/notebook/notebook.py", "tools/notebook/notebook.py"),
+    ("tools/notebook/check.js", "tools/notebook/check.js"),
     ("tools/notebook/package.json", "tools/notebook/package.json"),
     ("tools/notebook/assets", "tools/notebook/assets"),
     ("tools/playground/playground.py", "tools/playground/playground.py"),
@@ -143,6 +147,16 @@ CPU_TYPES = {0x01000007: "x86_64", 0x0100000C: "arm64"}
 RELEASE_SWITCH = "pyking-release"
 OPAM_X86_64_VERSION = "2.6.0"
 OCAML_VERSION = "5.5.0"
+# What a release switch is made from: the release, with zstd compression
+# of compiled files turned off. OCaml compresses them when it finds zstd
+# as it is built, which changes every interface's checksum; Homebrew's
+# zstd is found by an arm64 build and cannot be by an x86_64 one under
+# Rosetta, so without this the two halves of pyk would disagree.
+SWITCH_PACKAGES = f"ocaml-variants.{OCAML_VERSION}+options,ocaml-option-no-compression"
+# The checksum of the standard library's interface, Stdlib, in a build of
+# each OCaml release without zstd -- the same on every architecture and
+# system.
+STDLIB_CHECKSUMS = {"5.5.0": "42a1edbc6bc6dbbcc6b5a3283ab7eace"}
 OPAM_X86_64 = "~/.local/bin/opam-x86_64"
 TOOLCHAINS = {
     "arm64": ("PYK_ARM64", f"opam exec --switch {RELEASE_SWITCH} --"),
@@ -152,7 +166,7 @@ TOOLCHAINS = {
 # What creates each of those switches, for the refusal that asks for one.
 SETUP = {
     "arm64": [f"MACOSX_DEPLOYMENT_TARGET={MACOS_MINIMUM} opam switch create "
-              f"{RELEASE_SWITCH} {OCAML_VERSION} --no-switch",
+              f"{RELEASE_SWITCH} --packages={SWITCH_PACKAGES} --no-switch",
               f"opam install --switch {RELEASE_SWITCH} dune"],
     "x86_64": ["softwareupdate --install-rosetta --agree-to-license",
                "mkdir -p ~/.local/bin && curl -fL -o " + OPAM_X86_64
@@ -160,7 +174,8 @@ SETUP = {
                f"/opam-{OPAM_X86_64_VERSION}-x86_64-macos && chmod +x " + OPAM_X86_64,
                f"arch -x86_64 {OPAM_X86_64} init --root ~/.opam-x86_64 --bare --no-setup",
                f"arch -x86_64 /usr/bin/env MACOSX_DEPLOYMENT_TARGET={MACOS_MINIMUM} "
-               f"{OPAM_X86_64} switch create --root ~/.opam-x86_64 {RELEASE_SWITCH} {OCAML_VERSION}",
+               f"{OPAM_X86_64} switch create --root ~/.opam-x86_64 {RELEASE_SWITCH} "
+               f"--packages={SWITCH_PACKAGES}",
                f"arch -x86_64 {OPAM_X86_64} install --root ~/.opam-x86_64 "
                f"--switch {RELEASE_SWITCH} dune"],
 }
@@ -182,6 +197,36 @@ def shown(path):
 def version():
     """The version, from VERSION at the root. () -> String"""
     return (REPO / "VERSION").read_text().strip()
+
+
+CHANGELOG = REPO / "CHANGELOG.md"
+
+
+def changelog_notes(v, path=CHANGELOG):
+    """The section of CHANGELOG.md for version v, without its heading:
+    what a release of v says has changed. Refuses where there is none,
+    where it is empty, or where its heading carries no date -- `## [v] -
+    YYYY-MM-DD` is how Keep a Changelog marks a released version.
+    String -> Path -> String"""
+    text = path.read_text() if path.exists() else ""
+    headings = list(re.finditer(r"^## \[([^\]]+)\](.*)$", text, re.MULTILINE))
+    found = next((m for m in headings if m.group(1) == v), None)
+    if found is None:
+        raise Refusal(f"{shown(path)} has no section for {v}; add one, headed\n"
+                      f"    ## [{v}] - {datetime.date.today().isoformat()}")
+    if not re.fullmatch(r"\s*-\s*\d{4}-\d{2}-\d{2}\s*", found.group(2)):
+        raise Refusal(f"{shown(path)}'s section for {v} is not dated ({found.group(0).strip()!r});"
+                      f" when releasing it, head it\n    ## [{v}] - "
+                      f"{datetime.date.today().isoformat()}")
+    following = next((m.start() for m in headings if m.start() > found.start()), None)
+    end = following if following is not None else len(text)
+    links = re.search(r"^\[[^\]]+\]:\s", text[found.end():end], re.MULTILINE)
+    if links:
+        end = found.end() + links.start()
+    body = text[found.end():end].strip()
+    if not body:
+        raise Refusal(f"{shown(path)}'s section for {v} says nothing; write what changed")
+    return body
 
 
 def run(command, **kwargs):
@@ -606,7 +651,8 @@ class Homebrew:
 
     def preflight(self, arch):
         """Refuses before anything is built when arch's toolchain is
-        missing, builds for another architecture, has no dune, or has a
+        missing, builds for another architecture, is not OCAML_VERSION,
+        has no dune, or has a
         runtime compiled for a macOS newer than MACOS_MINIMUM -- which the
         linker would warn about and the binary would then not keep.
         String -> ()"""
@@ -631,6 +677,18 @@ class Homebrew:
         if found != expected:
             raise Refusal(f"no {arch} OCaml toolchain through `{where}`"
                           + (f" (it builds for {found})" if found else "") + "." + fix)
+        if ask("ocamlopt", "-config-var", "compression_c_libraries"):
+            raise Refusal(f"the {arch} toolchain through `{where}` was built with zstd, "
+                          "which changes the checksum of every interface it compiles, "
+                          "so the two halves of pyk would disagree about the plugin "
+                          f"interface. Make it again from {SWITCH_PACKAGES}, which "
+                          "turns zstd off (`make packaging-setup` replaces it)." + fix)
+        version_found = ask("ocamlopt", "-version")
+        if version_found != OCAML_VERSION:
+            raise Refusal(f"the {arch} toolchain through `{where}` is OCaml "
+                          f"{version_found}, and a package is built with "
+                          f"{OCAML_VERSION}: the two architectures' plugin "
+                          "interface must come from the same compiler." + fix)
         if ask("dune", "--version") is None:
             raise Refusal(f"the {arch} toolchain through `{where}` has no dune." + fix)
         library = Path(ask("ocamlopt", "-where"))
@@ -667,6 +725,121 @@ class Homebrew:
             raise Refusal(f"{path} is {macho_archs(path)}, not {arch}")
         return path
 
+    def interface_checksums(self, arch, path):
+        """The interfaces a .cmi imports, each with its checksum, as arch's
+        own ocamlobjinfo prints them: what a plugin compiled against it
+        is checked against when it loads. String -> Path -> [String]"""
+        listing = subprocess.run(self.toolchain(arch) + ["ocamlobjinfo", str(path)],
+                                 capture_output=True, text=True, env=self.environment())
+        if listing.returncode != 0:
+            raise Refusal(f"ocamlobjinfo could not read {path}: {listing.stderr.strip()}")
+        lines = listing.stdout.splitlines()
+        start = next((k for k, line in enumerate(lines)
+                      if line.startswith("Interfaces imported")), None)
+        if start is None:
+            raise Refusal(f"ocamlobjinfo lists no imported interfaces for {path}")
+        imported = []
+        for line in lines[start + 1:]:
+            if not line.startswith(("\t", " ")):
+                break
+            imported.append(" ".join(line.split()))
+        return imported
+
+    def stdlib_checksum(self, arch):
+        """The checksum of arch's standard library interface, which every
+        interface compiled with it records. String -> String"""
+        listed = subprocess.run(
+            self.toolchain(arch) + ["sh", "-c", 'ocamlobjinfo "$(ocamlopt -where)/stdlib.cmi"'],
+            capture_output=True, text=True, env=self.environment())
+        for line in listed.stdout.splitlines():
+            words = line.split()
+            if len(words) == 2 and words[1] == "Stdlib" and len(words[0]) == 32:
+                return words[0]
+        raise Refusal(f"could not read the {arch} toolchain's stdlib.cmi: "
+                      + (listed.stderr.strip() or "no Stdlib checksum in it"))
+
+    def check_same_compiler(self, archs):
+        """Refuses, before anything is built, when the toolchains' standard
+        libraries differ: a plugin is compiled against one pyk_plugin.cmi
+        and has to load into both halves of the universal pyk. Says which
+        switch is not a plain build, and how to make it again.
+        [String] -> ()"""
+        if len(archs) < 2:
+            return
+        sums = {arch: self.stdlib_checksum(arch) for arch in archs}
+        if len(set(sums.values())) == 1:
+            return
+        plain = STDLIB_CHECKSUMS.get(OCAML_VERSION)
+        wrong = [arch for arch in archs if sums[arch] != plain] if plain else archs
+        if not wrong:
+            wrong = archs
+        found = "".join(f"\n    {arch}: {sums[arch]}" + ("  (OCaml " + OCAML_VERSION + " without zstd)"
+                                                         if sums[arch] == plain else "")
+                        for arch in archs)
+        verify = "".join(f"\n    {shlex.join(self.toolchain(arch))} sh -c "
+                         f"'ocamlobjinfo \"$(ocamlopt -where)/stdlib.cmi\"' | grep -m1 Stdlib"
+                         for arch in wrong)
+        fixes = {
+            "arm64": ["opam update", "opam clean --download-cache",
+                      f"opam switch remove {RELEASE_SWITCH}"],
+            "x86_64": [f"arch -x86_64 {OPAM_X86_64} update --root ~/.opam-x86_64",
+                       f"arch -x86_64 {OPAM_X86_64} clean --root ~/.opam-x86_64 --download-cache",
+                       f"arch -x86_64 {OPAM_X86_64} switch remove --root ~/.opam-x86_64 "
+                       f"{RELEASE_SWITCH}"],
+        }
+        steps = "".join(f"\n    {line}" for arch in wrong for line in fixes[arch])
+        raise Refusal(
+            f"the {' and '.join(archs)} toolchains are both OCaml {OCAML_VERSION}, but were "
+            "built from different sources: their standard libraries' checksums differ."
+            + found
+            + "\n  A plugin is compiled against one pyk_plugin.cmi and must load into both"
+              "\n  halves of pyk, so both switches have to be plain builds of the release."
+            + (f"\n  The {' and '.join(wrong)} switch is not." if plain and wrong != archs
+               else "")
+            + "\n  The usual cause is a switch built with zstd compression, which changes"
+              "\n  every interface's checksum, or from a download opam kept in its cache"
+              "\n  from before the release was final. Make it again from a fresh one:"
+            + steps
+            + "\n    make packaging-setup"
+            + "\n  and check that it now says " + (plain or "the same for both") + ":" + verify)
+
+    def interface_mismatch(self, archs, imported):
+        """What to say, and to do, when the architectures' pyk_plugin.cmi
+        import different checksums: a toolchain to rebuild where the
+        standard library itself differs, and a stale build directory
+        where only Pyk_plugin does. [String] -> {String: [String]} -> String"""
+        crcs = {arch: dict(reversed(line.split(" ", 1)) for line in imported[arch])
+                for arch in archs}
+        names = sorted({name for table in crcs.values() for name in table})
+        differing = [name for name in names
+                     if len({crcs[arch].get(name) for arch in archs}) > 1]
+        table = "".join(f"\n    {name}: " + ", ".join(
+            f"{arch} {crcs[arch].get(name, 'absent')[:12]}" for arch in archs)
+            for name in differing)
+        if differing == ["Pyk_plugin"]:
+            return ("the architectures built src/plugin/pyk_plugin.mli differently, although "
+                    "their standard libraries agree:" + table
+                    + "\n  A build directory is stale. Remove them and build again:\n"
+                    + "".join(f"    rm -rf {BUILD / ('_build-' + arch)}\n" for arch in archs)
+                    + "    make packaging")
+        compare = "".join(f"\n    {shlex.join(self.toolchain(arch))} ocamlopt -config > {arch}.txt"
+                          for arch in archs)
+        return (f"the {' and '.join(archs)} toolchains have different standard libraries, "
+                f"though both are OCaml {OCAML_VERSION}:" + table
+                + "\n  A plugin is compiled against one pyk_plugin.cmi and must load into"
+                  "\n  both halves of pyk, so the two switches have to be built from the"
+                  "\n  same compiler. Compare how they were configured:" + compare
+                + f"\n    diff {' '.join(arch + '.txt' for arch in archs)}"
+                + "\n  then remove the switch that differs from a plain OCaml "
+                  f"{OCAML_VERSION}\n  (flambda, a variant, a pre-release) and create it again:"
+                + "\n    arm64:  opam switch remove " + RELEASE_SWITCH
+                + f"\n    x86_64: arch -x86_64 {OPAM_X86_64} switch remove --root "
+                  f"~/.opam-x86_64 {RELEASE_SWITCH}"
+                + "\n  and the commands in tools/packaging/README.md, \"One-time setup\", "
+                  "for that architecture:\n"
+                + "".join(f"    {arch}:\n" + "".join(f"      {line}\n" for line in SETUP[arch])
+                          for arch in archs).rstrip("\n"))
+
     def check_linkage(self, path):
         """Refuses a binary that links anything but the system's own
         libraries: the package promises no dependencies. Path -> ()"""
@@ -694,6 +867,7 @@ class Homebrew:
         # reported at once rather than after the others have built.
         for arch in archs:
             self.preflight(arch)
+        self.check_same_compiler(archs)
         binaries = [self.binary(arch) for arch in archs]
         universal = BUILD / "pyk-macos"
         if len(binaries) > 1:
@@ -711,9 +885,13 @@ class Homebrew:
         suffix = "" if set(archs) >= set(ARCHS) else "-" + "-".join(archs)
         top = f"{NAME}-{v}"
         interfaces = [BUILD / f"_build-{arch}" / PLUGIN_BUILT for arch in archs]
-        if len({path.read_bytes() for path in interfaces}) > 1:
-            raise Refusal("the architectures' pyk_plugin.cmi differ, so a plugin "
-                          "compiled against the shipped one would not load into both")
+        # A plugin loads where every interface it was compiled against has
+        # the checksum it saw: Pyk_plugin's own and each it imports. The
+        # files' other bytes, compiler flags among them, do not matter.
+        imported = {arch: self.interface_checksums(arch, path)
+                    for arch, path in zip(archs, interfaces)}
+        if len({tuple(lines) for lines in imported.values()}) > 1:
+            raise Refusal(self.interface_mismatch(archs, imported))
         tree = stage(universal, BUILD / "stage" / top, interface=interfaces[0])
         self.plugins(tree, archs, binaries)
         name = f"{NAME}-{v}-macos{suffix}.tar.gz"
@@ -791,10 +969,16 @@ class Homebrew:
             return [("homebrew", "its toolchains are set up on an Apple Silicon "
                                  "Mac, and this is not one (FORMATS=linux sets up "
                                  "only the Linux one)")]
-        return [(f"homebrew {arch}", run_steps(f"homebrew {arch}", steps,
+        rows = [(f"homebrew {arch}", run_steps(f"homebrew {arch}", steps,
                                                lambda arch=arch: self.preflight(arch)))
                 for arch, steps in (("arm64", self._arm64_steps()),
                                     ("x86_64", self._x86_64_steps()))]
+        if all(problem is None for _, problem in rows):
+            try:
+                self.check_same_compiler(list(ARCHS))
+            except Refusal as refusal:
+                rows.append(("homebrew both", str(refusal)))
+        return rows
 
     def _opam(self, opam, root, *args):
         """An opam command for a release toolchain, in the environment a
@@ -817,6 +1001,16 @@ class Homebrew:
             + ["--switch", RELEASE_SWITCH, "--", "ocamlopt", "-version"],
             capture_output=True, env=self.environment()).returncode == 0
 
+    def _compresses(self, opam, root):
+        """Whether the release switch's OCaml was built with zstd, which
+        changes every interface's checksum. [String] -> String? -> Bool"""
+        found = subprocess.run(
+            self._opam(opam, None, "exec") + (["--root", root] if root else [])
+            + ["--switch", RELEASE_SWITCH, "--", "ocamlopt", "-config-var",
+               "compression_c_libraries"],
+            capture_output=True, text=True, env=self.environment())
+        return found.returncode == 0 and found.stdout.strip() != ""
+
     def _has_dune(self, opam, root):
         """Whether the release switch has dune. [String] -> String? -> Bool"""
         return subprocess.run(
@@ -834,7 +1028,8 @@ class Homebrew:
         def create():
             # An interrupted `switch create` leaves either a listed switch
             # with no compiler in it, or only its directory, unregistered,
-            # which opam then refuses to create a switch over.
+            # which opam then refuses to create a switch over. A switch
+            # whose OCaml uses zstd is replaced the same way.
             leftover = Path(root or os.environ.get("OPAMROOT") or Path.home() / ".opam") \
                 / RELEASE_SWITCH
             if self._has_switch(opam, root):
@@ -845,15 +1040,16 @@ class Homebrew:
                 print(f"  (removing {leftover}, left by an interrupted run)")
                 shutil.rmtree(leftover)
             run(opam + ["switch", "create"] + rooted
-                + [RELEASE_SWITCH, OCAML_VERSION, "--no-switch", "--yes"],
+                + [RELEASE_SWITCH, f"--packages={SWITCH_PACKAGES}", "--no-switch", "--yes"],
                 env=self.environment())
 
         return [
-            (f"create the switch {RELEASE_SWITCH} (OCaml {OCAML_VERSION}, for macOS "
-             f"{MACOS_MINIMUM}). This compiles OCaml, which takes {slow} and "
+            (f"create the switch {RELEASE_SWITCH} (OCaml {OCAML_VERSION} without zstd, "
+             f"for macOS {MACOS_MINIMUM}). This compiles OCaml, which takes {slow} and "
              "prints nothing while it does; to watch it, run\n"
              f'    tail -f "$(ls -t {log}/*.out | head -1)"\n  in another terminal',
-             lambda: self._switch_works(opam, root), create),
+             lambda: self._switch_works(opam, root) and not self._compresses(opam, root),
+             create),
             (f"install dune into {RELEASE_SWITCH}",
              lambda: self._has_dune(opam, root),
              lambda: run(opam + ["install"] + rooted
@@ -1053,7 +1249,7 @@ class Linux:
         with tempfile.TemporaryDirectory(prefix="pyk-linux-") as directory:
             (Path(directory) / "hello.pyk").write_text('print("hello", 1 + 2)\n')
             (Path(directory) / "library.pyk").write_text(
-                'import io\nimport time\nio.write_line("io " ++ str(time.instant() > 0))\n')
+                'import io\nimport time\nio.write_line("io " ++ string(time.instant() > 0))\n')
             for image in self.RUN_IMAGES:
                 result = subprocess.run(
                     ["docker", "run", "--rm", "--platform", self.PLATFORM[arch],
@@ -1074,7 +1270,14 @@ class Linux:
         for arch in archs:
             binary = self.binary(arch)
             u, d = UNAME_ARCH[arch], DEB_ARCH[arch]
-            tree = stage(binary, BUILD / f"stage-linux-{arch}" / f"{NAME}-{v}",
+            # A directory of its own every time: Docker Desktop's file sharing
+            # can go on showing a container files deleted from a directory it
+            # saw before, and `pyk plugins` would then take the last run's
+            # plugins as built.
+            for old in BUILD.glob(f"stage-linux-{arch}*"):
+                shutil.rmtree(old, ignore_errors=True)
+            fresh = Path(tempfile.mkdtemp(prefix=f"stage-linux-{arch}-", dir=BUILD))
+            tree = stage(binary, fresh / f"{NAME}-{v}",
                          interface=BUILD / f"_build-linux-{arch}" / PLUGIN_BUILT)
             self.plugins(arch, tree)
             self.check_runs(arch, tree)
@@ -1133,7 +1336,12 @@ def release(assume_yes):
     names = release_assets(v)
 
     # 1. The build: every file for this version, agreeing with SHA256SUMS
-    #    and with the formula.
+    #    and with the formula -- and what the release says has changed.
+    if "-" in v:
+        raise Refusal(f"VERSION is {v}, a version in development; set it to "
+                      f"{v.split('-')[0]} (and date its section in CHANGELOG.md) "
+                      "to release it, then build again")
+    changes = changelog_notes(v)
     missing = [name for name in names if not (BUILD / name).exists()]
     if missing:
         raise Refusal(f"the release of {v} is not fully built; missing from "
@@ -1209,7 +1417,8 @@ def release(assume_yes):
         if state[RELEASES_REPO].get("isEmpty"):
             first_commit(work / "releases", RELEASES_REPO,
                          {"README.md": releases_readme()}, "Describe the releases")
-        notes = (f"Pyking {v}: the compiler and interpreter, with no dependencies.\n\n"
+        notes = (f"## What's changed\n\n{changes}\n\n## Installing\n\n"
+                 f"Pyking {v}: the compiler and interpreter, with no dependencies.\n\n"
                  f"**macOS** 11 or later, Apple Silicon and Intel:\n\n    {BREW_INSTALL}\n\n"
                  f"**Linux and WSL**, x86_64 and aarch64, any distribution:\n\n"
                  f"    {LINUX_INSTALL}\n\n"

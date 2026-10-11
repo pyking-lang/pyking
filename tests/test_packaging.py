@@ -18,7 +18,8 @@ Then, from a directory outside the repository:
     the tree ships, compiled beside it by `build_plugins` -- none is
     compiled again into the cache;
   - the `iweb24` target compiles, which needs build/pyking.js;
-  - `pyk notebook` and `pyk playground` start and serve their pages;
+  - `pyk notebook` and `pyk playground` start and serve their pages, and
+    `pyk notebook --mode test` checks a notebook;
   - the tree holds what it should and nothing else;
   - the tarball is reproducible and unpacks to one directory, and the
     formula names its URL, checksum and version.
@@ -38,6 +39,11 @@ file, and each package's library plugins, which needs neither system --
 checks SHA256SUMS and both formulas against the files, and runs what
 this machine can run. It never runs `brew`, `dpkg -i` or a release.
 
+What a release says has changed is CHANGELOG.md's section for its
+version (`packaging.changelog_notes`): the suite checks that 0.1.0's is
+read as a release would show it, and that a section that is missing,
+undated or empty is refused.
+
 Usage: python3 tests/test_packaging.py [--compiler PYK]
 
 `--compiler` names the `pyk` to package, `./pyk` by default. It has to be
@@ -49,6 +55,7 @@ Functions:
     check_install_sh(tree) -- install.sh, against a local release.
     check_readers() -- the Mach-O and ELF readers, and SHA256SUMS.
     check_built() -- the packages tools/packaging/build/ holds.
+    check_changelog(check) -- what a release says has changed.
     main(argv) -- the command-line entry point.
 """
 
@@ -140,10 +147,11 @@ def check_stage(check, compiler):
         # Before anything runs from the tree: Python writes __pycache__
         # beside a script it runs.
         files = {str(p.relative_to(tree)) for p in tree.rglob("*") if p.is_file()}
-        for wanted in ["pyk", "LICENSE", "PYKING-TUTORIAL.md", "build/pyking.js",
+        for wanted in ["pyk", "LICENSE", "CHANGELOG.md", "PYKING-TUTORIAL.md", "build/pyking.js",
                        "build/plugin/pyk_plugin.cmi", "lib/sys/sys.pyk",
                        "lib/io/io_external.cmxs", "tools/webrun/server.py",
-                       "tools/notebook/notebook.py", "tools/playground/playground.py"]:
+                       "tools/notebook/notebook.py", "tools/notebook/check.js",
+                       "tools/playground/playground.py"]:
             check(f"the tree holds {wanted}", wanted in files)
         check("every library with an OCaml implementation has its plugin",
               all(plugin.exists() for plugin in plugins) and len(plugins) >= 4,
@@ -207,6 +215,13 @@ def check_stage(check, compiler):
                     check("the packaged notebook serves Ace", status == 200)
             finally:
                 test_notebook.stop(process)
+        notebook = work / "exercise.md"
+        notebook.write_text("```pyking exercise\nprint(1)\n```\n\n"
+                            "```pyking solution\nprint(2)\n```\n\n```stdout\n2\n```\n")
+        result = run([pyk, "notebook", "--mode", "test", "exercise.md"], work, env)
+        check("`pyk notebook --mode test` checks a notebook from the package",
+              result.returncode == 0 and "0 problems" in result.stdout,
+              (result.stdout + result.stderr).strip())
         port = test_notebook.free_port()
         process, printed = test_notebook.start(
             [str(pyk)], ["playground", "--port", str(port)], env)
@@ -509,6 +524,34 @@ def check_built(check):
     return len(archives) + len(linux)
 
 
+def check_changelog(check):
+    """CHANGELOG.md has a dated section for 0.1.0, which a release would
+    show, and a section that is missing, undated or empty is refused, as
+    `make release` refuses it. Checks -> ()"""
+    try:
+        notes = packaging.changelog_notes("0.1.0")
+        check("CHANGELOG.md's 0.1.0 section is what a release shows",
+              notes.startswith("### Added") and "[0.1.0]:" not in notes, notes[:80])
+    except packaging.Refusal as refusal:
+        check("CHANGELOG.md's 0.1.0 section is what a release shows", False, str(refusal))
+    with tempfile.TemporaryDirectory(prefix="pyk-packaging-") as directory:
+        log = Path(directory) / "CHANGELOG.md"
+        log.write_text("# Changelog\n\n## [2.0.0] - Unreleased\n\n- soon\n\n"
+                       "## [1.0.0] - 2026-01-02\n\n\n## [0.9.0] - 2025-12-01\n\n- old\n\n"
+                       "[2.0.0]: https://example.com\n")
+        for v, wanted in (("2.0.0", "not dated"), ("1.0.0", "says nothing"),
+                          ("3.0.0", "no section")):
+            try:
+                packaging.changelog_notes(v, log)
+                check(f"a changelog section that {wanted.replace('not', 'is not')} is refused",
+                      False, "it was not")
+            except packaging.Refusal as refusal:
+                check(f"a changelog section that {wanted.replace('not', 'is not')} is refused",
+                      wanted in str(refusal), str(refusal))
+        check("the last section stops at the link references",
+              packaging.changelog_notes("0.9.0", log) == "- old")
+
+
 def main(argv):
     """Runs the checks and reports them. [String] -> Int"""
     compiler = COMPILER
@@ -537,6 +580,7 @@ def main(argv):
         check_deb(check, tree)
         check_install_sh(check, tree)
     check_macho(check)
+    check_changelog(check)
     built = check_built(check)
     for failure in check.failures:
         print(f"packaging: FAILED {failure}")

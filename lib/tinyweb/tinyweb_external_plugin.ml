@@ -16,4 +16,6 @@ let () =
         Filename.concat directory "tinyweb_assets" :: !Tinyweb_external.assets
   | None -> ());
   Pyk_plugin.after_program Tinyweb_external.after_program;
-  Pyk_plugin.on_idle Tinyweb_external.descriptors Tinyweb_external.handle
+  Pyk_plugin.on_idle
+    (fun () -> List.map Obj.repr (Tinyweb_external.descriptors ()))
+    Tinyweb_external.handle

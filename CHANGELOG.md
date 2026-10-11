@@ -1,0 +1,75 @@
+# Changelog
+
+All notable changes to Pyking are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.1.1] - 2026-10-11
+
+### Added
+
+- The `io` library: `write`, `write_line`, `read_line` (with an optional
+  prompt), `read` and `is_eof`, on every target.
+- `sys.exit`, ending a program with a status, on every target.
+- The builtin `debug`, which prints like `print` but to standard error.
+  `pyk compile --release` removes every call to it.
+- The `tinyweb` library: a web page a program draws on and listens to,
+  with canvases, buttons, labels, sliders, sound, and the mouse and keys.
+  - It runs on every target. `tinyweb.web_init(port)` makes a program
+    serve its own page and print its address (port 0 picks a free one).
+  - The playground and the notebook show the page under the program.
+  - The REPL keeps serving the page while it waits at the prompt.
+  - `PYKING_TINYWEB_LOG` and `PYKING_TINYWEB_EVENTS` run a program
+    without a page, logging what it would show and replaying events.
+  - Each language's implementation is also a library of its own, usable
+    with no Pyking: `tinyweb.py`, `tinyweb.js`, `tinyweb.ml`, `tinyweb.c`
+    and `Tinyweb.java`, documented on the website with examples.
+- The C and Java targets: what the top level binds is visible inside
+  functions, and a top-level function can be passed as a value, such as a
+  callback to a library.
+- The website, built with `make website`: getting started, the library
+  reference, and the playground, with runnable examples on every page.
+- Notebook exercises and quizzes.
+  - A notebook can hold rules with a maximum and a passing score,
+    exercises checked against a solution or expected output, and
+    single- and multiple-choice quizzes, with attempts, points and
+    penalties.
+  - `pyk notebook --mode student` (the default) hides solutions and
+    answers, `--mode teacher` shows them, and `--mode test` checks a
+    notebook instead of serving it.
+  - Progress is kept in the browser, and `results()` reports it to a page
+    embedding the notebook.
+  - Exercises and quizzes also work on the website.
+- A cell's standard input and arguments can be written on its header:
+  ```` ```pyking stdin = "…" args = "…" ````.
+- Programs in the playground and the notebook can read standard input and
+  their arguments, which the page asks for, and can end with `sys.exit`.
+- `CHANGELOG.md`, shipped in every package and shown on each release.
+
+### Changed
+
+- An external module's files are named `<module>_external.pyk` (was
+  `<module>.external.pyk`), and its JavaScript implementation is split
+  into `<module>_external_node.js` and `<module>_external_browser.js`.
+- A runtime error raised by a library implemented in OCaml is reported
+  where the program called it.
+- `make test` needs node 22.7 or later (was 24).
+
+### Fixed
+
+- Building a library's interpreter plugin no longer fails when the
+  current directory holds a compiled OCaml module of the same name.
+- The playground's editor shows an unterminated string correctly.
+
+## [0.1.0] - 2026-09-27
+
+### Added
+
+- The initial packaged release of Pyking: the `pyk` compiler and
+  interpreter, the REPL, the standard library (`fs`, `sys`, `time`), the
+  notebook and the playground, as a Homebrew package for macOS and as
+  tarballs and `.deb` packages for Linux and WSL.
+
+[0.1.1]: https://github.com/pyking-lang/pyking-releases/releases/tag/v0.1.1
+[0.1.0]: https://github.com/pyking-lang/pyking-releases/releases/tag/v0.1.0

@@ -61,14 +61,16 @@ let set_directory module_ directory = Hashtbl.replace directories module_ direct
     string -> string option *)
 let directory module_ = Hashtbl.find_opt directories module_
 
-let idle : ((unit -> Unix.file_descr list) * (unit -> unit)) list ref = ref []
+let idle : ((unit -> Obj.t list) * (unit -> unit)) list ref = ref []
 
 (** Asks for the REPL's idle time: while it waits for a line it also
-    waits on what `descriptors` answers, and calls `handle` when any of
-    them is ready. (() -> [file_descr]) -> (() -> ()) -> () *)
+    waits on what `descriptors` answers -- each a Unix.file_descr, as an
+    Obj.t -- and calls `handle` when any of them is ready.
+    (() -> [Obj.t]) -> (() -> ()) -> () *)
 let on_idle descriptors handle = idle := !idle @ [ (descriptors, handle) ]
 
-(** Every descriptor a plugin is waiting on now. () -> [file_descr] *)
+(** Every descriptor a plugin is waiting on now, each a
+    Unix.file_descr as an Obj.t. () -> [Obj.t] *)
 let idle_descriptors () = List.concat_map (fun (descriptors, _) -> descriptors ()) !idle
 
 (** Lets every plugin answer what is waiting, without blocking.
