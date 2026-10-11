@@ -45,8 +45,8 @@ respects that, which is what makes the library link.
 │  pyk.ml              the driver: argv, the stages, and one of        │
 │                      six commands. Links unix and dynlink, and       │
 │                      with them repl.ml, execution.ml,                │
-│                      plugin_host.ml, web_tools.ml, and install.ml    │
-│                      and version.ml.                                 │
+│                      plugin_host.ml, web_tools.ml, web_server.ml,    │
+│                      install.ml and version.ml.                      │
 │  web/pyking_web.ml   the playground: the same stages, answering      │
 │                      JSON. Compiled to JavaScript by js_of_ocaml.    │
 │                                                                      │
@@ -68,8 +68,10 @@ respects that, which is what makes the library link.
 │  plugin/pyk_plugin.ml            register, find: what a plugin fills │
 │                                  in -- a library of its own; also    │
 │                                  after_program, on_idle, directory   │
-│  web_tools.ml    start, tool     pyk notebook / pyk playground:      │
-│                                  hands over to the tool's server     │
+│  web_tools.ml    start, tool     pyk notebook / playground / serve:  │
+│                                  what each serves                    │
+│  web_server.ml   serve, site,    a static HTTP server on localhost   │
+│                  default_port                                        │
 │  install.ml      root            where lib/, build/, tools/ are      │
 │  version.ml      version         the version, from VERSION           │
 │                                                                      │

@@ -19,7 +19,6 @@ set -eu
 
 RELEASES="https://github.com/pyking-lang/pyking-releases/releases"
 BREW="brew install pyking-lang/tap/pyking"
-PYTHON_MINIMUM="3.10"
 
 say() { printf '%s\n' "$*"; }
 fail() { printf 'pyking install: %s\n' "$*" >&2; exit 1; }
@@ -157,16 +156,3 @@ case ":$PATH:" in
         say "    export PATH=\"$bin:\$PATH\"" ;;
 esac
 
-have_python=0
-for python in python3 python; do
-    if command -v "$python" >/dev/null 2>&1 &&
-        "$python" -c 'import sys; sys.exit(sys.version_info < (3, 10))' 2>/dev/null; then
-        have_python=1
-        break
-    fi
-done
-if [ "$have_python" = 0 ]; then
-    say ""
-    say "Note: \`pyk notebook\` and \`pyk playground\` need Python $PYTHON_MINIMUM or later,"
-    say "which was not found. Nothing else in Pyking needs it."
-fi

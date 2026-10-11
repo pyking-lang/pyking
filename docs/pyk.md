@@ -352,16 +352,15 @@ A web program's `print` writes through the `io` library, so
 find it (`Module.found_implementation`) -- where the program does not
 import `io` itself.
 
-## `pyk notebook` and `pyk playground`: handed over, not served
+## `pyk notebook`, `pyk playground` and `pyk serve`
 
-The two web commands run no front end at all, and `main` dispatches them
-before `front_end` is reached. Each page is served by a Python script
-under `tools/`, so all the driver does is `command_web`: it calls
-`Web_tools.start`, which checks that `$PYTHON` (else `python3`) is 3.10
-or later and then replaces this process with the script, and prints the
-reason only when that fails. Replacing the process rather than running
-a child means Ctrl+C reaches the server directly and `pyk` leaves
-nothing behind. `--port` is theirs alone and refused elsewhere, as `--`
+The three web commands run no front end at all, and `main` dispatches
+them before `front_end` is reached. All the driver does is
+`command_web`: it calls `Web_tools.start`, which serves the page from
+`tools/` with `src/web_server.ml` in this process until Ctrl+C, and
+prints the reason only when it could not start. `pyk serve` takes a
+directory, the current one by default, and serves its files as they
+are; `--run` uses it for a `web24` or `iweb24` page. `--port` is theirs alone and refused elsewhere, as `--`
 is refused for them, and `--mode` (student, teacher or test) is the
 notebook's alone: it is handed on, and test mode refuses `--port`, since
 it serves nothing. See [build.md](build.md), "The web tools".

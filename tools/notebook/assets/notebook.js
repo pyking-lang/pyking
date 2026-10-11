@@ -9,7 +9,7 @@
 //   mountNotebook(document.getElementById("host"), { url: "tutorial.md" });
 //
 // It needs webrun/, vendor/ and pyking/ served beside notebook/ -- the
-// layout tools/notebook/notebook.py serves -- or their URLs given as
+// layout `pyk notebook` serves (src/web_tools.ml) -- or their URLs given as
 // options. See tools/notebook/README.md.
 //
 // Cells can also be embedded one at a time in a page that is not a

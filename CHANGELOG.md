@@ -5,6 +5,29 @@ All notable changes to Pyking are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - Unreleased
+
+### Added
+
+- `pyk serve [--port N] [DIR]` serves a directory's files, such as a
+  page compiled for `web24` or `iweb24`, and lists a directory with no
+  `index.html`.
+
+### Changed
+
+- `pyk notebook` and `pyk playground` are served by `pyk` itself, so
+  Python is no longer needed to use them, and no package ships or
+  recommends it. Only `pyk notebook --mode test` needs node.
+- `pyk compile --run` serves a `web24` or `iweb24` page with `pyk serve`
+  rather than `python3 -m http.server`.
+
+### Fixed
+
+- The Homebrew package ships the digest beside each library plugin, so
+  a program importing `sys`, `tinyweb` or any other library implemented
+  in OCaml runs without OCaml installed. 0.1.1 tried to compile the
+  plugin and failed.
+
 ## [0.1.1] - 2026-10-11
 
 ### Added

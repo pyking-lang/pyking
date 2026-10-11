@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Runs the notebook's own test cases: that the Markdown renderer renders
 what it should, that every cell of PYKING-TUTORIAL.md runs through the
-compiler worker the page uses, and that `pyk notebook` and `pyk
-playground` serve what their pages load and refuse what they should.
+compiler worker the page uses, and that `pyk notebook`, `pyk
+playground` and `pyk serve` serve what their pages load and refuse what
+they should.
 
 Only the page part needs a browser, and it is skipped without one. The renderer is a pure module, so node runs
 it directly; the worker is loaded under node with the few browser globals
@@ -18,10 +19,12 @@ Five parts:
   cells     every runnable cell of PYKING-TUTORIAL.md and features.md,
             run through tools/webrun/assets/pyking-worker.js: an `error`
             cell must be refused, every other cell must run.
-  server    `pyk notebook` and `pyk playground` on a free port, each file
-            the pages load fetched, the mode the page is told, and the
-            refusals: a missing file, a file that is not Markdown, a mode
-            there is none of, and a Python that is too old.
+  server    `pyk notebook`, `pyk playground` and `pyk serve` on a free
+            port, each file the pages load fetched, the playground's
+            manifest and every file tools/playground/playground.py's Site
+            names compared with what pyk serves, the mode the page is
+            told, and the refusals: a missing file, a file that is not
+            Markdown, a mode there is none of, a missing directory.
   test mode `pyk notebook --mode test` passes features.md, and reports
             exactly what tests/notebook/broken.out says about broken.md.
   page      where a Chromium is found (tests/suite.py, find_chromium) and
@@ -534,8 +537,59 @@ def check_server(compiler):
             example = (manifest.get("examples") or [{"file": "?"}])[0]["file"]
             status, _ = fetch(port, "/examples/" + example)
             check("the playground serves an example", status == 200, f"status {status}")
+            sys.path.insert(0, str(REPO / "tools" / "webrun"))
+            sys.path.insert(0, str(REPO / "tools" / "playground"))
+            import playground
+            check("its manifest is the one tools/playground/playground.py builds",
+                  manifest == json.loads(playground.page_manifest()))
+            # The website copies the pages' runtime from playground.py's
+            # Site, so pyk must serve what it names, byte for byte.
+            site = playground.site()
+            paths = list(site.files)
+            for prefix, directory in site.mounts.items():
+                first = next((f for f in sorted(Path(directory).rglob("*"))
+                              if f.is_file() and not f.name.startswith(".")), None)
+                if first is not None:
+                    paths.append(prefix + first.relative_to(directory).as_posix())
+            for path in paths:
+                status, body = fetch(port, path)
+                wanted = site.resolve(path)
+                if wanted is not None and wanted.is_dir():
+                    wanted = wanted / "index.html"
+                check(f"it serves {path} as playground.py's Site names it",
+                      status == 200 and body == wanted.read_bytes(), f"status {status}")
+            status, body = fetch(port, "/pyking/manifest.json", "HEAD")
+            check("a HEAD answers with no body", status == 200 and body == b"", f"status {status}")
+            status, _ = fetch(port, "/assets/nothing", "POST")
+            check("a POST is not answered", status == 501, f"status {status}")
         finally:
             stop(process)
+
+    with tempfile.TemporaryDirectory(prefix="pyk-serve-") as directory:
+        (Path(directory) / "page.html").write_text("<p>page</p>\n")
+        (Path(directory) / "sub").mkdir()
+        (Path(directory) / "sub" / "index.html").write_text("<p>sub</p>\n")
+        port = free_port()
+        process, printed = start(compiler, ["serve", "--port", str(port), directory],
+                                 dict(environment, PATH=directory))
+        check("`pyk serve` starts with nothing on the PATH", process is not None, printed)
+        if process is not None:
+            try:
+                status, body = fetch(port, "/page.html")
+                check("it serves a file as it is", status == 200 and body == b"<p>page</p>\n",
+                      f"status {status}")
+                status, body = fetch(port, "/")
+                check("it lists a directory with no index.html",
+                      status == 200 and b'href="page.html"' in body, f"status {status}")
+                status, _ = fetch(port, "/sub")
+                check("a directory without its / is redirected", status == 301, f"status {status}")
+                status, body = fetch(port, "/sub/")
+                check("a directory's index.html is its page",
+                      status == 200 and body == b"<p>sub</p>\n", f"status {status}")
+                status, _ = fetch(port, "/../etc/passwd")
+                check("nothing above the directory is served", status == 404, f"status {status}")
+            finally:
+                stop(process)
 
     def refused(label, arguments, expected, env=None):
         result = subprocess.run(compiler + arguments, capture_output=True, text=True,
@@ -556,15 +610,8 @@ def check_server(compiler):
             ["compile", "--mode", "test", str(FEATURES)], "only applies to 'pyk notebook'")
     refused("a filename for the playground is refused",
             ["playground", str(FEATURES)], "takes no filename")
-    with tempfile.TemporaryDirectory(prefix="pyk-notebook-") as directory:
-        old = Path(directory) / "python-3.9"
-        old.write_text("#!/bin/sh\necho '3 9'\n")
-        old.chmod(0o755)
-        refused("a Python older than 3.10 is refused", ["notebook", str(FEATURES)],
-                "needs Python 3.10 or later", dict(environment, PYTHON=str(old)))
-    refused("a Python that is not there is refused", ["notebook", str(FEATURES)],
-            "could not be run",
-            dict(environment, PYTHON=str(Path("/nonexistent") / "python3")))
+    refused("a directory that is not there is refused", ["serve", "no-such-directory"],
+            "no such directory")
     return checks, failures
 
 
@@ -632,57 +679,6 @@ def check_page(compiler, chromium):
     return checks, failures
 
 
-# The oldest Python the web tools promise to run on (tools/webrun/server.py).
-OLDEST_PYTHON = "3.10"
-OLDEST_IMAGE = f"python:{OLDEST_PYTHON}-alpine"
-# Run inside the oldest Python: both servers started, and what each page
-# is driven by fetched from them.
-OLDEST_SCRIPT = f"""
-import os, subprocess, sys, time, urllib.request
-os.environ["PYKING_WEB_NO_VENDOR"] = "1"
-assert sys.version_info[:2] == ({OLDEST_PYTHON.replace(".", ", ")}), sys.version
-servers = [subprocess.Popen([sys.executable, "tools/notebook/notebook.py", "--port", "8871",
-                             "tests/notebook/features.md"], stdout=subprocess.DEVNULL),
-           subprocess.Popen([sys.executable, "tools/playground/playground.py", "serve",
-                             "--port", "8872"], stdout=subprocess.DEVNULL)]
-try:
-    for url in ["http://127.0.0.1:8871/notebook.json", "http://127.0.0.1:8872/assets/playground.json"]:
-        for _ in range(50):
-            try:
-                urllib.request.urlopen(url).read()
-                break
-            except OSError:
-                time.sleep(0.1)
-        else:
-            sys.exit("no answer from " + url)
-finally:
-    for server in servers:
-        server.terminate()
-print("ok")
-"""
-
-
-def check_oldest_python():
-    """Whether the web tools run on the oldest Python they promise: with a
-    `python3.10` on the PATH, or else in the python:3.10 Docker image if it
-    is already here (nothing is downloaded). Answers (ran, problem?).
-    () -> (Bool, String?)"""
-    local = shutil.which(f"python{OLDEST_PYTHON}")
-    if local:
-        command, cwd = [local, "-c", OLDEST_SCRIPT], REPO
-    elif shutil.which("docker") and subprocess.run(
-            ["docker", "image", "inspect", OLDEST_IMAGE], capture_output=True).returncode == 0:
-        command, cwd = ["docker", "run", "--rm", "-v", f"{REPO}:/src:ro", "-w", "/src",
-                        OLDEST_IMAGE, "python3", "-c", OLDEST_SCRIPT], REPO
-    else:
-        return False, None
-    result = subprocess.run(command, cwd=cwd, capture_output=True, text=True,
-                            timeout=SERVER_TIMEOUT * 3)
-    if result.stdout.strip() == "ok":
-        return True, None
-    return True, (result.stderr or result.stdout).strip().splitlines()[-1:] or ["failed"]
-
-
 def parse_args(argv):
     """`--compiler CMD` and `--update`. [String] -> ([String], Bool)"""
     compiler = [DEFAULT_COMPILER]
@@ -720,16 +716,6 @@ def main(argv):
     print(f"notebook: renderer and {cells} cells, {checks} checks.")
 
     served, server_failures = check_server(compiler)
-    ran, problem = check_oldest_python()
-    if ran:
-        served += 1
-        if problem:
-            server_failures.append(f"the web tools on Python {OLDEST_PYTHON}: {problem}")
-        print(f"notebook: the web tools on Python {OLDEST_PYTHON}"
-              f" {'FAILED' if problem else 'OK'}.")
-    else:
-        print(f"notebook: the web tools on Python {OLDEST_PYTHON} skipped "
-              f"(no python{OLDEST_PYTHON}, and no {OLDEST_IMAGE} image here).")
     for failure in server_failures:
         print(f"notebook: FAILED {failure}")
     print(f"notebook: server, {served} checks.")

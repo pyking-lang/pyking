@@ -149,10 +149,12 @@ def check_stage(check, compiler):
         files = {str(p.relative_to(tree)) for p in tree.rglob("*") if p.is_file()}
         for wanted in ["pyk", "LICENSE", "CHANGELOG.md", "PYKING-TUTORIAL.md", "build/pyking.js",
                        "build/plugin/pyk_plugin.cmi", "lib/sys/sys.pyk",
-                       "lib/io/io_external.cmxs", "tools/webrun/server.py",
-                       "tools/notebook/notebook.py", "tools/notebook/check.js",
-                       "tools/playground/playground.py"]:
+                       "lib/io/io_external.cmxs", "tools/notebook/check.js",
+                       "tools/notebook/assets/index.html",
+                       "tools/playground/assets/index.html"]:
             check(f"the tree holds {wanted}", wanted in files)
+        python = sorted(f for f in files if f.startswith("tools/") and f.endswith(".py"))
+        check("the web tools hold no Python: pyk serves them", not python, ", ".join(python))
         check("every library with an OCaml implementation has its plugin",
               all(plugin.exists() for plugin in plugins) and len(plugins) >= 4,
               ", ".join(str(p.relative_to(tree)) for p in plugins))
@@ -199,10 +201,13 @@ def check_stage(check, compiler):
               result.returncode == 0 and (work / "page.html").exists(),
               result.stderr.strip())
 
+        # Nothing on the PATH: the servers are pyk's own, and need no Python.
+        (root / "empty").mkdir()
+        bare = dict(env, PATH=str(root / "empty"))
         port = test_notebook.free_port()
         process, printed = test_notebook.start(
             [str(pyk)], ["notebook", "--port", str(port), str(tree / "PYKING-TUTORIAL.md")],
-            env)
+            bare)
         if check("`pyk notebook` starts from the package", process is not None, printed):
             try:
                 for path in ["/", "/notebook/notebook.js", "/webrun/web.js",
@@ -224,12 +229,23 @@ def check_stage(check, compiler):
               (result.stdout + result.stderr).strip())
         port = test_notebook.free_port()
         process, printed = test_notebook.start(
-            [str(pyk)], ["playground", "--port", str(port)], env)
+            [str(pyk)], ["playground", "--port", str(port)], bare)
         if check("`pyk playground` starts from the package", process is not None, printed):
             try:
                 status, body = test_notebook.fetch(port, "/assets/playground.json")
                 check("the packaged playground offers no examples",
                       status == 200 and b'"examples": []' in body, f"status {status}")
+            finally:
+                test_notebook.stop(process)
+        port = test_notebook.free_port()
+        process, printed = test_notebook.start(
+            [str(pyk)], ["serve", "--port", str(port), str(work)], bare)
+        if check("`pyk serve` starts from the package", process is not None, printed):
+            try:
+                status, body = test_notebook.fetch(port, "/page.html")
+                check("it serves the iweb24 page compiled above",
+                      status == 200 and body == (work / "page.html").read_bytes(),
+                      f"status {status}")
             finally:
                 test_notebook.stop(process)
 
@@ -298,13 +314,14 @@ def check_deb(check, tree):
         fields = dict(line.split(": ", 1) for line in control.splitlines()
                       if ": " in line and not line.startswith(" "))
         for key, wanted in [("Package", "pyking"), ("Version", packaging.version()),
-                            ("Architecture", packaging.DEB_ARCH[arch]),
-                            ("Recommends", f"python3 (>= {packaging.PYTHON_MINIMUM})")]:
+                            ("Architecture", packaging.DEB_ARCH[arch])]:
             check(f"the .deb's control says {key}: {wanted}", fields.get(key) == wanted,
                   fields.get(key, "(missing)"))
         floor = ".".join(map(str, packaging.GLIBC_FLOOR))
         check("the .deb depends on the C library alone",
               fields.get("Depends") == f"libc6 (>= {floor})", fields.get("Depends", "(missing)"))
+        check("the .deb recommends nothing: pyk serves its own pages",
+              "Recommends" not in fields, fields.get("Recommends", ""))
         data = tarfile.open(fileobj=io.BytesIO(members[2][1]))
         link = data.getmember("./usr/bin/pyk")
         check("the .deb links /usr/bin/pyk into /usr/lib/pyking",
@@ -467,6 +484,8 @@ def check_built(check):
                   len(plugins) >= 4 and all((packaging.elf_info(p) or ("",))[0] == arch
                                             for p in plugins),
                   ", ".join(p.name for p in plugins))
+            check(f"{archive.name} holds each plugin's digest, without which pyk compiles it",
+                  plugins and all(p.with_suffix(".digest").exists() for p in plugins))
             if platform.system() == "Linux" and HOST_UNAME == u:
                 result = run([pyk, "--version"], directory, dict(os.environ))
                 check(f"{archive.name}'s pyk runs here",
@@ -505,13 +524,15 @@ def check_built(check):
                   sorted(packaging.macho_archs(pyk)) == wanted,
                   str(packaging.macho_archs(pyk)))
             check(f"{name} holds the web tools and the library",
-                  (tops[0] / "tools" / "notebook" / "notebook.py").exists()
+                  (tops[0] / "tools" / "notebook" / "check.js").exists()
                   and (tops[0] / "lib").is_dir() and (tops[0] / "build" / "pyking.js").exists())
             plugins = sorted(tops[0].glob("lib/*/*_external.cmxs"))
             check(f"{name} holds the library plugins, each {' + '.join(wanted)}",
                   len(plugins) >= 4 and all(sorted(packaging.macho_archs(p)) == wanted
                                             for p in plugins),
                   ", ".join(f"{p.name} {packaging.macho_archs(p)}" for p in plugins))
+            check(f"{name} holds each plugin's digest, without which pyk compiles it",
+                  plugins and all(p.with_suffix(".digest").exists() for p in plugins))
             if sys.platform == "darwin" and platform.machine() in wanted:
                 result = run([pyk, "--version"], directory, dict(os.environ))
                 check(f"{name}'s pyk runs here",

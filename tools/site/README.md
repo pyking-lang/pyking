@@ -11,7 +11,7 @@ make website-dev    # serve it with Astro's dev server (PORT=n for the port)
 ```
 
 `website/` is a static site, served from the root of any web server:
-`python3 -m http.server -d website` is enough to look at it. Like the
+`pyk serve website` is enough to look at it. Like the
 playground, it runs everything in the browser: the compiler bundle runs
 each example and the playground with the interpreter.
 

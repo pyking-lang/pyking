@@ -20,7 +20,8 @@ A notebook may hold **exercises and quizzes**, checked in the page; see
 As with the playground, **nothing executes on the server**. The page loads
 the real compiler — `src/` compiled to JavaScript, `build/pyking.js` — into a
 worker and runs each cell with its interpreter. The server only hands out
-files, and needs Python 3.10 or later.
+files, and is `pyk` itself (`src/web_tools.ml`), so nothing else has to
+be installed. Test mode alone needs node.
 
 ## Running cells
 
@@ -403,7 +404,6 @@ the exercises and quizzes, and `problems`, each `{line, message}`.
 
 ```
 tools/notebook/
-  notebook.py        the server: `pyk notebook` runs this
   check.js           test mode, under node
   package.json       says the .js files are ES modules, for node
   README.md

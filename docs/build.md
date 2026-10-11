@@ -150,9 +150,9 @@ to *produce* the code, and none at all to run a program with
 importing an external module of its own: the interpreter compiles that
 module's plugin on demand, which needs the OCaml `pyk` was built by.
 
-The test harness (`tests/test_script.py`) is Python 3.11+. The web tools'
-servers (`tools/webrun/server.py`) need Python 3.10+ and check for it.
-Both are tooling around the compiler, not part of it.
+The test harness (`tests/test_script.py`) is Python 3.11+, and so are
+`make vendor` and the website build. All are tooling around the
+compiler, not part of it.
 
 The website (`make website`) is the one part that needs packages from
 npm: Astro and Starlight, pinned in `tools/site/package-lock.json` and
@@ -166,22 +166,28 @@ or use the compiler, and nothing of it is shipped.
 the compiler in the browser: the playground, and a Markdown document
 whose Pyking code blocks are runnable cells. Neither is built. Each is a
 directory of JavaScript, CSS and HTML under `tools/`, served from where
-it sits by a small Python server:
+it sits by `pyk` itself:
 
 ```
-tools/webrun/     what both share: server.py, the compiler's worker and
-                  runtime, the Ace mode, and vendor/ (Ace, KaTeX)
-tools/playground/ playground.py and its page
-tools/notebook/   notebook.py and its page
+tools/webrun/     what both share: the compiler's worker and runtime,
+                  the Ace mode, and vendor/ (Ace, KaTeX)
+tools/playground/ its page
+tools/notebook/   its page, and check.js for test mode
 build/pyking.js   the compiler, which both pages load
 ```
 
-`pyk` itself does not serve anything. `src/web_tools.ml` finds
-`tools/<tool>/<tool>.py` beside the running executable, runs `$PYTHON`
-(else `python3`) to check it is 3.10 or later, and replaces its own
-process with that script (`execvp`), passing `--port`, `--mode` and the
-document on. `pyk notebook --mode test` serves nothing: `notebook.py`
-runs `tools/notebook/check.js` under node, which checks the document's
+`src/web_tools.ml` says what each page serves -- directories beside the
+running executable, the notebook's document, and what is worked out per
+request: `notebook.json`, the playground's manifest of targets and
+examples, the bundle's stamp -- and `src/web_server.ml` serves it on
+127.0.0.1 in the `pyk` process, so nothing else has to be installed.
+`pyk serve DIR` serves a directory's files the same way, which is what
+`--run` does for a `web24` or `iweb24` page. `tools/webrun/server.py`
+and `tools/playground/playground.py` say the same layout in Python, for
+the website build and `make -C tools/playground check`, which run in a
+checkout; `tests/test_notebook.py` checks that `pyk` serves every file
+they name and the same manifest. `pyk notebook --mode test` serves
+nothing: it runs `tools/notebook/check.js` under node, which checks the document's
 exercises and quizzes and runs its programs, so test mode needs node. `make playground` and `make notebook` go through `./pyk` the same
 way, after `make vendor` has downloaded Ace and KaTeX once.
 
@@ -201,8 +207,8 @@ program, the standard library included, since its plugins ship beside
 it. OCaml, dune and js_of_ocaml are needed to *build* it, never to use
 it -- save to interpret a program with an external module of its own.
 
-The web tools add one dependency, and only for someone who uses them:
-Python 3.10 or later, standard library only. A distribution is a subset
+The web tools add none: `pyk` serves them. Only `pyk notebook --mode
+test` needs node. A distribution is a subset
 of this repository's tree, kept at the same relative paths so that one
 lookup — beside the executable — works in a checkout and an install
 alike:

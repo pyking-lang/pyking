@@ -94,7 +94,6 @@ LINUX_INSTALL = f"curl -fsSL {HOMEPAGE}/releases/latest/download/install.sh | sh
 DESCRIPTION = "Compiler and interpreter for Pyking, a small statically typed Python-like language"
 LICENSE = "MIT"
 MAINTAINER = "pyking-lang <pyking-lang@users.noreply.github.com>"
-PYTHON_MINIMUM = "3.10"
 MACOS_MINIMUM = "11.0"
 MACOS_MINIMUM_NAME = "big_sur"
 LOCAL_TAP = "pyking-lang/local"
@@ -115,15 +114,12 @@ SHIPPED = [
     ("PYKING-TUTORIAL.md", "PYKING-TUTORIAL.md"),
     ("lib", "lib"),
     ("build/pyking.js", "build/pyking.js"),
-    ("tools/webrun/server.py", "tools/webrun/server.py"),
     ("tools/webrun/package.json", "tools/webrun/package.json"),
     ("tools/webrun/assets", "tools/webrun/assets"),
     ("tools/webrun/vendor", "tools/webrun/vendor"),
-    ("tools/notebook/notebook.py", "tools/notebook/notebook.py"),
     ("tools/notebook/check.js", "tools/notebook/check.js"),
     ("tools/notebook/package.json", "tools/notebook/package.json"),
     ("tools/notebook/assets", "tools/notebook/assets"),
-    ("tools/playground/playground.py", "tools/playground/playground.py"),
     ("tools/playground/assets", "tools/playground/assets"),
 ]
 SHIPPED_SUFFIXES = {".pyk", ".js", ".ml", ".mli", ".py", ".c", ".h", ".java",
@@ -444,8 +440,8 @@ def _ar(members):
 def deb(tree, arch, output):
     """A .deb installing the tree in /usr/lib/pyking/, with /usr/bin/pyk a
     link to its pyk. Written directly -- it is an ar archive of two
-    tarballs -- so building one needs no dpkg. Recommends Python for the
-    web tools and depends on the C library alone. Answers its sha256.
+    tarballs -- so building one needs no dpkg. Depends on the C library
+    alone. Answers its sha256.
     Path -> String -> Path -> String"""
     prefix = "./usr/lib/pyking"
     data, sums, size = [], [], 0
@@ -473,16 +469,14 @@ Architecture: {DEB_ARCH[arch]}
 Maintainer: {MAINTAINER}
 Installed-Size: {(size + len(copyright_text) + 1023) // 1024}
 Depends: libc6 (>= {'.'.join(map(str, GLIBC_FLOOR))})
-Recommends: python3 (>= {PYTHON_MINIMUM})
 Section: devel
 Priority: optional
 Homepage: {HOMEPAGE}
 Description: {DESCRIPTION}
  Pyking is a small, statically typed language with Python's syntax. This
  package holds its compiler and interpreter, pyk, which needs nothing but
- the C library, and its standard library. `pyk notebook` and `pyk
- playground` use Python {PYTHON_MINIMUM} or later, which is why it is
- recommended.
+ the C library, its standard library, and the notebook and playground,
+ which pyk serves itself.
 """
     control_tar = _tar_gz([
         _tar_entry("./", "dir"),
@@ -590,9 +584,9 @@ class Pyking < Formula
 
   def caveats
     <<~EOS
-      `pyk notebook` and `pyk playground` need Python 3.10 or later on
-      your PATH; nothing else does. Compiling for a target and running
-      the result needs that target's own tools (node, cc, javac, ...).
+      Nothing else needs to be installed. Compiling for a target and
+      running the result needs that target's own tools (node, cc,
+      javac, ...).
 
       To read the tutorial as a notebook:
         pyk notebook #{{opt_libexec}}/PYKING-TUTORIAL.md
@@ -893,7 +887,8 @@ class Homebrew:
         if len({tuple(lines) for lines in imported.values()}) > 1:
             raise Refusal(self.interface_mismatch(archs, imported))
         tree = stage(universal, BUILD / "stage" / top, interface=interfaces[0])
-        self.plugins(tree, archs, binaries)
+        self.plugins(tree, archs, binaries, interfaces[0])
+        self.check_plugins_load(tree, archs)
         name = f"{NAME}-{v}-macos{suffix}.tar.gz"
         archive = BUILD / name
         sha = tarball(tree, archive)
@@ -912,15 +907,17 @@ class Homebrew:
             print(f"homebrew: NOTE this package holds {', '.join(archs)} only; "
                   "do not publish it as the release.")
 
-    def plugins(self, tree, archs, binaries):
+    def plugins(self, tree, archs, binaries, interface):
         """Builds the tree's library plugins universal: each architecture's
         compiled by its own toolchain, in a tree of its own staged around
-        that architecture's binary, and the slices joined with lipo.
-        Path -> [String] -> [Path] -> ()"""
+        that architecture's binary and the tree's own interface, and the
+        slices joined with lipo. Each plugin's digest goes beside it, as
+        `pyk` checks it before loading the plugin rather than compiling one.
+        Path -> [String] -> [Path] -> Path -> ()"""
         slices = {}
         for arch, binary in zip(archs, binaries):
             own = stage(binary, BUILD / "stage-plugins" / arch, vendor=False,
-                        interface=BUILD / f"_build-{arch}" / PLUGIN_BUILT)
+                        interface=interface)
             build_plugins(own, self.toolchain(arch), env=self.environment())
             slices[arch] = own
         for plugin in plugin_sources(tree):
@@ -932,6 +929,30 @@ class Homebrew:
             run(["codesign", "--force", "--sign", "-", plugin])
             if sorted(macho_archs(plugin)) != archs:
                 raise Refusal(f"{plugin} holds {macho_archs(plugin)}, not {archs}")
+            digests = {(part.with_suffix(".digest")).read_text() for part in parts}
+            if len(digests) > 1:
+                raise Refusal(f"the slices of {plugin.relative_to(tree)} were built from "
+                              "different sources or interfaces: their digests differ")
+            plugin.with_suffix(".digest").write_text(digests.pop())
+
+    def check_plugins_load(self, tree, archs):
+        """Runs a program importing every library with the tree's pyk, as
+        each architecture, where no OCaml can be found and the plugin cache
+        is empty: it passes only on the plugins shipped in the tree.
+        Path -> [String] -> ()"""
+        names = sorted(p.parent.name for p in plugin_sources(tree))
+        with tempfile.TemporaryDirectory(prefix="pyk-macos-") as directory:
+            program = Path(directory) / "library.pyk"
+            program.write_text("".join(f"import {n}\n" for n in names)
+                               + 'print("libraries", 1 + 2)\n')
+            env = dict(self.environment(), OCAMLOPT=str(Path(directory) / "no-ocamlopt"),
+                       XDG_CACHE_HOME=str(Path(directory) / "cache"))
+            for arch in archs:
+                result = subprocess.run(["arch", f"-{arch}", tree / "pyk", program],
+                                        capture_output=True, text=True, env=env)
+                if result.returncode != 0 or result.stdout.strip() != "libraries 3":
+                    raise Refusal(f"the {arch} pyk does not load the plugins shipped "
+                                  "with it: " + (result.stdout + result.stderr).strip()[-300:])
 
     def install_local(self):
         """Installs the local build through the tap pyking-lang/local.
@@ -1578,9 +1599,7 @@ def releases_readme():
             "given release, and `--uninstall` removes it. On Debian, Ubuntu and WSL "
             "Ubuntu, the `.deb` of a release works too:\n\n```sh\n"
             f"curl -fLO {HOMEPAGE}/releases/latest/download/pyking_amd64.deb\n"
-            "sudo apt install ./pyking_amd64.deb\n```\n\n"
-            f"`pyk notebook` and `pyk playground` also need Python {PYTHON_MINIMUM} or "
-            "later.\n")
+            "sudo apt install ./pyking_amd64.deb\n```\n")
 
 
 def tap_readme():

@@ -38,7 +38,7 @@
 ;; the executable, since a plugin may use one pyk itself never does.
 (executable
  (name pyk)
- (modules pyk execution repl plugin_host web_tools install version)
+ (modules pyk execution repl plugin_host web_server web_tools install version)
  (libraries pyking pyk_plugin unix dynlink)
  (link_flags (:standard -linkall))
  (flags

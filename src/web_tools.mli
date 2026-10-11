@@ -1,22 +1,23 @@
-(** `pyk notebook` and `pyk playground`: finds the web tool beside this
-    executable, checks that a new enough Python is installed, and hands
-    the process over to the tool's own Python server. Nothing here serves
-    a page; tools/webrun/server.py does. See docs/build.md ("The web
-    tools").
+(** `pyk notebook`, `pyk playground` and `pyk serve`: finds the web
+    tools beside this executable, works out what each serves, and serves
+    it with web_server.ml in this process -- nothing else has to be
+    installed. `pyk notebook --mode test` serves nothing and runs
+    tools/notebook/check.js under node instead. See docs/build.md ("The
+    web tools").
 
     Data structures:
       tool -- which web tool.
 
     Functions:
-      start tool port mode document -- replaces this process with the tool's
-        server, or answers why it could not. *)
+      start tool port mode path -- serves the tool, or answers why not. *)
 
-(** Which web tool: the notebook, which opens one Markdown document, or
-    the playground. *)
-type tool = Notebook | Playground
+(** Which web tool: the notebook, which opens one Markdown document, the
+    playground, or a directory's files as they are. *)
+type tool = Notebook | Playground | Files
 
-(** Replaces this process with the tool's Python server, on `port` if
-    one is given, opening `document` for the notebook in `mode` (student,
-    teacher or test). Returns only when that could not be done, with the
-    reason. tool -> int? -> string? -> string? -> string *)
-val start : tool -> int option -> string option -> string option -> string
+(** Serves the tool until Ctrl+C, on `port` if one is given: the
+    notebook opening the document `path` in `mode` (student, teacher or
+    test, which runs it under node instead), or the directory `path` (by
+    default the current one). Answers the exit status, or why it could
+    not start. tool -> int? -> string? -> string? -> (int, string) result *)
+val start : tool -> int option -> string option -> string option -> (int, string) result

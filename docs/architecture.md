@@ -133,7 +133,8 @@ repl`) rather than a `--target`.
 | `src/builtin.ml` | The builtins: each one's name, arity, and whether it crosses the host/IO boundary. Backend-agnostic. |
 | `src/install.ml` | Where this installation keeps `lib/`, `build/` and `tools/`: the executable's directory, with symbolic links resolved, so a package manager's link to `pyk` works. |
 | `src/version.ml` | The version, generated from the root's `VERSION` file by `src/dune`; `pyk --version` prints it. |
-| `src/web_tools.ml` | `pyk notebook` and `pyk playground`: finds the web tool beside the executable, checks for Python 3.10+, and hands the process to its server. See [build.md](build.md), "The web tools". |
+| `src/web_tools.ml` | `pyk notebook`, `pyk playground` and `pyk serve`: what each serves, from the tree beside the executable. |
+| `src/web_server.ml` | A small HTTP/1.1 server on 127.0.0.1, in the `pyk` process, which `web_tools.ml` serves each tool with. See [build.md](build.md), "The web tools". |
 | `src/pyk.ml` | The driver: argv, stage sequencing, error reporting, and the three commands (`pyk <file>`, `repl`, `compile`), plus the two web commands, which run no front end. |
 
 ## The builtins and the host boundary
@@ -591,7 +592,7 @@ since the files beside it exist only as files.
 
 A `web24` or `iweb24` page has to be **served**: a browser refuses a
 module fetched over `file://`, and both load one. `--run` starts
-`python3 -m http.server` in the output directory for that reason.
+`pyk serve` in the output directory for that reason.
 
 ## Command line
 

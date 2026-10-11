@@ -80,9 +80,9 @@ it. Three things need more, and only when used:
 - Interpreting a program with an external module of its own needs **the
   OCaml `pyk` was built by** (5.5.0), to compile that module's plugin.
   `pyk` says so, with the version, if it is missing.
-- `pyk notebook` and `pyk playground` need **Python 3.10 or later** on the
-  `PATH` (or named by `$PYTHON`). They say so if it is missing. On WSL,
-  the printed link opens in the Windows browser.
+- `pyk notebook`, `pyk playground` and `pyk serve` need nothing more:
+  `pyk` serves their pages itself. On WSL, the printed link opens in the
+  Windows browser.
 - Compiling for a target *and running the result* needs that target's own
   tools: `node` for JavaScript, `cc` for C, a JDK for Java, `ocamlopt` for
   OCaml, `python3` for Python. Compiling alone needs none of them, and
@@ -148,7 +148,12 @@ with the one-time setup below done:
      signed ad hoc, and refused if it links anything outside `/usr/lib`
      and `/System`. The library plugins are built the same way: each
      architecture's `pyk plugins` by its own switch, in a tree of its own,
-     and each plugin's slices joined with `lipo` and signed.
+     and each plugin's slices joined with `lipo` and signed. The digest
+     `pyk plugins` writes beside each plugin is shipped with it: without
+     it `pyk` does not trust the plugin and compiles one, which needs
+     OCaml. The tree's `pyk` then runs a program importing every
+     library as each architecture, with no OCaml and an empty plugin
+     cache.
    - **Linux:** `pyk` is built in an AlmaLinux 8 container per
      architecture (the other architecture emulated), linked dynamically
      against its glibc 2.28 -- dynamically because the interpreter loads

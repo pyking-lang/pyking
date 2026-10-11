@@ -129,9 +129,9 @@ Either way `pyk` is one compiled binary needing nothing but the
 system's C library: universal on macOS 11 or later (Apple Silicon and
 Intel), and linked against glibc 2.28 or later on Linux (x86_64 and
 aarch64), with the standard library's plugins beside it. Debian and Ubuntu users can install the release's
-`.deb` instead. `pyk notebook` and `pyk playground` additionally need
-Python 3.10 or later on the `PATH`, and running what a target compiled
-needs that target's own tools. See [tools/packaging/](tools/packaging/)
+`.deb` instead. `pyk notebook` and `pyk playground` are served by
+`pyk` itself, and running what a target compiled needs that target's
+own tools. See [tools/packaging/](tools/packaging/)
 for every option, and for how the packages are built and published.
 
 ## Make targets
@@ -173,7 +173,7 @@ runs.
 
 The playground and the notebook are started through the compiler —
 `pyk playground`, `pyk notebook FILE.md`, `--port N` for either — and
-need Python 3.10 or later. Neither is built: each is served from
+served by `pyk` itself. Neither is built: each is served from
 `tools/` as it stands. The first `make vendor` downloads their editor
 and math libraries and caches them, which is why the cache only goes on
 `make distclean`. See [docs/build.md](docs/build.md), "The web tools".
@@ -284,8 +284,8 @@ form:
 
 Building the compiler needs OCaml and dune, and nothing else; the
 playground's bundle additionally needs js_of_ocaml. The test harness is
-Python 3.11+ (`match`/`case`, `tomllib`), and the web tools need Python
-3.10+. The website alone needs node 22.12+ and npm, which installs Astro
+Python 3.11+ (`match`/`case`, `tomllib`), and so is `make vendor`.
+The website alone needs node 22.12+ and npm, which installs Astro
 and Starlight the first time `make website` runs.
 
 Running the generated code needs `node` for the JavaScript targets, a C

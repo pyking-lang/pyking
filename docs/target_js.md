@@ -104,12 +104,12 @@ project the output landed in.
 
 **A `web24` program has to be served.** A browser refuses a module
 fetched over `file://`, and the program is a module. `pyk compile -t web
---run` starts `python3 -m http.server` in the output directory for
-exactly that reason, and prints the page's own address before it:
+--run` starts `pyk serve` in the output directory for exactly that
+reason, and prints the page's own address before it:
 
 ```
   open http://localhost:8000/prog.html
-$ python3 -m http.server 8000 --directory .
+$ pyk serve --port 8000 .
 ```
 
 The server only says which port it took, so the address of the page --

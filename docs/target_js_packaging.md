@@ -73,7 +73,7 @@ browser console.
 
 A page of ES modules must be **served** — a browser refuses a module
 fetched over `file://` — which is why `--run` starts
-`python3 -m http.server` rather than opening the file.
+`pyk serve` rather than opening the file.
 
 ## `iweb24`: shipping the interpreter instead
 

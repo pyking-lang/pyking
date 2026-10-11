@@ -1147,7 +1147,7 @@ The bootstrap is split into one module per compiler stage:
 17. **`src/execution.ml`** — what `--run` runs: one table saying which
    commands each target's host uses to build and run what `pyk compile`
    wrote (`node prog.js`; `cc -std=c89 -o prog prog.c` and then `prog`;
-   `python3 -m http.server` for `web` and `iweb`, whose pages must be
+   `pyk serve` for `web` and `iweb`, whose pages must be
    served because a browser refuses a module over `file://`; this
    compiler again for
    `pyking`, since what runs Pyking is the interpreter). `plan_for`
@@ -1176,9 +1176,10 @@ The bootstrap is split into one module per compiler stage:
    Flags are shared by all three rather than per-command, so `--tokens`
    means the same thing wherever it is written. `pyk plugins <dir>`
    builds the plugin of every library in a directory of libraries, which
-   is what `make libs` runs over `lib/`. Two more, `pyk notebook
-   FILE.md` and `pyk playground`, run no front end at all: `command_web`
-   hands them to `web_tools.ml`, and `--port` is theirs alone.
+   is what `make libs` runs over `lib/`. Three more, `pyk notebook
+   FILE.md`, `pyk playground` and `pyk serve [DIR]`, run no front end at
+   all: `command_web` hands them to `web_tools.ml`, and `--port` is
+   theirs alone.
    Errors: `ERROR_KINDS` pairs each front-end exception with its label,
    and `format_error` turns any of them into one
    `'file' row:col-row:col Kind: message` line (`Lexing error` /
@@ -1227,13 +1228,17 @@ The bootstrap is split into one module per compiler stage:
    know about the module it is compiling *as part of a program* arrives
    as one `module.Context`, not as a growing list of parameters.
 
-19. **`src/web_tools.ml`** — `pyk notebook` and `pyk playground`, in
-   the executable since it starts a process. `start` finds
-   `tools/<tool>/<tool>.py` beside the running executable, asks
-   `$PYTHON` (else `python3`) for its version and refuses anything older
-   than 3.10, then replaces the process with the script (`execvp`),
-   passing `--port` and the document. It serves nothing itself; see "The
-   web tools" below.
+19. **`src/web_tools.ml`** — `pyk notebook`, `pyk playground` and `pyk
+   serve`, in the executable since they listen on a socket. Each is a
+   `Web_server.site` -- URL prefixes mapped to directories beside the
+   running executable, URL paths to files, and answers worked out per
+   request (`notebook.json`, the playground's manifest, read out of
+   `tests/test_cases.toml` where a checkout has it, and the bundle's
+   stamp) -- served by **`src/web_server.ml`**, a small HTTP/1.1 server
+   on 127.0.0.1 waiting on every connection with `select`, in the `pyk`
+   process: nothing else has to be installed. `pyk notebook --mode test`
+   serves nothing and runs `tools/notebook/check.js` under node. See
+   "The web tools" below.
 
 20. **`src/install.ml`** — `root ()`, the directory the running
    executable is in *after resolving every symbolic link*. Everything
@@ -1378,14 +1383,14 @@ covers what the page does with the bundle.
 Two pages run that bundle: the **playground** (`tools/playground/`) and
 the **notebook** (`tools/notebook/`), a Markdown file whose ```` ```pyking ````
 blocks are cells a reader can edit and run with the interpreter. What
-they share is in **`tools/webrun/`**: `server.py` (the Python version
-check, the vendored-library download, and a small static server),
-`assets/` (the compiler's worker and `PykingRuntime`, the Ace mode, and
+they share is in **`tools/webrun/`**: `server.py` (the
+vendored-library download, and the `Site` the website build copies
+from -- not shipped, and not what serves the pages), `assets/` (the compiler's worker and `PykingRuntime`, the Ace mode, and
 `web.js`, which loads Ace, KaTeX and the compiler), and `vendor/` (Ace
 and KaTeX, downloaded once by `make vendor`, never checked in). Put
 anything both pages need there rather than copying it.
 
-- **There is no build step.** Each tool's server serves its files, the
+- **There is no build step.** `pyk` serves each tool's files, the
   shared ones and `build/pyking.js` from where they sit, and works out
   what is not a file (the playground's example manifest, the bundle's
   stamp) per request. Do not add a generated copy of anything.
@@ -1396,8 +1401,11 @@ anything both pages need there rather than copying it.
 - **Both are started through `pyk`**: `pyk notebook FILE.md` and `pyk
   playground` (see `src/web_tools.ml`); `make notebook` opens
   `PYKING-TUTORIAL.md` and `make playground` the playground, both after
-  `make vendor`. The OCaml code only *starts* them: the pages are
-  JavaScript, the servers Python.
+  `make vendor`. `pyk` serves them itself (`src/web_tools.ml`,
+  `src/web_server.ml`); the pages are JavaScript. What it serves is
+  also written in `server.py` and `playground.py` for the website
+  build, and `tests/test_notebook.py` holds the two to the same files
+  and the same manifest.
 - **The notebook is read-only.** Edits to a cell live in the page until
   it is reloaded; each cell is a whole program, run on its own.
   `tools/notebook/assets/markdown.js` is a hand-written renderer, pure so
@@ -1432,10 +1440,10 @@ anything both pages need there rather than copying it.
 **Packaging and dependencies.** Pyking is meant to be distributed as a
 binary: `./pyk` is a native executable, and using it -- compiling,
 interpreting, the REPL -- needs no OCaml, dune or js_of_ocaml, which are
-needed only to *build* it. The one extra dependency is **Python 3.10 or
-later, standard library only, and only for someone who uses the notebook
-or the playground**; `pyk` and each server check the version and say so
-in one line. A distribution is a subset of this repository's tree at the
+needed only to *build* it. **Nothing else is needed to use it**: the
+notebook and the playground are served by `pyk` itself, and a
+distribution ships no Python. The one exception is `pyk notebook --mode
+test`, which runs the notebook's code under node. A distribution is a subset of this repository's tree at the
 same relative paths -- `pyk`, `lib/` (with its plugins),
 `build/pyking.js`, `build/plugin/`, `tools/webrun/` (with `vendor/`),
 `tools/notebook/`, `tools/playground/` -- so the one
@@ -1526,7 +1534,10 @@ section that is missing, empty or still `Unreleased`. Add to the
   ad hoc, and refused if `otool -L` shows a library outside `/usr/lib`
   and `/System`. The plugins are built per architecture, each in a tree
   staged around that architecture's binary and by its own switch, and
-  each plugin's slices are joined with `lipo` and signed. Beside the
+  each plugin's slices are joined with `lipo` and signed, with the
+  `.digest` beside it (without one `pyk` compiles the plugin, which
+  needs OCaml); the tree's `pyk` must then run a program importing every
+  library as each architecture with no OCaml (`check_plugins_load`). Beside the
   tarball go two formulas: `homebrew/pyking.rb`,
   naming the release, and `homebrew-local/pyking.rb`, naming the local
   file, which `make packaging-install` installs through the tap
@@ -1595,6 +1606,7 @@ pyk repl                             start the REPL
 pyk compile [options] <filename>     compile it (alias: pyk c)
 pyk notebook [--port N] <file.md>    serve a notebook, print a link
 pyk playground [--port N]            serve the playground, print a link
+pyk serve [--port N] [<dir>]         serve a directory's files, print a link
 pyk plugins <dir>                    build the interpreter's library plugins
 pyk --version                        print the version (from VERSION)
 
@@ -1883,10 +1895,12 @@ checks short cases against CommonMark's own answers, checks what
 `exercises.js` makes of `features.md` and its grading arithmetic, runs
 every cell of `PYKING-TUTORIAL.md` through
 `tools/webrun/assets/pyking-worker.js` under node (an `error` cell must
-be refused, any other must run), and starts `pyk notebook` and `pyk
-playground` on a free port to fetch what their pages load and to check
-the refusals: a missing file, a file that is not Markdown, a mode there
-is none of, and a Python older than 3.10 (a fake `$PYTHON`). It runs
+be refused, any other must run), and starts `pyk notebook`, `pyk
+playground` and `pyk serve` on a free port to fetch what their pages
+load -- the playground's manifest and every file `playground.py`'s
+`site()` names compared with what `pyk` serves -- and to check the
+refusals: a missing file, a file that is not Markdown, a mode there is
+none of, a missing directory. It runs
 `pyk notebook --mode test` on `features.md`, which must pass, and on
 `tests/notebook/broken.md`, which must be reported exactly as
 `broken.out` says. Where a Chromium is found (`tests/suite.py`,
@@ -1895,10 +1909,7 @@ drives `features.md` in it in student and teacher mode -- submitting,
 answering, reloading, starting over -- and that part is reported as
 skipped otherwise. It sets
 `PYKING_WEB_NO_VENDOR=1`, so a checkout that never ran `make vendor`
-still passes. It also runs both servers on Python 3.10, the oldest the
-web tools promise: with a `python3.10` on the `PATH`, or else in the
-`python:3.10-alpine` Docker image when it is already present (nothing is
-pulled), and reports the check as skipped otherwise. After changing the
+still passes. After changing the
 renderer, `--update` rewrites
 `features.html` and `broken.out`; read the diffs before keeping them. It takes `--compiler
 CMD` like the others.
@@ -1909,7 +1920,8 @@ stages the shipped tree around *this* machine's `./pyk`, installs it into
 a temporary prefix shaped like Homebrew's (`bin/pyk` a link to a link
 into `Cellar/pyking/<version>/libexec`), and from outside the repository
 checks `pyk --version`, a program, the standard library, `iweb24`, `pyk
-notebook` and `pyk playground`, the tree's contents, the tarball's
+notebook`, `pyk playground` and `pyk serve` with nothing on the `PATH`,
+that the web tools ship no Python, the tree's contents, the tarball's
 reproducibility and the formula's text (`ruby -c` where Ruby exists).
 The same tree is then packed as a `.deb` (read back, and by `dpkg-deb`
 where it exists, then unpacked and run) and installed by install.sh from
@@ -2077,8 +2089,8 @@ prefix happened to match.
 **No third-party dependencies.** Building the compiler needs OCaml and
 dune; the playground's bundle additionally needs js_of_ocaml. The test
 harness is Python 3.11+ (`match`/`case`, and `tomllib` for the
-manifest), and the web tools' servers Python 3.10+ — tooling around the
-compiler, not part of it. The web pages vendor Ace and KaTeX, downloaded
+manifest), as are `make vendor` and the website build — tooling around
+the compiler, not part of it. The web pages vendor Ace and KaTeX, downloaded
 by `make vendor`; nothing is installed. The one exception is the
 website (`make website`): Astro and Starlight, pinned in
 `tools/site/package-lock.json` and installed by `npm ci` into

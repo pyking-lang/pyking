@@ -62,7 +62,8 @@ and which module calls which.
 | [`execution.ml`](#executionml) | ~200 | What `--run` runs: the commands each target's host uses to build and run what was compiled. |
 | [`install.ml`](#installml) | ~20 | Where this installation keeps `lib/`, `build/` and `tools/`: the executable's directory, symbolic links resolved. |
 | [`version.ml`](#versionml) | 1 | The version, generated from `VERSION` by `src/dune`. |
-| [`web_tools.ml`](#web_toolsml) | ~100 | `pyk notebook` and `pyk playground`: checks Python and hands the process to the tool's server. |
+| [`web_tools.ml`](#web_toolsml) | ~330 | `pyk notebook`, `pyk playground` and `pyk serve`: what each serves. |
+| [`web_server.ml`](#web_serverml) | ~360 | A small HTTP/1.1 server, in the `pyk` process. |
 | [`pyk.ml`](#pykml) | ~780 | The driver: argv, stage sequencing, error reporting, the six commands. |
 | [`web/pyking_web.ml`](#webpyking_webml) | ~320 | The browser entry point: the same library compiled to JavaScript, for the playground and the notebook. |
 
@@ -1711,7 +1712,7 @@ the driver. One table, so `pyk.ml` stays a sequencer.
 
 - **`plan_for(target, path, modules) -> Plan`** — the commands for one
   target, and a `note` printed before them. `python3 prog.py`; `node
-  prog.js`; `python3 -m http.server` for `web` and `iweb`, whose pages
+  prog.js`; `pyk serve` for `web` and `iweb`, whose pages
   must be served because a browser refuses a module over `file://` —
   there the note is the page's own URL, since the server says only which
   port it took; `cc`/`javac`/`ocamlopt` and then the
@@ -1742,6 +1743,7 @@ pyk repl                start the REPL
 pyk compile <file>      compile it (alias: pyk c)
 pyk notebook <file.md>  serve a notebook (web_tools.ml)
 pyk playground          serve the playground (web_tools.ml)
+pyk serve [<dir>]       serve a directory's files (web_tools.ml)
 ```
 
 **Design, in depth:** [pyk.md](pyk.md).
@@ -1771,9 +1773,9 @@ pyk playground          serve the playground (web_tools.ml)
   tail-call pass. One branch, and it is `--no-typechecking`'s: otherwise
   every program takes the same route, and a refusal at any step is an
   error.
-- **`command_web tool options`** — `pyk notebook` and `pyk playground`,
-  which run no front end: `Web_tools.start` replaces the process, and
-  this prints why when it could not.
+- **`command_web tool options`** — `pyk notebook`, `pyk playground` and
+  `pyk serve`, which run no front end: `Web_tools.start` serves until
+  Ctrl+C, and this prints why when it could not.
 - **`needs_page checked` / `command_serve checked options`** — whether a
   program imports a library marked `<name>.page`, and running one: it is
   compiled for `iweb24` into a fresh directory and served, unless
@@ -1795,25 +1797,71 @@ pyk playground          serve the playground (web_tools.ml)
 
 ## `web_tools.ml`
 
-**`pyk notebook` and `pyk playground`.** Neither page is served by the
-compiler: each is a directory under `tools/` with a Python server of its
-own (see [build.md](build.md), "The web tools"). This module is the
-bridge, and is in the executable rather than the library, since it
-starts a process.
+**`pyk notebook`, `pyk playground` and `pyk serve`.** Each page is a
+directory under `tools/` beside the running executable, served by
+`web_server.ml` in this process, so nothing else has to be installed
+(see [build.md](build.md), "The web tools"). In the executable rather
+than the library, since it listens on a socket.
 
 ### Data structures
 
-- **`tool`** — `Notebook | Playground`, which is also the name of the
-  tool's directory and script.
+- **`tool`** — `Notebook | Playground | Files`; `Files` is `pyk serve`.
+- **`case`** — what the playground reads of one `[[cases]]` table of
+  `tests/test_cases.toml`: `file`, `targets`, `modules`, `libs`.
+- **`playground_targets`** — the targets the playground offers, in menu
+  order, with each one's label, Ace mode and how the page runs it. The
+  same table is in `tools/playground/playground.py`, for `make check`
+  and the website; `tests/test_notebook.py` holds the two manifests
+  equal.
 
 ### Main functions
 
-- **`start tool port mode document -> string`** — finds
-  `tools/<tool>/<tool>.py` beside the running executable, asks `$PYTHON`
-  (else `python3`) for its version and refuses one older than 3.10, then
-  replaces this process with the script (`Unix.execvp`), passing
-  `--port`, the notebook's `--mode` and the document. It returns only when it could not, with the
+- **`start tool port mode path -> (int, string) result`** — the
+  notebook: checks the document, then `--mode test` runs
+  `tools/notebook/check.js` under node and answers its status, and any
+  other mode serves `notebook_site`. The playground serves
+  `playground_site`; `pyk serve` serves a directory, listing one with no
+  `index.html`. Each refuses a missing compiler bundle or, unless
+  `$PYKING_WEB_NO_VENDOR` is set, missing browser libraries, with the
   reason as a sentence for the driver to print.
+- **`common_site ()`** — what every page loads: `/webrun/`, `/vendor/`,
+  `/lib/`, `/pyking/pyking.js` and `/pyking/manifest.json`, whose stamp
+  is a digest of the bundle.
+- **`read_cases text` / `offered_examples ()`** — the playground's
+  examples, out of the test manifest: a program of several modules or
+  one using a library is left out, as the page compiles one file. No
+  `tests/` (a package) means no examples.
+
+---
+
+## `web_server.ml`
+
+**A static HTTP/1.1 server on 127.0.0.1.** One thread: `select` waits
+on the listening socket and every connection, so a browser's idle
+speculative connection does not hold up the files a page is waiting
+for. Each connection's unanswered bytes are threaded through the loop as
+a value. Keep-alive is the default; `GET` and `HEAD` are answered, and
+anything else is `501`.
+
+### Data structures
+
+- **`site`** — `mounts` (a URL prefix ending in `/` to a directory),
+  `files` (an exact URL path to a file), `answers` (an exact URL path to
+  a function making the body, and its content type), and `listing`
+  (whether a directory with no `index.html` is listed). A path with a
+  component starting with `.` names nothing, which is what keeps `..`
+  out.
+
+### Main functions
+
+- **`serve site title port explicit lines`** — listens on `port` when
+  `explicit`, else on the first free port of twenty from it, prints a
+  banner with the link, and serves until Ctrl+C. `SIGPIPE` is ignored,
+  so a browser closing a connection mid-reply does not end it.
+- **`respond site path`** — what a `GET` answers: a computed answer, a
+  file, a directory's `index.html`, a redirect adding a directory's `/`,
+  or `404`. Everything but `/vendor/` is sent `Cache-Control: no-store`,
+  since it is served from where it is edited.
 
 ---
 

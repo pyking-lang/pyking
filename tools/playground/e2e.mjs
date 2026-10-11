@@ -11,10 +11,11 @@
 // optional: without it this says so and exits 0, so `make e2e` on a
 // machine that has not installed it is not a failure.
 //
-// It starts playground.py's server itself; `make vendor` must have run.
+// It starts `pyk playground` itself; `make vendor` must have run.
 
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
@@ -42,12 +43,12 @@ function freePort() {
   });
 }
 
-/** Starts playground.py's own server, as `make serve` would, and waits
- *  for it to print its URL. () -> Promise<{url, close}> */
+/** Starts `pyk playground`, as `make serve` would, and waits for it to
+ *  print its URL. () -> Promise<{url, close}> */
 async function serve() {
   const port = await freePort();
-  const child = spawn(process.env.PYTHON || "python3",
-                      ["playground.py", "serve", "--port", String(port)],
+  const child = spawn(process.env.PYK || path.join(HERE, "..", "..", "pyk"),
+                      ["playground", "--port", String(port)],
                       { cwd: HERE, stdio: ["ignore", "pipe", "inherit"] });
   await new Promise((resolve, reject) => {
     let seen = "";

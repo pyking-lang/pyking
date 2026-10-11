@@ -37,8 +37,7 @@ let ocaml_compiler () =
 
 let pyking_target = "pyking"
 
-(* What `--run` serves a page on. 8000 is python's own default for
-   `http.server`, so the address printed is the one a reader would guess.
+(* What `--run` serves a page on, the port `pyk serve` starts at.
    The server refuses to start if it is taken, which is the right answer:
    silently choosing another port would print an address for a server
    somebody else is running. *)
@@ -83,13 +82,14 @@ let plan_for target path modules arguments =
     { build = []; run = ([ "node"; path ] @ arguments); directory; note = None }
   else if List.mem (Targets.family_of target) [ Targets.Web; Targets.Iweb ] then
     (* A page of ES modules has to be *served*: a browser refuses a
-       module fetched over file://. So `--run` starts a static server in
-       the output directory and leaves it running, which is what looking
-       at the page needs -- and prints the page's own address, since the
-       server only says which port it took. *)
+       module fetched over file://. So `--run` serves the output
+       directory with this executable's own server (`pyk serve`) and
+       leaves it running, which is what looking at the page needs -- and
+       prints the page's own address, since the server only says which
+       port it took. *)
     {
       build = [];
-      run = [ "python3"; "-m"; "http.server"; web_port; "--directory"; directory ];
+      run = [ Sys.executable_name; "serve"; "--port"; web_port; directory ];
       directory;
       note =
         Some

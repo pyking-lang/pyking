@@ -13,7 +13,7 @@ pyk playground   # serve it and print a link to open
 make             # here: vendor, check, serve
 ```
 
-**Nothing is built.** `playground.py` serves `assets/`, the files the
+**Nothing is built.** `pyk playground` serves `assets/`, the files the
 playground shares with the notebook in `../webrun/`, the compiler bundle
 `build/pyking.js` and the examples in `tests/` from where they sit, so an
 edit to any of them shows on the next reload. The first `make vendor` (at
@@ -51,7 +51,8 @@ to the outside world: `pyk.ml` (the driver), `execution.ml` (`--run`) and
 | `make serve` | serve the page and print a clickable `http://localhost:8000/` |
 
 Variables: `PORT=9000` (without it, 8000 or the next free port),
-`PYTHON=python3.12`. The server needs Python 3.10 or later.
+`PYK=path/to/pyk` (`make serve` runs `pyk playground`), and
+`PYTHON=python3.12` for `make check`.
 
 `make check` is worth knowing about: it runs every example through the
 same `pyking.js` the page loads, under `node` — over 1600 example/target
@@ -186,8 +187,9 @@ worker reloads.
 > **If it seems to hang at `starting…`**: a single-threaded server does
 > that. Browsers open several connections at once and speculatively
 > pre-connect ones they never use, and one idle pre-connect blocks the
-> whole server. `playground.py` uses `ThreadingHTTPServer`;
-> `python3 -m http.server` has the flaw, so do not serve the page with it.
+> whole server. `pyk playground` waits on every connection at once
+> (`src/web_server.ml`); `python3 -m http.server` has the flaw, so do not
+> serve the page with it.
 
 ### How programs are executed, and how they are stopped
 
@@ -302,7 +304,7 @@ alike.
 ```
 tools/playground/
   Makefile
-  playground.py      the server, the example list, and `check`
+  playground.py      the example list and `check`; `pyk playground` serves
   e2e.mjs            browser tests (optional; see "Verifying" below)
   README.md
   assets/
@@ -489,7 +491,11 @@ as `tests/test_playground.py`: it drives `build/pyking.js` directly, so
 it needs no vendored assets, and it reads the example list out of
 `playground.py`'s `offered_examples` so the two cannot disagree about
 what the page offers. `tests/test_notebook.py` also starts
-`pyk playground` and fetches the page's manifest and an example.
+`pyk playground` and fetches the page's manifest and an example, and
+checks that the manifest and every file `playground.py`'s `site()`
+names are what `pyk playground` serves: `src/web_tools.ml` builds the
+manifest the page loads, and `playground.py` the one `make check` and
+the website use.
 
 `make check` needs Python and `node`. Every example is compiled for the
 `pyking` target as well as for every target it claims, and the
@@ -513,7 +519,7 @@ npm install playwright && npx playwright install chromium
 
 It is worth having, because there is a class of defect nothing headless can
 see: Ace, the worker plumbing and the page's own wiring only exist in a
-browser. `make e2e` starts `playground.py serve` on a free port and drives
+browser. `make e2e` starts `pyk playground` on a free port and drives
 the page: that it mounts with every target in the dropdown, that Compile loads
 the compiler and produces a file, that the `pyking` target prints the front
 end's own output, that both Run buttons produce output, that **every example

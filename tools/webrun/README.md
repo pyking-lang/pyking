@@ -2,11 +2,12 @@
 
 The playground (`../playground/`) and the notebook (`../notebook/`) both run
 the real compiler in a browser, highlight Pyking with Ace, and are served by
-a small Python server. What they have in common lives here, once.
+`pyk` itself (`src/web_server.ml`). What they have in common lives here,
+once.
 
 ```
 tools/webrun/
-  server.py              the server both tools start, and `make vendor`
+  server.py              `make vendor`, and the Site the website copies
   package.json           says the .js files are ES modules, for node
   assets/
     web.js               loading Ace, KaTeX and the compiler (ES module)
@@ -19,12 +20,15 @@ tools/webrun/
 
 ## The server
 
-`server.py` is a module the two tools import, not a server of its own. It
-provides:
+`pyk notebook` and `pyk playground` serve the pages with
+`src/web_server.ml`, in the `pyk` process, and `src/web_tools.ml` says
+what each serves: the layout below. Nothing here is shipped or run by
+them. `server.py` holds the same layout for the tooling that runs in a
+checkout -- the website build, which copies what the pages load
+(`tools/site/site.py`), and `playground.py`'s `make check` -- and
+`tests/test_notebook.py` checks that `pyk` serves every file it names.
+It provides:
 
-- **the Python check** — `require_python` refuses anything older than 3.10
-  with one line saying so. The file stays parseable by an old Python so
-  that the check, not a syntax error, is what such a Python reports.
 - **a `Site`** — URL prefixes mapped to directories, exact paths mapped to
   files, and exact paths answered by a function per request. Everything is
   served from where it sits in the source tree, so there is no build step
@@ -35,13 +39,13 @@ provides:
   root), `/pyking/pyking.js` (`build/pyking.js` at the root) and
   `/pyking/manifest.json`, whose stamp is a hash of the bundle, which a
   page re-reads to notice a rebuild under an open tab.
-- **`serve()`** — a threaded server on `localhost`, a banner with a link, and
-  a port: the one asked for with `--port`, else 8000 or the next free one.
 
-Everything is found relative to this file: `tools/webrun/` two levels below
-the root that holds `build/pyking.js`. A distribution keeps the same tree, so
-the same lookup works in a checkout and in an install (see `docs/build.md`,
-"The web tools").
+`pyk` serves on `localhost`, prints a banner with a link, and takes the
+port asked for with `--port`, else 8000 or the next free one. It finds
+everything beside its own executable: `tools/webrun/` and
+`build/pyking.js` under the same root. A distribution keeps the same
+tree, so the same lookup works in a checkout and in an install (see
+`docs/build.md`, "The web tools").
 
 ## The vendored libraries
 

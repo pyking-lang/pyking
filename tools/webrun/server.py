@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""What the Pyking web tools share on the Python side: the Python version
-check, the downloaded browser libraries, and a small static server that
-serves files from where they sit in the source tree, with no build step.
-The playground (tools/playground/playground.py) and the notebook
-(tools/notebook/notebook.py) are both started through it, and so is
-`pyk playground` / `pyk notebook`. See README.md beside this file and
-docs/build.md ("The web tools").
+"""What the Pyking web tools share on the Python side: the downloaded
+browser libraries, and the Site the website build (tools/site/site.py)
+copies the pages' runtime from. The pages are served by `pyk` itself
+(src/web_tools.ml, src/web_server.ml), so nothing here is shipped or
+needed to run them. See README.md beside this file and docs/build.md
+("The web tools").
 
 Nothing here runs Pyking: the page runs the compiler itself, as the
-JavaScript file build/pyking.js. The server only hands out files.
+JavaScript file build/pyking.js.
 
 Usage: `make vendor`, or directly:
 
@@ -17,51 +16,25 @@ Usage: `make vendor`, or directly:
 Data structures:
     Site -- what one tool serves: URL prefixes mapped to directories,
       single files, and answers computed per request.
-    Handler -- the HTTP handler a Site is served with.
 
 Functions:
-    require_python(tool) -- exits with a message below Python 3.10.
     vendor() -- downloads Ace and KaTeX into vendor/.
     vendor_files() -- every vendored file, with the URL it comes from.
     check_vendor(tool) -- exits with a message if vendor/ is incomplete.
     bundle_manifest() -- the compiler bundle's manifest, with its stamp.
     check_bundle(tool) -- exits with a message if build/pyking.js is missing.
     common_site() -- the Site entries every tool shares.
-    free_port(start, explicit) -- the port to listen on.
-    serve(site, tool, port, explicit, lines) -- serves a Site until Ctrl+C.
-    tool_arguments(tool, argv, document, modes) -- parses a tool's command line.
 """
 
-import sys
-
-# The tools say which Python they need before anything else can fail on
-# an older one. So this whole file must stay parseable by an old Python:
-# no syntax newer than 3.6 anywhere in it.
-MINIMUM_PYTHON = (3, 10)
-
-
-def require_python(tool):
-    """Exits with a message when the running Python is older than
-    MINIMUM_PYTHON. String -> ()"""
-    if sys.version_info[:2] < MINIMUM_PYTHON:
-        found = "%d.%d.%d" % sys.version_info[:3]
-        wanted = "%d.%d" % MINIMUM_PYTHON
-        sys.exit("%s: Python %s or later is required, and this is Python %s "
-                 "(%s)." % (tool, wanted, found, sys.executable))
-
-
-import argparse  # noqa: E402  (after the version check, on purpose)
-import functools  # noqa: E402
-import hashlib  # noqa: E402
-import http.server  # noqa: E402
-import json  # noqa: E402
-import os  # noqa: E402
-import posixpath  # noqa: E402
-import socket  # noqa: E402
-import urllib.error  # noqa: E402
-import urllib.parse  # noqa: E402
-import urllib.request  # noqa: E402
-from pathlib import Path  # noqa: E402
+import argparse
+import functools
+import hashlib
+import json
+import os
+import posixpath
+import urllib.error
+import urllib.request
+from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ASSETS = HERE / "assets"
@@ -73,8 +46,6 @@ BUNDLE = ROOT / "build" / "pyking.js"
 # The standard library, which a program run in the page imports from:
 # its Pyking sources, and each module's browser implementation.
 LIB = ROOT / "lib"
-
-DEFAULT_PORT = 8000
 
 ACE_VERSION = "1.43.4"
 ACE_CDN = ("https://cdn.jsdelivr.net/npm/ace-builds@%s/src-min-noconflict"
@@ -237,135 +208,8 @@ def common_site():
     )
 
 
-class Handler(http.server.SimpleHTTPRequestHandler):
-    """The stdlib handler, answering from a Site rather than one
-    directory, and without a log line per file."""
-
-    # Keep-alive, so the browser does not reopen a connection per file.
-    protocol_version = "HTTP/1.1"
-    site = Site()
-
-    def log_message(self, *args):
-        pass
-
-    def _path(self):
-        """The request's URL path, decoded, without the query.
-        () -> String"""
-        return urllib.parse.unquote(urllib.parse.urlsplit(self.path).path)
-
-    def translate_path(self, path):
-        found = self.site.resolve(urllib.parse.unquote(
-            urllib.parse.urlsplit(path).path))
-        if found is not None and found.is_dir():
-            found = found / "index.html"
-        # A path that resolves nowhere becomes one that does not exist,
-        # which the stdlib answers with a 404.
-        return str(found) if found is not None else str(HERE / ".missing")
-
-    def _answer(self, head_only):
-        """Answers a computed path; False when the path is not one.
-        Bool -> Bool"""
-        entry = self.site.answers.get(self._path())
-        if entry is None:
-            return False
-        make, content_type = entry
-        body = make()
-        self.send_response(200)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        if not head_only:
-            self.wfile.write(body)
-        return True
-
-    def do_GET(self):
-        if not self._answer(False):
-            super().do_GET()
-
-    def do_HEAD(self):
-        if not self._answer(True):
-            super().do_HEAD()
-
-    def end_headers(self):
-        # The vendored libraries are version-pinned, so they cache;
-        # everything else is served from the source tree and must not, or
-        # an edit is debugged against the previous copy.
-        if self._path().startswith("/vendor/"):
-            self.send_header("Cache-Control", "public, max-age=86400")
-        else:
-            self.send_header("Cache-Control", "no-store")
-        super().end_headers()
-
-
-def free_port(start, explicit):
-    """The port to listen on: `start` itself when it was asked for
-    explicitly, else the first free one at or after it.
-    Int -> Bool -> Int"""
-    tries = 1 if explicit else 20
-    for port in range(start, start + tries):
-        with socket.socket() as probe:
-            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            try:
-                probe.bind(("127.0.0.1", port))
-                return port
-            except OSError:
-                continue
-    if explicit:
-        raise SystemExit(f"serve: port {start} is in use")
-    raise SystemExit(f"serve: no free port in {start}..{start + tries - 1}")
-
-
-def serve(site, tool, port, explicit, lines=()):
-    """Serves a Site on localhost and prints a URL the terminal will turn
-    into a link, until Ctrl+C. Site -> String -> Int -> Bool -> [String]
-    -> ()"""
-    port = free_port(port, explicit)
-    handler = type("SiteHandler", (Handler,), {"site": site})
-    # Threaded, not the stdlib default: a single-threaded server blocks on
-    # an idle speculative connection while the page waits for a dozen
-    # files including the compiler, which looks like a hang.
-    http.server.ThreadingHTTPServer.allow_reuse_address = True
-    with http.server.ThreadingHTTPServer(("127.0.0.1", port), handler) as httpd:
-        url = f"http://localhost:{port}/"
-        print()
-        print(f"  {tool} is being served.")
-        print()
-        print(f"      {url}")
-        print()
-        for line in lines:
-            print(f"  {line}")
-        print("  Open that link in a browser (ctrl/cmd-click it in most")
-        print("  terminals). Press Ctrl+C to stop.")
-        print()
-        # serve_forever() never returns, so an unflushed banner would sit
-        # in the buffer whenever stdout is a pipe rather than a terminal.
-        sys.stdout.flush()
-        try:
-            httpd.serve_forever()
-        except KeyboardInterrupt:
-            print("\nserve: stopped.")
-
-
-def tool_arguments(tool, argv, document, modes=()):
-    """Parses a tool's command line: `--port N`, a document when
-    `document` says the tool takes one, and `--mode M` when `modes` lists
-    what it may be (the first is the default). String -> [String] -> Bool
-    -> [String] -> Namespace"""
-    parser = argparse.ArgumentParser(prog=tool)
-    parser.add_argument("--port", type=int, default=None,
-                        help=f"the port to serve on (default: {DEFAULT_PORT}, "
-                             "or the next free one)")
-    if modes:
-        parser.add_argument("--mode", choices=modes, default=modes[0],
-                            help=f"who the page is for (default: {modes[0]})")
-    if document:
-        parser.add_argument("document", help="the Markdown file to open")
-    return parser.parse_args(argv)
-
-
 def main(argv=None):
     """The command-line entry point. [String]? -> ()"""
-    require_python("server.py")
     parser = argparse.ArgumentParser(
         prog="server.py", description="The Pyking web tools' shared files.")
     parser.add_argument("command", choices=("vendor",))

@@ -5,12 +5,12 @@
 #   make check      compile every example headlessly
 #   make PORT=9000  serve somewhere other than 8000
 #
-# Nothing is built: playground.py serves assets/, the shared files in
+# Nothing is built: `pyk playground` serves assets/, the shared files in
 # ../webrun/ and the compiler bundle ../../build/pyking.js from where they
-# sit. `make` at the repository root builds that bundle; `pyk playground`
-# is the same server started through the compiler.
+# sit. `make` at the repository root builds that bundle and ../../pyk.
 
 PYTHON ?= python3
+PYK    ?= ../../pyk
 PORT   ?=
 
 .PHONY: all vendor check e2e serve help
@@ -32,7 +32,7 @@ e2e:
 	@node e2e.mjs
 
 serve:
-	@$(PYTHON) playground.py serve $(if $(PORT),--port $(PORT))
+	@$(PYK) playground $(if $(PORT),--port $(PORT))
 
 help:
 	@echo "make            vendor + check + serve (prints a clickable URL)"
@@ -42,4 +42,4 @@ help:
 	@echo "make serve      serve the page on http://localhost:\$$(PORT)/"
 	@echo "                (8000, or the next free port, when PORT is unset)"
 	@echo
-	@echo "variables:  PORT=$(PORT)   PYTHON=$(PYTHON)"
+	@echo "variables:  PORT=$(PORT)   PYTHON=$(PYTHON)   PYK=$(PYK)"

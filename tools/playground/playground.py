@@ -10,9 +10,12 @@ the compiler bundle build/pyking.js and the examples in tests/ are served
 from where they sit, and what the page needs to know about them is
 worked out per request. See README.md for the design.
 
-Usage: `make`, `pyk playground`, or directly:
+The page is served by `pyk playground` (src/web_tools.ml, which
+builds the same manifest and is held to it by tests/test_notebook.py);
+this file is what the website build and the headless check use.
 
-    python3 playground.py serve      serve the page and print the URL
+Usage: `make check`, or directly:
+
     python3 playground.py check      compile every example, headless
 
 Functions:
@@ -32,16 +35,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "webrun"))
 
 import server  # noqa: E402  (after sys.path, which is what finds it)
 
-server.require_python("pyk playground")
-
 import argparse  # noqa: E402
 import json  # noqa: E402
 import subprocess  # noqa: E402
 import tempfile  # noqa: E402
-try:
-    import tomllib  # noqa: E402  (3.11 and later)
-except ImportError:  # the web tools run on 3.10, which lacks it
-    tomllib = None
+import tomllib  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
@@ -166,9 +164,8 @@ def offered_examples(code_targets, notes=False):
 
 def examples_available():
     """Whether the examples can be offered: tests/ is there, as in a
-    checkout but not a package, and Python has tomllib to read its
-    manifest, which 3.10 does not. () -> Bool"""
-    return TESTS_DIR.is_dir() and tomllib is not None
+    checkout but not a package. () -> Bool"""
+    return TESTS_DIR.is_dir()
 
 
 def code_targets():
@@ -291,17 +288,10 @@ def check():
 def main(argv=None):
     """The command-line entry point. [String]? -> ()"""
     parser = argparse.ArgumentParser(
-        prog="playground.py", description="Serve the Pyking web playground.")
-    parser.add_argument("command", choices=("serve", "check"))
-    parser.add_argument("--port", type=int, default=None)
-    args = parser.parse_args(argv)
-    if args.command == "check":
-        check()
-        return
-    server.check_bundle("pyk playground")
-    server.check_vendor("pyk playground")
-    port = args.port if args.port is not None else server.DEFAULT_PORT
-    server.serve(site(), "Pyking playground", port, args.port is not None)
+        prog="playground.py", description="Check the Pyking web playground's examples.")
+    parser.add_argument("command", choices=("check",))
+    parser.parse_args(argv)
+    check()
 
 
 if __name__ == "__main__":

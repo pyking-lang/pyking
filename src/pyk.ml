@@ -132,7 +132,8 @@ let synopsis =
   \       pyk compile [options] <filename>     compile it (alias: pyk c)\n\
   \       pyk notebook [--port N] [--mode M] <file.md>\n\
   \                                            open a notebook in the browser\n\
-  \       pyk playground [--port N]            open the playground\n\n\
+  \       pyk playground [--port N]            open the playground\n\
+  \       pyk serve [--port N] [<dir>]         serve a directory's files\n\n\
    Options:\n\
   \  -t, --target <name>   compile for <name> (default: python)\n\
   \  -o, --output <file>   write the output to <file>\n\
@@ -143,7 +144,8 @@ let synopsis =
   \                        target's own commands\n\
   \  --release             compile in release mode: every call to debug()\n\
   \                        is removed, and print() is kept\n\
-  \  --port <n>            serve the notebook or playground on port <n>\n\
+  \  --port <n>            serve the notebook, the playground or a\n\
+  \                        directory on port <n>\n\
   \  --mode <mode>         the notebook for a student (the default) or a\n\
   \                        teacher, or test: check it instead of serving it\n\
   \  --                    everything after it is the program's own\n\
@@ -216,7 +218,7 @@ let usage_full () =
      target's host uses, each printed before it runs:\n\n\
     \  python14         python3 prog.py\n\
     \  node24           node prog.js\n\
-    \  web24, iweb24    python3 -m http.server (a page must be served)\n\
+    \  web24, iweb24    pyk serve --port 8000 (a page must be served)\n\
     \  c89, c99, c23    cc -std=<standard> -o prog prog.c, then prog\n\
     \  java8, java17,   javac --release <version> prog.java, then java prog\n\
     \  java21\n\
@@ -261,10 +263,11 @@ let usage_full () =
     \     pyk prog.pyk\n\n\
      `pyk notebook <file.md>` serves a Markdown document whose Pyking code\n\
      blocks can be edited and run in the browser, and `pyk playground`\n\
-     serves the compiler's playground. Both print a link to open, need\n\
-     Python 3.10 or later ($PYTHON names which one), and look for tools/\n\
-     beside this executable. Without --port they start at 8000 and take\n\
-     the first free port. --mode student hides an exercise's solution and\n\
+     serves the compiler's playground. Both print a link to open, are\n\
+     served by pyk itself, and look for tools/ beside this executable.\n\
+     `pyk serve <dir>` serves a directory's files as they are, such as a\n\
+     page compiled for web24 or iweb24. Without --port they start at 8000\n\
+     and take the first free port. --mode student hides an exercise's solution and\n\
      tests until a student asks for them, --mode teacher shows every\n\
      block, and --mode test serves nothing: it runs every cell, exercise\n\
      and solution under node, checks each against the stdout and stderr\n\
@@ -286,6 +289,7 @@ let commands =
     ("c", "compile");
     ("notebook", "notebook");
     ("playground", "playground");
+    ("serve", "serve");
     ("plugins", "plugins");
   ]
 let default_command = "interpret"
@@ -508,9 +512,10 @@ let parse_args argv =
     usage_error
       "--release needs the types the checker works out, so it cannot be used \
        with --no-typechecking";
-  let web = command = "notebook" || command = "playground" in
+  let web = command = "notebook" || command = "playground" || command = "serve" in
   if options.port <> None && not web then
-    usage_error "--port only applies to 'pyk notebook' and 'pyk playground'";
+    usage_error
+      "--port only applies to 'pyk notebook', 'pyk playground' and 'pyk serve'";
   if options.mode <> None && command <> "notebook" then
     usage_error "--mode only applies to 'pyk notebook'";
   if options.mode = Some "test" && options.port <> None then
@@ -552,6 +557,11 @@ let parse_args argv =
     if positional <> [] then
       usage_error (Printf.sprintf "'pyk %s' takes no filename" command);
     options)
+  else if command = "serve" then
+    match positional with
+    | [] -> options
+    | [ directory ] -> { options with filename = Some directory }
+    | _ -> usage_error "'pyk serve' takes one directory at most"
   else
     match positional with
     | [ filename ] -> { options with filename = Some filename }
@@ -1379,8 +1389,11 @@ let command_plugins options =
     tool's server, and answers 1 only if that could not be done.
     Web_tools.tool -> options -> int *)
 let command_web tool options =
-  prerr_endline (wrap (Web_tools.start tool options.port options.mode options.filename));
-  1
+  match Web_tools.start tool options.port options.mode options.filename with
+  | Ok status -> status
+  | Error message ->
+      prerr_endline (wrap message);
+      1
 
 (** Runs pyk. [string] -> int *)
 let main argv =
@@ -1389,6 +1402,7 @@ let main argv =
   else if options.command = "plugins" then command_plugins options
   else if options.command = "notebook" then command_web Web_tools.Notebook options
   else if options.command = "playground" then command_web Web_tools.Playground options
+  else if options.command = "serve" then command_web Web_tools.Files options
   else
     let checked = front_end options in
     if options.command = "compile" then command_compile checked options

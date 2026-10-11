@@ -62,7 +62,8 @@ pyk compile -t node --run hello.pyk    # compile to JavaScript and run it with n
 
 ## What else you may need
 
-- `pyk notebook` and `pyk playground` need **Python 3.10 or later**.
+- `pyk notebook` and `pyk playground` need nothing more: `pyk` serves them
+  itself.
 - Running compiled output needs that target's own tools: `node` for
   JavaScript, a C compiler for C, a JDK for Java, `ocamlopt` for OCaml and
   `python3` for Python. Compiling alone needs none of them.
