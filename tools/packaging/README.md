@@ -100,10 +100,13 @@ LICENSE
 PYKING-TUTORIAL.md
 lib/                   the standard library
 build/pyking.js        the compiler as JavaScript: the iweb24 target and the pages
-tools/webrun/          the web tools' server, scripts, and Ace and KaTeX
+tools/webrun/          the web tools' scripts, and Ace, Monaco and KaTeX
 tools/notebook/
 tools/playground/      without examples: the playground starts with one program
+tools/emacs/           pyking-mode.el, which registers `pyk lsp` with eglot
 ```
+
+The language server is `pyk lsp`, so it is in every package already.
 
 Homebrew puts it in the keg's `libexec/` and links `bin/pyk` to it; the
 `.deb` in `/usr/lib/pyking/` with `/usr/bin/pyk` a link; install.sh in
@@ -139,6 +142,7 @@ with the one-time setup below done:
    pyking_0.2.0_arm64.deb
    pyking_amd64.deb                   the same two, under names a
    pyking_arm64.deb                     `latest` link can name
+   pyking-0.2.0.vsix                  the VS Code and Cursor extension
    install.sh
    SHA256SUMS                         every file above
    ```
@@ -167,9 +171,14 @@ with the one-time setup below done:
      it runs outside the system it was built on and on the oldest glibc
      it promises. The `.deb` is written directly by `packaging.py`, so no
      `dpkg` is needed; it depends on `libc6 (>= 2.28)` and nothing else.
+   - **VS Code:** `make -C tools/editors/vscode vsix` packs the extension,
+     with the language client it depends on, as `pyking-<version>.vsix`,
+     which is checked to hold the client and to say `VERSION`. It needs
+     node 20 or later and npm, and the network for `npm ci`. One file
+     serves every platform: it starts the `pyk lsp` the user installed.
 
    Every format is checked before any is built, so a machine that cannot
-   build one says so at once. `FORMATS=linux` (or `homebrew`) builds some
+   build one says so at once. `FORMATS=linux` (or `homebrew`, `vscode`) builds some
    formats, and `ARCHS=arm64` some architectures; neither is meant for
    publishing, and `make release` refuses a release that is not complete.
 3. `make packaging-install` installs that build on this machine: through

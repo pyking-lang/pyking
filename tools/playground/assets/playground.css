@@ -118,7 +118,7 @@
 .pyk-playground .pyk-stop:hover:not(:disabled) { filter: brightness(1.12); }
 
 /* --- editors --- */
-.pyk-editor { flex: 1 1 auto; min-height: 0; width: 100%; }
+.pyk-editor { flex: 1 1 auto; min-height: 0; width: 100%; overflow: hidden; }
 .pyk-files {
   display: flex; gap: .3rem; padding: .3rem .7rem; flex: none;
   background: #202327; border-bottom: 1px solid var(--pyk-edge);
@@ -254,13 +254,6 @@
 }
 .pyk-hint { font-size: .78rem; color: var(--pyk-dim); margin: 0; }
 
-/* --- the editor marker for a compile error --- */
-.pyk-error-marker {
-  position: absolute; background: rgba(247, 118, 142, .28);
-  border-bottom: 2px solid var(--pyk-bad);
-}
-.pyk-error-gutter { color: var(--pyk-bad) !important; }
-
 @media (max-width: 900px) {
   /* Stacked: the column gutter has nothing left to split, so it goes away
      rather than sitting in the layout as a dead handle. */
@@ -269,4 +262,18 @@
     grid-template-rows: 1fr var(--pyk-gutter) 1fr;
   }
   .pyk-gutter-v { cursor: row-resize; }
+}
+
+/* Monaco draws its right-click menu in a shadow root under <body>,
+   outside the editor that carries the theme's colours, so the menu's
+   are given to that root's host, which the shadow root inherits from:
+   white text on a dark menu, in either theme. */
+.shadow-root-host {
+  --vscode-menu-foreground: #ffffff;
+  --vscode-menu-background: #2d2f31;
+  --vscode-menu-selectionForeground: #ffffff;
+  --vscode-menu-selectionBackground: #4271ae;
+  --vscode-menu-separatorBackground: #5a5b5c;
+  --vscode-menu-border: #5a5b5c;
+  --vscode-widget-shadow: rgba(0, 0, 0, 0.36);
 }

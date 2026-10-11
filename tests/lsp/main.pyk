@@ -1,0 +1,20 @@
+import io
+import helper
+from helper import greet as hello
+
+limit = helper.double(21)
+var total = 0
+
+def add_up(xs: [Int]) -> Int:
+    loop acc = 0 for x in xs:
+        acc + x
+
+def describe(n: Int) -> String:
+    match n:
+        case 0:
+            "zero"
+        case other:
+            string(other + limit)
+
+total := add_up([1, 2, 3])
+io.write_line(hello(describe(total)))

@@ -1,8 +1,8 @@
 # webrun: what the Pyking web tools share
 
 The playground (`../playground/`) and the notebook (`../notebook/`) both run
-the real compiler in a browser, highlight Pyking with Ace, and are served by
-`pyk` itself (`src/web_server.ml`). What they have in common lives here,
+the real compiler in a browser, highlight Pyking -- the playground with
+Monaco, the notebook with Ace -- and are served by `pyk` itself (`src/web_server.ml`). What they have in common lives here,
 once.
 
 ```
@@ -10,12 +10,13 @@ tools/webrun/
   server.py              `make vendor`, and the Site the website copies
   package.json           says the .js files are ES modules, for node
   assets/
-    web.js               loading Ace, KaTeX and the compiler (ES module)
+    web.js               loading Ace, Monaco, KaTeX and the compiler (ES module)
     pyking-runtime.js    the compiler as an object: PykingRuntime, JsRunner
     pyking-worker.js     the compiler on a thread of its own
     pages.js             PageHost: where a library that needs a page shows it
     pyking-mode.js       the Ace mode for Pyking
-  vendor/                Ace and KaTeX, downloaded by `make vendor`
+    pyking-monaco.js     the Monaco language and themes for Pyking
+  vendor/                Ace, KaTeX and Monaco, downloaded by `make vendor`
 ```
 
 ## The server
@@ -54,10 +55,13 @@ make vendor                              # at the repository root
 python3 tools/webrun/server.py vendor    # the same
 ```
 
-downloads Ace 1.43.4 (the editor, the modes the pages use, a light and a
-dark theme) and KaTeX 0.16.22 (math in the notebook, with its woff2 fonts)
-from jsdelivr into `vendor/`, about 1.2 MB, once. A file already present is
-not fetched again. Both tools refuse to start without them and say how to
+downloads Ace 1.43.4 (the notebook's editor, the modes it uses, a light
+and a dark theme) and KaTeX 0.16.22 (math in the notebook, with its woff2
+fonts) from jsdelivr, and Monaco 0.57.0 (the playground's editor) as its npm
+tarball, of which only the prebuilt `package/min/vs/` is kept, as
+`vendor/monaco/vs/`: about 26 MB in all, once. A file already present is
+not fetched again; Monaco is fetched again only when the marker naming its
+version, `vendor/monaco/monaco-editor-<version>.json`, is missing. Both tools refuse to start without them and say how to
 get them; `make distclean` removes them. The test suite sets
 `PYKING_WEB_NO_VENDOR=1`, since it fetches pages without rendering them and
 must run without a network.
@@ -71,6 +75,8 @@ must run without a network.
 | `createRuntime({webrun, pyking, lib})` | a `PykingRuntime`, not yet booted |
 | `splitArguments(text)` | a line of arguments as a program receives them, split at spaces with quotes keeping one together |
 | `ensureEditor(runtime, {webrun, vendor}, onStatus)` | boots the compiler, loads Ace and the Pyking mode; answers the compiler's words |
+| `ensureMonaco(runtime, {vendor}, onStatus)` | boots the compiler, loads Monaco with its own AMD loader and registers the Pyking language; answers `{words, monaco}` |
+| `LANGUAGE`, `themeFor(name)` | the Pyking language's Monaco id, and the Monaco theme for `"dark"`, `"light"` or a theme's own name |
 | `ensureKatex(vendor)` | loads KaTeX and its stylesheet |
 | `loadScript`, `loadStyle`, `fetchJSON`, `fetchText` | the obvious, once per URL where it matters |
 | `new PageHost(element, {libURL, send})` | shows what a program sends its page, with the library's own renderer |
@@ -114,7 +120,7 @@ answer another's events. See `docs/libraries.md`, "A library that needs
 a page".
 
 **The compiler is loaded before the editors are made**, because the Ace
-mode's word lists come from it: the worker's `words` request answers the
+mode's and the Monaco language's word lists come from it: the worker's `words` request answers the
 keywords, builtins and targets the compiler has, and the JavaScript value
 formatter the playground's generated code is run with. Nothing here keeps a
 copy of any of them, so none can drift from the language.

@@ -68,6 +68,7 @@ import sys
 import tarfile
 import tempfile
 import urllib.request
+import zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -121,6 +122,7 @@ SHIPPED = [
     ("tools/notebook/package.json", "tools/notebook/package.json"),
     ("tools/notebook/assets", "tools/notebook/assets"),
     ("tools/playground/assets", "tools/playground/assets"),
+    ("tools/emacs/pyking-mode.el", "tools/emacs/pyking-mode.el"),
 ]
 SHIPPED_SUFFIXES = {".pyk", ".js", ".ml", ".mli", ".py", ".c", ".h", ".java",
                     ".css", ".html", ".json", ".md", ".woff2", ".wav"}
@@ -503,7 +505,7 @@ def release_assets(v):
         u, d = UNAME_ARCH[arch], DEB_ARCH[arch]
         names += [f"{NAME}-{v}-linux-{u}.tar.gz", f"{NAME}-linux-{u}.tar.gz",
                   f"{NAME}_{v}_{d}.deb", f"{NAME}_{d}.deb"]
-    return names + ["install.sh", "SHA256SUMS"]
+    return names + [VSCode.file_name(v), "install.sh", "SHA256SUMS"]
 
 
 def write_checksums(v):
@@ -1333,7 +1335,70 @@ class Linux:
         run(["sh", INSTALL_SH, "--uninstall"])
 
 
-FORMATS = {"homebrew": Homebrew(), "linux": Linux()}
+class VSCode:
+    """The VS Code and Cursor extension: tools/editors/vscode/ packed as a
+    .vsix by that directory's Makefile, with npm. One file for every
+    platform: it starts the `pyk lsp` the user installed, which every
+    other format ships."""
+
+    name = "vscode"
+    DIRECTORY = REPO / "tools" / "editors" / "vscode"
+    NODE_MINIMUM = 20
+
+    @staticmethod
+    def file_name(v):
+        """The .vsix of version v. String -> String"""
+        return f"{NAME}-{v}.vsix"
+
+    def refusal(self):
+        """Why this machine cannot build the extension, or None.
+        () -> String?"""
+        if not shutil.which("node") or not shutil.which("npm"):
+            return (f"node {self.NODE_MINIMUM} or later and npm are needed to build the "
+                    "VS Code extension (.vsix)")
+        found = subprocess.run(["node", "--version"], capture_output=True, text=True).stdout
+        major = re.match(r"v(\d+)", found.strip())
+        if not major or int(major.group(1)) < self.NODE_MINIMUM:
+            return f"the VS Code extension needs node {self.NODE_MINIMUM} or later, not {found.strip()}"
+        return None
+
+    def setup(self):
+        """Nothing to make: the extension's dependencies are pinned by its
+        package-lock.json and fetched by each build. () -> [(String, String?)]"""
+        return [("vscode", self.refusal())]
+
+    def build(self, archs):
+        """Builds build/pyking-<version>.vsix and checks that it holds the
+        language client and says the version. [String] -> ()"""
+        v = version()
+        output = BUILD / self.file_name(v)
+        if output.exists():
+            output.unlink()
+        BUILD.mkdir(parents=True, exist_ok=True)
+        run(["make", "--no-print-directory", "-C", str(self.DIRECTORY), "vsix",
+             f"OUT={BUILD.resolve()}"])
+        if not output.exists():
+            raise Refusal(f"the extension's build wrote no {shown(output)}")
+        with zipfile.ZipFile(output) as archive:
+            names = set(archive.namelist())
+            manifest = json.loads(archive.read("extension/package.json"))
+        if "extension/node_modules/vscode-languageclient/package.json" not in names:
+            raise Refusal(f"{shown(output)} does not hold vscode-languageclient")
+        if manifest.get("version") != v:
+            raise Refusal(f"{shown(output)} says version {manifest.get('version')}, not {v}")
+        print(f"vscode: {shown(output)} ({output.stat().st_size / 1048576:.1f} MB)")
+
+    def install_local(self):
+        """Not a format a machine installs from. () -> ()"""
+        raise Refusal("install the .vsix with `code --install-extension` or "
+                      "`cursor --install-extension`")
+
+    def uninstall_local(self):
+        """Not a format a machine installs from. () -> ()"""
+        raise Refusal("uninstall the extension from VS Code or Cursor")
+
+
+FORMATS = {"homebrew": Homebrew(), "linux": Linux(), "vscode": VSCode()}
 
 
 def host_format():

@@ -70,6 +70,10 @@
 ;;
 ;; to your init file (or `M-x load-file' it directly). Files ending in
 ;; `.pyk' are then associated with `pyking-mode' automatically.
+;;
+;; The language server, `pyk lsp', is registered with eglot (built into
+;; Emacs 29) once eglot is loaded; `M-x eglot' in a Pyking buffer starts
+;; it. `pyking-lsp-command' says how it is started.
 
 ;;; Code:
 
@@ -727,6 +731,24 @@ through shallower levels to close blocks."
 
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.pyk\\'" . pyking-mode))
+
+(defcustom pyking-lsp-command '("pyk" "lsp")
+  "Command that starts the Pyking language server, as a program and its
+arguments. eglot runs it in a `pyking-mode' buffer; see
+`pyking-eglot-contact'."
+  :type '(repeat string)
+  :group 'pyking)
+
+(defvar eglot-server-programs)
+
+(defun pyking-eglot-contact (_interactive)
+  "The eglot contact for `pyking-mode': `pyking-lsp-command'.
+Boolean -> [String]"
+  pyking-lsp-command)
+
+(with-eval-after-load 'eglot
+  (add-to-list 'eglot-server-programs
+               '(pyking-mode . pyking-eglot-contact)))
 
 (provide 'pyking-mode)
 

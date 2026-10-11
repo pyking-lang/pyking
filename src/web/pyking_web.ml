@@ -12,6 +12,7 @@
       pykRunProgram(main)               run a program of several modules
       pykAnalyze(main)                  what a program needs to be run
       pykCallback(id\nargs)             call a function handed to JavaScript
+      pykLsp(message) / pykLspIdle()    the language server (lsp.ml)
       pykTargets()                      the targets, as JSON
       pykFormatHelper()                 the JS value formatter's source
       pykKeywords() / pykBuiltins()     the language's own word lists
@@ -33,6 +34,9 @@ external register1 : string -> (string -> string) -> unit = "pyk_register1"
 
 external register3 : string -> (string -> string -> string -> string) -> unit
   = "pyk_register3"
+
+external register_utf8 : string -> (string -> string) -> unit = "pyk_register_utf8"
+external register_utf8_0 : string -> (unit -> string) -> unit = "pyk_register_utf8_0"
 
 external emit : string -> unit = "pyk_emit"
 external emit_debug : string -> unit = "pyk_debug"
@@ -834,6 +838,44 @@ let targets_json () =
     (List.map json_string
        ("pyking" :: List.filter (fun t -> t <> "pyking") Targets.all))
 
+(* --- the language server ---
+   The server of `pyk lsp` (lsp.ml), over the page's files: a document
+   the editor has open is read from what it sent, a module it imports
+   through `pykFetchSource`, as a program run in the page reads it. The
+   state lives here, between calls, as the page's one server. *)
+
+let lsp_state =
+  let strip name =
+    if String.length name > 0 && name.[0] = '/' then String.sub name 1 (String.length name - 1)
+    else name
+  in
+  ref
+    (Lsp.create
+       Module.
+         {
+           exists = (fun name -> file_exists (strip name) = "1");
+           contents = (fun name -> file_read (strip name));
+         }
+       [] "browser")
+
+(** Every message the server sends for a list of messages, as a JSON
+    array. [string] -> string *)
+let lsp_answer messages = "[" ^ String.concat "," messages ^ "]"
+
+(** One LSP message from the page, answered as a JSON array of messages.
+    string -> string *)
+let lsp_message text =
+  let state, out = Lsp.handle !lsp_state text in
+  lsp_state := state;
+  lsp_answer out
+
+(** The diagnostics due once the page's editor is quiet, as a JSON array
+    of messages. () -> string *)
+let lsp_idle () =
+  let state, out = Lsp.idle !lsp_state in
+  lsp_state := state;
+  lsp_answer out
+
 (** The `pykFormat` helper the JavaScript backend generates, read out of
     the backend rather than hand-copied. () -> string *)
 let format_helper () = Target_js_packaging.format_js
@@ -869,6 +911,8 @@ let () =
           invoke
             (int_of_string (String.sub request 0 i))
             (String.sub request (i + 1) (String.length request - i - 1)));
+  register_utf8 "pykLsp" lsp_message;
+  register_utf8_0 "pykLspIdle" lsp_idle;
   register0 "pykTargets" targets_json;
   register0 "pykFormatHelper" format_helper;
   register0 "pykKeywords" (fun () ->

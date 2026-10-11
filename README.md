@@ -150,7 +150,7 @@ make            # dune build src/pyk.exe, copied here as ./pyk
 | `make stest` | the same suite, one test at a time |
 | `make playground` | serve the [web playground](tools/playground/) (`pyk playground`), then print a link to open |
 | `make notebook` | serve `PYKING-TUTORIAL.md` as a [notebook](tools/notebook/) (`pyk notebook`), then print a link |
-| `make vendor` | download Ace and KaTeX into `tools/webrun/vendor/`, once; the two above run it first |
+| `make vendor` | download Ace, KaTeX and Monaco into `tools/webrun/vendor/`, once; the two above run it first |
 | `make website` | build the [website](tools/site/) into `website/`, from `sitesrc/` and `lib/` (`make website-dev` serves it with Astro's dev server) |
 | `make packaging` | build the installable packages into `tools/packaging/build/` — for now the Homebrew one, on a Mac |
 | `make packaging-setup` | once, on an Apple Silicon Mac: make the two OCaml toolchains `make packaging` builds with, and say whether it worked |
@@ -177,6 +177,17 @@ served by `pyk` itself. Neither is built: each is served from
 `tools/` as it stands. The first `make vendor` downloads their editor
 and math libraries and caches them, which is why the cache only goes on
 `make distclean`. See [docs/build.md](docs/build.md), "The web tools".
+
+## Editors
+
+`pyk lsp` is a language server: errors as you type, the inferred type
+on hover, go to definition, an outline and completion, in any editor
+that speaks the Language Server Protocol. It is part of `pyk`, so it
+needs nothing more. [tools/editors/vscode/](tools/editors/vscode/) is the
+VS Code and Cursor extension, `tools/emacs/pyking-mode.el` registers it
+with eglot, and the website's Editors page
+([sitesrc/getstarted/editors.md](sitesrc/getstarted/editors.md)) sets
+up the rest. [design/lsp.md](design/lsp.md) is the plan, in three steps.
 
 ## Building a release
 

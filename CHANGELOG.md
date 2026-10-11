@@ -9,12 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A language server, `pyk lsp`, for every editor that speaks LSP: errors
+  as you type, the inferred type on hover, go to definition (into
+  imported modules and the standard library), an outline and
+  completion. It is part of `pyk`, so nothing else is installed.
+  Options `--stdio`, `-L`, `--log FILE`; settings `libPath` and
+  `diagnostics` (`change` or `save`).
+- A VS Code and Cursor extension, `pyking-<version>.vsix`, attached to
+  every release, and setup for Neovim, Vim, Emacs, Sublime Text,
+  PyCharm and Helix on the website's Editors page. The Emacs mode
+  registers the server with eglot and ships in every package.
 - `pyk serve [--port N] [DIR]` serves a directory's files, such as a
   page compiled for `web24` or `iweb24`, and lists a directory with no
   `index.html`.
 
 ### Changed
 
+- The playground's editor is Monaco, in the source pane and in every
+  output pane, and the source pane is a client of the Pyking language
+  server: errors are underlined as you type, and it has hover, go to
+  definition, an outline and completion. `make vendor` downloads Monaco.
+  The notebook keeps Ace.
 - `pyk notebook` and `pyk playground` are served by `pyk` itself, so
   Python is no longer needed to use them, and no package ships or
   recommends it. Only `pyk notebook --mode test` needs node.

@@ -68,7 +68,15 @@ let check_bundle command =
     $PYKING_WEB_NO_VENDOR says the pages will not be rendered.
     string -> (unit, string) result *)
 let check_vendor command =
-  let wanted = [ [ "ace"; "ace.js" ]; [ "katex"; "katex.min.js" ]; [ "katex"; "katex.min.css" ] ] in
+  let wanted =
+    [
+      [ "ace"; "ace.js" ];
+      [ "katex"; "katex.min.js" ];
+      [ "katex"; "katex.min.css" ];
+      [ "monaco"; "vs"; "loader.js" ];
+      [ "monaco"; "vs"; "editor"; "editor.main.js" ];
+    ]
+  in
   let missing =
     List.filter (fun parts -> not (Sys.file_exists (List.fold_left Filename.concat (vendor ()) parts))) wanted
   in

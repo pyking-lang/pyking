@@ -1,0 +1,109 @@
+{
+  "name": "pyking",
+  "displayName": "Pyking",
+  "description": "Pyking language support: highlighting, and diagnostics, hover, go to definition, outline and completion from the Pyking language server (pyk lsp).",
+  "version": "0.0.0",
+  "publisher": "pyking-lang",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "vscode": "^1.82.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "pyking",
+    "lsp"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onLanguage:pyking"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "pyking",
+        "aliases": [
+          "Pyking",
+          "pyking"
+        ],
+        "extensions": [
+          ".pyk"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "pyking",
+        "scopeName": "source.pyking",
+        "path": "./syntaxes/pyking.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "pyking.restartServer",
+        "title": "Restart Language Server",
+        "category": "Pyking"
+      }
+    ],
+    "configuration": {
+      "title": "Pyking",
+      "properties": {
+        "pyking.server.path": {
+          "type": "string",
+          "default": "pyk",
+          "markdownDescription": "The `pyk` executable. The language server is started as `<path> lsp --stdio`, with `pyking.server.args` in place of `lsp`."
+        },
+        "pyking.server.args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "lsp"
+          ],
+          "markdownDescription": "The arguments given to `pyking.server.path`. `--stdio` is added after them."
+        },
+        "pyking.libPath": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "More directories of libraries, searched after the server's own `-L` flags."
+        },
+        "pyking.diagnostics": {
+          "type": "string",
+          "enum": [
+            "change",
+            "save"
+          ],
+          "enumDescriptions": [
+            "Check as you type, once typing pauses.",
+            "Check only when a file is opened or saved."
+          ],
+          "default": "change",
+          "description": "When a file is checked."
+        },
+        "pyking.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces the messages between VS Code and the language server, in the Pyking output channel."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "9.0.1"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "3.9.2"
+  }
+}

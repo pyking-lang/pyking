@@ -20,6 +20,23 @@ function pyk_register1(name, f) {
   return 0;
 }
 
+//Provides: pyk_register_utf8
+// Like pyk_register1, for text that may hold any character: the argument
+// is handed to OCaml as UTF-8 bytes and the answer read back from them,
+// so a column counted in bytes means what it does in the native pyk.
+function pyk_register_utf8(name, f) {
+  globalThis[name] = function (a) {
+    return decodeURIComponent(escape(f(unescape(encodeURIComponent(a)))));
+  };
+  return 0;
+}
+
+//Provides: pyk_register_utf8_0
+function pyk_register_utf8_0(name, f) {
+  globalThis[name] = function () { return decodeURIComponent(escape(f(0))); };
+  return 0;
+}
+
 //Provides: pyk_register3
 function pyk_register3(name, f) {
   globalThis[name] = function (a, b, c) { return f(a, b, c); };

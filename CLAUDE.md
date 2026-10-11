@@ -1179,7 +1179,9 @@ The bootstrap is split into one module per compiler stage:
    is what `make libs` runs over `lib/`. Three more, `pyk notebook
    FILE.md`, `pyk playground` and `pyk serve [DIR]`, run no front end at
    all: `command_web` hands them to `web_tools.ml`, and `--port` is
-   theirs alone.
+   theirs alone. Nor does `pyk lsp`, the language server: `command_lsp`
+   is its stdio transport over `lsp.ml`, and `--stdio` and `--log` are
+   its alone.
    Errors: `ERROR_KINDS` pairs each front-end exception with its label,
    and `format_error` turns any of them into one
    `'file' row:col-row:col Kind: message` line (`Lexing error` /
@@ -1278,6 +1280,28 @@ The bootstrap is split into one module per compiler stage:
    the call. See `docs/libraries.md`, "How the interpreter reaches an
    OCaml implementation".
 
+23. **`src/lsp.ml`** — the language server, `pyk lsp`, in the library
+   so the browser bundle has it too (`pykLsp`/`pykLspIdle` in
+   `src/web/pyking_web.ml`, which the playground's Monaco talks to).
+   A `state` and `handle state text -> (state, [text])`, one JSON-RPC
+   message in and the messages to send back out; `idle` checks every
+   document due and publishes its diagnostics, which is the debounce --
+   a change only marks documents due. It opens no file: the caller
+   hands in `Module.sources` and the library path, and an open
+   document's text is laid over them. A document is checked as a
+   program, exactly as `pyk.ml` checks one (`Module.load`, then
+   `Typesystem.type_check` and `Analyses.analyze_mutability` per
+   module), and hover, definition, outline and completion are read out
+   of that: types from `tmap`, names by a scope walk of its own
+   (`resolve_*`, which binds as `analyses.ml` does -- `def`s hoisted
+   per block, imports before the first statement). Positions are
+   converted in one place: `Lexer.info`'s rows from 1 and byte
+   columns, LSP's lines from 0 and UTF-16 columns. The stdio transport
+   (Content-Length framing, `--log`, the 200 ms quiet before `idle`) is
+   `command_lsp` in `pyk.ml`, the only part needing `unix`.
+   **`src/json.ml`** is JSON read and written, which the server needs.
+   `design/lsp.md` is the plan, in three steps; step 1 is built.
+
 When extending the lexer (new operators, keywords, string escapes, etc.),
 follow the existing pattern: add an arm to the `match rest with`
 inside `lexing`, add a corresponding `Tok*` constructor, and add an arm
@@ -1346,7 +1370,9 @@ swaps which checker runs, not how a refusal reads.
 `src/web/` compiles the same library to JavaScript with js_of_ocaml, for
 `tools/playground/`. Two files: `pyking_web.ml`, which registers
 `pykCompile`, `pykRun`, `pykRunProgram`, `pykAnalyze`, `pykTargets`,
-`pykFormatHelper`, `pykKeywords` and `pykBuiltins` on the global object,
+`pykFormatHelper`, `pykKeywords`, `pykBuiltins`, and the language server's
+`pykLsp` and `pykLspIdle` (text crossing as UTF-8, so a column means what
+it does natively) on the global object,
 and `stub.js`, the `//Provides:` primitives that let it. Nothing in it is
 compiler logic — every entry goes through the same functions `pyk.ml`
 calls, and reports a refusal with the same `format_error`.
@@ -1385,9 +1411,13 @@ the **notebook** (`tools/notebook/`), a Markdown file whose ```` ```pyking ````
 blocks are cells a reader can edit and run with the interpreter. What
 they share is in **`tools/webrun/`**: `server.py` (the
 vendored-library download, and the `Site` the website build copies
-from -- not shipped, and not what serves the pages), `assets/` (the compiler's worker and `PykingRuntime`, the Ace mode, and
-`web.js`, which loads Ace, KaTeX and the compiler), and `vendor/` (Ace
-and KaTeX, downloaded once by `make vendor`, never checked in). Put
+from -- not shipped, and not what serves the pages), `assets/` (the compiler's worker and `PykingRuntime`, the Ace mode the
+notebook uses, `pyking-monaco.js` for the playground's Monaco, and
+`web.js`, which loads Ace or Monaco, KaTeX and the compiler), and
+`vendor/` (Ace, Monaco and KaTeX, downloaded once by `make vendor`,
+never checked in). The playground's editor is Monaco, an LSP client of
+`src/lsp.ml` running in the worker (`tools/playground/assets/lsp-client.js`);
+the notebook and the website's cells still use Ace. Put
 anything both pages need there rather than copying it.
 
 - **There is no build step.** `pyk` serves each tool's files, the
@@ -1556,17 +1586,22 @@ section that is missing, empty or still `Unreleased`. Add to the
   installs (POSIX sh; `~/.local` by default, `--system`, `--version`,
   `--uninstall`, checksums checked against `SHA256SUMS`), and a `.deb`
   that `deb()` writes directly (an `ar` of two tarballs, so no `dpkg` is
-  needed), with `Depends: libc6 (>= 2.28)` and `Recommends: python3
-  (>= 3.10)`. Both
+  needed), with `Depends: libc6 (>= 2.28)`. Both
   also go out under fixed names (`pyking-linux-x86_64.tar.gz`,
   `pyking_amd64.deb`), which `latest` links and install.sh ask for.
   `make packaging-install` on Linux runs install.sh against `build/`
   (`PYKING_DOWNLOAD_BASE`).
+- **VS Code** (and Cursor): `tools/editors/vscode/`, plain JavaScript
+  over `vscode-languageclient`, packed by its own `make vsix` into
+  `pyking-<version>.vsix` (`VSCode.build`; node 20+ and npm on the
+  build machine). One file for every platform: it starts the `pyk lsp`
+  the user installed. `tools/emacs/pyking-mode.el`, which registers the
+  server with eglot, ships in every package's tree.
 
 The code repository is private, so nothing a user downloads lives in it.
 **Every release goes to the public `pyking-lang/pyking-releases`**
 (`RELEASES_REPO`) -- the Mac tarball, both Linux tarballs and `.deb`s,
-install.sh and `SHA256SUMS` in one release per version, marked latest --
+the `.vsix`, install.sh and `SHA256SUMS` in one release per version, marked latest --
 and **the formula to `pyking-lang/homebrew-tap`** (`TAP_REPO`), whose
 `homebrew-` name makes the tap `pyking-lang/tap`. So users run `brew
 install pyking-lang/tap/pyking` (`BREW_INSTALL`) and `curl -fsSL
@@ -1608,6 +1643,7 @@ pyk notebook [--port N] <file.md>    serve a notebook, print a link
 pyk playground [--port N]            serve the playground, print a link
 pyk serve [--port N] [<dir>]         serve a directory's files, print a link
 pyk plugins <dir>                    build the interpreter's library plugins
+pyk lsp [--stdio] [--log FILE]       the language server, for editors
 pyk --version                        print the version (from VERSION)
 
 options: [--tokens] [--symbols] [--no-tail-call-opt]
@@ -1785,13 +1821,13 @@ version of that family; with no `TARGET` every target runs, which is
 what `make test` means. The REPL suite runs only when no `TARGET` was
 given, since it is not a target.
 
-**`make test` runs `tests/test_all.py`**, which sequences the eight
+**`make test` runs `tests/test_all.py`**, which sequences the nine
 suites below rather than each being a line of the Makefile. Three things
 follow, and all three are the point: every suite runs even when an
 earlier one failed, so one broken case does not hide what the other
-seven would have said; each suite's output is opened by a banner and
+eight would have said; each suite's output is opened by a banner and
 closed by one footer line of a fixed shape; and the run ends with a
-combined summary over all eight. Their counts reach it through
+combined summary over all nine. Their counts reach it through
 `$PYK_TEST_TALLY`, a file each suite appends one line to
 (`tests/suite.py`), so a suite run on its own prints exactly what it
 prints here. Each remains a script of its own, with its own
@@ -1965,6 +2001,21 @@ with the iweb24 page and the page a program serves itself. Without a
 Chromium that part says it was skipped. See `docs/libraries.md`,
 "Testing a page".
 
+**`tests/test_lsp.py` is the ninth suite**, the language server's. Each
+`tests/lsp/<name>.lsp` is a session script (open, change, hover at
+LINE:COLUMN, idle, ...; the grammar is in the suite's docstring) run
+against `pyk lsp` over stdio, and what the server sent is compared with
+`<name>.out` -- one script per capability, one for the protocol's own
+edges, one where UTF-16 positions matter. Then the transport (a message
+split across writes, a lower-case header, `--log`, the exit status, the
+refusals); then the same scripts through `pykLsp` in `build/pyking.js`
+under node (`tests/lsp/browser.mjs`), which must answer the same; then,
+where a Chromium is found and Monaco is vendored, the playground driven
+by `tests/lsp/playground.mjs`; and the editors' configuration -- the VS
+Code extension's manifest and grammar, the Emacs mode's eglot entry, and
+every snippet on the website's Editors page. `--update` rewrites the
+`.out` files; read the diffs before keeping them.
+
 A fifth family covers **external modules**: `external_*` for a module
 implemented in a target language -- `external_all` on every host, and
 `external_shapes` on the four whose boundary can carry a tuple and a
@@ -2090,7 +2141,7 @@ prefix happened to match.
 dune; the playground's bundle additionally needs js_of_ocaml. The test
 harness is Python 3.11+ (`match`/`case`, and `tomllib` for the
 manifest), as are `make vendor` and the website build — tooling around
-the compiler, not part of it. The web pages vendor Ace and KaTeX, downloaded
+the compiler, not part of it. The web pages vendor Ace, Monaco and KaTeX, downloaded
 by `make vendor`; nothing is installed. The one exception is the
 website (`make website`): Astro and Starlight, pinned in
 `tools/site/package-lock.json` and installed by `npm ci` into

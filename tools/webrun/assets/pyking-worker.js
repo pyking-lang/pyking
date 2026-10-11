@@ -29,6 +29,11 @@
 // What a function called that way fails with arrives as `failure`, and a
 // `sys.exit` in one as `exit` (docs/libraries.md, "A library that needs
 // a page").
+//
+// The language server (src/lsp.ml) lives here too: `lsp` hands it one
+// JSON-RPC message and answers the messages it sends back, and `lsp-idle`
+// answers what it sends once the client has stopped typing -- the
+// diagnostics. Both answer null where the bundle has no `pykLsp`.
 
 let loaded = false;
 let libURL = null;
@@ -119,6 +124,12 @@ self.onmessage = (event) => {
       }));
     case "analyze":
       return answer(() => analyze(message));
+    case "lsp":
+      return answer(() => (typeof self.pykLsp === "function"
+        ? JSON.parse(self.pykLsp(message.message)) : null));
+    case "lsp-idle":
+      return answer(() => (typeof self.pykLspIdle === "function"
+        ? JSON.parse(self.pykLspIdle()) : null));
     case "run":
       return answer(() => run(message));
     case "event":

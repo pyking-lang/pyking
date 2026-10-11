@@ -7,13 +7,15 @@
 //   import { mountPlayground } from "./assets/playground.js";
 //   mountPlayground(document.getElementById("host"), { base: "./assets" });
 //
-// Everything it needs (Ace, the Pyking mode, the compiler, the examples)
+// Everything it needs (Monaco, the Pyking language, the compiler, the examples)
 // is fetched relative to the options below, so the whole build/
 // directory can be moved or served from a sub-path unchanged.
 
 import {
-  JsRunner, PageHost, createRuntime, ensureEditor, fetchJSON, splitArguments,
+  JsRunner, LANGUAGE, PageHost, createRuntime, ensureMonaco, fetchJSON,
+  splitArguments, themeFor,
 } from "../webrun/web.js";
+import { LspClient } from "./lsp-client.js";
 
 const STORAGE_KEY = "pyking-playground.settings";
 
@@ -42,13 +44,33 @@ const FALLBACK_SOURCE = `def greet(name: String) -> String:
 print(greet("world"))
 `;
 
+/** The source's document, as the language server knows it: the program's
+ *  module is named after the file, `playground`, as Compile names it. */
+const SOURCE_URI = "file:///playground.pyk";
+
+/** The owner of the marker a refused Compile or Run puts under the
+ *  source; the language server's diagnostics have an owner of their own. */
+const COMPILE_MARKERS = "pyking-compile";
+
+/** The Monaco language each Ace mode in the manifest stands for. Monaco
+ *  has no OCaml, and F#, an ML of the same family, highlights it. */
+const MONACO_LANGUAGES = {
+  text: "plaintext",
+  python: "python",
+  javascript: "javascript",
+  html: "html",
+  c_cpp: "c",
+  java: "java",
+  ocaml: "fsharp",
+};
+
 const DEFAULTS = {
   base: "./assets",
   pykingURL: "./pyking/",
   examplesURL: "./examples/",
   webrunURL: "./webrun/",
   vendorURL: "./vendor/",
-  theme: "ace/theme/tomorrow_night",
+  theme: "dark",
   initialTarget: "node24",
   initialExample: "subset_control.pyk",
 };
@@ -59,13 +81,13 @@ export async function mountPlayground(host, options = {}) {
   const runtime = createRuntime({ webrun: cfg.webrunURL, pyking: cfg.pykingURL });
   // The editor's highlighting reads the keywords out of the compiler, so
   // the compiler is loaded before the editors are made.
-  const words = await ensureEditor(
-    runtime, { webrun: cfg.webrunURL, vendor: cfg.vendorURL });
+  const { words, monaco } = await ensureMonaco(runtime, { vendor: cfg.vendorURL });
   meta.formatHelper = words.formatHelper;
+  quietLanguageWorkers(monaco);
 
   const ui = buildDom(host, meta, cfg);
 
-  const app = new Playground(ui, meta, cfg, runtime);
+  const app = new Playground(ui, meta, cfg, runtime, monaco);
   await app.init();
   return app;
 }
@@ -73,15 +95,17 @@ export async function mountPlayground(host, options = {}) {
 // --------------------------------------------------------------- the app
 
 class Playground {
-  constructor(ui, meta, cfg, runtime) {
+  constructor(ui, meta, cfg, runtime, monaco) {
     this.ui = ui;
     this.meta = meta;
     this.cfg = cfg;
     this.runtime = runtime;
+    this.monaco = monaco;
     this.files = {};          // last successful compile: {name: text}
     this.views = new Set();   // which of those are front-end views, not code
     this.current = null;      // which of those is shown on the right
-    this.errorMarker = null;
+    this.lsp = null;          // the language server client, once started
+    this.lspStarted = null;   // its start: resolves to whether it runs
     this.autoRunTimer = null;  // pending "run while you type"
     this.autoRunning = false;
     this.programmaticEdit = false;
@@ -97,26 +121,33 @@ class Playground {
   async init() {
     const { ui } = this;
 
-    this.left = ace.edit(ui.leftEditor, {
-      mode: "ace/mode/pyking", theme: this.cfg.theme,
-      tabSize: 4, useSoftTabs: true, showPrintMargin: false,
-      fontSize: 13, scrollPastEnd: 0.3,
+    const { monaco } = this;
+    // `automaticLayout` has Monaco watch its container, so a pane that
+    // changes size -- by a drag, by the window resizing, by the host page
+    // reflowing -- is laid out again without being told.
+    const options = {
+      theme: themeFor(this.cfg.theme), fontSize: 13,
+      tabSize: 4, insertSpaces: true, detectIndentation: false,
+      automaticLayout: true, minimap: { enabled: false },
+      fixedOverflowWidgets: true,
+    };
+    const model = (text, language, uri) => {
+      const made = monaco.editor.createModel(text, language, uri);
+      made.updateOptions({ tabSize: 4, insertSpaces: true });
+      return made;
+    };
+    this.left = monaco.editor.create(ui.leftEditor, {
+      ...options, model: model("", LANGUAGE, monaco.Uri.parse(SOURCE_URI)),
     });
-    this.right = ace.edit(ui.rightEditor, {
-      mode: "ace/mode/text", theme: this.cfg.theme,
-      tabSize: 4, useSoftTabs: true, showPrintMargin: false,
-      fontSize: 13, scrollPastEnd: 0.3,
+    this.right = monaco.editor.create(ui.rightEditor, {
+      ...options, model: model("", "plaintext"),
     });
-    // Ace's language workers add no value here (they would lint the
-    // *generated* code) and would need extra vendored files.
-    this.left.session.setUseWorker(false);
-    this.right.session.setUseWorker(false);
-    this.left.session.on("change", () => {
+    this.left.onDidChangeModelContent(() => {
       this.clearError();
-      // Only what the *user* typed schedules a run. Ace fires the same event
-      // for `setValue`, so loading an example -- which happens once during
-      // startup -- would otherwise trigger a run, and with it the runtime
-      // download, before anyone had touched the page.
+      // Only what the *user* typed schedules a run. Monaco fires the same
+      // event for `setValue`, so loading an example -- which happens once
+      // during startup -- would otherwise trigger a run, and with it the
+      // runtime download, before anyone had touched the page.
       if (!this.programmaticEdit) this.scheduleAutoRun();
     });
 
@@ -139,48 +170,40 @@ class Playground {
     this.installSettings();
     this.applySettings();
 
-    // Ace measures its container once and caches the result, so a pane that
-    // changes size -- by a drag, by the window resizing, by the host page
-    // reflowing -- has to be told. Observing is more reliable than trying to
-    // remember every place that could have caused it.
-    if (globalThis.ResizeObserver) {
-      const observer = new ResizeObserver(() => {
-        this.left.resize();
-        this.right.resize();
-      });
-      observer.observe(ui.leftEditor);
-      observer.observe(ui.rightEditor);
-    }
-
     // Keyboard shortcuts.
     //
-    // Registered as Ace commands rather than as one bubbling keydown
-    // listener, because Ace handles keys on its own hidden textarea first: a
-    // listener on the container would not run until Ace had already inserted
-    // the newline that Shift+Enter would otherwise type.
+    // Registered as Monaco actions rather than as one bubbling keydown
+    // listener, because Monaco handles keys on its own hidden textarea
+    // first: a listener on the container would not run until Monaco had
+    // already inserted the newline that Shift+Enter would otherwise type.
+    // An action's keys belong to its own editor, where a command's would
+    // be shared by every editor on the page.
     //
     // Shift+Enter runs, and means the Run button of whichever pane has focus
     // -- the source pane runs the program itself, the generated pane runs
     // what is displayed. Overriding it costs nothing, since plain
     // Enter already inserts a newline and Shift+Enter merely duplicated it.
-    const bind = (editor, name, bindKey, exec) =>
-      editor.commands.addCommand({ name, bindKey, exec, readOnly: true });
+    const { KeyMod, KeyCode } = monaco;
+    const bind = (editor, id, label, key, run) =>
+      editor.addAction({ id, label, keybindings: [key], run: () => { run(); } });
 
-    const COMPILE = { win: "Ctrl-Enter", mac: "Command-Enter" };
-    const RUN = { win: "Shift-Enter", mac: "Shift-Enter" };
-    const RUN_ACCEL = { win: "Ctrl-Shift-Enter", mac: "Command-Shift-Enter" };
+    const COMPILE = KeyMod.CtrlCmd | KeyCode.Enter;
+    const RUN = KeyMod.Shift | KeyCode.Enter;
+    const RUN_ACCEL = KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Enter;
 
-    bind(this.left, "pykCompile", COMPILE, () => this.compile());
-    bind(this.right, "pykCompile", COMPILE, () => this.compile());
-    bind(this.left, "pykRun", RUN, () => this.runFromSource());
-    bind(this.right, "pykRun", RUN, () => this.runGenerated());
-    bind(this.left, "pykRunAccel", RUN_ACCEL, () => this.runFromSource());
-    bind(this.right, "pykRunAccel", RUN_ACCEL, () => this.runGenerated());
+    bind(this.left, "pyk-compile", "Compile", COMPILE, () => this.compile());
+    bind(this.right, "pyk-compile", "Compile", COMPILE, () => this.compile());
+    bind(this.left, "pyk-run", "Run the program", RUN, () => this.runFromSource());
+    bind(this.right, "pyk-run", "Run the generated code", RUN, () => this.runGenerated());
+    bind(this.left, "pyk-run-accel", "Run the program", RUN_ACCEL,
+         () => this.runFromSource());
+    bind(this.right, "pyk-run-accel", "Run the generated code", RUN_ACCEL,
+         () => this.runGenerated());
 
     // The same keys when focus is outside both editors -- on a dropdown, a
-    // button, or the page itself. Ace stops propagation for keys it handled,
-    // but the check for an enclosing editor is explicit so that a future Ace
-    // that stops doing so cannot make this fire twice.
+    // button, or the page itself. Monaco stops propagation for keys it
+    // handled, but the check for an enclosing editor is explicit so that a
+    // future Monaco that stops doing so cannot make this fire twice.
     ui.root.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && !ui.modal.classList.contains("pyk-hidden")) {
         this.closeSettings();
@@ -189,7 +212,7 @@ class Playground {
       if (event.key !== "Enter") return;
       if (!ui.modal.classList.contains("pyk-hidden")) return;
       if (!ui.inputModal.classList.contains("pyk-hidden")) return;
-      if (event.target?.closest?.(".ace_editor")) return;
+      if (event.target?.closest?.(".monaco-editor")) return;
       const accel = event.ctrlKey || event.metaKey;
       if (!accel && !event.shiftKey) return;
       event.preventDefault();
@@ -205,6 +228,18 @@ class Playground {
       this.setSource(FALLBACK_SOURCE);
     }
     this.onTargetChange();
+    // Hover, definition, outline, completion and diagnostics, from the
+    // language server in the compiler's worker -- where the bundle has one.
+    this.lsp = new LspClient(monaco, this.runtime, this.left, {
+      uri: SOURCE_URI,
+      libURL: this.runtime.libURL,
+      onOpenElsewhere: (file, where) => {
+        const line = where?.startLineNumber ?? where?.lineNumber;
+        this.note(`Defined in ${file}${line ? `, line ${line}` : ""}`
+                  + " (Alt+F12 shows it here)");
+      },
+    });
+    this.lspStarted = this.lsp.start().catch(() => false);
     // The compiler was loaded before the editors were made (mountPlayground).
     this.status("ready", "ready");
     this.note("Press Compile to see the generated code, or Run to run the "
@@ -290,7 +325,7 @@ class Playground {
     if (!result.ok) {
       this.showFiles({});
       this.error(result.text);
-      if (result.info) this.markError(result.info);
+      if (result.info) this.markError(result.info, result.text);
       return;
     }
     this.showFiles(result.files, result.views);
@@ -328,7 +363,7 @@ class Playground {
 
   showFile(name) {
     this.current = name;
-    this.right.setValue(name ? this.files[name] : "", -1);
+    this.right.setValue(name ? this.files[name] : "");
     for (const tab of this.ui.files.children) {
       tab.classList.toggle("active", tab.textContent === name);
     }
@@ -339,7 +374,8 @@ class Playground {
 
   onTargetChange() {
     const target = this.ui.target.value;
-    this.right.session.setMode("ace/mode/" + this.meta.modes[target]);
+    this.monaco.editor.setModelLanguage(
+      this.right.getModel(), languageFor(target, this.meta.modes[target]));
     // The generated code no longer matches the selected target, so drop it
     // rather than leave something stale-but-plausible on screen.
     this.showFiles({});
@@ -416,7 +452,7 @@ class Playground {
     ui.rightEditor.classList.toggle("pyk-hidden", page);
     ui.copy.classList.toggle("pyk-hidden", page);
     ui.page.classList.toggle("pyk-hidden", !page);
-    if (!page) this.right.resize();
+    if (!page) this.right.layout();
   }
 
   /** Removes the last run's page, if it had one. () -> () */
@@ -539,7 +575,7 @@ class Playground {
         // A refusal and a runtime error arrive in the same shape; only a
         // refusal carries a span, and that is what underlines in place.
         this.error(result.text.trimEnd());
-        if (result.info) this.markError(result.info);
+        if (result.info) this.markError(result.info, result.text.trimEnd());
       }
     } catch (err) {
       // `stop()` rejects everything in flight; that is not an error to report.
@@ -632,11 +668,12 @@ class Playground {
   /** Replace the source without it counting as typing. Also the method to
    *  use from an embedding page, for the same reason. */
   setSource(text) {
-    // Ace fires "change" synchronously from setValue, so a plain flag is
-    // enough and no reset-on-a-timer is needed.
+    // Monaco fires its change event synchronously from setValue, so a
+    // plain flag is enough and no reset-on-a-timer is needed.
     this.programmaticEdit = true;
     try {
-      this.left.setValue(text, -1);
+      this.left.setValue(text);
+      this.left.setPosition({ lineNumber: 1, column: 1 });
     } finally {
       this.programmaticEdit = false;
     }
@@ -704,24 +741,23 @@ class Playground {
 
   // -- error marking ----------------------------------------------------
 
-  /** Underline the span the compiler complained about. `lexer.Info` counts
-   *  rows from 1 and columns from 0; Ace counts both from 0. */
-  markError(info) {
-    const Range = ace.require("ace/range").Range;
-    const range = new Range(info.row1 - 1, info.col1, info.row2 - 1, info.col2);
-    this.errorMarker = this.left.session.addMarker(range, "pyk-error-marker", "text");
-    this.left.session.setAnnotations([{
-      row: info.row1 - 1, column: info.col1, type: "error", text: "compile error",
+  /** Underline the span the compiler complained about, with its message.
+   *  `lexer.Info` counts rows from 1 and columns from 0; Monaco counts
+   *  both from 1. {row1, col1, row2, col2} -> String -> () */
+  markError(info, message = "compile error") {
+    const { monaco } = this;
+    const range = {
+      startLineNumber: info.row1, startColumn: info.col1 + 1,
+      endLineNumber: info.row2, endColumn: Math.max(info.col2 + 1, info.col1 + 2),
+    };
+    monaco.editor.setModelMarkers(this.left.getModel(), COMPILE_MARKERS, [{
+      ...range, severity: monaco.MarkerSeverity.Error, message,
     }]);
-    this.left.scrollToLine(info.row1 - 1, true, true);
+    this.left.revealLineInCenterIfOutsideViewport(info.row1);
   }
 
   clearError() {
-    if (this.errorMarker !== null) {
-      this.left.session.removeMarker(this.errorMarker);
-      this.errorMarker = null;
-      this.left.session.clearAnnotations();
-    }
+    this.monaco.editor.setModelMarkers(this.left.getModel(), COMPILE_MARKERS, []);
   }
 
   // -- misc -------------------------------------------------------------
@@ -857,8 +893,8 @@ class Playground {
 
   applyFontSize(px) {
     this.settings.fontSize = px;
-    this.left.setFontSize(px);
-    this.right.setFontSize(px);
+    this.left.updateOptions({ fontSize: px });
+    this.right.updateOptions({ fontSize: px });
     // The output pane is plain text, not an editor, so it needs telling
     // separately -- but it should scale with the code beside it.
     this.ui.output.style.fontSize = px + "px";
@@ -1078,6 +1114,35 @@ function buildDom(host, meta, cfg) {
 }
 
 // --------------------------------------------------------------- helpers
+
+/** The Monaco language a target's output is shown in: Pyking's own for
+ *  the `pyking` view, and otherwise the one standing for the Ace mode the
+ *  manifest names. String -> String -> String */
+function languageFor(target, mode) {
+  if (target === "pyking") return LANGUAGE;
+  return MONACO_LANGUAGES[mode] ?? "plaintext";
+}
+
+/** Switches off the features Monaco's JavaScript and HTML support runs on
+ *  a worker of its own: they would lint the *generated* code, and the
+ *  JavaScript one is a 7 MB download. Highlighting is not one of them.
+ *  Monaco -> () */
+function quietLanguageWorkers(monaco) {
+  const off = {
+    completionItems: false, hovers: false, documentSymbols: false,
+    definitions: false, references: false, documentHighlights: false,
+    rename: false, diagnostics: false, documentFormattingEdits: false,
+    documentRangeFormattingEdits: false, signatureHelp: false,
+    onTypeFormattingEdits: false, codeActions: false, inlayHints: false,
+    links: false, colors: false, foldingRanges: false, selectionRanges: false,
+  };
+  const languages = monaco.languages;
+  for (const defaults of [languages.typescript?.javascriptDefaults,
+                          languages.typescript?.typescriptDefaults,
+                          languages.html?.htmlDefaults]) {
+    defaults?.setModeConfiguration?.(off);
+  }
+}
 
 /** Why the Run button beside the generated pane is disabled for a target:
  *  a property of the target, not a shortcoming of the page. The `pyking`

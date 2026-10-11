@@ -1,0 +1,5 @@
+## A library found through the libPath setting.
+
+## Seven.
+public def seven() -> Int:
+    return 7

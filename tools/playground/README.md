@@ -17,8 +17,8 @@ make             # here: vendor, check, serve
 playground shares with the notebook in `../webrun/`, the compiler bundle
 `build/pyking.js` and the examples in `tests/` from where they sit, so an
 edit to any of them shows on the next reload. The first `make vendor` (at
-the repository root or here) downloads ~1 MB of Ace and KaTeX into
-`../webrun/vendor/` and caches it; see `../webrun/README.md`.
+the repository root or here) downloads ~26 MB of Ace, KaTeX and Monaco
+into `../webrun/vendor/` and caches it; see `../webrun/README.md`.
 
 ## Why this design
 
@@ -45,7 +45,7 @@ to the outside world: `pyk.ml` (the driver), `execution.ml` (`--run`) and
 | Target | |
 |---|---|
 | `make` | `vendor` → `check` → `serve` |
-| `make vendor` | download Ace and KaTeX into `../webrun/vendor/` (cached; skipped if present) |
+| `make vendor` | download Ace, KaTeX and Monaco into `../webrun/vendor/` (cached; skipped if present) |
 | `make check` | compile every example for every target it claims, headlessly |
 | `make e2e` | browser tests — mounting, compiling, running, Stop (needs Playwright) |
 | `make serve` | serve the page and print a clickable `http://localhost:8000/` |
@@ -150,11 +150,41 @@ needs a copy of it saved once.
   runs the source. `Ctrl`/`Cmd`+`Enter` compiles;
   `Ctrl`/`Cmd`+`Shift`+`Enter` also runs.
 
-  Shift+Enter is registered as an Ace *command*, not as a key listener on the
-  container: Ace handles keys on its own hidden textarea first, so a listener
-  would only fire after Ace had already typed the newline. Overriding it
-  loses nothing, since plain `Enter` inserts a newline anyway and Shift+Enter
-  merely duplicated it.
+  Shift+Enter is registered as a Monaco *action* of each editor, not as a
+  key listener on the container: Monaco handles keys on its own hidden
+  textarea first, so a listener would only fire after Monaco had already
+  typed the newline. Overriding it loses nothing, since plain `Enter`
+  inserts a newline anyway and Shift+Enter merely duplicated it.
+
+### The editor and the language server
+
+Both panes are [Monaco](https://microsoft.github.io/monaco-editor/), the
+editor VS Code is built on, which highlights every target's output itself
+(OCaml with its F# highlighting, Monaco having no OCaml). Pyking is a
+Monarch tokenizer made when the page loads, from the compiler's own word
+lists (`../webrun/assets/pyking-monaco.js`).
+
+The source pane is a client of the Pyking language server (`src/lsp.ml`,
+see `design/lsp.md`), which runs in the compiler's worker beside
+everything else -- the same server `pyk lsp` is for an editor.
+`assets/lsp-client.js` speaks LSP to it through the worker's `lsp`
+request and gives the pane:
+
+- **diagnostics** -- an error underlined where it is, about 200 ms after
+  you stop typing, without pressing anything;
+- **hover** -- the type of what is under the pointer;
+- **go to definition** (F12, or Ctrl/Cmd+click) -- the cursor moves to
+  where a name is bound, and Peek Definition (Alt+F12) shows one in the
+  standard library;
+- **the outline** (Ctrl/Cmd+Shift+O) -- the `def`s, bindings and imports;
+- **completion** -- the names in scope, and after `m.` what module `m`
+  exports.
+
+The document is `file:///playground.pyk`, so the program is the module
+`playground`, as Compile names it. Stopping a program replaces the
+worker, and the server with it; the client opens the document again on
+the next change. A bundle with no language server leaves the pane a
+plain editor.
 
 The compiler loads when the page does, because the editor's highlighting
 reads the keyword list out of it (see "Four things read out of the
@@ -310,6 +340,7 @@ tools/playground/
   assets/
     index.html       thin host page: mounts the component, nothing else
     playground.js    the UI (ES module, exports mountPlayground)
+    lsp-client.js    the source pane as a language server client
     js-worker.js     generated JavaScript, on its own thread
     playground.css   all styles, scoped under .pyk-playground
 ```
@@ -320,8 +351,8 @@ What the page loads, and where the server finds it:
 |---|---|
 | `/`, `/assets/…` | `assets/` |
 | `/assets/playground.json` | worked out per request: targets, editor modes, examples |
-| `/webrun/…` | `../webrun/assets/`: the runtime, the compiler's worker, the Ace mode |
-| `/vendor/…` | `../webrun/vendor/`: Ace and KaTeX |
+| `/webrun/…` | `../webrun/assets/`: the runtime, the compiler's worker, the Pyking language for Monaco |
+| `/vendor/…` | `../webrun/vendor/`: Monaco (and Ace and KaTeX, the notebook's) |
 | `/pyking/pyking.js` | `build/pyking.js`, built from `src/` by dune and js_of_ocaml |
 | `/pyking/manifest.json` | worked out per request: the bundle's name and stamp |
 | `/examples/*.pyk` | `tests/`, only the examples the manifest offers |
@@ -359,7 +390,7 @@ than parsed out of the source:
    `tests/test_playground.py` fail if a target turns up that has no entry in
    `playground.py`'s `TARGET_MODE`, rather than it silently going missing
    from the dropdown.
-3. **The keyword and builtin lists** in `pyking-mode.js` come from
+3. **The keyword and builtin lists** in `pyking-monaco.js` come from
    `pykKeywords` and `pykBuiltins` — `lexer.keywords` and
    `builtin.names` — and **the value formatter** in `js-worker.js` from
    `pykFormatHelper`, which is the JavaScript backend's own `pykFormat`.
@@ -398,7 +429,8 @@ there so you can take either one.
 </script>
 ```
 
-Ace and the Pyking mode are loaded for you if they are not already present.
+Monaco and the Pyking language are loaded for you if they are not already
+present.
 `playground.js` imports `../webrun/web.js`, so `assets/` and `webrun/` sit
 side by side, as the server lays them out; everything else is an option. Styles are scoped under `.pyk-playground` and use CSS custom
 properties (`--pyk-bg`, `--pyk-accent`, …), so re-theming is a few overrides.
@@ -446,6 +478,14 @@ const view = await rt.compile("x = 1 + 2\n", "pyking");
 // Run it with the interpreter -- no host, no generated code:
 await rt.runProgram(source, { onOutput: text => process.stdout.write(text) });
 rt.stop();     // ends a program that will not end itself, and re-boots
+
+// The language server: one JSON-RPC message in, what it sends back out --
+// null where the bundle has none. `lspIdle` is what it sends once typing
+// has paused: the diagnostics.
+await rt.lsp({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+// [ { jsonrpc: "2.0", id: 1, result: { capabilities: { … } } } ]
+await rt.lspIdle();
+rt.generation; // changes when a stop or a reload replaced the worker
 ```
 
 `compile` and `runProgram` are asynchronous because they cross a thread
@@ -473,8 +513,8 @@ code should skip them the same way.
 `compile()` never throws for a bad program — a refusal is data, with the same
 wording `pyk.ml` prints, because it *is* `pyk.ml`'s `format_error`. The raw
 span comes with it, for highlighting: rows count from 1 and columns from 0,
-exactly as `lexer.info` records them (Ace counts both from 0, hence the
-`row1 - 1` in `playground.js`).
+exactly as `lexer.info` records them (Monaco counts both from 1, hence the
+`col1 + 1` in `playground.js`).
 
 ## Verifying without a browser
 
@@ -518,21 +558,30 @@ npm install playwright && npx playwright install chromium
 ```
 
 It is worth having, because there is a class of defect nothing headless can
-see: Ace, the worker plumbing and the page's own wiring only exist in a
+see: Monaco, the worker plumbing and the page's own wiring only exist in a
 browser. `make e2e` starts `pyk playground` on a free port and drives
-the page: that it mounts with every target in the dropdown, that Compile loads
+the page: that it mounts with every target in the dropdown and both
+editors are Monaco, that Compile loads
 the compiler and produces a file, that the `pyking` target prints the front
-end's own output, that both Run buttons produce output, that **every example
+end's own output, that both Run buttons produce output, that Shift+Enter
+runs and Ctrl+Enter compiles, that **every example
 compiles for every target it claims** — the same pairs `make check` compiles,
 but through the page's worker rather than under `node` — and that Stop ends a
 program written never to end (`loop: continue`) with the page still
 answering. Any error on the console fails the run.
 
+The language server's side of the page is `tests/lsp/playground.mjs`'s,
+which `tests/test_lsp.py` runs in a Chromium over the DevTools protocol:
+an error underlined at its line, a hover showing a type, completion
+offering a name, go to definition, the outline -- and that compiling and
+running still work beside them.
+
 ## Limitations
 
 - **Needs a static server** (above). No way around it for ES modules and
   workers.
-- **About 6 MB on first load** — 5.1 MB of it the compiler.
+- **About 11 MB on first load** — 5.1 MB of it the compiler, about 5 MB
+  Monaco.
 - **A non-terminating program no longer freezes the tab.** Execution happens
   on workers, so the page stays responsive and the Stop button ends it (see
   "How programs are executed" above). This is what makes "run while you type"

@@ -61,6 +61,7 @@ Functions:
 
 import hashlib
 import io
+import json
 import os
 import platform
 import shutil
@@ -151,6 +152,7 @@ def check_stage(check, compiler):
                        "build/plugin/pyk_plugin.cmi", "lib/sys/sys.pyk",
                        "lib/io/io_external.cmxs", "tools/notebook/check.js",
                        "tools/notebook/assets/index.html",
+                       "tools/emacs/pyking-mode.el",
                        "tools/playground/assets/index.html"]:
             check(f"the tree holds {wanted}", wanted in files)
         python = sorted(f for f in files if f.startswith("tools/") and f.endswith(".py"))
@@ -248,6 +250,27 @@ def check_stage(check, compiler):
                       f"status {status}")
             finally:
                 test_notebook.stop(process)
+
+        # The language server is pyk itself: a session from the package,
+        # with nothing on the PATH, finds the standard library.
+        (work / "args.pyk").write_text("import sys\nprint(sys.args())\n")
+        session = [
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+            {"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {
+                "uri": (work / "args.pyk").as_uri(), "languageId": "pyking", "version": 1,
+                "text": (work / "args.pyk").read_text()}}},
+            {"jsonrpc": "2.0", "id": 2, "method": "textDocument/hover", "params": {
+                "textDocument": {"uri": (work / "args.pyk").as_uri()},
+                "position": {"line": 1, "character": 10}}},
+            {"jsonrpc": "2.0", "id": 3, "method": "shutdown"},
+            {"jsonrpc": "2.0", "method": "exit"}]
+        framed = b"".join(b"Content-Length: %d\r\n\r\n" % len(json.dumps(m).encode())
+                          + json.dumps(m).encode() for m in session)
+        result = subprocess.run([pyk, "lsp", "--stdio"], cwd=work, env=bare, input=framed,
+                                capture_output=True, timeout=TIMEOUT)
+        check("`pyk lsp` from the package answers a hover from the standard library",
+              result.returncode == 0 and b"sys.args: () -> [String]" in result.stdout,
+              (result.stdout + result.stderr).decode(errors="replace")[-300:])
 
         first = packaging.tarball(tree, root / "a.tar.gz")
         second = packaging.tarball(tree, root / "b.tar.gz")
@@ -442,9 +465,10 @@ def check_macho(check):
         v = "9.9.9"
         names = packaging.release_assets(v)
         check("a release holds the Mac tarball, each Linux tarball and .deb under "
-              "both names, install.sh and SHA256SUMS",
-              len(names) == 11 and names[-1] == "SHA256SUMS" and "install.sh" in names
-              and "pyking-linux-x86_64.tar.gz" in names and "pyking_9.9.9_arm64.deb" in names,
+              "both names, the VS Code extension, install.sh and SHA256SUMS",
+              len(names) == 12 and names[-1] == "SHA256SUMS" and "install.sh" in names
+              and "pyking-linux-x86_64.tar.gz" in names and "pyking_9.9.9_arm64.deb" in names
+              and "pyking-9.9.9.vsix" in names,
               str(names))
         saved = packaging.BUILD
         try:

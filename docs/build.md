@@ -170,7 +170,8 @@ it sits by `pyk` itself:
 
 ```
 tools/webrun/     what both share: the compiler's worker and runtime,
-                  the Ace mode, and vendor/ (Ace, KaTeX)
+                  the Ace mode, the Monaco language, and vendor/
+                  (Ace, KaTeX, Monaco)
 tools/playground/ its page
 tools/notebook/   its page, and check.js for test mode
 build/pyking.js   the compiler, which both pages load
@@ -189,7 +190,7 @@ checkout; `tests/test_notebook.py` checks that `pyk` serves every file
 they name and the same manifest. `pyk notebook --mode test` serves
 nothing: it runs `tools/notebook/check.js` under node, which checks the document's
 exercises and quizzes and runs its programs, so test mode needs node. `make playground` and `make notebook` go through `./pyk` the same
-way, after `make vendor` has downloaded Ace and KaTeX once.
+way, after `make vendor` has downloaded Ace, KaTeX and Monaco once.
 
 A program using a library that needs a page -- `tinyweb` -- is shown by
 both pages with that library's own renderer, `lib/tinyweb/tinyweb_page.js`,

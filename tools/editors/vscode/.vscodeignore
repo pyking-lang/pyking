@@ -1,0 +1,7 @@
+.gitignore
+.vscodeignore
+Makefile
+build/**
+*.vsix
+**/*.d.ts
+**/*.map

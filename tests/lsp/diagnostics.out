@@ -1,0 +1,41 @@
+> initialize
+{"capabilities": {"completionProvider": {"triggerCharacters": ["."]}, "definitionProvider": true, "documentSymbolProvider": true, "hoverProvider": true, "positionEncoding": "utf-16", "textDocumentSync": {"change": 1, "openClose": true, "save": {"includeText": false}}}, "serverInfo": {"name": "pyk lsp"}}
+> open broken.pyk
+> idle
+diagnostics $CASES/broken.pyk v1 [{"code": "Type error", "message": "argument 1 has type String, but Int was expected", "range": {"end": {"character": 15, "line": 5}, "start": {"character": 10, "line": 5}}, "severity": 1, "source": "pyking"}]
+> change broken.pyk
+> idle
+diagnostics $CASES/broken.pyk v2 [{"code": "Name error", "message": "unbound name 'missing'", "range": {"end": {"character": 13, "line": 6}, "start": {"character": 6, "line": 6}}, "severity": 1, "source": "pyking"}]
+> change broken.pyk
+> idle
+diagnostics $CASES/broken.pyk v3 [{"code": "Parsing error", "message": "unexpected token in expression", "range": {"end": {"character": 0, "line": 2}, "start": {"character": 0, "line": 2}}, "severity": 1, "source": "pyking"}]
+> change broken.pyk
+> idle
+diagnostics $CASES/broken.pyk v4 [{"code": "Lexing error", "message": "unexpected end of string literal", "range": {"end": {"character": 18, "line": 0}, "start": {"character": 18, "line": 0}}, "severity": 1, "source": "pyking"}]
+> change broken.pyk
+> idle
+diagnostics $CASES/broken.pyk v5 [{"code": "Module error", "message": "cannot read module 'nowhere': looked for '$CASES/nowhere_external.pyk' (local), '$CASES/nowhere.pyk' (local), '$LIB/nowhere/nowhere_external.pyk' (built-in), '$LIB/nowhere/nowhere.pyk' (built-in). A module is beside the file that imports it, or in a library folder on the search path (-L, PYKING_LIB_PATH)", "range": {"end": {"character": 14, "line": 0}, "start": {"character": 0, "line": 0}}, "severity": 1, "source": "pyking"}]
+> change broken.pyk
+> idle
+diagnostics $CASES/broken.pyk v6 [{"code": "Type error", "message": "'n' is Int, but this ':=' gives String", "range": {"end": {"character": 10, "line": 1}, "start": {"character": 0, "line": 1}}, "severity": 1, "source": "pyking"}]
+> change broken.pyk
+> idle
+diagnostics $CASES/broken.pyk v7 [{"code": "Name error", "message": "cannot update 'value' with ':=': it is a binding (declared on line 1), not a mutable variable (declare it with 'var' to make it one)", "range": {"end": {"character": 10, "line": 1}, "start": {"character": 0, "line": 1}}, "severity": 1, "source": "pyking"}]
+> change broken.pyk
+> idle
+diagnostics $CASES/broken.pyk v8 []
+> open uses_broken.pyk
+> idle
+diagnostics $CASES/uses_broken.pyk v1 [{"code": "Parsing error", "message": "'$CASES/broken_module.pyk' 1:23: unexpected end of input in expression", "range": {"end": {"character": 20, "line": 0}, "start": {"character": 0, "line": 0}}, "severity": 1, "source": "pyking"}]
+> open broken_module.pyk
+> idle
+diagnostics $CASES/broken_module.pyk v1 [{"code": "Parsing error", "message": "unexpected end of input in expression", "range": {"end": {"character": 24, "line": 0}, "start": {"character": 23, "line": 0}}, "severity": 1, "source": "pyking"}]
+> change broken_module.pyk
+> idle
+diagnostics $CASES/broken_module.pyk v2 []
+diagnostics $CASES/uses_broken.pyk v1 []
+> close broken_module.pyk
+> shutdown
+null
+> exit
+> exit status 0

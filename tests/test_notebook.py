@@ -595,7 +595,10 @@ def check_server(compiler):
         result = subprocess.run(compiler + arguments, capture_output=True, text=True,
                                 env=env or environment, timeout=SERVER_TIMEOUT)
         output = result.stdout + result.stderr
-        check(label, result.returncode != 0 and expected in output, output.strip())
+        # pyk reflows a message to 70 columns, so where a line breaks
+        # depends on how long the paths in it are.
+        flowed = " ".join(output.split())
+        check(label, result.returncode != 0 and expected in flowed, output.strip())
 
     refused("a missing file is refused", ["notebook", "no-such-file.md"],
             "no such file")

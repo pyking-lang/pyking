@@ -70,6 +70,7 @@ def suites(args):
         ("packaging", "test_packaging.py", compiler),
         ("site", "test_site.py", compiler),
         ("tinyweb", "test_tinyweb.py", compiler),
+        ("lsp", "test_lsp.py", compiler),
     ]
 
 

@@ -365,6 +365,19 @@ is refused for them, and `--mode` (student, teacher or test) is the
 notebook's alone: it is handed on, and test mode refuses `--port`, since
 it serves nothing. See [build.md](build.md), "The web tools".
 
+## `pyk lsp`: the language server's transport
+
+`pyk lsp` runs no front end of its own either: `command_lsp` reads
+JSON-RPC messages framed by `Content-Length` from standard input with
+`Unix.read`, hands each to `Lsp.handle`, and writes what comes back.
+When no message has arrived for 200 ms it calls `Lsp.idle`, which checks
+the documents a change marked and publishes their diagnostics -- the
+debounce, kept out of `lsp.ml` so the browser can time it its own way.
+The library path is `pyk`'s own (`-L`, `$PYKING_LIB_PATH`, the built-in
+`lib/`). `--log FILE` appends every message in (`-->`) and out (`<--`).
+Standard input closing without `exit` ends it with status 1, as the
+protocol says. See [../design/lsp.md](../design/lsp.md).
+
 ## Why `repl.ml` is handed `format_error`
 
 ```ocaml

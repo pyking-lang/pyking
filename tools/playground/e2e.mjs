@@ -143,6 +143,10 @@ async function main() {
          meta.targets.length > 0 && meta.targets.join() === meta.declared.join(),
          `${meta.targets.join()} vs ${meta.declared.join()}`);
   expect("loads the example list", meta.examples > 0);
+  expect("both editors are Monaco", await page.evaluate(() =>
+    !!window.monaco?.editor
+    && document.querySelectorAll('[data-r$="Editor"] .monaco-editor').length === 2
+    && window.pykingPlayground.left.getModel().getLanguageId() === "pyking"));
 
   console.log("Compiling");
   await page.click('[data-r="compile"]');
@@ -177,6 +181,27 @@ async function main() {
   await page.waitForTimeout(2000);
   const generated = await lastLine(page);
   expect("runs the generated code", /finished/.test(generated), generated);
+
+  // The keys are the editor's own actions: Shift+Enter in the source runs
+  // it rather than typing a newline, and Ctrl+Enter compiles.
+  console.log("Keys");
+  const before = await page.evaluate(() => {
+    window.pykingPlayground.clearOutput();
+    window.pykingPlayground.left.focus();
+    return window.pykingPlayground.left.getValue();
+  });
+  await page.keyboard.press("Shift+Enter");
+  await settled(page);
+  await page.waitForTimeout(2000);
+  expect("Shift+Enter in the source runs it", /finished/.test(await lastLine(page))
+         && await page.evaluate(() => window.pykingPlayground.left.getValue()) === before,
+         await lastLine(page));
+  await page.evaluate(() => window.pykingPlayground.left.focus());
+  await page.keyboard.press("Control+Enter");
+  await settled(page);
+  await page.waitForTimeout(500);
+  expect("Ctrl+Enter compiles", /^Compiled to /.test(await lastLine(page)),
+         await lastLine(page));
 
   // Every example, on every target it claims, through the page's own
   // runtime -- the same pairs `make check` compiles under node, but in
@@ -214,13 +239,13 @@ async function main() {
   // this pane, a `debug` line is marked apart, and `sys.exit` ends it.
   console.log("The standard library");
   await page.evaluate(() => {
-    window.pykingPlayground.left.setValue([
+    window.pykingPlayground.setSource([
       "import io", "import sys",
       "debug(\"starting\")",
       "name = io.read_line(\"Name? \")",
       "print(\"hello\", name, sys.args())",
       "sys.exit(3)", "print(\"never\")", "",
-    ].join("\n"), -1);
+    ].join("\n"));
   });
   await page.click('[data-r="runLeft"]');
   await page.waitForSelector('[data-r="inputModal"]:not(.pyk-hidden)', { timeout: 60000 });
@@ -248,7 +273,7 @@ async function main() {
          ran.text.includes("exited with status 3") && !ran.text.includes("never"),
          JSON.stringify(ran.text));
   await page.evaluate(() => {
-    window.pykingPlayground.left.setValue("import io\nio.write_line(\"quiet\")\n", -1);
+    window.pykingPlayground.setSource("import io\nio.write_line(\"quiet\")\n");
   });
   await page.click('[data-r="runLeft"]');
   await settled(page);
@@ -259,7 +284,7 @@ async function main() {
          && /finished/.test(await lastLine(page)), await lastLine(page));
   // `print` on a `web` target writes through the shipped io_external.js.
   await page.evaluate(() => {
-    window.pykingPlayground.left.setValue("print(\"from the page\", 1)\n", -1);
+    window.pykingPlayground.setSource("print(\"from the page\", 1)\n");
   });
   await page.selectOption('[data-r="target"]', "web24");
   await page.click('[data-r="compile"]');
@@ -280,7 +305,7 @@ async function main() {
   // until Stop. The canvas is read back pixel by pixel.
   console.log("A page");
   await page.evaluate(() => {
-    window.pykingPlayground.left.setValue([
+    window.pykingPlayground.setSource([
       "import tinyweb as tw",
       "c = tw.canvas(200, 100)",
       "tw.circle(c, 50, 50, 30, \"#ff0000\")",
@@ -296,7 +321,7 @@ async function main() {
       "tw.button(\"Press\", on_click = pressed)",
       "tw.on_frame(draw)",
       "",
-    ].join("\n"), -1);
+    ].join("\n"));
   });
   await page.click('[data-r="runLeft"]');
   const canvas = '[data-r="page"] canvas';
@@ -339,7 +364,7 @@ async function main() {
   // this: it needs a real worker, really executing.
   console.log("Stopping");
   await page.evaluate(() => {
-    window.pykingPlayground.left.setValue("loop:\n    continue\n", -1);
+    window.pykingPlayground.setSource("loop:\n    continue\n");
   });
   await page.click('[data-r="runLeft"]');
   await page.waitForSelector('[data-r="stopLeft"]:not(.pyk-hidden)', { timeout: 30000 });

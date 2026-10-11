@@ -11,14 +11,14 @@ JavaScript file build/pyking.js.
 
 Usage: `make vendor`, or directly:
 
-    python3 tools/webrun/server.py vendor    download Ace and KaTeX
+    python3 tools/webrun/server.py vendor    download Ace, KaTeX and Monaco
 
 Data structures:
     Site -- what one tool serves: URL prefixes mapped to directories,
       single files, and answers computed per request.
 
 Functions:
-    vendor() -- downloads Ace and KaTeX into vendor/.
+    vendor() -- downloads Ace, KaTeX and Monaco into vendor/.
     vendor_files() -- every vendored file, with the URL it comes from.
     check_vendor(tool) -- exits with a message if vendor/ is incomplete.
     bundle_manifest() -- the compiler bundle's manifest, with its stamp.
@@ -32,6 +32,9 @@ import hashlib
 import json
 import os
 import posixpath
+import shutil
+import tarfile
+import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -82,6 +85,19 @@ KATEX_FONTS = [
 KATEX_FILES = ["katex.min.js", "katex.min.css"] + [
     "fonts/KaTeX_%s.woff2" % name for name in KATEX_FONTS]
 
+# Monaco, the playground's editor, is fetched as its npm tarball and only
+# the prebuilt AMD distribution, package/min/vs/, is kept: the editor loads
+# its languages, its workers and its stylesheet from beside loader.js.
+MONACO_VERSION = "0.57.0"
+MONACO_TARBALL = ("https://registry.npmjs.org/monaco-editor/-/monaco-editor-%s.tgz"
+                  % MONACO_VERSION)
+MONACO = VENDOR / "monaco"
+MONACO_PREFIX = "package/min/vs/"
+# What says the distribution is there and complete: two files the page
+# loads, and a marker naming the version, written after everything else.
+MONACO_FILES = ["vs/loader.js", "vs/editor/editor.main.js",
+                "monaco-editor-%s.json" % MONACO_VERSION]
+
 # Set by the test suite, which serves pages it never renders and must run
 # without a network: the vendored libraries are then not required.
 NO_VENDOR_VARIABLE = "PYKING_WEB_NO_VENDOR"
@@ -91,18 +107,24 @@ NO_VENDOR_VARIABLE = "PYKING_WEB_NO_VENDOR"
 
 
 def vendor_files():
-    """Every vendored file: (local path, URL). () -> [(Path, String)]"""
+    """Every vendored file: (local path, URL). Monaco's are the files
+    that say it is there, each with the tarball it comes from.
+    () -> [(Path, String)]"""
     return ([(VENDOR / "ace" / name, ACE_CDN + "/" + name) for name in ACE_FILES]
             + [(VENDOR / "katex" / name, KATEX_CDN + "/" + name)
-               for name in KATEX_FILES])
+               for name in KATEX_FILES]
+            + [(MONACO / name, MONACO_TARBALL) for name in MONACO_FILES])
 
 
 def vendor():
-    """Downloads Ace and KaTeX into vendor/, once; a file already present
-    is left alone. () -> ()"""
+    """Downloads Ace, KaTeX and Monaco into vendor/, once; a file already
+    present is left alone. () -> ()"""
     fetched = 0
     for path, url in vendor_files():
         if path.exists():
+            continue
+        if url == MONACO_TARBALL:
+            fetched += _vendor_monaco()
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
         try:
@@ -115,6 +137,45 @@ def vendor():
     state = f"downloaded {fetched} files" if fetched else "up to date"
     print(f"vendor: {state} ({size / 1048576:.1f} MB in "
           f"{VENDOR.relative_to(ROOT)}/)")
+
+
+def _vendor_monaco():
+    """Downloads Monaco's tarball and unpacks its min/vs/ into
+    vendor/monaco/vs/, replacing whatever version was there. It is
+    unpacked beside vendor/monaco/ and moved into place whole, so an
+    interrupted download leaves nothing that looks complete. Answers how
+    many files it wrote. () -> Int"""
+    if (MONACO / MONACO_FILES[-1]).exists():
+        return 0
+    VENDOR.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=VENDOR, prefix=".monaco-") as scratch:
+        archive = Path(scratch) / "monaco.tgz"
+        try:
+            with urllib.request.urlopen(MONACO_TARBALL) as response:
+                archive.write_bytes(response.read())
+        except urllib.error.URLError as e:
+            raise SystemExit(f"vendor: cannot fetch {MONACO_TARBALL}: {e}")
+        unpacked = Path(scratch) / "monaco"
+        written = 0
+        with tarfile.open(archive) as tar:
+            for member in tar.getmembers():
+                if not (member.isfile() and member.name.startswith(MONACO_PREFIX)):
+                    continue
+                rest = posixpath.normpath(member.name[len(MONACO_PREFIX):])
+                if rest.startswith(("..", "/")):
+                    continue
+                target = unpacked / "vs" / rest
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with tar.extractfile(member) as source:
+                    target.write_bytes(source.read())
+                written += 1
+        (unpacked / MONACO_FILES[-1]).write_text(json.dumps(
+            {"version": MONACO_VERSION, "from": MONACO_TARBALL,
+             "kept": MONACO_PREFIX}, indent=2) + "\n")
+        if MONACO.exists():
+            shutil.rmtree(MONACO)
+        unpacked.rename(MONACO)
+    return written + 1
 
 
 def check_vendor(tool):

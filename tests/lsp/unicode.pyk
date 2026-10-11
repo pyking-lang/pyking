@@ -1,0 +1,3 @@
+greeting = "héllo 😀 world"
+count = len(greeting)
+mistake = greeting + 1

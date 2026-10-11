@@ -64,6 +64,8 @@ and which module calls which.
 | [`version.ml`](#versionml) | 1 | The version, generated from `VERSION` by `src/dune`. |
 | [`web_tools.ml`](#web_toolsml) | ~330 | `pyk notebook`, `pyk playground` and `pyk serve`: what each serves. |
 | [`web_server.ml`](#web_serverml) | ~360 | A small HTTP/1.1 server, in the `pyk` process. |
+| [`lsp.ml`](#lspml) | ~1000 | The language server: a state, and one message in to the messages out. |
+| [`json.ml`](#jsonml) | ~190 | JSON read and written. |
 | [`pyk.ml`](#pykml) | ~780 | The driver: argv, stage sequencing, error reporting, the six commands. |
 | [`web/pyking_web.ml`](#webpyking_webml) | ~320 | The browser entry point: the same library compiled to JavaScript, for the playground and the notebook. |
 
@@ -1792,6 +1794,64 @@ pyk serve [<dir>]       serve a directory's files (web_tools.ml)
 - **`wrap text`** — every message this module prints is reflowed to 70
   columns with continuation lines indented, so a long path or diagnostic
   stays readable in a narrow terminal.
+
+---
+
+## `lsp.ml`
+
+**The language server, `pyk lsp`.** In the library, so js_of_ocaml
+compiles it into the browser bundle as well: the playground's worker
+calls the same code. It opens no file and keeps no mutable state; the
+transport (`command_lsp` in `pyk.ml`, `pykLsp` in `web/pyking_web.ml`)
+holds the state between messages. See
+[../design/lsp.md](../design/lsp.md).
+
+### Data structures
+
+- **`state`** -- where files come from (`Module.sources`) and the
+  library path, the settings (`libPath`, check on change or on save),
+  the open `document`s (URI, path, text, version, whether due to be
+  checked), each document's `analysis`, what was last published per
+  document, and the protocol's `phase` (`Fresh`, `Running`,
+  `Shut_down`, `Exited`).
+- **`analysis`** -- what checking a document as a program found: the
+  modules loaded, each checked module's `tmap` and sigmap, the first
+  error as a `problem` (span, `pyk`'s label for the stage, message),
+  and `typed`, the last check that reached the document's own module,
+  which hover reads while the program does not check.
+- **`meaning`** -- what a name refers to: `Bound` (a place, the binding's
+  symbol, what kind of binding), `Module_of` a module, `Builtin`, or
+  `Unknown`.
+- **`found`** -- what a scope walk found: every use of a name with its
+  meaning, and which names are in scope from where to where.
+
+### Main functions
+
+- **`handle state text -> (state, [text])`** -- one JSON-RPC message.
+  Requests before `initialize` and after `shutdown` are refused with the
+  protocol's codes, an unknown request is `MethodNotFound`, an unknown
+  notification is ignored, and an exception while answering becomes an
+  internal error and a `window/logMessage`.
+- **`idle state`** -- checks every document due and publishes its
+  diagnostics where they changed. A change marks every open document
+  due, since one may import another.
+- **`analyse state document previous`** -- the front end over the
+  document, as `pyk.ml` runs it; an error in a module the document
+  imports is reported at the import that reaches it.
+- **`resolve units unit`** -- the scope walk: `resolve_block` binds a
+  block's `def`s first, `resolve_stmt` and `resolve_expr` follow every
+  construct that binds a name. Definition and completion read it.
+- **`position` / `row_col`** -- the one conversion between
+  `Lexer.info` (rows from 1, byte columns) and LSP positions (lines from
+  0, UTF-16 columns).
+
+---
+
+## `json.ml`
+
+**JSON read and written**, for the language server. A number is a
+float; a `\u` escape, surrogate pairs included, becomes UTF-8. `parse`
+raises `Parse_error` for anything else.
 
 ---
 

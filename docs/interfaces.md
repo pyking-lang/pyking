@@ -43,7 +43,7 @@ respects that, which is what makes the library link.
 ┌──── the entry points ────────────────────────────────────────────────┐
 │                                                                      │
 │  pyk.ml              the driver: argv, the stages, and one of        │
-│                      six commands. Links unix and dynlink, and       │
+│                      nine commands. Links unix and dynlink, and      │
 │                      with them repl.ml, execution.ml,                │
 │                      plugin_host.ml, web_tools.ml, web_server.ml,    │
 │                      install.ml and version.ml.                      │
@@ -79,6 +79,10 @@ respects that, which is what makes the library link.
                                     │
 ┌──── the library: unwrapped, and depends on nothing ──────────────────┐
 │                                                                      │
+│  lsp.ml          create, handle, idle, exit_code: the language       │
+│                  server, over module.ml, typesystem.ml, analyses.ml, │
+│                  walk.ml and json.ml (parse, to_string, member)      │
+│                              │                                       │
 │  the backends    translate_program, pprint_<lang>_program,           │
 │                  Unsupported                                         │
 │    target_python.ml  target_js_core.ml ──▶ target_js_packaging.ml    │

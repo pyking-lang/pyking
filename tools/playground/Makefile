@@ -36,7 +36,7 @@ serve:
 
 help:
 	@echo "make            vendor + check + serve (prints a clickable URL)"
-	@echo "make vendor     download Ace and KaTeX into ../webrun/vendor/ (once)"
+	@echo "make vendor     download Ace, KaTeX and Monaco into ../webrun/vendor/ (once)"
 	@echo "make check      compile every example headlessly, no browser needed"
 	@echo "make e2e        browser tests (needs Playwright; skips if absent)"
 	@echo "make serve      serve the page on http://localhost:\$$(PORT)/"

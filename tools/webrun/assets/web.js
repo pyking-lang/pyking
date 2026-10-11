@@ -1,5 +1,6 @@
 // What the Pyking web tools share in the browser: loading Ace with the
-// Pyking mode, loading KaTeX, booting the compiler, and parsing the
+// Pyking mode, loading Monaco with the Pyking language, loading KaTeX,
+// booting the compiler, and parsing the
 // arguments a reader types for a program. The playground
 // (tools/playground/assets/playground.js) and the notebook
 // (tools/notebook/assets/notebook.js) both import this, and neither keeps
@@ -10,10 +11,12 @@
 // layout tools/webrun/server.py serves -- needs no configuration.
 
 import { PykingRuntime } from "./pyking-runtime.js";
+import { registerPyking } from "./pyking-monaco.js";
 
 export { PykingRuntime };
 export { JsRunner } from "./pyking-runtime.js";
 export { PageHost } from "./pages.js";
+export { LANGUAGE, themeFor } from "./pyking-monaco.js";
 
 const HERE = new URL(".", import.meta.url);
 
@@ -74,6 +77,38 @@ export async function ensureAce(vendor = DEFAULT_URLS.vendor) {
   const base = directoryURL(vendor) + "ace";
   if (!globalThis.ace) await loadScript(base + "/ace.js");
   ace.config.set("basePath", base);
+}
+
+/** Boots the compiler and loads Monaco with the Pyking language, whose
+ *  word lists come from that compiler. Answers the compiler's words and
+ *  Monaco. PykingRuntime -> {vendor} -> (String -> ()) -> {words, monaco} */
+export async function ensureMonaco(runtime, urls = {}, onStatus = () => {}) {
+  const { vendor } = { ...DEFAULT_URLS, ...urls };
+  const [words, monaco] = await Promise.all([
+    runtime.ready(onStatus).then(() => runtime.words()),
+    loadMonaco(vendor),
+  ]);
+  registerPyking(monaco, words);
+  return { words, monaco };
+}
+
+let monacoLoading = null;
+
+/** Monaco itself, with its own AMD loader, from the vendored min/vs/;
+ *  its languages, workers and stylesheet load from beside it. Answers
+ *  the `monaco` global. String -> Promise<Monaco> */
+export function loadMonaco(vendor = DEFAULT_URLS.vendor) {
+  if (globalThis.monaco?.editor) return Promise.resolve(globalThis.monaco);
+  if (!monacoLoading) {
+    const base = directoryURL(vendor) + "monaco/vs";
+    monacoLoading = loadScript(base + "/loader.js").then(() => new Promise(
+      (resolve, reject) => {
+        globalThis.require.config({ paths: { vs: base } });
+        globalThis.require(["vs/editor/editor.main"],
+                           () => resolve(globalThis.monaco), reject);
+      }));
+  }
+  return monacoLoading;
 }
 
 /** KaTeX and its stylesheet, loaded once. String -> Promise */

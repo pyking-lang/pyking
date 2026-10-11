@@ -1,0 +1,23 @@
+> initialize {"diagnostics": "save", "libPath": ["libdir"]}
+{"capabilities": {"completionProvider": {"triggerCharacters": ["."]}, "definitionProvider": true, "documentSymbolProvider": true, "hoverProvider": true, "positionEncoding": "utf-16", "textDocumentSync": {"change": 1, "openClose": true, "save": {"includeText": false}}}, "serverInfo": {"name": "pyk lsp"}}
+> open broken.pyk
+> idle
+diagnostics $CASES/broken.pyk v1 [{"code": "Type error", "message": "argument 1 has type String, but Int was expected", "range": {"end": {"character": 15, "line": 5}, "start": {"character": 10, "line": 5}}, "severity": 1, "source": "pyking"}]
+> change broken.pyk
+> idle
+> save broken.pyk
+> idle
+diagnostics $CASES/broken.pyk v2 []
+> change broken.pyk
+> save broken.pyk
+> idle
+> hover broken.pyk 3:16
+{"contents": {"kind": "markdown", "value": "```pyking\nextra.seven: () -> Int\n```\n\nSeven."}, "range": {"end": {"character": 19, "line": 2}, "start": {"character": 8, "line": 2}}}
+> config {"pyking": {"diagnostics": "change"}}
+> change broken.pyk
+> idle
+diagnostics $CASES/broken.pyk v4 [{"code": "Type error", "message": "`+` cannot be applied to Int and String; it accepts Int + Int or Float + Float", "range": {"end": {"character": 15, "line": 0}, "start": {"character": 8, "line": 0}}, "severity": 1, "source": "pyking"}]
+> shutdown
+null
+> exit
+> exit status 0

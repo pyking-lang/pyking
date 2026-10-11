@@ -133,7 +133,8 @@ let synopsis =
   \       pyk notebook [--port N] [--mode M] <file.md>\n\
   \                                            open a notebook in the browser\n\
   \       pyk playground [--port N]            open the playground\n\
-  \       pyk serve [--port N] [<dir>]         serve a directory's files\n\n\
+  \       pyk serve [--port N] [<dir>]         serve a directory's files\n\
+  \       pyk lsp [--stdio] [--log FILE]       the language server, for editors\n\n\
    Options:\n\
   \  -t, --target <name>   compile for <name> (default: python)\n\
   \  -o, --output <file>   write the output to <file>\n\
@@ -272,7 +273,13 @@ let usage_full () =
      block, and --mode test serves nothing: it runs every cell, exercise\n\
      and solution under node, checks each against the stdout and stderr\n\
      blocks after it, prints file:line: message for what is wrong, and\n\
-     exits with 1 if anything is."
+     exits with 1 if anything is.\n\n\
+     `pyk lsp` is the language server an editor starts: it reads and\n\
+     writes the Language Server Protocol on standard input and output,\n\
+     and reports errors, types on hover, definitions, an outline and\n\
+     completion. --stdio is accepted and is the only transport; -L adds\n\
+     library directories as for a program; --log FILE appends every\n\
+     message to FILE, for finding out what an editor sent."
     synopsis more_options (target_table ())
     (wrap ("An unversioned name is the family's latest: " ^ alias_line () ^ "."))
 
@@ -290,6 +297,7 @@ let commands =
     ("notebook", "notebook");
     ("playground", "playground");
     ("serve", "serve");
+    ("lsp", "lsp");
     ("plugins", "plugins");
   ]
 let default_command = "interpret"
@@ -312,6 +320,7 @@ type options = {
   arguments : string list;
   port : int option;
   mode : string option;
+  log : string option;
 }
 
 let default_options command =
@@ -332,6 +341,7 @@ let default_options command =
     arguments = [];
     port = None;
     mode = None;
+    log = None;
   }
 
 (* --- the library search path ---
@@ -448,6 +458,12 @@ let parse_args argv =
             | Some port when port > 0 && port < 65536 ->
                 go { options with port = Some port } positional rest
             | _ -> usage_error (Printf.sprintf "--port expects a port number, not '%s'" given)))
+    | "--stdio" :: rest when command = "lsp" -> go options positional rest
+    | "--stdio" :: _ -> usage_error "--stdio only applies to 'pyk lsp'"
+    | "--log" :: rest -> (
+        match rest with
+        | [] -> usage_error "--log requires a <file> argument"
+        | file :: rest -> go { options with log = Some file } positional rest)
     | "--mode" :: rest -> (
         match rest with
         | [] -> usage_error "--mode requires student, teacher or test"
@@ -516,12 +532,14 @@ let parse_args argv =
   if options.port <> None && not web then
     usage_error
       "--port only applies to 'pyk notebook', 'pyk playground' and 'pyk serve'";
+  if options.log <> None && command <> "lsp" then
+    usage_error "--log only applies to 'pyk lsp'";
   if options.mode <> None && command <> "notebook" then
     usage_error "--mode only applies to 'pyk notebook'";
   if options.mode = Some "test" && options.port <> None then
     usage_error "--mode test serves nothing, so it takes no --port";
   if options.arguments <> [] then
-    if command = "repl" || web then
+    if command = "repl" || command = "lsp" || web then
       usage_error
         (Printf.sprintf
            "everything after -- is passed to a program being run, and 'pyk %s' \
@@ -553,7 +571,7 @@ let parse_args argv =
          "--no-typechecking only applies to 'pyk compile -t %s': every other \
           target, and the interpreter, need the types the checker works out"
          pyking_target);
-  if command = "repl" || command = "playground" then (
+  if command = "repl" || command = "playground" || command = "lsp" then (
     if positional <> [] then
       usage_error (Printf.sprintf "'pyk %s' takes no filename" command);
     options)
@@ -1395,6 +1413,92 @@ let command_web tool options =
       prerr_endline (wrap message);
       1
 
+(** The first whole message in what has arrived, framed by a
+    Content-Length header, and what follows it. string -> (string?,
+    string) *)
+let framed pending =
+  let rec header_end i =
+    if i + 3 >= String.length pending then None
+    else if String.sub pending i 4 = "\r\n\r\n" then Some i
+    else header_end (i + 1)
+  in
+  match header_end 0 with
+  | None -> (None, pending)
+  | Some stop -> (
+      let headers = String.split_on_char '\n' (String.sub pending 0 stop) in
+      let length =
+        List.find_map
+          (fun line ->
+            match String.index_opt line ':' with
+            | Some i
+              when String.lowercase_ascii (String.trim (String.sub line 0 i)) = "content-length" ->
+                int_of_string_opt (String.trim (String.sub line (i + 1) (String.length line - i - 1)))
+            | _ -> None)
+          headers
+      in
+      let body = stop + 4 in
+      match length with
+      | None -> (Some "", String.sub pending body (String.length pending - body))
+      | Some n when String.length pending >= body + n ->
+          (Some (String.sub pending body n), String.sub pending (body + n) (String.length pending - body - n))
+      | Some _ -> (None, pending))
+
+(** `pyk lsp`: the language server over standard input and output, until
+    the editor says `exit`. Documents are checked once no message has
+    arrived for 200 ms (design/lsp.md, "Debouncing"). options -> int *)
+let command_lsp options =
+  let log =
+    Option.map
+      (fun path -> open_out_gen [ Open_append; Open_creat; Open_binary ] 0o644 path)
+      options.log
+  in
+  let note direction text =
+    match log with
+    | Some channel -> Printf.fprintf channel "%s %s\n%!" direction text
+    | None -> ()
+  in
+  set_binary_mode_out stdout true;
+  let send text =
+    note "<--" text;
+    print_string (Printf.sprintf "Content-Length: %d\r\n\r\n%s" (String.length text) text);
+    flush stdout
+  in
+  let disk = { Module.exists = Sys.file_exists; contents = Module.read_whole_file } in
+  let readable timeout =
+    match Unix.select [ Unix.stdin ] [] [] timeout with
+    | ready, _, _ -> ready <> []
+    | exception Unix.Unix_error (Unix.EINTR, _, _) -> false
+  in
+  let chunk = Bytes.create 65536 in
+  let rec loop state pending waiting =
+    match Lsp.exit_code state with
+    | Some code -> code
+    | None -> (
+        match framed pending with
+        | Some "", rest -> loop state rest waiting
+        | Some text, rest ->
+            note "-->" text;
+            let state, out = Lsp.handle state text in
+            List.iter send out;
+            loop state rest true
+        | None, _ ->
+            if readable (if waiting then 0.2 else -1.0) then
+              match Unix.read Unix.stdin chunk 0 (Bytes.length chunk) with
+              | 0 | (exception Unix.Unix_error _) ->
+                  (* The editor went away: what `exit` would have said. *)
+                  let state, _ = Lsp.handle state "{\"jsonrpc\":\"2.0\",\"method\":\"exit\"}" in
+                  Option.value ~default:1 (Lsp.exit_code state)
+              | n -> loop state (pending ^ Bytes.sub_string chunk 0 n) true
+            else
+              let state, out = Lsp.idle state in
+              List.iter send out;
+              loop state pending false)
+  in
+  let state = Lsp.create disk (library_path options) Version.version in
+  let status = try loop state "" false with error -> note "!!!" (Printexc.to_string error); 1 in
+  Option.iter close_out log;
+  status
+
 (** Runs pyk. [string] -> int *)
 let main argv =
   let options = parse_args argv in
@@ -1403,6 +1507,7 @@ let main argv =
   else if options.command = "notebook" then command_web Web_tools.Notebook options
   else if options.command = "playground" then command_web Web_tools.Playground options
   else if options.command = "serve" then command_web Web_tools.Files options
+  else if options.command = "lsp" then command_lsp options
   else
     let checked = front_end options in
     if options.command = "compile" then command_compile checked options

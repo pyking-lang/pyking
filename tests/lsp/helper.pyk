@@ -1,0 +1,9 @@
+## Helpers the language server tests import.
+
+## Twice a number.
+public def double(n: Int) -> Int:
+    return n * 2
+
+## A greeting for a name.
+public def greet(name: String) -> String:
+    return "hello " ++ name

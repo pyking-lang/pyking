@@ -1,0 +1,26 @@
+> hover main.pyk 1:1
+{"error": {"code": -32002, "message": "the server is not initialized"}}
+> notify textDocument/didOpen {}
+> initialize
+{"capabilities": {"completionProvider": {"triggerCharacters": ["."]}, "definitionProvider": true, "documentSymbolProvider": true, "hoverProvider": true, "positionEncoding": "utf-16", "textDocumentSync": {"change": 1, "openClose": true, "save": {"includeText": false}}}, "serverInfo": {"name": "pyk lsp"}}
+> initialize
+{"error": {"code": -32600, "message": "initialize was sent twice"}}
+> request workspace/symbol {"query": ""}
+{"error": {"code": -32601, "message": "method not found: workspace/symbol"}}
+> request textDocument/formatting {"textDocument": {"uri": "$URI(main.pyk)"}}
+{"error": {"code": -32601, "message": "method not found: textDocument/formatting"}}
+> notify $/cancelRequest {"id": 99}
+> notify pyking/unknown {}
+> raw {"jsonrpc": "2.0", "id":
+{"error": {"code": -32700, "message": "parse error: unexpected end at offset 24"}}
+> raw [1, 2]
+> hover never_opened.pyk 1:1
+null
+> symbols never_opened.pyk
+null
+> shutdown
+null
+> hover main.pyk 1:1
+{"error": {"code": -32600, "message": "the server has been shut down"}}
+> exit
+> exit status 0

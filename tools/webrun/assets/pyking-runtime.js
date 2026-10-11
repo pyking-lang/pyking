@@ -46,9 +46,17 @@ export class PykingRuntime {
     // tab is noticed rather than silently disagreed with (`_checkStamp`).
     this.stamp = null;
     this._words = null;
+    // How many workers have been started. The language server's state
+    // lives in the worker, so a client that sees this change opens its
+    // documents again.
+    this._generation = 0;
   }
 
   get isReady() { return this._ready; }
+
+  /** Which worker is answering: a number that changes whenever a stop or
+   *  a reload replaced it. () -> Int */
+  get generation() { return this._generation; }
 
   /** Boot the worker and load the compiler into it. Safe to call
    *  repeatedly: concurrent callers share one boot, a finished boot returns
@@ -71,6 +79,7 @@ export class PykingRuntime {
   }
 
   _spawn() {
+    this._generation += 1;
     this.worker = new Worker(this.workerURL);
     this.worker.onmessage = (event) => this._receive(event.data);
     this.worker.onerror = (event) => {
@@ -127,6 +136,26 @@ export class PykingRuntime {
     this._require();
     if (!this._words) this._words = await this._send("words", {});
     return this._words;
+  }
+
+  /** Hands the language server one JSON-RPC message, a request or a
+   *  notification as LSP defines it (an object, or its JSON). Resolves to
+   *  the messages the server sends back, responses and notifications --
+   *  or to null where the compiler has no language server. Waits for the
+   *  compiler rather than refusing before it is loaded.
+   *  (Object | String) -> Promise<[Object]?> */
+  async lsp(message) {
+    await this.ready(this.onStatus);
+    const text = typeof message === "string" ? message : JSON.stringify(message);
+    return this._send("lsp", { message: text });
+  }
+
+  /** What the language server sends once the client is idle: the
+   *  diagnostics of the documents a change marked as due. Resolves like
+   *  `lsp`. () -> Promise<[Object]?> */
+  async lspIdle() {
+    await this.ready(this.onStatus);
+    return this._send("lsp-idle", {});
   }
 
   /** Reboot the worker if the compiler on disk is no longer the one it

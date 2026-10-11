@@ -2,7 +2,7 @@
 #
 #   make setup           make the build toolchains (once)
 #   make                 build every package into build/
-#   make FORMATS=linux   only some formats (homebrew, linux)
+#   make FORMATS=linux   only some formats (homebrew, linux, vscode)
 #   make ARCHS=arm64     only some architectures (not for publishing)
 #   make install-local   install the local build on this machine
 #   make uninstall-local remove it again
@@ -50,7 +50,7 @@ help:
 	@echo "                      what is done already, and say whether they are"
 	@echo "                      ready"
 	@echo "make                  build every package into build/"
-	@echo "make FORMATS=linux    only those formats (homebrew, linux)"
+	@echo "make FORMATS=linux    only those formats (homebrew, linux, vscode)"
 	@echo "make ARCHS=arm64      only that architecture (not for publishing)"
 	@echo "make install-local    install the local build here: with Homebrew on"
 	@echo "                      a Mac, with install.sh into ~/.local on Linux"

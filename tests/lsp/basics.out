@@ -1,0 +1,51 @@
+> initialize
+{"capabilities": {"completionProvider": {"triggerCharacters": ["."]}, "definitionProvider": true, "documentSymbolProvider": true, "hoverProvider": true, "positionEncoding": "utf-16", "textDocumentSync": {"change": 1, "openClose": true, "save": {"includeText": false}}}, "serverInfo": {"name": "pyk lsp"}}
+> open main.pyk
+> idle
+diagnostics $CASES/main.pyk v1 []
+> hover main.pyk 5:10
+{"contents": {"kind": "markdown", "value": "```pyking\nimport helper\n```"}, "range": {"end": {"character": 14, "line": 4}, "start": {"character": 8, "line": 4}}}
+> hover main.pyk 5:18
+{"contents": {"kind": "markdown", "value": "```pyking\nhelper.double: (Int) -> Int\n```\n\nTwice a number."}, "range": {"end": {"character": 21, "line": 4}, "start": {"character": 8, "line": 4}}}
+> hover main.pyk 3:30
+null
+> hover main.pyk 19:2
+{"contents": {"kind": "markdown", "value": "```pyking\ntotal: Int\n```"}}
+> hover main.pyk 8:6
+{"contents": {"kind": "markdown", "value": "```pyking\ndef add_up: ([Int]) -> Int\n```"}, "range": {"end": {"character": 29, "line": 7}, "start": {"character": 0, "line": 7}}}
+> hover main.pyk 8:12
+{"contents": {"kind": "markdown", "value": "```pyking\nxs: [Int]\n```"}, "range": {"end": {"character": 20, "line": 7}, "start": {"character": 11, "line": 7}}}
+> hover main.pyk 17:21
+{"contents": {"kind": "markdown", "value": "```pyking\nother: Int\n```"}, "range": {"end": {"character": 24, "line": 16}, "start": {"character": 19, "line": 16}}}
+> hover main.pyk 20:5
+{"contents": {"kind": "markdown", "value": "```pyking\nio.write_line: (String) -> ()\n```\n\nWrites a string to standard output, followed by a newline."}, "range": {"end": {"character": 13, "line": 19}, "start": {"character": 0, "line": 19}}}
+> hover main.pyk 20:15
+{"contents": {"kind": "markdown", "value": "```pyking\nhello: (String) -> String\n```\n\nA greeting for a name."}, "range": {"end": {"character": 19, "line": 19}, "start": {"character": 14, "line": 19}}}
+> hover main.pyk 6:6
+{"contents": {"kind": "markdown", "value": "```pyking\nvar total: Int\n```"}, "range": {"end": {"character": 9, "line": 5}, "start": {"character": 0, "line": 5}}}
+> definition main.pyk 5:18
+{"range": {"end": {"character": 17, "line": 3}, "start": {"character": 11, "line": 3}}, "uri": "$CASES/helper.pyk"}
+> definition main.pyk 20:16
+{"range": {"end": {"character": 16, "line": 7}, "start": {"character": 11, "line": 7}}, "uri": "$CASES/helper.pyk"}
+> definition main.pyk 20:5
+{"range": {"end": {"character": 0, "line": 21}, "start": {"character": 0, "line": 21}}, "uri": "$LIB/io/io_external.pyk"}
+> definition main.pyk 17:28
+{"range": {"end": {"character": 5, "line": 4}, "start": {"character": 0, "line": 4}}, "uri": "$CASES/main.pyk"}
+> definition main.pyk 19:1
+{"range": {"end": {"character": 9, "line": 5}, "start": {"character": 4, "line": 5}}, "uri": "$CASES/main.pyk"}
+> definition main.pyk 2:8
+null
+> definition main.pyk 1:1
+null
+> symbols main.pyk
+[{"detail": "import io", "kind": 2, "name": "io", "range": {"end": {"character": 9, "line": 0}, "start": {"character": 0, "line": 0}}, "selectionRange": {"end": {"character": 9, "line": 0}, "start": {"character": 7, "line": 0}}}, {"detail": "import helper", "kind": 2, "name": "helper", "range": {"end": {"character": 13, "line": 1}, "start": {"character": 0, "line": 1}}, "selectionRange": {"end": {"character": 13, "line": 1}, "start": {"character": 7, "line": 1}}}, {"detail": "from helper", "kind": 2, "name": "hello", "range": {"end": {"character": 33, "line": 2}, "start": {"character": 0, "line": 2}}, "selectionRange": {"end": {"character": 33, "line": 2}, "start": {"character": 28, "line": 2}}}, {"detail": "Int", "kind": 14, "name": "limit", "range": {"end": {"character": 25, "line": 4}, "start": {"character": 0, "line": 4}}, "selectionRange": {"end": {"character": 5, "line": 4}, "start": {"character": 0, "line": 4}}}, {"kind": 13, "name": "total", "range": {"end": {"character": 13, "line": 5}, "start": {"character": 0, "line": 5}}, "selectionRange": {"end": {"character": 9, "line": 5}, "start": {"character": 4, "line": 5}}}, {"detail": "([Int]) -> Int", "kind": 12, "name": "add_up", "range": {"end": {"character": 15, "line": 9}, "start": {"character": 0, "line": 7}}, "selectionRange": {"end": {"character": 10, "line": 7}, "start": {"character": 4, "line": 7}}}, {"detail": "(Int) -> String", "kind": 12, "name": "describe", "range": {"end": {"character": 33, "line": 16}, "start": {"character": 0, "line": 11}}, "selectionRange": {"end": {"character": 12, "line": 11}, "start": {"character": 4, "line": 11}}}]
+> complete main.pyk 5:16
+{"isIncomplete": false, "items": [{"detail": "(Int) -> Int", "kind": 3, "label": "double"}, {"detail": "(String) -> String", "kind": 3, "label": "greet"}]}
+> complete main.pyk 20:4
+{"isIncomplete": false, "items": [{"detail": "(String) -> String", "kind": 3, "label": "read_line"}, {"detail": "(String) -> ()", "kind": 3, "label": "write"}, {"detail": "(String) -> ()", "kind": 3, "label": "write_line"}, {"detail": "() -> String", "kind": 3, "label": "read"}, {"detail": "() -> Bool", "kind": 3, "label": "is_eof"}]}
+> complete main.pyk 17:20
+{"isIncomplete": false, "items": [{"detail": "([Int]) -> Int", "kind": 3, "label": "add_up"}, {"detail": "builtin", "kind": 3, "label": "bool"}, {"detail": "builtin", "kind": 3, "label": "debug"}, {"detail": "(Int) -> String", "kind": 3, "label": "describe"}, {"detail": "builtin", "kind": 3, "label": "float"}, {"detail": "(String) -> String", "kind": 3, "label": "hello"}, {"detail": "module helper", "kind": 9, "label": "helper"}, {"detail": "builtin", "kind": 3, "label": "int"}, {"detail": "module io", "kind": 9, "label": "io"}, {"detail": "builtin", "kind": 3, "label": "len"}, {"detail": "Int", "kind": 6, "label": "limit"}, {"detail": "Int", "kind": 6, "label": "n"}, {"detail": "Int", "kind": 6, "label": "other"}, {"detail": "builtin", "kind": 3, "label": "print"}, {"detail": "builtin", "kind": 3, "label": "range"}, {"detail": "builtin", "kind": 3, "label": "string"}, {"detail": "var Int", "kind": 6, "label": "total"}, {"kind": 14, "label": "for"}, {"kind": 14, "label": "in"}, {"kind": 14, "label": "if"}, {"kind": 14, "label": "while"}, {"kind": 14, "label": "loop"}, {"kind": 14, "label": "break"}, {"kind": 14, "label": "continue"}, {"kind": 14, "label": "then"}, {"kind": 14, "label": "else"}, {"kind": 14, "label": "var"}, {"kind": 14, "label": "def"}, {"kind": 14, "label": "return"}, {"kind": 14, "label": "match"}, {"kind": 14, "label": "case"}, {"kind": 14, "label": "public"}, {"kind": 14, "label": "implicit"}, {"kind": 14, "label": "import"}, {"kind": 14, "label": "from"}, {"kind": 14, "label": "as"}, {"kind": 14, "label": "Int"}, {"kind": 14, "label": "Float"}, {"kind": 14, "label": "String"}, {"kind": 14, "label": "Bool"}, {"kind": 14, "label": "true"}, {"kind": 14, "label": "false"}]}
+> shutdown
+null
+> exit
+> exit status 0
