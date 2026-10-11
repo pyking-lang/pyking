@@ -8,7 +8,7 @@
       tool -- which web tool.
 
     Functions:
-      start tool port document -- replaces this process with the tool's
+      start tool port mode document -- replaces this process with the tool's
         server, or answers why it could not. *)
 
 type tool = Notebook | Playground
@@ -51,7 +51,7 @@ let python_version program =
           with Scanf.Scan_failure _ | Failure _ | End_of_file -> None)
       | _ -> None)
 
-let start tool port document =
+let start tool port mode document =
   let command = "pyk " ^ name tool in
   let path = script tool in
   let program = python () in
@@ -80,7 +80,10 @@ let start tool port document =
         let arguments =
           match tool with
           | Playground -> [ "serve" ] @ port
-          | Notebook -> port @ Option.to_list document
+          | Notebook ->
+              port
+              @ (match mode with Some m -> [ "--mode"; m ] | None -> [])
+              @ Option.to_list document
         in
         (* Flushed, since whatever is buffered is lost when the process
            is replaced. *)

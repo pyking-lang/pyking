@@ -12,6 +12,13 @@
 // other block a `<pre class="pkn-code">`, and the notebook turns them into
 // editors. The cell's source travels in `cells`, not in the HTML.
 //
+// The blocks a notebook uses for exercises and quizzes -- ```rules,
+// ```pyking exercise and solution, ```stdin, ```stdout, ```stderr,
+// ```quiz and ```answer -- are recorded in `parts`, in document order,
+// each with the line its fence starts on and the group of adjacent
+// blocks it belongs to, and left as a `<div class="pkn-part">`
+// placeholder. exercises.js reads what they mean.
+//
 // Data structures:
 //   Context -- what the block parse collects for the inline pass: link
 //     references, footnote definitions, and the running counters.
@@ -21,19 +28,26 @@
 // Functions:
 //   renderMarkdown(source, options) -- the whole document.
 //   parseInfo(info) -- a fence's info string, as a language and attributes.
+//   renderFragment(text) -- a piece of Markdown, as HTML.
 //   slugify(text) -- GitHub's heading anchor for a heading's text.
 //   escapeHTML(text) -- text made safe to put in HTML.
+
+import { structure } from "./exercises.js";
 
 /** The languages whose fenced blocks are Pyking cells. */
 export const CELL_LANGUAGES = ["pyking", "pyk"];
 
 /** The attributes a Pyking fence may carry after its language. */
-export const CELL_ATTRIBUTES = ["norun", "readonly", "error"];
+export const CELL_ATTRIBUTES = ["norun", "readonly", "error", "exercise", "solution"];
 
 /** The languages of the blocks that fill in the input of the cell right
  *  after them: what it reads on standard input, and its arguments. Such
  *  a block is not shown on its own. */
 export const INPUT_LANGUAGES = ["stdin", "args"];
+
+/** The languages of the other blocks a notebook reads rather than shows
+ *  as code: what a program should print, the quizzes, and the rules. */
+export const PART_LANGUAGES = ["stdout", "stderr", "quiz", "answer", "rules"];
 
 const CALLOUTS = {
   note: "Note", tip: "Tip", important: "Important",
@@ -43,37 +57,58 @@ const CALLOUTS = {
 // --- entry point -----------------------------------------------------------
 
 /** Renders a document. Answers the HTML, the Pyking cells in document
- *  order, the headings for a contents list, the title (front matter's,
- *  else the first level-1 heading's), whether any math was written, and
- *  the front matter itself.
+ *  order, the notebook blocks (`parts`) and what they make
+ *  (`notebook`, from exercises.js), the headings for a contents list,
+ *  the title (front matter's, else the first level-1 heading's),
+ *  whether any math was written, and the front matter itself.
  *  String -> {baseURL?, documentLink?, allowHTML?} ->
- *  {html, cells, headings, title, math, meta} */
+ *  {html, cells, parts, notebook, headings, title, math, meta} */
 export function renderMarkdown(source, options = {}) {
   const opts = { baseURL: "", documentLink: null, allowHTML: true, ...options };
-  const { meta, body } = frontMatter(source.replace(/\r\n?/g, "\n"));
-  const ctx = {
-    opts,
-    refs: new Map(),
-    footnotes: new Map(),
-    footnoteOrder: [],
-    cells: [],
-    // A ```stdin or ```args block's text, waiting for the cell after it.
-    input: {},
-    headings: [],
-    slugs: new Map(),
-    math: false,
-  };
-  const blocks = parseBlocks(body.split("\n"), ctx, 0);
+  const text = source.replace(/\r\n?/g, "\n");
+  const { meta, body } = frontMatter(text);
+  const ctx = newContext(opts);
+  const lines = body.split("\n");
+  const blocks = parseBlocks(lines, ctx, 0, text.split("\n").length - lines.length);
   let html = renderBlocks(blocks, ctx, false);
   html += renderFootnotes(ctx);
   const first = ctx.headings.find((h) => h.level === 1);
   return {
     html,
     cells: ctx.cells,
+    parts: ctx.parts,
+    notebook: structure(ctx.parts, ctx.cells),
     headings: ctx.headings,
     title: meta.title || (first ? first.text : ""),
     math: ctx.math,
     meta,
+  };
+}
+
+/** A piece of Markdown -- a quiz alternative, an explanation, the rules
+ *  -- as HTML, with no cells of its own. String -> {...} -> String */
+export function renderFragment(text, options = {}) {
+  const ctx = newContext({ baseURL: "", documentLink: null, allowHTML: true, ...options });
+  ctx.fragment = true;
+  return renderBlocks(parseBlocks(text.split("\n"), ctx, 1, 0), ctx, false).trim();
+}
+
+/** What a block parse collects as it goes. {...} -> Context */
+function newContext(opts) {
+  return {
+    opts,
+    refs: new Map(),
+    footnotes: new Map(),
+    footnoteOrder: [],
+    cells: [],
+    // The notebook blocks, and the group the next one belongs to: a
+    // group is a run of code blocks with nothing else between them.
+    parts: [],
+    group: 0,
+    headings: [],
+    slugs: new Map(),
+    math: false,
+    fragment: false,
   };
 }
 
@@ -186,7 +221,7 @@ function opensTable(line, next) {
 /** Parses lines into block nodes. `depth` is 0 for the document itself
  *  and more inside a container, so only top-level headings reach the
  *  contents list. [String] -> Context -> Int -> [Block] */
-function parseBlocks(input, ctx, depth) {
+function parseBlocks(input, ctx, depth, offset = 0) {
   const lines = input.map(expandTabs);
   const blocks = [];
   let i = 0;
@@ -199,6 +234,7 @@ function parseBlocks(input, ctx, depth) {
     // Fenced code, including ```math.
     let m = RE.fence.exec(line);
     if (m && !(m[2][0] === "`" && m[3].includes("`"))) {
+      const fenceLine = offset + i + 1;
       const indent = m[1].length;
       const marker = m[2];
       const body = [];
@@ -217,7 +253,7 @@ function parseBlocks(input, ctx, depth) {
         ctx.math = true;
         blocks.push({ type: "math", tex: body.join("\n") });
       } else {
-        blocks.push({ type: "code", info, text: body.join("\n") });
+        blocks.push({ type: "code", info, text: body.join("\n"), line: fenceLine });
       }
       continue;
     }
@@ -263,6 +299,7 @@ function parseBlocks(input, ctx, depth) {
 
     // Block quotes, and the callouts written as one.
     if (RE.quote.test(line)) {
+      const quoteLine = offset + i;
       const inner = [];
       while (i < lines.length) {
         if (RE.quote.test(lines[i])) {
@@ -282,17 +319,17 @@ function parseBlocks(input, ctx, depth) {
         blocks.push({
           type: "callout",
           kind: callout[1].toLowerCase(),
-          children: parseBlocks(inner.slice(1), ctx, depth + 1),
+          children: parseBlocks(inner.slice(1), ctx, depth + 1, quoteLine + 1),
         });
       } else {
-        blocks.push({ type: "quote", children: parseBlocks(inner, ctx, depth + 1) });
+        blocks.push({ type: "quote", children: parseBlocks(inner, ctx, depth + 1, quoteLine) });
       }
       continue;
     }
 
     // Lists.
     if (RE.bullet.test(line) || RE.ordered.test(line)) {
-      const parsed = parseList(lines, i, ctx, depth);
+      const parsed = parseList(lines, i, ctx, depth, offset);
       blocks.push(parsed.block);
       i = parsed.next;
       continue;
@@ -303,6 +340,7 @@ function parseBlocks(input, ctx, depth) {
     if (m) {
       const label = m[1].toLowerCase();
       const body = [m[2]];
+      const noteLine = offset + i;
       i++;
       while (i < lines.length) {
         if (RE.blank.test(lines[i])) {
@@ -320,7 +358,7 @@ function parseBlocks(input, ctx, depth) {
         i++;
       }
       if (!ctx.footnotes.has(label)) {
-        ctx.footnotes.set(label, { blocks: parseBlocks(body, ctx, depth + 1) });
+        ctx.footnotes.set(label, { blocks: parseBlocks(body, ctx, depth + 1, noteLine) });
       }
       continue;
     }
@@ -363,7 +401,7 @@ function parseBlocks(input, ctx, depth) {
         i++;
       }
       while (body.length && RE.blank.test(body[body.length - 1])) body.pop();
-      blocks.push({ type: "code", info: parseInfo(""), text: body.join("\n") });
+      blocks.push({ type: "code", info: parseInfo(""), text: body.join("\n"), line: 0 });
       continue;
     }
 
@@ -398,8 +436,8 @@ function parseBlocks(input, ctx, depth) {
 
 /** A list starting at lines[start]: its items, each parsed as blocks of
  *  its own, and whether it is loose. [String] -> Int -> Context -> Int ->
- *  {block, next} */
-function parseList(lines, start, ctx, depth) {
+ *  Int -> {block, next} */
+function parseList(lines, start, ctx, depth, offset) {
   const first = RE.bullet.exec(lines[start]);
   const ordered = !first;
   const head = first || RE.ordered.exec(lines[start]);
@@ -412,6 +450,7 @@ function parseList(lines, start, ctx, depth) {
 
   while (i < lines.length) {
     const m = ordered ? RE.ordered.exec(lines[i]) : RE.bullet.exec(lines[i]);
+    const itemLine = offset + i;
     if (!m || (ordered ? m[3] : m[2]) !== marker || RE.rule.test(lines[i]) && !ordered) break;
     const indent = m[1].length;
     const markerWidth = ordered ? m[2].length + 1 : 1;
@@ -469,7 +508,7 @@ function parseList(lines, start, ctx, depth) {
       task = taskMatch[1] !== " ";
       body[0] = body[0].slice(taskMatch[0].length);
     }
-    const children = parseBlocks(body, ctx, depth + 1);
+    const children = parseBlocks(body, ctx, depth + 1, itemLine);
     if (blankInside && children.length > 1) loose = true;
     items.push({ children, task });
     if (!continues) break;
@@ -501,16 +540,53 @@ function parseTable(lines, start) {
   return { block: { type: "table", header, align, rows }, next: i };
 }
 
-/** A fence's info string: the language, and every attribute after it.
- *  `pyking norun` and `{.pyking .norun}` read the same.
+/** A fence's info string: the language, and every attribute after it --
+ *  a word, which is `true`, or `name = value`, whose value is a word or
+ *  a quoted string with `\n`, `\t`, `\"` and `\\` escapes. `pyking
+ *  norun` and `{.pyking .norun}` read the same. A name is lowercased.
  *  String -> {language, attrs, raw} */
 export function parseInfo(info) {
   const raw = info.trim();
-  const words = raw.replace(/^\{|\}$/g, "").split(/[\s,]+/)
-    .map((w) => w.replace(/^\./, "")).filter(Boolean);
-  const language = (words[0] || "").toLowerCase();
+  const inner = raw.replace(/^\{|\}$/g, "");
+  const words = [];
+  let i = 0;
+  const separator = /[\s,]/;
+  while (i < inner.length) {
+    if (separator.test(inner[i])) { i++; continue; }
+    if (inner[i] === "=") { words.push({ equals: true }); i++; continue; }
+    if (inner[i] === '"' || inner[i] === "'") {
+      const quote = inner[i++];
+      let text = "";
+      while (i < inner.length && inner[i] !== quote) {
+        if (inner[i] === "\\" && i + 1 < inner.length) {
+          const next = inner[++i];
+          text += { n: "\n", t: "\t" }[next] ?? next;
+        } else {
+          text += inner[i];
+        }
+        i++;
+      }
+      i++;
+      words.push({ text, quoted: true });
+      continue;
+    }
+    let text = "";
+    while (i < inner.length && !separator.test(inner[i]) && inner[i] !== "=") text += inner[i++];
+    words.push({ text: text.replace(/^\./, ""), quoted: false });
+  }
+  const language = (words[0]?.text ?? "").toLowerCase();
   const attrs = {};
-  for (const word of words.slice(1)) attrs[word.toLowerCase()] = true;
+  for (let k = 1; k < words.length; k++) {
+    if (words[k].equals || words[k].quoted) continue;
+    const name = words[k].text.toLowerCase();
+    if (!name) continue;
+    if (words[k + 1]?.equals && words[k + 2] && !words[k + 2].equals) {
+      attrs[name] = words[k + 2].text;
+      k += 2;
+    } else {
+      attrs[name] = true;
+    }
+  }
   return { language, attrs, raw };
 }
 
@@ -524,9 +600,8 @@ function renderBlocks(blocks, ctx, tight) {
 
 /** Renders one block node. Block -> Context -> Bool -> String */
 function renderBlock(block, ctx, tight) {
-  // An input block fills in the cell *right after* it, so anything else
-  // in between lets it go.
-  if (block.type !== "code") ctx.input = {};
+  // Anything but a code block ends a group of notebook blocks.
+  if (block.type !== "code") ctx.group += 1;
   switch (block.type) {
     case "paragraph": {
       const inline = renderInline(block.text.trimEnd(), ctx);
@@ -586,35 +661,104 @@ function renderBlock(block, ctx, tight) {
   }
 }
 
-/** A code block: a cell placeholder for runnable Pyking, nothing for a
- *  block filling in the next cell's input, else a `<pre>` the notebook
- *  highlights. Block -> Context -> String */
+/** A code block: a cell placeholder for runnable Pyking, a notebook
+ *  placeholder for the blocks exercises.js reads, else a `<pre>` the
+ *  notebook highlights. Block -> Context -> String */
 function renderCode(block, ctx) {
   const { language, attrs } = block.info;
-  if (INPUT_LANGUAGES.includes(language)) {
-    ctx.input = { ...ctx.input, [language]: block.text };
-    return "";
-  }
   const isPyking = CELL_LANGUAGES.includes(language);
-  const input = ctx.input;
-  ctx.input = {};
-  if (isPyking && !attrs.norun) {
-    const index = ctx.cells.length;
-    const known = Object.fromEntries(CELL_ATTRIBUTES.map((a) => [a, !!attrs[a]]));
-    ctx.cells.push({
-      index, id: `cell-${index + 1}`, source: block.text, attrs: known,
-      // Standard input is lines, each ending in a newline, as a file's are.
-      stdin: input.stdin === undefined ? null
-        : input.stdin === "" || input.stdin.endsWith("\n") ? input.stdin : input.stdin + "\n",
-      args: input.args !== undefined ? input.args.replace(/\n$/, "") : null,
-    });
-    return `<div class="pkn-cell" id="cell-${index + 1}" data-cell="${index}">`
-      + `<pre class="pkn-cell-fallback"><code>${escapeHTML(block.text)}</code></pre>`
-      + "</div>\n";
+  const isPart = INPUT_LANGUAGES.includes(language) || PART_LANGUAGES.includes(language);
+  if (ctx.fragment || (!isPyking && !isPart)) {
+    ctx.group += 1;
+    const lang = isPyking ? "pyking" : language;
+    const data = lang ? ` data-lang="${escapeHTML(lang)}"` : "";
+    return `<pre class="pkn-code"${data}><code>${escapeHTML(block.text)}</code></pre>\n`;
   }
-  const lang = isPyking ? "pyking" : language;
-  const data = lang ? ` data-lang="${escapeHTML(lang)}"` : "";
-  return `<pre class="pkn-code"${data}><code>${escapeHTML(block.text)}</code></pre>\n`;
+  const part = {
+    index: ctx.parts.length, kind: language, attrs, text: block.text,
+    line: block.line, group: ctx.group, cell: null,
+  };
+  ctx.parts.push(part);
+  const marker = ` data-part="${part.index}"`;
+  if (!isPyking) {
+    part.kind = language;
+    if (language === "quiz") Object.assign(part, quizAlternatives(block.text, ctx));
+    if (language === "answer") part.answers = answerEntries(block.text, ctx);
+    if (language === "rules") part.html = renderFragment(block.text, ctx.opts);
+    return `<div class="pkn-part"${marker}></div>\n`;
+  }
+  part.kind = attrs.exercise ? "exercise" : attrs.solution ? "solution" : "pyking";
+  if (attrs.norun) {
+    return `<pre class="pkn-code" data-lang="pyking"${marker}><code>`
+      + `${escapeHTML(block.text)}</code></pre>\n`;
+  }
+  const index = ctx.cells.length;
+  const known = Object.fromEntries(CELL_ATTRIBUTES.map((a) => [a, !!attrs[a]]));
+  part.cell = index;
+  ctx.cells.push({
+    index, id: `cell-${index + 1}`, source: block.text, attrs: known, part: part.index,
+    stdin: typeof attrs.stdin === "string" ? inputLines(attrs.stdin) : null,
+    args: typeof attrs.args === "string" ? attrs.args : null,
+  });
+  return `<div class="pkn-cell" id="cell-${index + 1}" data-cell="${index}"${marker}>`
+    + `<pre class="pkn-cell-fallback"><code>${escapeHTML(block.text)}</code></pre>`
+    + "</div>\n";
+}
+
+/** Text a program reads on standard input: lines, each ending in a
+ *  newline, as a file's are. String -> String */
+export function inputLines(text) {
+  return text === "" || text.endsWith("\n") ? text : text + "\n";
+}
+
+/** A quiz's alternatives: each starts a line with `*` (one may be
+ *  chosen) or `[]` (any may be), and runs to the next. Text before the
+ *  first, or the two markers mixed, is a problem exercises.js reports.
+ *  String -> Context -> {alternatives, multiple, mixed, stray} */
+function quizAlternatives(text, ctx) {
+  const items = [];
+  let stray = false;
+  for (const line of text.split("\n")) {
+    const m = /^\s*(\*|\[\s*\])(?:\s+(.*)|\s*$)/.exec(line);
+    if (m) items.push({ marker: m[1].startsWith("[") ? "[]" : "*", lines: [m[2] ?? ""] });
+    else if (items.length) items[items.length - 1].lines.push(line);
+    else if (line.trim()) stray = true;
+  }
+  const markers = new Set(items.map((item) => item.marker));
+  return {
+    alternatives: items.map((item) => {
+      const body = item.lines.join("\n").trim();
+      return { text: body, html: renderInlineFragment(body, ctx) };
+    }),
+    multiple: markers.has("[]") && !markers.has("*"),
+    mixed: markers.size > 1,
+    stray,
+  };
+}
+
+/** An answer block's entries, in the quiz's order: `->` for a right
+ *  alternative and `-` for a wrong one, each with what explains it.
+ *  String -> Context -> [{correct, text, html}] | {stray} */
+function answerEntries(text, ctx) {
+  const items = [];
+  for (const line of text.split("\n")) {
+    const m = /^\s*(->|-)(?:\s+(.*)|\s*$)/.exec(line);
+    if (m) items.push({ correct: m[1] === "->", lines: [m[2] ?? ""] });
+    else if (items.length) items[items.length - 1].lines.push(line);
+    else if (line.trim()) items.stray = true;
+  }
+  const entries = items.map((item) => {
+    const body = item.lines.join("\n").trim();
+    return { correct: item.correct, text: body, html: renderInlineFragment(body, ctx) };
+  });
+  entries.stray = !!items.stray;
+  return entries;
+}
+
+/** A few lines of Markdown as inline HTML: one paragraph's worth, without
+ *  the `<p>` around it. String -> Context -> String */
+function renderInlineFragment(text, ctx) {
+  return text === "" ? "" : renderInline(text.replace(/\s*\n\s*/g, "\n"), ctx);
 }
 
 /** The footnotes section: every definition that was referenced, in the

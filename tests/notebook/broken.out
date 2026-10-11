@@ -1,0 +1,31 @@
+tests/notebook/broken.md:3: max is 5, but the exercises and quizzes give 0 points
+tests/notebook/broken.md:3: pass (9) is more than max (5)
+tests/notebook/broken.md:7: a notebook has one rules block, and this is a second
+tests/notebook/broken.md:11: a solution belongs right after the exercise it solves
+tests/notebook/broken.md:15: attempts is a whole number of at least 1, not '0'
+tests/notebook/broken.md:15: points is a number of at least 0, not 'many'
+tests/notebook/broken.md:19: an exercise's test gives its arguments as args = on its stdin block
+tests/notebook/broken.md:23: with no solution, this input needs a stdout or stderr block after it
+tests/notebook/broken.md:27: an exercise needs a solution or a stdout block to check an answer against
+tests/notebook/broken.md:39: the program prints
+    right
+and this stdout block says
+    wrong
+tests/notebook/broken.md:43: the exercise's starting code does not run:
+  'cell-6.pyk' 1:0-1:6 Name error: unbound name 'x'
+tests/notebook/broken.md:51: a quiz holds only its alternatives, each starting with * or []
+tests/notebook/broken.md:51: a quiz's alternatives are all * (choose one) or all [] (choose any)
+tests/notebook/broken.md:57: the quiz has 2 alternatives and its answer 3 entries
+tests/notebook/broken.md:57: a quiz whose alternatives are * has one right answer (->), not 2
+tests/notebook/broken.md:63: a quiz needs an answer block right after it
+tests/notebook/broken.md:69: an answer block belongs right after its quiz
+tests/notebook/broken.md:73: a stdout block belongs under a cell or an exercise
+tests/notebook/broken.md:77: a pyking cell takes no attribute 'attempts'
+tests/notebook/broken.md:81: visible is true or false, not 'maybe'
+tests/notebook/broken.md:81: this stdin block fills in no cell: write it right before one, or under a cell or an exercise followed by its stdout
+tests/notebook/broken.md:87: this cell is marked error, but it runs
+tests/notebook/broken.md:95: the program prints
+    prints this
+and this stdout block says
+    prints something else
+notebook test: tests/notebook/broken.md: 9 cells, 6 exercises and quizzes, 23 problems.

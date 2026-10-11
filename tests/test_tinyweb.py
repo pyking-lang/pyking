@@ -564,36 +564,6 @@ CHROME_DRIVER = HERE / "tinyweb" / "chrome.mjs"
 # them: one answering on a thread of its own, one from a select loop
 # once the top level has ended.
 CHROMIUM_SERVED_TARGETS = ["python14", "interpret"]
-CHROME_NAMES = ["chromium", "chromium-browser", "google-chrome", "google-chrome-stable",
-                "chrome", "chrome-headless-shell", "headless_shell"]
-
-
-def find_chromium():
-    """A Chromium to run pages in: $PYKING_CHROME, else one on the PATH,
-    else one Playwright has downloaded, else None. () -> String?"""
-    named = os.environ.get("PYKING_CHROME")
-    if named:
-        return named
-    for name in CHROME_NAMES:
-        found = shutil.which(name)
-        if found:
-            return found
-    mac = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
-    if mac.exists():
-        return str(mac)
-    caches = [Path.home() / ".cache" / "ms-playwright",
-              Path.home() / "Library" / "Caches" / "ms-playwright"]
-    for cache in caches:
-        for pattern in ("chromium_headless_shell-*/*/chrome-headless-shell",
-                        "chromium_headless_shell-*/*/headless_shell",
-                        "chromium-*/chrome-linux*/chrome",
-                        "chromium-*/chrome-mac*/Chromium.app/Contents/MacOS/Chromium"):
-            for found in sorted(cache.glob(pattern), reverse=True):
-                if os.access(found, os.X_OK):
-                    return str(found)
-    return None
-
-
 def marked(page):
     """A page whose module script says when its program's top level has
     ended, which the driver waits for. Path -> ()"""
@@ -759,7 +729,7 @@ def main(argv):
             results.append((name, problem))
     skipped = []
     if only in (None, "browser", "chromium"):
-        chromium = find_chromium()
+        chromium = suite.find_chromium()
         if chromium is None:
             skipped.append("in a real browser: no Chromium found ($PYKING_CHROME, the PATH, "
                            "or Playwright's download)")

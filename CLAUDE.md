@@ -1405,6 +1405,17 @@ anything both pages need there rather than copying it.
   supports, the cell attributes (`norun`, `readonly`, `error`), and the
   ```` ```stdin ```` and ```` ```args ```` blocks that fill in the input
   of the cell right after them.
+- **A notebook may be an assignment.** ```` ```rules ````, ```` ```pyking
+  exercise ```` with its ```` ```pyking solution ```` and stdin/stdout/
+  stderr tests, and ```` ```quiz ```` with its ```` ```answer ````:
+  `tools/notebook/assets/exercises.js` (pure) says what the blocks mean,
+  what is wrong with them and how an answer is graded, and
+  `activities.js` puts them on the page. `pyk notebook --mode student`
+  (the default) or `teacher` says who reads it, and `--mode test` serves
+  nothing: `tools/notebook/check.js` runs every program under node with
+  the page's own worker and prints `file:line: message`. Progress is kept
+  in the browser; `results()` and `onChange` tell an embedding page.
+  `tools/notebook/README.md`, "Exercises and quizzes", is the long form.
 - **A program run in either page may use the standard library.** The
   server serves `lib/` (`common_site`), the worker fetches a module's
   sources and its browser implementation from there as the program names
@@ -1461,7 +1472,9 @@ both, and the runtime the pages run, in `tools/site/build/`
   ```` ```args ````). `tools/site/src/remark-pyking-cells.mjs` turns it into
   a placeholder and `public/site/cells.js` calls the notebook's
   `mountCells` on it -- the notebook's own cell, not a copy. Every one is
-  run by `tests/test_site.py`.
+  run by `tests/test_site.py`. A run of blocks holding an exercise, a
+  quiz, the rules or a stdout block becomes one `.pkn-fragment` instead,
+  which `mountCells` renders and grades as the notebook does.
 - **The playground page is `mountPlayground`** from
   `tools/playground/assets/`. Both it and the cells load from `runtime/`
   in the built site, which `site.py` writes from the same `Site` the
@@ -1853,22 +1866,31 @@ once -- shows up here as an example that will not compile. The page
 itself, its worker and its iframe are `make -C tools/playground e2e`'s,
 which needs Playwright and is not part of `make test`.
 
-**`tests/test_notebook.py` is the fifth suite**, and needs no browser
-either. It renders `tests/notebook/features.md` -- every Markdown
-feature the notebook supports -- against `features.html`, checks short
-cases against CommonMark's own answers, runs every cell of
-`PYKING-TUTORIAL.md` through `tools/webrun/assets/pyking-worker.js`
-under node (an `error` cell must be refused, any other must run), and
-starts `pyk notebook` and `pyk playground` on a free port to fetch what
-their pages load and to check the refusals: a missing file, a file that
-is not Markdown, and a Python older than 3.10 (a fake `$PYTHON`). It sets
+**`tests/test_notebook.py` is the fifth suite**. It renders
+`tests/notebook/features.md` -- every Markdown feature the notebook
+supports, and every exercise and quiz block -- against `features.html`,
+checks short cases against CommonMark's own answers, checks what
+`exercises.js` makes of `features.md` and its grading arithmetic, runs
+every cell of `PYKING-TUTORIAL.md` through
+`tools/webrun/assets/pyking-worker.js` under node (an `error` cell must
+be refused, any other must run), and starts `pyk notebook` and `pyk
+playground` on a free port to fetch what their pages load and to check
+the refusals: a missing file, a file that is not Markdown, a mode there
+is none of, and a Python older than 3.10 (a fake `$PYTHON`). It runs
+`pyk notebook --mode test` on `features.md`, which must pass, and on
+`tests/notebook/broken.md`, which must be reported exactly as
+`broken.out` says. Where a Chromium is found (`tests/suite.py`,
+`find_chromium`) and `make vendor` has run, `tests/notebook/page.mjs`
+drives `features.md` in it in student and teacher mode -- submitting,
+answering, reloading, starting over -- and that part is reported as
+skipped otherwise. It sets
 `PYKING_WEB_NO_VENDOR=1`, so a checkout that never ran `make vendor`
 still passes. It also runs both servers on Python 3.10, the oldest the
 web tools promise: with a `python3.10` on the `PATH`, or else in the
 `python:3.10-alpine` Docker image when it is already present (nothing is
 pulled), and reports the check as skipped otherwise. After changing the
 renderer, `--update` rewrites
-`features.html`; read the diff before keeping it. It takes `--compiler
+`features.html` and `broken.out`; read the diffs before keeping them. It takes `--compiler
 CMD` like the others.
 
 **`tests/test_packaging.py` is the sixth suite**, and runs on every
@@ -1896,7 +1918,9 @@ checks that `tools/site/libdoc.py` finds nothing undocumented in `lib/`,
 that every name a library page lists is one the module exports
 (a program importing them all must compile), that the remark plugin
 turns a page's Pyking blocks into the placeholders `mountCells` reads,
-and that every runnable ```` ```pyking ```` block in `sitesrc/` and in the
+that no page in `sitesrc/` has a problem the notebook finds in its
+exercises and quizzes, that the sidebar lists every page, and that every
+runnable ```` ```pyking ```` block in `sitesrc/` and in the
 generated library pages runs under `pyk` -- or is refused, where it is
 marked `error`. It takes `--compiler CMD` like the others.
 

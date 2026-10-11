@@ -52,6 +52,165 @@ print("not Pyking")
 
     an indented code block
 
+## Exercises and quizzes
+
+``` rules max = 10 pass = 8
+Solve all exercises and quizzes. An **exercise** is checked against its
+tests when it is submitted.
+```
+
+A cell's input can be written on its header:
+
+```pyking stdin = "Ada" args = "first 'second one'"
+import io
+import sys
+print("hello", io.read_line(), sys.args())
+```
+
+So can a read-only cell's, an error cell's and a fragment's:
+
+```pyking readonly stdin = "7"
+import io
+print(int(io.read_line()) * 2)
+```
+
+```pyking error stdin = "1"
+x = 1
+x := 2
+```
+
+```pyking norun args = "a b"
+def f(x): ...
+```
+
+The older way still works, a ```` ```stdin ```` block right before the
+cell:
+
+```stdin
+Grace
+```
+
+```pyking
+import io
+print("hi", io.read_line())
+```
+
+An output shown as if the cell had run:
+
+```pyking
+print("my out")
+```
+
+```stdout visible = true
+my out
+```
+
+Output checked in test mode but not shown, with the input it is read
+from, and what `debug` writes:
+
+```pyking
+import io
+debug("to stderr")
+print(io.read_line())
+```
+
+```stdin
+echo me
+```
+
+```stdout
+echo me
+```
+
+```stderr visible = true
+to stderr
+```
+
+Write a program that reads a line and prints it twice, then its
+arguments.
+
+```pyking exercise attempts = 3 stdin = "123" args = "go for it" points = 5
+print("Add your code here")
+```
+
+```pyking solution available = true
+import io
+import sys
+line = io.read_line()
+print(line, "/", line)
+print("args:", sys.args())
+```
+
+```stdin args = "my 123"
+This is some input
+with several lines
+```
+
+```stdin args = "other 77" visible = true
+Another example
+```
+
+```stdout visible = true
+Another example / Another example
+args: ['other', '77']
+```
+
+```stdout
+123 / 123
+args: ['go', 'for', 'it']
+```
+
+An exercise with no solution, checked against its stdout only, and
+worth no points:
+
+```pyking exercise
+print("Hello")
+```
+
+```stdout visible = true
+Hello, world
+```
+
+An exercise whose solution cannot be shown, losing a point for each
+failed try:
+
+```pyking exercise attempts = 2 points = 1 penalty = 1
+print(0)
+```
+
+```pyking solution available = false
+print(6 * 7)
+```
+
+Which is true of Pyking?
+
+```quiz points = 2
+* It is statically typed.
+
+* It has no types at all.
+```
+
+```answer
+-> Every program is type-checked before it runs.
+- The checker runs on every program.
+```
+
+Which are true of bindings?
+
+```quiz attempts = 2 points = 2 penalty = 1 available = true
+[] `var` binds a name that can change.
+
+[] `=` binds a name that can change.
+
+[] `:=` updates a `var`.
+```
+
+```answer
+-> A `var` is updated with `:=`.
+- A name bound with `=` never changes.
+->
+```
+
 ## Lists
 
 - one

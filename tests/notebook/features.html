@@ -9,18 +9,72 @@ breaks, and so does a backslash<br>
 like this.</p>
 <h2 id="code-cells"><a class="pkn-anchor" href="#code-cells" aria-hidden="true">#</a>Code cells</h2>
 <p>A runnable cell:</p>
-<div class="pkn-cell" id="cell-1" data-cell="0"><pre class="pkn-cell-fallback"><code>print(&quot;Hello&quot;, &quot;world&quot;, 2026)</code></pre></div>
+<div class="pkn-cell" id="cell-1" data-cell="0" data-part="0"><pre class="pkn-cell-fallback"><code>print(&quot;Hello&quot;, &quot;world&quot;, 2026)</code></pre></div>
 <p>A cell that is meant to be refused:</p>
-<div class="pkn-cell" id="cell-2" data-cell="1"><pre class="pkn-cell-fallback"><code>x = 1
+<div class="pkn-cell" id="cell-2" data-cell="1" data-part="1"><pre class="pkn-cell-fallback"><code>x = 1
 x := 2</code></pre></div>
 <p>A read-only cell:</p>
-<div class="pkn-cell" id="cell-3" data-cell="2"><pre class="pkn-cell-fallback"><code>def sq(x: Int) -&gt; Int: x * x
+<div class="pkn-cell" id="cell-3" data-cell="2" data-part="2"><pre class="pkn-cell-fallback"><code>def sq(x: Int) -&gt; Int: x * x
 print(sq(7))</code></pre></div>
 <p>A fragment, highlighted but not runnable:</p>
-<pre class="pkn-code" data-lang="pyking"><code>def f(x): ...</code></pre>
+<pre class="pkn-code" data-lang="pyking" data-part="3"><code>def f(x): ...</code></pre>
 <p>Another language:</p>
 <pre class="pkn-code" data-lang="python"><code>print(&quot;not Pyking&quot;)</code></pre>
 <pre class="pkn-code"><code>an indented code block</code></pre>
+<h2 id="exercises-and-quizzes"><a class="pkn-anchor" href="#exercises-and-quizzes" aria-hidden="true">#</a>Exercises and quizzes</h2>
+<div class="pkn-part" data-part="4"></div>
+<p>A cell's input can be written on its header:</p>
+<div class="pkn-cell" id="cell-4" data-cell="3" data-part="5"><pre class="pkn-cell-fallback"><code>import io
+import sys
+print(&quot;hello&quot;, io.read_line(), sys.args())</code></pre></div>
+<p>So can a read-only cell's, an error cell's and a fragment's:</p>
+<div class="pkn-cell" id="cell-5" data-cell="4" data-part="6"><pre class="pkn-cell-fallback"><code>import io
+print(int(io.read_line()) * 2)</code></pre></div>
+<div class="pkn-cell" id="cell-6" data-cell="5" data-part="7"><pre class="pkn-cell-fallback"><code>x = 1
+x := 2</code></pre></div>
+<pre class="pkn-code" data-lang="pyking" data-part="8"><code>def f(x): ...</code></pre>
+<p>The older way still works, a <code>```stdin</code> block right before the
+cell:</p>
+<div class="pkn-part" data-part="9"></div>
+<div class="pkn-cell" id="cell-7" data-cell="6" data-part="10"><pre class="pkn-cell-fallback"><code>import io
+print(&quot;hi&quot;, io.read_line())</code></pre></div>
+<p>An output shown as if the cell had run:</p>
+<div class="pkn-cell" id="cell-8" data-cell="7" data-part="11"><pre class="pkn-cell-fallback"><code>print(&quot;my out&quot;)</code></pre></div>
+<div class="pkn-part" data-part="12"></div>
+<p>Output checked in test mode but not shown, with the input it is read
+from, and what <code>debug</code> writes:</p>
+<div class="pkn-cell" id="cell-9" data-cell="8" data-part="13"><pre class="pkn-cell-fallback"><code>import io
+debug(&quot;to stderr&quot;)
+print(io.read_line())</code></pre></div>
+<div class="pkn-part" data-part="14"></div>
+<div class="pkn-part" data-part="15"></div>
+<div class="pkn-part" data-part="16"></div>
+<p>Write a program that reads a line and prints it twice, then its
+arguments.</p>
+<div class="pkn-cell" id="cell-10" data-cell="9" data-part="17"><pre class="pkn-cell-fallback"><code>print(&quot;Add your code here&quot;)</code></pre></div>
+<div class="pkn-cell" id="cell-11" data-cell="10" data-part="18"><pre class="pkn-cell-fallback"><code>import io
+import sys
+line = io.read_line()
+print(line, &quot;/&quot;, line)
+print(&quot;args:&quot;, sys.args())</code></pre></div>
+<div class="pkn-part" data-part="19"></div>
+<div class="pkn-part" data-part="20"></div>
+<div class="pkn-part" data-part="21"></div>
+<div class="pkn-part" data-part="22"></div>
+<p>An exercise with no solution, checked against its stdout only, and
+worth no points:</p>
+<div class="pkn-cell" id="cell-12" data-cell="11" data-part="23"><pre class="pkn-cell-fallback"><code>print(&quot;Hello&quot;)</code></pre></div>
+<div class="pkn-part" data-part="24"></div>
+<p>An exercise whose solution cannot be shown, losing a point for each
+failed try:</p>
+<div class="pkn-cell" id="cell-13" data-cell="12" data-part="25"><pre class="pkn-cell-fallback"><code>print(0)</code></pre></div>
+<div class="pkn-cell" id="cell-14" data-cell="13" data-part="26"><pre class="pkn-cell-fallback"><code>print(6 * 7)</code></pre></div>
+<p>Which is true of Pyking?</p>
+<div class="pkn-part" data-part="27"></div>
+<div class="pkn-part" data-part="28"></div>
+<p>Which are true of bindings?</p>
+<div class="pkn-part" data-part="29"></div>
+<div class="pkn-part" data-part="30"></div>
 <h2 id="lists"><a class="pkn-anchor" href="#lists" aria-hidden="true">#</a>Lists</h2>
 <ul>
 <li>one</li>

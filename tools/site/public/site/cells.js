@@ -1,10 +1,12 @@
 // Makes the Pyking cells on a page runnable, with the notebook's own
-// cells (notebook.js, mountCells), and keeps their theme the site's.
+// cells (notebook.js, mountCells) -- and its exercises and quizzes, which
+// arrive as fragments of a notebook -- and keeps their theme the site's.
 // Loaded on every page; does nothing on a page with no cell. The
 // runtime -- notebook/, webrun/, vendor/, pyking/, lib/ -- is served
 // under runtime/ beside this directory (tools/site/README.md).
 
-const placeholders = document.querySelectorAll(".pkn-embedded .pkn-cell");
+const placeholders = document.querySelectorAll(
+  ".pkn-embedded .pkn-cell, .pkn-embedded .pkn-fragment");
 
 if (placeholders.length) {
   const runtime = new URL("../runtime/", import.meta.url);

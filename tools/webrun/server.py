@@ -29,7 +29,7 @@ Functions:
     common_site() -- the Site entries every tool shares.
     free_port(start, explicit) -- the port to listen on.
     serve(site, tool, port, explicit, lines) -- serves a Site until Ctrl+C.
-    tool_arguments(tool, argv, document) -- parses a tool's command line.
+    tool_arguments(tool, argv, document, modes) -- parses a tool's command line.
 """
 
 import sys
@@ -346,14 +346,18 @@ def serve(site, tool, port, explicit, lines=()):
             print("\nserve: stopped.")
 
 
-def tool_arguments(tool, argv, document):
-    """Parses a tool's command line: `--port N`, and a document when
-    `document` says the tool takes one. String -> [String] -> Bool ->
-    Namespace"""
+def tool_arguments(tool, argv, document, modes=()):
+    """Parses a tool's command line: `--port N`, a document when
+    `document` says the tool takes one, and `--mode M` when `modes` lists
+    what it may be (the first is the default). String -> [String] -> Bool
+    -> [String] -> Namespace"""
     parser = argparse.ArgumentParser(prog=tool)
     parser.add_argument("--port", type=int, default=None,
                         help=f"the port to serve on (default: {DEFAULT_PORT}, "
                              "or the next free one)")
+    if modes:
+        parser.add_argument("--mode", choices=modes, default=modes[0],
+                            help=f"who the page is for (default: {modes[0]})")
     if document:
         parser.add_argument("document", help="the Markdown file to open")
     return parser.parse_args(argv)

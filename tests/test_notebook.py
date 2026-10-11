@@ -4,12 +4,12 @@ what it should, that every cell of PYKING-TUTORIAL.md runs through the
 compiler worker the page uses, and that `pyk notebook` and `pyk
 playground` serve what their pages load and refuse what they should.
 
-None of it needs a browser. The renderer is a pure module, so node runs
+Only the page part needs a browser, and it is skipped without one. The renderer is a pure module, so node runs
 it directly; the worker is loaded under node with the few browser globals
 it touches stubbed out; and the server is fetched over HTTP. The page
 itself -- editors, keys, buttons -- is not covered here.
 
-Three parts:
+Five parts:
 
   renderer  tests/notebook/features.md, which uses every feature the
             renderer supports, against tests/notebook/features.html;
@@ -19,17 +19,29 @@ Three parts:
             run through tools/webrun/assets/pyking-worker.js: an `error`
             cell must be refused, every other cell must run.
   server    `pyk notebook` and `pyk playground` on a free port, each file
-            the pages load fetched, and the refusals: a missing file, a
-            file that is not Markdown, and a Python that is too old.
+            the pages load fetched, the mode the page is told, and the
+            refusals: a missing file, a file that is not Markdown, a mode
+            there is none of, and a Python that is too old.
+  test mode `pyk notebook --mode test` passes features.md, and reports
+            exactly what tests/notebook/broken.out says about broken.md.
+  page      where a Chromium is found (tests/suite.py, find_chromium) and
+            the editor has been vendored (`make vendor`), features.md
+            served and driven in it by tests/notebook/page.mjs: in
+            student mode, exercises submitted wrong and right, quizzes
+            answered, progress kept over a reload and forgotten by start
+            over; in teacher mode, every solution, test and answer shown.
 
 Usage: python3 tests/test_notebook.py [--compiler CMD] [--update]
 
-`--update` rewrites features.html from what the renderer now produces;
-read the diff before keeping it.
+`--update` rewrites features.html from what the renderer now produces,
+and broken.out from what test mode now reports; read the diffs before
+keeping them.
 
 Functions:
     run_driver(update) -- the renderer and cell checks, in one node process.
     check_server(compiler) -- the server checks.
+    check_test_mode(compiler, update) -- the test-mode checks.
+    check_page(compiler, chromium) -- the page checks, in Chromium.
     main(argv) -- the command-line entry point.
 """
 
@@ -57,7 +69,11 @@ FEATURES = FIXTURES / "features.md"
 TUTORIAL = REPO / "PYKING-TUTORIAL.md"
 BUNDLE = REPO / "build" / "pyking.js"
 MARKDOWN = REPO / "tools" / "notebook" / "assets" / "markdown.js"
+EXERCISES = REPO / "tools" / "notebook" / "assets" / "exercises.js"
+BROKEN = FIXTURES / "broken.md"
 WORKER = REPO / "tools" / "webrun" / "assets" / "pyking-worker.js"
+VENDOR = REPO / "tools" / "webrun" / "vendor" / "ace" / "ace.js"
+PAGE_DRIVER = FIXTURES / "page.mjs"
 DEFAULT_COMPILER = str(REPO / "pyk")
 STEP_TIMEOUT = 300
 SERVER_TIMEOUT = 20
@@ -92,7 +108,7 @@ CASES = [
     ("x <span>y</span> & z &amp; <3", "<p>x <span>y</span> &amp; z &amp; &lt;3</p>"),
     ("[^n] with no definition", "<p>[^n] with no definition</p>"),
     ("```pyking norun\nx = 1\n```",
-     '<pre class="pkn-code" data-lang="pyking"><code>x = 1</code></pre>'),
+     '<pre class="pkn-code" data-lang="pyking" data-part="0"><code>x = 1</code></pre>'),
 ]
 
 DRIVER = r"""// Drives the notebook's renderer and the compiler worker under node.
@@ -119,17 +135,89 @@ check("features.md renders as features.html", features.html === golden,
 check("the front matter's title", features.title === "Every notebook feature",
       JSON.stringify(features.title));
 check("math is noticed", features.math === true);
-check("three runnable cells, with their attributes",
-      JSON.stringify(features.cells.map((c) => c.attrs)) === JSON.stringify([
-        { norun: false, readonly: false, error: false },
-        { norun: false, readonly: false, error: true },
-        { norun: false, readonly: true, error: false }]),
-      JSON.stringify(features.cells.map((c) => c.attrs)));
+const flags = (c) => Object.keys(c.attrs).filter((a) => c.attrs[a]).join("+") || "-";
+check("fourteen runnable cells, with their attributes",
+      features.cells.map(flags).join(" ") ===
+        "- error readonly - readonly error - - - exercise solution exercise exercise solution",
+      features.cells.map(flags).join(" "));
+check("a cell's input from its header, and from a block before it",
+      features.cells[3].stdin === "Ada\n" && features.cells[3].args === "first 'second one'"
+      && features.cells[4].stdin === "7\n" && features.cells[6].stdin === "Grace\n",
+      JSON.stringify(features.cells.slice(3, 7).map((c) => [c.stdin, c.args])));
 check("the headings the contents list is made from",
       features.headings.map((h) => h.id).join(" ") ===
-        "features code-cells lists tables quotes-and-callouts math footnotes "
-        + "setext-heading features-1",
+        "features code-cells exercises-and-quizzes lists tables quotes-and-callouts math "
+        + "footnotes setext-heading features-1",
       features.headings.map((h) => h.id).join(" "));
+
+// 1b. What exercises.js makes of it.
+const nb = features.notebook;
+check("features.md has no notebook problems", nb.problems.length === 0,
+      JSON.stringify(nb.problems));
+check("the rules: max 10, pass 8", nb.rules?.max === 10 && nb.rules?.pass === 8,
+      JSON.stringify(nb.rules));
+check("three exercises and two quizzes, in order",
+      nb.items.map((i) => i.id).join(" ") === "exercise-1 exercise-2 exercise-3 quiz-1 quiz-2",
+      nb.items.map((i) => i.id).join(" "));
+const [ex1, ex2, ex3, quiz1, quiz2] = nb.items;
+check("exercise 1: header, solution and three tests",
+      ex1.attempts === 3 && ex1.points === 5 && ex1.stdin === "123\n" && ex1.args === "go for it"
+      && ex1.solution?.available === true && ex1.tests.length === 3
+      && ex1.tests[0].args === "my 123" && ex1.tests[0].output === null
+      && ex1.tests[1].output?.text.startsWith("Another") && ex1.tests[2].stdin === null,
+      JSON.stringify(ex1).slice(0, 300));
+check("exercise 2: no solution, no points, a stdout",
+      ex2.solution === null && ex2.points === null && ex2.attempts === null
+      && ex2.tests.length === 1 && ex2.tests[0].output.attrs.visible === "true",
+      JSON.stringify(ex2).slice(0, 300));
+check("exercise 3: a solution that is not available, and a penalty",
+      ex3.solution?.available === false && ex3.penalty === 1 && ex3.attempts === 2,
+      JSON.stringify(ex3).slice(0, 300));
+check("quiz 1: one answer, from *", !quiz1.multiple && quiz1.alternatives.length === 2
+      && quiz1.answers.map((a) => a.correct).join() === "true,false" && !quiz1.available,
+      JSON.stringify(quiz1).slice(0, 300));
+check("quiz 2: any answers, from [], with an empty explanation",
+      quiz2.multiple && quiz2.available && quiz2.attempts === 2 && quiz2.penalty === 1
+      && quiz2.answers.map((a) => a.correct).join() === "true,false,true"
+      && quiz2.answers[2].html === "" && quiz2.alternatives[0].html.includes("<code>var</code>"),
+      JSON.stringify(quiz2).slice(0, 300));
+check("examples under ordinary cells: one shown, one with input and stderr",
+      nb.examples.length === 2 && nb.examples[0].tests[0].output.text === "my out"
+      && nb.examples[1].tests[0].stdin === "echo me\n" && nb.examples[1].tests[0].error !== null,
+      JSON.stringify(nb.examples).slice(0, 300));
+
+// 1c. The fence header's attributes, and the grading arithmetic.
+const { parseInfo } = await import(pathToFileURL(plan.markdown).href);
+const grading = await import(pathToFileURL(plan.exercises).href);
+for (const [info, want] of [
+  ['pyking exercise attempts = 3 stdin = "1 2" points=5',
+   { exercise: true, attempts: "3", stdin: "1 2", points: "5" }],
+  ["stdin args='a \\'b\\' c' visible=true", { args: "a 'b' c", visible: "true" }],
+  ['pyking stdin = "two\\nlines"', { stdin: "two\nlines" }],
+  ["{.pyking .norun}", { norun: true }],
+  ["pyking norun, readonly", { norun: true, readonly: true }],
+]) {
+  const got = parseInfo(info).attrs;
+  check("reads the fence header " + JSON.stringify(info),
+        JSON.stringify(got) === JSON.stringify(want), JSON.stringify(got));
+}
+check("output is compared without trailing spaces or blank lines",
+      grading.sameOutput("a  \nb\n\n\n", "a\nb") && !grading.sameOutput("a\n b", "a\nb"));
+const radio = { multiple: false, answers: [{ correct: false }, { correct: true }] };
+const boxes = { multiple: true, answers: [{ correct: true }, { correct: false }, { correct: true }] };
+check("a quiz answer: right, wrong, and a right one missed",
+      grading.checkQuiz(radio, [1]).correct && !grading.checkQuiz(radio, [0]).correct
+      && JSON.stringify(grading.checkQuiz(boxes, [0, 1])) === '{"correct":false,"missed":true,"wrong":[1]}'
+      && grading.checkQuiz(boxes, [2, 0]).correct,
+      JSON.stringify(grading.checkQuiz(boxes, [0, 1])));
+check("points less the penalty for each failure, never below 0",
+      grading.award({ points: 5, penalty: 2 }, 0) === 5 && grading.award({ points: 5, penalty: 2 }, 2) === 1
+      && grading.award({ points: 5, penalty: 2 }, 3) === 0 && grading.award({ points: null, penalty: 0 }, 0) === 0);
+const totals = grading.summary(nb, { "exercise-1": { state: "solved", points: 5 },
+  "quiz-1": { state: "solved", points: 2 }, "quiz-2": { state: "failed", points: 0 } });
+check("the totals: solved, points, and whether they pass",
+      totals.solved === 2 && totals.total === 5 && totals.points === 7 && totals.max === 10
+      && totals.passed === false && totals.done === false, JSON.stringify(totals));
 
 // 2. The short cases.
 for (const [source, want] of plan.cases) {
@@ -274,6 +362,7 @@ def run_driver(update):
     not be run at all. Bool -> (Int?, [String], Int)"""
     plan = {
         "markdown": str(MARKDOWN),
+        "exercises": str(EXERCISES),
         "worker": str(WORKER),
         "bundle": str(BUNDLE),
         "lib": str(REPO / "lib"),
@@ -387,7 +476,8 @@ def check_server(compiler):
         try:
             check("it serves on the port asked for", f"localhost:{port}/" in printed)
             for path in ["/", "/notebook/notebook.js", "/notebook/markdown.js",
-                         "/notebook/notebook.css", "/webrun/web.js",
+                         "/notebook/notebook.css", "/notebook/exercises.js",
+                         "/notebook/activities.js", "/webrun/web.js",
                          "/webrun/pyking-worker.js", "/webrun/pyking-runtime.js",
                          "/webrun/pyking-mode.js", "/lib/io/io.pyk",
                          "/lib/io/io_external.pyk",
@@ -395,8 +485,9 @@ def check_server(compiler):
                 status, _ = fetch(port, path)
                 check(f"it serves {path}", status == 200, f"status {status}")
             status, body = fetch(port, "/notebook.json")
-            check("notebook.json names the document",
-                  status == 200 and json.loads(body).get("document") == FEATURES.name,
+            check("notebook.json names the document, in student mode",
+                  status == 200 and json.loads(body).get("document") == FEATURES.name
+                  and json.loads(body).get("mode") == "student",
                   body[:80])
             status, body = fetch(port, "/doc/" + FEATURES.name)
             check("the document is served as it is on disk",
@@ -411,6 +502,19 @@ def check_server(compiler):
                          "/doc/.hidden", "/nothing-here"]:
                 status, _ = fetch(port, path)
                 check(f"it refuses {path}", status == 404, f"status {status}")
+        finally:
+            stop(process)
+
+    port = free_port()
+    process, printed = start(
+        compiler, ["notebook", "--port", str(port), "--mode", "teacher", str(FEATURES)],
+        environment)
+    check("`pyk notebook --mode teacher` starts", process is not None, printed)
+    if process is not None:
+        try:
+            status, body = fetch(port, "/notebook.json")
+            check("notebook.json says teacher mode",
+                  status == 200 and json.loads(body).get("mode") == "teacher", body[:80])
         finally:
             stop(process)
 
@@ -443,6 +547,13 @@ def check_server(compiler):
             "no such file")
     refused("a file that is not Markdown is refused",
             ["notebook", str(REPO / "Makefile")], "is not a Markdown file")
+    refused("an unknown mode is refused", ["notebook", "--mode", "exam", str(FEATURES)],
+            "--mode is student, teacher or test")
+    refused("--mode test with a port is refused",
+            ["notebook", "--mode", "test", "--port", "8000", str(FEATURES)],
+            "takes no --port")
+    refused("--mode for anything but the notebook is refused",
+            ["compile", "--mode", "test", str(FEATURES)], "only applies to 'pyk notebook'")
     refused("a filename for the playground is refused",
             ["playground", str(FEATURES)], "takes no filename")
     with tempfile.TemporaryDirectory(prefix="pyk-notebook-") as directory:
@@ -454,6 +565,70 @@ def check_server(compiler):
     refused("a Python that is not there is refused", ["notebook", str(FEATURES)],
             "could not be run",
             dict(environment, PYTHON=str(Path("/nonexistent") / "python3")))
+    return checks, failures
+
+
+def check_test_mode(compiler, update):
+    """`pyk notebook --mode test` passes features.md, and reports what
+    broken.out says about broken.md, line by line. [String] -> Bool ->
+    (Int, [String])"""
+    failures = []
+    environment = dict(os.environ, PYKING_WEB_NO_VENDOR="1")
+
+    def mode_test(document):
+        return subprocess.run(compiler + ["notebook", "--mode", "test",
+                                          str(document.relative_to(REPO))],
+                              cwd=REPO, capture_output=True, text=True,
+                              env=environment, timeout=STEP_TIMEOUT)
+
+    good = mode_test(FEATURES)
+    if good.returncode != 0:
+        failures.append("features.md passes test mode: "
+                        + (good.stdout + good.stderr).strip())
+    bad = mode_test(BROKEN)
+    golden = BROKEN.with_suffix(".out")
+    if update:
+        golden.write_text(bad.stdout)
+    expected = golden.read_text() if golden.exists() else ""
+    if bad.returncode != 1:
+        failures.append(f"broken.md fails test mode: it ended with {bad.returncode}: "
+                        + bad.stderr.strip())
+    if bad.stdout != expected:
+        got, want = bad.stdout.splitlines(), expected.splitlines()
+        k = next((k for k in range(max(len(got), len(want)))
+                  if k >= len(got) or k >= len(want) or got[k] != want[k]), 0)
+        failures.append("broken.md is reported as broken.out says: line "
+                        f"{k + 1}: got {got[k] if k < len(got) else None!r}, "
+                        f"expected {want[k] if k < len(want) else None!r}")
+    return 2, failures
+
+
+def check_page(compiler, chromium):
+    """features.md served in each mode and driven in Chromium by
+    page.mjs. [String] -> String -> (Int, [String])"""
+    checks, failures = 0, []
+    for mode in ("student", "teacher"):
+        port = free_port()
+        process, printed = start(
+            compiler, ["notebook", "--port", str(port), "--mode", mode, str(FEATURES)],
+            dict(os.environ))
+        if process is None:
+            checks += 1
+            failures.append(f"{mode}: the notebook did not start: {printed}")
+            continue
+        try:
+            ran = subprocess.run(["node", str(PAGE_DRIVER), chromium,
+                                  f"http://127.0.0.1:{port}/", mode],
+                                 capture_output=True, text=True, timeout=STEP_TIMEOUT)
+            try:
+                result = json.loads(ran.stdout)
+            except json.JSONDecodeError:
+                result = {"checks": 1, "failures": [
+                    f"{mode}: the driver did not answer: {(ran.stderr or ran.stdout).strip()[-300:]}"]}
+            checks += result["checks"]
+            failures += result["failures"]
+        finally:
+            stop(process)
     return checks, failures
 
 
@@ -559,8 +734,25 @@ def main(argv):
         print(f"notebook: FAILED {failure}")
     print(f"notebook: server, {served} checks.")
 
-    total = checks + served
-    failed = len(failures) + len(server_failures)
+    tested, test_failures = check_test_mode(compiler, update)
+    for failure in test_failures:
+        print(f"notebook: FAILED {failure}")
+    print(f"notebook: test mode, {tested} checks.")
+
+    chromium = suite.find_chromium()
+    if chromium is None or not VENDOR.exists():
+        why = "no Chromium found" if chromium is None else "no vendored editor (make vendor)"
+        print(f"notebook: the page in a browser skipped ({why}).")
+    else:
+        paged, page_failures = check_page(compiler, chromium)
+        test_failures += page_failures
+        tested += paged
+        for failure in page_failures:
+            print(f"notebook: FAILED {failure}")
+        print(f"notebook: the page in Chromium, {paged} checks.")
+
+    total = checks + served + tested
+    failed = len(failures) + len(server_failures) + len(test_failures)
     suite.footer("notebook", total - failed, failed,
                  f"{len(CASES)} renderer cases, {cells} cells, the server")
     return 1 if failed else 0

@@ -130,7 +130,8 @@ let synopsis =
   "Usage: pyk [options] <filename> [-- args]   run it with the interpreter\n\
   \       pyk repl                             start the REPL\n\
   \       pyk compile [options] <filename>     compile it (alias: pyk c)\n\
-  \       pyk notebook [--port N] <file.md>    open a notebook in the browser\n\
+  \       pyk notebook [--port N] [--mode M] <file.md>\n\
+  \                                            open a notebook in the browser\n\
   \       pyk playground [--port N]            open the playground\n\n\
    Options:\n\
   \  -t, --target <name>   compile for <name> (default: python)\n\
@@ -143,6 +144,8 @@ let synopsis =
   \  --release             compile in release mode: every call to debug()\n\
   \                        is removed, and print() is kept\n\
   \  --port <n>            serve the notebook or playground on port <n>\n\
+  \  --mode <mode>         the notebook for a student (the default) or a\n\
+  \                        teacher, or test: check it instead of serving it\n\
   \  --                    everything after it is the program's own\n\
   \                        arguments, read by sys.args()\n\
   \  --version             print the version and exit\n\
@@ -261,7 +264,12 @@ let usage_full () =
      serves the compiler's playground. Both print a link to open, need\n\
      Python 3.10 or later ($PYTHON names which one), and look for tools/\n\
      beside this executable. Without --port they start at 8000 and take\n\
-     the first free port."
+     the first free port. --mode student hides an exercise's solution and\n\
+     tests until a student asks for them, --mode teacher shows every\n\
+     block, and --mode test serves nothing: it runs every cell, exercise\n\
+     and solution under node, checks each against the stdout and stderr\n\
+     blocks after it, prints file:line: message for what is wrong, and\n\
+     exits with 1 if anything is."
     synopsis more_options (target_table ())
     (wrap ("An unversioned name is the family's latest: " ^ alias_line () ^ "."))
 
@@ -299,6 +307,7 @@ type options = {
   lib_paths : string list;
   arguments : string list;
   port : int option;
+  mode : string option;
 }
 
 let default_options command =
@@ -318,6 +327,7 @@ let default_options command =
     lib_paths = [];
     arguments = [];
     port = None;
+    mode = None;
   }
 
 (* --- the library search path ---
@@ -434,6 +444,15 @@ let parse_args argv =
             | Some port when port > 0 && port < 65536 ->
                 go { options with port = Some port } positional rest
             | _ -> usage_error (Printf.sprintf "--port expects a port number, not '%s'" given)))
+    | "--mode" :: rest -> (
+        match rest with
+        | [] -> usage_error "--mode requires student, teacher or test"
+        | given :: rest ->
+            if List.mem given [ "student"; "teacher"; "test" ] then
+              go { options with mode = Some given } positional rest
+            else
+              usage_error
+                (Printf.sprintf "--mode is student, teacher or test, not '%s'" given))
     | ("--output" | "-o") :: rest -> (
         match rest with
         | [] -> usage_error "--output requires a <file> argument"
@@ -492,6 +511,10 @@ let parse_args argv =
   let web = command = "notebook" || command = "playground" in
   if options.port <> None && not web then
     usage_error "--port only applies to 'pyk notebook' and 'pyk playground'";
+  if options.mode <> None && command <> "notebook" then
+    usage_error "--mode only applies to 'pyk notebook'";
+  if options.mode = Some "test" && options.port <> None then
+    usage_error "--mode test serves nothing, so it takes no --port";
   if options.arguments <> [] then
     if command = "repl" || web then
       usage_error
@@ -1356,7 +1379,7 @@ let command_plugins options =
     tool's server, and answers 1 only if that could not be done.
     Web_tools.tool -> options -> int *)
 let command_web tool options =
-  prerr_endline (wrap (Web_tools.start tool options.port options.filename));
+  prerr_endline (wrap (Web_tools.start tool options.port options.mode options.filename));
   1
 
 (** Runs pyk. [string] -> int *)

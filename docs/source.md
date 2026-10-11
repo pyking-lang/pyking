@@ -1806,11 +1806,11 @@ starts a process.
 
 ### Main functions
 
-- **`start tool port document -> string`** — finds
+- **`start tool port mode document -> string`** — finds
   `tools/<tool>/<tool>.py` beside the running executable, asks `$PYTHON`
   (else `python3`) for its version and refuses one older than 3.10, then
   replaces this process with the script (`Unix.execvp`), passing
-  `--port` and the document. It returns only when it could not, with the
+  `--port`, the notebook's `--mode` and the document. It returns only when it could not, with the
   reason as a sentence for the driver to print.
 
 ---

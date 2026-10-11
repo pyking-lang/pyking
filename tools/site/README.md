@@ -44,7 +44,8 @@ tools/site/
   astro.config.mjs          Starlight: title, sidebar, header, highlighting
   src/sections.mjs          the four sections, for the header and sidebar
   src/content.config.mjs    the pages come from build/content/
-  src/remark-pyking-cells.mjs   ```pyking blocks -> cell placeholders
+  src/remark-pyking-cells.mjs   ```pyking blocks -> cell placeholders, and
+                                exercises and quizzes -> fragments
   src/components/HeaderNav.astro  the header's menu
   src/pages/playground.astro      the playground page
   src/styles/site.css       the site's own styles
@@ -123,6 +124,14 @@ print(io.read_line())   # reads "Ada"
 ```` ```args ```` block just before a cell fills in its input and is not
 shown. Every runnable cell is run by `tests/test_site.py`, so an example
 that stops working fails `make test`.
+
+A page may hold the notebook's exercises and quizzes too
+(`tools/notebook/README.md`, "Exercises and quizzes"), in student mode,
+with progress kept per page. The remark plugin writes each run of
+adjacent blocks that holds one -- or the rules, a stdout block, or input
+on a cell's header -- back into one `.pkn-fragment` placeholder as
+Markdown, which `mountCells` renders and makes work. `tests/test_site.py`
+checks every page for the problems the notebook finds in them.
 
 How a cell works: `remark-pyking-cells.mjs` turns the block into a
 `.pkn-cell` placeholder inside a `.pkn-notebook` element, carrying its

@@ -8,7 +8,7 @@
       tool -- which web tool.
 
     Functions:
-      start tool port document -- replaces this process with the tool's
+      start tool port mode document -- replaces this process with the tool's
         server, or answers why it could not. *)
 
 (** Which web tool: the notebook, which opens one Markdown document, or
@@ -16,7 +16,7 @@
 type tool = Notebook | Playground
 
 (** Replaces this process with the tool's Python server, on `port` if
-    one is given, opening `document` for the notebook. Returns only when
-    that could not be done, with the reason.
-    tool -> int? -> string? -> string *)
-val start : tool -> int option -> string option -> string
+    one is given, opening `document` for the notebook in `mode` (student,
+    teacher or test). Returns only when that could not be done, with the
+    reason. tool -> int? -> string? -> string? -> string *)
+val start : tool -> int option -> string option -> string option -> string

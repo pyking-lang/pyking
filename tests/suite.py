@@ -14,9 +14,12 @@ Functions:
     footer name passed failed detail -- the one-line summary that closes
       it, and the tally the driver collects.
     read_tally path -- the tallies a run collected, in order.
+    find_chromium() -- a Chromium the browser checks can drive, or None.
 """
 
 import os
+import shutil
+from pathlib import Path
 
 # Wide enough for the longest line the suites print, and the same for
 # every banner so they line up when read one after another.
@@ -60,3 +63,33 @@ def read_tally(path):
             name, passed, failed = line.rstrip("\n").split("\t")
             out.append((name, int(passed), int(failed)))
     return out
+
+
+CHROME_NAMES = ["chromium", "chromium-browser", "google-chrome", "google-chrome-stable",
+                "chrome", "chrome-headless-shell", "headless_shell"]
+
+
+def find_chromium():
+    """A Chromium to run pages in: $PYKING_CHROME, else one on the PATH,
+    else one Playwright has downloaded, else None. () -> String?"""
+    named = os.environ.get("PYKING_CHROME")
+    if named:
+        return named
+    for name in CHROME_NAMES:
+        found = shutil.which(name)
+        if found:
+            return found
+    mac = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+    if mac.exists():
+        return str(mac)
+    caches = [Path.home() / ".cache" / "ms-playwright",
+              Path.home() / "Library" / "Caches" / "ms-playwright"]
+    for cache in caches:
+        for pattern in ("chromium_headless_shell-*/*/chrome-headless-shell",
+                        "chromium_headless_shell-*/*/headless_shell",
+                        "chromium-*/chrome-linux*/chrome",
+                        "chromium-*/chrome-mac*/Chromium.app/Contents/MacOS/Chromium"):
+            for found in sorted(cache.glob(pattern), reverse=True):
+                if os.access(found, os.X_OK):
+                    return str(found)
+    return None

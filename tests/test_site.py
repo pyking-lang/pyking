@@ -9,7 +9,7 @@ None of it needs Astro, which `make website` installs on first use and
 FILE`), the reference for what a program means; the page runs the same
 compiler as JavaScript, which tests/test_notebook.py covers.
 
-Six parts:
+Seven parts:
 
   docs      lib/ through tools/site/libdoc.py: nothing undocumented, and
             every module has a page naming each thing it exports.
@@ -19,7 +19,10 @@ Six parts:
   copies    a library's node implementation that its browser one says
             is a copy of it is one.
   plugin    tools/site/src/remark-pyking-cells.mjs, under node, on a
-            small tree: cells, attributes, norun, and stdin/args blocks.
+            small tree: cells, attributes, norun, stdin/args blocks, and
+            an exercise, which becomes a fragment of a notebook.
+  notebook  every page in sitesrc/ has none of the problems the
+            notebook's exercises.js finds in exercises and quizzes.
   sidebar   site.py's sidebar lists every page of Getting started and
             Libraries, tinyweb's pages for other languages included.
   cells     every runnable ```pyking block in sitesrc/ and in the
@@ -33,6 +36,7 @@ Functions:
     check_exports(compiler) -- the exports part.
     check_copies() -- the copies part.
     check_plugin() -- the plugin part.
+    check_notebook() -- the notebook part.
     check_sidebar() -- the sidebar part.
     blocks(text) -- the runnable Pyking blocks of a Markdown page.
     check_cells(compiler) -- the cells part.
@@ -64,6 +68,7 @@ _spec.loader.exec_module(website)
 
 SOURCES = REPO / "sitesrc"
 PLUGIN = REPO / "tools" / "site" / "src" / "remark-pyking-cells.mjs"
+MARKDOWN = REPO / "tools" / "notebook" / "assets" / "markdown.js"
 DEFAULT_COMPILER = str(REPO / "pyk")
 TIMEOUT = 60
 
@@ -85,6 +90,8 @@ const tree = { type: "root", children: [
   code("pyking", "print(3)"),
   { type: "blockquote", children: [code("pyking", "print(<4>)")] },
   code("python", "print(5)"),
+  code("pyking", "print(6)", "exercise points = 1"),
+  code("stdout", "6"),
 ] };
 plugin()(tree);
 console.log(JSON.stringify(tree.children.map((n) =>
@@ -110,6 +117,9 @@ PLUGIN_EXPECTED = [
     'quote:<div class="pkn-notebook pkn-embedded not-content"><div class="pkn-cell" >'
     '<pre class="pkn-cell-fallback"><code>print(&lt;4&gt;)</code></pre></div></div>',
     "code:python:null",
+    '<div class="pkn-notebook pkn-embedded not-content"><div class="pkn-fragment" '
+    'data-markdown="```pyking exercise points = 1\nprint(6)\n```\n\n```stdout\n6\n```">'
+    '</div></div>',
 ]
 
 
@@ -184,6 +194,35 @@ def check_plugin():
         detail = (f"node {wrong}: got {got[wrong] if wrong < len(got) else None!r}, "
                   f"expected {PLUGIN_EXPECTED[wrong] if wrong < len(PLUGIN_EXPECTED) else None!r}")
     return [("the remark plugin makes cells, as the notebook does", detail)]
+
+
+NOTEBOOK_DRIVER = r"""// Prints the problems the notebook finds in each page given.
+import fs from "node:fs";
+import { pathToFileURL } from "node:url";
+const { renderMarkdown } = await import(pathToFileURL(process.argv[2]).href);
+const found = {};
+for (const page of process.argv.slice(3)) {
+  found[page] = renderMarkdown(fs.readFileSync(page, "utf8")).notebook.problems
+    .map((p) => `${p.line}: ${p.message}`);
+}
+console.log(JSON.stringify(found));
+"""
+
+
+def check_notebook():
+    """Every page in sitesrc/ has none of the problems the notebook finds
+    in exercises and quizzes. () -> [(String, String?)]"""
+    pages = sorted(SOURCES.rglob("*.md"))
+    with tempfile.TemporaryDirectory(prefix="pyk-site-") as directory:
+        script = Path(directory) / "driver.mjs"
+        script.write_text(NOTEBOOK_DRIVER)
+        ran = subprocess.run(["node", str(script), str(MARKDOWN), *map(str, pages)],
+                             capture_output=True, text=True, timeout=TIMEOUT)
+    if ran.returncode != 0:
+        return [("the notebook reads the pages", ran.stderr.strip())]
+    found = json.loads(ran.stdout.strip().splitlines()[-1])
+    return [(f"{Path(page).relative_to(REPO)} has no exercise or quiz problems",
+             "\n  ".join(problems) or None) for page, problems in found.items()]
 
 
 def check_sidebar():
@@ -302,7 +341,8 @@ def main(argv):
         print("usage: test_site.py [--compiler CMD]", file=sys.stderr)
         return 2
     cells, count = check_cells(compiler)
-    results = check_docs() + check_exports(compiler) + check_copies() + check_plugin() + check_sidebar() + cells
+    results = (check_docs() + check_exports(compiler) + check_copies() + check_plugin()
+               + check_notebook() + check_sidebar() + cells)
     failed = 0
     for name, detail in results:
         if detail is None:

@@ -20,6 +20,10 @@
 //   import { mountCells } from "./notebook/notebook.js";
 //   mountCells(document.querySelectorAll(".pkn-cell"), { theme: "dark" });
 //
+// A document's exercises, quizzes and rules are activities.js's, made
+// from what exercises.js reads out of it; `mode` says whether a student
+// or a teacher is reading, and `results()` what has been solved.
+//
 // Data structures:
 //   Cells -- what the cells of one page share: the compiler worker, the
 //     run queue, and the theme.
@@ -28,10 +32,12 @@
 //
 // Functions:
 //   mountNotebook(host, options) -- renders a document into host.
-//   mountCells(placeholders, options) -- makes cell placeholders runnable.
+//   mountCells(placeholders, options) -- makes cell placeholders, and
+//     fragments of a notebook, runnable.
 //   cellSpec(placeholder, index) -- what a placeholder's data attributes say.
 
 import { renderMarkdown, escapeHTML } from "./markdown.js";
+import { Activities } from "./activities.js";
 
 const HERE = new URL(".", import.meta.url);
 
@@ -47,6 +53,9 @@ const DEFAULTS = {
   contents: true,         // the contents sidebar
   theme: null,            // "auto" | "light" | "dark"; default: remembered
   fontSize: 14,           // the editors' and outputs' font size, in px
+  mode: "student",        // "student" or "teacher": who is reading
+  storageKey: null,       // where progress is kept; default: from url
+  onChange: null,         // (results) -> (), whenever an answer is checked
 };
 
 const THEME_KEY = "pyking-notebook.theme";
@@ -85,7 +94,7 @@ export async function mountNotebook(host, options = {}) {
     ?? (cfg.url ? new URL(".", new URL(cfg.url, document.baseURI)).href : "");
   const doc = renderMarkdown(source, { baseURL, documentLink: cfg.documentLink });
 
-  const notebook = new Notebook(host, doc, cfg, web);
+  const notebook = new Notebook(host, doc, cfg, web, source);
   await notebook.init();
   return notebook;
 }
@@ -93,8 +102,10 @@ export async function mountNotebook(host, options = {}) {
 /** Makes every placeholder runnable, sharing one compiler worker and one
  *  run queue. A placeholder is a `.pkn-cell` element inside a
  *  `.pkn-notebook` one, holding the code as a `<pre>`, with what
- *  `cellSpec` reads in its data attributes. Resolves to the mounted
- *  Cells. [Element] -> {...} -> Promise<Cells> */
+ *  `cellSpec` reads in its data attributes -- or a `.pkn-fragment`
+ *  holding a piece of a notebook in `data-markdown`, whose exercises
+ *  and quizzes work as they do in one. Resolves to the mounted Cells.
+ *  [Element] -> {...} -> Promise<Cells> */
 export async function mountCells(placeholders, options = {}) {
   const cfg = { ...DEFAULTS, header: false, contents: false, ...options };
   const webrun = new URL(cfg.webrunURL, document.baseURI).href;
@@ -102,8 +113,29 @@ export async function mountCells(placeholders, options = {}) {
   web.loadStyle(new URL("notebook.css", HERE).href);
 
   const cells = new Cells(cfg, web);
-  [...placeholders].forEach((placeholder, index) =>
-    cells.cells.push(new Cell(cells, cellSpec(placeholder, index), placeholder)));
+  let fragments = 0;
+  for (const placeholder of placeholders) {
+    if (!placeholder.classList.contains("pkn-fragment")) {
+      cells.cells.push(new Cell(cells, cellSpec(placeholder, cells.cells.length), placeholder));
+      continue;
+    }
+    const doc = renderMarkdown(placeholder.dataset.markdown ?? "", { baseURL: cfg.baseURL ?? "" });
+    const offset = cells.cells.length;
+    placeholder.innerHTML = `<div class="pkn-prose">${doc.html}</div>`;
+    for (const element of placeholder.querySelectorAll(".pkn-cell[data-cell]")) {
+      const spec = doc.cells[Number(element.dataset.cell)];
+      const index = offset + spec.index;
+      cells.cells.push(new Cell(cells, { ...spec, index, id: `cell-${index + 1}` }, element));
+    }
+    fragments += 1;
+    cells.activities.push(new Activities(cells, doc, placeholder, {
+      mode: cfg.mode,
+      storageKey: `${cfg.storageKey ?? location.pathname}#${fragments}`,
+      summary: false,
+      onChange: () => cells.changed(),
+      cellOffset: offset,
+    }));
+  }
   await cells.init();
   return cells;
 }
@@ -139,6 +171,29 @@ class Cells {
     this.executions = 0;       // the [n] counter, as in Jupyter
     this.themeChoice = cfg.theme ?? loadTheme();
     this.media = globalThis.matchMedia?.("(prefers-color-scheme: dark)");
+    this.activities = [];      // the exercises and quizzes, per document
+  }
+
+  /** Every exercise's and quiz's state, and the totals.
+   *  () -> {items, solved, total, points, max, pass, passed, done} */
+  results() {
+    const all = this.activities.map((a) => a.results());
+    const items = all.flatMap((r) => r.items);
+    const add = (key) => all.reduce((sum, r) => sum + (r[key] ?? 0), 0);
+    const max = all.some((r) => r.max !== null) ? add("max") : null;
+    const pass = all.some((r) => r.pass !== null) ? add("pass") : null;
+    const points = add("points");
+    const solved = items.filter((item) => item.state === "solved").length;
+    return {
+      items, solved, total: items.length, points, max, pass,
+      passed: pass === null ? null : points >= pass,
+      done: items.length > 0 && solved === items.length,
+    };
+  }
+
+  /** Tells the embedding page that an answer was checked. */
+  changed() {
+    this.cfg.onChange?.(this.results());
   }
 
   async init() {
@@ -261,6 +316,56 @@ class Cells {
     }
   }
 
+  /** Runs a program quietly -- an answer being checked, or the solution
+   *  it is checked against -- in the same queue as the cells, and answers
+   *  what it printed. A run longer than `timeout` is stopped.
+   *  String -> {name, stdin, args, timeout} ->
+   *  Promise<{ok, text?, stdout, stderr, exit, timedOut?}> */
+  capture(source, { name = "check.pyk", stdin = "", args = [], timeout = 10000 } = {}) {
+    const generation = this.generation;
+    const job = this.queue.then(async () => {
+      if (generation !== this.generation) return { ok: false, text: "stopped", stdout: "", stderr: "" };
+      this.status("busy", "checking an answer");
+      let stdout = "";
+      let stderr = "";
+      let failure = "";
+      let exit = null;
+      let timer = null;
+      let timedOut = false;
+      try {
+        await this.runtime.ready();
+        const running = this.runtime.runProgram(source, {
+          name, stdin, args,
+          onOutput: (text) => { stdout += text; },
+          onDebug: (text) => { stderr += text; },
+          onFailure: (text) => { failure += text; },
+          onExit: (code) => { exit = code; },
+        });
+        const late = new Promise((resolve) => {
+          timer = setTimeout(() => {
+            timedOut = true;
+            this.stop();
+            resolve(null);
+          }, timeout);
+        });
+        const result = await Promise.race([running, late]);
+        if (timedOut || result === null) {
+          return { ok: false, timedOut: true, stdout, stderr, text: "did not finish in time" };
+        }
+        this.runtime.endLive();
+        this.status("ready", "ready");
+        if (failure) return { ok: false, stdout, stderr, text: failure };
+        return { ...result, stdout, stderr, exit: result.exit ?? exit ?? 0 };
+      } catch (err) {
+        return { ok: false, stdout, stderr, timedOut, text: err.message };
+      } finally {
+        clearTimeout(timer);
+      }
+    });
+    this.queue = job.then(() => {}, () => {});
+    return job;
+  }
+
   /** Ends the running cell and cancels every queued one. The compiler's
    *  worker is terminated -- the only stop that works on a loop that
    *  never checks for one -- and a fresh one boots behind it. */
@@ -312,11 +417,12 @@ class Cells {
 // ---------------------------------------------------------------- notebook
 
 class Notebook extends Cells {
-  constructor(host, doc, cfg, web) {
+  constructor(host, doc, cfg, web, source) {
     super(cfg, web);
     this.host = host;
     this.doc = doc;
     this.title = doc.title;
+    this.source = source;
   }
 
   async init() {
@@ -364,6 +470,15 @@ class Notebook extends Cells {
       const spec = doc.cells[Number(placeholder.dataset.cell)];
       this.cells.push(new Cell(this, spec, placeholder));
     }
+    // Cells in document order, so the [n] of a cell and Shift+Enter's
+    // next cell follow the page even when an exercise moves one.
+    this.cells.sort((a, b) => a.spec.index - b.spec.index);
+    this.activities.push(new Activities(this, doc, host, {
+      mode: cfg.mode,
+      storageKey: cfg.storageKey ?? (cfg.url ? new URL(cfg.url, document.baseURI).href
+        : "text:" + textHash(this.source)),
+      onChange: () => this.changed(),
+    }));
     if (contents) this.followScrolling();
   }
 
@@ -538,6 +653,21 @@ class Cell {
     this.ui.reset.addEventListener("click", () => this.reset());
     this.analyzeTimer = null;
     this.uses = { stdin: false, args: false };
+    this.editListeners = [];
+    this.pendingSource = null;
+  }
+
+  /** Calls `listener` with the code each time it is edited.
+   *  (String -> ()) -> () */
+  onEdit(listener) {
+    this.editListeners.push(listener);
+  }
+
+  /** Puts `text` in the editor, as if it had been typed there.
+   *  String -> () */
+  setSource(text) {
+    if (this.editor) this.editor.setValue(text, -1);
+    else this.pendingSource = text;
   }
 
   /** The file name a cell's program runs as. () -> String */
@@ -586,7 +716,9 @@ class Cell {
       highlightActiveLine: false,
       highlightGutterLine: false,
     });
-    editor.setValue(this.spec.source, -1);
+    editor.setValue(this.pendingSource ?? this.spec.source, -1);
+    this.ui.reset.classList.toggle("pkn-hidden", editor.getValue() === this.spec.source);
+    this.pendingSource = null;
     editor.session.setUndoManager(new (ace.require("ace/undomanager").UndoManager)());
     editor.renderer.setScrollMargin(10, 10, 0, 0);
     editor.on("focus", () => {
@@ -601,6 +733,7 @@ class Cell {
       this.clearMarker();
       this.ui.reset.classList.toggle("pkn-hidden", this.source() === this.spec.source);
       this.scheduleAnalyze();
+      for (const listener of this.editListeners) listener(this.source());
     });
     // Registered as Ace commands, since Ace handles keys on its own
     // textarea before any listener outside it would hear them.
@@ -758,6 +891,14 @@ class Cell {
 }
 
 // ----------------------------------------------------------------- helpers
+
+/** A short fingerprint of a document given as text, naming where its
+ *  progress is kept. String -> String */
+function textHash(text) {
+  let h = 5381;
+  for (let i = 0; i < text.length; i++) h = ((h * 33) ^ text.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
 
 function formatTime(ms) {
   return ms < 1000 ? `${Math.max(1, Math.round(ms))} ms` : `${(ms / 1000).toFixed(2)} s`;

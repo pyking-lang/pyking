@@ -179,8 +179,10 @@ build/pyking.js   the compiler, which both pages load
 `pyk` itself does not serve anything. `src/web_tools.ml` finds
 `tools/<tool>/<tool>.py` beside the running executable, runs `$PYTHON`
 (else `python3`) to check it is 3.10 or later, and replaces its own
-process with that script (`execvp`), passing `--port` and the document
-on. `make playground` and `make notebook` go through `./pyk` the same
+process with that script (`execvp`), passing `--port`, `--mode` and the
+document on. `pyk notebook --mode test` serves nothing: `notebook.py`
+runs `tools/notebook/check.js` under node, which checks the document's
+exercises and quizzes and runs its programs, so test mode needs node. `make playground` and `make notebook` go through `./pyk` the same
 way, after `make vendor` has downloaded Ace and KaTeX once.
 
 A program using a library that needs a page -- `tinyweb` -- is shown by

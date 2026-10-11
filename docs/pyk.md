@@ -362,7 +362,9 @@ or later and then replaces this process with the script, and prints the
 reason only when that fails. Replacing the process rather than running
 a child means Ctrl+C reaches the server directly and `pyk` leaves
 nothing behind. `--port` is theirs alone and refused elsewhere, as `--`
-is refused for them. See [build.md](build.md), "The web tools".
+is refused for them, and `--mode` (student, teacher or test) is the
+notebook's alone: it is handed on, and test mode refuses `--port`, since
+it serves nothing. See [build.md](build.md), "The web tools".
 
 ## Why `repl.ml` is handed `format_error`
 
