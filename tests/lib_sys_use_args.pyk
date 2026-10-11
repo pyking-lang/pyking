@@ -1,0 +1,10 @@
+# usage: pyk use_args.pyk -- 7 'Hello world!'
+
+import sys
+
+match sys.args():
+    case [k, msg]:
+        for i in range(int(k)):
+            print(i, msg)
+    case _:
+        print("usage: pyk use_args.pyk -- 7 'Hello world!'")

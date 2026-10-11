@@ -90,6 +90,9 @@ ROOTS = []
 # published: twice its own 200 ms, with room for a loaded machine.
 QUIET = 0.6
 TIMEOUT = 20
+# How long a step sending no request waits for the one answer a raw
+# message may get: the server answers at once, and most get none.
+RAW_WAIT = 3
 
 
 # --- scripts ---------------------------------------------------------------
@@ -255,7 +258,7 @@ def run_native(compiler, steps):
                 process.stdin.write(frame(text))
             process.stdin.flush()
             got, waiting = [], set(step["requests"])
-            deadline = time.monotonic() + TIMEOUT
+            deadline = time.monotonic() + (TIMEOUT if waiting else RAW_WAIT)
             # Every request is answered; a raw message may be, once.
             while waiting or step["raw"]:
                 try:
@@ -548,6 +551,8 @@ def main(argv):
         nonlocal passed, failed
         if ok:
             passed += 1
+            if label:
+                print(f"lsp: {label} OK.", flush=True)
         else:
             failed += 1
             print(f"lsp: FAILED {label}" + (f": {detail}" if detail else ""))
@@ -565,7 +570,7 @@ def main(argv):
             golden.write_text(text)
         expected = golden.read_text() if golden.exists() else ""
         if text == expected:
-            report(script.name, True)
+            report(f"{script.name} through `pyk lsp`", True)
         else:
             got, want = text.splitlines(), expected.splitlines()
             k = next((k for k in range(max(len(got), len(want)))
@@ -616,8 +621,9 @@ def main(argv):
             report("the playground starts", False, printed)
         else:
             try:
-                ran = subprocess.run(["node", str(PAGE_DRIVER), chromium, f"http://127.0.0.1:{port}/"],
-                                     capture_output=True, text=True, timeout=300)
+                ran = suite.run_with_progress(
+                    ["node", str(PAGE_DRIVER), chromium, f"http://127.0.0.1:{port}/"],
+                    "the playground in Chromium", 300)
                 try:
                     result = json.loads(ran.stdout)
                 except json.JSONDecodeError:

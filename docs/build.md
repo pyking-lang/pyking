@@ -222,11 +222,13 @@ build/plugin/         what a plugin is compiled against
 tools/webrun/         including vendor/, downloaded before packaging
 tools/notebook/
 tools/playground/
+src/examples.toml     the examples, and each program it names
 ```
 
-The playground's examples come from `tests/`, which a distribution need
-not ship; without it the page starts with a short program of its own
-and offers no example menu.
+The playground's examples are the ones `pyk example` lists:
+`src/examples.toml` and the programs it names, which a distribution
+ships at the same paths. Without the list the page starts with a short
+program of its own and offers no example menu.
 
 `pyk` finds that tree through `src/install.ml`, which resolves every
 symbolic link on the way to the running executable first: a package

@@ -20,6 +20,8 @@ Then, from a directory outside the repository:
   - the `iweb24` target compiles, which needs build/pyking.js;
   - `pyk notebook` and `pyk playground` start and serve their pages, and
     `pyk notebook --mode test` checks a notebook;
+  - `pyk example` lists the examples and saves one, and the playground
+    offers the same ones;
   - the tree holds what it should and nothing else;
   - the tarball is reproducible and unpacks to one directory, and the
     formula names its URL, checksum and version.
@@ -160,9 +162,12 @@ def check_stage(check, compiler):
         check("every library with an OCaml implementation has its plugin",
               all(plugin.exists() for plugin in plugins) and len(plugins) >= 4,
               ", ".join(str(p.relative_to(tree)) for p in plugins))
+        examples = {source for source, _ in packaging.examples_shipped()}
+        check("the tree holds every example and their list",
+              examples <= files and len(examples) > 1, ", ".join(sorted(examples - files)))
         stray = sorted(f for f in files if f.endswith(("~", ".DS_Store", "Makefile",
                                                         "e2e.mjs", ".pyc"))
-                       or f.startswith("tests/") or "/#" in f)
+                       or (f.startswith("tests/") and f not in examples) or "/#" in f)
         check("the tree holds nothing else", not stray, ", ".join(stray[:5]))
 
         pyk = install_like_homebrew(tree, root / "prefix")
@@ -197,6 +202,24 @@ def check_stage(check, compiler):
         check("the plugins it loads are the tree's own, compiled for it",
               not any(cache.rglob("*.cmxs")),
               ", ".join(str(p) for p in cache.rglob("*.cmxs")))
+        listed = run([pyk, "example"], work, env)
+        names = [line.split()[0] for line in listed.stdout.splitlines()[2:-2]]
+        check("`pyk example` lists the examples, one per line, under headings",
+              listed.returncode == 0 and "use_args.pyk" in names
+              and listed.stdout.startswith("File name")
+              and all(len(line) <= 80 for line in listed.stdout.splitlines()),
+              listed.stdout + listed.stderr)
+        result = run([pyk, "example", "use_args.pyk"], work, env)
+        check("`pyk example use_args.pyk` saves it here",
+              result.returncode == 0 and (work / "use_args.pyk").read_text()
+              == (REPO / "tests" / "lib_sys_use_args.pyk").read_text(),
+              result.stdout + result.stderr)
+        result = run([pyk, "example", "use_args.pyk"], work, env)
+        check("and refuses to save it over the file now there",
+              result.returncode == 1 and "already" in result.stderr, result.stderr)
+        result = run([pyk, "use_args.pyk", "--", "2", "hi"], work, env)
+        check("the example it saved runs", result.stdout == "0 hi\n1 hi\n",
+              result.stdout + result.stderr)
         result = run([pyk, "compile", "-t", "iweb24", "-o", "page.html", "hello.pyk"],
                      work, env)
         check("build/pyking.js is found for the iweb24 target",
@@ -235,8 +258,12 @@ def check_stage(check, compiler):
         if check("`pyk playground` starts from the package", process is not None, printed):
             try:
                 status, body = test_notebook.fetch(port, "/assets/playground.json")
-                check("the packaged playground offers no examples",
-                      status == 200 and b'"examples": []' in body, f"status {status}")
+                offered = json.loads(body).get("examples", []) if status == 200 else []
+                check("the packaged playground offers what `pyk example` lists",
+                      [e["file"] for e in offered] == names, f"status {status}")
+                for example in offered:
+                    status, _ = test_notebook.fetch(port, "/examples/" + example["file"])
+                    check(f"and serves {example['file']}", status == 200, f"status {status}")
             finally:
                 test_notebook.stop(process)
         port = test_notebook.free_port()

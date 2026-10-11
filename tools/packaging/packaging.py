@@ -10,7 +10,7 @@ publishes them. Each package format is one entry in FORMATS:
 
 Every format ships the same tree, which `stage` builds: the executable,
 lib/ with each library's interpreter plugin, build/pyking.js,
-build/plugin/ and the web tools, at the paths they have in the
+build/plugin/, the web tools and the examples, at the paths they have in the
 repository, since that is where `pyk` looks for them (src/install.ml).
 The plugins are compiled by `build_plugins` with the toolchain that
 built the executable, since a plugin loads only into the `pyk` its
@@ -37,6 +37,7 @@ Data structures:
 Functions:
     version() -- the version, from VERSION.
     changelog_notes(v) -- CHANGELOG.md's section for v, which a release shows.
+    examples_shipped() -- src/examples.toml and the programs it names.
     stage(binary, destination) -- the shipped tree, with this binary.
     build_plugins(tree, prefix) -- the tree's library plugins, compiled.
     tarball(source, output) -- a reproducible .tar.gz; answers its sha256.
@@ -67,6 +68,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import tomllib
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -124,6 +126,9 @@ SHIPPED = [
     ("tools/playground/assets", "tools/playground/assets"),
     ("tools/emacs/pyking-mode.el", "tools/emacs/pyking-mode.el"),
 ]
+# The examples `pyk example` saves and the playground offers: the list,
+# and each program it names, shipped at the same paths.
+EXAMPLES = "src/examples.toml"
 SHIPPED_SUFFIXES = {".pyk", ".js", ".ml", ".mli", ".py", ".c", ".h", ".java",
                     ".css", ".html", ".json", ".md", ".woff2", ".wav"}
 # What a library plugin is compiled against: the interface of the one
@@ -249,6 +254,17 @@ def _shipped(path):
     return path.suffix in SHIPPED_SUFFIXES and not path.name.startswith((".", "#"))
 
 
+def examples_shipped():
+    """The list of examples and every program it names, as SHIPPED
+    entries. () -> [(String, String)]"""
+    path = REPO / EXAMPLES
+    if not path.is_file():
+        return [(EXAMPLES, EXAMPLES)]
+    with open(path, "rb") as f:
+        listed = tomllib.load(f).get("examples", [])
+    return [(EXAMPLES, EXAMPLES)] + [(e["source"], e["source"]) for e in listed]
+
+
 def stage(binary, destination, vendor=True, interface=None):
     """Builds the shipped tree in destination, with `binary` as its `pyk`
     and `interface` -- the pyk_plugin.cmi of the build that made it,
@@ -260,6 +276,7 @@ def stage(binary, destination, vendor=True, interface=None):
     interface = Path(interface) if interface else PLUGIN_INTERFACE
     shipped = [(s, t) for s, t in SHIPPED
                if vendor or s != "tools/webrun/vendor" or (REPO / s).exists()]
+    shipped += examples_shipped()
     missing = [source for source, _ in shipped if not (REPO / source).exists()]
     if not interface.exists():
         missing.append(str(shown(interface)))

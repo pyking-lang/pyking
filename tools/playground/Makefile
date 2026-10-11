@@ -2,7 +2,7 @@
 #
 #   make            vendor, check, then serve and print the URL
 #   make serve      serve the page
-#   make check      compile every example headlessly
+#   make check      check every example headlessly
 #   make PORT=9000  serve somewhere other than 8000
 #
 # Nothing is built: `pyk playground` serves assets/, the shared files in
@@ -37,7 +37,7 @@ serve:
 help:
 	@echo "make            vendor + check + serve (prints a clickable URL)"
 	@echo "make vendor     download Ace, KaTeX and Monaco into ../webrun/vendor/ (once)"
-	@echo "make check      compile every example headlessly, no browser needed"
+	@echo "make check      check every example headlessly, no browser needed"
 	@echo "make e2e        browser tests (needs Playwright; skips if absent)"
 	@echo "make serve      serve the page on http://localhost:\$$(PORT)/"
 	@echo "                (8000, or the next free port, when PORT is unset)"

@@ -365,6 +365,18 @@ is refused for them, and `--mode` (student, teacher or test) is the
 notebook's alone: it is handed on, and test mode refuses `--port`, since
 it serves nothing. See [build.md](build.md), "The web tools".
 
+## `pyk example`
+
+`pyk example` lists the examples in `src/examples.toml` beside the
+executable, one per line under the headings "File name" and
+"Description", and `pyk example NAME` copies the one saved as
+`NAME` into the current directory, refusing to overwrite a file already
+there. It runs no front end. A package ships the list and the programs it
+names at the same paths (`tools/packaging/packaging.py`,
+`examples_shipped`), so it works the same in a checkout and an install,
+and the playground offers the same list. See [source.md](source.md),
+"examples.ml".
+
 ## `pyk lsp`: the language server's transport
 
 `pyk lsp` runs no front end of its own either: `command_lsp` reads

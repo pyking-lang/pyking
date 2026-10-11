@@ -1,7 +1,7 @@
 (** The driver: what `pyk` on the command line runs. Parses argv,
-    sequences the front-end stages, and dispatches to one of five
+    sequences the front-end stages, and dispatches to one of six
     commands (`pyk <file>`, `repl`, `compile`, `notebook`,
-    `playground`). Every program is
+    `playground`, `example`). Every program is
     type-checked, so a program that does not check is refused whatever
     was asked for. A program of several modules runs the middle of that
     sequence once per module, in the order module.ml puts them in. Each
@@ -21,6 +21,7 @@
       command_interpret checked arguments -- `pyk <file>`.
       command_compile checked options -- `pyk compile`.
       command_web tool options -- `pyk notebook` and `pyk playground`.
+      command_example options -- `pyk example`.
       wrap text -- reflows text to the driver's line width. *)
 
 (* The compiling targets, in the order the usage message lists them. The
@@ -134,7 +135,8 @@ let synopsis =
   \                                            open a notebook in the browser\n\
   \       pyk playground [--port N]            open the playground\n\
   \       pyk serve [--port N] [<dir>]         serve a directory's files\n\
-  \       pyk lsp [--stdio] [--log FILE]       the language server, for editors\n\n\
+  \       pyk lsp [--stdio] [--log FILE]       the language server, for editors\n\
+  \       pyk example [<name>]                 list the examples, or save one\n\n\
    Options:\n\
   \  -t, --target <name>   compile for <name> (default: python)\n\
   \  -o, --output <file>   write the output to <file>\n\
@@ -279,7 +281,11 @@ let usage_full () =
      and reports errors, types on hover, definitions, an outline and\n\
      completion. --stdio is accepted and is the only transport; -L adds\n\
      library directories as for a program; --log FILE appends every\n\
-     message to FILE, for finding out what an editor sent."
+     message to FILE, for finding out what an editor sent.\n\n\
+     `pyk example` lists the example programs, one per line, and `pyk\n\
+     example <name>` saves the one named in the current directory, which\n\
+     it refuses to do over a file already there. The playground offers\n\
+     the same examples."
     synopsis more_options (target_table ())
     (wrap ("An unversioned name is the family's latest: " ^ alias_line () ^ "."))
 
@@ -299,6 +305,7 @@ let commands =
     ("serve", "serve");
     ("lsp", "lsp");
     ("plugins", "plugins");
+    ("example", "example");
   ]
 let default_command = "interpret"
 
@@ -539,7 +546,7 @@ let parse_args argv =
   if options.mode = Some "test" && options.port <> None then
     usage_error "--mode test serves nothing, so it takes no --port";
   if options.arguments <> [] then
-    if command = "repl" || command = "lsp" || web then
+    if command = "repl" || command = "lsp" || command = "example" || web then
       usage_error
         (Printf.sprintf
            "everything after -- is passed to a program being run, and 'pyk %s' \
@@ -580,6 +587,11 @@ let parse_args argv =
     | [] -> options
     | [ directory ] -> { options with filename = Some directory }
     | _ -> usage_error "'pyk serve' takes one directory at most"
+  else if command = "example" then
+    match positional with
+    | [] -> options
+    | [ name ] -> { options with filename = Some name }
+    | _ -> usage_error "'pyk example' takes one example's name at most"
   else
     match positional with
     | [ filename ] -> { options with filename = Some filename }
@@ -1413,6 +1425,41 @@ let command_web tool options =
       prerr_endline (wrap message);
       1
 
+(** `pyk example`: lists the examples beside this executable, or saves
+    the one named in the current directory unless a file of that name is
+    there already. options -> int *)
+let command_example options =
+  let root = Install.root () in
+  let examples =
+    try Examples.read (Module.read_whole_file (join root Examples.file)) with Sys_error _ -> []
+  in
+  let refuse message =
+    prerr_endline (wrap ("pyk example: " ^ message));
+    1
+  in
+  match options.filename with
+  | None when examples = [] -> refuse (Printf.sprintf "there are no examples in %s." (join root Examples.file))
+  | None ->
+      print_string (Examples.listing examples);
+      print_endline "\n`pyk example <name>` saves one in the current directory.";
+      0
+  | Some name -> (
+      match Examples.find name examples with
+      | None -> refuse (Printf.sprintf "there is no example '%s'; `pyk example` lists them." name)
+      | Some _ when Sys.file_exists name ->
+          refuse (Printf.sprintf "'%s' is here already, and was left as it is." name)
+      | Some example -> (
+          match Module.read_whole_file (join root example.source) with
+          | exception Sys_error message -> refuse message
+          | text -> (
+              match open_out_bin name with
+              | exception Sys_error message -> refuse message
+              | channel ->
+                  output_string channel text;
+                  close_out channel;
+                  Printf.printf "Saved %s. Run it with: pyk %s\n" name name;
+                  0)))
+
 (** The first whole message in what has arrived, framed by a
     Content-Length header, and what follows it. string -> (string?,
     string) *)
@@ -1508,6 +1555,7 @@ let main argv =
   else if options.command = "playground" then command_web Web_tools.Playground options
   else if options.command = "serve" then command_web Web_tools.Files options
   else if options.command = "lsp" then command_lsp options
+  else if options.command = "example" then command_example options
   else
     let checked = front_end options in
     if options.command = "compile" then command_compile checked options

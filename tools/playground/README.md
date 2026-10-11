@@ -15,7 +15,7 @@ make             # here: vendor, check, serve
 
 **Nothing is built.** `pyk playground` serves `assets/`, the files the
 playground shares with the notebook in `../webrun/`, the compiler bundle
-`build/pyking.js` and the examples in `tests/` from where they sit, so an
+`build/pyking.js` and the examples `src/examples.toml` lists from where they sit, so an
 edit to any of them shows on the next reload. The first `make vendor` (at
 the repository root or here) downloads ~26 MB of Ace, KaTeX and Monaco
 into `../webrun/vendor/` and caches it; see `../webrun/README.md`.
@@ -46,7 +46,7 @@ to the outside world: `pyk.ml` (the driver), `execution.ml` (`--run`) and
 |---|---|
 | `make` | `vendor` → `check` → `serve` |
 | `make vendor` | download Ace, KaTeX and Monaco into `../webrun/vendor/` (cached; skipped if present) |
-| `make check` | compile every example for every target it claims, headlessly |
+| `make check` | check the targets and every example, headlessly |
 | `make e2e` | browser tests — mounting, compiling, running, Stop (needs Playwright) |
 | `make serve` | serve the page and print a clickable `http://localhost:8000/` |
 
@@ -54,9 +54,9 @@ Variables: `PORT=9000` (without it, 8000 or the next free port),
 `PYK=path/to/pyk` (`make serve` runs `pyk playground`), and
 `PYTHON=python3.12` for `make check`.
 
-`make check` is worth knowing about: it runs every example through the
-same `pyking.js` the page loads, under `node` — over 1600 example/target
-pairs — so a regressed backend fails without a browser being involved.
+`make check` runs every example through the same `pyking.js` the page
+loads, under `node`, checked the way the page's Run checks it, with the
+standard library read from `lib/`.
 
 ### It must be *served*
 
@@ -74,7 +74,7 @@ needs a copy of it saved once.
 ┌──────────────────────────────────────────────────────────────────┐
 │ Pyking Playground                 ● compiler: ready  [≡ Settings]│
 ├────────────────────────────────╥─────────────────────────────────┤
-│ Source        [example ▾]      ║ Target [▾]                      │
+│ Examples      [example ▾]      ║ Target [▾]                      │
 │           [Compile →] [▶ Run]  ║              [▶ Run]  [⧉ Copy]  │
 │ ┌────────────────────────────┐ ║ ┌─────────────────────────────┐ │
 │ │ Pyking, highlighted        │ ║ │ generated code, highlighted │ │
@@ -355,7 +355,7 @@ What the page loads, and where the server finds it:
 | `/vendor/…` | `../webrun/vendor/`: Monaco (and Ace and KaTeX, the notebook's) |
 | `/pyking/pyking.js` | `build/pyking.js`, built from `src/` by dune and js_of_ocaml |
 | `/pyking/manifest.json` | worked out per request: the bundle's name and stamp |
-| `/examples/*.pyk` | `tests/`, only the examples the manifest offers |
+| `/examples/*.pyk` | each example `src/examples.toml` lists, under the name `pyk example` saves it as |
 
 ### The bundle is evaluated, not required
 
@@ -398,12 +398,10 @@ than parsed out of the source:
    list goes stale silently; these cannot. The formatter was a hand-copy
    once, and it drifted the moment booleans stopped printing capitalised —
    hence the rule.)
-4. **The examples and their target support** come from `tests/*.pyk` and
-   `tests/test_cases.toml` — the same manifest `make test` runs from, so the
-   page cannot claim support the test suite does not. A program of several
-   modules is the one thing left out, along with the modules it imports:
-   the page compiles one file and has no filesystem, so there is nothing
-   for an `import` to reach (see `docs/modules.md`).
+4. **The examples** are `src/examples.toml`'s, the list `pyk example`
+   reads, which a package ships. Each is a test case, so `make test`
+   keeps it working. Compile refuses a program that imports, since it
+   compiles one file; Run runs it with the standard library.
 
 ## Embedding it in another page
 
@@ -424,7 +422,7 @@ there so you can take either one.
     pykingURL: "./pyking/",       // pyking.js and manifest.json
     examplesURL: "./examples/",   // where the .pyk files live
     initialTarget: "c23",
-    initialExample: "arithmetic.pyk",
+    initialExample: "use_args.pyk", // the first example by default
   });
 </script>
 ```
@@ -522,14 +520,14 @@ Most of this is testable headlessly, and worth re-running after changing the
 compiler:
 
 ```sh
-make check                       # every example/target pair, through the shim
+make check                       # every example, through the shim
 make e2e                         # the same page, in a real browser
 ```
 
 The repository's own `make test` asks the first of those questions too,
 as `tests/test_playground.py`: it drives `build/pyking.js` directly, so
 it needs no vendored assets, and it reads the example list out of
-`playground.py`'s `offered_examples` so the two cannot disagree about
+`playground.py`'s `example_sources` so the two cannot disagree about
 what the page offers. `tests/test_notebook.py` also starts
 `pyk playground` and fetches the page's manifest and an example, and
 checks that the manifest and every file `playground.py`'s `site()`
@@ -537,19 +535,9 @@ names are what `pyk playground` serves: `src/web_tools.ml` builds the
 manifest the page loads, and `playground.py` the one `make check` and
 the website use.
 
-`make check` needs Python and `node`. Every example is compiled for the
-`pyking` target as well as for every target it claims, and the
-type-checker fixtures under `tests/` are held to the rule their names
-state — `typecheck_*` must check, `fail_typecheck_*` must
-not. That rule is why the entry point runs `Module.check_publics`: what a
-module exports is a property of the one file, so a program the compiler
-refuses for exporting one name twice has to be refused here too. A
-`fail_typecheck_*` fixture is held to *only* that rule: some of them
-are not valid programs at all (one names something unbound), so expecting
-them to compile any other way would be expecting the front end to miss what
-they exist to catch. What those programs *infer* is `tests/test_script.py`'s
-business; this only proves the checker is reached through the page's own
-entry point. `make e2e` needs Playwright — the one
+`make check` needs Python and `node`. What the examples print is
+`tests/test_script.py`'s business; this only proves each checks through
+the page's own entry point. `make e2e` needs Playwright — the one
 dependency anywhere in this tool, which is why it is a separate target and
 why the script prints an install line and exits cleanly when it is absent:
 

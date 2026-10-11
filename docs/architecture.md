@@ -137,7 +137,8 @@ repl`) rather than a `--target`.
 | `src/web_server.ml` | A small HTTP/1.1 server on 127.0.0.1, in the `pyk` process, which `web_tools.ml` serves each tool with. See [build.md](build.md), "The web tools". |
 | `src/lsp.ml` | The language server: one message in, the messages to send out; checks a document as a program with the stages above and reads hover, definition, outline and completion out of them. In the library, so the browser bundle serves it too. See [../design/lsp.md](../design/lsp.md). |
 | `src/json.ml` | JSON read and written, for the language server. |
-| `src/pyk.ml` | The driver: argv, stage sequencing, error reporting, and the three commands (`pyk <file>`, `repl`, `compile`), plus the web commands and `pyk lsp`'s stdio transport, which run no front end of their own. |
+| `src/examples.ml` | The examples `pyk example` lists and saves and the playground offers, read from `src/examples.toml`. |
+| `src/pyk.ml` | The driver: argv, stage sequencing, error reporting, and the three commands (`pyk <file>`, `repl`, `compile`), plus the web commands, `pyk example` and `pyk lsp`'s stdio transport, which run no front end of their own. |
 
 ## The builtins and the host boundary
 

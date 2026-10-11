@@ -1,8 +1,7 @@
 // Browser tests for the playground: what `make e2e` runs.
 //
-// `make check` compiles every example through the same compiler bundle
-// the page loads, under node, which catches a regressed backend but says
-// nothing about the page. This drives the built page in a real browser
+// `make check` checks every example through the same compiler bundle
+// the page loads, under node, which says nothing about the page. This drives the built page in a real browser
 // instead: it mounts, loads the compiler, compiles, and runs -- the whole
 // path a user takes, including the worker boundary and the sandboxed
 // iframe that `check` cannot reach.
@@ -136,17 +135,25 @@ async function main() {
     return {
       targets: [...select.options].map((o) => o.value),
       declared: manifest.targets.map((t) => t.name),
-      examples: manifest.examples.length,
+      examples: manifest.examples.map((e) => e.file).join(),
+      offered: [...document.querySelectorAll('[data-r="example"] option')]
+        .map((o) => o.value).join(),
     };
   });
   expect("mounts, with every target in the dropdown",
          meta.targets.length > 0 && meta.targets.join() === meta.declared.join(),
          `${meta.targets.join()} vs ${meta.declared.join()}`);
-  expect("loads the example list", meta.examples > 0);
+  expect("offers the example list", meta.examples !== ""
+         && meta.offered === meta.examples, `${meta.offered} vs ${meta.examples}`);
   expect("both editors are Monaco", await page.evaluate(() =>
     !!window.monaco?.editor
     && document.querySelectorAll('[data-r$="Editor"] .monaco-editor').length === 2
     && window.pykingPlayground.left.getModel().getLanguageId() === "pyking"));
+
+  // The examples import libraries, which Compile refuses, so what follows
+  // starts from a plain program.
+  await page.evaluate(() => window.pykingPlayground.setSource(
+    "def twice(n: Int) -> Int:\n    return n * 2\n\n\nprint(twice(21))\n"));
 
   console.log("Compiling");
   await page.click('[data-r="compile"]');
@@ -203,35 +210,22 @@ async function main() {
   expect("Ctrl+Enter compiles", /^Compiled to /.test(await lastLine(page)),
          await lastLine(page));
 
-  // Every example, on every target it claims, through the page's own
-  // runtime -- the same pairs `make check` compiles under node, but in
-  // the browser, on the worker the page really uses. A
-  // `fail_typecheck_*` program is written to be refused, so for it a
-  // refusal is the pass.
+  // Every example checks through the page's own runtime, with the
+  // standard library it imports -- what Run does before it runs one.
   console.log("Every example, in the browser");
   const sweep = await page.evaluate(async () => {
     const manifest = await (await fetch("assets/playground.json")).json();
     const runtime = window.pykingPlayground.runtime;
     const wrong = [];
-    let pairs = 0;
     for (const example of manifest.examples) {
       const source = await (await fetch("examples/" + example.file)).text();
-      const refused = example.file.startsWith("fail_typecheck_");
-      const targets = example.targets.length ? example.targets : ["pyking"];
-      for (const target of targets) {
-        pairs += 1;
-        const result = await runtime.compile(source, target, example.file);
-        if (result.ok === refused) {
-          wrong.push(`${example.file} -> ${target}: `
-                     + (result.ok ? "compiled, but was written to be refused"
-                                  : result.text));
-        }
-      }
+      const result = await runtime.analyze(source, example.file);
+      if (!result.ok) wrong.push(`${example.file}: ${result.text}`);
     }
-    return { pairs, wrong };
+    return { count: manifest.examples.length, wrong };
   });
-  expect(`${sweep.pairs} example/target pairs compile`, sweep.wrong.length === 0,
-         "\n         " + sweep.wrong.slice(0, 10).join("\n         "));
+  expect(`${sweep.count} examples check`, sweep.wrong.length === 0,
+         "\n         " + sweep.wrong.join("\n         "));
 
   // A program may import the standard library, and one that reads its
   // input is asked for it before it runs: a dialog, only for a program

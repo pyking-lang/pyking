@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """Runs the playground's own test cases: that the compiler bundle the
-page loads still works, and that every example the page offers still
-compiles on every target it claims.
+page loads still works, and that every example the page offers -- the
+list in src/examples.toml, which `pyk example` reads too -- is a test
+case the interpreter runs, and checks in the bundle with the standard
+library it imports.
 
-`make -C tools/playground check` asks the second question too. This
-drives the bundle directly instead: the bundle is what `make build`
+This drives the bundle directly: the bundle is what `make build`
 already writes to `build/pyking.js`, and the example list comes from
 `tools/playground/playground.py` itself, so the suite and the page cannot
-disagree about what is offered. A manifest key the playground has not
-been taught about -- which is how this broke once -- shows up here as an
-example that will not compile.
+disagree about what is offered.
 
 What it does not cover is the page: mounting, the editor, the worker
 boundary and the sandboxed iframe are what
@@ -19,7 +18,8 @@ Playwright.
 Usage: python3 tests/test_playground.py [--bundle FILE]
 
 Functions:
-    plan() -- the bundle, the targets, and every (example, target) pair.
+    plan() -- the bundle, the targets, and every example.
+    check_examples() -- what is wrong with src/examples.toml.
     run_driver(bundle, plan) -- one node process over the bundle.
     main(argv) -- the command-line entry point.
 """
@@ -145,25 +145,24 @@ check("a web program ships io_external.js",
       JSON.stringify(Object.keys(page.files ?? {})));
 delete globalThis.pykLibraryFile;
 
-// 4. Every example the page offers, on every target it claims. A
-//    `fail_typecheck_*` example is offered to be *refused*, and every
-//    target checks the program, so one of them answering is enough.
+// 4. Every example the page offers checks as the page's Run checks it,
+//    with the modules it imports read from lib/ as the worker reads them.
+//    What it prints is the test suite's business: it is a test case.
+globalThis.pykFetchSource = (name) => {
+  const found = /^([A-Za-z_][A-Za-z0-9_]*?)(_external)?\.pyk$/.exec(name);
+  try {
+    return found ? fs.readFileSync(plan.lib + "/" + found[1] + "/" + name, "utf8") : null;
+  } catch (error) {
+    return null;
+  }
+};
 let pairs = 0;
 for (const example of plan.examples) {
-  const source = fs.readFileSync(example.path, "utf8");
-  if (example.file.startsWith("fail_typecheck_")) {
-    pairs += 1;
-    const result = JSON.parse(pykCompile(source, "pyking", example.file));
-    check(example.file + " -> pyking", result.ok === false,
-          "compiled, but the page offers it as a refusal");
-    continue;
-  }
-  for (const target of example.targets.concat(["pyking"])) {
-    pairs += 1;
-    const result = JSON.parse(pykCompile(source, target, example.file));
-    check(example.file + " -> " + target, result.ok === true,
-          result.text || "refused with no message");
-  }
+  pairs += 1;
+  globalThis.pykSources = { [example.file]: fs.readFileSync(example.path, "utf8") };
+  const result = JSON.parse(pykAnalyze(example.file));
+  check(example.file + " checks in the page", result.ok === true,
+        result.text || "refused with no message");
 }
 console.log(JSON.stringify({ pairs, failures }));
 """
@@ -178,7 +177,7 @@ def plan():
 
     with contextlib.redirect_stdout(io.StringIO()):
         targets = playground.code_targets()
-        examples = playground.offered_examples(targets)
+        sources = playground.example_sources()
     return {
         "targets": targets,
         "leftOut": sorted(playground.NOT_IN_THE_PAGE),
@@ -186,14 +185,42 @@ def plan():
         "smokeOutput": SMOKE_OUTPUT,
         "lib": str(REPO / "lib"),
         "examples": [
-            {
-                "file": entry["file"],
-                "targets": entry["targets"],
-                "path": str(HERE / entry["file"]),
-            }
-            for entry in examples
+            {"file": name, "path": str(path)} for name, path in sources.items()
         ],
     }
+
+
+def check_examples():
+    """What is wrong with src/examples.toml: an example whose source is
+    missing or is not a test case the interpreter runs, a name given
+    twice or not ending in .pyk, and a line of `pyk example` longer than
+    80 columns. () -> [String]"""
+    import tomllib
+
+    with open(REPO / "src" / "examples.toml", "rb") as f:
+        listed = tomllib.load(f).get("examples", [])
+    with open(HERE / "test_cases.toml", "rb") as f:
+        cases = {case["file"]: case for case in tomllib.load(f)["cases"]}
+    problems = [] if listed else ["src/examples.toml lists no example"]
+    width = max([len("File name")] + [len(e.get("name", "")) for e in listed]) + 2
+    names = [e.get("name", "") for e in listed]
+    for example in listed:
+        name, source = example.get("name", ""), example.get("source", "")
+        if not (source and name and example.get("description")):
+            problems.append(f"{name or source or '?'}: needs source, name and description")
+            continue
+        if not (REPO / source).is_file():
+            problems.append(f"{name}: no file {source}")
+        case = cases.get(Path(source).name) if Path(source).parent == Path("tests") else None
+        if case is None or "interpret" not in case["targets"]:
+            problems.append(f"{name}: {source} is not a case of test_cases.toml run by interpret")
+        if not name.endswith(".pyk") or "/" in name:
+            problems.append(f"{name}: a name is a file name ending in .pyk")
+        if names.count(name) > 1:
+            problems.append(f"{name}: named twice")
+        if width + len(example["description"]) > 80:
+            problems.append(f"{name}: its line of `pyk example` is longer than 80 columns")
+    return problems
 
 
 def run_driver(bundle, prepared):
@@ -249,21 +276,24 @@ def main(argv):
         return 1
     prepared = plan()
     pairs, failures = run_driver(bundle, prepared)
+    listed = check_examples()
+    for problem in listed:
+        print(f"playground: FAILED src/examples.toml: {problem}")
     for failure in failures:
         print(f"playground: FAILED {failure}")
     if pairs is None:
         suite.footer("playground", 0, 1, "the bundle could not be driven")
         return 1
-    checks = len(prepared["targets"]) + 10
+    checks = len(prepared["targets"]) + 11
     print(f"playground: the bundle's {len(prepared['targets'])} targets, its "
           "entry points and the smoke program OK.")
-    print(f"playground: {pairs} example/target pairs over "
-          f"{len(prepared['examples'])} examples.")
+    print(f"playground: {pairs} examples checked in the page.")
+    failed = len(failures) + len(listed)
     suite.footer(
-        "playground", checks + pairs - len(failures), len(failures),
-        f"{len(prepared['examples'])} examples on "
+        "playground", checks + pairs - len(failures) - (1 if listed else 0), failed,
+        f"{len(prepared['examples'])} examples, "
         f"{len(prepared['targets'])} targets")
-    return 1 if failures else 0
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

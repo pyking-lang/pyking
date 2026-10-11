@@ -10,10 +10,11 @@
 // Usage: node playground.mjs <chromium> <url>
 // Writes {checks, failures} as JSON.
 
-import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
+import { connect, launch, progress } from "../chromium.mjs";
 
 const [browser, url] = process.argv.slice(2);
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), "pyk-playground-"));
@@ -147,47 +148,17 @@ const LSP = `(async () => { ${HELPERS}
   return checks;
 })()`;
 
-const chrome = spawn(browser, [
-  "--headless", "--no-sandbox", "--disable-gpu", "--no-first-run",
-  "--no-default-browser-check", "--remote-debugging-port=0",
-  `--user-data-dir=${profile}`, "about:blank",
-], { stdio: "ignore" });
+const chrome = launch(browser, profile);
 
 let output = { checks: 0, failures: [] };
 try {
-  let port = null;
-  for (let i = 0; i < 300 && !port; i++) {
-    const file = path.join(profile, "DevToolsActivePort");
-    if (fs.existsSync(file)) port = Number(fs.readFileSync(file, "utf8").split("\n")[0]) || null;
-    if (!port) await sleep(100);
-  }
-  if (!port) throw new Error("Chromium did not start");
-  const version = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json();
-  const socket = new WebSocket(version.webSocketDebuggerUrl);
-  let next = 1;
-  const waiting = new Map();
   const problems = [];
-  socket.onmessage = (message) => {
-    const data = JSON.parse(message.data);
-    if (data.id !== undefined && waiting.has(data.id)) {
-      const { resolve, reject } = waiting.get(data.id);
-      waiting.delete(data.id);
-      if (data.error) reject(new Error(data.error.message));
-      else resolve(data.result);
-    } else if (data.method === "Runtime.exceptionThrown") {
+  const { send, close } = await connect(profile, (data) => {
+    if (data.method === "Runtime.exceptionThrown") {
       problems.push(data.params.exceptionDetails.exception?.description
                     || data.params.exceptionDetails.text);
     }
-  };
-  await new Promise((resolve, reject) => {
-    socket.onopen = resolve;
-    socket.onerror = () => reject(new Error("cannot reach Chromium"));
   });
-  const send = (method, params = {}, sessionId = undefined) => {
-    const id = next++;
-    socket.send(JSON.stringify({ id, method, params, sessionId }));
-    return new Promise((resolve, reject) => waiting.set(id, { resolve, reject }));
-  };
   const { targetId } = await send("Target.createTarget", { url: "about:blank" });
   const { sessionId } = await send("Target.attachToTarget", { targetId, flatten: true });
   await send("Runtime.enable", {}, sessionId);
@@ -201,6 +172,7 @@ try {
     }
     return result.result.value;
   };
+  progress("loading the playground");
   await send("Page.navigate", { url }, sessionId);
   let ready = false;
   for (let i = 0; i < 600 && !ready; i++) {
@@ -213,7 +185,8 @@ try {
     }
   }
   if (!ready) throw new Error("the playground did not become ready");
-  for (const phase of [PAGE, LSP]) {
+  for (const [name, phase] of [["the page", PAGE], ["the language server", LSP]]) {
+    progress(`checking ${name}`);
     for (const [label, ok, detail] of await evaluate(phase)) {
       output.checks += 1;
       if (!ok) output.failures.push(`${label}${detail ? ": " + detail : ""}`);
@@ -221,7 +194,7 @@ try {
   }
   output.checks += 1;
   if (problems.length) output.failures.push("no uncaught errors: " + problems.slice(0, 5).join(" | "));
-  socket.close();
+  close();
 } catch (error) {
   output = { checks: output.checks + 1, failures: [...output.failures, error.message] };
 } finally {

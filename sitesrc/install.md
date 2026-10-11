@@ -60,6 +60,17 @@ pyk compile -t python hello.pyk        # write hello.py
 pyk compile -t node --run hello.pyk    # compile to JavaScript and run it with node
 ```
 
+To start from an example instead, list them and save one in the current
+directory:
+
+```sh
+pyk example                            # one example per line
+pyk example use_args.pyk               # save it here
+pyk use_args.pyk -- 3 'Hello world!'   # and run it
+```
+
+The playground's Examples menu offers the same ones.
+
 ## What else you may need
 
 - `pyk notebook` and `pyk playground` need nothing more: `pyk` serves them

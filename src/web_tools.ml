@@ -186,115 +186,18 @@ let playground_targets =
     ("ocaml5.5", "OCaml 5.5", "ocaml", None);
   ]
 
-(** A case of tests/test_cases.toml: its file, targets, modules and libs. *)
-type case = { file : string; targets : string list; modules : string list; libs : string list }
-
-(** The strings written in a TOML value. string -> [string] *)
-let quoted value =
-  let rec go i acc =
-    match String.index_from_opt value i '"' with
-    | None -> List.rev acc
-    | Some start -> (
-        match String.index_from_opt value (start + 1) '"' with
-        | None -> List.rev acc
-        | Some stop -> go (stop + 1) (String.sub value (start + 1) (stop - start - 1) :: acc))
-  in
-  go 0 []
-
-(** The cases of tests/test_cases.toml: each `[[cases]]` table's
-    `file`, `targets`, `modules` and `libs`, an array allowed to span
-    lines. string -> [case] *)
-let read_cases text =
-  let strip line =
-    match String.index_opt line '#' with Some i -> String.sub line 0 i | None -> line
-  in
-  let lines = List.map (fun l -> String.trim (strip l)) (String.split_on_char '\n' text) in
-  let empty = { file = ""; targets = []; modules = []; libs = [] } in
-  let set case key value =
-    match key with
-    | "file" -> { case with file = (match quoted value with f :: _ -> f | [] -> "") }
-    | "targets" -> { case with targets = quoted value }
-    | "modules" -> { case with modules = quoted value }
-    | "libs" -> { case with libs = quoted value }
-    | _ -> case
-  in
-  let balanced value =
-    let count c = List.length (List.filter (( = ) c) (List.of_seq (String.to_seq value))) in
-    count '[' <= count ']'
-  in
-  let rec go lines current acc =
-    match lines with
-    | [] -> List.rev (match current with Some c -> c :: acc | None -> acc)
-    | "[[cases]]" :: rest ->
-        go rest (Some empty) (match current with Some c -> c :: acc | None -> acc)
-    | line :: rest -> (
-        match (current, String.index_opt line '=') with
-        | Some case, Some i ->
-            let key = String.trim (String.sub line 0 i) in
-            let rec gather value rest =
-              if balanced value then (value, rest)
-              else match rest with next :: more -> gather (value ^ " " ^ next) more | [] -> (value, [])
-            in
-            let value, rest = gather (String.sub line (i + 1) (String.length line - i - 1)) rest in
-            go rest (Some (set case key value)) acc
-        | _ -> go rest current acc)
-  in
-  go lines None []
-
-(** The tests/ directory, which a checkout has and a package does not.
-    () -> string *)
-let tests () = under [ "tests" ]
-
-(** Which tests/*.pyk the page offers and on which targets, from
-    tests/test_cases.toml: a program of several modules, or one using a
-    library, is left out, since the page compiles one file. Each is
-    (file, targets, universal). () -> [(string, [string], bool)] *)
+(** The examples the page offers: src/examples.toml beside this
+    executable, or none where it is missing. () -> [Examples.example] *)
 let offered_examples () =
-  let manifest = Filename.concat (tests ()) "test_cases.toml" in
-  match Module.read_whole_file manifest with
-  | exception Sys_error _ -> []
-  | text ->
-      let cases = read_cases text in
-      let code = List.map (fun (t, _, _, _) -> t) playground_targets in
-      let skipped =
-        List.filter_map (fun c -> if c.modules <> [] || c.libs <> [] then Some c.file else None) cases
-        @ List.concat_map (fun c -> c.modules) cases
-      in
-      let known = List.filter (fun c -> not (List.mem c.file skipped)) cases in
-      let declared = List.sort_uniq compare (List.concat_map (fun c -> c.targets) known) in
-      let every = List.filter (fun t -> List.mem t code) declared in
-      let files =
-        List.sort compare
-          (List.filter
-             (fun f -> Filename.check_suffix f ".pyk")
-             (try Array.to_list (Sys.readdir (tests ())) with Sys_error _ -> []))
-      in
-      List.filter_map
-        (fun file ->
-          if List.mem file skipped then None
-          else
-            let claimed =
-              match List.find_opt (fun c -> c.file = file) known with
-              | Some c -> c.targets
-              | None -> [ "python" ]
-            in
-            let targets = List.filter (fun t -> List.mem t code) claimed in
-            Some (file, targets, targets <> [] && List.length targets = List.length every))
-        files
+  try Examples.read (Module.read_whole_file (under [ Examples.file ])) with Sys_error _ -> []
 
 (** What the playground page is driven by: the targets, how each is shown
     and run, and the examples. Worked out per request. () -> string *)
 let playground_manifest () =
   let examples =
     List.map
-      (fun (file, targets, universal) ->
-        json_object
-          [
-            ("file", json_string file);
-            ("name", json_string (String.map (fun c -> if c = '_' then ' ' else c) (Filename.remove_extension file)));
-            ("targets", json_array (List.map json_string targets));
-            ("universal", if universal then "true" else "false");
-          ])
+      (fun (e : Examples.example) ->
+        json_object [ ("file", json_string e.name); ("description", json_string e.description) ])
       (offered_examples ())
   in
   json_object
@@ -315,13 +218,14 @@ let playground_manifest () =
   ^ "\n"
 
 (** What the playground serves: its page and scripts, the manifest, and
-    each offered example from tests/. () -> Web_server.site *)
+    each offered example under the name it is offered by.
+    () -> Web_server.site *)
 let playground_site () =
   let assets = under [ "tools"; "playground"; "assets" ] in
   let index = Filename.concat assets "index.html" in
   let examples =
     List.map
-      (fun (file, _, _) -> ("/examples/" ^ file, Filename.concat (tests ()) file))
+      (fun (e : Examples.example) -> ("/examples/" ^ e.name, under [ e.source ]))
       (offered_examples ())
   in
   extended

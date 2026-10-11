@@ -1314,7 +1314,7 @@ file = "module_reserved_export.pyk"
 modules = ["module_reserved_export_mod1.pyk"]
 targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
-# The one case with arguments. `arguments` is passed to the program
+# The cases with arguments. `arguments` is passed to the program
 # itself -- after `--` for the interpreter, and the host's own way for
 # each compiled target -- and it is the only way a run's arguments can
 # be written down, since a program cannot ask for its own.
@@ -1324,6 +1324,27 @@ file = "lib_sys_arguments_passed.pyk"
 libs = ["sys"]
 arguments = ["alpha", "beta gamma"]
 targets = ["python14", "node24", "ocaml5.5", "interpret"]
+
+# The examples `pyk example` hands out (src/examples.toml): hello.pyk,
+# and use_args.pyk, which follows.
+
+[[cases]]
+file = "hello_world.pyk"
+targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+
+# The example `pyk example use_args.pyk` hands out (src/examples.toml),
+# run with arguments and without. The two files are the same program.
+
+[[cases]]
+file = "lib_sys_use_args.pyk"
+libs = ["sys"]
+arguments = ["3", "Hello world!"]
+targets = ["python14", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "lib_sys_use_args_usage.pyk"
+libs = ["sys"]
+targets = ["python14", "ocaml5.5", "interpret"]
 
 # Two libraries at once. `sys` is named before `fs` on purpose: it puts
 # a module `Sys` on the OCaml include path before fs.ml is compiled,

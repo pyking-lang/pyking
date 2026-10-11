@@ -602,9 +602,9 @@ def check_chromium(compiler, chromium, case):
         try:
             port = server.server_address[1]
             urls = [f"http://127.0.0.1:{port}/{d.name}/program.html" for d in pages]
-            ran = subprocess.run(NODE + [str(CHROME_DRIVER), chromium,
-                                         str(stem.with_suffix(".events"))] + urls,
-                                 capture_output=True, text=True, timeout=600)
+            ran = suite.run_with_progress(
+                NODE + [str(CHROME_DRIVER), chromium, str(stem.with_suffix(".events"))] + urls,
+                f"{stem.name}.pyk in Chromium", 600)
         finally:
             server.shutdown()
             server.server_close()
@@ -647,9 +647,9 @@ def check_chromium_served(compiler, chromium, case, target):
                 return "it printed no address:\n" + "".join(program.errors)[-2000:]
             urls = [f"http://127.0.0.1:{server.server_address[1]}/direct/program.html",
                     f"served:http://127.0.0.1:{port}/"]
-            ran = subprocess.run(NODE + [str(CHROME_DRIVER), chromium,
-                                         str(stem.with_suffix(".events"))] + urls,
-                                 capture_output=True, text=True, timeout=600)
+            ran = suite.run_with_progress(
+                NODE + [str(CHROME_DRIVER), chromium, str(stem.with_suffix(".events"))] + urls,
+                f"{stem.name}.pyk served on {target}, in Chromium", 600)
         finally:
             program.stop()
             server.shutdown()
@@ -681,8 +681,21 @@ def main(argv):
             print("usage: test_tinyweb.py [--compiler CMD] [--only PART]", file=sys.stderr)
             return 2
     results = []
+
+    def record(result):
+        """Keeps one check's (name, problem) and prints it now, so a long
+        run shows how far it has got. (String, String?) -> ()"""
+        name, problem = result
+        results.append(result)
+        if problem is None:
+            print(f"tinyweb: {name} OK.", flush=True)
+        else:
+            print(f"tinyweb: {name} FAILED\n"
+                  + "\n".join("    " + l for l in problem.splitlines()), flush=True)
+
     if only in (None, "embedded"):
-        results += check_embedded()
+        for result in check_embedded():
+            record(result)
     if only in (None, "refused"):
         for target in SERVED_TARGETS:
             for what, body, message in REFUSALS:
@@ -690,7 +703,7 @@ def main(argv):
                     problem = check_refused(compiler, target, body, message)
                 except Exception as error:  # noqa: BLE001 -- reported, not raised
                     problem = f"{type(error).__name__}: {error}"
-                results.append((f"a program that {what} on {target}", problem))
+                record((f"a program that {what} on {target}", problem))
     if only in (None, "served") or (only or "").startswith("served:"):
         targets = SERVED_TARGETS
         if only and only.startswith("served:"):
@@ -702,7 +715,7 @@ def main(argv):
                     problem = check_served(compiler, case, target)
                 except Exception as error:  # noqa: BLE001 -- reported, not raised
                     problem = f"{type(error).__name__}: {error}"
-                results.append((name, problem))
+                record((name, problem))
     if only in (None, "default"):
         for target in DEFAULT_TARGETS:
             name = f"compiled for {target} with no --output, the samples come along"
@@ -710,7 +723,7 @@ def main(argv):
                 problem = check_default_output(compiler, target)
             except Exception as error:  # noqa: BLE001 -- reported, not raised
                 problem = f"{type(error).__name__}: {error}"
-            results.append((name, problem))
+            record((name, problem))
     if only in (None, "standalone"):
         for language in tinywebdoc.LANGUAGES:
             name = f"tinyweb for {language.name}, with no Pyking, runs its example"
@@ -718,7 +731,7 @@ def main(argv):
                 problem = check_standalone(language)
             except Exception as error:  # noqa: BLE001 -- reported, not raised
                 problem = f"{type(error).__name__}: {error}"
-            results.append((name, problem))
+            record((name, problem))
     if only in (None, "browser"):
         for case in page_cases():
             name = f"{case[0].name}.pyk drawn directly and through commands, on a page under node"
@@ -726,7 +739,7 @@ def main(argv):
                 problem = check_fake_page(compiler, case)
             except Exception as error:  # noqa: BLE001 -- reported, not raised
                 problem = f"{type(error).__name__}: {error}"
-            results.append((name, problem))
+            record((name, problem))
     skipped = []
     if only in (None, "browser", "chromium"):
         chromium = suite.find_chromium()
@@ -741,7 +754,7 @@ def main(argv):
                     problem = check_chromium(compiler, chromium, case)
                 except Exception as error:  # noqa: BLE001 -- reported, not raised
                     problem = f"{type(error).__name__}: {error}"
-                results.append((name, problem))
+                record((name, problem))
             for case in page_cases():
                 for target in CHROMIUM_SERVED_TARGETS:
                     name = (f"{case[0].name}.pyk served on {target}, in Chromium, drawn as "
@@ -750,16 +763,10 @@ def main(argv):
                         problem = check_chromium_served(compiler, chromium, case, target)
                     except Exception as error:  # noqa: BLE001 -- reported, not raised
                         problem = f"{type(error).__name__}: {error}"
-                    results.append((name, problem))
+                    record((name, problem))
     for what in skipped:
         print(f"tinyweb: skipped {what}.")
-    failed = 0
-    for name, problem in results:
-        if problem is None:
-            print(f"tinyweb: {name} OK.")
-        else:
-            failed += 1
-            print(f"tinyweb: {name} FAILED\n" + "\n".join("    " + l for l in problem.splitlines()))
+    failed = sum(1 for _, problem in results if problem is not None)
     suite.footer("tinyweb", len(results) - failed, failed, f"{len(results)} checks")
     return 1 if failed else 0
 

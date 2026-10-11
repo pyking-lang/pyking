@@ -1855,6 +1855,23 @@ raises `Parse_error` for anything else.
 
 ---
 
+## `examples.ml`
+
+**The examples list**: what `pyk example` lists and saves and the
+playground offers, read from `src/examples.toml`. Each example is a
+test program, so the suite keeps it working. In the library because it
+is pure; nothing in the browser bundle uses it.
+
+- **`example`** — `{ source; name; description }`: the program's path
+  from the tree's root, the file name it is saved as, and one line.
+- **`file`** — `src/examples.toml`, from the tree's root.
+- **`read text`** — every `[[examples]]` table with all three keys.
+- **`find name examples`** — the one saved as `name`.
+- **`listing examples`** — a table: the headings "File name" and
+  "Description", a row of dashes under each, then one line per example.
+
+---
+
 ## `web_tools.ml`
 
 **`pyk notebook`, `pyk playground` and `pyk serve`.** Each page is a
@@ -1887,10 +1904,9 @@ than the library, since it listens on a socket.
 - **`common_site ()`** — what every page loads: `/webrun/`, `/vendor/`,
   `/lib/`, `/pyking/pyking.js` and `/pyking/manifest.json`, whose stamp
   is a digest of the bundle.
-- **`read_cases text` / `offered_examples ()`** — the playground's
-  examples, out of the test manifest: a program of several modules or
-  one using a library is left out, as the page compiles one file. No
-  `tests/` (a package) means no examples.
+- **`offered_examples ()`** — the playground's examples, the list in
+  `src/examples.toml` (`examples.ml`), which a package ships; each is
+  served at `/examples/<name>`, the name `pyk example` saves it as.
 
 ---
 

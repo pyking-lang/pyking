@@ -7,10 +7,11 @@
 // Usage: node page.mjs <chromium> <url> <student|teacher>
 // Writes {checks, failures} as JSON.
 
-import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
+import { connect, launch, progress } from "../chromium.mjs";
 
 const [browser, url, mode] = process.argv.slice(2);
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), "pyk-notebook-"));
@@ -137,43 +138,11 @@ const TEACHER = [`(async () => { ${HELPERS}
   return checks;
 })()`];
 
-const chrome = spawn(browser, [
-  "--headless", "--no-sandbox", "--disable-gpu", "--no-first-run",
-  "--no-default-browser-check", "--remote-debugging-port=0",
-  `--user-data-dir=${profile}`, "about:blank",
-], { stdio: "ignore" });
+const chrome = launch(browser, profile);
 
 let output = { checks: 0, failures: [] };
 try {
-  let port = null;
-  for (let i = 0; i < 300 && !port; i++) {
-    const file = path.join(profile, "DevToolsActivePort");
-    if (fs.existsSync(file)) port = Number(fs.readFileSync(file, "utf8").split("\n")[0]) || null;
-    if (!port) await sleep(100);
-  }
-  if (!port) throw new Error("Chromium did not start");
-  const version = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json();
-  const socket = new WebSocket(version.webSocketDebuggerUrl);
-  let next = 1;
-  const waiting = new Map();
-  socket.onmessage = (message) => {
-    const data = JSON.parse(message.data);
-    if (data.id !== undefined && waiting.has(data.id)) {
-      const { resolve, reject } = waiting.get(data.id);
-      waiting.delete(data.id);
-      if (data.error) reject(new Error(data.error.message));
-      else resolve(data.result);
-    }
-  };
-  await new Promise((resolve, reject) => {
-    socket.onopen = resolve;
-    socket.onerror = () => reject(new Error("cannot reach Chromium"));
-  });
-  const send = (method, params = {}, sessionId = undefined) => {
-    const id = next++;
-    socket.send(JSON.stringify({ id, method, params, sessionId }));
-    return new Promise((resolve, reject) => waiting.set(id, { resolve, reject }));
-  };
+  const { send, close } = await connect(profile);
   const { targetId } = await send("Target.createTarget", { url: "about:blank" });
   const { sessionId } = await send("Target.attachToTarget", { targetId, flatten: true });
   await send("Runtime.enable", {}, sessionId);
@@ -197,11 +166,14 @@ try {
     }
     throw new Error("the notebook did not become ready");
   };
+  progress(`${mode}: loading the page`);
   await send("Page.navigate", { url }, sessionId);
   await ready();
   await evaluate("localStorage.clear(); location.reload(); true");
   await ready();
-  for (const phase of mode === "teacher" ? TEACHER : STUDENT) {
+  const phases = mode === "teacher" ? TEACHER : STUDENT;
+  for (const [k, phase] of phases.entries()) {
+    progress(`${mode}: step ${k + 1}/${phases.length}${phase === "reload" ? ", reloading" : ""}`);
     if (phase === "reload") {
       await evaluate("location.reload(); true");
       await ready();
@@ -212,7 +184,7 @@ try {
       if (!ok) output.failures.push(`${mode}: ${label}${detail ? ": " + detail : ""}`);
     }
   }
-  socket.close();
+  close();
 } catch (error) {
   output = { checks: output.checks + 1, failures: [...output.failures, `${mode}: ${error.message}`] };
 } finally {

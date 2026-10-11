@@ -1,7 +1,5 @@
 # A canvas, two circles, two samples and buttons that play them: the
-# first tinyweb program. Its .events file presses the buttons, and its
-# .page file is what it sends the page, which every target must send
-# alike (see docs/libraries.md, "Testing a page").
+# first tinyweb program.
 
 import tinyweb as tw
 

@@ -1181,7 +1181,8 @@ The bootstrap is split into one module per compiler stage:
    all: `command_web` hands them to `web_tools.ml`, and `--port` is
    theirs alone. Nor does `pyk lsp`, the language server: `command_lsp`
    is its stdio transport over `lsp.ml`, and `--stdio` and `--log` are
-   its alone.
+   its alone. Nor does `pyk example [NAME]` (`command_example`, over
+   `examples.ml`).
    Errors: `ERROR_KINDS` pairs each front-end exception with its label,
    and `format_error` turns any of them into one
    `'file' row:col-row:col Kind: message` line (`Lexing error` /
@@ -1234,9 +1235,8 @@ The bootstrap is split into one module per compiler stage:
    serve`, in the executable since they listen on a socket. Each is a
    `Web_server.site` -- URL prefixes mapped to directories beside the
    running executable, URL paths to files, and answers worked out per
-   request (`notebook.json`, the playground's manifest, read out of
-   `tests/test_cases.toml` where a checkout has it, and the bundle's
-   stamp) -- served by **`src/web_server.ml`**, a small HTTP/1.1 server
+   request (`notebook.json`, the playground's manifest, whose examples
+   are `src/examples.toml`'s, and the bundle's stamp) -- served by **`src/web_server.ml`**, a small HTTP/1.1 server
    on 127.0.0.1 waiting on every connection with `select`, in the `pyk`
    process: nothing else has to be installed. `pyk notebook --mode test`
    serves nothing and runs `tools/notebook/check.js` under node. See
@@ -1300,6 +1300,20 @@ The bootstrap is split into one module per compiler stage:
    (Content-Length framing, `--log`, the 200 ms quiet before `idle`) is
    `command_lsp` in `pyk.ml`, the only part needing `unix`.
    **`src/json.ml`** is JSON read and written, which the server needs.
+
+24. **`src/examples.ml`** — the examples list: what `pyk example` lists
+   (one per line) and saves into the current directory, and what the
+   playground's Examples menu offers. It reads **`src/examples.toml`**,
+   one `[[examples]]` table per example: `source` (a test program's
+   path from the root), `name` (the file it is saved as) and
+   `description` (one line). Each is a test case, so `make test` keeps
+   it working, and `tests/test_playground.py` checks that every one is
+   a case the interpreter runs and fits 80 columns. A package ships the
+   list and each source at the same paths (`packaging.py`'s
+   `examples_shipped`), so `pyk example` and the playground read it the
+   same way in a checkout and an install. `pyk example NAME` refuses to
+   overwrite a file. In the playground, Compile refuses an example that
+   imports, as it does any such program; Run runs it.
    `design/lsp.md` is the plan, in three steps; step 1 is built.
 
 When extending the lexer (new operators, keywords, string escapes, etc.),
@@ -1476,11 +1490,12 @@ distribution ships no Python. The one exception is `pyk notebook --mode
 test`, which runs the notebook's code under node. A distribution is a subset of this repository's tree at the
 same relative paths -- `pyk`, `lib/` (with its plugins),
 `build/pyking.js`, `build/plugin/`, `tools/webrun/` (with `vendor/`),
-`tools/notebook/`, `tools/playground/` -- so the one
+`tools/notebook/`, `tools/playground/`, and `src/examples.toml` with
+the programs it names -- so the one
 rule "look beside the executable" finds everything in a checkout and an
 install alike. Keep it that way: a web tool may not need anything outside
 those directories, and the playground runs (with no example menu) when
-`tests/` is absent. `docs/build.md`, "The web tools", is the long form.
+`src/examples.toml` is absent. `docs/build.md`, "The web tools", is the long form.
 
 ## The website
 
@@ -1644,6 +1659,7 @@ pyk playground [--port N]            serve the playground, print a link
 pyk serve [--port N] [<dir>]         serve a directory's files, print a link
 pyk plugins <dir>                    build the interpreter's library plugins
 pyk lsp [--stdio] [--log FILE]       the language server, for editors
+pyk example [<name>]                 list the examples, or save one here
 pyk --version                        print the version (from VERSION)
 
 options: [--tokens] [--symbols] [--no-tail-call-opt]
@@ -1914,13 +1930,12 @@ libraries, each exporting a `tag()` naming itself, and runs the program
 `test_playground.py` drives `build/pyking.js`, the compiler bundle the
 page loads: that its entry points are registered, that one small program
 compiles for every target the page offers and runs under the
-interpreter, and that **every example the page offers still compiles on
-every target it claims**. That last is `make -C tools/playground check`
-asked of the bundle directly; the example list comes from
-`playground.py`'s own `offered_examples`, so the suite and the page
-cannot disagree about what is offered. A manifest key the playground has
-not been taught about -- which is how `libs` broke `make playground`
-once -- shows up here as an example that will not compile. The page
+interpreter, and that **every example the page offers checks** as the
+page's Run checks it, with the standard library it imports. That last
+is `make -C tools/playground check` asked of the bundle directly; the
+example list comes from `playground.py`'s own `example_sources`, so the
+suite and the page cannot disagree about what is offered. It also holds
+`src/examples.toml` to its rules (see `src/examples.ml` above). The page
 itself, its worker and its iframe are `make -C tools/playground e2e`'s,
 which needs Playwright and is not part of `make test`.
 
@@ -1943,7 +1958,13 @@ none of, a missing directory. It runs
 `find_chromium`) and `make vendor` has run, `tests/notebook/page.mjs`
 drives `features.md` in it in student and teacher mode -- submitting,
 answering, reloading, starting over -- and that part is reported as
-skipped otherwise. It sets
+skipped otherwise. Every Chromium driver (this one, tinyweb's and the LSP suite's)
+starts and reaches the browser through `tests/chromium.mjs`: Puppeteer's
+flags, so a full Google Chrome (a Mac's) neither throttles the test's
+tab nor waits on the keychain, and a 60 s limit on every call, so a hung
+browser is reported by the call it hung on. Each driver says how far it has
+got with `progress`, and the suite runs it with
+`suite.run_with_progress`, which prints those lines as they arrive. It sets
 `PYKING_WEB_NO_VENDOR=1`, so a checkout that never ran `make vendor`
 still passes. After changing the
 renderer, `--update` rewrites
@@ -1956,7 +1977,8 @@ stages the shipped tree around *this* machine's `./pyk`, installs it into
 a temporary prefix shaped like Homebrew's (`bin/pyk` a link to a link
 into `Cellar/pyking/<version>/libexec`), and from outside the repository
 checks `pyk --version`, a program, the standard library, `iweb24`, `pyk
-notebook`, `pyk playground` and `pyk serve` with nothing on the `PATH`,
+example`, `pyk notebook`, `pyk playground` (offering the same examples)
+and `pyk serve` with nothing on the `PATH`,
 that the web tools ship no Python, the tree's contents, the tarball's
 reproducibility and the formula's text (`ruby -c` where Ruby exists).
 The same tree is then packed as a `.deb` (read back, and by `dpkg-deb`

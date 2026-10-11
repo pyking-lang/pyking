@@ -72,7 +72,7 @@ const DEFAULTS = {
   vendorURL: "./vendor/",
   theme: "dark",
   initialTarget: "node24",
-  initialExample: "subset_control.pyk",
+  initialExample: null,               // the first example
 };
 
 export async function mountPlayground(host, options = {}) {
@@ -221,9 +221,10 @@ class Playground {
     });
 
     if (this.meta.examples.length) {
-      await this.loadExample(this.cfg.initialExample, { silent: true });
+      await this.loadExample(this.cfg.initialExample ?? this.meta.examples[0].file,
+                             { silent: true });
     } else {
-      // No tests/ beside the tools, as in a distribution: nothing to offer.
+      // No src/examples.toml beside the tools: nothing to offer.
       ui.example.classList.add("pyk-hidden");
       this.setSource(FALLBACK_SOURCE);
     }
@@ -255,31 +256,7 @@ class Playground {
     this.setSource(await response.text());
     this.ui.example.value = file;
     this.clearError();
-    this.refreshSupport();
-    if (!silent) {
-      this.note(entry.targets.length
-        ? `Loaded ${file} — supported by: ${entry.targets.join(", ")}`
-        : `Loaded ${file}`);
-    }
-  }
-
-  /** Tell the user, before they press anything, whether the loaded example
-   *  is expected to work on the selected target. A refusal is not a bug --
-   *  the JS, C and Java backends implement a subset -- so this explains
-   *  rather than hides it. */
-  refreshSupport() {
-    const entry = this.meta.examples.find((e) => e.file === this.ui.example.value);
-    const target = this.ui.target.value;
-    // An empty list means the manifest makes no code-generation claim about
-    // this program (a type-checker fixture, say) -- which is not the same as
-    // claiming it fails everywhere, so say nothing rather than something wrong.
-    const known = entry && entry.targets.length > 0 && target !== "pyking"
-                  && !entry.targets.includes(target);
-    this.ui.support.textContent = known
-      ? `${this.ui.example.value} is not supported by ${target}`
-      : "";
-    this.ui.support.className = known ? "pyk-label pyk-warned" : "pyk-label";
-    this.ui.support.style.color = known ? "var(--pyk-warn)" : "";
+    if (!silent) this.note(`Loaded ${file} — ${entry.description}`);
   }
 
   // -- compiling --------------------------------------------------------
@@ -379,7 +356,6 @@ class Playground {
     // The generated code no longer matches the selected target, so drop it
     // rather than leave something stale-but-plausible on screen.
     this.showFiles({});
-    this.refreshSupport();
     this.updateRunButtons();
   }
 
@@ -955,10 +931,9 @@ function buildDom(host, meta, cfg) {
     <div class="pyk-columns" data-r="columns">
       <section class="pyk-pane">
         <div class="pyk-toolbar">
-          <span class="pyk-label">Source</span>
+          <span class="pyk-label">Examples</span>
           <select data-r="example" title="Load an example program"></select>
           <span class="pyk-spacer"></span>
-          <span class="pyk-label" data-r="support"></span>
           <button class="pyk-stop pyk-hidden" data-r="stopLeft"
                   title="Stop the running program">■ Stop</button>
           <button class="pyk-run" data-r="runLeft"
@@ -1093,22 +1068,12 @@ function buildDom(host, meta, cfg) {
   }
   ui.target.value = cfg.initialTarget;
 
-  // Grouped, because "which targets accept this program" is a real property
-  // of each example and worth seeing before you pick one. Run works on
-  // every one of them either way: the interpreter is not a target.
-  const groups = [
-    ["Compiles for every target", meta.examples.filter((e) => e.universal)],
-    ["Some targets only (uses lists, for, match, …)",
-     meta.examples.filter((e) => !e.universal)],
-  ];
-  for (const [label, entries] of groups) {
-    if (!entries.length) continue;
-    const group = document.createElement("optgroup");
-    group.label = `${label} — ${entries.length}`;
-    for (const entry of entries) {
-      group.appendChild(new Option(entry.name, entry.file));
-    }
-    ui.example.appendChild(group);
+  // The examples `pyk example` lists, in its order, each with its one
+  // line as the tooltip.
+  for (const entry of meta.examples) {
+    const option = new Option(entry.file, entry.file);
+    option.title = entry.description;
+    ui.example.appendChild(option);
   }
   return ui;
 }

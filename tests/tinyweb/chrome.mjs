@@ -15,11 +15,12 @@
 // Usage: node chrome.mjs <chromium> <events file> <url> [<url> ...]
 // Writes [{record, stdout} | {error}] as JSON, one per URL.
 
-import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { connect, launch, progress } from "../chromium.mjs";
 
 const [browser, eventsFile, ...urls] = process.argv.slice(2);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -30,55 +31,8 @@ const events = fs.existsSync(eventsFile)
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), "pyk-chrome-"));
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const chrome = spawn(browser, [
-  "--headless", "--no-sandbox", "--disable-gpu", "--no-first-run",
-  "--no-default-browser-check", "--remote-debugging-port=0",
-  `--user-data-dir=${profile}`, "about:blank",
-], { stdio: "ignore" });
+const chrome = launch(browser, profile);
 
-// The port Chromium chose, from the file it writes into its profile.
-async function debuggingPort() {
-  const file = path.join(profile, "DevToolsActivePort");
-  for (let i = 0; i < 300; i++) {
-    if (fs.existsSync(file)) {
-      const first = fs.readFileSync(file, "utf8").split("\n")[0];
-      if (first !== "") return Number(first);
-    }
-    await sleep(100);
-  }
-  throw new Error("Chromium did not start");
-}
-
-// One connection to the browser, sessions multiplexed over it.
-class Protocol {
-  constructor(url) {
-    this.socket = new WebSocket(url);
-    this.next = 1;
-    this.waiting = new Map();
-    this.socket.onmessage = (message) => {
-      const data = JSON.parse(message.data);
-      if (data.id !== undefined && this.waiting.has(data.id)) {
-        const { resolve, reject } = this.waiting.get(data.id);
-        this.waiting.delete(data.id);
-        if (data.error) reject(new Error(data.error.message));
-        else resolve(data.result);
-      }
-    };
-  }
-
-  open() {
-    return new Promise((resolve, reject) => {
-      this.socket.onopen = resolve;
-      this.socket.onerror = () => reject(new Error("cannot reach Chromium"));
-    });
-  }
-
-  send(method, params = {}, sessionId = undefined) {
-    const id = this.next++;
-    this.socket.send(JSON.stringify({ id, method, params, sessionId }));
-    return new Promise((resolve, reject) => this.waiting.set(id, { resolve, reject }));
-  }
-}
 
 async function evaluate(protocol, session, expression) {
   const result = await protocol.send("Runtime.evaluate",
@@ -93,6 +47,8 @@ async function evaluate(protocol, session, expression) {
 async function run(protocol, given) {
   const served = given.startsWith("served:");
   const url = served ? given.slice("served:".length) : given;
+  const page = served ? "the served page" : `the ${new URL(url).pathname.split("/")[1]} page`;
+  progress(`${page}: loading`);
   const { targetId } = await protocol.send("Target.createTarget", { url: "about:blank" });
   const { sessionId } = await protocol.send("Target.attachToTarget", { targetId, flatten: true });
   try {
@@ -113,7 +69,8 @@ async function run(protocol, given) {
     if (!done) return { error: `${url}: the program's top level never ended` };
     await evaluate(protocol, sessionId, "__pykSettle()");
     await evaluate(protocol, sessionId, "__pykSnapshot('--- the top level has ended')");
-    for (const line of events) {
+    for (const [k, line] of events.entries()) {
+      progress(`${page}: event ${k + 1}/${events.length}, ${line}`);
       const before = served ? await evaluate(protocol, sessionId, "__pykAnswered()") : 0;
       const found = await evaluate(protocol, sessionId, `__pykDeliver(${JSON.stringify(line)})`);
       for (let i = 0; served && found && i < 300; i++) {
@@ -134,12 +91,9 @@ async function run(protocol, given) {
 
 let results = [];
 try {
-  const port = await debuggingPort();
-  const version = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json();
-  const protocol = new Protocol(version.webSocketDebuggerUrl);
-  await protocol.open();
+  const protocol = await connect(profile);
   for (const url of urls) results.push(await run(protocol, url));
-  protocol.socket.close();
+  protocol.close();
 } catch (error) {
   results = urls.map(() => ({ error: error.message }));
 } finally {

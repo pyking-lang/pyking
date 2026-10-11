@@ -1,0 +1,20 @@
+# The examples `pyk example` lists and saves, and the playground offers.
+# Each is a test program, so the suite keeps it working: `source` is its
+# path from the repository's root, `name` the file it is saved as, and
+# `description` one line saying what it does. A package ships this file
+# and every source at the same paths (tools/packaging/packaging.py).
+
+[[examples]]
+source = "tests/hello_world.pyk"
+name = "hello.pyk"
+description = "Prints Hello, world!"
+
+[[examples]]
+source = "tests/lib_sys_use_args.pyk"
+name = "use_args.pyk"
+description = "Use program args and print using loop"
+
+[[examples]]
+source = "tests/lib_tinyweb_sound_graphics1.pyk"
+name = "tinyweb1.pyk"
+description = "Draws simple graphics and plays sound when pressing buttons."

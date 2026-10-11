@@ -15,10 +15,14 @@ Functions:
       it, and the tally the driver collects.
     read_tally path -- the tallies a run collected, in order.
     find_chromium() -- a Chromium the browser checks can drive, or None.
+    run_with_progress command label timeout -- runs a browser driver,
+      printing its progress as it goes.
 """
 
 import os
 import shutil
+import subprocess
+import threading
 from pathlib import Path
 
 # Wide enough for the longest line the suites print, and the same for
@@ -93,3 +97,43 @@ def find_chromium():
                 if os.access(found, os.X_OK):
                     return str(found)
     return None
+
+
+# What a browser driver writes at the start of a line on stderr to say
+# how far it has got (tests/chromium.mjs, `progress`).
+PROGRESS = "progress: "
+
+
+def run_with_progress(command, label, timeout):
+    """Runs a command as subprocess.run(capture_output=True, text=True)
+    would, but prints each `progress:` line it writes to stderr as it
+    arrives, indented under `label`, and leaves those lines out of the
+    stderr it answers. Raises TimeoutExpired as subprocess.run does.
+    [String] -> String -> Number -> CompletedProcess"""
+    process = subprocess.Popen(command, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, text=True)
+    out, err = [], []
+
+    def read_out():
+        out.append(process.stdout.read())
+
+    def read_err():
+        for line in process.stderr:
+            if line.startswith(PROGRESS):
+                print(f"  {label}: {line[len(PROGRESS):].rstrip()}", flush=True)
+            else:
+                err.append(line)
+
+    readers = [threading.Thread(target=read_out), threading.Thread(target=read_err)]
+    for reader in readers:
+        reader.start()
+    try:
+        process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+        raise
+    finally:
+        for reader in readers:
+            reader.join()
+    return subprocess.CompletedProcess(command, process.returncode, "".join(out), "".join(err))

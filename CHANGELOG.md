@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `pyk example` lists example programs, one per line, and `pyk example
+  NAME` saves one in the current directory. The playground's menu,
+  now called Examples, offers the same ones, in a checkout and an
+  install alike.
 - A language server, `pyk lsp`, for every editor that speaks LSP: errors
   as you type, the inferred type on hover, go to definition (into
   imported modules and the standard library), an outline and

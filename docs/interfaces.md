@@ -82,6 +82,8 @@ respects that, which is what makes the library link.
 │  lsp.ml          create, handle, idle, exit_code: the language       │
 │                  server, over module.ml, typesystem.ml, analyses.ml, │
 │                  walk.ml and json.ml (parse, to_string, member)      │
+│  examples.ml     example, file, read, find, listing: the examples    │
+│                  list, for pyk.ml and web_tools.ml                   │
 │                              │                                       │
 │  the backends    translate_program, pprint_<lang>_program,           │
 │                  Unsupported                                         │

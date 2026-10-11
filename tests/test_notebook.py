@@ -667,9 +667,9 @@ def check_page(compiler, chromium):
             failures.append(f"{mode}: the notebook did not start: {printed}")
             continue
         try:
-            ran = subprocess.run(["node", str(PAGE_DRIVER), chromium,
-                                  f"http://127.0.0.1:{port}/", mode],
-                                 capture_output=True, text=True, timeout=STEP_TIMEOUT)
+            ran = suite.run_with_progress(
+                ["node", str(PAGE_DRIVER), chromium, f"http://127.0.0.1:{port}/", mode],
+                "the page in Chromium", STEP_TIMEOUT)
             try:
                 result = json.loads(ran.stdout)
             except json.JSONDecodeError:
