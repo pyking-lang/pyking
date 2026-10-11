@@ -195,7 +195,7 @@ way, after `make vendor` has downloaded Ace, KaTeX and Monaco once.
 A program using a library that needs a page -- `tinyweb` -- is shown by
 both pages with that library's own renderer, `lib/tinyweb/tinyweb_page.js`,
 mounted by `tools/webrun/assets/pages.js` from `lib/`: the notebook
-under the cell, the playground on its Page tab. Everywhere else the
+under the cell, the playground on its Web output tab. Everywhere else the
 program serves its page itself, once it calls `tinyweb.web_init(port)`
 -- `pyk program.pyk` and the REPL as much as a compiled program (see
 [libraries.md](libraries.md), "tinyweb").

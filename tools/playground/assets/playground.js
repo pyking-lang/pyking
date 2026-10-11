@@ -1,6 +1,7 @@
-// The playground user interface: two editors, a target selector, an example
-// selector, and a shared output pane. Served by
-// tools/playground/playground.py.
+// The playground user interface: the source editor with its example
+// selector, and four tabs on the right -- the run's output, the compiled
+// code with its target selector, the page a run draws, and a REPL. Served
+// by tools/playground/playground.py.
 //
 // Embedding this in another page is one call:
 //
@@ -26,6 +27,7 @@ const STORAGE_KEY = "pyking-playground.settings";
  *  edit is a preference, and it is the one setting that can start the
  *  multi-megabyte runtime download without an explicit button press. */
 const DEFAULT_SETTINGS = {
+  theme: "system",
   fontSize: 13,
   scrollOutput: true,
   clearOnRun: true,
@@ -36,6 +38,10 @@ const DEFAULT_SETTINGS = {
  *  enough to finish a word -- half-written code is mostly code that does
  *  not compile, and re-running it per keystroke would say so per keystroke. */
 const AUTO_RUN_DELAY = 600;
+
+/** What the page's frame shows before a program has drawn anything. */
+const PAGE_PLACEHOLDER =
+  '<p class="pyk-page-empty">A program using tinyweb draws here when you press Run.</p>';
 
 /** What the editor starts with when there are no examples to load. */
 const FALLBACK_SOURCE = `def greet(name: String) -> String:
@@ -70,7 +76,10 @@ const DEFAULTS = {
   examplesURL: "./examples/",
   webrunURL: "./webrun/",
   vendorURL: "./vendor/",
-  theme: "dark",
+  // "light" or "dark" where the embedding page decides the theme -- it then
+  // calls `setTheme` as its own changes -- and null where the viewer does,
+  // with the header's switch and the settings.
+  theme: null,
   initialTarget: "node24",
   initialExample: null,               // the first example
 };
@@ -116,6 +125,16 @@ class Playground {
     // What the last run was given to read and as its arguments, offered
     // again the next time a program asks for them.
     this.input = { stdin: "", args: "" };
+    this.tab = "run";            // which right-hand tab is showing
+    this.switchTab = true;       // whether the latest run may change it
+    // The REPL: a runtime of its own, started when the tab is first
+    // opened, so stopping an entry ends the session and nothing else.
+    this.replRuntime = null;
+    this.replStarting = null;
+    this.replBusy = false;
+    this.replHistory = [];
+    this.replAt = 0;            // where Up and Down are in the history
+    this.replDraft = "";        // what was being typed before Up
   }
 
   async init() {
@@ -126,7 +145,7 @@ class Playground {
     // changes size -- by a drag, by the window resizing, by the host page
     // reflowing -- is laid out again without being told.
     const options = {
-      theme: themeFor(this.cfg.theme), fontSize: 13,
+      theme: themeFor(this.effectiveTheme()), fontSize: 13,
       tabSize: 4, insertSpaces: true, detectIndentation: false,
       automaticLayout: true, minimap: { enabled: false },
       fixedOverflowWidgets: true,
@@ -153,18 +172,20 @@ class Playground {
 
     ui.target.addEventListener("change", () => this.onTargetChange());
     ui.example.addEventListener("change", () => this.loadExample(ui.example.value));
-    ui.compile.addEventListener("click", () => {
-      this.showView("code");
-      this.compile();
-    });
+    ui.compile.addEventListener("click", () => this.compile());
     ui.runLeft.addEventListener("click", () => this.runFromSource());
     ui.runRight.addEventListener("click", () => this.runGenerated());
     ui.stopLeft.addEventListener("click", () => this.stopRun());
     ui.stopRight.addEventListener("click", () => this.stopRun());
     ui.copy.addEventListener("click", () => this.copyRight());
-    ui.viewCode.addEventListener("click", () => this.showView("code"));
-    ui.viewPage.addEventListener("click", () => this.showView("page"));
+    ui.refresh.addEventListener("click", () => this.refreshPage());
     ui.clear.addEventListener("click", () => this.clearOutput());
+    ui.clearCompiled.addEventListener("click", () => this.clearOutput(ui.compiledOutput));
+    for (const tab of ui.tabs) {
+      tab.addEventListener("click", () => this.showTab(tab.dataset.tab));
+    }
+    this.installRepl();
+    this.installTheme();
 
     this.installSplitters();
     this.installSettings();
@@ -205,6 +226,7 @@ class Playground {
     // handled, but the check for an enclosing editor is explicit so that a
     // future Monaco that stops doing so cannot make this fire twice.
     ui.root.addEventListener("keydown", (event) => {
+      if (event.target === ui.replInput) return;
       if (event.key === "Escape" && !ui.modal.classList.contains("pyk-hidden")) {
         this.closeSettings();
         return;
@@ -243,8 +265,8 @@ class Playground {
     this.lspStarted = this.lsp.start().catch(() => false);
     // The compiler was loaded before the editors were made (mountPlayground).
     this.status("ready", "ready");
-    this.note("Press Compile to see the generated code, or Run to run the "
-              + "program itself.");
+    this.note("Press Run to run the program. Compiled code compiles it for a "
+              + "target, and the REPL runs Pyking an entry at a time.");
   }
 
   // -- examples ---------------------------------------------------------
@@ -293,15 +315,17 @@ class Playground {
   }
 
   async compile() {
+    this.showTab("compiled");
     if (!(await this.ensureRuntime())) return;
     const target = this.ui.target.value;
     const result = await this.runtime.compile(
       this.left.getValue(), target, "playground.pyk");
     this.clearError();
+    const log = this.ui.compiledOutput;
 
     if (!result.ok) {
       this.showFiles({});
-      this.error(result.text);
+      this.error(result.text, log);
       if (result.info) this.markError(result.info, result.text);
       return;
     }
@@ -313,7 +337,7 @@ class Playground {
     const what = target === "pyking"
       ? "Printed by the front end" : `Compiled to ${target}`;
     this.good(`${what} — ${names.length === 1
-      ? names[0] : names.length + " files: " + names.join(", ")}`);
+      ? names[0] : names.length + " files: " + names.join(", ")}`, log);
     return result;
   }
 
@@ -394,7 +418,7 @@ class Playground {
    *  (docs/interpreter.md), and it runs every program the checker accepts
    *  -- so this button works for a program no target in the dropdown can
    *  compile, which is exactly what "just run my program" should mean. */
-  async runFromSource() {
+  async runFromSource({ switchTab = true } = {}) {
     // Before starting the runtime, so the one-off "loading the compiler"
     // note survives rather than being wiped by the clear that follows it.
     this.beforeRun();
@@ -407,7 +431,15 @@ class Playground {
       if (!(await this.ensureRuntime())) return;
       this.clearError();
       const source = this.left.getValue();
-      const input = await this.askForInput(source);
+      const analysis = await this.analyze(source);
+      // A program with a page is shown on the page's tab, and any other on
+      // the output's -- unless the page's tab is showing already, where
+      // Refresh and a program without a page leave it.
+      const paged = analysis?.ok && analysis.externals.includes("tinyweb");
+      this.switchTab = switchTab;
+      if (switchTab && paged) this.showTab("web");
+      else if (switchTab && this.tab !== "web") this.showTab("run");
+      const input = await this.askForInput(analysis);
       if (input === null) return;
       await this.executeProgram(source, input);
     } finally {
@@ -417,35 +449,53 @@ class Playground {
     }
   }
 
-  /** Shows the compiled code or the program's page in the right-hand
-   *  pane. "code" | "page" -> () */
-  showView(view) {
+  /** Shows one of the right-hand tabs: "run", "compiled", "web" or
+   *  "repl". The run's output is one log, shown by the Run output tab and
+   *  below the page on the Web output tab, so it moves to whichever of
+   *  the two is showing. String -> () */
+  showTab(name) {
     const { ui } = this;
-    const page = view === "page";
-    ui.viewCode.classList.toggle("active", !page);
-    ui.viewPage.classList.toggle("active", page);
-    ui.files.classList.toggle("pyk-hidden", page);
-    ui.rightEditor.classList.toggle("pyk-hidden", page);
-    ui.copy.classList.toggle("pyk-hidden", page);
-    ui.page.classList.toggle("pyk-hidden", !page);
-    if (!page) this.right.layout();
+    if (!ui.panels[name]) return;
+    this.tab = name;
+    for (const tab of ui.tabs) {
+      const on = tab.dataset.tab === name;
+      tab.classList.toggle("active", on);
+      tab.setAttribute("aria-selected", String(on));
+    }
+    for (const [key, panel] of Object.entries(ui.panels)) {
+      panel.classList.toggle("pyk-hidden", key !== name);
+    }
+    if (name === "run") ui.panelRun.appendChild(ui.outputWrap);
+    if (name === "web") ui.panelWeb.appendChild(ui.outputWrap);
+    if (name === "compiled") this.right.layout();
+    if (name === "repl") this.openRepl();
   }
 
-  /** Removes the last run's page, if it had one. () -> () */
+  /** Removes the last run's page, if it had one, leaving the line that
+   *  says what the frame is for. () -> () */
   closePage() {
     this.pageHost?.close();
     this.pageHost = null;
+    this.ui.page.innerHTML = PAGE_PLACEHOLDER;
   }
 
-  /** Shows what the running program sent its page, on the Page tab.
+  /** The Refresh button on the page's frame: stop whatever runs, and run
+   *  the source in the editor again. () -> () */
+  async refreshPage() {
+    if (this.running) this.stopRun({ quiet: true });
+    await this.runFromSource();
+  }
+
+  /** Shows what the running program sent its page, on the Web output tab.
    *  String -> [Object] -> () */
   pageReceive(module, data) {
     if (!this.pageHost) {
+      this.ui.page.textContent = "";
       this.pageHost = new PageHost(this.ui.page, {
         libURL: this.runtime.libURL,
         send: (name, event) => this.runtime.sendEvent(name, event),
       });
-      this.showView("page");
+      if (this.switchTab) this.showTab("web");
     }
     this.pageHost.receive(module, data);
   }
@@ -455,7 +505,7 @@ class Playground {
     const target = this.ui.target.value;
     const how = this.meta.run[target];
     if (!how) return;          // nothing runs, so nothing is cleared either
-    this.beforeRun();
+    this.beforeRun(this.ui.compiledOutput);
     const code = this.right.getValue();
     this.beginRun("right", "js");
     try {
@@ -465,20 +515,24 @@ class Playground {
     }
   }
 
+  /** What the program needs before it runs (`PykingRuntime.analyze`), or
+   *  null where asking failed. String -> Promise<Object?> */
+  async analyze(source) {
+    try {
+      return await this.runtime.analyze(source);
+    } catch {
+      return null;
+    }
+  }
+
   /** What the program reads and is passed, asked of the user before it
    *  runs -- and only where the program uses one: a program that never
    *  reads standard input is not interrupted by a box asking for it.
    *  Resolves to {stdin, args}, or to null if the dialog was cancelled.
    *  A program that does not check is not asked about: running it reports
-   *  the refusal. String -> Promise<{stdin, args}?> */
-  async askForInput(source) {
-    let analysis;
-    try {
-      analysis = await this.runtime.analyze(source);
-    } catch {
-      return { stdin: "", args: [] };
-    }
-    if (!analysis.ok || !(analysis.stdin || analysis.args)) {
+   *  the refusal. Object? -> Promise<{stdin, args}?> */
+  async askForInput(analysis) {
+    if (!analysis?.ok || !(analysis.stdin || analysis.args)) {
       return { stdin: "", args: [] };
     }
     const { ui } = this;
@@ -525,6 +579,7 @@ class Playground {
   async executeProgram(source, input = { stdin: "", args: [] }) {
     try {
       this.closePage();
+      this.ui.pageTitle.textContent = this.ui.example.value || "playground.pyk";
       const run = this.running;
       const result = await this.runtime.runProgram(source, {
         onOutput: (text) => this.write(text),
@@ -564,16 +619,17 @@ class Playground {
       // The whole compiled program goes across, not just the pane: a
       // generated module imports the shared runtime and the modules it
       // uses, and a blob URL has no base to resolve those against.
+      const log = this.ui.compiledOutput;
       await this.jsRunner.run(code, {
         files: this.files,
         formatHelper: this.meta.formatHelper,
         main: this.current,
-        onOutput: (text) => this.write(text),
-        onDebug: (text) => this.debugLine(text),
+        onOutput: (text) => this.write(text, "", log),
+        onDebug: (text) => this.debugLine(text, log),
       });
-      this.good(`— ${target} finished —`);
+      this.good(`— ${target} finished —`, log);
     } catch (err) {
-      if (!this.stopped) this.error(err.message);
+      if (!this.stopped) this.error(err.message, this.ui.compiledOutput);
     }
   }
 
@@ -608,10 +664,13 @@ class Playground {
     this.ui.runRight.classList.remove("pyk-hidden");
   }
 
-  stopRun() {
+  /** Stops what Run started. `quiet` leaves the log as it is, for a stop
+   *  that is the start of another run. {quiet}? -> () */
+  stopRun({ quiet = false } = {}) {
     if (!this.running) return;
     const { kind } = this.running;
     this.stopped = true;
+    const log = kind === "js" ? this.ui.compiledOutput : this.ui.output;
     // A program that has answered and is only waiting for its page's
     // events is let go rather than killed: nothing is running to stop.
     const waiting = kind === "pyking" && this.runtime.isLive
@@ -619,13 +678,13 @@ class Playground {
     if (waiting) {
       this.runtime.endLive();
       this.endRun();
-      this.error("— stopped —");
+      if (!quiet) this.error("— stopped —", log);
       return;
     }
     if (kind === "pyking") this.runtime.stop();
     else this.jsRunner.stop();
     this.endRun();
-    this.error("— stopped —");
+    if (!quiet) this.error("— stopped —", log);
     if (kind === "pyking") {
       this.status("busy", "restarting the compiler");
       // stop() terminated the interpreter, so a fresh one is already coming
@@ -677,7 +736,9 @@ class Playground {
     }
     this.autoRunning = true;
     try {
-      await this.runFromSource();
+      // A run of its own accord leaves the tab as it is: typing in the
+      // editor with the REPL showing keeps the REPL showing.
+      await this.runFromSource({ switchTab: false });
     } finally {
       this.autoRunning = false;
     }
@@ -687,33 +748,36 @@ class Playground {
    *  Compiling deliberately does not: the setting says "each time you press
    *  Run", and a compile error you wanted to keep beside the output would
    *  otherwise vanish. */
-  beforeRun() {
-    if (this.settings.clearOnRun) this.clearOutput();
+  beforeRun(log = this.ui.output) {
+    if (this.settings.clearOnRun) this.clearOutput(log);
   }
 
-  write(text, cls) {
+  /** Writes text to an output log: the run's, unless another is named --
+   *  the compiled code's, which its own Run and Compile write to.
+   *  String -> String? -> Element? -> () */
+  write(text, cls, log = this.ui.output) {
     const span = document.createElement("span");
     if (cls) span.className = cls;
     span.textContent = text;
-    this.ui.output.appendChild(span);
+    log.appendChild(span);
     // Following the newest line is part of being scrollable. With scrolling
     // switched off the pane clips instead, and scrolling it programmatically
     // would push the start of the output out of sight with no way back.
     if (this.settings.scrollOutput) {
-      this.ui.output.scrollTop = this.ui.output.scrollHeight;
+      log.scrollTop = log.scrollHeight;
     }
   }
   /** A `debug` line: in the pane, marked apart from what the program
    *  printed, and on the console, which is where a JavaScript program's
    *  `debug` goes. */
-  debugLine(text) {
-    this.write(text, "debug");
+  debugLine(text, log) {
+    this.write(text, "debug", log);
     console.log(text.replace(/\n$/, ""));
   }
-  note(text) { this.write(text + "\n", "note"); }
-  good(text) { this.write(text + "\n", "good"); }
-  error(text) { this.write(text + "\n", "err"); }
-  clearOutput() { this.ui.output.textContent = ""; }
+  note(text, log) { this.write(text + "\n", "note", log); }
+  good(text, log) { this.write(text + "\n", "good", log); }
+  error(text, log) { this.write(text + "\n", "err", log); }
+  clearOutput(log = this.ui.output) { log.textContent = ""; }
 
   // -- error marking ----------------------------------------------------
 
@@ -741,9 +805,9 @@ class Playground {
   async copyRight() {
     try {
       await navigator.clipboard.writeText(this.right.getValue());
-      this.note("Copied the generated code to the clipboard.");
+      this.note("Copied the generated code to the clipboard.", this.ui.compiledOutput);
     } catch {
-      this.error("The browser refused clipboard access.");
+      this.error("The browser refused clipboard access.", this.ui.compiledOutput);
     }
   }
 
@@ -752,10 +816,356 @@ class Playground {
     this.ui.statusText.textContent = text;
   }
 
+  // -- light and dark ---------------------------------------------------
+  //
+  // The theme is `data-theme` on the root, which the stylesheet's tokens
+  // follow, and Monaco's own theme. Where the embedding page passed
+  // `theme`, it decides -- calling `setTheme` -- and the switch and the
+  // setting are hidden; otherwise the viewer does, starting from the
+  // system's preference.
+
+  installTheme() {
+    const { ui } = this;
+    const owned = this.cfg.theme !== null && this.cfg.theme !== undefined;
+    ui.themeButton.classList.toggle("pyk-hidden", owned);
+    ui.themeField.classList.toggle("pyk-hidden", owned);
+    this.systemDark = globalThis.matchMedia?.("(prefers-color-scheme: dark)") ?? null;
+    this.systemDark?.addEventListener?.("change", () => this.applyTheme());
+    ui.themeButton.addEventListener("click", () => {
+      this.settings.theme = this.effectiveTheme() === "dark" ? "light" : "dark";
+      this.applyTheme();
+      this.saveSettings();
+    });
+    ui.themeChoice.addEventListener("change", () => {
+      this.settings.theme = ui.themeChoice.value;
+      this.applyTheme();
+      this.saveSettings();
+    });
+  }
+
+  /** The theme showing: the embedding page's, or the viewer's choice,
+   *  with "system" read from the browser. () -> "light" | "dark" */
+  effectiveTheme() {
+    const chosen = this.cfg.theme ?? this.settings.theme;
+    if (chosen === "light" || chosen === "dark") return chosen;
+    const dark = this.systemDark ?? globalThis.matchMedia?.("(prefers-color-scheme: dark)");
+    return dark && !dark.matches ? "light" : "dark";
+  }
+
+  applyTheme() {
+    const theme = this.effectiveTheme();
+    this.ui.root.dataset.theme = theme;
+    this.monaco.editor.setTheme(themeFor(theme));
+    this.ui.themeChoice.value = this.settings.theme;
+    this.ui.themeButton.title = theme === "dark"
+      ? "Switch to the light theme" : "Switch to the dark theme";
+  }
+
+  /** Shows the playground in "light" or "dark", for a page that decides
+   *  the theme itself (the `theme` option). String -> () */
+  setTheme(theme) {
+    this.cfg.theme = theme === "light" ? "light" : "dark";
+    this.applyTheme();
+  }
+
+  // -- the REPL ---------------------------------------------------------
+  //
+  // A session of `pyk repl` (src/repl_session.ml) on a runtime of its own.
+  // The prompt is a text area at the foot of the transcript: Enter
+  // submits an entry the parser says is whole, and otherwise opens the
+  // next line indented, as the terminal's editor does; a blank line ends
+  // a block. The environment below is what `:ls` would list, read back
+  // after every entry.
+
+  installRepl() {
+    const { ui } = this;
+    ui.replCopy.addEventListener("click", () => this.copyToRepl());
+    ui.replStop.addEventListener("click", () => this.stopRepl());
+    ui.replReset.addEventListener("click", () => this.submitRepl(":reset"));
+    ui.replClear.addEventListener("click", () => {
+      ui.replLog.textContent = "";
+      ui.replInput.focus();
+    });
+    // A click anywhere in the transcript puts the cursor in the prompt,
+    // unless it was selecting text to copy.
+    ui.repl.addEventListener("mouseup", () => {
+      if (!String(globalThis.getSelection?.() ?? "")) ui.replInput.focus();
+    });
+    ui.replInput.addEventListener("input", () => this.fitReplInput());
+    ui.replInput.addEventListener("keydown", (event) => this.replKey(event));
+    this.showBindings([]);
+  }
+
+  /** Starts the REPL's runtime and an empty session, once. Answers whether
+   *  it is ready. () -> Promise<Bool> */
+  ensureRepl() {
+    if (!this.replStarting) {
+      this.replStarting = (async () => {
+        this.replNote("Starting the REPL…");
+        this.replRuntime = createRuntime({
+          webrun: this.cfg.webrunURL, pyking: this.cfg.pykingURL,
+        });
+        await this.replRuntime.ready();
+        const { bindings } = await this.replRuntime.replStart();
+        this.showBindings(bindings);
+        this.ui.replLog.lastChild?.remove();
+        this.replNote("Pyking REPL. Type an entry and press Enter; :help lists "
+                      + "the commands.");
+        return true;
+      })().catch((err) => {
+        this.replStarting = null;
+        this.replError("Could not start the REPL: " + err.message);
+        return false;
+      });
+    }
+    return this.replStarting;
+  }
+
+  async openRepl() {
+    this.ui.replInput.focus();
+    await this.ensureRepl();
+  }
+
+  /** Grows the prompt to the lines it holds. () -> () */
+  fitReplInput() {
+    const input = this.ui.replInput;
+    input.rows = Math.max(1, input.value.split("\n").length);
+    this.ui.repl.scrollTop = this.ui.repl.scrollHeight;
+  }
+
+  /** Sets what the prompt holds, the cursor at its end. String -> () */
+  setReplInput(text) {
+    const input = this.ui.replInput;
+    input.value = text;
+    input.setSelectionRange(text.length, text.length);
+    this.fitReplInput();
+  }
+
+  /** What a key does in the prompt: Enter, Shift+Enter, Tab, Backspace in
+   *  the indentation, Escape, and Up and Down through the history.
+   *  KeyboardEvent -> () */
+  replKey(event) {
+    const input = this.ui.replInput;
+    const { value, selectionStart: at, selectionEnd } = input;
+    const before = value.slice(0, at);
+    const onFirstLine = !before.includes("\n");
+    const onLastLine = !value.slice(at).includes("\n");
+    if (event.key === "Enter" && !event.altKey && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault();
+      if (this.replBusy) return;
+      if (event.shiftKey) this.replNewline();
+      else this.replEnter();
+    } else if (event.key === "Tab" && !event.shiftKey) {
+      event.preventDefault();
+      input.setRangeText("    ", at, selectionEnd, "end");
+      this.fitReplInput();
+    } else if (event.key === "Backspace" && at === selectionEnd && at > 0) {
+      // Inside a line's indentation, Backspace removes a whole level.
+      const line = before.slice(before.lastIndexOf("\n") + 1);
+      if (line.length > 0 && /^ +$/.test(line)) {
+        event.preventDefault();
+        const width = line.length % 4 || 4;
+        input.setRangeText("", at - width, at, "end");
+        this.fitReplInput();
+      }
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      this.setReplInput("");
+      this.replAt = this.replHistory.length;
+    } else if (event.key === "ArrowUp" && onFirstLine && this.replAt > 0) {
+      event.preventDefault();
+      if (this.replAt === this.replHistory.length) this.replDraft = value;
+      this.replAt -= 1;
+      this.setReplInput(this.replHistory[this.replAt]);
+    } else if (event.key === "ArrowDown" && onLastLine
+               && this.replAt < this.replHistory.length) {
+      event.preventDefault();
+      this.replAt += 1;
+      this.setReplInput(this.replAt === this.replHistory.length
+        ? this.replDraft : this.replHistory[this.replAt]);
+    }
+  }
+
+  /** Opens a new line at the cursor, indented where the parser says the
+   *  line above leaves it. () -> Promise<()> */
+  async replNewline() {
+    const input = this.ui.replInput;
+    const at = input.selectionStart;
+    let indent = "";
+    if (await this.ensureRepl()) {
+      ({ indent } = await this.replRuntime.replLine(input.value.slice(0, at)));
+    }
+    input.setRangeText("\n" + indent, at, input.selectionEnd, "end");
+    this.fitReplInput();
+  }
+
+  /** Enter: submit the entry where it is finished -- one whole line that
+   *  nothing could continue, a command, or a block ended by a blank line
+   *  -- and open the next line otherwise. () -> Promise<()> */
+  async replEnter() {
+    const input = this.ui.replInput;
+    const text = input.value;
+    if (text.trim() === "") return;
+    const lines = text.split("\n");
+    if (lines.length > 1 && input.selectionStart < text.length) return this.replNewline();
+    if (lines.length === 1) {
+      if (text.trim().startsWith(":")) return this.submitRepl(text);
+      if (!(await this.ensureRepl())) return;
+      const { complete, continuable } = await this.replRuntime.replLine(text);
+      if (complete && !continuable) return this.submitRepl(text);
+      return this.replNewline();
+    }
+    if (lines[lines.length - 1].trim() === "") {
+      return this.submitRepl(text.replace(/(\n[ \t]*)+$/, ""));
+    }
+    return this.replNewline();
+  }
+
+  /** Runs one entry in the session and shows what it printed, showed and
+   *  was refused with, then the environment. String -> Promise<()> */
+  async submitRepl(text) {
+    if (this.replBusy) return;
+    if (!(await this.ensureRepl())) return;
+    const input = this.ui.replInput;
+    this.replEcho(text);
+    if (text.trim() !== "" && this.replHistory[this.replHistory.length - 1] !== text) {
+      this.replHistory.push(text);
+    }
+    this.replAt = this.replHistory.length;
+    this.replDraft = "";
+    this.setReplInput("");
+    this.replBusy = true;
+    input.disabled = true;
+    this.ui.replStop.classList.remove("pyk-hidden");
+    try {
+      const answer = await this.replRuntime.replSubmit(text, {
+        onOutput: (out) => this.replWrite(out),
+        onShow: (out) => this.replWrite(out, "shown"),
+        onDebug: (out) => this.replWrite(out, "debug"),
+      });
+      for (const error of answer.errors) this.replError(error);
+      if (answer.exit !== undefined) {
+        this.replError(`sys.exit(${answer.exit}) ended the entry; the session goes on.`);
+      }
+      if (answer.bindings) this.showBindings(answer.bindings);
+      if (answer.pending) this.setReplInput(answer.pending);
+    } catch (err) {
+      if (!this.replStopped) this.replError("the REPL failed: " + err.message);
+    } finally {
+      this.replStopped = false;
+      this.replBusy = false;
+      input.disabled = false;
+      this.ui.replStop.classList.add("pyk-hidden");
+      if (this.tab === "repl") input.focus();
+    }
+  }
+
+  /** Stop: the entry's worker is ended, and the session with it; a new
+   *  one starts at once. () -> Promise<()> */
+  async stopRepl() {
+    if (!this.replBusy || !this.replRuntime) return;
+    this.replStopped = true;
+    this.replRuntime.stop();
+    this.replError("— stopped; the session starts again —");
+    this.showBindings([]);
+    try {
+      await this.replRuntime.ready();
+      this.showBindings((await this.replRuntime.replStart()).bindings);
+    } catch (err) {
+      this.replError("Could not restart the REPL: " + err.message);
+    }
+  }
+
+  /** The text marked in the editor, into the prompt at its cursor, with
+   *  the indentation its lines share removed -- or a message saying to
+   *  mark some first. () -> () */
+  copyToRepl() {
+    const marked = this.left.getModel().getValueInRange(this.left.getSelection());
+    if (marked.trim() === "") {
+      this.replError("Nothing is marked in the editor: mark the text to copy, "
+                     + "then press Copy from editor.");
+      return;
+    }
+    const lines = marked.replace(/\s+$/, "").split("\n");
+    const indents = lines.filter((l) => l.trim() !== "")
+      .map((l) => l.match(/^ */)[0].length);
+    const common = Math.min(...indents);
+    const text = lines.map((l) => l.slice(Math.min(common, l.match(/^ */)[0].length)))
+      .join("\n");
+    const input = this.ui.replInput;
+    input.focus();
+    input.setRangeText(text, input.selectionStart, input.selectionEnd, "end");
+    this.fitReplInput();
+  }
+
+  /** An entry, as it was typed, in the transcript. String -> () */
+  replEcho(text) {
+    const entry = document.createElement("div");
+    entry.className = "entry";
+    text.split("\n").forEach((line, k) => {
+      const prompt = document.createElement("span");
+      prompt.className = "prompt";
+      prompt.textContent = k === 0 ? "> " : ". ";
+      entry.append(prompt, line + "\n");
+    });
+    this.ui.replLog.appendChild(entry);
+    this.ui.repl.scrollTop = this.ui.repl.scrollHeight;
+  }
+
+  replWrite(text, cls) {
+    const span = document.createElement("span");
+    if (cls) span.className = cls;
+    span.textContent = text;
+    this.ui.replLog.appendChild(span);
+    this.ui.repl.scrollTop = this.ui.repl.scrollHeight;
+  }
+  replNote(text) { this.replWrite(text + "\n", "note"); }
+  replError(text) { this.replWrite(text + "\n", "err"); }
+
+  /** The environment table: one row per binding, as `:ls` lists them.
+   *  [{name, value, type, implicit}] -> () */
+  showBindings(bindings) {
+    const { env } = this.ui;
+    env.textContent = "";
+    const table = document.createElement("table");
+    const head = table.createTHead().insertRow();
+    for (const title of ["Name", "Value", "Type"]) {
+      const th = document.createElement("th");
+      th.textContent = title;
+      head.appendChild(th);
+    }
+    const body = table.createTBody();
+    if (bindings.length === 0) {
+      const cell = body.insertRow().insertCell();
+      cell.colSpan = 3;
+      cell.className = "empty";
+      cell.textContent = "no bindings yet";
+    }
+    for (const binding of bindings) {
+      const row = body.insertRow();
+      const name = row.insertCell();
+      name.className = "name";
+      name.textContent = binding.name;
+      if (binding.implicit) {
+        const tag = document.createElement("span");
+        tag.className = "tag";
+        tag.textContent = "implicit";
+        name.appendChild(tag);
+      }
+      const value = row.insertCell();
+      value.className = "value";
+      value.textContent = binding.value;
+      const type = row.insertCell();
+      type.className = "type";
+      type.textContent = binding.type ?? "";
+    }
+    env.appendChild(table);
+  }
+
   // -- resizable panes --------------------------------------------------
 
   installSplitters() {
-    const { columns, gutterV, rightPane, gutterH } = this.ui;
+    const { columns, gutterV } = this.ui;
 
     // Horizontal drag: the share of the columns box given to the source
     // pane. Under the narrow (stacked) layout the same grid property is a
@@ -773,12 +1183,18 @@ class Playground {
       this.setSplit("--pyk-col-split", fraction);
     });
 
-    // Vertical drag: how much of the generated pane the output takes,
-    // measured from the bottom because that is the edge it is anchored to.
-    this.installDrag(gutterH, "h", (event) => {
-      const box = rightPane.getBoundingClientRect();
-      this.setSplit("--pyk-out-split", (box.bottom - event.clientY) / box.height);
-    });
+    // Vertical drag: how much of a tab the lower part takes -- the output
+    // below the compiled code and below the page, the environment below
+    // the REPL -- measured from the bottom because that is the edge it is
+    // anchored to. One share for all three tabs.
+    for (const [gutter, panel] of [[this.ui.gutterCompiled, this.ui.panelCompiled],
+                                   [this.ui.gutterWeb, this.ui.panelWeb],
+                                   [this.ui.gutterRepl, this.ui.panelRepl]]) {
+      this.installDrag(gutter, "h", (event) => {
+        const box = panel.getBoundingClientRect();
+        this.setSplit("--pyk-out-split", (box.bottom - event.clientY) / box.height);
+      });
+    }
   }
 
   setSplit(name, fraction) {
@@ -873,7 +1289,9 @@ class Playground {
     this.right.updateOptions({ fontSize: px });
     // The output pane is plain text, not an editor, so it needs telling
     // separately -- but it should scale with the code beside it.
-    this.ui.output.style.fontSize = px + "px";
+    for (const element of [this.ui.output, this.ui.compiledOutput, this.ui.repl, this.ui.env]) {
+      element.style.fontSize = px + "px";
+    }
     this.ui.fontValue.textContent = px + "px";
     this.ui.fontSize.value = String(px);
   }
@@ -881,10 +1299,12 @@ class Playground {
   applyOutputScroll() {
     const on = this.settings.scrollOutput;
     this.ui.output.classList.toggle("pyk-no-scroll", !on);
+    this.ui.compiledOutput.classList.toggle("pyk-no-scroll", !on);
     this.ui.scrollOutput.checked = on;
   }
 
   applySettings() {
+    this.applyTheme();
     this.applyFontSize(this.settings.fontSize);
     this.applyOutputScroll();
     this.ui.clearOnRun.checked = this.settings.clearOnRun;
@@ -898,6 +1318,7 @@ class Playground {
   saveSettings() {
     const style = this.ui.root.style;
     saveSettings({
+      theme: this.settings.theme,
       fontSize: this.settings.fontSize,
       scrollOutput: this.settings.scrollOutput,
       clearOnRun: this.settings.clearOnRun,
@@ -915,9 +1336,21 @@ function buildDom(host, meta, cfg) {
   host.innerHTML = `
     <div class="pyk-header">
       <div class="pyk-title">Pyking Playground
-        <small>the real compiler, running in your browser</small></div>
+        <small data-r="version"></small></div>
       <div class="pyk-status"><span class="pyk-dot"></span>
         <span data-r="statusText">idle</span></div>
+      <button class="pyk-theme" data-r="themeButton" title="Switch to the light theme"
+              aria-label="Switch between the light and dark themes">
+        <svg class="sun" viewBox="0 0 16 16" width="15" height="15" fill="none"
+             stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+             aria-hidden="true">
+          <circle cx="8" cy="8" r="3"/>
+          <path d="M8 1v1.6M8 13.4V15M1 8h1.6M13.4 8H15M3.05 3.05l1.13 1.13M11.82 11.82l1.13 1.13M3.05 12.95l1.13-1.13M11.82 4.18l1.13-1.13"/>
+        </svg>
+        <svg class="moon" viewBox="0 0 16 16" width="15" height="15"
+             fill="currentColor" aria-hidden="true">
+          <path d="M13.5 10.2A6 6 0 0 1 5.8 2.5a6 6 0 1 0 7.7 7.7z"/>
+        </svg></button>
       <button class="pyk-settings" data-r="settingsButton" title="Settings">
         <svg viewBox="0 0 16 16" width="14" height="14" fill="none"
              stroke="currentColor" stroke-width="1.6" stroke-linecap="round"
@@ -938,44 +1371,106 @@ function buildDom(host, meta, cfg) {
                   title="Stop the running program">■ Stop</button>
           <button class="pyk-run" data-r="runLeft"
                   title="Run the program itself (Shift+Enter)">▶ Run</button>
-          <button class="pyk-primary" data-r="compile"
-                  title="Compile this source into the pane on the right (Ctrl+Enter)">
-            Compile →</button>
         </div>
         <div class="pyk-editor" data-r="leftEditor"></div>
       </section>
       <div class="pyk-gutter pyk-gutter-v" data-r="gutterV" role="separator"
            aria-orientation="vertical" title="Drag to resize"></div>
       <section class="pyk-pane" data-r="rightPane">
-        <div class="pyk-toolbar">
-          <span class="pyk-label">Target</span>
-          <select data-r="target"></select>
-          <span class="pyk-spacer"></span>
-          <button class="pyk-stop pyk-hidden" data-r="stopRight"
-                  title="Stop the running program">■ Stop</button>
-          <button class="pyk-run" data-r="runRight">▶ Run</button>
-          <!-- No glyph: U+29C9 has no coverage in the usual UI fonts and
-               rendered as an empty box. A word always renders. -->
-          <button data-r="copy" title="Copy the generated code">Copy</button>
+        <div class="pyk-tabs" role="tablist">
+          <button class="pyk-tab active" data-r="tabRun" data-tab="run" role="tab"
+                  title="What the program printed when you pressed Run">Run output</button>
+          <button class="pyk-tab" data-r="tabCompiled" data-tab="compiled" role="tab"
+                  title="Compile the program for a target, and run what it became">Compiled code</button>
+          <button class="pyk-tab" data-r="tabWeb" data-tab="web" role="tab"
+                  title="What the program shows: a program using tinyweb draws here">Web output</button>
+          <button class="pyk-tab" data-r="tabRepl" data-tab="repl" role="tab"
+                  title="Type Pyking an entry at a time">REPL</button>
         </div>
-        <div class="pyk-views" data-r="views" role="tablist">
-          <button class="pyk-file pyk-view active" data-r="viewCode" role="tab"
-                  title="The code the compiler wrote">Compiled code</button>
-          <button class="pyk-file pyk-view" data-r="viewPage" role="tab"
-                  title="What the program shows: a program using tinyweb draws here">Page</button>
-        </div>
-        <div class="pyk-files" data-r="files"></div>
-        <div class="pyk-editor" data-r="rightEditor"></div>
-        <div class="pyk-page pyk-hidden" data-r="page"></div>
-        <div class="pyk-gutter pyk-gutter-h" data-r="gutterH" role="separator"
-             aria-orientation="horizontal" title="Drag to resize"></div>
-        <div class="pyk-output-wrap" data-r="outputWrap">
-          <div class="pyk-output-head">
-            <span class="pyk-label">Output</span>
-            <span class="pyk-spacer"></span>
-            <button data-r="clear">Clear</button>
+
+        <div class="pyk-panel pyk-panel-run" data-r="panelRun" role="tabpanel">
+          <div class="pyk-output-wrap" data-r="outputWrap">
+            <div class="pyk-output-head">
+              <span class="pyk-label">Output</span>
+              <span class="pyk-spacer"></span>
+              <button data-r="clear">Clear</button>
+            </div>
+            <pre class="pyk-output" data-r="output"></pre>
           </div>
-          <pre class="pyk-output" data-r="output"></pre>
+        </div>
+
+        <div class="pyk-panel pyk-hidden" data-r="panelCompiled" role="tabpanel">
+          <div class="pyk-toolbar">
+            <span class="pyk-label">Target</span>
+            <select data-r="target"></select>
+            <button class="pyk-primary" data-r="compile"
+                    title="Compile the source for this target (Ctrl+Enter)">Compile</button>
+            <span class="pyk-spacer"></span>
+            <button class="pyk-stop pyk-hidden" data-r="stopRight"
+                    title="Stop the running program">■ Stop</button>
+            <button class="pyk-run" data-r="runRight">▶ Run</button>
+            <!-- No glyph: U+29C9 has no coverage in the usual UI fonts and
+                 rendered as an empty box. A word always renders. -->
+            <button data-r="copy" title="Copy the generated code">Copy</button>
+          </div>
+          <div class="pyk-files" data-r="files"></div>
+          <div class="pyk-editor" data-r="rightEditor"></div>
+          <div class="pyk-gutter pyk-gutter-h" data-r="gutterCompiled" role="separator"
+               aria-orientation="horizontal" title="Drag to resize"></div>
+          <div class="pyk-output-wrap">
+            <div class="pyk-output-head">
+              <span class="pyk-label">Output</span>
+              <span class="pyk-spacer"></span>
+              <button data-r="clearCompiled">Clear</button>
+            </div>
+            <pre class="pyk-output" data-r="compiledOutput"></pre>
+          </div>
+        </div>
+
+        <div class="pyk-panel pyk-hidden" data-r="panelWeb" role="tabpanel">
+          <div class="pyk-stage">
+            <div class="pyk-frame">
+              <div class="pyk-frame-bar">
+                <div class="pyk-frame-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+                <div class="pyk-frame-title" data-r="pageTitle">playground.pyk</div>
+                <button data-r="refresh"
+                        title="Stop the program and run the source again">↻ Refresh</button>
+              </div>
+              <div class="pyk-page" data-r="page">${PAGE_PLACEHOLDER}</div>
+            </div>
+          </div>
+          <div class="pyk-gutter pyk-gutter-h" data-r="gutterWeb" role="separator"
+               aria-orientation="horizontal" title="Drag to resize"></div>
+        </div>
+
+        <div class="pyk-panel pyk-hidden" data-r="panelRepl" role="tabpanel">
+          <div class="pyk-toolbar">
+            <span class="pyk-label">REPL</span>
+            <button data-r="replCopy"
+                    title="Put the text marked in the editor into the prompt">Copy from editor</button>
+            <span class="pyk-spacer"></span>
+            <button class="pyk-stop pyk-hidden" data-r="replStop"
+                    title="Stop the entry; the session starts again">■ Stop</button>
+            <button data-r="replReset" title="Forget everything and start again (:reset)">Reset</button>
+            <button data-r="replClear" title="Clear the transcript; the session is kept">Clear</button>
+          </div>
+          <div class="pyk-repl" data-r="repl">
+            <div class="pyk-repl-log" data-r="replLog"></div>
+            <div class="pyk-repl-line">
+              <span class="prompt" data-r="replPrompt">&gt; </span>
+              <textarea class="pyk-repl-input" data-r="replInput" rows="1"
+                        spellcheck="false" autocomplete="off" autocapitalize="off"
+                        aria-label="REPL input"></textarea>
+            </div>
+          </div>
+          <div class="pyk-gutter pyk-gutter-h" data-r="gutterRepl" role="separator"
+               aria-orientation="horizontal" title="Drag to resize"></div>
+          <div class="pyk-env-wrap">
+            <div class="pyk-output-head">
+              <span class="pyk-label">Environment</span>
+            </div>
+            <div class="pyk-env" data-r="env"></div>
+          </div>
         </div>
       </section>
     </div>
@@ -1018,6 +1513,14 @@ function buildDom(host, meta, cfg) {
                   title="Close (Esc)" aria-label="Close">✕</button>
         </div>
         <div class="pyk-modal-body">
+          <div class="pyk-field" data-r="themeField">
+            <label for="pyk-theme-choice">Appearance</label>
+            <select id="pyk-theme-choice" data-r="themeChoice">
+              <option value="system">Same as the system</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </div>
           <div class="pyk-field">
             <label>Editor font size</label>
             <div class="pyk-field-row">
@@ -1025,7 +1528,7 @@ function buildDom(host, meta, cfg) {
                      aria-label="Editor font size">
               <span class="pyk-value" data-r="fontValue">13px</span>
             </div>
-            <p class="pyk-hint">Applies to both editors and the output pane.</p>
+            <p class="pyk-hint">Applies to both editors, the output panes and the REPL.</p>
           </div>
           <div class="pyk-field">
             <label>Running</label>
@@ -1062,6 +1565,12 @@ function buildDom(host, meta, cfg) {
   const ui = { root: host };
   for (const el of host.querySelectorAll("[data-r]")) ui[el.dataset.r] = el;
   ui.dot = host.querySelector(".pyk-dot");
+  // The version of the pyk serving the page, from its manifest.
+  if (meta.version) ui.version.textContent = `version ${meta.version}`;
+  ui.tabs = [...host.querySelectorAll(".pyk-tab")];
+  ui.panels = {
+    run: ui.panelRun, compiled: ui.panelCompiled, web: ui.panelWeb, repl: ui.panelRepl,
+  };
 
   for (const target of meta.targets) {
     ui.target.add(new Option(`${target.label}  (${target.name})`, target.name));

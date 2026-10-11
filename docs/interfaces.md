@@ -58,7 +58,7 @@ respects that, which is what makes the library link.
 ┌──── the executable's other modules ──────────────────────────────────┐
 │                                                                      │
 │  repl.ml         start           the prompt, and the editor it is    │
-│                                  typed into                          │
+│                                  typed into, over repl_session.ml    │
 │  execution.ml    execute,        what --run builds and runs          │
 │                  pyking_target                                       │
 │  plugin_host.ml  load,           an external module's OCaml          │
@@ -84,6 +84,9 @@ respects that, which is what makes the library link.
 │                  walk.ml and json.ml (parse, to_string, member)      │
 │  examples.ml     example, file, read, find, listing: the examples    │
 │                  list, for pyk.ml and web_tools.ml                   │
+│  repl_session.ml new_session, submit, run_meta, bindings, complete,  │
+│                  ...: a REPL session, for repl.ml and the page's     │
+│                  REPL tab                                            │
 │                              │                                       │
 │  the backends    translate_program, pprint_<lang>_program,           │
 │                  Unsupported                                         │
@@ -150,7 +153,7 @@ whose contents are the compiler's shared vocabulary rather than a
 service. `Syntax` is opened by the fourteen modules that work on the
 AST: `walk.ml`, `analyses.ml`, `desugar_args.ml`, `parser.ml`,
 `module.ml`, both checkers,
-`opt_tailcall.ml`, `interpreter.ml`, `repl.ml` and the five language
+`opt_tailcall.ml`, `interpreter.ml`, `repl_session.ml` and the five language
 backends. `Lexer` is opened by eleven — ten of those, and `syntax.ml`
 itself, whose nodes carry an `info`. `target_js_packaging.ml` opens
 neither and opens `Target_js_core` instead, whose AST it works on.
@@ -227,7 +230,7 @@ Three crossings are worth naming because they are not the pipeline:
   modules and reach an external one through its host.
 
 The two other front ends call the same library functions the driver
-does. `repl.ml` is the only caller of the type checker's entry-at-a-time
+does. `repl_session.ml` is the only caller of the type checker's entry-at-a-time
 half (`builtin_env`, `empty_store`, `declare_functions`, `import_env`,
 `check_stmt`, `check_expr`, `zonk`, `displayed`, `settled_type`), of the
 interpreter's (`initial_state`, `declare_entry`, `eval_in`,
@@ -263,17 +266,19 @@ Beyond that:
 | `cprogram`, `jprogram`, `oprogram`, `pyprogram` | the four other backends | abstract | `translate_program` is the only thing that makes one and the printer the only thing that reads one |
 | `Elaborate.program` | `elaborate.mli` | -- | takes `qmap` and `tmap` and answers the rewritten module and an extended `tmap`; the pass keeps nothing |
 | `Repl.session`, `.reader` | `repl.mli` | abstract | `start`'s own parameters, for driving a session without a terminal |
+| `Repl_session.session` | `repl_session.mli` | abstract | `repl.ml` and `web/pyking_web.ml` keep one and hand it back |
+| `Repl_session.host`, `.binding`, `.outcome` | `repl_session.mli` | public | a front end makes the host, reads a binding into its table, and takes what `:edit` puts back |
 | `Plugin_host.unit_` | `plugin_host.mli` | public | the driver and the REPL build one per external module from what it declared |
 | `Release.program`, `Prune.program` | `release.mli`, `prune.mli` | -- | each takes a module (or a program) and answers it rewritten; neither keeps anything |
 
 **`Typesystem.store` is the one interface here that is wider than it
 should be.** It is the whole of what inference has worked out — eleven
-fields — and `repl.ml` needs two of them: it starts each entry
+fields — and `repl_session.ml` needs two of them: it starts each entry
 with an empty `tmap` and reads the table back afterwards, and it adds
 what each module an entry imports exports to `modules`. Two accessors
 in `typesystem.ml` (`tmap` of a store, and a store with an empty one)
 would let the type be abstract like the interpreter's `env`. Until then
-the fields are visible, and nothing but `repl.ml` reads them.
+the fields are visible, and nothing but `repl_session.ml` reads them.
 
 ## The two files with no interface
 

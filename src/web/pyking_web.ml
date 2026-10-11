@@ -13,6 +13,8 @@
       pykAnalyze(main)                  what a program needs to be run
       pykCallback(id\nargs)             call a function handed to JavaScript
       pykLsp(message) / pykLspIdle()    the language server (lsp.ml)
+      pykReplStart() / pykReplLine(text) / pykReplImports(text)
+        / pykReplSubmit(text)           the REPL (repl_session.ml)
       pykTargets()                      the targets, as JSON
       pykFormatHelper()                 the JS value formatter's source
       pykKeywords() / pykBuiltins()     the language's own word lists
@@ -26,6 +28,8 @@
     Functions:
       compile_source source target name -- compile, as a JSON string.
       run_source source name -- run, as a JSON string.
+      repl_line / repl_imports / repl_submit -- the REPL's entries, as
+        JSON strings.
       targets_json () / format_helper () -- what the page reads out of
         the compiler rather than guessing at. *)
 
@@ -40,6 +44,7 @@ external register_utf8_0 : string -> (unit -> string) -> unit = "pyk_register_ut
 
 external emit : string -> unit = "pyk_emit"
 external emit_debug : string -> unit = "pyk_debug"
+external emit_show : string -> unit = "pyk_show"
 
 (* Reaching a module implemented in JavaScript: the module's name, the
    field, and the arguments as a JSON array -- or the empty string for a
@@ -876,6 +881,130 @@ let lsp_idle () =
   lsp_state := state;
   lsp_answer out
 
+(* --- the REPL ---
+   The session of `pyk repl` (repl_session.ml), over the page: what an
+   entry shows goes to `pykOnShow`, what it prints to `pykOnPrint`, a
+   module it imports is read through `pykFetchSource`, and one
+   implemented in JavaScript is reached through `pykExternals`. The
+   session lives here, between calls, as the page's one REPL. *)
+
+(** Where a REPL session's lines go in a browser. Repl_session.host *)
+let repl_host =
+  Repl_session.
+    {
+      write = (fun line -> emit_show (line ^ "\n"));
+      machine =
+        (fun externals ->
+          Interpreter.callback_host ?externals
+            ~debug_line:(fun line -> emit_debug (line ^ "\n"))
+            (fun line -> emit (line ^ "\n")));
+      connect = (fun _ all -> externals_for all);
+      from = Some browser_sources;
+    }
+
+let repl_state = ref (Repl_session.new_session repl_host)
+
+(** A refusal or runtime error as the REPL shows it: the line the CLI
+    would print. exn -> string *)
+let repl_error e =
+  match front_end_error e with
+  | Some (stage, info, message) ->
+      Printf.sprintf "%s %s: %s" (Lexer.pprint_info info) stage message
+  | None -> "Internal error: " ^ Printexc.to_string e
+
+(** What the session has bound, as a JSON array of
+    {name, value, type, implicit}. () -> string *)
+let repl_bindings () =
+  json_array
+    (List.map
+       (fun (binding : Repl_session.binding) ->
+         json_object
+           [
+             ("name", json_string binding.name);
+             ("value", json_string binding.value);
+             ( "type",
+               match binding.type_ with
+               | Some type_ -> json_string type_
+               | None -> "null" );
+             ("implicit", json_bool binding.implicit);
+           ])
+       (Repl_session.bindings !repl_state))
+
+(** Forgets the session and starts an empty one. () -> string *)
+let repl_start () =
+  repl_state := Repl_session.new_session repl_host;
+  json_object [ ("bindings", repl_bindings ()) ]
+
+(** Whether text is a whole entry, whether a line below could still
+    continue it, and the indentation that line belongs at, as JSON.
+    string -> string *)
+let repl_line text =
+  json_object
+    [
+      ("complete", json_bool (Repl_session.complete text));
+      ("continuable", json_bool (Repl_session.continuable text));
+      ("indent", json_string (Repl_session.next_indent text));
+    ]
+
+(** The modules implemented in JavaScript that text's imports would newly
+    load, as a JSON array of names: what the page imports before the
+    entry is submitted. Empty where text does not parse or its imports
+    are refused, which submitting it then reports. string -> string *)
+let repl_imports text =
+  match Repl_session.parse_source text with
+  | exception _ -> "[]"
+  | stmts -> (
+      match Repl_session.imported_modules !repl_state stmts with
+      | exception _ -> "[]"
+      | units ->
+          json_array
+            (List.filter_map
+               (fun (unit : Module.t) ->
+                 if unit.declarations = [] then None
+                 else Some (json_string unit.name))
+               units))
+
+(** Runs one entry -- a meta-command, or Pyking -- in the session:
+    {errors, pending, bindings}, the errors as the CLI would print them,
+    and `pending` the text to put back in the prompt (`:edit`'s, or an
+    entry naming a function not written yet), with `exit` where
+    `sys.exit` stopped it. string -> string *)
+let repl_submit text =
+  let errors = ref [] in
+  let report e = errors := !errors @ [ repl_error e ] in
+  let pending, exit =
+    let line = String.trim text in
+    if line = "" then ("", None)
+    else if line.[0] = ':' then (
+      let outcome = Repl_session.run_meta !repl_state line report in
+      repl_state := outcome.out_session;
+      (outcome.pending, None))
+    else
+      match Repl_session.parse_source text with
+      | exception e ->
+          report e;
+          ("", None)
+      | stmts -> (
+          match Repl_session.submit !repl_state stmts report text with
+          | exception Program_exit code -> ("", Some code)
+          | session, refused -> (
+              repl_state := session;
+              match refused with
+              | None -> ("", None)
+              | Some refused -> (
+                  report refused;
+                  match Repl_session.undefined_name refused with
+                  | Some _ when Repl_session.defines_function stmts -> (text, None)
+                  | _ -> ("", None))))
+  in
+  json_object
+    ([
+       ("errors", json_array (List.map json_string !errors));
+       ("pending", json_string pending);
+       ("bindings", repl_bindings ());
+     ]
+    @ match exit with Some code -> [ ("exit", json_int code) ] | None -> [])
+
 (** The `pykFormat` helper the JavaScript backend generates, read out of
     the backend rather than hand-copied. () -> string *)
 let format_helper () = Target_js_packaging.format_js
@@ -913,6 +1042,10 @@ let () =
             (String.sub request (i + 1) (String.length request - i - 1)));
   register_utf8 "pykLsp" lsp_message;
   register_utf8_0 "pykLspIdle" lsp_idle;
+  register0 "pykReplStart" repl_start;
+  register1 "pykReplLine" repl_line;
+  register1 "pykReplImports" repl_imports;
+  register1 "pykReplSubmit" repl_submit;
   register0 "pykTargets" targets_json;
   register0 "pykFormatHelper" format_helper;
   register0 "pykKeywords" (fun () ->

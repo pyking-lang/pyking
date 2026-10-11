@@ -1,168 +1,30 @@
-(** The REPL: `pyk repl`. A session is a program written one entry at a
-    time: each entry is checked against what the entries before it left
-    behind, then run there. Includes a multi-line terminal line editor
-    with history, indentation, and Pyking-aware line completion.
+(** The REPL: `pyk repl`, the terminal half. The session itself -- how
+    an entry is checked against the ones before it and run -- is
+    repl_session.ml's, which the playground shares; this module adds the
+    multi-line terminal line editor with history, indentation, and
+    Pyking-aware line completion, `:load` and `:quit`, and the loop.
     See docs/repl.md.
 
     Data structures:
-      session -- a REPL session: statements seen, machine state, types,
-        store, source text of each definition.
       buffer_ -- the entry being typed: lines, cursor row/col.
       reader -- how entries arrive: the terminal editor, or plain lines
         from a pipe.
-      outcome -- what a meta-command leaves behind.
 
     Functions:
-      start format_error -- runs the REPL loop.
-      submit session stmts report source -- checks and runs one entry.
-      new_session () -- an empty session. *)
+      start format_error -- runs the REPL loop. *)
 
-open Lexer
-open Syntax
+open Repl_session
+
+type session = Repl_session.session
 
 let prompt = "> "
 let continuation = ". "
 let banner = "Pyking REPL.  :help for commands, :quit to leave."
 
-(* One level of indentation, in the only width Pyking accepts (see
-   PYKING.md, "Indentation-based blocks"). *)
-let indent_width = "    "
-
-(* What the parser says when it stopped because the input ran out rather
-   than because it was wrong. A line that ends this way is not an error
-   yet: it is an entry that is still being typed. The parser is the only
-   thing that knows this, which is why the REPL asks it rather than
-   looking for a trailing ':'. *)
-let incomplete_reasons = [ "unexpected end of input"; "expected an indented block" ]
-
 let starts_with prefix text =
   String.length text >= String.length prefix
   && String.sub text 0 (String.length prefix) = prefix
 
-(** A REPL session. An entry is checked the way it is run: each is its
-    own group, checked and run against what earlier entries left behind
-    (see docs/repl.md).
-    seen -- every statement given so far, for `symbolize`.
-    state -- the machine's names -> values.
-    types -- the checker's names -> types.
-    store -- what the checker has worked out.
-    kinds -- the mutability analysis's names -> kinds.
-    sources -- each name's own source text, for `:edit`.
-    arguments -- what Desugar_args knows about the defs written so far,
-      so a later entry may call an earlier one with its defaults.
-    libs -- where an imported module is looked for after the current
-      directory.
-    modules -- every module an entry has imported, as the module system
-      prepared it.
-    sigmaps -- what each of them exports, for the checker.
-    exports -- the value of each name each of them exports, for the
-      machine.
-    plugins -- the ones implemented in a target language, which the
-      machine reaches through their OCaml plugins. *)
-type session = {
-  seen : stmt list;
-  high : int;
-  state : Interpreter.state;
-  types : Typesystem.env;
-  store : Typesystem.store;
-  kinds : Analyses.env;
-  sources : (string * string) list;
-  arguments : Desugar_args.signatures;
-  libs : Module.lib_entry list;
-  modules : (string * Module.t) list;
-  sigmaps : (string * Typesystem.sigmap) list;
-  exports : (string * (string * Interpreter.value) list) list;
-  plugins : Plugin_host.unit_ list;
-}
-
-(** The mutability analysis's starting environment: the builtins, and
-    nothing a `:=` may name. () -> Analyses.env *)
-let builtin_kinds () =
-  List.fold_left
-    (fun env name ->
-      Analyses.SMap.add name Analyses.{ kind = Builtin; info = None } env)
-    Analyses.SMap.empty Builtin.names
-
-(** An empty session: builtins in scope, nothing seen, and modules
-    looked for in `libs` after the current directory.
-    [Module.lib_entry] -> session *)
-let new_session ?(libs = []) () =
-  {
-    seen = [];
-    high = 0;
-    state = Interpreter.initial_state [] Interpreter.console_host;
-    types = Typesystem.builtin_env ();
-    store = Typesystem.empty_store [];
-    kinds = builtin_kinds ();
-    sources = [];
-    arguments = Desugar_args.no_signatures;
-    libs;
-    modules = [];
-    sigmaps = [];
-    exports = [];
-    plugins = [];
-  }
-
-(* --- reading --- *)
-
-(** source as a list of statements. Raises Lex_error/Parse_error.
-    string -> string -> [stmt] *)
-(* A session is one module, written an entry at a time. *)
-let repl_module = "<repl>"
-
-let parse_source ?(name = "<repl>") source =
-  Parser.parse (Lexer.lexing name (Lexer.chars_of_string (source ^ "\n")))
-
-(** Whether source is a whole entry, per the parser (anything wrong for
-    another reason counts as complete). string -> bool *)
-let complete source =
-  match parse_source source with
-  | _ -> true
-  | exception Lexer.Lex_error (_, message)
-  | exception Parser.Parse_error (_, message) ->
-      not (List.exists (fun reason -> starts_with reason message) incomplete_reasons)
-
-(** Whether one statement could take another line. stmt -> bool *)
-let rec open_block stmt =
-  match stmt with
-  | SIf (_, _, _, None, _) -> true
-  | SIf (_, _, _, Some else_body, _) -> (
-      (* An `else if` rung: the chain ends in the innermost `if`, so that
-         is the one an `else` would still attach to. *)
-      match List.rev else_body with [] -> false | last :: _ -> open_block last)
-  | _ -> false
-
-(** Whether a line the parser accepts could still be continued by the
-    line below it: an `if` with no `else` yet. Its block may sit on the
-    header's own line, so it parses whole on one line while still being
-    open, and the `else` that would follow has to start a line of its own
-    (see PYKING.md, "A block on its header's own line"). The question is
-    the parser's, like `complete`: it is asked of the tree, not of a
-    trailing ':'. string -> bool *)
-let continuable source =
-  match parse_source source with
-  | stmts -> ( match List.rev stmts with [] -> false | last :: _ -> open_block last)
-  | exception Lexer.Lex_error _ -> false
-  | exception Parser.Parse_error _ -> false
-
-(** The indentation the line after source belongs at: one level in if the
-    last line opened a block (ends in ':'), level with it otherwise.
-    string -> string *)
-let next_indent source =
-  let trimmed line = String.trim line <> "" in
-  let lines = List.filter trimmed (String.split_on_char '\n' source) in
-  match List.rev lines with
-  | [] -> ""
-  | last :: _ ->
-      let length = String.length last in
-      let rec spaces i = if i < length && last.[i] = ' ' then spaces (i + 1) else i in
-      let indent = String.sub last 0 (spaces 0) in
-      let stripped = String.trim last in
-      if
-        String.length stripped > 0
-        && stripped.[String.length stripped - 1] = ':'
-      then indent ^ indent_width
-      else indent
 
 (* --- the editing buffer ---
 
@@ -758,484 +620,46 @@ let make_reader idle =
   if Unix.isatty Unix.stdin then editor complete next_indent idle
   else pipe_reader idle
 
-(* --- accepting an entry --- *)
+(* --- the terminal session --- *)
 
-(** The names a top-level statement binds. stmt -> [string] *)
-let defined_names stmt =
-  match stmt with
-  | SFunctionDef (_, name, _, _, _, _, _, _, _) -> [ name ]
-  | stmt -> List.map fst (Analyses.bound_names stmt)
-
-(** The whole lines of source a statement covers. string -> stmt
-    -> string *)
-let statement_source source stmt =
-  let lines = Array.of_list (String.split_on_char '\n' source) in
-  let info = stmt_info stmt in
-  let first = max 0 (info.row1 - 1) in
-  let last = min (Array.length lines) info.row2 in
-  if first >= last then ""
-  else String.concat "\n" (Array.to_list (Array.sub lines first (last - first)))
-
-(** What stmt defined, as name -> the source text that defined it (sliced
-    from source by whole lines, or printed back where there is no
-    source). stmt -> string -> [(string, string)] *)
-let defined_sources stmt source =
-  match defined_names stmt with
-  | [] -> []
-  | names ->
-      let text =
-        if source <> "" then statement_source source stmt
-        else pprint_program [ stmt ] false None
-      in
-      List.map (fun name -> (name, text)) names
-
-(** An association list with `name` set to `text`: the existing entry
-    replaced where there is one, and a new entry appended where there is
-    not, so the order names were bound in survives.
-    string -> string -> [(string, string)] -> [(string, string)] *)
-let rec set_source name text = function
-  | [] -> [ (name, text) ]
-  | (held, _) :: rest when held = name -> (name, text) :: rest
-  | pair :: rest -> pair :: set_source name text rest
-
-(** Checks entry as one group (defs declared together via
-    `declare_functions`, then `check_stmt` per statement), keeping each
-    statement's environment and store rather than only the last. The
-    table it filled comes back too: the tail-call pass reads it.
-    [stmt] -> Typesystem.env -> Typesystem.store
-    -> ([(stmt, typ option, Typesystem.env, Typesystem.store)], typ IntMap.t) *)
-let check_entry entry types store =
-  let types = Typesystem.import_env entry types store in
-  let types, store = Typesystem.declare_functions entry types store in
-  let store =
-    { store with Typesystem.tmap = IntMap.empty; Typesystem.qmap = IntMap.empty }
-  in
-  let checked, _, store =
-    List.fold_left
-      (fun (checked, types, store) stmt ->
-        let supplied, types, store =
-          Typesystem.check_stmt stmt types Typesystem.No_function None store
+(** The session's host in a terminal: lines to standard output, and a
+    module implemented in a target language reached through its OCaml
+    plugin (plugin_host.ml), loaded as it is imported. Repl_session.host *)
+let terminal_host =
+  {
+    write = print_endline;
+    machine =
+      (function
+      | None -> Interpreter.console_host
+      | Some externals ->
+          Interpreter.callback_host ~externals (fun line ->
+              print_string line;
+              print_newline ()));
+    connect =
+      (fun added all ->
+        let plugins units =
+          List.filter_map
+            (fun (unit : Module.t) ->
+              match unit.declaration_path with
+              | Some declaration_path ->
+                  Some
+                    Plugin_host.
+                      {
+                        name = unit.name;
+                        declared = Module.external_signatures unit.declarations;
+                        declaration_path;
+                      }
+              | None -> None)
+            units
         in
-        (checked @ [ (stmt, supplied, types, store) ], types, store))
-      ([], types, store) entry
-  in
-  (checked, store.Typesystem.tmap, store.Typesystem.qmap)
+        Plugin_host.load (plugins added);
+        Plugin_host.externals (plugins all));
+    from = None;
+  }
 
-(** A value as the prompt shows it: `display_value`, except a function
-    shows as <function>. Interpreter.value -> string *)
-let value_text value =
-  match value with
-  | Interpreter.VClosure _ | Interpreter.VBuiltin _ -> "<function>"
-  | value -> Interpreter.display_value value
 
-(** ` : Type`, or "" if there is no type. A type the checker has not
-    settled prints with `?` where it is still open -- an unannotated
-    `def` has none until something calls it (see
-    docs/type_inference.md), and `?` is what `displayed` renders that
-    as. The prompt is the one place it is shown rather than suppressed:
-    a session is a conversation about what is known so far, so "not
-    known yet" is worth seeing. typ option -> string *)
-let type_suffix type_ =
-  match type_ with
-  | None -> ""
-  | Some type_ -> " : " ^ pprint_type default_config type_
-
-(** Prints value as `value : Type`, or nothing for unit.
-    Interpreter.value option -> typ option -> () *)
-let show value type_ =
-  match value with
-  | None | Some Interpreter.VUnit -> ()
-  | Some value -> print_endline (value_text value ^ type_suffix type_)
-
-(** One module an entry imported, made ready to run the way pyk.ml makes a
-    program's: checked against what the modules it imports export, the
-    mutability rule applied, overloading and implicits removed and its
-    tail calls made loops. Answers what it exports, the statements to
-    run, and the highest symbol handed out. Raises the stages' own
-    errors. [(string, sigmap)] -> int -> Module.t -> (sigmap, [stmt], int) *)
-let check_import sigmaps high (unit : Module.t) =
-  if unit.is_external then (Module.external_sigmap unit.declarations, [], high)
-  else
-    let declared = Module.external_signatures unit.declarations in
-    let tmap, qmap =
-      Typesystem.type_check ~declared unit.stmts (Module.sigmaps_for unit sigmaps)
-    in
-    Analyses.analyze_mutability unit.stmts;
-    let sigmap = Module.module_sigmap unit.stmts unit.declarations tmap in
-    let elaborated, tmap = Elaborate.program qmap tmap unit.stmts in
-    let elaborated = Analyses.symbolize ~start:high elaborated in
-    let high = max high (Analyses.highest_sym elaborated) in
-    let optimized, _ = Opt_tailcall.optimize elaborated tmap in
-    let optimized = Analyses.symbolize ~start:high optimized in
-    (sigmap, Analyses.apply_signatures optimized, max high (Analyses.highest_sym optimized))
-
-(** The session with every module an entry's imports newly reach loaded,
-    checked and run, and the entry with its imports resolved against
-    them. A module implemented in a target language is reached through
-    its OCaml plugin, which is loaded here too. An entry with no import
-    comes back as it was. Raises the stages' own errors, and the one a
-    module's top level failed with. session -> [stmt] -> (session, [stmt]) *)
-let import_modules session stmts =
-  if not (List.exists (function SImport _ -> true | _ -> false) stmts) then
-    (session, stmts)
-  else
-    let modules, stmts, arguments, high =
-      Module.load_imports ~libs:session.libs ~loaded:session.modules
-        ~start:session.high ~signatures:session.arguments "" stmts
-    in
-    let sigmaps, units, high =
-      List.fold_left
-        (fun (sigmaps, units, high) (unit : Module.t) ->
-          let sigmap, running, high = check_import sigmaps high unit in
-          ( sigmaps @ [ (unit.name, sigmap) ],
-            units @ [ (unit.name, running, unit.declarations) ],
-            high ))
-        (session.sigmaps, [], high) modules
-    in
-    let added =
-      List.filter_map
-        (fun (unit : Module.t) ->
-          match unit.declaration_path with
-          | Some declaration_path when unit.declarations <> [] ->
-              Some
-                Plugin_host.
-                  {
-                    name = unit.name;
-                    declared = Module.external_signatures unit.declarations;
-                    declaration_path;
-                  }
-          | _ -> None)
-        modules
-    in
-    Plugin_host.load added;
-    let plugins = session.plugins @ added in
-    let state =
-      if added = [] then session.state
-      else
-        Interpreter.with_host session.state
-          (Interpreter.callback_host ~externals:(Plugin_host.externals plugins)
-             (fun line ->
-               print_string line;
-               print_newline ()))
-    in
-    let state, exports = Interpreter.load_modules state units session.exports in
-    (match Interpreter.failure state with Some error -> raise error | None -> ());
-    ( {
-        session with
-        high;
-        arguments;
-        state;
-        store = { session.store with Typesystem.modules = sigmaps };
-        modules =
-          session.modules
-          @ List.map (fun (unit : Module.t) -> (unit.name, unit)) modules;
-        sigmaps;
-        exports;
-        plugins;
-      },
-      stmts )
-
-(** Checks stmts as one entry (all of it, before any of it runs), then
-    runs whichever of them the checker accepted, reporting any runtime
-    error via report. `source` is kept per-name for `:edit`. Answers the
-    session and the check-time error, if any, left for the caller to
-    handle rather than reported here.
-    session -> [stmt] -> (exn -> ()) -> string -> (session, exn option) *)
-let submit session stmts report source =
-  (* What the entry imports comes first: the sugar has to know what an
-     imported definition's defaults are, and the checker what it
-     exports. *)
-  match
-    try Ok (import_modules session stmts) with
-    | Module.Module_error _ as e -> Error e
-    | Lexer.Lex_error _ as e -> Error e
-    | Parser.Parse_error _ as e -> Error e
-    | Analyses.Analysis_error _ as e -> Error e
-    | Typesystem.Type_error _ as e -> Error e
-    | Interpreter.Runtime_error _ as e -> Error e
-  with
-  | Error e -> (session, Some e)
-  | Ok (session, stmts) ->
-  (* The sugar goes first, as it does in a file. The pass is over the
-     entry alone and answers a possibly longer list, so `seen` is built
-     from that rather than from what was typed. *)
-  match
-    try
-      Ok (Desugar_args.desugar session.arguments repl_module stmts)
-    with Analyses.Analysis_error _ as e -> Error e
-  with
-  | Error e -> (session, Some e)
-  | Ok (stmts, arguments) ->
-  let session = { session with arguments } in
-  let seen = Analyses.symbolize ~start:session.high (session.seen @ stmts) in
-  let entry = List.filteri (fun i _ -> i >= List.length session.seen) seen in
-  match
-    try
-      let checked, tmap, qmap = check_entry entry session.types session.store in
-      (* The one rule types do not state, asked of the entry as a block,
-         exactly as `pyk` asks it of a file. *)
-      let kinds = Analyses.analyze_stmts entry session.kinds in
-      Ok (checked, tmap, qmap, kinds, seen, entry)
-    with
-    | Analyses.Analysis_error _ as e -> Error e
-    | Typesystem.Type_error _ as e -> Error e
-  with
-  | Error e -> (session, Some e)
-  | Ok (checked, tmap, qmap, kinds, seen, entry) -> (
-      (* An entry's tail calls become loops here as they would in a file,
-         so a function written at the prompt runs the way `pyk <file>`
-         runs it (see docs/optimization.md). The pass needs the types, so
-         it goes after the check; the entry is then checked again, not to
-         verify it -- the rewrite preserves typing -- but because a
-         merged group is a different number of statements, and the prompt
-         shows a type per statement it runs. The pass is over the entry
-         alone, which is exactly right: an entry is its own group of
-         `def`s. *)
-      let optimized, _ = Opt_tailcall.optimize entry tmap in
-      let checked, qmap, seen, entry =
-        if optimized = entry then (checked, qmap, seen, entry)
-        else
-          let seen =
-            Analyses.symbolize ~start:session.high (session.seen @ optimized)
-          in
-          let entry =
-            List.filteri (fun i _ -> i >= List.length session.seen) seen
-          in
-          let checked, _, qmap =
-            check_entry entry session.types session.store
-          in
-          (checked, qmap, seen, entry)
-      in
-      (* The entry is *checked* under the names the prompt was typed
-         with and *run* with overloading and implicits removed, exactly
-         as a file is: the checker's environment keeps `int::leq`, so a
-         later entry may name it, while the machine's holds the plain
-         name the rewrite gave it (docs/implicits.md). *)
-      let running, _ = Elaborate.program qmap tmap entry in
-      let high = max session.high (Analyses.highest_sym seen) in
-      let running = Analyses.symbolize ~start:high running in
-      let high = max high (Analyses.highest_sym running) in
-      let checked =
-        List.map2
-          (fun (_, supplied, types, store) stmt ->
-            (stmt, supplied, types, store))
-          checked running
-      in
-      (* `seen` grows whether or not every statement runs: a symbol
-         handed out once must not be handed out again. *)
-      let session = { session with seen; high; kinds } in
-      let state = Interpreter.declare_entry session.state running in
-      let state = Interpreter.bind_imports state running session.exports in
-      let rec run session state checked =
-        match checked with
-        | [] -> (session, None)
-        | (stmt, supplied, types, store) :: rest -> (
-            let after = Interpreter.eval_in state stmt in
-            match Interpreter.failure after with
-            | Some error ->
-                report error;
-                ({ session with state }, None)
-            | None ->
-                let session =
-                  {
-                    session with
-                    state = after;
-                    types;
-                    store;
-                    sources =
-                      List.fold_left
-                        (fun sources (name, text) -> set_source name text sources)
-                        session.sources
-                        (defined_sources stmt source);
-                  }
-                in
-                show (Interpreter.result after)
-                  (Option.map
-                     (fun s ->
-                       Typesystem.displayed (Typesystem.zonk s store) store)
-                     supplied);
-                run session after rest)
-      in
-      run { session with state } state checked)
-
-(** `submit`, with a refusal simply reported -- for callers with nothing
-    better to do with one than say so.
-    session -> [stmt] -> (exn -> ()) -> string -> session *)
-let accept session stmts report source =
-  let session, refused = submit session stmts report source in
-  (match refused with Some error -> report error | None -> ());
-  session
-
-(** name -> Type for what the session has bound, read back against its
-    store (so a deferred function shows what it turned out to be, and a
-    type still being worked out shows what has been settled), in the
-    order the session bound them -- which is the order `sources` records,
-    since a name reaches both at the same statement.
-    session -> [(string, typ)] *)
-let binding_types session =
-  let settled type_ =
-    Typesystem.displayed
-      (Typesystem.zonk (Typesystem.settled_type type_ session.store) session.store)
-      session.store
-  in
-  let named name =
-    match Typesystem.SMap.find_opt name session.types with
-    | Some { Typesystem.btype = TBuiltin _; _ } | None -> None
-    | Some binding -> Some (name, settled binding.Typesystem.btype)
-  in
-  let ordered = List.filter_map (fun (name, _) -> named name) session.sources in
-  ordered
-  @ Typesystem.SMap.fold
-      (fun name binding found ->
-        if List.mem_assoc name ordered then found
-        else
-          match binding.Typesystem.btype with
-          | TBuiltin _ -> found
-          | type_ -> found @ [ (name, settled type_) ])
-      session.types []
-
-(* --- meta-commands ---
-
-   Each takes the session and the argument text, and answers the session
-   to carry on with -- so a command that changes the session (`:load`,
-   `:reset`) and one that only reports (`:type`, `:ls`) have the same
-   shape, and the loop needs to know nothing about which is which. *)
-
-(** What a meta-command leaves behind: the session, and text to put back
-    in front of the user (only `:edit` sets that). *)
-type outcome = { out_session : session; pending : string }
-
+(** An outcome that leaves nothing in the prompt. session -> outcome *)
 let plain session = { out_session = session; pending = "" }
-
-let help_text =
-  "\n\
-   Commands:\n\
-  \  :help            this help list\n\
-  \  :quit, :q        leave (or type Ctrl-D)\n\
-  \  :ls              list all bound values and variables\n\
-  \  :type <expr>     the type of expression <expr>\n\
-  \  :edit <name>     edit defined <name> again\n\
-  \  :ast <stmt>      the parsed form of <stmt>\n\
-  \  :tokens <line>   the token stream for <line>\n\
-  \  :load <file>     read a file into the session\n\
-  \  :reset           forget everything and start again\n"
-
-let meta_help session _argument _report =
-  print_endline help_text;
-  plain session
-
-(** Prints what the session has bound, as `name = value : Type`
-    (builtins excluded), in binding order. *)
-let meta_ls session _argument _report =
-  let bindings = Interpreter.bindings_in_scope session.state.Interpreter.env in
-  let types = binding_types session in
-  (* A qualified name runs under the plain one the rewrite gave it
-     (docs/overloading.md), so the machine is asked for that while the
-     prompt shows what was typed. *)
-  let held name = List.mem_assoc (Names.renamed name) bindings in
-  let names = List.filter (fun (name, _) -> held name) types |> List.map fst in
-  let shown = List.map Names.renamed names in
-  let names =
-    names
-    @ List.filter_map
-        (fun (name, _) ->
-          if List.mem name shown || List.mem name Builtin.names then None
-          else Some name)
-        bindings
-  in
-  (* A def holding a parameter's default is the pass's, not the
-     session's: nobody typed it, so nobody is shown it. *)
-  let names =
-    List.filter
-      (fun name ->
-        (not (Desugar_args.generated_name name))
-        && not (Elaborate.generated_name name))
-      names
-  in
-  (if names = [] then print_endline "no bindings yet"
-   else
-     let width =
-       List.fold_left (fun width name -> max width (String.length name)) 0 names
-     in
-     List.iter
-       (fun name ->
-         let value =
-           value_text (List.assoc (Names.renamed name) bindings)
-           ^ type_suffix (List.assoc_opt name types)
-         in
-         let marked =
-           match Typesystem.SMap.find_opt name session.types with
-           | Some { Typesystem.bimplicit = true; _ } -> "implicit "
-           | _ -> ""
-         in
-         Printf.printf "%s%s%s = %s\n" marked name
-           (String.make (width - String.length name) ' ')
-           value)
-       names);
-  plain session
-
-(** Prints the type of the expression argument, checked in the session's
-    own type environment. *)
-let meta_type session argument report =
-  if argument = "" then (
-    print_endline "usage: :type <expression>";
-    plain session)
-  else
-    match parse_source argument with
-    | exception (Lexer.Lex_error _ as e) ->
-        report e;
-        plain session
-    | exception (Parser.Parse_error _ as e) ->
-        report e;
-        plain session
-    | [ SExprStmt (_, e, _) ] -> (
-        match Typesystem.check_expr e session.types session.store with
-        | checked, store ->
-            print_endline
-              (pprint_type default_config
-                 (Typesystem.displayed
-                    (Typesystem.zonk (Typesystem.settled_type checked store) store)
-                    store));
-            plain session
-        | exception (Analyses.Analysis_error _ as e) ->
-            report e;
-            plain session
-        | exception (Typesystem.Type_error _ as e) ->
-            report e;
-            plain session)
-    | _ ->
-        print_endline ":type takes one expression";
-        plain session
-
-(** Prints the parsed form of the statement argument. *)
-let meta_ast session argument report =
-  if argument = "" then (
-    print_endline "usage: :ast <statement>";
-    plain session)
-  else
-    match parse_source argument with
-    | stmts ->
-        print_endline (pprint_program stmts false None);
-        plain session
-    | exception (Lexer.Lex_error _ as e) ->
-        report e;
-        plain session
-    | exception (Parser.Parse_error _ as e) ->
-        report e;
-        plain session
-
-(** Prints the token stream for the line argument. *)
-let meta_tokens session argument report =
-  (match Lexer.lexing "<repl>" (Lexer.chars_of_string (argument ^ "\n")) with
-  | tokens ->
-      List.iter
-        (fun token ->
-          Printf.printf "%s %s\n"
-            (Lexer.pprint_info (Lexer.token_info token))
-            (Lexer.pprint_token token))
-        tokens
-  | exception (Lexer.Lex_error _ as e) -> report e);
-  plain session
 
 (** Reads a file and submits its statements as one entry. *)
 let meta_load session argument report =
@@ -1262,72 +686,6 @@ let meta_load session argument report =
             report e;
             plain session)
 
-(** Puts the source text that defined argument back into the prompt to
-    edit and re-enter. *)
-let meta_edit session argument _report =
-  if argument = "" then (
-    print_endline "usage: :edit <name>";
-    plain session)
-  else
-    match List.assoc_opt argument session.sources with
-    | None ->
-        Printf.printf "nothing named '%s' was defined in this session\n" argument;
-        plain session
-    | Some text -> { out_session = session; pending = text }
-
-(** Starts a new, empty session. *)
-let meta_reset _session _argument _report =
-  print_endline "session reset";
-  plain (new_session ())
-
-let meta_commands =
-  [
-    (":help", meta_help);
-    (":ls", meta_ls);
-    (":type", meta_type);
-    (":edit", meta_edit);
-    (":ast", meta_ast);
-    (":tokens", meta_tokens);
-    (":load", meta_load);
-    (":reset", meta_reset);
-  ]
-
-let quit_commands = [ ":quit"; ":q" ]
-
-(** Runs the meta-command in line, or reports "unknown command".
-    session -> string -> (exn -> ()) -> outcome *)
-let run_meta session line report =
-  let word, argument =
-    match String.index_opt line ' ' with
-    | None -> (line, "")
-    | Some i -> (String.sub line 0 i, String.trim (drop line (i + 1)))
-  in
-  match List.assoc_opt word meta_commands with
-  | None ->
-      Printf.printf "unknown command '%s'; :help lists them\n" word;
-      plain session
-  | Some command -> command session argument report
-
-(* --- the loop --- *)
-
-(* What the front end says when a name resolves to nothing. Read here
-   rather than re-derived: the wording is analyses.ml's, in one place,
-   and this is the one caller that wants the *name* out of it rather
-   than the sentence. *)
-let unbound_prefix = "unbound name '"
-
-(** The name an "unbound name" error is about, or None.
-    exn -> string option *)
-let undefined_name error =
-  match error with
-  | Analyses.Analysis_error (_, message) when starts_with unbound_prefix message ->
-      let rest = drop message (String.length unbound_prefix) in
-      Some
-        (if String.length rest > 0 && rest.[String.length rest - 1] = '\'' then
-           take rest (String.length rest - 1)
-         else rest)
-  | _ -> None
-
 (** The prompt shown when a def names something not yet defined.
     string -> string *)
 let undefined_message name =
@@ -1336,9 +694,7 @@ let undefined_message name =
      continue editing."
     name
 
-(** Whether stmts include a def. [stmt] -> bool *)
-let defines_function stmts =
-  List.exists (fun s -> match s with SFunctionDef _ -> true | _ -> false) stmts
+let quit_commands = [ ":quit"; ":q" ]
 
 (** Runs the REPL loop until end of input or `:quit`. `format_error` is
     the driver's (pyk.ml). (exn -> string option) -> int *)
@@ -1363,7 +719,7 @@ let start ?read ?session ?(libs = []) format_error =
         if line = "" then loop session ""
         else if List.mem line quit_commands then 0
         else if starts_with ":" line then
-          let outcome = run_meta session line report in
+          let outcome = run_meta ~extra:[ (":load", meta_load) ] session line report in
           let pending = outcome.pending in
           if pending <> "" && not reader.interactive then (
             (* Nothing to edit it with, so showing it is the whole of
@@ -1395,5 +751,5 @@ let start ?read ?session ?(libs = []) format_error =
                       loop session "")))
   in
   loop
-    (match session with Some session -> session | None -> new_session ~libs ())
+    (match session with Some session -> session | None -> new_session ~libs terminal_host)
     ""

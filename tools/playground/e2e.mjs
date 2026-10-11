@@ -87,10 +87,12 @@ async function settled(page, seconds = 120) {
   return "TIMEOUT";
 }
 
-/** The last line the output pane shows. Page -> Promise<String> */
+/** The last line the showing tab's output pane shows: the run's, or the
+ *  compiled code's. Page -> Promise<String> */
 function lastLine(page) {
   return page.evaluate(() => {
-    const text = document.querySelector('[data-r="output"]')?.textContent ?? "";
+    const text = document.querySelector(".pyk-panel:not(.pyk-hidden) .pyk-output")
+      ?.textContent ?? "";
     const lines = text.trimEnd().split("\n");
     return lines[lines.length - 1] ?? "";
   });
@@ -156,6 +158,8 @@ async function main() {
     "def twice(n: Int) -> Int:\n    return n * 2\n\n\nprint(twice(21))\n"));
 
   console.log("Compiling");
+  // The targets and Compile are on the Compiled code tab.
+  await page.click('[data-r="tabCompiled"]');
   await page.click('[data-r="compile"]');
   expect("loads the compiler", /ready/.test(await settled(page)));
   await page.waitForTimeout(500);
@@ -183,6 +187,7 @@ async function main() {
   const fromSource = await lastLine(page);
   expect("runs the source", /finished/.test(fromSource), fromSource);
 
+  await page.click('[data-r="tabCompiled"]');
   await page.click('[data-r="runRight"]');
   await settled(page);
   await page.waitForTimeout(2000);
@@ -280,6 +285,7 @@ async function main() {
   await page.evaluate(() => {
     window.pykingPlayground.setSource("print(\"from the page\", 1)\n");
   });
+  await page.click('[data-r="tabCompiled"]');
   await page.selectOption('[data-r="target"]', "web24");
   await page.click('[data-r="compile"]');
   await settled(page);
@@ -288,12 +294,12 @@ async function main() {
   await settled(page);
   await page.waitForTimeout(2000);
   const web = await page.evaluate(
-    () => document.querySelector('[data-r="output"]').textContent);
+    () => document.querySelector('[data-r="compiledOutput"]').textContent);
   expect("a web program prints through its io_external.js",
          web.includes("from the page 1") && /finished/.test(await lastLine(page)),
          JSON.stringify(web));
 
-  // A program using tinyweb shows its page on the Page tab, and goes on
+  // A program using tinyweb shows its page on the Web output tab, and goes on
   // running there after its top level has ended: a click calls back the
   // function it handed over, and a frame callback keeps being called
   // until Stop. The canvas is read back pixel by pixel.
@@ -327,9 +333,9 @@ async function main() {
       .getImageData(Math.round(x * ratio), Math.round(y * ratio), 1, 1).data;
     return [...data.slice(0, 3)].join(",");
   }, [canvas, x, y]);
-  expect("the page is shown on the Page tab", await page.evaluate(() =>
-    !document.querySelector('[data-r="page"]').classList.contains("pyk-hidden")
-    && document.querySelector('[data-r="viewPage"]').classList.contains("active")));
+  expect("the page is shown on the Web output tab", await page.evaluate(() =>
+    !document.querySelector('[data-r="panelWeb"]').classList.contains("pyk-hidden")
+    && document.querySelector('[data-r="tabWeb"]').classList.contains("active")));
   expect("the canvas has the circle drawn", (await pixel(50, 50)) === "255,0,0",
          await pixel(50, 50));
   await page.waitForFunction(() =>
@@ -350,7 +356,7 @@ async function main() {
   await page.waitForTimeout(500);
   expect("Stop lets it go", await page.evaluate(() =>
     document.querySelector('[data-r="stopLeft"]').classList.contains("pyk-hidden")));
-  await page.click('[data-r="viewCode"]');
+  await page.click('[data-r="tabRun"]');
 
   // A Pyking loop need never end (PYKING.md, "Leaving a loop"), so the
   // page has to stay answerable while one is running -- which is the

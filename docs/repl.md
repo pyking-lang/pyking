@@ -1,7 +1,10 @@
 # `repl.ml`: design
 
 How `src/repl.ml` — `pyk repl` — turns a sequence of typed entries into
-a running session, and how its terminal editor works. For where the
+a running session, and how its terminal editor works. The session is
+`src/repl_session.ml`, in the library, which the playground's REPL tab
+runs too; `repl.ml` is the terminal around it (see "One session, two
+front ends" below). For where the
 REPL sits in the pipeline, see [architecture.md](architecture.md); for
 a one-page summary, see [source.md](source.md#replml).
 
@@ -63,8 +66,9 @@ is), `sources` (each name's own defining text, for `:edit`),
 far), and what the entries have imported: `libs` (where a module is
 looked for after the current directory), `modules` (each as the module
 system prepared it), `sigmaps` (what each exports, for the checker),
-`exports` (the values each exports, for the machine) and `plugins` (the
-ones implemented in a target language). `types`/`store` and `state` are genuinely two
+`exports` (the values each exports, for the machine), `hosted` (the
+ones implemented in a target language) and `host` (where the session's
+lines go, and how it reaches those). `types`/`store` and `state` are genuinely two
 separate environments, extended by two separate modules
 (`typesystem.declare_functions`/`check_stmt` for the first,
 `interpreter.declare_entry`/`eval_in` for the second) — the REPL keeps
@@ -215,8 +219,9 @@ in dependency order, prepared the way `Module.load` prepares a program's,
 with the entry's own imports resolved against them. Each module is then
 checked as a program's would be (`check_import`: the checker against
 what the modules it imports export, the mutability rule, elaboration and
-the tail-call pass), its plugin loaded if it is implemented in a target
-language, and its top level run into the session's machine
+the tail-call pass), made reachable through the host's `connect` if it
+is implemented in a target language, and its top level run into the
+session's machine
 (`Interpreter.load_modules`). What each exports goes into the checker's
 store (`store.modules`) and the machine's `exports`; `check_entry`
 brings the entry's imported names into the checker's environment with
@@ -231,8 +236,10 @@ imports themselves are remembered for the sugar (`Desugar_args`'s
 -- is filled in as it would be in a file.
 
 A module implemented in a target language gives the machine a new host:
-`Interpreter.with_host` with `Plugin_host.externals` over every plugin
-the session has loaded. A program's standard input is the session's own,
+`Interpreter.with_host` with what the host's `connect` answers for every
+such module the session has loaded -- in a terminal `Plugin_host.externals`
+over their plugins, loaded as they arrive, and in the page
+`pykExternals`. A program's standard input is the session's own,
 so at a piped prompt `io.read_line()` reads the next line of the input
 the entries are read from, and `sys.exit` ends the session with its
 status.
@@ -370,6 +377,34 @@ scratch) is simpler than tracking incremental screen deltas, and it's
 affordable specifically because a REPL entry is short — redrawing a few
 lines on every keystroke is not a performance concern the way
 redrawing a full-screen editor buffer would be.
+
+## One session, two front ends
+
+The session is in the library (`repl_session.ml`) and the terminal is
+not (`repl.ml`), because the playground's REPL tab runs the same session
+in the browser bundle, which may not read a terminal or load a plugin.
+Everything the session shows therefore goes through a **host**
+(`Repl_session.host`): `write` for a line it shows, `machine` for the
+interpreter's host, `connect` for a module implemented in a target
+language, and `from` for where an imported module's files are read.
+
+- **`pyk repl`** (`repl.ml`'s `terminal_host`): lines to standard output,
+  the console host, a plugin per module (`Plugin_host.load`), and files
+  from disk.
+- **The playground** (`web/pyking_web.ml`'s `repl_host`): a shown line to
+  `pykOnShow`, printed lines to `pykOnPrint` and `debug` lines to
+  `pykOnDebug`, the JavaScript in `pykExternals` (`externals_for`), and
+  files from the page (`browser_sources`, which fetches the standard
+  library). Its worker imports a module's JavaScript before the entry
+  that first imports it is submitted, which is what
+  `imported_modules` is for, and refuses `tinyweb`, whose page is
+  Run's.
+
+The editors differ and the rules do not: the page asks the bundle
+`complete`, `continuable` and `next_indent` (`pykReplLine`) to decide
+what Enter does, as the terminal editor asks them directly, and offers a
+refused entry back for finishing on the same `undefined_name`. The
+page's environment table is `bindings`, the data `:ls` formats.
 
 ## Meta-commands: one shape, two behaviors
 

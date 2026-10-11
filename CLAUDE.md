@@ -1071,7 +1071,10 @@ The bootstrap is split into one module per compiler stage:
    is the one optimisation — an expression with no call in it can neither
    suspend nor print, so `_evaluate` computes it in one go, off a set
    worked out once before the program runs.
-16. **`src/repl.ml`** — `pyk repl`, and the editor it is typed into. A
+16. **`src/repl.ml`** — `pyk repl`, and the editor it is typed into. The
+   session itself is **`src/repl_session.ml`** (item 25), in the library,
+   which the playground's REPL tab runs too; `repl.ml` keeps the editor,
+   the readers, `:load`, the loop and `terminal_host`. A
    session is *a program written one entry at a time*, and the rule that
    settles everything is that **an entry is checked the way it is run**:
    each entry is a group whose `def`s are declared together
@@ -1096,7 +1099,7 @@ The bootstrap is split into one module per compiler stage:
    session. The program's standard input is the session's own, so at a
    piped prompt `io.read_line()` reads the next line of the entries'
    input. `Session(seen, state, types, store, kinds, sources, arguments,
-   libs, modules, sigmaps, exports, plugins)` holds the two
+   libs, modules, sigmaps, exports, hosted, host)` holds the two
    environments --
    the machine's and the checker's, extended in step -- plus every
    statement the session has seen (which exists only so `symbolize` keeps
@@ -1316,6 +1319,22 @@ The bootstrap is split into one module per compiler stage:
    imports, as it does any such program; Run runs it.
    `design/lsp.md` is the plan, in three steps; step 1 is built.
 
+25. **`src/repl_session.ml`** — a REPL session without the terminal: what
+   `pyk repl` and the playground's REPL tab share. Everything above about
+   checking an entry the way it is run, imports, `:edit` and the
+   meta-commands is this module's; it opens no file and reads no
+   terminal, because everything it shows goes through a `host` record
+   (`write` a shown line, `machine` the interpreter's host, `connect` a
+   module implemented in a target language, `from` where imported files
+   are read). `repl.ml`'s `terminal_host` writes to stdout and loads
+   plugins; `web/pyking_web.ml`'s `repl_host` writes to `pykOnShow` and
+   reaches `pykExternals`. `run_meta ?extra` takes the terminal's
+   `:load`, and `:help` lists `:load` and `:quit` only then. `bindings`
+   is the data `:ls` formats and the page's environment table shows;
+   `imported_modules` says what an entry would load, so the page's
+   worker imports the JavaScript first. See `docs/repl.md`, "One
+   session, two front ends".
+
 When extending the lexer (new operators, keywords, string escapes, etc.),
 follow the existing pattern: add an arm to the `match rest with`
 inside `lexing`, add a corresponding `Tok*` constructor, and add an arm
@@ -1386,7 +1405,9 @@ swaps which checker runs, not how a refusal reads.
 `pykCompile`, `pykRun`, `pykRunProgram`, `pykAnalyze`, `pykTargets`,
 `pykFormatHelper`, `pykKeywords`, `pykBuiltins`, and the language server's
 `pykLsp` and `pykLspIdle` (text crossing as UTF-8, so a column means what
-it does natively) on the global object,
+it does natively), and the REPL tab's `pykReplStart`, `pykReplLine`,
+`pykReplImports` and `pykReplSubmit` (`repl_session.ml`; a shown line
+goes to `pykOnShow`) on the global object,
 and `stub.js`, the `//Provides:` primitives that let it. Nothing in it is
 compiler logic — every entry goes through the same functions `pyk.ml`
 calls, and reports a refusal with the same `format_error`.
@@ -1477,6 +1498,16 @@ anything both pages need there rather than copying it.
   shown only when `pykAnalyze` says the program reads them -- and
   `sys.exit` ends the run. A `debug` line is shown apart from the output,
   and on the console.
+- **The playground's right side is four tabs**: Run output (the left
+  Run's output), Compiled code (Target, Compile, the right Run, the code
+  and its own output), Web output (a tinyweb page in a browser-window
+  frame with Refresh, above the same output Run output shows) and REPL
+  (a session of `repl_session.ml` on a `PykingRuntime` of its own, its
+  environment as a table below). It has a light and a dark theme: colour
+  tokens on `.pyk-playground`, overridden under `[data-theme="light"]`,
+  chosen by the header's switch or Appearance in the settings unless the
+  embedding page passes `theme` and calls `setTheme`, as the website
+  does with Starlight's. `tools/playground/README.md` is the long form.
 - Both are libraries as well as pages: `mountNotebook(host, options)` and
   `mountPlayground(host, options)` embed them in another site. Keep the
   host `index.html` pages thin.
@@ -1930,8 +1961,10 @@ libraries, each exporting a `tag()` naming itself, and runs the program
 `test_playground.py` drives `build/pyking.js`, the compiler bundle the
 page loads: that its entry points are registered, that one small program
 compiles for every target the page offers and runs under the
-interpreter, and that **every example the page offers checks** as the
-page's Run checks it, with the standard library it imports. That last
+interpreter, that **every example the page offers checks** as the
+page's Run checks it, with the standard library it imports, and that
+the REPL tab's session answers (entries, what they show and print, the
+environment, refusals, `:edit`, an import, `:reset`). That last
 is `make -C tools/playground check` asked of the bundle directly; the
 example list comes from `playground.py`'s own `example_sources`, so the
 suite and the page cannot disagree about what is offered. It also holds
@@ -2033,7 +2066,9 @@ split across writes, a lower-case header, `--log`, the exit status, the
 refusals); then the same scripts through `pykLsp` in `build/pyking.js`
 under node (`tests/lsp/browser.mjs`), which must answer the same; then,
 where a Chromium is found and Monaco is vendored, the playground driven
-by `tests/lsp/playground.mjs`; and the editors' configuration -- the VS
+by `tests/lsp/playground.mjs` -- its editor as a language server
+client, then its tabs, its REPL (entries, the environment, Copy from
+editor, Stop) and its themes; and the editors' configuration -- the VS
 Code extension's manifest and grammar, the Emacs mode's eglot entry, and
 every snippet on the website's Editors page. `--update` rewrites the
 `.out` files; read the diffs before keeping them.

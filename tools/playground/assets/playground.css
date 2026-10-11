@@ -2,6 +2,9 @@
    Everything is scoped under .pyk-playground so the component can be
    dropped into a page that has styles of its own. */
 
+/* Colours are tokens, set for the dark theme here and overridden for the
+   light one below; `data-theme` on the root says which is showing
+   (playground.js, `applyTheme`). */
 .pyk-playground {
   --pyk-bg: #1d1f21;
   --pyk-panel: #25282c;
@@ -12,6 +15,24 @@
   --pyk-good: #9ece6a;
   --pyk-bad: #f7768e;
   --pyk-warn: #e0af68;
+  --pyk-control: #2f333a;
+  --pyk-sunken: #17191c;
+  --pyk-strip: #202327;
+  --pyk-primary-bg: #33406b;
+  --pyk-primary-edge: #4a5c95;
+  --pyk-primary-text: #cdd7f5;
+  --pyk-run-edge: #3f5136;
+  --pyk-run-hover: #31402b;
+  --pyk-stop-bg: #6f2434;
+  --pyk-stop-edge: #9a3346;
+  --pyk-stop-text: #ffd6dd;
+  --pyk-backdrop: rgba(0, 0, 0, .55);
+  --pyk-shadow: rgba(0, 0, 0, .55);
+  --pyk-frame-bar: #2b2e33;
+  --pyk-repl-prompt: #7aa2f7;
+  --pyk-repl-entry: #c0caf5;
+  --pyk-repl-value: #9ece6a;
+  --pyk-repl-type: #bb9af7;
   --pyk-gutter: 6px;
 
   display: flex;
@@ -23,6 +44,35 @@
   background: var(--pyk-bg);
   color: var(--pyk-text);
   font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.pyk-playground[data-theme="light"] {
+  --pyk-bg: #f3f4f6;
+  --pyk-panel: #ffffff;
+  --pyk-edge: #d4d8de;
+  --pyk-text: #1f2328;
+  --pyk-dim: #656d76;
+  --pyk-accent: #2f5fc4;
+  --pyk-good: #1a7f37;
+  --pyk-bad: #cf222e;
+  --pyk-warn: #9a6700;
+  --pyk-control: #f0f2f5;
+  --pyk-sunken: #fbfbfc;
+  --pyk-strip: #eceef2;
+  --pyk-primary-bg: #2f5fc4;
+  --pyk-primary-edge: #264fa8;
+  --pyk-primary-text: #ffffff;
+  --pyk-run-edge: #8cc69a;
+  --pyk-run-hover: #e3f3e7;
+  --pyk-stop-bg: #ffebe9;
+  --pyk-stop-edge: #f19a9f;
+  --pyk-stop-text: #a40e26;
+  --pyk-backdrop: rgba(30, 35, 40, .35);
+  --pyk-shadow: rgba(30, 35, 40, .25);
+  --pyk-frame-bar: #e7e9ed;
+  --pyk-repl-prompt: #2f5fc4;
+  --pyk-repl-entry: #1f2328;
+  --pyk-repl-value: #116329;
+  --pyk-repl-type: #8250df;
 }
 .pyk-playground *, .pyk-playground *::before, .pyk-playground *::after {
   box-sizing: inherit;
@@ -81,7 +131,7 @@
 /* --- controls --- */
 .pyk-playground button, .pyk-playground select {
   font: inherit; font-size: .86rem;
-  color: var(--pyk-text); background: #2f333a;
+  color: var(--pyk-text); background: var(--pyk-control);
   border: 1px solid var(--pyk-edge); border-radius: 5px;
   padding: .3rem .6rem; cursor: pointer;
   /* One height for every control in a toolbar. Without it buttons and
@@ -93,8 +143,8 @@
 .pyk-playground select:hover { border-color: var(--pyk-accent); }
 .pyk-playground button:disabled { opacity: .4; cursor: not-allowed; }
 .pyk-playground .pyk-primary {
-  background: #33406b; border-color: #4a5c95;
-  color: #cdd7f5; font-weight: 600;
+  background: var(--pyk-primary-bg); border-color: var(--pyk-primary-edge);
+  color: var(--pyk-primary-text); font-weight: 600;
 }
 .pyk-playground .pyk-primary:hover:not(:disabled) { filter: brightness(1.12); }
 /* Run and Stop occupy the same slot: Stop replaces Run while a program is
@@ -108,12 +158,12 @@
   gap: .3rem;
   font-weight: 600;
 }
-.pyk-playground .pyk-run { color: var(--pyk-good); border-color: #3f5136; }
+.pyk-playground .pyk-run { color: var(--pyk-good); border-color: var(--pyk-run-edge); }
 .pyk-playground .pyk-file { height: auto; }   /* the small tab row opts out */
-.pyk-playground .pyk-run:hover:not(:disabled) { background: #31402b; }
+.pyk-playground .pyk-run:hover:not(:disabled) { background: var(--pyk-run-hover); }
 .pyk-playground .pyk-stop {
-  background: #6f2434; border-color: #9a3346;
-  color: #ffd6dd;
+  background: var(--pyk-stop-bg); border-color: var(--pyk-stop-edge);
+  color: var(--pyk-stop-text);
 }
 .pyk-playground .pyk-stop:hover:not(:disabled) { filter: brightness(1.12); }
 
@@ -121,16 +171,12 @@
 .pyk-editor { flex: 1 1 auto; min-height: 0; width: 100%; overflow: hidden; }
 .pyk-files {
   display: flex; gap: .3rem; padding: .3rem .7rem; flex: none;
-  background: #202327; border-bottom: 1px solid var(--pyk-edge);
+  background: var(--pyk-strip); border-bottom: 1px solid var(--pyk-edge);
   overflow-x: auto;
 }
 .pyk-files:empty { display: none; }
-.pyk-views {
-  display: flex; gap: .3rem; padding: .3rem .7rem; flex: none;
-  background: var(--pyk-panel); border-bottom: 1px solid var(--pyk-edge);
-}
-/* What a program using tinyweb shows. Light, so a canvas drawn in the
-   default black reads the way it would on a page of its own. */
+/* What a program using tinyweb shows. Light in either theme, so a canvas
+   drawn in the default black reads the way it would on a page of its own. */
 .pyk-page {
   flex: 1 1 auto; min-height: 0; overflow: auto;
   padding: .8rem; background: #f6f6f4; color: #1d1f21;
@@ -140,7 +186,7 @@
   background: transparent; border: 1px solid transparent;
   color: var(--pyk-dim); white-space: nowrap;
 }
-.pyk-playground .pyk-file.active { background: #2f333a; color: var(--pyk-text); border-color: var(--pyk-edge); }
+.pyk-playground .pyk-file.active { background: var(--pyk-control); color: var(--pyk-text); border-color: var(--pyk-edge); }
 
 /* --- output --- */
 .pyk-output-wrap {
@@ -156,7 +202,7 @@
   flex: 1 1 auto; margin: 0; padding: .5rem .7rem; overflow: auto;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: .82rem; line-height: 1.45; white-space: pre-wrap;
-  background: #17191c;
+  background: var(--pyk-sunken);
 }
 .pyk-output.pyk-no-scroll { overflow: hidden; }
 .pyk-output .note { color: var(--pyk-dim); }
@@ -181,6 +227,146 @@
 .pyk-input-buttons { gap: .5rem; }
 .pyk-hidden { display: none !important; }
 
+/* --- the right-hand tabs ---
+   Four panels share the right column and one of them shows at a time:
+   the run's output, the compiled code, the run's page, and the REPL. */
+.pyk-tabs {
+  display: flex; align-items: flex-end; gap: .15rem; flex: none;
+  padding: .4rem .6rem 0; overflow-x: auto; overflow-y: hidden;
+  background: var(--pyk-panel); border-bottom: 1px solid var(--pyk-edge);
+}
+.pyk-playground .pyk-tab {
+  height: auto; padding: .38rem .8rem .42rem;
+  border: 1px solid transparent; border-bottom: none;
+  border-radius: 6px 6px 0 0; margin-bottom: -1px;
+  background: transparent; color: var(--pyk-dim); white-space: nowrap;
+  font-size: .84rem;
+}
+.pyk-playground .pyk-tab:hover:not(:disabled) {
+  color: var(--pyk-text); border-color: transparent;
+}
+.pyk-playground .pyk-tab.active {
+  background: var(--pyk-bg); color: var(--pyk-text);
+  border-color: var(--pyk-edge); font-weight: 600;
+  box-shadow: inset 0 2px 0 var(--pyk-accent);
+}
+/* The target list's labels are long; it gives way before the buttons do. */
+.pyk-playground select[data-r="target"] { flex: 0 1 auto; min-width: 7rem; max-width: 17rem; }
+.pyk-panel {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column;
+}
+/* The run's output moves between the Run output panel, which it fills,
+   and the Web output panel, where it sits below the page: both show the
+   one log. */
+.pyk-panel-run .pyk-output-wrap { flex: 1 1 auto; height: auto; }
+
+/* --- the page a program draws, in a browser-window frame --- */
+.pyk-stage {
+  flex: 1 1 auto; min-height: 0; display: flex;
+  padding: .9rem; background: var(--pyk-bg);
+}
+.pyk-frame {
+  flex: 1 1 auto; min-width: 0; min-height: 0;
+  display: flex; flex-direction: column; overflow: hidden;
+  border: 1px solid var(--pyk-edge); border-radius: 9px;
+  box-shadow: 0 8px 26px var(--pyk-shadow);
+}
+.pyk-frame-bar {
+  display: flex; align-items: center; gap: .55rem; flex: none;
+  padding: .35rem .55rem .35rem .75rem;
+  background: var(--pyk-frame-bar); border-bottom: 1px solid var(--pyk-edge);
+}
+.pyk-frame-dots { display: flex; gap: .38rem; flex: none; }
+.pyk-frame-dots span { width: .7rem; height: .7rem; border-radius: 50%; }
+.pyk-frame-dots span:nth-child(1) { background: #ff5f57; }
+.pyk-frame-dots span:nth-child(2) { background: #febc2e; }
+.pyk-frame-dots span:nth-child(3) { background: #28c840; }
+.pyk-frame-title {
+  flex: 1 1 auto; min-width: 0; text-align: center;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: .8rem; color: var(--pyk-dim);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.pyk-playground .pyk-frame-bar button { height: 26px; padding: .15rem .55rem; font-size: .8rem; }
+.pyk-page-empty {
+  color: #6b7076; font-style: italic; margin: 1rem 0; text-align: center;
+}
+
+/* --- the REPL --- */
+.pyk-repl {
+  flex: 1 1 auto; min-height: 0; overflow: auto;
+  padding: .55rem .75rem; background: var(--pyk-sunken);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .82rem; line-height: 1.45;
+  cursor: text;
+}
+.pyk-repl-log { white-space: pre-wrap; word-break: break-word; }
+.pyk-repl-log .entry { color: var(--pyk-repl-entry); }
+.pyk-repl-log .prompt, .pyk-repl-line .prompt {
+  color: var(--pyk-repl-prompt); user-select: none; font-weight: 600;
+}
+.pyk-repl-log .shown { color: var(--pyk-repl-value); }
+.pyk-repl-log .err { color: var(--pyk-bad); }
+.pyk-repl-log .note { color: var(--pyk-dim); }
+.pyk-repl-log .debug { color: var(--pyk-dim); font-style: italic; }
+.pyk-repl-line { display: flex; align-items: flex-start; }
+.pyk-repl-line .prompt { flex: none; white-space: pre; }
+.pyk-playground .pyk-repl-input {
+  flex: 1 1 auto; min-width: 0; resize: none; overflow: hidden;
+  margin: 0; padding: 0; border: none; outline: none;
+  background: transparent; color: var(--pyk-repl-entry);
+  font: inherit; line-height: inherit; white-space: pre;
+  caret-color: var(--pyk-accent);
+}
+.pyk-repl-input:disabled { opacity: .5; }
+.pyk-env-wrap {
+  flex: none; height: var(--pyk-out-split, 34%); min-height: 0;
+  display: flex; flex-direction: column;
+}
+.pyk-env {
+  flex: 1 1 auto; min-height: 0; overflow: auto; background: var(--pyk-sunken);
+}
+.pyk-env table {
+  width: 100%; border-collapse: collapse;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .8rem;
+}
+.pyk-env th {
+  position: sticky; top: 0; text-align: left; font-weight: 600;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: .74rem; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--pyk-dim); background: var(--pyk-panel);
+  padding: .35rem .7rem; border-bottom: 1px solid var(--pyk-edge);
+}
+.pyk-env td {
+  padding: .28rem .7rem; vertical-align: top;
+  border-bottom: 1px solid var(--pyk-edge);
+  white-space: pre-wrap; word-break: break-word;
+}
+.pyk-env td.name { color: var(--pyk-text); font-weight: 600; white-space: nowrap; }
+.pyk-env td.value { color: var(--pyk-repl-value); }
+.pyk-env td.type { color: var(--pyk-repl-type); }
+.pyk-env .tag {
+  margin-left: .4rem; padding: 0 .3rem; border-radius: 3px;
+  font-size: .68rem; font-weight: 400; color: var(--pyk-dim);
+  border: 1px solid var(--pyk-edge);
+}
+.pyk-env .empty {
+  color: var(--pyk-dim); font-style: italic; text-align: center; padding: 1rem;
+}
+
+/* The header's light/dark switch: the sun shows in the dark theme (the
+   theme it switches to), the moon in the light one. */
+.pyk-playground .pyk-theme {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; padding: 0; background: transparent; border-color: transparent;
+}
+.pyk-playground .pyk-theme:hover { background: var(--pyk-control); border-color: var(--pyk-edge); }
+.pyk-theme svg { display: block; }
+.pyk-playground[data-theme="light"] .pyk-theme .sun,
+.pyk-playground:not([data-theme="light"]) .pyk-theme .moon { display: none; }
+
 /* --- drag handles between the three panes --- */
 .pyk-gutter {
   position: relative; background: var(--pyk-edge); flex: none;
@@ -191,6 +377,10 @@
      area is widened invisibly on both sides. */
   content: ""; position: absolute; inset: -3px; z-index: 1;
 }
+/* Widened across the bar only: a hit area reaching past the bar's ends
+   would overflow the playground and give the page scrollbars. */
+.pyk-gutter-v::after { inset: 0 -3px; }
+.pyk-gutter-h::after { inset: -3px 0; }
 .pyk-gutter-v { cursor: col-resize; }
 .pyk-gutter-h { cursor: row-resize; height: var(--pyk-gutter); }
 .pyk-gutter:hover, .pyk-gutter.dragging { background: var(--pyk-accent); }
@@ -211,27 +401,27 @@
   padding: .25rem .45rem; line-height: 1; font-size: 1rem;
   background: transparent; border-color: transparent;
 }
-.pyk-playground .pyk-icon:hover { background: #2f333a; }
+.pyk-playground .pyk-icon:hover { background: var(--pyk-control); }
 .pyk-playground .pyk-settings {
   display: inline-flex; align-items: center; gap: .4rem;
   padding: .3rem .55rem;
   background: transparent; border-color: transparent;
 }
-.pyk-playground .pyk-settings:hover { background: #2f333a; border-color: var(--pyk-edge); }
+.pyk-playground .pyk-settings:hover { background: var(--pyk-control); border-color: var(--pyk-edge); }
 /* An inline SVG rather than a glyph: it inherits the text colour, stays
    crisp at any size, and does not depend on the platform having a font
    with the character in it. */
 .pyk-settings svg { display: block; flex: none; }
 .pyk-modal-backdrop {
   position: absolute; inset: 0; z-index: 20;
-  background: rgba(0, 0, 0, .55);
+  background: var(--pyk-backdrop);
   display: flex; align-items: center; justify-content: center;
 }
 .pyk-modal {
   background: var(--pyk-panel); color: var(--pyk-text);
   border: 1px solid var(--pyk-edge); border-radius: 8px;
   min-width: 19rem; max-width: 24rem; margin: 1rem;
-  box-shadow: 0 14px 44px rgba(0, 0, 0, .55);
+  box-shadow: 0 14px 44px var(--pyk-shadow);
 }
 .pyk-modal-head {
   display: flex; align-items: center; gap: .5rem;

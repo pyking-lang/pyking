@@ -8,7 +8,9 @@ library it imports.
 This drives the bundle directly: the bundle is what `make build`
 already writes to `build/pyking.js`, and the example list comes from
 `tools/playground/playground.py` itself, so the suite and the page cannot
-disagree about what is offered.
+disagree about what is offered. The REPL the page's REPL tab runs is
+driven here too: entries, what they print and show, the environment, the
+refusals, `:edit`, an import and `:reset`.
 
 What it does not cover is the page: mounting, the editor, the worker
 boundary and the sandboxed iframe are what
@@ -85,7 +87,8 @@ const check = (label, ok, detail) => {
 //    not told about looks like this.
 for (const name of ["pykCompile", "pykRun", "pykRunProgram", "pykAnalyze",
                     "pykTargets", "pykFormatHelper", "pykKeywords",
-                    "pykBuiltins"]) {
+                    "pykBuiltins", "pykReplStart", "pykReplLine",
+                    "pykReplImports", "pykReplSubmit"]) {
   check("entry point " + name, typeof globalThis[name] === "function",
         "not registered on the global object");
 }
@@ -164,7 +167,77 @@ for (const example of plan.examples) {
   check(example.file + " checks in the page", result.ok === true,
         result.text || "refused with no message");
 }
-console.log(JSON.stringify({ pairs, failures }));
+
+// 5. The REPL tab's session (src/repl_session.ml): what an entry shows
+//    goes to `pykOnShow`, what it prints to `pykOnPrint`, and each answer
+//    carries the errors, the text to put back and the environment.
+let repl = 0;
+const replCheck = (label, ok, detail) => {
+  repl += 1;
+  check("REPL: " + label, ok, detail);
+};
+const shown = [];
+globalThis.pykOnShow = (line) => shown.push(line.replace(/\n$/, ""));
+printed.length = 0;
+const submit = (text) => {
+  shown.length = 0;
+  printed.length = 0;
+  return JSON.parse(pykReplSubmit(text));
+};
+const names = (answer) => (answer.bindings ?? []).map((b) => `${b.name}=${b.value}:${b.type}`);
+replCheck("a new session binds nothing", JSON.parse(pykReplStart()).bindings.length === 0,
+          pykReplStart());
+const opened = JSON.parse(pykReplLine("def f(n):"));
+replCheck("a def header is not a whole entry, and indents the next line",
+          !opened.complete && opened.indent === "    ", JSON.stringify(opened));
+const open = JSON.parse(pykReplLine("if true: 1"));
+replCheck("an if with no else could be continued", open.complete && open.continuable,
+          JSON.stringify(open));
+let answer = submit("x = 20");
+replCheck("a binding is in the environment", names(answer).join() === "x=20:Int",
+          JSON.stringify(answer));
+answer = submit("x + 1");
+replCheck("a value is shown with its type", shown.join("|") === "21 : Int",
+          JSON.stringify(shown));
+answer = submit("def f(n):\n    n * 2");
+answer = submit("print(f(x))");
+replCheck("what an entry prints is printed", printed.join("") === "40\n",
+          JSON.stringify(printed));
+replCheck("a function's type is settled by its use",
+          names(answer).includes("f=<function>:(Int) -> Int"), JSON.stringify(names(answer)));
+answer = submit("y = g(1)");
+replCheck("a refusal is an error, in the CLI's words",
+          answer.errors.length === 1 && answer.errors[0].includes("Name error: unbound name 'g'")
+            && answer.pending === "", JSON.stringify(answer));
+answer = submit("def h(n: Int) -> Int:\n    k(n)");
+replCheck("a def naming what is not written yet comes back to be finished",
+          answer.pending === "def h(n: Int) -> Int:\n    k(n)" && answer.errors.length === 1,
+          JSON.stringify(answer));
+answer = submit("1 / 0");
+replCheck("a runtime error is an error", answer.errors.some((e) => e.includes("Runtime error")),
+          JSON.stringify(answer));
+answer = submit(":edit f");
+replCheck(":edit puts the definition back", answer.pending === "def f(n):\n    n * 2",
+          JSON.stringify(answer));
+answer = submit(":ls");
+replCheck(":ls shows what the environment holds", shown.join("|") === "x = 20 : Int|f = <function> : (Int) -> Int",
+          JSON.stringify(shown));
+answer = submit(":help");
+replCheck(":help leaves out what only a terminal has",
+          shown.join("\n").includes(":reset") && !shown.join("\n").includes(":load"),
+          JSON.stringify(shown));
+replCheck("an import names the modules to make ready first",
+          pykReplImports("import io") === '["io"]', pykReplImports("import io"));
+globalThis.pykExternals = { io: { write_line: (text) => { printed.push(text + "\n"); } } };
+answer = submit("import io");
+answer = submit('io.write_line("from io")');
+replCheck("an imported module's JavaScript is reached",
+          printed.join("") === "from io\n" && answer.errors.length === 0,
+          JSON.stringify([printed, answer.errors]));
+answer = submit(":reset");
+replCheck(":reset empties the environment", answer.bindings.length === 0,
+          JSON.stringify(answer));
+console.log(JSON.stringify({ pairs, failures, repl }));
 """
 
 
@@ -224,9 +297,9 @@ def check_examples():
 
 
 def run_driver(bundle, prepared):
-    """One node process over the bundle. Answers (pairs, failures), or
-    (None, [message]) where node could not be run at all.
-    Path -> {...} -> (Int?, [String])"""
+    """One node process over the bundle. Answers (pairs, failures, REPL
+    checks), or (None, [message], 0) where node could not be run at all.
+    Path -> {...} -> (Int?, [String], Int)"""
     directory = tempfile.mkdtemp(prefix="pyk-playground-")
     try:
         script = Path(directory) / "driver.cjs"
@@ -239,14 +312,14 @@ def run_driver(bundle, prepared):
                 capture_output=True, text=True, timeout=STEP_TIMEOUT,
             )
         except FileNotFoundError:
-            return None, ["node not found; it is what runs the compiler bundle"]
+            return None, ["node not found; it is what runs the compiler bundle"], 0
         except subprocess.TimeoutExpired:
-            return None, [f"timed out after {STEP_TIMEOUT} seconds"]
+            return None, [f"timed out after {STEP_TIMEOUT} seconds"], 0
         if result.returncode != 0 or not result.stdout.strip():
             detail = (result.stderr or result.stdout or "no output").strip()
-            return None, [f"the driver did not finish: {detail.splitlines()[-1]}"]
+            return None, [f"the driver did not finish: {detail.splitlines()[-1]}"], 0
         answer = json.loads(result.stdout.strip().splitlines()[-1])
-        return answer["pairs"], answer["failures"]
+        return answer["pairs"], answer["failures"], answer.get("repl", 0)
     finally:
         import shutil
 
@@ -275,7 +348,7 @@ def main(argv):
         suite.footer("playground", 0, 1, "no bundle to drive")
         return 1
     prepared = plan()
-    pairs, failures = run_driver(bundle, prepared)
+    pairs, failures, repl = run_driver(bundle, prepared)
     listed = check_examples()
     for problem in listed:
         print(f"playground: FAILED src/examples.toml: {problem}")
@@ -284,10 +357,11 @@ def main(argv):
     if pairs is None:
         suite.footer("playground", 0, 1, "the bundle could not be driven")
         return 1
-    checks = len(prepared["targets"]) + 11
+    checks = len(prepared["targets"]) + 11 + repl
     print(f"playground: the bundle's {len(prepared['targets'])} targets, its "
           "entry points and the smoke program OK.")
     print(f"playground: {pairs} examples checked in the page.")
+    print(f"playground: the REPL, {repl} checks.")
     failed = len(failures) + len(listed)
     suite.footer(
         "playground", checks + pairs - len(failures) - (1 if listed else 0), failed,

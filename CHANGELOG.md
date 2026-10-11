@@ -5,6 +5,28 @@ All notable changes to Pyking are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- A REPL in the playground: `pyk repl`'s own session, with its commands
+  (`:help`, `:ls`, `:type`, `:edit`, `:ast`, `:tokens`, `:reset`), the
+  standard library, a Stop button, Copy from editor (the text marked in
+  the editor into the prompt), and the environment as a table below,
+  updated after every entry.
+- The playground has a light and a dark theme, following the system's
+  by default, with a switch in the header and a choice in the settings.
+  On the website it follows the site's own switch.
+
+### Changed
+
+- The playground's right side is four tabs: Run output, Compiled code
+  (the target list and Compile are there now), Web output (a tinyweb
+  page, in a browser-window frame with a Refresh button) and REPL.
+- The playground's header shows the version of the `pyk` serving it.
+- `:reset` in `pyk repl` keeps the library path (`-L`) the session was
+  started with.
+
 ## [0.1.2] - 2026-10-11
 
 ### Added

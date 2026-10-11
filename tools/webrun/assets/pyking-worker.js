@@ -34,6 +34,13 @@
 // JSON-RPC message and answers the messages it sends back, and `lsp-idle`
 // answers what it sends once the client has stopped typing -- the
 // diagnostics. Both answer null where the bundle has no `pykLsp`.
+//
+// So does the playground's REPL (src/repl_session.ml), on a worker of
+// its own: `repl` with `action` "start" begins an empty session, "line"
+// says whether text is a whole entry and how the next line is indented,
+// and "submit" runs one entry, answering {errors, pending, bindings,
+// exit?}. What the entry shows -- a value, a command's answer -- arrives
+// as `show`, beside `stdout` and `debug`.
 
 let loaded = false;
 let libURL = null;
@@ -56,6 +63,7 @@ const stdinEcho = (text) => self.postMessage({ type: "stdin", text });
 // seeing. `debug` goes beside it, marked as what it is.
 self.pykOnPrint = (text) => stdout(text);
 self.pykOnDebug = (text) => debugOut(text);
+self.pykOnShow = (text) => self.postMessage({ type: "show", text });
 self.pykOnError = (text) => self.postMessage({ type: "failure", text });
 self.pykOnExit = (code) => self.postMessage({ type: "exit", code });
 // A browser implementation writes what it has to say to the console --
@@ -132,6 +140,8 @@ self.onmessage = (event) => {
         ? JSON.parse(self.pykLspIdle()) : null));
     case "run":
       return answer(() => run(message));
+    case "repl":
+      return answer(() => repl(message));
     case "event":
       try {
         live[message.module]?.pykDeliver?.(message.data);
@@ -199,6 +209,45 @@ function run(message) {
   return Promise.all(needed.map((name) => importExternal(name)))
     .then((modules) => start(Object.fromEntries(
       needed.map((name, k) => [name, modules[k]]))));
+}
+
+// The REPL's modules implemented in JavaScript: the worker's own `io`
+// and `sys` -- with nothing to read and no arguments -- and each other
+// one as an entry first imports it, kept for the rest of the session.
+let replModules = null;
+
+/** One request of the REPL: "start", "line" or "submit" (see above).
+ *  An entry importing tinyweb is refused here: its page is the Run's. */
+function repl({ action, text = "" }) {
+  if (typeof self.pykReplStart !== "function") {
+    throw new Error("this compiler bundle has no REPL: rebuild it with make");
+  }
+  if (action === "start") {
+    replModules = own({ stdin: "", args: [] });
+    return JSON.parse(self.pykReplStart());
+  }
+  if (action === "line") return JSON.parse(self.pykReplLine(text));
+  if (replModules === null) replModules = own({ stdin: "", args: [] });
+  const needed = JSON.parse(self.pykReplImports(text))
+    .filter((name) => !(name in replModules));
+  if (needed.includes("tinyweb")) {
+    return {
+      errors: ["tinyweb draws on a page of its own, so it cannot be imported "
+               + "at the REPL: write the program in the editor and press Run."],
+      pending: text,
+      bindings: null,
+    };
+  }
+  const submit = () => {
+    self.pykExternals = replModules;
+    return JSON.parse(self.pykReplSubmit(text));
+  };
+  if (needed.length === 0) return submit();
+  return Promise.all(needed.map((name) => importExternal(name)))
+    .then((modules) => {
+      needed.forEach((name, k) => { replModules[name] = modules[k]; });
+      return submit();
+    });
 }
 
 function pick(table, names) {

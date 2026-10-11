@@ -191,8 +191,9 @@ let playground_targets =
 let offered_examples () =
   try Examples.read (Module.read_whole_file (under [ Examples.file ])) with Sys_error _ -> []
 
-(** What the playground page is driven by: the targets, how each is shown
-    and run, and the examples. Worked out per request. () -> string *)
+(** What the playground page is driven by: the version, the targets, how
+    each is shown and run, and the examples. Worked out per request.
+    () -> string *)
 let playground_manifest () =
   let examples =
     List.map
@@ -202,6 +203,7 @@ let playground_manifest () =
   in
   json_object
     [
+      ("version", json_string Version.version);
       ( "targets",
         json_array
           (List.map

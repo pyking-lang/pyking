@@ -64,6 +64,16 @@ function pyk_debug(line) {
   return 0;
 }
 
+// Where the playground's REPL sends what it shows of an entry -- a
+// value and its type, a command's answer -- kept apart from what the
+// program printed: `pykOnShow` where the page supplied one, and
+// `pykOnPrint` otherwise.
+//Provides: pyk_show
+function pyk_show(line) {
+  (globalThis.pykOnShow || globalThis.pykOnPrint || function () {})(line);
+  return 0;
+}
+
 // Calling into a module implemented in JavaScript, for the `iweb`
 // target: the page registers `pykExternal`, which answers what one of an
 // external module's exports is, or calls one of its functions. Values

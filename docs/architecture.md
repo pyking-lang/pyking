@@ -129,7 +129,8 @@ repl`) rather than a `--target`.
 | `src/interpreter.ml` | The interpreter: runtime values, environments, and a resumable small-step machine over the AST. Runs the fragment the checker accepts, and is the reference for what a program *means* at run time. |
 | `src/plugin_host.ml` | How the interpreter reaches a module implemented in a target language: its OCaml implementation, compiled to a plugin (`.cmxs`) and loaded with Dynlink, with each value crossing by its declared type. In the executable, since it starts a process and loads code. See [libraries.md](libraries.md), "How the interpreter reaches an OCaml implementation". |
 | `src/plugin/pyk_plugin.ml` | The registry a loaded plugin fills in: the one module of `pyk` a plugin names, a library of its own linked only into the executable. |
-| `src/repl.ml` | `pyk repl`: a session as a program written one statement at a time — checked as one program, run one statement at a time. An entry's imports are loaded, checked and run into the session. |
+| `src/repl.ml` | `pyk repl`'s terminal half: the multi-line editor, the readers, `:load` and the loop, over `repl_session.ml`. |
+| `src/repl_session.ml` | A REPL session: a program written one entry at a time — each entry checked as one group against what the entries before it left, and run there. An entry's imports are loaded, checked and run into the session. In the library, so `pyk repl` and the playground's REPL tab share it. |
 | `src/builtin.ml` | The builtins: each one's name, arity, and whether it crosses the host/IO boundary. Backend-agnostic. |
 | `src/install.ml` | Where this installation keeps `lib/`, `build/` and `tools/`: the executable's directory, with symbolic links resolved, so a package manager's link to `pyk` works. |
 | `src/version.ml` | The version, generated from the root's `VERSION` file by `src/dune`; `pyk --version` prints it. |

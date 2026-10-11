@@ -31,6 +31,7 @@ export class PykingRuntime {
     this.nextId = 1;
     this.onOutput = null;          // set for the duration of a run
     this.onDebug = null;           // likewise, for `debug`
+    this.onShow = null;            // what a REPL entry shows, while it runs
     this.onInput = null;           // likewise, for a line the program read
     this.onPage = null;            // likewise, for what a program sends its page
     this.onFailure = null;         // a failure after the run has answered
@@ -93,6 +94,7 @@ export class PykingRuntime {
     if (message.type === "status") return this.onStatus(message.message);
     if (message.type === "stdout") return this.onOutput?.(message.text);
     if (message.type === "debug") return this.onDebug?.(message.text);
+    if (message.type === "show") return this.onShow?.(message.text);
     if (message.type === "stdin") return this.onInput?.(message.text);
     if (message.type === "page") {
       this._live = true;
@@ -249,6 +251,36 @@ export class PykingRuntime {
     }
   }
 
+  /** The REPL (src/repl_session.ml), kept in this worker between calls.
+   *  `replStart()` begins an empty session and resolves to {bindings};
+   *  `replLine(text)` to {complete, continuable, indent}, which is how a
+   *  page decides what Enter does; `replSubmit(text, handlers)` runs one
+   *  entry -- Pyking or a `:` command -- calling `onOutput` with what it
+   *  prints, `onShow` with what it shows and `onDebug` with its `debug`
+   *  lines, and resolves to {errors, pending, bindings, exit?}, `pending`
+   *  being text to put back in the prompt and `bindings` null where they
+   *  did not change. A page gives the REPL a runtime of its own, so a
+   *  stop ends the session and nothing else. */
+  async replStart() {
+    this._require();
+    return this._send("repl", { action: "start" });
+  }
+  async replLine(text) {
+    this._require();
+    return this._send("repl", { action: "line", text });
+  }
+  async replSubmit(text, { onOutput, onShow, onDebug } = {}) {
+    this._require();
+    this.onOutput = onOutput || null;
+    this.onShow = onShow || null;
+    this.onDebug = onDebug || null;
+    try {
+      return await this._send("repl", { action: "submit", text });
+    } finally {
+      this._detach();
+    }
+  }
+
   /** Whether the latest run is still live: it sent its page something,
    *  and nothing has let it go since. () -> Bool */
   get isLive() { return this._live; }
@@ -273,6 +305,7 @@ export class PykingRuntime {
     this._live = false;
     this.onOutput = null;
     this.onDebug = null;
+    this.onShow = null;
     this.onInput = null;
     this.onPage = null;
     this.onFailure = null;

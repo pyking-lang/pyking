@@ -72,30 +72,47 @@ needs a copy of it saved once.
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│ Pyking Playground                 ● compiler: ready  [≡ Settings]│
+│ Pyking Playground  version 0.1.2  ● ready  [☀/☾]  [≡ Settings]   │
 ├────────────────────────────────╥─────────────────────────────────┤
-│ Examples      [example ▾]      ║ Target [▾]                      │
-│           [Compile →] [▶ Run]  ║              [▶ Run]  [⧉ Copy]  │
+│ Examples [example ▾]   [▶ Run] ║ Run output│Compiled code│Web…│REPL
 │ ┌────────────────────────────┐ ║ ┌─────────────────────────────┐ │
-│ │ Pyking, highlighted        │ ║ │ generated code, highlighted │ │
-│ │ errors underlined in place │ ║ │ for the selected target     │ │
-│ │                            │ ║ └─────────────────────────────┘ │
-│ │                            │ ║ ═══════════ drag ═══════════════│
-│ │                            │ ║ Output                [Clear]   │
-│ │                            │ ║ ┌─────────────────────────────┐ │
-│ │                            │ ║ │ text, or a live page preview│ │
+│ │ Pyking, highlighted        │ ║ │ the tab showing:            │ │
+│ │ errors underlined in place │ ║ │  Run output -- what Run     │ │
+│ │                            │ ║ │   printed, the whole tab    │ │
+│ │                            │ ║ │  Compiled code -- Target,   │ │
+│ │                            │ ║ │   Compile, Run, Copy, the   │ │
+│ │                            │ ║ │   code, and its output      │ │
+│ │                            │ ║ │  Web output -- the page in  │ │
+│ │                            │ ║ │   a frame, and the output   │ │
+│ │                            │ ║ │  REPL -- a prompt, and the  │ │
+│ │                            │ ║ │   environment below it      │ │
 │ └────────────────────────────┘ ║ └─────────────────────────────┘ │
 └────────────────────────────────╨─────────────────────────────────┘
                                  ↑ drag
 ```
 
-- **Compile →** turns the left pane into the right pane. The arrow is there to
-  make the direction obvious.
+The right-hand side is four tabs, and the page opens on **Run output**:
+
+- **Run output** is what the left ▶ Run printed, over the whole tab.
+- **Compiled code** holds the Target list, **Compile**, the right ▶ Run and
+  Copy, with the generated code above and what compiling and running it
+  said below.
+- **Web output** shows the page a program using `tinyweb` draws, in a
+  browser-window frame, above the same output Run output shows (see "The
+  Web output tab").
+- **REPL** is `pyk repl` in the page (see "The REPL").
+
+Run switches to Web output for a program that imports `tinyweb`, and to
+Run output for any other -- unless Web output is showing, where it stays.
+Compile, and `Ctrl`/`Cmd`+`Enter`, switch to Compiled code.
+
+- **Compile**, on the Compiled code tab, compiles the source for the
+  selected target into the code pane.
 - **▶ Run** on the left runs the program with the **interpreter**, whatever
   target is selected — the "just run my program" button. The interpreter is
   the reference for what a program means (`docs/interpreter.md`), and it is
   compiled into the same bundle, so this needs no host at all.
-- **▶ Run** on the right executes exactly what is displayed. Enabled for
+- **▶ Run** on the Compiled code tab executes exactly what is displayed. Enabled for
   `node24` and `web24`, which the browser can genuinely execute.
   Disabled for `python`, `c89`/`c23`, `java*` and `ocaml5.5`, with a tooltip
   saying why: there is no Python interpreter, C compiler, JVM or OCaml
@@ -108,16 +125,20 @@ needs a copy of it saved once.
   work on every target or only on `python`. Picking a python-only example with
   a JavaScript target selected is *not* prevented: seeing the compiler refuse
   it, with a source position, is the point.
-- Compile errors are written to the output pane *and* underlined in the
-  source editor at the exact span the compiler reported.
-- **The three panes resize.** Drag the bar between the two columns, or the
-  one between the generated code and the output, to trade space between
-  them. Each split is clamped to 12–85 % so a pane can be made small but
+- Compile errors are written to the Compiled code tab's output pane *and*
+  underlined in the source editor at the exact span the compiler reported.
+- **The panes resize.** Drag the bar between the two columns, or the one
+  across a tab -- below the generated code, the page or the REPL -- to
+  trade space between them; the three tabs share that one split. Each split is clamped to 12–85 % so a pane can be made small but
   never dragged out of existence — a zero-width editor is easy to reach and
   impossible to grab back.
 - **The Settings button** (top right) opens an in-page dialog rather than a
   window:
-  - **Font size**, 10–26 px, applied to both editors and the output pane.
+  - **Appearance**: the same as the system (the default), light or dark.
+    The ☀/☾ button in the header switches between the two as well; see
+    "Light and dark".
+  - **Font size**, 10–26 px, applied to both editors, the output panes and
+    the REPL.
   - **Run while you type** — **off** by default. On, the source runs about
     half a second after you stop typing, exactly as if you had pressed Run.
     Only typing in the *source* counts: loading an example, or the generated
@@ -276,20 +297,68 @@ asked of the compiler (`pykFormatHelper`) when the page loads and handed to
 the worker with each program rather than hand-copied, so the playground
 cannot disagree with `node prog.js` about how a value prints.
 
-### The Page tab
+### The Web output tab
 
-The right-hand pane has two tabs, **Compiled code** and **Page**. A
-program using `tinyweb` draws on the Page tab, which Run switches to the
-first time the program sends its page anything; its standard output
-stays in the output pane. Such a program goes on running after its last
-line, since the page calls back the functions it handed over, so **Stop
-stays armed**: pressing it lets the program go, and what the page shows
-stays. The page is mounted with `PageHost` (`../webrun/README.md`, "A
-program may show a page"). Compile switches back to the code.
+A program using `tinyweb` draws on the Web output tab, which Run switches
+to; its standard output is the output pane below the page -- the same
+log Run output shows, moved to whichever of the two tabs is showing. The
+page sits in a browser-window frame named after the example, and its
+**↻ Refresh** stops the program and runs the source again. Such a
+program goes on running after its last line, since the page calls back
+the functions it handed over, so **Stop stays armed**: pressing it lets
+the program go, and what the page shows stays. The page is mounted with
+`PageHost` (`../webrun/README.md`, "A program may show a page"). The page
+is light in both themes, so a canvas drawn in the default black reads as
+it would on a page of its own.
 
 A program that imports cannot be compiled in the page (it has no
 program around it), so a tinyweb program is run with the interpreter,
 the left Run button.
+
+### The REPL
+
+The REPL tab is a session of `pyk repl`: the session half of the REPL is
+`src/repl_session.ml`, in the library, and the bundle registers it as
+`pykReplStart`, `pykReplLine`, `pykReplImports` and `pykReplSubmit`
+(`docs/repl.md`). An entry is checked against the entries before it and
+run there, exactly as at a terminal prompt.
+
+- The prompt is at the foot of the transcript. **Enter** submits a line
+  the parser says is a whole entry, and otherwise opens the next line,
+  indented one level after a `:`; a blank line ends a block. **Shift+Enter**
+  always opens a line, **Tab** indents, **Backspace** in the indentation
+  removes a level, **Escape** empties the prompt, and **Up** and **Down**
+  go through the entries typed before.
+- What an entry shows -- `value : Type`, a command's answer -- is in
+  green, what it prints in the ordinary colour, and a refusal in red,
+  in the words `pyk` uses. An entry refused for naming a function not
+  written yet is put back in the prompt to finish.
+- The commands are `:help`, `:ls`, `:type`, `:edit` (which puts a
+  definition back in the prompt), `:ast`, `:tokens` and `:reset`. `:load`
+  and `:quit` are the terminal's.
+- **Copy from editor** puts the text marked in the editor into the prompt
+  at its cursor, without the indentation its lines share; with nothing
+  marked it says to mark something.
+- An entry may import the standard library, read as Run reads it.
+  `io.read_line` reads the end of input, and `sys.args()` is empty.
+  `tinyweb` is refused: its page is Run's.
+- **Stop** shows while an entry runs. It ends the REPL's worker, and the
+  session with it, and a new session starts; **Reset** is `:reset`, and
+  **Clear** empties the transcript and keeps the session.
+- The **Environment** below is what `:ls` would list, as a table of
+  name, value and type, read back after every entry.
+
+The REPL runs on a `PykingRuntime` of its own, started the first time the
+tab is opened, so stopping an entry ends nothing a Run started.
+
+### Light and dark
+
+The playground has a light and a dark theme. Its colours are custom
+properties on `.pyk-playground`, set for the dark theme and overridden
+under `[data-theme="light"]`, and Monaco switches between `pyking-dark`
+and `pyking-light` with them. The viewer chooses -- the header's ☀/☾
+button, or Appearance in the settings, which starts from the system's
+preference -- unless the embedding page passed `theme` (below).
 
 ### The Stop button
 
@@ -350,7 +419,7 @@ What the page loads, and where the server finds it:
 | URL | From |
 |---|---|
 | `/`, `/assets/…` | `assets/` |
-| `/assets/playground.json` | worked out per request: targets, editor modes, examples |
+| `/assets/playground.json` | worked out per request: the version, targets, editor modes, examples |
 | `/webrun/…` | `../webrun/assets/`: the runtime, the compiler's worker, the Pyking language for Monaco |
 | `/vendor/…` | `../webrun/vendor/`: Monaco (and Ace and KaTeX, the notebook's) |
 | `/pyking/pyking.js` | `build/pyking.js`, built from `src/` by dune and js_of_ocaml |
@@ -423,12 +492,16 @@ there so you can take either one.
     examplesURL: "./examples/",   // where the .pyk files live
     initialTarget: "c23",
     initialExample: "use_args.pyk", // the first example by default
+    theme: "light",               // omit to let the viewer choose
   });
 </script>
 ```
 
 Monaco and the Pyking language are loaded for you if they are not already
-present.
+present. With `theme` given, the page owns the theme: the header's switch
+and the setting are hidden, and the page calls `setTheme("light")` or
+`setTheme("dark")` on what `mountPlayground` answers when its own changes,
+as the website's playground does with Starlight's.
 `playground.js` imports `../webrun/web.js`, so `assets/` and `webrun/` sit
 side by side, as the server lays them out; everything else is an option. Styles are scoped under `.pyk-playground` and use CSS custom
 properties (`--pyk-bg`, `--pyk-accent`, …), so re-theming is a few overrides.

@@ -133,12 +133,14 @@ def code_targets():
 
 
 def page_manifest():
-    """What the page is driven by: the targets, how each is shown and run,
+    """What the page is driven by: the version (the root's VERSION file,
+    which `pyk` is built with), the targets, how each is shown and run,
     and the examples. Worked out per request, so an edit to the manifest
     shows on the next reload. () -> Bytes"""
     targets = code_targets()
     examples = offered_examples()
     return json.dumps({
+        "version": (REPO / "VERSION").read_text().strip(),
         "targets": [{"name": t, "label": TARGET_LABEL[t]} for t in targets],
         "modes": {t: TARGET_MODE[t] for t in targets},
         "run": {t: TARGET_RUN[t] for t in targets if t in TARGET_RUN},

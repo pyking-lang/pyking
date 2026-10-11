@@ -3,9 +3,10 @@
 // its editor, Monaco, as a client of the language server in the
 // compiler's worker: an error is underlined, a hover shows a type,
 // completion offers a name, go to definition moves the cursor, the
-// outline answers; and that compiling and running still work. It serves
-// nothing: tests/test_lsp.py starts `pyk playground` and runs this
-// against it.
+// outline answers; and that compiling and running still work. Then the
+// right-hand tabs, the REPL (entries, the environment, Copy from editor,
+// Stop) and the light and dark themes. It serves nothing:
+// tests/test_lsp.py starts `pyk playground` and runs this against it.
 //
 // Usage: node playground.mjs <chromium> <url>
 // Writes {checks, failures} as JSON.
@@ -75,6 +76,126 @@ const PAGE = `(async () => { ${HELPERS}
   $("[data-r=runLeft]").click();
   const ran = await until(() => /finished/.test(output()), 30000);
   check("Run prints what the program prints", ran && output().includes("3\\n"), output());
+  return checks;
+})()`;
+
+const TABS = `(async () => { ${HELPERS}
+  const shown = (r) => !$("[data-r=" + r + "]").closest(".pyk-hidden");
+  const active = () => $(".pyk-tab.active")?.dataset.tab;
+  check("there are four tabs", $$(".pyk-tab").map((t) => t.textContent).join("|")
+    === "Run output|Compiled code|Web output|REPL", $$(".pyk-tab").map((t) => t.textContent));
+  check("Compile and the targets are on the Compiled code tab only",
+    $("[data-r=panelCompiled]").contains($("[data-r=compile]"))
+    && $("[data-r=panelCompiled]").contains($("[data-r=target]")));
+
+  await source("print(6 * 7)\\n");
+  $("[data-r=tabCompiled]").click();
+  $("[data-r=runLeft]").click();
+  check("Run shows the Run output tab", await until(() => active() === "run"
+    && /42\\n[\\s\\S]*finished/.test(output()), 30000), active() + ": " + output());
+  check("which the whole tab is given to", shown("output")
+    && $("[data-r=panelRun]").contains($("[data-r=output]")));
+
+  await app.loadExample("tinyweb1.pyk", { silent: true });
+  $("[data-r=runLeft]").click();
+  check("a program with a page shows the Web output tab",
+    await until(() => active() === "web" && $("[data-r=page] canvas"), 30000), active());
+  check("with its output below the page", $("[data-r=panelWeb]").contains($("[data-r=output]"))
+    && await until(() => output().includes("built the page")), output());
+  check("in a frame named after the program",
+    $("[data-r=pageTitle]").textContent === "tinyweb1.pyk", $("[data-r=pageTitle]").textContent);
+  $("[data-r=output]").textContent = "";
+  $("[data-r=refresh]").click();
+  check("Refresh runs the program again", await until(() => output().includes("built the page")
+    && $("[data-r=page] canvas"), 30000), output());
+  app.stopRun();
+  await until(() => !app.running);
+  return checks;
+})()`;
+
+const REPL = `(async () => { ${HELPERS}
+  const shown = (r) => !$("[data-r=" + r + "]").closest(".pyk-hidden");
+  $("[data-r=tabRepl]").click();
+  const log = () => $("[data-r=replLog]").textContent;
+  const input = $("[data-r=replInput]");
+  const enter = async (text, wait = /> /) => {
+    input.value = (input.value ?? "") + text;
+    input.setSelectionRange(input.value.length, input.value.length);
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await sleep(300);
+    await until(() => !app.replBusy, 20000);
+  };
+  const rows = () => $$("[data-r=env] tbody tr").map((r) => [...r.cells].map((c) => c.textContent).join(" "));
+  check("the REPL starts", await until(() => log().includes("Pyking REPL"), 30000), log());
+  check("with nothing bound", rows().join() === "no bindings yet", rows());
+  await enter("x = 21");
+  await enter("x * 2");
+  check("an entry's value is shown with its type", log().includes("> x * 2\\n42 : Int\\n"), log());
+  check("the environment lists what was bound", rows().join("|") === "x 21 Int", rows());
+  await enter("def double(n):");
+  check("Enter after a ':' opens an indented line", input.value === "def double(n):\\n    ",
+    JSON.stringify(input.value));
+  await enter("n * 2");
+  await enter("");
+  check("a blank line ends the block", log().includes("> def double(n):\\n.     n * 2\\n"), log());
+  check("and the environment is up to date after each entry",
+    rows().includes("double <function> (Int) -> Int") || rows().includes("double <function> (?) -> ?"),
+    rows());
+  await enter('print("hi " ++ string(double(x)))');
+  check("what an entry prints appears", log().includes("hi 42\\n"), log());
+  await enter("y = nope");
+  check("a refusal is shown in red", $$("[data-r=replLog] .err").some((e) =>
+    e.textContent.includes("unbound name 'nope'")), log());
+  await enter(":ls");
+  check(":ls answers", /x\\s+= 21 : Int/.test(log()), log());
+
+  app.left.setSelection(new monaco.Range(1, 1, 1, 1));
+  $("[data-r=replCopy]").click();
+  check("Copy from editor with nothing marked says to mark something",
+    $$("[data-r=replLog] .err").some((e) => e.textContent.includes("mark the text")), log());
+  await source("def triple(n: Int) -> Int:\\n    return n * 3\\n");
+  app.left.setSelection(new monaco.Range(1, 1, 3, 1));
+  $("[data-r=replCopy]").click();
+  check("Copy from editor puts the marked text in the prompt",
+    input.value === "def triple(n: Int) -> Int:\\n    return n * 3", JSON.stringify(input.value));
+  input.value = "";
+
+  await enter("def spin(n: Int) -> Int:");
+  await enter("spin(n + 1)");
+  await enter("");
+  input.value = "spin(0)";
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  check("an entry that does not end can be stopped",
+    await until(() => app.replBusy && shown("replStop"), 10000));
+  $("[data-r=replStop]").click();
+  check("which starts the session again", await until(() => !app.replBusy
+    && log().includes("session starts again") && rows().join() === "no bindings yet", 30000),
+    rows());
+  await enter("z = 5");
+  check("and the new session works", rows().join("|") === "z 5 Int", rows());
+  return checks;
+})()`;
+
+const THEME = `(async () => { ${HELPERS}
+  const root = $(".pyk-playground");
+  const before = root.dataset.theme;
+  $("[data-r=themeButton]").click();
+  const after = root.dataset.theme;
+  check("the header's switch changes the theme", before !== after
+    && ["light", "dark"].includes(after), before + " -> " + after);
+  check("Monaco follows it", $(".monaco-editor").classList.contains(after === "dark" ? "vs-dark" : "vs"),
+    $(".monaco-editor").className);
+  check("and the setting says so", $("[data-r=themeChoice]").value === after,
+    $("[data-r=themeChoice]").value);
+  const choice = $("[data-r=themeChoice]");
+  choice.value = before;
+  choice.dispatchEvent(new Event("change"));
+  check("the setting changes it back", root.dataset.theme === before, root.dataset.theme);
+  check("the page's colours follow the theme",
+    getComputedStyle(root).backgroundColor !== "" && (() => {
+      const [r, g, b] = getComputedStyle(root).backgroundColor.match(/\\d+/g).map(Number);
+      return (r + g + b > 384) === (before === "light");
+    })(), getComputedStyle(root).backgroundColor);
   return checks;
 })()`;
 
@@ -185,7 +306,9 @@ try {
     }
   }
   if (!ready) throw new Error("the playground did not become ready");
-  for (const [name, phase] of [["the page", PAGE], ["the language server", LSP]]) {
+  for (const [name, phase] of [["the page", PAGE], ["the language server", LSP],
+                               ["the tabs", TABS], ["the REPL", REPL],
+                               ["the themes", THEME]]) {
     progress(`checking ${name}`);
     for (const [label, ok, detail] of await evaluate(phase)) {
       output.checks += 1;

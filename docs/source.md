@@ -52,7 +52,8 @@ and which module calls which.
 | [`interpreter.ml`](#interpreterml) | ~1670 | The interpreter: values, environments, and a resumable small-step machine that runs the AST. The reference for runtime semantics. |
 | [`plugin_host.ml`](#plugin_hostml) | ~330 | How the interpreter reaches a module implemented in a target language: its OCaml implementation, compiled to a plugin and loaded with Dynlink. |
 | [`plugin/pyk_plugin.ml`](#pluginpyk_pluginml) | ~20 | The registry a loaded plugin fills in. |
-| [`repl.ml`](#replml) | ~1160 | `pyk repl`: a session as a program written one entry at a time, and the multi-line editor it is typed into. |
+| [`repl.ml`](#replml) | ~750 | `pyk repl`'s terminal half: the multi-line editor an entry is typed into, and the loop. |
+| [`repl_session.ml`](#repl_sessionml) | ~700 | A REPL session: a program written one entry at a time. Shared by `pyk repl` and the playground's REPL tab. |
 | [`target_python.ml`](#target_pythonml) | ~2410 | The Python backend, and the only one that compiles the whole language. |
 | [`target_js_core.ml`](#target_js_coreml) | ~1280 | The JavaScript backend's language half: a `Js*` AST, translation, printer. |
 | [`target_js_packaging.ml`](#target_js_packagingml) | ~300 | Its packaging half: `node24`, `web24`, `iweb24`, and the JavaScript side of the runtime interface. |
@@ -1249,15 +1250,23 @@ function written now is invisible to one written before it.
 
 **Design, in depth:** [repl.md](repl.md).
 
+The session is `repl_session.ml`'s (below), which the playground's
+REPL tab shares: `Session`, `Outcome`, `META` but `:load`, `INCOMPLETE`,
+`import_modules`, `submit`, `undefined_name` and `complete` /
+`continuable` / `next_indent` are there. This module keeps the editor,
+the readers, `:load`, `undefined_message`, the loop, and the terminal's
+host (`terminal_host`), which reaches a module implemented in a target
+language through its plugin.
+
 ### Data structures
 
 - **`Session(seen, state, types, store, kinds, sources, arguments,
-  libs, modules, sigmaps, exports, plugins)`** — the machine's
+  libs, modules, sigmaps, exports, hosted, host)`** — the machine's
   environment, the checker's, and the mutability analysis's, all
   extended in step, plus two records of what has arrived -- and what the
   entries have imported: the modules as the module system prepared
   them, what each exports for the checker and for the machine, and the
-  plugins of the ones implemented in a target language. `seen` exists for one narrow reason: `symbolize` numbers a
+  ones implemented in a target language, which `host` reaches. `seen` exists for one narrow reason: `symbolize` numbers a
   tree from the highest symbol already in it, so handing it the
   accumulated statements is what keeps a later entry from reusing an
   earlier entry's symbols — which the machine's call-free table is keyed
@@ -1872,6 +1881,39 @@ is pure; nothing in the browser bundle uses it.
 
 ---
 
+## `repl_session.ml`
+
+**A REPL session, without the terminal**: what `pyk repl` (`repl.ml`)
+and the playground's REPL tab (`web/pyking_web.ml`) share. An entry is
+checked as one group against what the entries before it left behind,
+and run there; see `repl.ml` above and [repl.md](repl.md) for the
+rules. It opens no file and reads no terminal: everything it shows goes
+through its host, which is what puts it in the library.
+
+- **`host`** — `{ write; machine; connect; from }`: where a line the
+  session shows goes (a value, a command's answer), the interpreter's
+  host given how to reach the modules imported so far, how to reach a
+  module implemented in a target language (a plugin in a terminal,
+  `pykExternals` in a page), and where an imported module's files are
+  read if not from disk.
+- **`session`** — abstract; see `Session` above.
+- **`binding`** — `{ implicit; name; value; type_ }`: one name, as `:ls`
+  shows it, and what the page's environment table lists.
+- **`outcome`** — `{ out_session; pending }`: what a meta-command leaves.
+- **`new_session ?libs host`**, **`submit`**, **`accept`** — as above.
+- **`complete`**, **`continuable`**, **`next_indent`** — whether an entry
+  is finished, and where its next line is indented.
+- **`imported_modules session stmts`** — the modules an entry's imports
+  would newly load, loading nothing: what a page makes ready first.
+- **`bindings session`** — what the session has bound, in binding order.
+- **`run_meta ?extra session line report`** — `:help`, `:ls`, `:type`,
+  `:edit`, `:ast`, `:tokens` and `:reset`, plus `extra`, the terminal's
+  `:load`; `:help` lists `:load` and `:quit` only where `extra` is given.
+- **`undefined_name`**, **`defines_function`** — what a front end needs
+  to offer an entry back for finishing.
+
+---
+
 ## `web_tools.ml`
 
 **`pyk notebook`, `pyk playground` and `pyk serve`.** Each page is a
@@ -1975,8 +2017,14 @@ page or fetched through its `pykFetchSource`, externals through
 `pykExternals`, and `release` on a second line), `pykAnalyze` (which of
 a program's modules are implemented in JavaScript, and whether it reads
 standard input or its arguments), `pykTargets`, `pykFormatHelper`,
-`pykKeywords` and `pykBuiltins`, and `pykCallback` (a Pyking function
-handed to JavaScript, called back by the id it crossed as). A value
+`pykKeywords` and `pykBuiltins`, `pykCallback` (a Pyking function
+handed to JavaScript, called back by the id it crossed as), and the
+REPL tab's session (`repl_session.ml`): `pykReplStart`, `pykReplLine`
+(whether text is a whole entry, and the next line's indentation),
+`pykReplImports` (the modules implemented in JavaScript an entry would
+load) and `pykReplSubmit` (one entry, answering its errors, the text to
+put back in the prompt and the bindings; what it shows goes to
+`pykOnShow`). A value
 crosses by its declared type (`externals_for`, `json_of_typed`,
 `coerce`), so a callback becomes `{"pyk_callback":id}` and an integral
 number declared `Float` comes back a `Float`. A `debug` line goes to `pykOnDebug`; a

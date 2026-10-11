@@ -531,6 +531,9 @@ def check_server(compiler):
             check("the playground serves its page", status == 200, f"status {status}")
             status, body = fetch(port, "/assets/playground.json")
             manifest = json.loads(body) if status == 200 else {}
+            check("the playground's manifest names pyk's version",
+                  manifest.get("version") == (REPO / "VERSION").read_text().strip(),
+                  manifest.get("version"))
             check("the playground's manifest lists targets and examples",
                   manifest.get("targets") and manifest.get("examples"),
                   f"status {status}")
