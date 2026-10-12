@@ -90,6 +90,9 @@
 .pyk-help-page .pkn-cell {
   margin-left: -3.5rem; grid-template-columns: 3rem minmax(0, 1fr); gap: 0 .5rem;
 }
+/* Inside a library item's box the button stays in the box, as on the
+   website, and the code and its stdout move right to make room. */
+.pyk-help-page .pyk-api .pkn-cell { margin-left: 0; }
 .pyk-help-page .pyk-help-title { font-size: 1.5rem; margin: .6rem 0 .8rem; }
 .pyk-help-page h2 { font-size: 1.2rem; margin: 1.6rem 0 .5rem; }
 .pyk-help-page h3 { font-size: 1.02rem; margin: 1.2rem 0 .4rem; }
