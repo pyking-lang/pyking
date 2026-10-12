@@ -5,11 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pyking Help</title>
 <!--
-  Served by `pyk help` (src/web_tools.ml). A host for the help component
+  Served by `pyk pykhelp` (src/web_tools.ml). A host for the help component
   (help.js), as the playground's Help tab is another.
 -->
 <style>
-  html, body { height: 100%; margin: 0; background: #1d1f21; }
+  /* One scroll bar, the page's: nothing outside the help scrolls. */
+  html, body { height: 100%; margin: 0; overflow: hidden; background: #1d1f21; }
   @media (prefers-color-scheme: light) { html, body { background: #ffffff; } }
   #help { height: 100%; }
 </style>
@@ -18,11 +19,29 @@
 <div id="help"></div>
 <script type="module">
   import { mountHelp } from "./help/help.js";
+  // The theme follows the system's until the switch in the menu is used,
+  // and that choice is kept in this browser.
+  const KEY = "pyking-help-theme";
   const dark = matchMedia("(prefers-color-scheme: dark)");
+  const chosen = () => { try { return localStorage.getItem(KEY); } catch { return null; } };
+  const system = () => (dark.matches ? "dark" : "light");
+  const paint = (theme) => {
+    document.documentElement.style.colorScheme = theme;
+    document.body.style.background = theme === "dark" ? "#1d1f21" : "#ffffff";
+  };
   const help = await mountHelp(document.getElementById("help"), {
-    theme: dark.matches ? "dark" : "light",
+    theme: chosen() ?? system(),
+    onTheme: (theme) => {
+      try { localStorage.setItem(KEY, theme); } catch {}
+      paint(theme);
+    },
   });
-  dark.addEventListener("change", () => help.setTheme(dark.matches ? "dark" : "light"));
+  paint(help.theme);
+  dark.addEventListener("change", () => {
+    if (chosen()) return;
+    help.setTheme(system());
+    paint(help.theme);
+  });
   window.pykingHelp = help;
 </script>
 </body>

@@ -254,7 +254,6 @@ span.pkn-math-display { margin: .5rem 0; }
   box-shadow: var(--pkn-shadow);
   transition: background .12s, color .12s, border-color .12s, transform .08s;
 }
-.pkn-run svg { margin-left: 2px; }
 .pkn-run:hover, .pkn-cell.pkn-focused .pkn-run {
   background: var(--pkn-accent); border-color: var(--pkn-accent); color: #fff;
 }

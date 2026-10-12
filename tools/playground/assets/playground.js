@@ -1100,12 +1100,18 @@ class Playground {
     this.replRuntime.stop();
     this.replError("— stopped; the session starts again —");
     this.showBindings([]);
-    try {
+    // An entry made before the new session has started waits for it
+    // (ensureRepl answers this promise).
+    this.replStarting = (async () => {
       await this.replRuntime.ready();
       this.showBindings((await this.replRuntime.replStart()).bindings);
-    } catch (err) {
+      return true;
+    })().catch((err) => {
+      this.replStarting = null;
       this.replError("Could not restart the REPL: " + err.message);
-    }
+      return false;
+    });
+    await this.replStarting;
   }
 
   /** The text marked in the editor, into the prompt at its cursor, with

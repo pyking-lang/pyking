@@ -101,7 +101,7 @@ The right-hand side is five tabs, and the page opens on **Run output**:
   browser-window frame, above the same output Run output shows (see "The
   Web output tab").
 - **REPL** is `pyk repl` in the page (see "The REPL").
-- **Help** is the help `pyk help` serves -- getting started, the
+- **Help** is the help `pyk pykhelp` serves -- getting started, the
   language reference and the libraries -- with a menu above the page
   (see "The Help tab").
 
@@ -357,7 +357,8 @@ tab is opened, so stopping an entry ends nothing a Run started.
 ### The Help tab
 
 The Help tab mounts the help (`../help/README.md`): a menu of pages, at
-most a quarter of the tab's height and in two columns, above the page
+most 30% of the tab's height, the sections on the left and the page's
+headings on the right, above the page
 being read. The pages are the ones the website is built from, generated
 into `build/help/` by `make`, and every example on them is a cell that
 runs there, on a worker of the help's own, with a **Copy to editor**

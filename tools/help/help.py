@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The help: Pyking's documentation as Markdown pages, generated once and
 read by everything that shows it -- the website (tools/site/site.py),
-the playground's Help tab, and `pyk help`.
+the playground's Help tab, and `pyk pykhelp`.
 
 It writes, into one directory (build/help/ by default), every page of
 sitesrc/ as it is, the language reference made from PYKING.md, and the

@@ -3,19 +3,20 @@
 #   make            build the compiler, build/pyking.js and the library
 #                   plugins the interpreter loads
 #   make test       the compiler's own test suite, run in parallel
-#                   (TARGET=c23 or TARGET=c for one target or family)
+#                   (TARGET=c23 or TARGET=c for one target or family,
+#                   SUITE=tinyweb for one suite)
 #   make stest      the same suite, one test at a time
 #   make notebook   open PYKING-TUTORIAL.md as a notebook in the browser
-#   make help       open the help (getting started, the language reference,
+#   make pykhelp    open the help (getting started, the language reference,
 #                   the libraries) in the browser
 #   make website    build the website into website/
 #   make packaging  build the installable packages (macOS and Linux)
 #   make clean      remove what has been generated
 #
-# Run `make targets` for the full list. The compiler is OCaml in src/,
+# Run `make help` for the full list. The compiler is OCaml in src/,
 # built by dune into the executable this directory calls ./pyk.
 
-.PHONY: all help targets build libs test stest check-node playground notebook vendor \
+.PHONY: all help pykhelp build libs test stest check-node playground notebook vendor \
 	website website-dev \
 	packaging packaging-setup packaging-install packaging-uninstall \
 	release \
@@ -67,21 +68,21 @@ build:
 libs: build
 	@./pyk plugins lib
 
-# The help, as `pyk help` serves it: the pages tools/help/help.py wrote
+# The help, as `pyk pykhelp` serves it: the pages tools/help/help.py wrote
 # into build/help/ when the compiler was built, which the website and
 # the playground's Help tab show too.
-help: build vendor
-	./pyk help $(if $(PORT),--port $(PORT))
+pykhelp: build vendor
+	./pyk pykhelp $(if $(PORT),--port $(PORT))
 
 # Kept in the same shape as `make -C tools/playground help`, so the two
 # read alike. Both are hand-written and neither has anything to generate
 # them from, so update this list whenever a target is added or renamed.
-targets:
+help:
 	@echo "make              build the compiler into ./pyk and build/, the help"
 	@echo "                  into build/help/, then make libs"
 	@echo "make libs         compile each lib/*/<name>_external.ml into the"
 	@echo "                  plugin the interpreter loads, <name>_external.cmxs"
-	@echo "make test         all eight suites, then a combined summary: every"
+	@echo "make test         all nine suites, then a combined summary: every"
 	@echo "                  tests/*.pyk on every target tests/test_cases.toml"
 	@echo "                  lists it for, run in parallel (JOBS=n to say how"
 	@echo "                  parallel), then the REPL's own cases in tests/repl/,"
@@ -89,22 +90,26 @@ targets:
 	@echo "                  playground's compiler bundle, then the notebook's"
 	@echo "                  renderer and server, then the packaged tree's,"
 	@echo "                  then the website's pages and library docs, then"
-	@echo "                  tinyweb's pages and servers (in Chromium where one"
-	@echo "                  is found)."
+	@echo "                  tinyweb's pages and servers, then the language"
+	@echo "                  server's (in Chromium where one is found)."
 	@echo "                  Every suite runs even"
 	@echo "                  if an earlier one failed"
 	@echo "                  TARGET=c23 runs one target; TARGET=c runs every"
-	@echo "                  version of that family (the last seven suites are"
+	@echo "                  version of that family (the last eight suites are"
 	@echo "                  skipped, since none of them is a target)"
-	@echo "make stest        the same suite, one test at a time"
+	@echo "                  SUITE=tinyweb runs one suite, SUITE=repl,lsp several:"
+	@echo "                  programs, repl, libpath, playground, notebook,"
+	@echo "                  packaging, site, tinyweb, lsp"
+	@echo "make stest        the same suite, one test at a time (TARGET and"
+	@echo "                  SUITE as for make test)"
 	@echo "make playground   serve the web playground (pyk playground), then print"
 	@echo "                  a link"
 	@echo "make notebook     serve PYKING-TUTORIAL.md as a notebook (pyk notebook),"
 	@echo "                  then print a link. PORT=n picks the port for both"
-	@echo "make help         serve the help (pyk help) -- getting started, the"
+	@echo "make pykhelp      serve the help (pyk pykhelp) -- getting started, the"
 	@echo "                  language reference and the libraries, generated"
 	@echo "                  into build/help/ by make -- then print a link"
-	@echo "make targets      this list"
+	@echo "make help         this list"
 	@echo "make vendor       download Ace, KaTeX and Monaco into tools/webrun/vendor/, once"
 	@echo "                  (~26 MB; the two above need it and run it first)"
 	@echo "make website      build the website (Astro and Starlight, from sitesrc/"
@@ -186,12 +191,13 @@ check-node:
 
 test: check-node build
 	@python3 tests/test_all.py $(if $(JOBS),--jobs $(JOBS)) \
-		$(if $(TARGET),--target $(TARGET))
+		$(if $(TARGET),--target $(TARGET)) $(if $(SUITE),--suite $(SUITE))
 
 # The same suite with no pool at all, for when a parallel run's timing is
 # itself in question.
 stest: check-node build
-	@python3 tests/test_all.py --jobs 1 $(if $(TARGET),--target $(TARGET))
+	@python3 tests/test_all.py --jobs 1 $(if $(TARGET),--target $(TARGET)) \
+		$(if $(SUITE),--suite $(SUITE))
 
 # The two web tools, started the way a user of a distribution starts
 # them: through ./pyk, which finds tools/ beside itself and checks that

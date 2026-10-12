@@ -1,4 +1,4 @@
-(** `pyk notebook`, `pyk playground`, `pyk help` and `pyk serve`: finds the web
+(** `pyk notebook`, `pyk playground`, `pyk pykhelp` and `pyk serve`: finds the web
     tools beside this executable, works out what each serves, and serves
     it with web_server.ml in this process -- nothing else has to be
     installed. `pyk notebook --mode test` serves nothing and runs

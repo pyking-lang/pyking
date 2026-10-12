@@ -162,7 +162,7 @@ or use the compiler, and nothing of it is shipped.
 
 ## The web tools
 
-`pyk playground`, `pyk notebook FILE.md` and `pyk help` start a web
+`pyk playground`, `pyk notebook FILE.md` and `pyk pykhelp` start a web
 page that runs the compiler in the browser: the playground, a Markdown
 document whose Pyking code blocks are runnable cells, and the help.
 None of them is built. Each is a directory of JavaScript, CSS and HTML
@@ -247,7 +247,7 @@ in, and the tree is beside the target, not beside the link.
 `make website` builds the Pyking website into `website/` (gitignored): a
 static site that any web server can serve from its root. It is Astro
 with Starlight, driven by `tools/site/site.py`, and is made from the
-help -- the pages `pyk help` and the playground's Help tab show -- and
+help -- the pages `pyk pykhelp` and the playground's Help tab show -- and
 the runtime:
 
 ```

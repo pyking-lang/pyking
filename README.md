@@ -145,12 +145,12 @@ make            # dune build src/pyk.exe, copied here as ./pyk
 | command | what it does |
 |---|---|
 | `make` | build the compiler into `./pyk` |
-| `make targets` | the list below |
+| `make help` | the list below |
 | `make test` | the compiler's own suite: every program in `tests/` on every target it supports, comparing each against one shared `.out` file — run in parallel, one job per usable CPU (`JOBS=n` to say how many) — then the REPL's own cases in `tests/repl/`, the library path's, the playground's, the notebook's, the packaged tree's and the website's |
 | `make stest` | the same suite, one test at a time |
 | `make playground` | serve the [web playground](tools/playground/) (`pyk playground`), then print a link to open |
 | `make notebook` | serve `PYKING-TUTORIAL.md` as a [notebook](tools/notebook/) (`pyk notebook`), then print a link |
-| `make help` | serve the [help](tools/help/) (`pyk help`): getting started, the language reference and the libraries, with runnable examples |
+| `make pykhelp` | serve the [help](tools/help/) (`pyk pykhelp`): getting started, the language reference and the libraries, with runnable examples |
 | `make vendor` | download Ace, KaTeX and Monaco into `tools/webrun/vendor/`, once; the two above run it first |
 | `make website` | build the [website](tools/site/) into `website/`, from `sitesrc/` and `lib/` (`make website-dev` serves it with Astro's dev server) |
 | `make packaging` | build the installable packages into `tools/packaging/build/` — for now the Homebrew one, on a Mac |

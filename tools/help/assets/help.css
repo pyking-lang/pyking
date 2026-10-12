@@ -34,15 +34,29 @@
   --ph-type: #2d7d32;
 }
 
-/* The menu: at most a quarter of the height, in two columns. */
+/* The menu and the page share one column, centred, with a gutter on
+   the left that a cell's run button sits in: the menu's labels line up
+   with the text below them. */
+.pyk-help-column {
+  max-width: 50rem; margin: 0 auto;
+  padding: 0 1.2rem 0 3.6rem;
+}
+
+/* The menu: the sections on the left, the page's headings on the right,
+   each scrolling on its own when the bar is too short for it. */
 .pyk-help-menu {
-  flex: none; max-height: 25%; overflow: auto;
-  column-count: 2; column-gap: 1.5rem;
-  padding: .5rem .9rem .6rem;
+  flex: none; max-height: 30%; display: flex; min-height: 0; position: relative;
   background: var(--ph-panel); border-bottom: 1px solid var(--ph-edge);
   font-size: .82rem; line-height: 1.35;
 }
-.pyk-help-group { break-inside: avoid; margin-bottom: .45rem; }
+.pyk-help-menu .pyk-help-column {
+  flex: 1 1 auto; min-height: 0; width: 100%;
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.5rem;
+}
+.pyk-help-sections, .pyk-help-headings {
+  min-height: 0; overflow: auto; padding: .5rem 0 .3rem;
+}
+.pyk-help-group { margin-bottom: .45rem; }
 .pyk-help-label {
   margin: 0 0 .1rem; font-size: .68rem; font-weight: 700;
   text-transform: uppercase; letter-spacing: .07em; color: var(--ph-dim);
@@ -56,11 +70,26 @@
   color: var(--ph-accent); font-weight: 700;
 }
 .pyk-help-headings a { color: var(--ph-dim); }
+.pyk-help-theme {
+  position: absolute; top: .45rem; right: .6rem;
+  width: 1.8rem; height: 1.8rem; padding: 0; border-radius: 50%;
+  border: 1px solid var(--ph-edge); background: var(--ph-bg); color: var(--ph-text);
+  font-size: .95rem; line-height: 1; cursor: pointer;
+}
+.pyk-help-menu:has(.pyk-help-theme) .pyk-help-headings { padding-right: 2rem; }
+.pyk-help-theme:hover { border-color: var(--ph-accent); color: var(--ph-accent); }
 
-/* The page. */
-.pyk-help-page {
+/* The page: the only part that scrolls. The notebook makes its root at
+   least as tall as what holds it, which here would push the page's end
+   out of sight. */
+.pyk-help .pyk-help-page {
   flex: 1 1 auto; min-height: 0; overflow: auto; position: relative;
-  padding: .6rem 1.4rem 2rem;
+  padding: .6rem 0 3rem;
+}
+.pyk-help-page .pkn-prose { max-width: none; margin: 0; }
+/* A cell's run button hangs in the column's gutter at every width. */
+.pyk-help-page .pkn-cell {
+  margin-left: -3.5rem; grid-template-columns: 3rem minmax(0, 1fr); gap: 0 .5rem;
 }
 .pyk-help-page .pyk-help-title { font-size: 1.5rem; margin: .6rem 0 .8rem; }
 .pyk-help-page h2 { font-size: 1.2rem; margin: 1.6rem 0 .5rem; }

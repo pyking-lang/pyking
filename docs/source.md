@@ -1921,7 +1921,7 @@ through its host, which is what puts it in the library.
 
 ## `web_tools.ml`
 
-**`pyk notebook`, `pyk playground`, `pyk help` and `pyk serve`.** Each page is a
+**`pyk notebook`, `pyk playground`, `pyk pykhelp` and `pyk serve`.** Each page is a
 directory under `tools/` beside the running executable, served by
 `web_server.ml` in this process, so nothing else has to be installed
 (see [build.md](build.md), "The web tools"). In the executable rather

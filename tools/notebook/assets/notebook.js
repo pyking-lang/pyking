@@ -599,6 +599,7 @@ class Cell {
     this.notebook = notebook;
     this.spec = spec;
     this.editor = null;
+    this.expected = null;      // the stdout block the document shows under it
     this.stopped = false;
     this.marker = null;
     this.outputSize = 0;
@@ -821,6 +822,7 @@ class Cell {
 
   begin() {
     this.setState("running");
+    this.expected?.classList.add("pkn-hidden");
     this.stopped = false;
     this.clearMarker();
     this.ui.run.classList.add("pkn-hidden");
@@ -975,7 +977,7 @@ const svg = (body, extra = "") =>
   `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" ${extra}>${body}</svg>`;
 
 const ICON = {
-  run: svg('<path d="M5 3.2v9.6a.6.6 0 0 0 .9.5l7.6-4.8a.6.6 0 0 0 0-1L5.9 2.7a.6.6 0 0 0-.9.5z" fill="currentColor"/>'),
+  run: svg('<path d="M4.9 3.3v9.4a.7.7 0 0 0 1.05.6l7.3-4.7a.7.7 0 0 0 0-1.2L5.95 2.7a.7.7 0 0 0-1.05.6z" fill="currentColor"/>'),
   stop: svg('<rect x="4" y="4" width="8" height="8" rx="1.2" fill="currentColor"/>'),
   reset: svg('<path d="M3.5 8a4.5 4.5 0 1 0 1.4-3.3M3.5 2.5v2.8h2.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>', 'width="12" height="12"'),
   ok: svg('<path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>', 'width="12" height="12"'),

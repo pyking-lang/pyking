@@ -1,7 +1,7 @@
 // The help: the pages tools/help/help.py generated -- getting started,
 // the language reference and the libraries -- with a menu above the page
 // being read. The playground's Help tab mounts it, and so does the page
-// `pyk help` serves (index.html beside this file).
+// `pyk pykhelp` serves (index.html beside this file).
 //
 //   import { mountHelp } from "./help/help.js";
 //   const help = await mountHelp(element, { onCopy: (code) => ... });
@@ -27,6 +27,7 @@ const DEFAULTS = {
   theme: "dark",           // "light" or "dark"
   start: null,             // the slug of the first page; default: the first
   onCopy: null,            // (code) -> (): adds "Copy to editor" to each cell
+  onTheme: null,           // (theme) -> (): adds a light/dark switch to the menu
   fontSize: 13,
 };
 
@@ -56,10 +57,28 @@ class Help {
     document.head.append(style);
     this.host.classList.add("pyk-help");
     this.host.innerHTML = `
-      <nav class="pyk-help-menu" aria-label="Help pages"></nav>
-      <article class="pyk-help-page pkn-notebook pkn-embedded"></article>`;
+      <nav class="pyk-help-menu" aria-label="Help pages"><div class="pyk-help-column">
+        <div class="pyk-help-sections"></div>
+        <div class="pyk-help-headings"></div>
+      </div></nav>
+      <article class="pyk-help-page pkn-notebook pkn-embedded">
+        <div class="pyk-help-column"></div>
+      </article>`;
     this.menu = this.host.querySelector(".pyk-help-menu");
+    this.sections = this.host.querySelector(".pyk-help-sections");
+    this.headings = this.host.querySelector(".pyk-help-headings");
     this.page = this.host.querySelector(".pyk-help-page");
+    this.body = this.page.querySelector(".pyk-help-column");
+    if (this.cfg.onTheme) {
+      const button = document.createElement("button");
+      button.className = "pyk-help-theme";
+      button.addEventListener("click", () => {
+        this.setTheme(this.theme === "dark" ? "light" : "dark");
+        this.cfg.onTheme(this.theme);
+      });
+      this.menu.append(button);
+      this.themeButton = button;
+    }
     this.setTheme(this.cfg.theme);
     this.index = await (await fetch(this.cfg.pagesURL + "index.json")).json();
     this.pages = this.index.sections.flatMap((section) => section.pages
@@ -113,10 +132,10 @@ class Help {
     this.drawMenu();
     const text = await (await fetch(this.cfg.pagesURL + page.file)).text();
     const body = text.replace(/^---\n[\s\S]*?\n---\n/, "");
-    this.page.innerHTML = `<h1 class="pyk-help-title"></h1>`
+    this.body.innerHTML = `<h1 class="pyk-help-title"></h1>`
       + `<div class="pkn-fragment"></div>`;
-    this.page.querySelector("h1").textContent = page.title;
-    const fragment = this.page.querySelector(".pkn-fragment");
+    this.body.querySelector("h1").textContent = page.title;
+    const fragment = this.body.querySelector(".pkn-fragment");
     fragment.dataset.markdown = body;
     this.notebook ??= await import(new URL("notebook.js", this.cfg.notebookURL).href);
     const web = await import(new URL("web.js", this.cfg.webrunURL).href);
@@ -141,8 +160,8 @@ class Help {
     this.reveal(anchor);
   }
 
-  /** The menu: each section's pages, the one shown marked, and that
-   *  page's headings. () -> () */
+  /** The menu: each section's pages on the left, the one shown marked,
+   *  and that page's headings on the right. () -> () */
   drawMenu() {
     const groups = new Map();
     for (const page of this.pages) {
@@ -152,15 +171,16 @@ class Help {
     const link = (href, text, current) =>
       `<a href="${href}"${current ? ' aria-current="page"' : ""}>${escape(text)}</a>`;
     const current = this.pages.find((p) => p.slug === this.slug);
-    this.menu.innerHTML = [...groups].map(([label, pages]) => `
+    this.sections.innerHTML = [...groups].map(([label, pages]) => `
       <div class="pyk-help-group">
         <p class="pyk-help-label">${escape(label)}</p>
         ${pages.map((p) => link(`/${p.slug}/`, p.label, p.slug === this.slug)).join("")}
-      </div>`).join("") + (current?.headings.length ? `
-      <div class="pyk-help-group pyk-help-headings">
+      </div>`).join("");
+    this.headings.innerHTML = current?.headings.length ? `
+      <div class="pyk-help-group">
         <p class="pyk-help-label">On this page</p>
         ${current.headings.map((h) => link(`#${h.anchor}`, h.text, false)).join("")}
-      </div>` : "");
+      </div>` : "";
   }
 
   /** Shows the help, and its cells, in "light" or "dark".
@@ -168,6 +188,12 @@ class Help {
   setTheme(theme) {
     this.theme = theme === "light" ? "light" : "dark";
     this.host.dataset.theme = this.theme;
+    if (this.themeButton) {
+      const other = this.theme === "dark" ? "light" : "dark";
+      this.themeButton.textContent = other === "dark" ? "☾" : "☀";
+      this.themeButton.title = `Switch to the ${other} theme`;
+      this.themeButton.setAttribute("aria-label", this.themeButton.title);
+    }
     this.cells?.setTheme?.(this.theme, false);
   }
 }

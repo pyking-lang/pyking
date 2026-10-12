@@ -124,7 +124,7 @@ SHIPPED = [
     ("tools/notebook/package.json", "tools/notebook/package.json"),
     ("tools/notebook/assets", "tools/notebook/assets"),
     ("tools/playground/assets", "tools/playground/assets"),
-    # The help, which `pyk help` and the playground's Help tab show: its
+    # The help, which `pyk pykhelp` and the playground's Help tab show: its
     # page and scripts, and the pages `make` generated into build/help/.
     ("tools/help/assets", "tools/help/assets"),
     ("build/help", "build/help"),

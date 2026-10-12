@@ -1185,7 +1185,7 @@ The bootstrap is split into one module per compiler stage:
    means the same thing wherever it is written. `pyk plugins <dir>`
    builds the plugin of every library in a directory of libraries, which
    is what `make libs` runs over `lib/`. Four more, `pyk notebook
-   FILE.md`, `pyk playground`, `pyk help` and `pyk serve [DIR]`, run no front end at
+   FILE.md`, `pyk playground`, `pyk pykhelp` and `pyk serve [DIR]`, run no front end at
    all: `command_web` hands them to `web_tools.ml`, and `--port` is
    theirs alone. Nor does `pyk lsp`, the language server: `command_lsp`
    is its stdio transport over `lsp.ml`, and `--stdio` and `--log` are
@@ -1516,7 +1516,7 @@ anything both pages need there rather than copying it.
   chosen by the header's switch or Appearance in the settings unless the
   embedding page passes `theme` and calls `setTheme`, as the website
   does with Starlight's. `tools/playground/README.md` is the long form.
-- **The help** (`tools/help/`, `pyk help`, the playground's Help tab):
+- **The help** (`tools/help/`, `pyk pykhelp`, the playground's Help tab):
   Getting started, the language reference (PYKING.md) and the library
   reference, generated as Markdown into `build/help/` by
   `tools/help/help.py` -- the same pages the website is built from --
@@ -1726,7 +1726,7 @@ pyk repl                             start the REPL
 pyk compile [options] <filename>     compile it (alias: pyk c)
 pyk notebook [--port N] <file.md>    serve a notebook, print a link
 pyk playground [--port N]            serve the playground, print a link
-pyk help [--port N]                  serve the help, print a link
+pyk pykhelp [--port N]               serve the help, print a link
 pyk serve [--port N] [<dir>]         serve a directory's files, print a link
 pyk plugins <dir>                    build the interpreter's library plugins
 pyk lsp [--stdio] [--log FILE]       the language server, for editors
@@ -1887,7 +1887,7 @@ Plain `make` builds the compiler: the `Makefile`'s first rule, `all`, is
 `build`, since that is what someone typing `make` in a compiler's
 directory is asking for. It runs `dune build src/pyk.exe` and copies the
 executable to `./pyk`, and writes the help into `build/help/`
-(`tools/help/help.py`). `make targets` prints the list of targets, which is
+(`tools/help/help.py`). `make help` prints the list of targets, which is
 hand-written, as is the one in `tools/playground/Makefile` it is
 modelled on — add a target and you have to add its line too.
 
@@ -1908,6 +1908,9 @@ which is the whole of why removing it is safe.
 version of that family; with no `TARGET` every target runs, which is
 what `make test` means. The REPL suite runs only when no `TARGET` was
 given, since it is not a target.
+`make test SUITE=tinyweb` runs one suite and `SUITE=repl,lsp` several
+(`--suite` to `tests/test_all.py`); a name there is none of is refused,
+and so is a `TARGET` with a `SUITE` that leaves out `programs`.
 
 **`make test` runs `tests/test_all.py`**, which sequences the nine
 suites below rather than each being a line of the Makefile. Three things
@@ -2052,7 +2055,7 @@ a temporary prefix shaped like Homebrew's (`bin/pyk` a link to a link
 into `Cellar/pyking/<version>/libexec`), and from outside the repository
 checks `pyk --version`, a program, the standard library, `iweb24`, `pyk
 example`, `pyk notebook`, `pyk playground` (offering the same examples),
-`pyk help` and `pyk serve` with nothing on the `PATH`,
+`pyk pykhelp` and `pyk serve` with nothing on the `PATH`,
 that the web tools ship no Python, the tree's contents, the tarball's
 reproducibility and the formula's text (`ruby -c` where Ruby exists).
 The same tree is then packed as a `.deb` (read back, and by `dpkg-deb`

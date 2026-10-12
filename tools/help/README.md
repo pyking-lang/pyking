@@ -2,13 +2,13 @@
 
 Pyking's documentation as Markdown pages, generated once and read by
 everything that shows it: the website (`tools/site/`), the playground's
-Help tab (`tools/playground/`), and `pyk help`, which serves the help on
+Help tab (`tools/playground/`), and `pyk pykhelp`, which serves the help on
 its own.
 
 ```sh
 python3 tools/help/help.py [DIRECTORY]   # write the pages (default build/help/)
 python3 tools/help/libdoc.py             # list what is undocumented in lib/
-make help                                # serve it (pyk help) and print a link
+make pykhelp                             # serve it (pyk pykhelp) and print a link
 ```
 
 `make` runs `help.py` after building the compiler, so `build/help/` is
@@ -89,13 +89,16 @@ Parameters, Returns and the example. The boxes are HTML around Markdown
 ## The page
 
 `assets/help.js` exports `mountHelp(host, options)`: a menu of pages --
-at most a quarter of the height, in two columns, with the current page's
-headings -- above the page being read. A page is rendered by the
+at most 30% of the height, the sections on the left and the current page's
+headings on the right, both lined up with the text -- above the page
+being read. A page is rendered by the
 notebook's `mountCells` as one fragment, on one compiler worker shared by
 every page; a link to another help page opens it there. `onCopy` adds a
 "Copy to editor" button to each cell, which the playground uses, and
-`setTheme("light" | "dark")` switches the theme. `assets/index.html` is
-the page `pyk help` serves.
+`setTheme("light" | "dark")` switches the theme. `onTheme` adds a
+light/dark switch to the menu and is told the theme chosen there.
+`assets/index.html` is the page `pyk pykhelp` serves, with that switch;
+its choice is kept in the browser.
 
 | Option | |
 |---|---|
@@ -104,7 +107,8 @@ the page `pyk help` serves.
 | `theme` | `"light"` or `"dark"` |
 | `start` | the slug of the first page shown |
 | `onCopy` | `(code) => ...`, where a cell's "Copy to editor" puts its code |
+| `onTheme` | `(theme) => ...`, told when the menu's light/dark switch is used |
 
 `pyk` serves the help's scripts at `/help/` and the generated pages at
-`/help/pages/`, for `pyk help` and `pyk playground` alike
+`/help/pages/`, for `pyk pykhelp` and `pyk playground` alike
 (`src/web_tools.ml`, `common_site`).

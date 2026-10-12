@@ -134,7 +134,11 @@ export class Activities {
           used.add(block.index);
           const element = at(block);
           if (this.teacher || block.attrs.visible === "true" || block.attrs.visible === true) {
-            element?.replaceWith(ioBox(block));
+            const box = ioBox(block);
+            element?.replaceWith(box);
+            // The cell's own output takes the place of what it is to print.
+            const cell = example.cell === null ? null : this.cell(example.cell);
+            if (cell && block === test.output) cell.expected = box;
           } else {
             element?.remove();
           }

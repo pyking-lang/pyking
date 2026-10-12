@@ -134,7 +134,7 @@ let synopsis =
   \       pyk notebook [--port N] [--mode M] <file.md>\n\
   \                                            open a notebook in the browser\n\
   \       pyk playground [--port N]            open the playground\n\
-  \       pyk help [--port N]                  open the help in the browser\n\
+  \       pyk pykhelp [--port N]               open the help in the browser\n\
   \       pyk serve [--port N] [<dir>]         serve a directory's files\n\
   \       pyk lsp [--stdio] [--log FILE]       the language server, for editors\n\
   \       pyk example [<name>]                 list the examples, or save one\n\n\
@@ -269,7 +269,7 @@ let usage_full () =
      blocks can be edited and run in the browser, and `pyk playground`\n\
      serves the compiler's playground. Both print a link to open, are\n\
      served by pyk itself, and look for tools/ beside this executable.\n\
-     `pyk help` serves the help -- getting started, the language\n\
+     `pyk pykhelp` serves the help -- getting started, the language\n\
      reference and the libraries, with runnable examples -- which the\n\
      playground's Help tab shows too.\n\
      `pyk serve <dir>` serves a directory's files as they are, such as a\n\
@@ -306,7 +306,7 @@ let commands =
     ("c", "compile");
     ("notebook", "notebook");
     ("playground", "playground");
-    ("help", "help");
+    ("pykhelp", "pykhelp");
     ("serve", "serve");
     ("lsp", "lsp");
     ("plugins", "plugins");
@@ -541,11 +541,11 @@ let parse_args argv =
       "--release needs the types the checker works out, so it cannot be used \
        with --no-typechecking";
   let web =
-    command = "notebook" || command = "playground" || command = "serve" || command = "help"
+    command = "notebook" || command = "playground" || command = "serve" || command = "pykhelp"
   in
   if options.port <> None && not web then
     usage_error
-      "--port only applies to 'pyk notebook', 'pyk playground', 'pyk help' and \
+      "--port only applies to 'pyk notebook', 'pyk playground', 'pyk pykhelp' and \
        'pyk serve'";
   if options.log <> None && command <> "lsp" then
     usage_error "--log only applies to 'pyk lsp'";
@@ -586,7 +586,7 @@ let parse_args argv =
          "--no-typechecking only applies to 'pyk compile -t %s': every other \
           target, and the interpreter, need the types the checker works out"
          pyking_target);
-  if command = "repl" || command = "playground" || command = "help" || command = "lsp" then (
+  if command = "repl" || command = "playground" || command = "pykhelp" || command = "lsp" then (
     if positional <> [] then
       usage_error (Printf.sprintf "'pyk %s' takes no filename" command);
     options)
@@ -735,6 +735,7 @@ let front_end options =
       | Lexer.Lex_error _ as e -> fail e
       | Parser.Parse_error _ as e -> fail e
       | Module.Module_error _ as e -> fail e
+      | Sys_error message -> usage_error message
     in
     if options.tokens then report_tokens [ unit ];
     [ ({ unit with stmts = Analyses.symbolize unit.stmts }, None) ])
@@ -745,6 +746,7 @@ let front_end options =
       | Parser.Parse_error _ as e -> fail e
       | Analyses.Analysis_error _ as e -> fail e
       | Module.Module_error _ as e -> fail e
+      | Sys_error message -> usage_error message
     in
     if options.tokens then report_tokens units;
     (* Every module is checked against what the ones it imports export,
@@ -1423,7 +1425,7 @@ let command_plugins options =
     names;
   0
 
-(** `pyk notebook`, `pyk playground`, `pyk help` and `pyk serve`: hands
+(** `pyk notebook`, `pyk playground`, `pyk pykhelp` and `pyk serve`: hands
     the process to the web
     tool's server, and answers 1 only if that could not be done.
     Web_tools.tool -> options -> int *)
@@ -1562,7 +1564,7 @@ let main argv =
   else if options.command = "plugins" then command_plugins options
   else if options.command = "notebook" then command_web Web_tools.Notebook options
   else if options.command = "playground" then command_web Web_tools.Playground options
-  else if options.command = "help" then command_web Web_tools.Help options
+  else if options.command = "pykhelp" then command_web Web_tools.Help options
   else if options.command = "serve" then command_web Web_tools.Files options
   else if options.command = "lsp" then command_lsp options
   else if options.command = "example" then command_example options

@@ -122,7 +122,8 @@ the reader can change.
 
 A ```` ```stdout ```` block after a cell is what the cell prints. It is
 not shown unless it says `visible = true`, when it reads as if the cell
-had run; either way test mode checks it (see "Test mode"). A
+had run, and running the cell replaces it with what it did print; either
+way test mode checks it (see "Test mode"). A
 ```` ```stdin ```` block between the cell and its stdout is the input
 it is read from, and a ```` ```stderr ```` block what `debug` writes.
 

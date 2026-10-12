@@ -117,11 +117,18 @@ const TABS = `(async () => { ${HELPERS}
     $("[data-r=helpHost]").textContent.slice(0, 120));
   const menu = $(".pyk-help-menu").getBoundingClientRect().height;
   const panel = $("[data-r=panelHelp]").getBoundingClientRect().height;
-  check("the menu takes at most a quarter of the tab", menu <= panel / 4 + 1, menu + " of " + panel);
+  check("the menu takes at most 30% of the tab", menu <= panel * .3 + 1, menu + " of " + panel);
+  const tab = $("[data-r=panelHelp]").getBoundingClientRect();
+  const page = $(".pyk-help-page").getBoundingClientRect();
+  check("the page ends inside the tab, so its last line can be read",
+    page.bottom <= tab.bottom + 1, page.bottom + " > " + tab.bottom);
   [...$$(".pyk-help-menu a")].find((a) => a.textContent === "io").click();
   check("a library's page opens, its functions boxed",
     await until(() => $$(".pyk-help-page .pyk-api").length >= 4, 20000),
     $(".pyk-help-page h1")?.textContent);
+  const run = $(".pyk-help-page .pkn-run").getBoundingClientRect();
+  check("a cell's run button is inside the page, not cut off",
+    run.width > 0 && run.left >= page.left, run.left + " < " + page.left);
   const copy = await until(() => $$(".pyk-help-page .pkn-action")[0], 20000);
   copy?.click();
   check("Copy to editor puts an example in the editor",

@@ -40,7 +40,7 @@ lib/                        the libraries the reference is generated from
 PYKING.md                   the language reference
 
 tools/help/                 the help: the pages above, as Markdown, which
-                            this site, the playground and pyk help share
+                            this site, the playground and pyk pykhelp share
   help.py                   writes them, with index.json
   libdoc.py                 lib/ -> one Markdown page per module
 

@@ -258,7 +258,7 @@ let playground_site () =
 
 (* --- the help --- *)
 
-(** What `pyk help` serves: the help's own page at the root.
+(** What `pyk pykhelp` serves: the help's own page at the root.
     () -> Web_server.site *)
 let help_site () =
   let index = under [ "tools"; "help"; "assets"; "index.html" ] in
@@ -291,9 +291,9 @@ let start tool port mode path =
       let* () = check_vendor "pyk playground" in
       serve (playground_site ()) "Pyking playground" port []
   | Help ->
-      let* () = check_bundle "pyk help" in
-      let* () = check_vendor "pyk help" in
-      let* () = check_help "pyk help" in
+      let* () = check_bundle "pyk pykhelp" in
+      let* () = check_vendor "pyk pykhelp" in
+      let* () = check_help "pyk pykhelp" in
       serve (help_site ()) "Pyking help" port []
   | Notebook ->
       let given = Option.value ~default:"" path in

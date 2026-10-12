@@ -9,11 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `pyk help` serves the help -- getting started, the language reference
+- `pyk pykhelp` serves the help -- getting started, the language reference
   and the library reference -- with every example runnable, and `make
-  help` opens it. The playground has it as a fifth tab, Help, with a
-  button copying an example into the editor. The website, the Help tab
-  and `pyk help` show the same pages, which `make` generates.
+  pykhelp` opens it (`make help` lists the make targets, as before). The
+  playground has it as a fifth tab, Help, with a button copying an
+  example into the editor. The website, the Help tab
+  and `pyk pykhelp` show the same pages, which `make` generates.
 - A function implemented in a target language may be declared with its
   parameters named, `def write(text: String) -> ()`, in place of `def
   write : (String) -> ()`; the standard library now is.
@@ -27,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   On the website it follows the site's own switch.
 
 ### Changed
+
+- `make test SUITE=tinyweb` runs one test suite, `SUITE=repl,lsp`
+  several; `make help` says so.
 
 - The playground's right side is five tabs: Run output, Compiled code
   (the target list and Compile are there now), Web output (a tinyweb
@@ -53,6 +57,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the language reference made 124 editors at once, and a click on the
   menu went unanswered for half a minute. A cell's editor is now made
   when the cell comes near the screen.
+- The Help tab shows the end of a long page, keeps a cell's run button in
+  view at every width, and lines its menu -- the sections on the left,
+  the page's headings on the right -- and its title up with the text.
+  `pyk pykhelp` has one scroll bar and a light/dark switch.
+- An example's stdout shown under it is replaced by its own output when
+  it is run, rather than a second box appearing.
+- `pyk` given a file that does not exist says so as a usage error rather
+  than ending with an uncaught exception.
 - `make website-dev` no longer warns about the grammar's `ebnf` blocks
   or a missing `i18n` collection.
 

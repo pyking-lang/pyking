@@ -268,8 +268,8 @@ def check_stage(check, compiler):
                 test_notebook.stop(process)
         port = test_notebook.free_port()
         process, printed = test_notebook.start(
-            [str(pyk)], ["help", "--port", str(port)], bare)
-        if check("`pyk help` starts from the package", process is not None, printed):
+            [str(pyk)], ["pykhelp", "--port", str(port)], bare)
+        if check("`pyk pykhelp` starts from the package", process is not None, printed):
             try:
                 status, body = test_notebook.fetch(port, "/help/pages/index.json")
                 sections = json.loads(body).get("sections", []) if status == 200 else []
