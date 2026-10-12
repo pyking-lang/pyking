@@ -51,6 +51,7 @@ tools/site/
   astro.config.mjs          Starlight: title, components, highlighting
   src/sections.mjs          the five sections, for the header and the menu
   src/content.config.mjs    the pages come from build/content/
+  src/content/i18n/en.json  Starlight's UI strings (it warns without them)
   src/remark-pyking-cells.mjs   ```pyking blocks -> cell placeholders, and
                                 exercises and quizzes -> fragments
   src/components/Header.astro     the logo and the sections, the search

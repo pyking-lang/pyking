@@ -391,6 +391,10 @@ names, and `data-stdin` and `data-args` fill in the cell's input as a
 mounted object are the notebook's, without the page: no header, no
 contents, no `title`.
 
+A cell's editor is made when the cell comes near the screen, or when it
+is run, rather than all at once: a page of a hundred cells would hold the
+browser for seconds. Until then the cell shows its code as text.
+
 A placeholder may instead be a `.pkn-fragment` holding a piece of a
 notebook as Markdown in `data-markdown` -- an exercise and its blocks,
 a quiz and its answer -- which is rendered there and works as it does

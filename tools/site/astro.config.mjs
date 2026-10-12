@@ -38,7 +38,8 @@ export default defineConfig({
         Sidebar: "./src/components/Sidebar.astro",
       },
       tableOfContents: false,
-      expressiveCode: { shiki: { langs: [grammar] } },
+      // PYKING.md's grammar is EBNF, which Shiki has no grammar for.
+      expressiveCode: { shiki: { langs: [grammar], langAlias: { ebnf: "txt" } } },
       sidebar: SECTIONS.map(({ label, path }) => ({ label, link: path })),
     }),
   ],

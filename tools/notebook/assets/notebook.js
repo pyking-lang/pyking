@@ -171,6 +171,7 @@ class Cells {
     this.queue = Promise.resolve();
     this.generation = 0;       // bumped by Stop, which cancels what is queued
     this.running = null;       // the Cell executing now
+    this.editorsReady = false; // Ace and the compiler loaded: a cell may make its editor
     this.executions = 0;       // the [n] counter, as in Jupyter
     this.themeChoice = cfg.theme ?? loadTheme();
     this.media = globalThis.matchMedia?.("(prefers-color-scheme: dark)");
@@ -212,8 +213,28 @@ class Cells {
       for (const cell of this.cells) cell.fail("Could not start the compiler: " + err.message);
       throw err;
     }
-    for (const cell of this.cells) cell.attachEditor();
+    this.attachWhenSeen();
     this.status("ready", "ready");
+  }
+
+  /** Gives each cell its editor when it comes near the screen: a page of
+   *  a hundred editors made at once holds the browser for seconds.
+   *  () -> () */
+  attachWhenSeen() {
+    this.editorsReady = true;
+    if (!globalThis.IntersectionObserver) {
+      for (const cell of this.cells) cell.ensureEditor();
+      return;
+    }
+    const byElement = new Map(this.cells.map((cell) => [cell.element, cell]));
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        observer.unobserve(entry.target);
+        byElement.get(entry.target)?.ensureEditor();
+      }
+    }, { rootMargin: "800px 0px" });
+    for (const cell of this.cells) observer.observe(cell.element);
   }
 
   /** The elements the theme is set on: the `.pkn-notebook` around each
@@ -397,6 +418,7 @@ class Cells {
    *  Cell -> () */
   focusAfter(cell) {
     const next = this.cells[this.cells.indexOf(cell) + 1];
+    next?.ensureEditor();
     if (!next?.editor) {
       cell.editor?.blur();
       return;
@@ -679,8 +701,12 @@ class Cell {
   /** Puts `text` in the editor, as if it had been typed there.
    *  String -> () */
   setSource(text) {
-    if (this.editor) this.editor.setValue(text, -1);
-    else this.pendingSource = text;
+    if (this.editor) {
+      this.editor.setValue(text, -1);
+      return;
+    }
+    this.pendingSource = text;
+    for (const listener of this.editListeners) listener(this.source());
   }
 
   /** The file name a cell's program runs as. () -> String */
@@ -764,10 +790,17 @@ class Cell {
   }
 
   source() {
-    return this.editor ? this.editor.getValue() : this.spec.source;
+    return this.editor ? this.editor.getValue() : (this.pendingSource ?? this.spec.source);
+  }
+
+  /** Makes the cell's editor, once the compiler has loaded, if it has
+   *  none yet. () -> () */
+  ensureEditor() {
+    if (!this.editor && this.notebook.editorsReady) this.attachEditor();
   }
 
   run() {
+    this.ensureEditor();
     if (!this.editor) return Promise.resolve();
     if (this.state === "queued" || this.state === "running") return Promise.resolve();
     return this.notebook.enqueue(this);
@@ -775,6 +808,7 @@ class Cell {
 
   reset() {
     this.editor?.setValue(this.spec.source, -1);
+    this.pendingSource = null;
     this.clearMarker();
   }
 

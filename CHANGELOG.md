@@ -49,6 +49,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A tinyweb program's sounds play in the website's playground and cells:
   the samples were not copied into the site.
+- A page with many cells no longer freezes the browser while it loads:
+  the language reference made 124 editors at once, and a click on the
+  menu went unanswered for half a minute. A cell's editor is now made
+  when the cell comes near the screen.
+- `make website-dev` no longer warns about the grammar's `ebnf` blocks
+  or a missing `i18n` collection.
 
 ## [0.1.2] - 2026-10-11
 
