@@ -123,3 +123,15 @@
   min-height: 30rem;
   margin: 0;
 }
+
+/* Headings at about 70% of Starlight's size, at every width. */
+:root {
+  --sl-text-h1: 1.75rem; --sl-text-h2: 1.35rem;
+  --sl-text-h3: 1.15rem; --sl-text-h4: 1.05rem; --sl-text-h5: 1rem;
+}
+@media (min-width: 50em) {
+  :root {
+    --sl-text-h1: 2rem; --sl-text-h2: 1.5rem;
+    --sl-text-h3: 1.25rem; --sl-text-h4: 1.1rem; --sl-text-h5: 1rem;
+  }
+}

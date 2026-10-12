@@ -136,9 +136,13 @@ export class Activities {
           if (this.teacher || block.attrs.visible === "true" || block.attrs.visible === true) {
             const box = ioBox(block);
             element?.replaceWith(box);
-            // The cell's own output takes the place of what it is to print.
+            // What a cell is to print stands where its output will, in line
+            // with its code, and the output takes its place when it runs.
             const cell = example.cell === null ? null : this.cell(example.cell);
-            if (cell && block === test.output) cell.expected = box;
+            if (cell && block === test.output) {
+              cell.ui.output.before(box);
+              cell.expected = box;
+            }
           } else {
             element?.remove();
           }

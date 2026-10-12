@@ -5,7 +5,9 @@ All notable changes to Pyking are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+
+
+## [0.1.2] - 2026-10-12
 
 ### Added
 
@@ -26,52 +28,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The playground has a light and a dark theme, following the system's
   by default, with a switch in the header and a choice in the settings.
   On the website it follows the site's own switch.
-
-### Changed
-
-- `make test SUITE=tinyweb` runs one test suite, `SUITE=repl,lsp`
-  several; `make help` says so.
-
-- The playground's right side is five tabs: Run output, Compiled code
-  (the target list and Compile are there now), Web output (a tinyweb
-  page, in a browser-window frame with a Refresh button), REPL and Help.
-- The playground's header shows the version of the `pyk` serving it.
-- The website: the sections are on the left of the header and the
-  search on the right; the menu on the left lists only the section being
-  read, with the page's headings under it, and there is no menu on the
-  right. A new section, Documentation, holds the language reference,
-  Editors (from Getting started) and tinyweb without Pyking (from
-  Libraries). The playground fills the window under the header. The
-  logo is a python wearing a crown.
-- The library reference shows each function in a box, with its full
-  signature, its parameters, what it returns and a runnable example,
-  for every function of the standard library.
-- `:reset` in `pyk repl` keeps the library path (`-L`) the session was
-  started with.
-
-### Fixed
-
-- A tinyweb program's sounds play in the website's playground and cells:
-  the samples were not copied into the site.
-- A page with many cells no longer freezes the browser while it loads:
-  the language reference made 124 editors at once, and a click on the
-  menu went unanswered for half a minute. A cell's editor is now made
-  when the cell comes near the screen.
-- The Help tab shows the end of a long page, keeps a cell's run button in
-  view at every width, and lines its menu -- the sections on the left,
-  the page's headings on the right -- and its title up with the text.
-  `pyk pykhelp` has one scroll bar and a light/dark switch.
-- An example's stdout shown under it is replaced by its own output when
-  it is run, rather than a second box appearing.
-- `pyk` given a file that does not exist says so as a usage error rather
-  than ending with an uncaught exception.
-- `make website-dev` no longer warns about the grammar's `ebnf` blocks
-  or a missing `i18n` collection.
-
-## [0.1.2] - 2026-10-11
-
-### Added
-
 - `pyk example` lists example programs, one per line, and `pyk example
   NAME` saves one in the current directory. The playground's menu,
   now called Examples, offers the same ones, in a checkout and an
@@ -92,6 +48,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `make test SUITE=tinyweb` runs one test suite, `SUITE=repl,lsp`
+  several; `make help` says so.
+- The playground's right side is five tabs: Run output, Compiled code
+  (the target list and Compile are there now), Web output (a tinyweb
+  page, in a browser-window frame with a Refresh button), REPL and Help.
+- The playground's header shows the version of the `pyk` serving it.
+- The website: the sections are on the left of the header and the
+  search on the right; the menu on the left lists only the section being
+  read, with the page's headings under it, and there is no menu on the
+  right. A new section, Documentation, holds the language reference,
+  Editors (from Getting started) and tinyweb without Pyking (from
+  Libraries). The playground fills the window under the header. The
+  logo is a python wearing a crown.
+- The library reference shows each function in a box, with its full
+  signature, its parameters, what it returns and a runnable example,
+  for every function of the standard library.
+- `:reset` in `pyk repl` keeps the library path (`-L`) the session was
+  started with.
 - The playground's editor is Monaco, in the source pane and in every
   output pane, and the source pane is a client of the Pyking language
   server: errors are underlined as you type, and it has hover, go to
@@ -105,6 +79,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A tinyweb program's sounds play in the website's playground and cells:
+  the samples were not copied into the site.
+- A page with many cells no longer freezes the browser while it loads:
+  the language reference made 124 editors at once, and a click on the
+  menu went unanswered for half a minute. A cell's editor is now made
+  when the cell comes near the screen.
+- The Help tab shows the end of a long page, keeps a cell's run button in
+  view at every width, and lines its menu -- the sections on the left,
+  the page's headings on the right -- and its title up with the text.
+  `pyk pykhelp` has one scroll bar and a light/dark switch.
+- An example's stdout shown under it is replaced by its own output when
+  it is run, rather than a second box appearing, and stands in line with
+  its code.
+- An example that does not run in a browser (`sys.prog_name`,
+  `sys.prog_path`) follows the website's dark theme instead of showing
+  white.
+- `pyk` given a file that does not exist says so as a usage error rather
+  than ending with an uncaught exception.
+- `make website-dev` no longer warns about the grammar's `ebnf` blocks
+  or a missing `i18n` collection.
 - The Homebrew package ships the digest beside each library plugin, so
   a program importing `sys`, `tinyweb` or any other library implemented
   in OCaml runs without OCaml installed. 0.1.1 tried to compile the

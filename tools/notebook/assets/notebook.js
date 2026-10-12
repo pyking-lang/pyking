@@ -130,6 +130,7 @@ export async function mountCells(placeholders, options = {}) {
       cells.cells.push(new Cell(cells, { ...spec, index, id: `cell-${index + 1}` }, element));
     }
     fragments += 1;
+    cells.fragments.push(placeholder);
     cells.activities.push(new Activities(cells, doc, placeholder, {
       mode: cfg.mode,
       storageKey: `${cfg.storageKey ?? location.pathname}#${fragments}`,
@@ -176,6 +177,7 @@ class Cells {
     this.themeChoice = cfg.theme ?? loadTheme();
     this.media = globalThis.matchMedia?.("(prefers-color-scheme: dark)");
     this.activities = [];      // the exercises and quizzes, per document
+    this.fragments = [];       // mountCells' fragments, cells or none
   }
 
   /** Every exercise's and quiz's state, and the totals.
@@ -238,9 +240,10 @@ class Cells {
   }
 
   /** The elements the theme is set on: the `.pkn-notebook` around each
-   *  cell. () -> [Element] */
+   *  cell and each fragment. () -> [Element] */
   themed() {
-    return [...new Set(this.cells.map((cell) => cell.element.closest(".pkn-notebook")))]
+    const elements = [...this.cells.map((cell) => cell.element), ...this.fragments];
+    return [...new Set(elements.map((element) => element.closest(".pkn-notebook")))]
       .filter(Boolean);
   }
 

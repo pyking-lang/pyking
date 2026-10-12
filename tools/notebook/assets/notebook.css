@@ -437,6 +437,8 @@ button.pkn-tag:hover { color: var(--pkn-text); border-color: var(--pkn-edge-stro
 }
 .pkn-io { display: flex; flex-direction: column; gap: .15rem; margin: 0 0 .5rem; }
 .pkn-tests .pkn-io { margin: 0; }
+/* What a cell is to print, standing where its output will. */
+.pkn-cell-main > .pkn-io { margin: .5rem 0 0; font-size: 14px; }
 .pkn-notebook .pkn-io-text {
   margin: 0; padding: .45rem .9rem;
   font: 13.5px/1.5 var(--pkn-mono); white-space: pre-wrap; word-break: break-word;

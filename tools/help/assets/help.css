@@ -69,7 +69,6 @@
 .pyk-help-menu a[aria-current="page"] {
   color: var(--ph-accent); font-weight: 700;
 }
-.pyk-help-headings a { color: var(--ph-dim); }
 .pyk-help-theme {
   position: absolute; top: .45rem; right: .6rem;
   width: 1.8rem; height: 1.8rem; padding: 0; border-radius: 50%;
