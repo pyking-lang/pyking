@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pyking Help</title>
+<!--
+  Served by `pyk help` (src/web_tools.ml). A host for the help component
+  (help.js), as the playground's Help tab is another.
+-->
+<style>
+  html, body { height: 100%; margin: 0; background: #1d1f21; }
+  @media (prefers-color-scheme: light) { html, body { background: #ffffff; } }
+  #help { height: 100%; }
+</style>
+</head>
+<body>
+<div id="help"></div>
+<script type="module">
+  import { mountHelp } from "./help/help.js";
+  const dark = matchMedia("(prefers-color-scheme: dark)");
+  const help = await mountHelp(document.getElementById("help"), {
+    theme: dark.matches ? "dark" : "light",
+  });
+  dark.addEventListener("change", () => help.setTheme(dark.matches ? "dark" : "light"));
+  window.pykingHelp = help;
+</script>
+</body>
+</html>

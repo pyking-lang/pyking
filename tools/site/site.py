@@ -2,9 +2,10 @@
 """Builds the Pyking website into website/: what `make website` runs.
 
 The site is Astro with Starlight (astro.config.mjs beside this file). Its
-pages are the Markdown files in sitesrc/ and one page per library,
-generated from lib/ by libdoc.py, and tinyweb's pages for using it from
-other languages, with their downloads, written by tinywebdoc.py; its
+pages are the help (tools/help/help.py: the Markdown files in sitesrc/,
+the language reference from PYKING.md and one page per library from
+lib/), and tinyweb's pages for using it from other languages, with
+their downloads, written by tinywebdoc.py; its
 runtime -- the compiler bundle, the
 notebook's cells, the playground, the shared web scripts, the vendored
 editor and the standard library -- is the same set of files `pyk
@@ -20,6 +21,7 @@ Functions:
     grammar(bundle) -- the Pyking TextMate grammar, from the compiler's words.
     export_runtime(directory) -- writes the runtime into directory.
     sidebar_items(directory, path) -- the sidebar entries for staged pages.
+    sidebar(index, tinyweb) -- the left menu of every section.
     stage() -- fills build/ with the pages, the static files, the runtime
         and the sidebar.
     astro(command, args) -- runs Astro's own command line.
@@ -38,26 +40,29 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 sys.path.insert(0, str(REPO / "tools" / "webrun"))
 sys.path.insert(0, str(REPO / "tools" / "playground"))
+sys.path.insert(0, str(REPO / "tools" / "help"))
 sys.path.insert(0, str(HERE))
 
 import server  # noqa: E402  (after sys.path, which is what finds it)
 import playground  # noqa: E402
+import help as helpdoc  # noqa: E402
 import libdoc  # noqa: E402
 import tinywebdoc  # noqa: E402
 
-SOURCES = REPO / "sitesrc"
+# Where tinyweb's pages for other languages go, under Documentation.
+TINYWEB = "documentation/tinyweb"
 OUTPUT = REPO / "website"
 STAGE = HERE / "build"
-NOTEBOOK_ASSETS = REPO / "tools" / "notebook" / "assets"
 MODULES = HERE / "node_modules"
 ASTRO = MODULES / "astro" / "bin" / "astro.mjs"
 
 # Astro 7 needs this node or a later one.
 MINIMUM_NODE = (22, 12)
 
-# What a browser fetches from lib/: a module's Pyking source and its
-# browser implementation. The plugins and the other targets' files stay.
-LIB_SUFFIXES = (".pyk", ".js")
+# What a browser fetches from lib/: a module's Pyking source, its
+# browser implementation, and the sounds a page plays (tinyweb's samples,
+# in tinyweb_assets/). The plugins and the other targets' files stay.
+LIB_SUFFIXES = (".pyk", ".js", ".wav", ".mp3", ".ogg")
 
 
 def check_node():
@@ -153,11 +158,12 @@ def _copy_tree(source, target, suffixes=None):
 
 
 def export_runtime(directory):
-    """Writes the runtime into directory: what `pyk playground` serves,
-    plus the notebook's scripts, each at the URL path the server gives it.
+    """Writes the runtime into directory: what `pyk playground` serves --
+    the notebook's scripts and the help among it -- each at the URL path
+    the server gives it.
     The playground's own page is left out -- the site has its own.
     Path -> ()"""
-    site = playground.site().extended(mounts={"/notebook/": NOTEBOOK_ASSETS})
+    site = playground.site()
     for prefix, source in site.mounts.items():
         suffixes = LIB_SUFFIXES if prefix == "/lib/" else None
         _copy_tree(source, directory / prefix.strip("/"), suffixes)
@@ -216,33 +222,53 @@ def sidebar_items(directory, path):
     return [entry for _, entry in sorted(entries, key=lambda e: e[0])]
 
 
+def sidebar(index, tinyweb):
+    """The left menu of every section, by the section's id: its label,
+    the path of its first page, and its pages -- each with a link and its
+    headings, and tinyweb's pages for other languages as a group under
+    Documentation. {...} -> [{...}] -> {String: {...}}"""
+    menus = {}
+    for section in index["sections"]:
+        pages = [{"label": page["label"], "link": f"/{page['slug']}/",
+                  "headings": page["headings"]} for page in section["pages"]]
+        if section["id"] == "documentation":
+            pages.append({"label": "Tinyweb without Pyking", "link": f"/{TINYWEB}/",
+                          "headings": [], "items": tinyweb})
+        menus[section["id"]] = {"label": section["label"],
+                                "path": pages[0]["link"] if pages else "/",
+                                "pages": pages}
+    return menus
+
+
 def stage():
-    """Fills build/: content/ from sitesrc/, the library pages and
-    tinyweb's pages for other languages, public/ from public/, the
-    runtime and tinyweb's downloads, and the grammar; and empties Astro's
-    cache. () -> ()"""
+    """Fills build/: content/ with the help and tinyweb's pages for other
+    languages, public/ from public/, the runtime and tinyweb's downloads,
+    the left menus and the grammar; and empties Astro's cache. () -> ()"""
     server.check_bundle("website")
     server.check_vendor("website")
     # The cache too: Astro keeps the pages it rendered, and would not
     # notice that the remark plugin they were rendered with has changed.
     for name in ("content", "public", "cache"):
         shutil.rmtree(STAGE / name, ignore_errors=True)
-    _copy_tree(SOURCES, STAGE / "content", (".md", ".mdx"))
-    modules = libdoc.read_modules(libdoc.LIB)
-    for line in libdoc.problems(modules):
+    for line in libdoc.problems(libdoc.read_modules(libdoc.LIB)):
         print("website: warning: " + line)
-    libdoc.write_pages(modules, STAGE / "content" / "libraries")
+    index = helpdoc.write(STAGE / "content")
+    (STAGE / "content" / "index.json").unlink()
     _copy_tree(HERE / "public", STAGE / "public")
     # tinyweb's implementations as libraries of their own, with the code
     # Pyking generates for its tests, which needs the compiler.
-    tinywebdoc.write(STAGE / "content" / "libraries" / "tinyweb-languages",
-                     STAGE / "public" / "tinyweb", [str(REPO / "pyk")])
+    tinywebdoc.write(STAGE / "content" / TINYWEB, STAGE / "public" / "tinyweb",
+                     [str(REPO / "pyk")],
+                     library=STAGE / "content" / "libraries" / "tinyweb.md",
+                     href=f"../../{TINYWEB}/")
     export_runtime(STAGE / "public" / "runtime")
-    # Starlight's own `autogenerate` finds pages under src/content/docs/
-    # only, and these are staged elsewhere.
-    (STAGE / "sidebar.json").write_text(json.dumps(
-        {name: sidebar_items(STAGE / "content" / name, f"/{name}/")
-         for name in ("getstarted", "libraries")}, indent=2) + "\n")
+    # The left menu is the site's own (src/components/Sidebar.astro),
+    # read from here; Starlight's `autogenerate` would find nothing, the
+    # pages being staged outside src/content/docs/.
+    tinyweb = [item for item in sidebar_items(STAGE / "content" / TINYWEB, f"/{TINYWEB}/")
+               if item.get("link") != f"/{TINYWEB}/"]
+    (STAGE / "sidebar.json").write_text(
+        json.dumps(sidebar(index, tinyweb), indent=2) + "\n")
     (STAGE / "pyking.tmLanguage.json").write_text(
         json.dumps(grammar(server.BUNDLE), indent=2) + "\n")
 

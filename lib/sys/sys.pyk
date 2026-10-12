@@ -38,13 +38,42 @@ def holds(pairs:[(String, String)], name:String) -> Bool:
                 return holds(rest, name)
 
 
-## What one variable holds, or "" where it is not set. A variable set to
-## the empty string answers the same way, which is what `env_has` is for.
+## The value of the environment variable `name`.
+##
+## # Parameters
+## - `name`: the variable, such as `"HOME"`.
+##
+## # Returns
+## Its value, or `""` when it is not set. A variable set to `""` answers
+## the same, and `env_has` tells the two apart.
+##
+## # Examples
+## ```pyking
+## import sys
+## print(sys.env_get("PYKING_EXAMPLE_UNSET") == "")
+## ```
+## ```stdout
+## true
+## ```
 public def env_get(name:String) -> String:
     return lookup(env(), name)
 
 
-## Whether one variable is set at all, which tells an empty variable from
-## a missing one.
+## Tells whether the environment variable `name` is set, even to `""`.
+##
+## # Parameters
+## - `name`: the variable, such as `"HOME"`.
+##
+## # Returns
+## `true` when it is set, `false` otherwise.
+##
+## # Examples
+## ```pyking
+## import sys
+## print(sys.env_has("PYKING_EXAMPLE_UNSET"))
+## ```
+## ```stdout
+## false
+## ```
 public def env_has(name:String) -> Bool:
     return holds(env(), name)

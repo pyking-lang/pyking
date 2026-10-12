@@ -11,20 +11,87 @@
 # the caller wants. `exit` is the exception, and it reaches C and Java
 # as well.
 
-## The arguments the program was started with, without the program's own
-## name: what follows `--` in `pyk prog.pyk -- a b`.
-public def args : () -> [String]
+## The arguments the program was started with, not counting the program's
+## own name: the words after `--` in `pyk program.pyk -- a b`.
+##
+## # Returns
+## The arguments, in order; an empty list when there are none.
+##
+## # Examples
+## ```pyking args = "red green"
+## import sys
+## for word in sys.args():
+##     print(word)
+## ```
+## ```stdout
+## red
+## green
+## ```
+public def args() -> [String]
 
-## Every environment variable, as (name, value) pairs.
-public def env : () -> [(String, String)]
+## Every environment variable the program was started with.
+##
+## # Returns
+## A list of `(name, value)` pairs, in no particular order.
+##
+## # Examples
+## ```pyking
+## import sys
+## pairs = sys.env()
+## print(len(pairs) >= 0)
+## ```
+## ```stdout
+## true
+## ```
+public def env() -> [(String, String)]
 
-## The name the program was started as, without its directory.
-public def prog_name : () -> String
+## The name the program was started as, without its directory, such as
+## `hello.pyk` or `hello`.
+##
+## # Returns
+## The name; `""` where the host does not know one, as in a browser.
+##
+## # Examples
+## ```pyking norun
+## import sys
+## print(len(sys.prog_name()) > 0)
+## ```
+## ```stdout
+## true
+## ```
+public def prog_name() -> String
 
-## The directory the program was started from, as an absolute path.
-public def prog_path : () -> String
+## The directory the program was started from.
+##
+## # Returns
+## The directory as an absolute path; `""` where the host does not know
+## one, as in a browser.
+##
+## # Examples
+## ```pyking norun
+## import sys
+## print(len(sys.prog_path()) > 0)
+## ```
+## ```stdout
+## true
+## ```
+public def prog_path() -> String
 
-## Ends the program at once, with `code` as its exit status. Output
-## written so far is written out first. A program that ends without
-## calling it ends with status 0.
-public def exit : (Int) -> ()
+## Ends the program at once with exit status `code`. Output written so
+## far is written out first, and nothing after the call runs. A program
+## that never calls it ends with status 0.
+##
+## # Parameters
+## - `code`: the exit status; 0 means success, anything else failure.
+##
+## # Examples
+## ```pyking
+## import sys
+## print("done")
+## sys.exit(0)
+## print("never printed")
+## ```
+## ```stdout
+## done
+## ```
+public def exit(code: Int) -> ()

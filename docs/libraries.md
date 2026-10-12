@@ -49,9 +49,9 @@ decomposers behind `of_instant` are declared **private** -- they are how
 
 ```pyking
 # time_external.pyk
-public def now : () -> (Int, Int, Int, Int, Int, Int)
+public def now() -> (Int, Int, Int, Int, Int, Int)
 
-def year_of : (Int) -> Int
+def year_of(seconds: Int) -> Int
 ```
 
 ```pyking
@@ -550,8 +550,12 @@ in the playground itself.
 4. A row in the table above, with the reason for every target it does
    *not* claim.
 5. `##` doc comments: one block opening one of its two files, saying what
-   the module is for, and one directly above every `public` line. They
-   are the library's page on the website (`tools/site/libdoc.py`), and
-   `tests/test_site.py` fails on a public name without one. A plain `#`
-   comment is for maintainers and is not published. See
-   `tools/site/README.md`, "The library reference".
+   the module is for, and one directly above every `public` line, with
+   its parameters, what it returns, and an example with the output it
+   prints. They are the library's page on the website and in the help
+   (`tools/help/libdoc.py`), and `tests/test_site.py` fails on a public
+   name documented otherwise, and on an example that prints anything
+   else. A declaration in its `_external.pyk` names its parameters,
+   `def write(text: String) -> ()`. A plain `#` comment is for
+   maintainers and is not published. See `tools/help/README.md`,
+   "Documenting a library".

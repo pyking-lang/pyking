@@ -1,7 +1,7 @@
 // The playground user interface: the source editor with its example
-// selector, and four tabs on the right -- the run's output, the compiled
-// code with its target selector, the page a run draws, and a REPL. Served
-// by tools/playground/playground.py.
+// selector, and five tabs on the right -- the run's output, the compiled
+// code with its target selector, the page a run draws, a REPL, and the
+// help. Served by tools/playground/playground.py.
 //
 // Embedding this in another page is one call:
 //
@@ -76,6 +76,8 @@ const DEFAULTS = {
   examplesURL: "./examples/",
   webrunURL: "./webrun/",
   vendorURL: "./vendor/",
+  notebookURL: "./notebook/",
+  helpURL: "./help/",
   // "light" or "dark" where the embedding page decides the theme -- it then
   // calls `setTheme` as its own changes -- and null where the viewer does,
   // with the header's switch and the settings.
@@ -135,6 +137,8 @@ class Playground {
     this.replHistory = [];
     this.replAt = 0;            // where Up and Down are in the history
     this.replDraft = "";        // what was being typed before Up
+    this.help = null;           // the Help tab's help, once it is opened
+    this.helpStarting = null;
   }
 
   async init() {
@@ -469,6 +473,33 @@ class Playground {
     if (name === "web") ui.panelWeb.appendChild(ui.outputWrap);
     if (name === "compiled") this.right.layout();
     if (name === "repl") this.openRepl();
+    if (name === "help") this.openHelp();
+  }
+
+  /** Mounts the help in the Help tab, the first time it is opened: the
+   *  pages tools/help/help.py generated, each example a cell that runs
+   *  there, with a button putting it in the editor. () -> Promise<()> */
+  openHelp() {
+    this.helpStarting ??= (async () => {
+      const at = (url) => new URL(url, document.baseURI).href;
+      const { mountHelp } = await import(at(this.cfg.helpURL) + "help.js");
+      this.help = await mountHelp(this.ui.helpHost, {
+        pagesURL: at(this.cfg.helpURL) + "pages/",
+        notebookURL: at(this.cfg.notebookURL),
+        webrunURL: at(this.cfg.webrunURL),
+        vendorURL: at(this.cfg.vendorURL),
+        pykingURL: at(this.cfg.pykingURL),
+        theme: this.effectiveTheme(),
+        onCopy: (code) => {
+          this.setSource(code);
+          this.note("Copied an example from the help into the editor.");
+        },
+      });
+    })().catch((err) => {
+      this.helpStarting = null;
+      this.ui.helpHost.textContent = "Could not load the help: " + err.message;
+    });
+    return this.helpStarting;
   }
 
   /** Removes the last run's page, if it had one, leaving the line that
@@ -857,6 +888,7 @@ class Playground {
     this.ui.root.dataset.theme = theme;
     this.monaco.editor.setTheme(themeFor(theme));
     this.ui.themeChoice.value = this.settings.theme;
+    this.help?.setTheme(theme);
     this.ui.themeButton.title = theme === "dark"
       ? "Switch to the light theme" : "Switch to the dark theme";
   }
@@ -1386,6 +1418,8 @@ function buildDom(host, meta, cfg) {
                   title="What the program shows: a program using tinyweb draws here">Web output</button>
           <button class="pyk-tab" data-r="tabRepl" data-tab="repl" role="tab"
                   title="Type Pyking an entry at a time">REPL</button>
+          <button class="pyk-tab" data-r="tabHelp" data-tab="help" role="tab"
+                  title="Getting started, the language reference and the libraries">Help</button>
         </div>
 
         <div class="pyk-panel pyk-panel-run" data-r="panelRun" role="tabpanel">
@@ -1441,6 +1475,10 @@ function buildDom(host, meta, cfg) {
           </div>
           <div class="pyk-gutter pyk-gutter-h" data-r="gutterWeb" role="separator"
                aria-orientation="horizontal" title="Drag to resize"></div>
+        </div>
+
+        <div class="pyk-panel pyk-hidden" data-r="panelHelp" role="tabpanel">
+          <div class="pyk-help-host" data-r="helpHost"></div>
         </div>
 
         <div class="pyk-panel pyk-hidden" data-r="panelRepl" role="tabpanel">
@@ -1570,6 +1608,7 @@ function buildDom(host, meta, cfg) {
   ui.tabs = [...host.querySelectorAll(".pyk-tab")];
   ui.panels = {
     run: ui.panelRun, compiled: ui.panelCompiled, web: ui.panelWeb, repl: ui.panelRepl,
+    help: ui.panelHelp,
   };
 
   for (const target of meta.targets) {

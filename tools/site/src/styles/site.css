@@ -22,26 +22,104 @@
 .sl-markdown-content .pkn-notebook.pkn-embedded + * { margin-top: 1.25rem; }
 .pkn-notebook.pkn-embedded .pkn-cell { margin: 0; }
 
-/* The header's menu, beside the search box. */
-.pyking-nav { display: flex; gap: 1.1rem; align-items: center; }
+/* The header: the logo and the sections on the left, the search and
+   the theme switch on the right (src/components/Header.astro). */
+.pyking-header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1.5rem; height: 100%;
+}
+.pyking-header-left { display: flex; align-items: center; gap: 2rem; min-width: 0; }
+.pyking-header-right { display: flex; align-items: center; gap: 1rem; }
+.pyking-nav { display: flex; gap: 1.4rem; align-items: center; }
 .pyking-nav a {
   color: var(--sl-color-gray-2);
   text-decoration: none;
   font-size: var(--sl-text-sm);
   font-weight: 500;
   white-space: nowrap;
+  padding-block: .3rem;
+  border-bottom: 2px solid transparent;
 }
-.pyking-nav a:hover, .pyking-nav a[aria-current="page"] { color: var(--sl-color-white); }
-@media (max-width: 72rem) { .pyking-nav { display: none; } }
+.pyking-nav a:hover { color: var(--sl-color-white); }
+.pyking-nav a[aria-current="page"] {
+  color: var(--sl-color-white);
+  border-bottom-color: var(--sl-color-accent);
+}
+@media (max-width: 60rem) { .pyking-nav { display: none; } }
+.site-title img { height: 2.1rem; width: auto; }
 
-/* The playground page: the whole width, and the window's height. */
-:root:has(.pyking-playground) { --sl-content-width: 100%; }
+/* The left menu (src/components/Sidebar.astro): the section's pages,
+   the one shown opened at its headings. */
+.pyking-sidebar { font-size: var(--sl-text-sm); }
+.pyking-sidebar-title {
+  margin: 0 0 .6rem; font-size: var(--sl-text-xs); font-weight: 600;
+  text-transform: uppercase; letter-spacing: .06em; color: var(--sl-color-gray-3);
+}
+.pyking-sidebar ul { list-style: none; margin: 0; padding: 0; }
+.pyking-sidebar li { margin: 0; }
+.pyking-sidebar a {
+  display: block; padding: .3rem .6rem; border-radius: .35rem;
+  color: var(--sl-color-gray-2); text-decoration: none;
+}
+.pyking-sidebar a:hover { color: var(--sl-color-white); background: var(--sl-color-gray-6); }
+.pyking-sidebar a[aria-current="page"] {
+  color: var(--sl-color-white); font-weight: 600; background: var(--sl-color-accent-low);
+}
+.pyking-sidebar-headings {
+  margin: .15rem 0 .45rem .7rem !important;
+  border-inline-start: 1px solid var(--sl-color-gray-5);
+}
+.pyking-sidebar-headings a { padding: .2rem .7rem; font-size: var(--sl-text-xs); }
+
+/* A library's functions and values, each in a box, as rustdoc boxes
+   one (tools/help/libdoc.py writes the markup). The headings inside are
+   the item's name, kept small. */
+.sl-markdown-content .pyk-api {
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: .6rem;
+  padding: .2rem 1.1rem 1rem;
+  margin-block: 1.6rem;
+  background: var(--sl-color-gray-7, var(--sl-color-black));
+}
+.sl-markdown-content .pyk-api h2 {
+  font-size: var(--sl-text-lg);
+  font-family: var(--__sl-font-mono, ui-monospace, monospace);
+  margin-top: .8rem; padding: 0; border: 0;
+}
+.sl-markdown-content .pyk-sig {
+  margin-top: .5rem;
+  padding: .55rem .8rem;
+  border-radius: .4rem;
+  background: var(--sl-color-bg-inline-code);
+  border-left: 3px solid var(--sl-color-accent);
+  font-size: var(--sl-text-sm);
+  white-space: pre-wrap;
+}
+.pyk-sig .k { color: var(--sl-color-purple, #b294bb); }
+.pyk-sig .n { font-weight: 700; color: var(--sl-color-white); }
+.pyk-sig .p { color: var(--sl-color-orange, #de935f); }
+.pyk-sig .t { color: var(--sl-color-green, #6bb36f); }
+.sl-markdown-content .pyk-api-label {
+  margin-top: 1rem; margin-bottom: .2rem;
+  font-size: var(--sl-text-xs); font-weight: 700;
+  text-transform: uppercase; letter-spacing: .06em; color: var(--sl-color-gray-3);
+}
+.sl-markdown-content .pyk-api ul { margin-top: .2rem; }
+
+/* The playground page: below the header, the playground and nothing
+   else, filling the window (src/pages/playground.astro). */
+:root:has(.pyking-playground) .content-panel { padding: 0; border: 0; }
+:root:has(.pyking-playground) .content-panel:has(h1#_top) { display: none; }
+:root:has(.pyking-playground) .sl-container { max-width: none; margin: 0; }
+:root:has(.pyking-playground) h1#_top,
+:root:has(.pyking-playground) .sl-markdown-content > :not(.pyking-playground),
+:root:has(.pyking-playground) footer { display: none; }
+:root:has(.pyking-playground) .sl-markdown-content { margin: 0; }
+:root:has(.pyking-playground) main { padding-bottom: 0; }
 /* Two classes, so this wins over the playground's own `.pyk-playground`
    height, which its stylesheet sets after this one loads. */
 .pyking-playground.pyk-playground, .pyking-playground {
-  height: calc(100vh - var(--sl-nav-height) - 14rem);
-  min-height: 32rem;
-  border-radius: .5rem;
-  overflow: hidden;
-  border: 1px solid var(--sl-color-gray-5);
+  height: calc(100vh - var(--sl-nav-height));
+  min-height: 30rem;
+  margin: 0;
 }

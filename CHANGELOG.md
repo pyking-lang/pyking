@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `pyk help` serves the help -- getting started, the language reference
+  and the library reference -- with every example runnable, and `make
+  help` opens it. The playground has it as a fifth tab, Help, with a
+  button copying an example into the editor. The website, the Help tab
+  and `pyk help` show the same pages, which `make` generates.
+- A function implemented in a target language may be declared with its
+  parameters named, `def write(text: String) -> ()`, in place of `def
+  write : (String) -> ()`; the standard library now is.
 - A REPL in the playground: `pyk repl`'s own session, with its commands
   (`:help`, `:ls`, `:type`, `:edit`, `:ast`, `:tokens`, `:reset`), the
   standard library, a Stop button, Copy from editor (the text marked in
@@ -20,12 +28,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- The playground's right side is four tabs: Run output, Compiled code
+- The playground's right side is five tabs: Run output, Compiled code
   (the target list and Compile are there now), Web output (a tinyweb
-  page, in a browser-window frame with a Refresh button) and REPL.
+  page, in a browser-window frame with a Refresh button), REPL and Help.
 - The playground's header shows the version of the `pyk` serving it.
+- The website: the sections are on the left of the header and the
+  search on the right; the menu on the left lists only the section being
+  read, with the page's headings under it, and there is no menu on the
+  right. A new section, Documentation, holds the language reference,
+  Editors (from Getting started) and tinyweb without Pyking (from
+  Libraries). The playground fills the window under the header. The
+  logo is a python wearing a crown.
+- The library reference shows each function in a box, with its full
+  signature, its parameters, what it returns and a runnable example,
+  for every function of the standard library.
 - `:reset` in `pyk repl` keeps the library path (`-L`) the session was
   started with.
+
+### Fixed
+
+- A tinyweb program's sounds play in the website's playground and cells:
+  the samples were not copied into the site.
 
 ## [0.1.2] - 2026-10-11
 

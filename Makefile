@@ -6,14 +6,16 @@
 #                   (TARGET=c23 or TARGET=c for one target or family)
 #   make stest      the same suite, one test at a time
 #   make notebook   open PYKING-TUTORIAL.md as a notebook in the browser
+#   make help       open the help (getting started, the language reference,
+#                   the libraries) in the browser
 #   make website    build the website into website/
 #   make packaging  build the installable packages (macOS and Linux)
 #   make clean      remove what has been generated
 #
-# Run `make help` for the full list. The compiler is OCaml in src/,
+# Run `make targets` for the full list. The compiler is OCaml in src/,
 # built by dune into the executable this directory calls ./pyk.
 
-.PHONY: all help build libs test stest check-node playground notebook vendor \
+.PHONY: all help targets build libs test stest check-node playground notebook vendor \
 	website website-dev \
 	packaging packaging-setup packaging-install packaging-uninstall \
 	release \
@@ -54,7 +56,8 @@ build:
 	@cp -f _build/default/src/web/pyking_web.bc.js build/pyking.js
 	@cp -f _build/default/src/plugin/.pyk_plugin.objs/byte/pyk_plugin.cmi \
 	  build/plugin/pyk_plugin.cmi
-	@echo "build: ./pyk, build/pyking.js and build/plugin/"
+	@python3 tools/help/help.py build/help
+	@echo "build: ./pyk, build/pyking.js, build/plugin/ and build/help/"
 
 # The interpreter reaches a library implemented in a target language
 # through its OCaml implementation, compiled to a plugin it loads
@@ -64,11 +67,18 @@ build:
 libs: build
 	@./pyk plugins lib
 
+# The help, as `pyk help` serves it: the pages tools/help/help.py wrote
+# into build/help/ when the compiler was built, which the website and
+# the playground's Help tab show too.
+help: build vendor
+	./pyk help $(if $(PORT),--port $(PORT))
+
 # Kept in the same shape as `make -C tools/playground help`, so the two
 # read alike. Both are hand-written and neither has anything to generate
 # them from, so update this list whenever a target is added or renamed.
-help:
-	@echo "make              build the compiler into ./pyk, then make libs"
+targets:
+	@echo "make              build the compiler into ./pyk and build/, the help"
+	@echo "                  into build/help/, then make libs"
 	@echo "make libs         compile each lib/*/<name>_external.ml into the"
 	@echo "                  plugin the interpreter loads, <name>_external.cmxs"
 	@echo "make test         all eight suites, then a combined summary: every"
@@ -91,6 +101,10 @@ help:
 	@echo "                  a link"
 	@echo "make notebook     serve PYKING-TUTORIAL.md as a notebook (pyk notebook),"
 	@echo "                  then print a link. PORT=n picks the port for both"
+	@echo "make help         serve the help (pyk help) -- getting started, the"
+	@echo "                  language reference and the libraries, generated"
+	@echo "                  into build/help/ by make -- then print a link"
+	@echo "make targets      this list"
 	@echo "make vendor       download Ace, KaTeX and Monaco into tools/webrun/vendor/, once"
 	@echo "                  (~26 MB; the two above need it and run it first)"
 	@echo "make website      build the website (Astro and Starlight, from sitesrc/"

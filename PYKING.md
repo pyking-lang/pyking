@@ -294,7 +294,13 @@ statement   = function_def
    makes two definitions of one base name distinct. *)
 function_def = [ "implicit" ] , "def" , def_name ,
                "(" , [ params ] , ")" , [ "->" , type ] , ":" , block ;
-function_sig = "def" , def_name , ":" , type ;
+(* The second form names its parameters; it ends its line, every
+   parameter has a type and none a default, and it means the first form
+   with the parameter types in order. *)
+function_sig = "def" , def_name , ":" , type
+             | "def" , def_name , "(" , [ named_type , { "," , named_type } ] ,
+               ")" , "->" , type ;
+named_type   = ident , ":" , type ;
 def_name     = ident | qualified_name ;
 (* No whitespace is permitted on either side of the "::", and neither
    half may be a keyword. *)
@@ -852,7 +858,7 @@ leaves it is relying on a width the language does not promise.
 literal outside the range is a lexical error on every target, so the
 front end refuses the same programs wherever it runs:
 
-```pyking
+```pyking error
 biggest = 2147483647      # fine
 too_big = 2147483648      # Lexing error: integer literal is too large
 ```
@@ -1382,7 +1388,7 @@ This is what makes the next rule safe. A function's name is visible
 there, a use of it would have two candidates and no reason to prefer
 either — is `use()` below returning the number or the function?
 
-```pyking
+```pyking error
 f = 1
 
 def use(): f          # rejected: which `f`?
@@ -1678,7 +1684,7 @@ print(greet("a", 3))         # hello, a
 Every parameter after the first one with a default has one too, so a
 positional call is never ambiguous about which parameter it filled:
 
-```pyking
+```pyking error
 def f(a: Int = 1, b: Int) -> Int: a + b     # refused
 ```
 
@@ -1733,7 +1739,7 @@ def width() -> Int:
 `(String, Int) -> Int`, exactly as it would without the defaults, and
 nothing that holds the function as a value carries them:
 
-```pyking
+```pyking norun
 g = greet
 print(g())                   # refused: `g` is a binding, not a definition
 ```
@@ -1748,7 +1754,7 @@ language, so neither takes one.
 An **exported** function's defaulted parameter must carry a type
 annotation:
 
-```pyking
+```pyking error
 public def greet(who: String = "world") -> String: "hi " ++ who
 public def greet(who = "world") -> String: "hi " ++ who     # refused
 ```
@@ -2078,7 +2084,7 @@ end in anything -- there is no accumulator to say, so nothing is asked
 of its last statement -- and the loop is worth `()`. The only way out
 is `break`.
 
-```pyking
+```pyking norun
 loop:
     print("forever")
 ```
@@ -2154,7 +2160,7 @@ statement (see the grammar notes above), the two forms below mean
 exactly the same thing; the flat one is preferred, and is the form the
 Pyking pretty-printer produces for either.
 
-```pyking
+```pyking norun
 if a:
     print(1)
 else if b:
@@ -2373,7 +2379,7 @@ to say.
 right name and the right type that was not written `implicit` is
 invisible to the search:
 
-```pyking
+```pyking error
 def my3() -> ():
     def bar(z: Int) -> String: string(z)
     print(foo(1))       # error: there is a 'bar', but it is not
@@ -2415,7 +2421,7 @@ What does work — and is why the parameter is part of the type — is
 passing such a function as a value and calling it elsewhere. The
 resolution happens where the **call** is written:
 
-```pyking
+```pyking norun
 def apply_twice(f: (Int, implicit bar: (Int) -> String) -> (String, String),
                 n: Int) -> (String, String):
     implicit def bar(z: Int) -> String: string(z * 2)
@@ -2588,7 +2594,7 @@ forms demonstrated in its own function, so every one is actually reached.
 value was put together. Every piece but one has a fixed length, and the
 one name in the middle takes whatever is left:
 
-```pyking
+```pyking norun
 [x] ++ xs                is  [x, ..xs]
 first ++ [x, y, z]       is  [..first, x, y, z]
 [x, y] ++ m ++ [k1, k2]  is  [x, y, ..m, k1, k2]
@@ -3141,7 +3147,7 @@ that shape, and rejects `(Int) -> Bool`.
 own. `+`, `-`, `*`, `/` and the five comparisons each take two operands
 of **one** type, so one of each is refused where it is written:
 
-```pyking
+```pyking error
 print(1 + 1.0)
 # Type error: `+` cannot be applied to Int and Float; it accepts
 # Int + Int or Float + Float. Pyking mixes no numbers on its own:
@@ -3595,6 +3601,21 @@ def compose(g, f, x):
     return g(f(x))
 ```
 
+**A `def` with no body is a signature too**, with its parameters named:
+`def scale(n: Int, factor: Int) -> Int`, on a line of its own, says what
+`def scale : (Int, Int) -> Int` says. Every parameter has a type and none
+has a default, and the result type is written, since the line declares a
+function rather than defining one:
+
+```pyking
+def scale(n: Int, factor: Int) -> Int
+
+def scale(n, factor):
+    return n * factor
+
+print(scale(6, 7))
+```
+
 **A single parameter needs no parentheses**: `x -> x` and `(x) -> x` are
 one type — the `->` after the `)` is what makes the parenthesized list a
 parameter list. With no arrow after it, one type in parentheses is
@@ -3681,7 +3702,7 @@ both of a `Bool`'s values; and so does a set of list patterns covering
 every length, which is how the recursion above is written. The statement
 form is unaffected.
 
-```pyking
+```pyking norun
 label = match n:
     case 0: "zero"
     case _: "other"        # required: without it, `label` may not exist
@@ -3758,7 +3779,7 @@ the body is checked; it does not say what is in scope while it is. A
 body that names something bound *after* the `def` is an error, however
 late the call comes:
 
-```pyking
+```pyking error
 def f(n):
     n + offset               # error: unbound name 'offset'
 
@@ -4016,7 +4037,7 @@ def double(n): n * 2
 public size: Int = 12
 ```
 
-```pyking
+```pyking error
 public def triple(n): n * 3
 ```
 
@@ -4048,7 +4069,7 @@ def identity(x): x
 `import` brings a module in under a name, and its public names are
 reached through that name and a dot:
 
-```pyking
+```pyking norun
 import list
 import web
 
@@ -4058,14 +4079,14 @@ print(list.next(7))
 Several modules may be named on one line, which means exactly what the
 separate lines mean:
 
-```pyking
+```pyking norun
 import list, web
 ```
 
 A module may be brought in under a name of the program's choosing, which
 is then the only name it has here:
 
-```pyking
+```pyking norun
 import numerical as nm
 
 print(nm.sum(3))
@@ -4077,7 +4098,7 @@ print(nm.sum(3))
 module's own top level, so they are written without a qualifier. Each
 may be renamed:
 
-```pyking
+```pyking norun
 from list import next, first
 from list import previous as back
 
@@ -4116,14 +4137,14 @@ found by an unqualified call in the file that imports the module,
 automatically, so an ordering a library defines is usable without being
 named.
 
-```pyking
+```pyking norun
 # ordering.pyk
 public implicit def int::leq(x: Int, y: Int) -> Bool: x <= y
 public def less_index(elem: a, lst: [a],
                       implicit leq: (a, a) -> Bool) -> Int: ...
 ```
 
-```pyking
+```pyking norun
 # main.pyk
 import ordering as ord
 
@@ -4169,7 +4190,7 @@ public def one() -> Int:
     return 1
 ```
 
-```pyking
+```pyking norun
 # middle.pyk
 import base
 
@@ -4179,7 +4200,7 @@ public def two() -> Int:
     return base.one() + 1
 ```
 
-```pyking
+```pyking norun
 # main.pyk
 import middle
 
@@ -4211,12 +4232,13 @@ another directory.
 A module can be implemented in a target language rather than in Pyking.
 A file called `sys_external.pyk` is still the module `sys`, but it holds
 *signatures only* — every name it exports is written down with its type
-and left without a body. A name ending in `_external` therefore never
+and left without a body, in either form of a signature line; the one that
+names its parameters says what each is for. A name ending in `_external` therefore never
 names a module of its own: `import sys_external` is refused, and the
 module is imported as `sys`.
 
-```pyking
-public def loadfile : (String) -> String
+```pyking norun
+public def loadfile(path: String) -> String
 
 public def start : Int
 ```
@@ -4224,7 +4246,7 @@ public def start : Int
 Importing it is no different from importing any other module, and a call
 is checked against the type written here:
 
-```pyking
+```pyking norun
 import sys
 
 print(sys.loadfile("notes.txt"))
@@ -4249,11 +4271,11 @@ are one module `sys`, not two: the first is written in Pyking against
 what the second declares, and a program that imports `sys` reaches
 everything either half offers, under the one name.
 
-```pyking
+```pyking norun
 # clock_external.pyk -- what the host provides
-public def now : () -> Int
+public def now() -> Int
 
-def raw : () -> Int
+def raw() -> Int
 
 
 # clock.pyk -- written against it
@@ -4261,7 +4283,7 @@ public def doubled() -> Int:
     return raw() * 2
 ```
 
-```pyking
+```pyking norun
 import clock
 
 print(clock.now())
@@ -4292,7 +4314,7 @@ Nothing is inferred a second time and nothing crosses the boundary but
 the exported names and their types, so a mistake about one is reported
 where it is made:
 
-```pyking
+```pyking norun
 from list import next
 
 print(next("seven"))

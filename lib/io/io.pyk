@@ -14,8 +14,25 @@
 # and for an answer to a question with `io.read_line("Name? ")`.
 
 
-## One line of standard input, without its line ending, after writing
-## `prompt` -- with no newline -- to standard output. At the end of the
-## input it is the empty string; `is_eof` tells that from an empty line.
+## Writes `prompt`, with no newline, then reads one line of standard input.
+## The line ending is not part of the answer.
+##
+## # Parameters
+## - `prompt`: what to show before waiting for the line; nothing by
+##   default.
+##
+## # Returns
+## The line, or `""` at the end of the input. Use `is_eof` to tell an
+## empty line from the end.
+##
+## # Examples
+## ```pyking stdin = "Ada\n"
+## import io
+## name = io.read_line("Your name: ")
+## print("Hello,", name)
+## ```
+## ```stdout
+## Your name: Hello, Ada
+## ```
 public def read_line(prompt: String = "") -> String:
     return prompt_line(prompt)

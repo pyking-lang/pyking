@@ -38,6 +38,8 @@
   display: flex;
   flex-direction: column;
   position: relative;      /* the settings dialog anchors to this box */
+  overflow: hidden;        /* nothing inside -- a help cell's editor -- may
+                              reach past it and scroll the page */
   height: 100%;
   min-height: 0;
   box-sizing: border-box;
@@ -292,6 +294,9 @@
 .pyk-page-empty {
   color: #6b7076; font-style: italic; margin: 1rem 0; text-align: center;
 }
+
+/* --- the help (tools/help/assets/help.js) --- */
+.pyk-help-host { flex: 1 1 auto; min-height: 0; }
 
 /* --- the REPL --- */
 .pyk-repl {

@@ -1,4 +1,4 @@
-(** `pyk notebook`, `pyk playground` and `pyk serve`: finds the web
+(** `pyk notebook`, `pyk playground`, `pyk help` and `pyk serve`: finds the web
     tools beside this executable, works out what each serves, and serves
     it with web_server.ml in this process -- nothing else has to be
     installed. `pyk notebook --mode test` serves nothing and runs
@@ -12,8 +12,8 @@
       start tool port mode path -- serves the tool, or answers why not. *)
 
 (** Which web tool: the notebook, which opens one Markdown document, the
-    playground, or a directory's files as they are. *)
-type tool = Notebook | Playground | Files
+    playground, the help, or a directory's files as they are. *)
+type tool = Notebook | Playground | Help | Files
 
 (** Serves the tool until Ctrl+C, on `port` if one is given: the
     notebook opening the document `path` in `mode` (student, teacher or

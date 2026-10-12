@@ -11,7 +11,7 @@
     Functions:
       start tool port mode path -- serves the tool, or answers why not. *)
 
-type tool = Notebook | Playground | Files
+type tool = Notebook | Playground | Help | Files
 
 (** The directory the installation's tree is in: the repository in a
     checkout, the package's root in a distribution. () -> string *)
@@ -103,8 +103,22 @@ let bundle_manifest () =
     ]
   ^ "\n"
 
+(** Refuses where the help's pages were not generated.
+    string -> (unit, string) result *)
+let check_help command =
+  if Sys.file_exists (under [ "build"; "help"; "index.json" ]) then Ok ()
+  else
+    Error
+      (Printf.sprintf
+         "%s: the help is not generated (no %s). `make` in the repository \
+          writes it; a distribution ships it."
+         command (under [ "build"; "help" ]))
+
 (** What every tool serves: the shared scripts, the vendored libraries,
-    the compiler bundle and the standard library. () -> Web_server.site *)
+    the compiler bundle, the standard library, the notebook's scripts
+    (which run a cell anywhere), and the help: its page and scripts
+    under /help/, and its generated pages under /help/pages/.
+    () -> Web_server.site *)
 let common_site () : Web_server.site =
   {
     mounts =
@@ -112,6 +126,9 @@ let common_site () : Web_server.site =
         ("/webrun/", under [ "tools"; "webrun"; "assets" ]);
         ("/vendor/", vendor ());
         ("/lib/", under [ "lib" ]);
+        ("/notebook/", under [ "tools"; "notebook"; "assets" ]);
+        ("/help/", under [ "tools"; "help"; "assets" ]);
+        ("/help/pages/", under [ "build"; "help" ]);
       ];
     files = [ ("/pyking/pyking.js", bundle ()) ];
     answers = [ ("/pyking/manifest.json", (bundle_manifest, "application/json")) ];
@@ -239,6 +256,16 @@ let playground_site () =
     }
     (common_site ())
 
+(* --- the help --- *)
+
+(** What `pyk help` serves: the help's own page at the root.
+    () -> Web_server.site *)
+let help_site () =
+  let index = under [ "tools"; "help"; "assets"; "index.html" ] in
+  extended
+    { mounts = []; files = [ ("/", index); ("/index.html", index) ]; answers = []; listing = false }
+    (common_site ())
+
 (* --- starting one --- *)
 
 (** Serves a site, answering 0 when it was stopped. Web_server.site ->
@@ -263,6 +290,11 @@ let start tool port mode path =
       let* () = check_bundle "pyk playground" in
       let* () = check_vendor "pyk playground" in
       serve (playground_site ()) "Pyking playground" port []
+  | Help ->
+      let* () = check_bundle "pyk help" in
+      let* () = check_vendor "pyk help" in
+      let* () = check_help "pyk help" in
+      serve (help_site ()) "Pyking help" port []
   | Notebook ->
       let given = Option.value ~default:"" path in
       let document = Module.absolute given in

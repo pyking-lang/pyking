@@ -1,0 +1,10 @@
+# A `def` with no body gives no parameter a default: a default belongs
+# to a definition, which is what fills it in.
+#
+# This program is expected to be REFUSED. Its `.ast.out` holds the error
+# message, not a program's output.
+
+def scale(n: Int, factor: Int = 2) -> Int
+def scale(n, factor): n * factor
+
+print(scale(6, 7))

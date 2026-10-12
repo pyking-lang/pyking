@@ -597,6 +597,27 @@ let resolve units (unit : Module.t) =
 
 (* --- answers --- *)
 
+(** A doc comment's lines with each section line outside a code block --
+    `# Parameters`, `# Returns`, `# Examples` -- made a bold label, which
+    an editor's hover shows at the size of the text around it.
+    [string] -> [string] *)
+let section_labels lines =
+  let _, out =
+    List.fold_left
+      (fun (fenced, out) line ->
+        let fence = String.length line >= 3 && String.sub line 0 3 = "```" in
+        let heading =
+          (not fenced) && String.length line > 2 && String.sub line 0 2 = "# "
+        in
+        let shown =
+          if heading then "**" ^ String.sub line 2 (String.length line - 2) ^ "**"
+          else line
+        in
+        ((if fence then not fenced else fenced), shown :: out))
+      (false, []) lines
+  in
+  List.rev out
+
 (** The `##` comment written directly above a row of a file, without its
     markers. state -> string -> int -> string? *)
 let doc_comment state file row =
@@ -611,7 +632,9 @@ let doc_comment state file row =
         go (r - 1) (body :: acc)
       else acc
   in
-  match go (row - 1) [] with [] -> None | lines -> Some (String.concat "\n" lines)
+  match go (row - 1) [] with
+  | [] -> None
+  | lines -> Some (String.concat "\n" (section_labels lines))
 
 (** The unit an analysis holds for a document, and its types.
     analysis -> document -> (Module.t, typ IntMap.t)? *)

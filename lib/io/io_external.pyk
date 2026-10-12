@@ -15,21 +15,82 @@
 # has been written so far first, so a prompt is on screen before the
 # program waits for an answer.
 
-## Writes a string to standard output as it is, with no newline added.
-public def write : (String) -> ()
+## Writes `text` to standard output exactly as it is, with no newline
+## after it. Use it to build a line from several pieces, and `write_line`
+## or `print` to end it.
+##
+## # Parameters
+## - `text`: the characters to write.
+##
+## # Examples
+## ```pyking
+## import io
+## io.write("one, ")
+## io.write("two")
+## io.write_line(".")
+## ```
+## ```stdout
+## one, two.
+## ```
+public def write(text: String) -> ()
 
-## Writes a string to standard output, followed by a newline.
-public def write_line : (String) -> ()
+## Writes `text` to standard output, then a newline. Unlike `print`, it
+## takes exactly one string and writes it as it is.
+##
+## # Parameters
+## - `text`: the line to write, without its newline.
+##
+## # Examples
+## ```pyking
+## import io
+## io.write_line("first line")
+## io.write_line("second line")
+## ```
+## ```stdout
+## first line
+## second line
+## ```
+public def write_line(text: String) -> ()
 
-## The rest of standard input, from where the last read stopped to its
-## end, line endings included.
-public def read : () -> String
+## Reads everything left on standard input, from where the last read
+## stopped to the end, line endings included.
+##
+## # Returns
+## The rest of the input, or `""` when nothing is left.
+##
+## # Examples
+## ```pyking stdin = "one\ntwo\n"
+## import io
+## rest = io.read()
+## print(rest == "one\ntwo\n")
+## ```
+## ```stdout
+## true
+## ```
+public def read() -> String
 
-## Whether standard input is used up: `true` once nothing is left to
-## read. This is what tells an empty line from the end of the input.
-public def is_eof : () -> Bool
+## Tells whether standard input has been read to the end. `read_line`
+## answers `""` both for an empty line and at the end of the input, and
+## this is how a program tells the two apart.
+##
+## # Returns
+## `true` when nothing is left to read, `false` otherwise.
+##
+## # Examples
+## ```pyking stdin = "only line\n"
+## import io
+## print(io.is_eof())
+## print(io.read_line())
+## print(io.is_eof())
+## ```
+## ```stdout
+## false
+## only line
+## true
+## ```
+public def is_eof() -> Bool
 
 # The host's half of `read_line`: write the prompt, then read one line.
 # Private, because `read_line` in io.pyk is what a program calls -- its
 # prompt has a default, which a declaration cannot carry.
-def prompt_line : (String) -> String
+def prompt_line(prompt: String) -> String

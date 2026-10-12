@@ -1,0 +1,31 @@
+# A `def` with no body is a declaration: `def name(p: T, ...) -> R` on a
+# line of its own says what `def name : (T, ...) -> R` says, with the
+# parameters named. It is how a module's external half declares what
+# its host provides, and in an ordinary file it is a signature line for
+# the definition of that name in the same block.
+
+def scale(n: Int, factor: Int) -> Int
+def scale(n, factor):
+    return n * factor
+
+
+def greet(name: String) -> String
+def greet(name): "hello " ++ name
+
+
+def apply(f: (Int) -> Int, x: Int) -> Int
+def apply(f, x): f(x)
+
+
+def inc(n: Int) -> Int
+def inc(n): n + 1
+
+
+def nothing() -> ()
+def nothing(): ()
+
+
+print(scale(6, 7))
+print(greet("world"))
+print(apply(inc, 41))
+nothing()

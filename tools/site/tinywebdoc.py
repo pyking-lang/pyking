@@ -156,9 +156,16 @@ def functions():
     found = []
     for line in DECLARATIONS.read_text().splitlines():
         match = re.match(r"^(?:public\s+)?def\s+(\w+)\s*:\s*(.*)$", line)
-        if not match:
+        named = re.match(r"^(?:public\s+)?def\s+(\w+)\s*\((.*)\)\s*(->.*)$", line)
+        if match:
+            name, declared = match.group(1), parse_type(match.group(2))
+        elif named:
+            # `def name(p: T, ...) -> R`: the same type, its parameters named.
+            params = [p.split(":", 1)[1].strip() for p in _split(named.group(2))]
+            name = named.group(1)
+            declared = parse_type(f"({', '.join(params)}) {named.group(3)}")
+        else:
             continue
-        name, declared = match.group(1), parse_type(match.group(2))
         _, params, result = declared
         found.append(Function(name, list(zip(names[name], params)), result,
                               DESCRIPTIONS[name]))
@@ -536,28 +543,29 @@ no next frame.
 """
 
 
-def see_also(directory):
+def see_also(href):
     """The section the tinyweb library page ends with, linking the pages
-    for other languages in `directory`, beside it. String -> String"""
-    links = ", ".join(f"[{l.name}](../{directory}/{l.slug}/)" for l in LANGUAGES)
+    for other languages at `href`, a link from that page.
+    String -> String"""
+    links = ", ".join(f"[{l.name}]({href}{l.slug}/)" for l in LANGUAGES)
     return f"""## Without Pyking
 
 Each of tinyweb's implementations is also a library of its own, usable
 from a program written in that language with no Pyking at all: {links}.
-[tinyweb in other languages](../{directory}/) has the overview.
+[tinyweb without Pyking]({href}) has the overview.
 """
 
 
-def write(content, public, compiler, base="../../../tinyweb"):
+def write(content, public, compiler, library=None, href="", base="../../../tinyweb"):
     """Writes the pages into `content` and the downloads into `public`:
-    one zip per language, and one per generated example. `base` is where
-    `public` is, from a language's page. Path -> Path -> [String] ->
-    String -> ()"""
+    one zip per language, and one per generated example. `library` is the
+    tinyweb library page, which gets `see_also(href)` at its end; `base`
+    is where `public` is, from a language's page. Path -> Path ->
+    [String] -> Path? -> String -> String -> ()"""
     content.mkdir(parents=True, exist_ok=True)
     (content / "index.md").write_text(index_page())
-    library = content.parent / "tinyweb.md"
-    if library.exists():
-        library.write_text(library.read_text().rstrip("\n") + "\n\n" + see_also(content.name))
+    if library is not None and library.exists():
+        library.write_text(library.read_text().rstrip("\n") + "\n\n" + see_also(href))
     for language in LANGUAGES:
         out = public / language.slug
         bundle = out / f"tinyweb-{language.slug}"

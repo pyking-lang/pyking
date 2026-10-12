@@ -19,7 +19,7 @@ Five parts:
   cells     every runnable cell of PYKING-TUTORIAL.md and features.md,
             run through tools/webrun/assets/pyking-worker.js: an `error`
             cell must be refused, every other cell must run.
-  server    `pyk notebook`, `pyk playground` and `pyk serve` on a free
+  server    `pyk notebook`, `pyk playground`, `pyk help` and `pyk serve` on a free
             port, each file the pages load fetched, the playground's
             manifest and every file tools/playground/playground.py's Site
             names compared with what pyk serves, the mode the page is
@@ -568,6 +568,26 @@ def check_server(compiler):
         finally:
             stop(process)
 
+    port = free_port()
+    process, printed = start(compiler, ["help", "--port", str(port)], environment)
+    check("`pyk help` starts and prints its URL", process is not None, printed)
+    if process is not None:
+        try:
+            status, body = fetch(port, "/")
+            check("the help serves its page",
+                  status == 200 and b"mountHelp" in body, f"status {status}")
+            status, body = fetch(port, "/help/pages/index.json")
+            index = json.loads(body) if status == 200 else {}
+            check("it serves the help's index", bool(index.get("sections")), f"status {status}")
+            page = next((p for s in index.get("sections", []) for p in s["pages"]
+                         if p["slug"] == "libraries/io"), None)
+            status, body = fetch(port, "/help/pages/" + (page or {}).get("file", "?"))
+            check("and a page of it", status == 200 and b"pyk-api" in body, f"status {status}")
+            status, _ = fetch(port, "/notebook/notebook.js")
+            check("and the notebook that runs its cells", status == 200, f"status {status}")
+        finally:
+            stop(process)
+
     with tempfile.TemporaryDirectory(prefix="pyk-serve-") as directory:
         (Path(directory) / "page.html").write_text("<p>page</p>\n")
         (Path(directory) / "sub").mkdir()
@@ -616,6 +636,8 @@ def check_server(compiler):
             ["compile", "--mode", "test", str(FEATURES)], "only applies to 'pyk notebook'")
     refused("a filename for the playground is refused",
             ["playground", str(FEATURES)], "takes no filename")
+    refused("a filename for the help is refused", ["help", str(FEATURES)],
+            "takes no filename")
     refused("a directory that is not there is refused", ["serve", "no-such-directory"],
             "no such directory")
     return checks, failures

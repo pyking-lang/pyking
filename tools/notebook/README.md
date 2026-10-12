@@ -378,6 +378,13 @@ print(io.read_line())</pre></div>
 </script>
 ```
 
+Two options are for a page that holds cells as part of something else:
+`cellActions`, `[{label, title, run(code)}]`, adds a button to every cell
+that hands its code to `run` -- the playground's Help tab copies an
+example into its editor this way -- and `runtime`, a `PykingRuntime`
+to run the cells on instead of one of their own, so cells mounted page
+after page share one worker (`tools/help/assets/help.js`).
+
 `data-readonly` and `data-error` are the fence attributes of the same
 names, and `data-stdin` and `data-args` fill in the cell's input as a
 ```` ```stdin ```` or ```` ```args ```` block does. The options and the

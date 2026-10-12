@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
-"""Runs the website's own test cases: that every library is documented,
-that the library pages say what the libraries export, that the remark
-plugin turns a page's Pyking blocks into the cells the notebook mounts,
-and that every runnable example on the site runs.
+"""Runs the website's own test cases, and the help's, which the website
+is made from: that every library is documented, that the library pages
+say what the libraries export, that each library example prints what
+its documentation says, that the remark plugin turns a page's Pyking
+blocks into the cells the notebook mounts, that the menus list every
+page, and that every runnable example on the site runs.
 
 None of it needs Astro, which `make website` installs on first use and
 `make test` does not. The examples are run with the interpreter (`pyk
 FILE`), the reference for what a program means; the page runs the same
 compiler as JavaScript, which tests/test_notebook.py covers.
 
-Seven parts:
+Nine parts:
 
-  docs      lib/ through tools/site/libdoc.py: nothing undocumented, and
-            every module has a page naming each thing it exports.
+  docs      lib/ through tools/help/libdoc.py: nothing undocumented or
+            documented wrongly -- every parameter in order, a Returns
+            where one is answered, an example with its output -- no
+            declaration without named parameters, and every module has
+            a page boxing each thing it exports.
   exports   for each module, a program importing every name libdoc found
             compiles, so the pages name nothing the library does not
             export.
@@ -23,11 +28,18 @@ Seven parts:
             an exercise, which becomes a fragment of a notebook.
   notebook  every page in sitesrc/ has none of the problems the
             notebook's exercises.js finds in exercises and quizzes.
-  sidebar   site.py's sidebar lists every page of Getting started and
-            Libraries, tinyweb's pages for other languages included.
-  cells     every runnable ```pyking block in sitesrc/ and in the
-            generated library pages: an `error` block must be refused,
-            every other must run, with its ```stdin and ```args.
+  examples  every example in lib/'s documentation, `norun` ones too,
+            run with its stdin and args, in a directory of its own and
+            with tinyweb's log set, prints exactly its ```stdout block.
+  sidebar   the help's index (tools/help/help.py) and site.py's left
+            menus list every page of every section, tinyweb's pages for
+            other languages included; the Help tab's pages are among them.
+  runtime   every sound a library's page plays is copied into the
+            website's runtime.
+  cells     every runnable ```pyking block of the help's pages -- sitesrc/,
+            the language reference and the library pages: an `error`
+            block must be refused, every other must run, with its
+            ```stdin and ```args.
 
 Usage: python3 tests/test_site.py [--compiler CMD]
 
@@ -37,7 +49,9 @@ Functions:
     check_copies() -- the copies part.
     check_plugin() -- the plugin part.
     check_notebook() -- the notebook part.
+    check_examples(compiler) -- the examples part.
     check_sidebar() -- the sidebar part.
+    check_runtime() -- the runtime part.
     blocks(text) -- the runnable Pyking blocks of a Markdown page.
     check_cells(compiler) -- the cells part.
     main(argv) -- the command-line entry point.
@@ -45,6 +59,7 @@ Functions:
 
 import importlib.util
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -56,8 +71,10 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 REPO = HERE.parent
 sys.path.insert(0, str(REPO / "tools" / "site"))
+sys.path.insert(0, str(REPO / "tools" / "help"))
 
 import suite  # noqa: E402  (after sys.path, which is what finds it)
+import help as helpdoc  # noqa: E402
 import libdoc  # noqa: E402
 import tinywebdoc  # noqa: E402
 
@@ -133,7 +150,8 @@ def check_docs():
     for module in modules:
         page = libdoc.module_page(module)
         missing = [item.name for item in module.items
-                   if f"### `{item.name}`" not in page or item.signature not in page]
+                   if f"## {item.name}\n" not in page
+                   or f'<span class="n">{item.name}</span>' not in page]
         results.append((f"the {module.name} page lists every export",
                         f"missing: {', '.join(missing)}" if missing else None))
     return results
@@ -225,44 +243,116 @@ def check_notebook():
              "\n  ".join(problems) or None) for page, problems in found.items()]
 
 
+def _example_input(words):
+    """The stdin and the arguments an example's fence gives it, as the
+    notebook reads `stdin = "..."` and `args = "..."`.
+    String -> (String, [String])"""
+    found = {}
+    for key, value in re.findall(r'(stdin|args)\s*=\s*"((?:[^"\\]|\\.)*)"', words):
+        found[key] = value.replace("\\n", "\n").replace('\\"', '"')
+    return found.get("stdin", ""), shlex.split(found.get("args", ""))
+
+
+def _quiet_page(directory):
+    """The environment a program runs in here: tinyweb's log and events
+    set, so a program with a page writes what it draws to a file rather
+    than serving it. String -> {String: String}"""
+    events = Path(directory) / "events"
+    events.write_text("")
+    return {**os.environ, "PYKING_TINYWEB_LOG": str(Path(directory) / "page.log"),
+            "PYKING_TINYWEB_EVENTS": str(events)}
+
+
+def check_examples(compiler):
+    """Every example in lib/'s documentation prints its ```stdout block,
+    run with its input in a directory of its own, with tinyweb's log set
+    so a page needs no browser. String -> [(String, String?)]"""
+    results = []
+    for module, item, example in libdoc.examples(libdoc.read_modules(libdoc.LIB)):
+        if example.stdout is None:
+            continue
+        stdin, args = _example_input(example.words)
+        with tempfile.TemporaryDirectory(prefix="pyk-example-") as directory:
+            program = Path(directory) / "example.pyk"
+            program.write_text(example.code)
+            env = _quiet_page(directory)
+            ran = subprocess.run(
+                shlex.split(compiler) + [str(program)] + (["--"] + args if args else []),
+                input=stdin, capture_output=True, text=True, timeout=TIMEOUT,
+                cwd=directory, env=env)
+        name = f"the example of {module.name}.{item.name}"
+        if ran.returncode != 0:
+            results.append((name + " runs", (ran.stderr or ran.stdout).strip()))
+        else:
+            results.append((name + " prints what its documentation says",
+                            None if ran.stdout == example.stdout else
+                            f"expected {example.stdout!r}, got {ran.stdout!r}"))
+    return results
+
+
 def check_sidebar():
-    """site.py's sidebar_items, over the pages of Getting started and of
-    Libraries staged in a temporary directory, links every one of them.
-    () -> [(String, String?)]"""
+    """The help's index and site.py's left menus, over the help written
+    into a temporary directory with tinyweb's pages for other languages,
+    list every page of every section; and the Help tab's pages are pages
+    of the index. () -> [(String, String?)]"""
     results = []
     with tempfile.TemporaryDirectory(prefix="pyk-site-") as directory:
         content = Path(directory)
-        libraries = content / "libraries"
-        libdoc.write_pages(libdoc.read_modules(libdoc.LIB), libraries)
-        languages = libraries / "tinyweb-languages"
-        languages.mkdir()
+        index = helpdoc.write(content)
+        languages = content / website.TINYWEB
+        languages.mkdir(parents=True)
         (languages / "index.md").write_text(tinywebdoc.index_page())
         for language in tinywebdoc.LANGUAGES:
             (languages / f"{language.slug}.md").write_text(
                 f"---\ntitle: tinyweb for {language.name}\nsidebar:\n"
                 f"  label: {language.name}\n---\n")
-        (content / "getstarted").mkdir()
-        for page in (REPO / "sitesrc" / "getstarted").glob("*.md"):
-            (content / "getstarted" / page.name).write_text(page.read_text())
-        for name in ("getstarted", "libraries"):
+        tinyweb = [item for item in website.sidebar_items(languages, f"/{website.TINYWEB}/")
+                   if item.get("link") != f"/{website.TINYWEB}/"]
+        menus = website.sidebar(index, tinyweb)
+        for section in index["sections"]:
+            name = section["id"]
             linked = set()
-            pending = website.sidebar_items(content / name, f"/{name}/")
+            pending = list(menus[name]["pages"])
             while pending:
                 item = pending.pop()
                 pending.extend(item.get("items", []))
-                if "link" in item:
-                    linked.add(item["link"])
-            pages = {f"/{page.parent.relative_to(content).as_posix()}/"
-                     + ("" if page.stem == "index" else f"{page.stem}/")
-                     for page in (content / name).rglob("*.md")}
+                linked.add(item["link"])
+            root = content / name
+            found = ([content / f"{name}.md"] if (content / f"{name}.md").is_file()
+                     else sorted(root.rglob("*.md")))
+            pages = {"/" + page.relative_to(content).with_suffix("").as_posix()
+                     .removesuffix("/index") + "/" for page in found}
             missing = sorted(pages - linked)
-            results.append((f"the sidebar links every page under {name}/",
+            results.append((f"the left menu of {section['label']} links every page",
                             f"missing: {', '.join(missing)}" if missing else None))
-    links = tinywebdoc.see_also("tinyweb-languages")
+            slugs = {page["slug"] for page in section["pages"]}
+            stray = [slug for slug in section["help"] if slug not in slugs]
+            results.append((f"the Help tab shows pages of {section['label']}",
+                            f"not pages: {', '.join(stray)}" if stray else None))
+            absent = [page["file"] for page in section["pages"]
+                      if not (content / page["file"]).is_file()]
+            results.append((f"every page of {section['label']} in the index is written",
+                            f"missing: {', '.join(absent)}" if absent else None))
+        shown = [slug for section in index["sections"] for slug in section["help"]]
+        wanted = ["getstarted/overview", "documentation/language", "libraries"]
+        results.append(("the Help tab shows Getting started, the language reference "
+                        "and the libraries",
+                        None if all(w in shown for w in wanted) else f"shows {shown}"))
+    links = tinywebdoc.see_also(f"../../{website.TINYWEB}/")
     missing = [l.slug for l in tinywebdoc.LANGUAGES if f"/{l.slug}/)" not in links]
     results.append(("the tinyweb page links each language's page",
                     f"missing: {', '.join(missing)}" if missing else None))
     return results
+
+
+def check_runtime():
+    """Every sound in a library's assets is one the website copies into
+    its runtime, since a page fetches it from there. () -> [(String, String?)]"""
+    left = [str(path.relative_to(REPO)) for path in sorted(libdoc.LIB.glob("*/*_assets/*"))
+            if path.suffix in (".wav", ".mp3", ".ogg")
+            and not path.name.endswith(website.LIB_SUFFIXES)]
+    return [("the website's runtime has every sound a page plays",
+             f"not copied: {', '.join(left)}" if left else None)]
 
 
 def blocks(text):
@@ -300,14 +390,13 @@ def blocks(text):
 
 
 def check_cells(compiler):
-    """Every runnable block in sitesrc/ and in the generated library
-    pages runs, or is refused where it is marked `error`.
-    String -> ([(String, String?)], Int)"""
+    """Every runnable block of the help's pages -- sitesrc/, the language
+    reference and the library pages -- runs, or is refused where it is
+    marked `error`. String -> ([(String, String?)], Int)"""
     with tempfile.TemporaryDirectory(prefix="pyk-site-") as directory:
-        generated = Path(directory) / "libraries"
-        libdoc.write_pages(libdoc.read_modules(libdoc.LIB), generated)
-        pages = [(path.relative_to(REPO), path) for path in sorted(SOURCES.rglob("*.md"))]
-        pages += [(Path("libraries") / path.name, path) for path in sorted(generated.glob("*.md"))]
+        generated = Path(directory) / "help"
+        helpdoc.write(generated)
+        pages = [(path.relative_to(generated), path) for path in sorted(generated.rglob("*.md"))]
         results = []
         count = 0
         for label, path in pages:
@@ -319,7 +408,8 @@ def check_cells(compiler):
                 stdin = block["stdin"] + "\n" if block["stdin"] else ""
                 ran = subprocess.run(
                     shlex.split(compiler) + [str(program)] + (["--"] + args if args else []),
-                    input=stdin, capture_output=True, text=True, timeout=TIMEOUT)
+                    input=stdin, capture_output=True, text=True, timeout=TIMEOUT,
+                    cwd=directory, env=_quiet_page(directory))
                 name = f"{label} block {index + 1}"
                 if "error" in block["words"]:
                     results.append((name + " is refused, as marked",
@@ -342,7 +432,8 @@ def main(argv):
         return 2
     cells, count = check_cells(compiler)
     results = (check_docs() + check_exports(compiler) + check_copies() + check_plugin()
-               + check_notebook() + check_sidebar() + cells)
+               + check_notebook() + check_examples(compiler) + check_sidebar()
+               + check_runtime() + cells)
     failed = 0
     for name, detail in results:
         if detail is None:

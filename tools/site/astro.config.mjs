@@ -12,9 +12,6 @@ import { STAGE } from "./src/stage.mjs";
 const base = process.env.PYKING_SITE_BASE ?? "/";
 const prefix = base.replace(/\/$/, "");
 const grammar = JSON.parse(fs.readFileSync(STAGE + "/pyking.tmLanguage.json", "utf8"));
-const section = (label) => SECTIONS.find((s) => s.label === label);
-// The pages of each sidebar group, which site.py lists from what it staged.
-const pages = JSON.parse(fs.readFileSync(STAGE + "/sidebar.json", "utf8"));
 
 export default defineConfig({
   base,
@@ -32,14 +29,17 @@ export default defineConfig({
       logo: { src: "./src/assets/logo.svg", alt: "Pyking" },
       customCss: ["./src/styles/site.css"],
       head: [{ tag: "script", attrs: { type: "module", src: prefix + "/site/cells.js" } }],
-      components: { SocialIcons: "./src/components/HeaderNav.astro" },
+      // The header puts the sections beside the logo and the search on
+      // the right; the left menu is each section's own pages, the one
+      // shown opened at its headings (site.py writes sidebar.json). No
+      // page has a table of contents on the right.
+      components: {
+        Header: "./src/components/Header.astro",
+        Sidebar: "./src/components/Sidebar.astro",
+      },
+      tableOfContents: false,
       expressiveCode: { shiki: { langs: [grammar] } },
-      sidebar: [
-        { label: "Install", link: section("Install").path },
-        { label: "Getting started", items: pages.getstarted },
-        { label: "Libraries", items: pages.libraries },
-        { label: "Playground", link: section("Playground").path },
-      ],
+      sidebar: SECTIONS.map(({ label, path }) => ({ label, link: path })),
     }),
   ],
 });

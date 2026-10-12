@@ -18,7 +18,7 @@ null
 > hover main.pyk 17:21
 {"contents": {"kind": "markdown", "value": "```pyking\nother: Int\n```"}, "range": {"end": {"character": 24, "line": 16}, "start": {"character": 19, "line": 16}}}
 > hover main.pyk 20:5
-{"contents": {"kind": "markdown", "value": "```pyking\nio.write_line: (String) -> ()\n```\n\nWrites a string to standard output, followed by a newline."}, "range": {"end": {"character": 13, "line": 19}, "start": {"character": 0, "line": 19}}}
+{"contents": {"kind": "markdown", "value": "```pyking\nio.write_line: (String) -> ()\n```\n\nWrites `text` to standard output, then a newline. Unlike `print`, it\ntakes exactly one string and writes it as it is.\n\n**Parameters**\n- `text`: the line to write, without its newline.\n\n**Examples**\n```pyking\nimport io\nio.write_line(\"first line\")\nio.write_line(\"second line\")\n```\n```stdout\nfirst line\nsecond line\n```"}, "range": {"end": {"character": 13, "line": 19}, "start": {"character": 0, "line": 19}}}
 > hover main.pyk 20:15
 {"contents": {"kind": "markdown", "value": "```pyking\nhello: (String) -> String\n```\n\nA greeting for a name."}, "range": {"end": {"character": 19, "line": 19}, "start": {"character": 14, "line": 19}}}
 > hover main.pyk 6:6
@@ -28,7 +28,7 @@ null
 > definition main.pyk 20:16
 {"range": {"end": {"character": 16, "line": 7}, "start": {"character": 11, "line": 7}}, "uri": "$CASES/helper.pyk"}
 > definition main.pyk 20:5
-{"range": {"end": {"character": 0, "line": 21}, "start": {"character": 0, "line": 21}}, "uri": "$LIB/io/io_external.pyk"}
+{"range": {"end": {"character": 0, "line": 52}, "start": {"character": 0, "line": 52}}, "uri": "$LIB/io/io_external.pyk"}
 > definition main.pyk 17:28
 {"range": {"end": {"character": 5, "line": 4}, "start": {"character": 0, "line": 4}}, "uri": "$CASES/main.pyk"}
 > definition main.pyk 19:1

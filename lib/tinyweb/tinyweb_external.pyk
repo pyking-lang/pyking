@@ -7,59 +7,200 @@
 # here but `web_init` sends one command to the page; see docs/libraries.md, "tinyweb",
 # for the commands and how they reach the page.
 
-## Serves the program's page on `port` and prints its address, where
-## the program runs with no page around it -- a compiled program, or
-## `pyk program.pyk`. Port 0 picks any free port. In a browser, the
-## notebook and the playground the page is already there, and this does
-## nothing. Call it before anything else.
-public def web_init : (Int) -> ()
+## Starts the program's page. Run as `pyk program.pyk` or compiled, it
+## serves the page on `port` and prints the address to open; in a browser,
+## the notebook or the playground the page is already there and it does
+## nothing. Call it before any other tinyweb function.
+##
+## # Parameters
+## - `port`: the port to serve on; 0 picks any free one.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## tw.label("The page is ready.")
+## ```
+## ```stdout
+## ```
+public def web_init(port: Int) -> ()
 
-## A new canvas, `width` by `height` pixels, placed below what the page
-## already shows. The number answered names it to the drawing functions.
-public def canvas : (Int, Int) -> Int
+## Adds a canvas to draw on, below everything already on the page. It
+## starts white.
+##
+## # Parameters
+## - `width`: its width in pixels.
+## - `height`: its height in pixels.
+##
+## # Returns
+## The canvas's number, which the drawing functions take as `c`.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## c = tw.canvas(200, 60)
+## tw.rect(c, 10, 10, 180, 40, "teal")
+## ```
+## ```stdout
+## ```
+public def canvas(width: Int, height: Int) -> Int
 
-def fill_canvas : (Int, String) -> ()
+def fill_canvas(c: Int, color: String) -> ()
 
-def draw_circle : (Int, Int, Int, Int, String) -> ()
+def draw_circle(c: Int, x: Int, y: Int, radius: Int, color: String) -> ()
 
-def draw_rect : (Int, Int, Int, Int, Int, String) -> ()
+def draw_rect(c: Int, x: Int, y: Int, width: Int, height: Int, color: String) -> ()
 
-def draw_line : (Int, Int, Int, Int, Int, String, Int) -> ()
+def draw_line(c: Int, x1: Int, y1: Int, x2: Int, y2: Int, color: String, width: Int) -> ()
 
-def draw_text : (Int, Int, Int, String, String, Int) -> ()
+def draw_text(c: Int, x: Int, y: Int, words: String, color: String, size: Int) -> ()
 
-def make_button : (String, () -> ()) -> Int
+def make_button(title: String, on_click: () -> ()) -> Int
 
-## A line of text, placed below what the page already shows. The number
-## answered names it to `set_label`.
-public def label : (String) -> Int
+## Adds a line of text below everything already on the page.
+##
+## # Parameters
+## - `text`: what the label says.
+##
+## # Returns
+## The label's number, which `set_label` takes to change the text.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## tw.label("Hello from tinyweb")
+## ```
+## ```stdout
+## ```
+public def label(text: String) -> Int
 
-## Replaces the text of the label `id` with `text`.
-public def set_label : (Int, String) -> ()
+## Replaces the text of a label.
+##
+## # Parameters
+## - `id`: the label's number, as `label` answered.
+## - `text`: the new text.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## status = tw.label("waiting")
+## def pressed():
+##     tw.set_label(status, "pressed")
+## tw.button("Press me", on_click = pressed)
+## ```
+## ```stdout
+## ```
+public def set_label(id: Int, text: String) -> ()
 
-def make_slider : (Int, Int, Int, (Int) -> ()) -> Int
+def make_slider(low: Int, high: Int, value: Int, on_change: (Int) -> ()) -> Int
 
-## Starts loading the sound file `name` and answers a number naming it
-## to `play`. The name is looked up beside the page first, and then
-## among the samples tinyweb ships: kick1.wav, snare1.wav, hihat1.wav
-## and piano_c1.wav.
-public def load_sample : (String) -> Int
+## Starts loading a sound file, so that `play` can play it without a
+## delay. The file is looked for beside the page first, then among the
+## samples tinyweb ships: `kick1.wav`, `snare1.wav`, `hihat1.wav` and
+## `piano_c1.wav`.
+##
+## # Parameters
+## - `name`: the file's name, such as `"kick1.wav"`.
+##
+## # Returns
+## The sample's number, which `play` takes.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## kick = tw.load_sample("kick1.wav")
+## def hit():
+##     tw.play(kick)
+## tw.button("Kick", on_click = hit)
+## ```
+## ```stdout
+## ```
+public def load_sample(name: String) -> Int
 
-def play_sample : (Int, Float, Float, Float) -> ()
+def play_sample(sample: Int, at: Float, volume: Float, rate: Float) -> ()
 
-## The page's clock, in seconds: the audio clock once sound has started,
-## so a time read here is a time `play` can be given.
-public def time : () -> Float
+## Reads the page's clock. Once sound has started this is the audio clock,
+## so a time read here can be given to `play` to start a sound exactly
+## then.
+##
+## # Returns
+## The time in seconds.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## print(tw.time() >= 0.0)
+## ```
+## ```stdout
+## true
+## ```
+public def time() -> Float
 
-## Calls `draw` before each frame the page shows, with the time the
-## frame is for, as `time` reads it.
-public def on_frame : ((Float) -> ()) -> ()
+## Calls `draw` before each frame the page shows, about 60 times a second,
+## with the time the frame is for. This is how a program animates.
+##
+## # Parameters
+## - `draw`: the function to call; it is given the frame's time in seconds,
+##   as `time` reads it.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## c = tw.canvas(200, 60)
+## def draw(t: Float):
+##     tw.clear(c)
+##     x = int(t * 50.0) - int(t * 50.0) / 200 * 200
+##     tw.circle(c, x, 30, 10, "orange")
+## tw.on_frame(draw)
+## ```
+## ```stdout
+## ```
+public def on_frame(draw: (Float) -> ()) -> ()
 
-## Calls `click` with the position, in pixels from the top left corner,
-## of every click on the canvas `c`.
-public def on_mouse : (Int, (Int, Int) -> ()) -> ()
+## Calls `click` each time the canvas `c` is clicked, with where the click
+## was.
+##
+## # Parameters
+## - `c`: the canvas, as `canvas` answered.
+## - `click`: the function to call; it is given `x` and `y` in pixels from
+##   the canvas's top left corner.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## def click(x: Int, y: Int):
+##     tw.circle(c, x, y, 5, "red")
+## tw.on_mouse(c, click)
+## ```
+## ```stdout
+## ```
+public def on_mouse(c: Int, click: (Int, Int) -> ()) -> ()
 
-## Calls `pressed` with the name of every key pressed while the page has
-## the focus: a letter or digit as itself, and otherwise the browser's
-## name for it, such as "ArrowLeft", "Enter" or " ".
-public def on_key : ((String) -> ()) -> ()
+## Calls `pressed` each time a key is pressed while the page has the
+## focus.
+##
+## # Parameters
+## - `pressed`: the function to call; it is given the key: a letter or
+##   digit as itself, and otherwise the browser's name for it, such as
+##   `"ArrowLeft"`, `"Enter"` or `" "`.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## shown = tw.label("press a key")
+## def pressed(key: String):
+##     tw.set_label(shown, "you pressed " ++ key)
+## tw.on_key(pressed)
+## ```
+## ```stdout
+## ```
+public def on_key(pressed: (String) -> ()) -> ()

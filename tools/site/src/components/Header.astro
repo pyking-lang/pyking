@@ -1,0 +1,19 @@
+---
+// The site's header, in place of Starlight's (astro.config.mjs,
+// `components`): the logo and the sections on the left, the search and
+// the theme switch on the right.
+import Search from "virtual:starlight/components/Search";
+import SiteTitle from "virtual:starlight/components/SiteTitle";
+import ThemeSelect from "virtual:starlight/components/ThemeSelect";
+import HeaderNav from "./HeaderNav.astro";
+---
+<div class="pyking-header">
+  <div class="pyking-header-left">
+    <SiteTitle />
+    <HeaderNav />
+  </div>
+  <div class="pyking-header-right print:hidden">
+    <Search />
+    <div class="sl-hidden md:sl-flex"><ThemeSelect /></div>
+  </div>
+</div>

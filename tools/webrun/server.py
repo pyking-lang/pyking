@@ -260,10 +260,14 @@ class Site:
 
 def common_site():
     """What every tool serves: the shared scripts, the vendored libraries,
-    the compiler bundle and the standard library, each at the path the
-    pages expect them. () -> Site"""
+    the compiler bundle, the standard library, the notebook's scripts and
+    the help -- its page and scripts, and the pages tools/help/help.py
+    generated -- each at the path the pages expect them. () -> Site"""
     return Site(
-        mounts={"/webrun/": ASSETS, "/vendor/": VENDOR, "/lib/": LIB},
+        mounts={"/webrun/": ASSETS, "/vendor/": VENDOR, "/lib/": LIB,
+                "/notebook/": ROOT / "tools" / "notebook" / "assets",
+                "/help/": ROOT / "tools" / "help" / "assets",
+                "/help/pages/": ROOT / "build" / "help"},
         files={"/pyking/pyking.js": BUNDLE},
         answers={"/pyking/manifest.json": (bundle_manifest, "application/json")},
     )

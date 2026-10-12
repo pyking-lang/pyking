@@ -1,0 +1,97 @@
+/* The help (help.js): a menu of pages above the page being read. Its
+   colours are tokens, set for the dark theme and overridden for the
+   light one; inside the playground they are the playground's own. */
+
+.pyk-help {
+  --ph-bg: var(--pyk-bg, #1d1f21);
+  --ph-panel: var(--pyk-panel, #25282c);
+  --ph-edge: var(--pyk-edge, #383c42);
+  --ph-text: var(--pyk-text, #e6e6e6);
+  --ph-dim: var(--pyk-dim, #9aa0a6);
+  --ph-accent: var(--pyk-accent, #7aa2f7);
+  --ph-box: #202327;
+  --ph-sig: #17191c;
+  --ph-keyword: #b294bb;
+  --ph-param: #de935f;
+  --ph-type: #9ece6a;
+
+  display: flex; flex-direction: column;
+  height: 100%; min-height: 0;
+  background: var(--ph-bg); color: var(--ph-text);
+  font: 14px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.pyk-help[data-theme="light"] {
+  --ph-bg: var(--pyk-bg, #ffffff);
+  --ph-panel: var(--pyk-panel, #f6f7f9);
+  --ph-edge: var(--pyk-edge, #d4d8de);
+  --ph-text: var(--pyk-text, #1f2328);
+  --ph-dim: var(--pyk-dim, #656d76);
+  --ph-accent: var(--pyk-accent, #2f5fc4);
+  --ph-box: #fafbfc;
+  --ph-sig: #f0f3f7;
+  --ph-keyword: #8959a8;
+  --ph-param: #b35900;
+  --ph-type: #2d7d32;
+}
+
+/* The menu: at most a quarter of the height, in two columns. */
+.pyk-help-menu {
+  flex: none; max-height: 25%; overflow: auto;
+  column-count: 2; column-gap: 1.5rem;
+  padding: .5rem .9rem .6rem;
+  background: var(--ph-panel); border-bottom: 1px solid var(--ph-edge);
+  font-size: .82rem; line-height: 1.35;
+}
+.pyk-help-group { break-inside: avoid; margin-bottom: .45rem; }
+.pyk-help-label {
+  margin: 0 0 .1rem; font-size: .68rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .07em; color: var(--ph-dim);
+}
+.pyk-help-menu a {
+  display: inline-block; margin: 0 .7rem .05rem 0;
+  color: var(--ph-text); text-decoration: none;
+}
+.pyk-help-menu a:hover { color: var(--ph-accent); }
+.pyk-help-menu a[aria-current="page"] {
+  color: var(--ph-accent); font-weight: 700;
+}
+.pyk-help-headings a { color: var(--ph-dim); }
+
+/* The page. */
+.pyk-help-page {
+  flex: 1 1 auto; min-height: 0; overflow: auto; position: relative;
+  padding: .6rem 1.4rem 2rem;
+}
+.pyk-help-page .pyk-help-title { font-size: 1.5rem; margin: .6rem 0 .8rem; }
+.pyk-help-page h2 { font-size: 1.2rem; margin: 1.6rem 0 .5rem; }
+.pyk-help-page h3 { font-size: 1.02rem; margin: 1.2rem 0 .4rem; }
+.pyk-help-page h4 { font-size: .95rem; }
+.pyk-help-page a { color: var(--ph-accent); }
+.pyk-help-page code { font-size: .88em; }
+
+/* A library's function or value, boxed (tools/help/libdoc.py). */
+.pyk-help .pyk-api {
+  border: 1px solid var(--ph-edge); border-radius: 8px;
+  padding: .1rem 1rem .8rem; margin: 1.2rem 0;
+  background: var(--ph-box);
+}
+.pyk-help .pyk-api h2 {
+  font-size: 1.02rem; margin: .7rem 0 .2rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.pyk-help .pyk-sig {
+  margin: .4rem 0 .6rem; padding: .5rem .75rem;
+  background: var(--ph-sig); border-left: 3px solid var(--ph-accent);
+  border-radius: 5px; white-space: pre-wrap; font-size: .84rem;
+}
+.pyk-sig .k { color: var(--ph-keyword); }
+.pyk-sig .n { font-weight: 700; }
+.pyk-sig .p { color: var(--ph-param); }
+.pyk-sig .t { color: var(--ph-type); }
+.pyk-help .pyk-api-label {
+  margin: .8rem 0 .15rem; font-size: .7rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .07em; color: var(--ph-dim);
+}
+.pyk-help .pyk-api ul { margin: .2rem 0; padding-left: 1.3rem; }
+
+.pkn-action { cursor: pointer; }

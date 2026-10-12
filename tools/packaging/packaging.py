@@ -124,6 +124,10 @@ SHIPPED = [
     ("tools/notebook/package.json", "tools/notebook/package.json"),
     ("tools/notebook/assets", "tools/notebook/assets"),
     ("tools/playground/assets", "tools/playground/assets"),
+    # The help, which `pyk help` and the playground's Help tab show: its
+    # page and scripts, and the pages `make` generated into build/help/.
+    ("tools/help/assets", "tools/help/assets"),
+    ("build/help", "build/help"),
     ("tools/emacs/pyking-mode.el", "tools/emacs/pyking-mode.el"),
 ]
 # The examples `pyk example` saves and the playground offers: the list,

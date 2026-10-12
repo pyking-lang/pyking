@@ -260,11 +260,15 @@ one per target family and two for JavaScript, which runs in two
 environments.
 
 ```
-public def loadfile : (String) -> String
+public def loadfile(path: String) -> String
 public def start    : Int
 ```
 
-That is the whole of the declaration file. `import sys` reaches it
+That is the whole of the declaration file. A function may be declared
+with its parameters named, as `loadfile` is, or as `def loadfile :
+(String) -> String`; the parser makes the first into the second, so
+nothing after it can tell them apart, and the names are for the reader
+and the library reference. `lib/` uses the named form throughout. `import sys` reaches it
 exactly as it reaches an ordinary module -- a qualified name is an
 environment lookup, the checker holds every call to the type written
 here, and nothing about the call site says which kind of module it is.

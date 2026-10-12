@@ -134,6 +134,7 @@ let synopsis =
   \       pyk notebook [--port N] [--mode M] <file.md>\n\
   \                                            open a notebook in the browser\n\
   \       pyk playground [--port N]            open the playground\n\
+  \       pyk help [--port N]                  open the help in the browser\n\
   \       pyk serve [--port N] [<dir>]         serve a directory's files\n\
   \       pyk lsp [--stdio] [--log FILE]       the language server, for editors\n\
   \       pyk example [<name>]                 list the examples, or save one\n\n\
@@ -147,8 +148,8 @@ let synopsis =
   \                        target's own commands\n\
   \  --release             compile in release mode: every call to debug()\n\
   \                        is removed, and print() is kept\n\
-  \  --port <n>            serve the notebook, the playground or a\n\
-  \                        directory on port <n>\n\
+  \  --port <n>            serve the notebook, the playground, the help\n\
+  \                        or a directory on port <n>\n\
   \  --mode <mode>         the notebook for a student (the default) or a\n\
   \                        teacher, or test: check it instead of serving it\n\
   \  --                    everything after it is the program's own\n\
@@ -268,6 +269,9 @@ let usage_full () =
      blocks can be edited and run in the browser, and `pyk playground`\n\
      serves the compiler's playground. Both print a link to open, are\n\
      served by pyk itself, and look for tools/ beside this executable.\n\
+     `pyk help` serves the help -- getting started, the language\n\
+     reference and the libraries, with runnable examples -- which the\n\
+     playground's Help tab shows too.\n\
      `pyk serve <dir>` serves a directory's files as they are, such as a\n\
      page compiled for web24 or iweb24. Without --port they start at 8000\n\
      and take the first free port. --mode student hides an exercise's solution and\n\
@@ -302,6 +306,7 @@ let commands =
     ("c", "compile");
     ("notebook", "notebook");
     ("playground", "playground");
+    ("help", "help");
     ("serve", "serve");
     ("lsp", "lsp");
     ("plugins", "plugins");
@@ -535,10 +540,13 @@ let parse_args argv =
     usage_error
       "--release needs the types the checker works out, so it cannot be used \
        with --no-typechecking";
-  let web = command = "notebook" || command = "playground" || command = "serve" in
+  let web =
+    command = "notebook" || command = "playground" || command = "serve" || command = "help"
+  in
   if options.port <> None && not web then
     usage_error
-      "--port only applies to 'pyk notebook', 'pyk playground' and 'pyk serve'";
+      "--port only applies to 'pyk notebook', 'pyk playground', 'pyk help' and \
+       'pyk serve'";
   if options.log <> None && command <> "lsp" then
     usage_error "--log only applies to 'pyk lsp'";
   if options.mode <> None && command <> "notebook" then
@@ -578,7 +586,7 @@ let parse_args argv =
          "--no-typechecking only applies to 'pyk compile -t %s': every other \
           target, and the interpreter, need the types the checker works out"
          pyking_target);
-  if command = "repl" || command = "playground" || command = "lsp" then (
+  if command = "repl" || command = "playground" || command = "help" || command = "lsp" then (
     if positional <> [] then
       usage_error (Printf.sprintf "'pyk %s' takes no filename" command);
     options)
@@ -1415,7 +1423,8 @@ let command_plugins options =
     names;
   0
 
-(** `pyk notebook` and `pyk playground`: hands the process to the web
+(** `pyk notebook`, `pyk playground`, `pyk help` and `pyk serve`: hands
+    the process to the web
     tool's server, and answers 1 only if that could not be done.
     Web_tools.tool -> options -> int *)
 let command_web tool options =
@@ -1553,6 +1562,7 @@ let main argv =
   else if options.command = "plugins" then command_plugins options
   else if options.command = "notebook" then command_web Web_tools.Notebook options
   else if options.command = "playground" then command_web Web_tools.Playground options
+  else if options.command = "help" then command_web Web_tools.Help options
   else if options.command = "serve" then command_web Web_tools.Files options
   else if options.command = "lsp" then command_lsp options
   else if options.command = "example" then command_example options

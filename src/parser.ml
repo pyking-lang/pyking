@@ -1214,7 +1214,38 @@ and parse_statement eof tokens =
                 implicits,
                 false ),
             rest )
-      | _ -> raise (Parse_error (here eof rest, "expected ':' after def header")))
+      | _ -> (
+          (* `def name(p: T, ...) -> R` with no body: the signature
+             `def name : (T, ...) -> R`, its parameters named. *)
+          let ends_line result =
+            match rest with
+            | [] -> true
+            | next :: _ -> (token_info next).row1 > (type_info result).row2
+          in
+          match return_type with
+          | Some result when implicits = [] && ends_line result ->
+              let typed (Param (pi, pname, ptype, default, _)) =
+                match (ptype, default) with
+                | Some t, None -> t
+                | _ ->
+                    raise
+                      (Parse_error
+                         ( pi,
+                           Printf.sprintf
+                             "'%s' is a parameter of a 'def' with no body, \
+                              which gives every parameter a type and no \
+                              default"
+                             pname ))
+              in
+              let info = combine_info i (type_info result) in
+              ( SFunctionSig
+                  ( info,
+                    name,
+                    TFunction (info, List.map typed params, result, 0, 0, None, []),
+                    0,
+                    false ),
+                rest )
+          | _ -> raise (Parse_error (here eof rest, "expected ':' after def header"))))
   | TokReturn i :: rest -> (
       (* `return` takes a bound value, not just an expression: the
          value-form `if`/`match` is allowed here as well as after `=`.

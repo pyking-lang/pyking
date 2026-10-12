@@ -1,6 +1,8 @@
 ---
 // The playground, as a page of the site: tools/playground's own
 // component (mountPlayground), served from runtime/ (tools/site/README.md).
+// Below the header it fills the window: the splash template has no left
+// menu, and site.css hides the title and the footer.
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
 
 const runtime = import.meta.env.BASE_URL.replace(/\/?$/, "/") + "runtime/";
@@ -9,9 +11,9 @@ const runtime = import.meta.env.BASE_URL.replace(/\/?$/, "/") + "runtime/";
   title: "Playground",
   description: "Write Pyking, compile it to every target, and run it, in the browser.",
   tableOfContents: false,
+  template: "splash",
+  pagefind: false,
 }}>
-  <p>Write a program on the left, pick a target and compile it, or run it
-  with the interpreter. Everything runs in your browser.</p>
   <div id="playground" class="pyking-playground not-content" data-runtime={runtime}></div>
   <script is:inline type="module">
     const host = document.getElementById("playground");
@@ -29,6 +31,8 @@ const runtime = import.meta.env.BASE_URL.replace(/\/?$/, "/") + "runtime/";
         examplesURL: runtime + "examples/",
         webrunURL: runtime + "webrun/",
         vendorURL: runtime + "vendor/",
+        notebookURL: runtime + "notebook/",
+        helpURL: runtime + "help/",
         // The site's own light/dark switch decides the playground's too.
         theme: theme(),
       });

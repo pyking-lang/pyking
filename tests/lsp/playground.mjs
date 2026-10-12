@@ -82,8 +82,8 @@ const PAGE = `(async () => { ${HELPERS}
 const TABS = `(async () => { ${HELPERS}
   const shown = (r) => !$("[data-r=" + r + "]").closest(".pyk-hidden");
   const active = () => $(".pyk-tab.active")?.dataset.tab;
-  check("there are four tabs", $$(".pyk-tab").map((t) => t.textContent).join("|")
-    === "Run output|Compiled code|Web output|REPL", $$(".pyk-tab").map((t) => t.textContent));
+  check("there are five tabs", $$(".pyk-tab").map((t) => t.textContent).join("|")
+    === "Run output|Compiled code|Web output|REPL|Help", $$(".pyk-tab").map((t) => t.textContent));
   check("Compile and the targets are on the Compiled code tab only",
     $("[data-r=panelCompiled]").contains($("[data-r=compile]"))
     && $("[data-r=panelCompiled]").contains($("[data-r=target]")));
@@ -110,6 +110,22 @@ const TABS = `(async () => { ${HELPERS}
     && $("[data-r=page] canvas"), 30000), output());
   app.stopRun();
   await until(() => !app.running);
+
+  $("[data-r=tabHelp]").click();
+  check("the Help tab shows the help, with its menu above the page",
+    await until(() => $(".pyk-help-menu a") && $(".pyk-help-page h1")?.textContent, 30000),
+    $("[data-r=helpHost]").textContent.slice(0, 120));
+  const menu = $(".pyk-help-menu").getBoundingClientRect().height;
+  const panel = $("[data-r=panelHelp]").getBoundingClientRect().height;
+  check("the menu takes at most a quarter of the tab", menu <= panel / 4 + 1, menu + " of " + panel);
+  [...$$(".pyk-help-menu a")].find((a) => a.textContent === "io").click();
+  check("a library's page opens, its functions boxed",
+    await until(() => $$(".pyk-help-page .pyk-api").length >= 4, 20000),
+    $(".pyk-help-page h1")?.textContent);
+  const copy = await until(() => $$(".pyk-help-page .pkn-action")[0], 20000);
+  copy?.click();
+  check("Copy to editor puts an example in the editor",
+    app.left.getValue().startsWith("import io"), app.left.getValue().slice(0, 60));
   return checks;
 })()`;
 

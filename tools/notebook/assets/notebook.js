@@ -56,6 +56,8 @@ const DEFAULTS = {
   mode: "student",        // "student" or "teacher": who is reading
   storageKey: null,       // where progress is kept; default: from url
   onChange: null,         // (results) -> (), whenever an answer is checked
+  cellActions: [],        // [{label, title, run(source)}]: a button on each cell
+  runtime: null,          // a PykingRuntime to share; default: one of its own
 };
 
 const THEME_KEY = "pyking-notebook.theme";
@@ -163,7 +165,8 @@ class Cells {
     this.cfg = cfg;
     this.web = web;
     this.ui = {};
-    this.runtime = web.createRuntime({ webrun: cfg.webrunURL, pyking: cfg.pykingURL });
+    this.runtime = cfg.runtime
+      ?? web.createRuntime({ webrun: cfg.webrunURL, pyking: cfg.pykingURL });
     this.cells = [];
     this.queue = Promise.resolve();
     this.generation = 0;       // bumped by Stop, which cancels what is queued
@@ -651,6 +654,16 @@ class Cell {
     this.ui.run.addEventListener("click", () => this.run());
     this.ui.stop.addEventListener("click", () => this.notebook.stop());
     this.ui.reset.addEventListener("click", () => this.reset());
+    // What the embedding page offers to do with a cell's code -- the
+    // playground's Help tab copies it into the editor.
+    for (const action of notebook.cfg.cellActions ?? []) {
+      const button = document.createElement("button");
+      button.className = "pkn-tag pkn-action";
+      button.textContent = action.label;
+      button.title = action.title ?? action.label;
+      button.addEventListener("click", () => action.run(this.source()));
+      element.querySelector(".pkn-cell-tags").appendChild(button);
+    }
     this.analyzeTimer = null;
     this.uses = { stdin: false, args: false };
     this.editListeners = [];

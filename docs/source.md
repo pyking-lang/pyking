@@ -305,6 +305,11 @@ block). The last two are shape rather than scope — neither needs to know
 what a name means — which is why they are here and not in
 `analyses.ml`, and being here they hold in every mode.
 
+A `def` header with no body -- `def f(n: Int, s: String) -> Int`, ending
+its line, every parameter typed and none with a default -- is read as
+the signature line `def f : (Int, String) -> Int` (`SFunctionSig`); the
+parameter names are not kept, since nothing after the parser needs them.
+
 `Parse_error (info, message)` carries the position.
 
 ---
@@ -1916,7 +1921,7 @@ through its host, which is what puts it in the library.
 
 ## `web_tools.ml`
 
-**`pyk notebook`, `pyk playground` and `pyk serve`.** Each page is a
+**`pyk notebook`, `pyk playground`, `pyk help` and `pyk serve`.** Each page is a
 directory under `tools/` beside the running executable, served by
 `web_server.ml` in this process, so nothing else has to be installed
 (see [build.md](build.md), "The web tools"). In the executable rather
@@ -1924,7 +1929,7 @@ than the library, since it listens on a socket.
 
 ### Data structures
 
-- **`tool`** — `Notebook | Playground | Files`; `Files` is `pyk serve`.
+- **`tool`** — `Notebook | Playground | Help | Files`; `Files` is `pyk serve`.
 - **`case`** — what the playground reads of one `[[cases]]` table of
   `tests/test_cases.toml`: `file`, `targets`, `modules`, `libs`.
 - **`playground_targets`** — the targets the playground offers, in menu
@@ -1939,13 +1944,16 @@ than the library, since it listens on a socket.
   notebook: checks the document, then `--mode test` runs
   `tools/notebook/check.js` under node and answers its status, and any
   other mode serves `notebook_site`. The playground serves
-  `playground_site`; `pyk serve` serves a directory, listing one with no
+  `playground_site`; the help serves `help_site`, refusing where
+  `build/help/` was not generated (`check_help`); `pyk serve` serves a directory, listing one with no
   `index.html`. Each refuses a missing compiler bundle or, unless
   `$PYKING_WEB_NO_VENDOR` is set, missing browser libraries, with the
   reason as a sentence for the driver to print.
 - **`common_site ()`** — what every page loads: `/webrun/`, `/vendor/`,
-  `/lib/`, `/pyking/pyking.js` and `/pyking/manifest.json`, whose stamp
-  is a digest of the bundle.
+  `/lib/`, `/notebook/` (the notebook's scripts, which run a cell
+  anywhere), `/help/` and `/help/pages/` (the help's scripts and its
+  generated pages), `/pyking/pyking.js` and `/pyking/manifest.json`,
+  whose stamp is a digest of the bundle.
 - **`offered_examples ()`** — the playground's examples, the list in
   `src/examples.toml` (`examples.ml`), which a package ships; each is
   served at `/examples/<name>`, the name `pyk example` saves it as.

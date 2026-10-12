@@ -13,12 +13,65 @@
 # so there is nothing this module could answer with. Ask `exists`
 # first. See docs/libraries.md.
 
-## The whole contents of the file at a path, as text.
-public def read_text : (String) -> String
+## Reads the whole file at `path` as text. Reading a file that does not
+## exist is undefined, so check with `exists` first.
+##
+## # Parameters
+## - `path`: the file, relative to the directory the program runs in, or
+##   absolute.
+##
+## # Returns
+## The file's contents.
+##
+## # Examples
+## ```pyking norun
+## import fs
+## fs.write_text("notes.txt", "milk\neggs\n")
+## if fs.exists("notes.txt"):
+##     print(fs.read_text("notes.txt"))
+## ```
+## ```stdout
+## milk
+## eggs
+##
+## ```
+public def read_text(path: String) -> String
 
-## Writes text to a file: the first argument is the path, the second
-## the text, which replaces what the file held.
-public def write_text : (String, String) -> ()
+## Writes `text` to the file at `path`, replacing what it held, and
+## creating it if it does not exist. Writing where the host does not
+## allow it is undefined.
+##
+## # Parameters
+## - `path`: the file, relative to the directory the program runs in, or
+##   absolute.
+## - `text`: the new contents.
+##
+## # Examples
+## ```pyking norun
+## import fs
+## fs.write_text("greeting.txt", "hello")
+## print(fs.read_text("greeting.txt"))
+## ```
+## ```stdout
+## hello
+## ```
+public def write_text(path: String, text: String) -> ()
 
-## Whether a file exists at a path.
-public def exists : (String) -> Bool
+## Tells whether there is a file at `path`.
+##
+## # Parameters
+## - `path`: the file, relative to the directory the program runs in, or
+##   absolute.
+##
+## # Returns
+## `true` when the file exists, `false` otherwise.
+##
+## # Examples
+## ```pyking norun
+## import fs
+## print(fs.exists("no-such-file.txt"))
+## ```
+## ```stdout
+## false
+## ```
+public def exists(path: String) -> Bool

@@ -792,6 +792,18 @@ file = "typecheck_type_signature.pyk"
 targets = ["python14", "node24", "web24", "ocaml5.5", "pyking", "iweb24", "interpret"]
 
 [[cases]]
+file = "typecheck_signature_named.pyk"
+targets = ["python14", "node24", "web24", "ocaml5.5", "pyking", "iweb24", "interpret"]
+
+[[cases]]
+file = "fail_typecheck_signature_named_untyped.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_signature_named_default.pyk"
+targets = ["pyking"]
+
+[[cases]]
 file = "typecheck_type_variables.pyk"
 targets = ["python14", "node24", "web24", "ocaml5.5", "pyking", "iweb24", "interpret"]
 

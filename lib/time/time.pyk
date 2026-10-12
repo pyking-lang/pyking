@@ -23,19 +23,66 @@
 # `format` does not know ends the output there. See docs/libraries.md.
 
 
-## The ISO 8601 format, e.g. `2026-10-04T12:30:00Z`.
+## The format string for ISO 8601, as in `2026-10-04T12:30:00Z`.
+##
+## # Examples
+## ```pyking
+## import time
+## print(time.format((2026, 10, 4, 12, 30, 0), time.ISO8601))
+## ```
+## ```stdout
+## 2026-10-04T12:30:00Z
+## ```
 public ISO8601: String = "yyyy-MM-ddTHH:mm:ssZ"
 
-## A date alone, e.g. `2026-10-04`.
+## The format string for a date alone, as in `2026-10-04`.
+##
+## # Examples
+## ```pyking
+## import time
+## print(time.format((2026, 10, 4, 12, 30, 0), time.DATE))
+## ```
+## ```stdout
+## 2026-10-04
+## ```
 public DATE: String = "yyyy-MM-dd"
 
-## A time of day alone, e.g. `12:30:00`.
+## The format string for a time of day alone, as in `12:30:00`.
+##
+## # Examples
+## ```pyking
+## import time
+## print(time.format((2026, 10, 4, 12, 30, 0), time.TIME))
+## ```
+## ```stdout
+## 12:30:00
+## ```
 public TIME: String = "HH:mm:ss"
 
-## A date and a time separated by a space, e.g. `2026-10-04 12:30:00`.
+## The format string for a date and a time separated by a space, as in
+## `2026-10-04 12:30:00`.
+##
+## # Examples
+## ```pyking
+## import time
+## print(time.format((2026, 10, 4, 12, 30, 0), time.DATETIME))
+## ```
+## ```stdout
+## 2026-10-04 12:30:00
+## ```
 public DATETIME: String = "yyyy-MM-dd HH:mm:ss"
 
-## A date and a time with no separators, e.g. `20261004123000`.
+## The format string for a date and a time with nothing between the
+## fields, as in `20261004123000`, which sorts in time order as text.
+##
+## # Examples
+## ```pyking
+## import time
+## print(time.format((2026, 10, 4, 12, 30, 0), time.COMPACT))
+## ```
+## ```stdout
+## 20261004123000
+## ```
 public COMPACT: String = "yyyyMMddHHmmss"
 
 
@@ -78,15 +125,55 @@ def pad4(n:Int) -> String:
     return pad2(n / 100) ++ pad2(n - n / 100 * 100)
 
 
-## One instant as (year, month, day, hour, minute, second), in UTC.
-## Month is 1..12 and day is 1..31, as a reader writes them.
+## Splits an instant into a date and a time of day, in UTC.
+##
+## # Parameters
+## - `t`: seconds since 1970-01-01 00:00:00 UTC, as `instant` answers.
+##
+## # Returns
+## `(year, month, day, hour, minute, second)`, with the month 1 to 12 and
+## the day 1 to 31.
+##
+## # Examples
+## ```pyking
+## import time
+## print(time.of_instant(0))
+## print(time.of_instant(86400 + 3661))
+## ```
+## ```stdout
+## (1970, 1, 1, 0, 0, 0)
+## (1970, 1, 2, 1, 1, 1)
+## ```
 public def of_instant(t:Int) -> (Int, Int, Int, Int, Int, Int):
     return (year_of(t), month_of(t), day_of(t), hour_of(t), minute_of(t), second_of(t))
 
 
-## One time rendered by a format: `yyyy` `MM` `dd` `HH` `mm` `ss`, with
-## anything else in the format taken literally, from the separators
-## listed here.
+## Writes a date and time as text, following the pattern `fmt`. In `fmt`,
+## `yyyy` is the year, `MM` the month, `dd` the day, `HH` the hour, `mm`
+## the minute and `ss` the second, each padded with zeros. The characters
+## `- : / . ,`, a space, `T` and `Z` are copied as they are. Any other
+## character ends the text there.
+##
+## # Parameters
+## - `t`: `(year, month, day, hour, minute, second)`, as `now` and
+##   `of_instant` answer.
+## - `fmt`: the pattern; `ISO8601`, `DATE`, `TIME`, `DATETIME` and
+##   `COMPACT` are ready-made ones.
+##
+## # Returns
+## The formatted text.
+##
+## # Examples
+## ```pyking
+## import time
+## t = (2026, 1, 9, 8, 5, 3)
+## print(time.format(t, "dd/MM/yyyy"))
+## print(time.format(t, "HH.mm"))
+## ```
+## ```stdout
+## 09/01/2026
+## 08.05
+## ```
 public def format(t:(Int, Int, Int, Int, Int, Int), fmt:String) -> String:
     (year, month, day, hour, minute, second) = t
     (_, rendered) = loop rest, out = fmt, "":

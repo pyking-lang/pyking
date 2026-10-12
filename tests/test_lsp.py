@@ -81,7 +81,7 @@ PAGE_DRIVER = CASES / "playground.mjs"
 MONACO = REPO / "tools" / "webrun" / "vendor" / "monaco"
 VSCODE = REPO / "tools" / "editors" / "vscode"
 EMACS_MODE = REPO / "tools" / "emacs" / "pyking-mode.el"
-EDITORS_PAGE = REPO / "sitesrc" / "getstarted" / "editors.md"
+EDITORS_PAGE = REPO / "sitesrc" / "documentation" / "editors.md"
 DEFAULT_COMPILER = str(REPO / "pyk")
 # Where the compilers under test are installed: the standard library
 # beside each is named $LIB in what a session said.

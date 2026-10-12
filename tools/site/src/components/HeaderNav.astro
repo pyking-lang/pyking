@@ -1,8 +1,6 @@
 ---
-// The header's menu: the site's four sections, beside Starlight's own
-// social icons. Replaces Starlight's SocialIcons component
-// (astro.config.mjs, `components`).
-import Default from "@astrojs/starlight/components/SocialIcons.astro";
+// The header's menu: the site's five sections, beside the logo
+// (Header.astro).
 import { SECTIONS } from "../sections.mjs";
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -13,4 +11,3 @@ const here = Astro.url.pathname;
     <a href={base + path} aria-current={here.startsWith(base + prefix) ? "page" : undefined}>{label}</a>
   ))}
 </nav>
-<Default />

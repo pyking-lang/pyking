@@ -74,7 +74,7 @@ needs a copy of it saved once.
 ┌──────────────────────────────────────────────────────────────────┐
 │ Pyking Playground  version 0.1.2  ● ready  [☀/☾]  [≡ Settings]   │
 ├────────────────────────────────╥─────────────────────────────────┤
-│ Examples [example ▾]   [▶ Run] ║ Run output│Compiled code│Web…│REPL
+│ Examples [example ▾]   [▶ Run] ║ Run│Compiled code│Web│REPL│Help
 │ ┌────────────────────────────┐ ║ ┌─────────────────────────────┐ │
 │ │ Pyking, highlighted        │ ║ │ the tab showing:            │ │
 │ │ errors underlined in place │ ║ │  Run output -- what Run     │ │
@@ -91,7 +91,7 @@ needs a copy of it saved once.
                                  ↑ drag
 ```
 
-The right-hand side is four tabs, and the page opens on **Run output**:
+The right-hand side is five tabs, and the page opens on **Run output**:
 
 - **Run output** is what the left ▶ Run printed, over the whole tab.
 - **Compiled code** holds the Target list, **Compile**, the right ▶ Run and
@@ -101,6 +101,9 @@ The right-hand side is four tabs, and the page opens on **Run output**:
   browser-window frame, above the same output Run output shows (see "The
   Web output tab").
 - **REPL** is `pyk repl` in the page (see "The REPL").
+- **Help** is the help `pyk help` serves -- getting started, the
+  language reference and the libraries -- with a menu above the page
+  (see "The Help tab").
 
 Run switches to Web output for a program that imports `tinyweb`, and to
 Run output for any other -- unless Web output is showing, where it stays.
@@ -350,6 +353,18 @@ run there, exactly as at a terminal prompt.
 
 The REPL runs on a `PykingRuntime` of its own, started the first time the
 tab is opened, so stopping an entry ends nothing a Run started.
+
+### The Help tab
+
+The Help tab mounts the help (`../help/README.md`): a menu of pages, at
+most a quarter of the tab's height and in two columns, above the page
+being read. The pages are the ones the website is built from, generated
+into `build/help/` by `make`, and every example on them is a cell that
+runs there, on a worker of the help's own, with a **Copy to editor**
+button that puts it in the source editor. It is mounted the first time
+the tab is opened, follows the playground's theme, and is found at
+`helpURL` (the help's scripts, `/help/`) and `notebookURL` (the
+notebook's, which run its cells), both options of `mountPlayground`.
 
 ### Light and dark
 

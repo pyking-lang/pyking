@@ -1,0 +1,49 @@
+---
+// The left menu, in place of Starlight's (astro.config.mjs,
+// `components`): the pages of the section being read and nothing else,
+// the page shown opened at its headings, which link within it. site.py
+// writes what each section holds into sidebar.json.
+import fs from "node:fs";
+import MobileMenuFooter from "virtual:starlight/components/MobileMenuFooter";
+import { SECTIONS } from "../sections.mjs";
+import { STAGE } from "../stage.mjs";
+
+const menus = JSON.parse(fs.readFileSync(STAGE + "/sidebar.json", "utf8"));
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+const here = Astro.url.pathname.replace(/\/?$/, "/");
+const section = SECTIONS.find(({ prefix }) => here.startsWith(base + prefix));
+const id = section ? section.prefix.replace(/\//g, "") : "";
+const menu = menus[id];
+const current = (link) => here === base + link;
+const within = (page) => current(page.link)
+  || (page.items ?? []).some((item) => current(item.link));
+---
+<nav class="pyking-sidebar" aria-label={menu?.label ?? "Pages"}>
+  {menu && (
+    <>
+      <p class="pyking-sidebar-title">{menu.label}</p>
+      <ul>
+        {menu.pages.map((page) => (
+          <li>
+            <a href={base + page.link} aria-current={current(page.link) ? "page" : undefined}>{page.label}</a>
+            {current(page.link) && page.headings.length > 0 && (
+              <ul class="pyking-sidebar-headings">
+                {page.headings.map((h) => <li><a href={`#${h.anchor}`}>{h.text}</a></li>)}
+              </ul>
+            )}
+            {page.items && within(page) && (
+              <ul class="pyking-sidebar-headings">
+                {page.items.map((item) => (
+                  <li><a href={base + item.link} aria-current={current(item.link) ? "page" : undefined}>{item.label}</a></li>
+                ))}
+              </ul>
+            )}
+          </li>
+        ))}
+      </ul>
+    </>
+  )}
+</nav>
+<div class="md:sl-hidden">
+  <MobileMenuFooter />
+</div>

@@ -293,7 +293,12 @@ The bootstrap is split into one module per compiler stage:
    keywords outright. It is also the one function that answers with
    *several* statements, since `import a, b` is one line standing for
    two `SImport`s; `_check_own_line` is then applied to the first of the
-   group, the rest sharing its line by construction. A qualified name
+   group, the rest sharing its line by construction. A `def` header
+   with no body that ends its line -- every parameter typed, none with a
+   default, the result written -- is a signature line (`SFunctionSig`),
+   its parameter names dropped: `def write(text: String) -> ()` is `def
+   write : (String) -> ()`, which is how `lib/`'s declarations name their
+   parameters. A qualified name
    (`m.f`) is read in `parse_atom` and requires the `.` to start on the
    row the module name ended on, for the reason `call_tail` requires it
    of a `(`. An inline block is
@@ -1179,8 +1184,8 @@ The bootstrap is split into one module per compiler stage:
    Flags are shared by all three rather than per-command, so `--tokens`
    means the same thing wherever it is written. `pyk plugins <dir>`
    builds the plugin of every library in a directory of libraries, which
-   is what `make libs` runs over `lib/`. Three more, `pyk notebook
-   FILE.md`, `pyk playground` and `pyk serve [DIR]`, run no front end at
+   is what `make libs` runs over `lib/`. Four more, `pyk notebook
+   FILE.md`, `pyk playground`, `pyk help` and `pyk serve [DIR]`, run no front end at
    all: `command_web` hands them to `web_tools.ml`, and `--port` is
    theirs alone. Nor does `pyk lsp`, the language server: `command_lsp`
    is its stdio transport over `lsp.ml`, and `--stdio` and `--log` are
@@ -1455,10 +1460,13 @@ never checked in). The playground's editor is Monaco, an LSP client of
 the notebook and the website's cells still use Ace. Put
 anything both pages need there rather than copying it.
 
-- **There is no build step.** `pyk` serves each tool's files, the
-  shared ones and `build/pyking.js` from where they sit, and works out
-  what is not a file (the playground's example manifest, the bundle's
-  stamp) per request. Do not add a generated copy of anything.
+- **There is no build step**, with one exception. `pyk` serves each
+  tool's files, the shared ones and `build/pyking.js` from where they
+  sit, and works out what is not a file (the playground's example
+  manifest, the bundle's stamp) per request. The exception is the help
+  (`tools/help/`): `make` runs `tools/help/help.py`, which writes the
+  help's pages into `build/help/` as `make` writes the bundle into
+  `build/`, and packages ship it. Do not add another generated copy.
 - **Nothing is baked into the pages.** The keyword list, the builtins,
   the targets and the JavaScript value formatter are asked of the loaded
   compiler through the worker's `words` request, so the compiler is
@@ -1498,16 +1506,25 @@ anything both pages need there rather than copying it.
   shown only when `pykAnalyze` says the program reads them -- and
   `sys.exit` ends the run. A `debug` line is shown apart from the output,
   and on the console.
-- **The playground's right side is four tabs**: Run output (the left
+- **The playground's right side is five tabs**: Run output (the left
   Run's output), Compiled code (Target, Compile, the right Run, the code
   and its own output), Web output (a tinyweb page in a browser-window
-  frame with Refresh, above the same output Run output shows) and REPL
+  frame with Refresh, above the same output Run output shows), REPL
   (a session of `repl_session.ml` on a `PykingRuntime` of its own, its
-  environment as a table below). It has a light and a dark theme: colour
+  environment as a table below) and Help (the help, below). It has a light and a dark theme: colour
   tokens on `.pyk-playground`, overridden under `[data-theme="light"]`,
   chosen by the header's switch or Appearance in the settings unless the
   embedding page passes `theme` and calls `setTheme`, as the website
   does with Starlight's. `tools/playground/README.md` is the long form.
+- **The help** (`tools/help/`, `pyk help`, the playground's Help tab):
+  Getting started, the language reference (PYKING.md) and the library
+  reference, generated as Markdown into `build/help/` by
+  `tools/help/help.py` -- the same pages the website is built from --
+  and shown by `tools/help/assets/help.js` (`mountHelp`), a menu of
+  pages above the page, rendered by the notebook's `mountCells` so every
+  example is a cell, with a "Copy to editor" button in the playground.
+  `pyk` serves its scripts at `/help/` and the pages at `/help/pages/`
+  for every tool. `tools/help/README.md` is the long form.
 - Both are libraries as well as pages: `mountNotebook(host, options)` and
   `mountPlayground(host, options)` embed them in another site. Keep the
   host `index.html` pages thin.
@@ -1520,8 +1537,9 @@ notebook and the playground are served by `pyk` itself, and a
 distribution ships no Python. The one exception is `pyk notebook --mode
 test`, which runs the notebook's code under node. A distribution is a subset of this repository's tree at the
 same relative paths -- `pyk`, `lib/` (with its plugins),
-`build/pyking.js`, `build/plugin/`, `tools/webrun/` (with `vendor/`),
-`tools/notebook/`, `tools/playground/`, and `src/examples.toml` with
+`build/pyking.js`, `build/plugin/`, `build/help/`, `tools/webrun/` (with
+`vendor/`), `tools/notebook/`, `tools/playground/`, `tools/help/assets/`,
+and `src/examples.toml` with
 the programs it names -- so the one
 rule "look beside the executable" finds everything in a checkout and an
 install alike. Keep it that way: a web tool may not need anything outside
@@ -1532,15 +1550,28 @@ those directories, and the playground runs (with no example menu) when
 
 `make website` builds the Pyking website into **`website/`** (gitignored)
 with `tools/site/site.py`: Astro with Starlight, configured in
-`tools/site/`, over pages that live elsewhere. **`sitesrc/`** holds the
-hand-written Markdown (the start page, `install.md`, and
-`getstarted/`, one page per file), and the Libraries section is
-**generated from `lib/`** by `tools/site/libdoc.py`. `site.py` stages
-both, and the runtime the pages run, in `tools/site/build/`
-(gitignored) and Astro builds from there; nothing is generated into
-`sitesrc/` or `lib/`.
+`tools/site/`, over pages that live elsewhere: **the help**
+(`tools/help/help.py`, the same pages the playground's Help tab and `pyk
+help` show). **`sitesrc/`** holds the hand-written Markdown (the start
+page, `install.md`, `getstarted/` and `documentation/`, one page per
+file); the help adds the language reference, made from **PYKING.md**,
+and the Libraries section, **generated from `lib/`** by
+`tools/help/libdoc.py`. `site.py` stages the help, tinyweb's pages and
+the runtime the pages run in `tools/site/build/` (gitignored) and Astro
+builds from there; nothing is generated into `sitesrc/` or `lib/`.
 
-- **tinyweb has pages for using it without Pyking**, one per language
+- **Five sections**, in the header beside the logo, with the search on
+  the right (`src/components/Header.astro`, `src/sections.mjs`): Install,
+  Getting started, Documentation (the language reference, Editors, and
+  tinyweb without Pyking), Libraries and Playground. **The menu on the
+  left is the section's own pages only**, the page being read opened at
+  its `##` headings (`src/components/Sidebar.astro`, over the
+  `sidebar.json` `site.py` writes from the help's `index.json`); there
+  is no table of contents on the right. The playground page is the
+  header and the playground, filling the window.
+
+- **tinyweb has pages for using it without Pyking**, under
+  Documentation, one per language
   it is implemented in, written by `tools/site/tinywebdoc.py` with the
   library renamed (`tinyweb.py`, `tinyweb.ml`/`.mli`, `tinyweb.c`/`.h`,
   ...), an example from `tools/site/tinyweb/`, and the tests compiled
@@ -1548,9 +1579,15 @@ both, and the runtime the pages run, in `tools/site/build/`
 - **A library is documented by its `##` comments.** A `##` block opening
   one of a module's two files describes the module; a `##` block directly
   above a `public` line describes that export, whose own line (without
-  `public`) is the signature shown. A plain `#` comment is for
-  maintainers and is never published. A new public name in `lib/` needs
-  a `##` block, or `tests/test_site.py` fails.
+  `public`) is the signature shown, boxed with every parameter's name and
+  type. The block is a summary, then `# Parameters` (`- name: text`, in
+  order), `# Returns` (unless it answers `()`) and `# Examples`, a
+  ```` ```pyking ```` block followed by a ```` ```stdout ```` block of exactly what
+  it prints. A declaration in `lib/` names its parameters (`def
+  write(text: String) -> ()`). A plain `#` comment is for maintainers
+  and is never published. `tests/test_site.py` refuses a public name
+  documented any other way, and runs every example against its output;
+  `tools/help/README.md` has the format.
 - **A ```` ```pyking ```` block on a page is a runnable cell**, with the
   notebook's fences (`readonly`, `error`, `norun`, ```` ```stdin ````,
   ```` ```args ````). `tools/site/src/remark-pyking-cells.mjs` turns it into
@@ -1563,7 +1600,9 @@ both, and the runtime the pages run, in `tools/site/build/`
   `tools/playground/assets/`. Both it and the cells load from `runtime/`
   in the built site, which `site.py` writes from the same `Site` the
   playground's server serves -- so a change to what the playground
-  serves reaches the website with no edit here.
+  serves reaches the website with no edit here. A file a page fetches
+  from `lib/` must have a suffix in `site.py`'s `LIB_SUFFIXES` -- tinyweb's
+  sound samples among them, which is why a sound played on the website.
 - **The website is not shipped.** No package holds `tools/site/`,
   `sitesrc/` or `website/`, and `SHIPPED` must not grow them.
 
@@ -1687,6 +1726,7 @@ pyk repl                             start the REPL
 pyk compile [options] <filename>     compile it (alias: pyk c)
 pyk notebook [--port N] <file.md>    serve a notebook, print a link
 pyk playground [--port N]            serve the playground, print a link
+pyk help [--port N]                  serve the help, print a link
 pyk serve [--port N] [<dir>]         serve a directory's files, print a link
 pyk plugins <dir>                    build the interpreter's library plugins
 pyk lsp [--stdio] [--log FILE]       the language server, for editors
@@ -1846,7 +1886,8 @@ tuple, a `var` and a `:=` are all inside that fragment.
 Plain `make` builds the compiler: the `Makefile`'s first rule, `all`, is
 `build`, since that is what someone typing `make` in a compiler's
 directory is asking for. It runs `dune build src/pyk.exe` and copies the
-executable to `./pyk`. `make help` prints the list of targets, which is
+executable to `./pyk`, and writes the help into `build/help/`
+(`tools/help/help.py`). `make targets` prints the list of targets, which is
 hand-written, as is the one in `tools/playground/Makefile` it is
 modelled on — add a target and you have to add its line too.
 
@@ -2010,8 +2051,8 @@ stages the shipped tree around *this* machine's `./pyk`, installs it into
 a temporary prefix shaped like Homebrew's (`bin/pyk` a link to a link
 into `Cellar/pyking/<version>/libexec`), and from outside the repository
 checks `pyk --version`, a program, the standard library, `iweb24`, `pyk
-example`, `pyk notebook`, `pyk playground` (offering the same examples)
-and `pyk serve` with nothing on the `PATH`,
+example`, `pyk notebook`, `pyk playground` (offering the same examples),
+`pyk help` and `pyk serve` with nothing on the `PATH`,
 that the web tools ship no Python, the tree's contents, the tarball's
 reproducibility and the formula's text (`ruby -c` where Ruby exists).
 The same tree is then packed as a `.deb` (read back, and by `dpkg-deb`
@@ -2027,15 +2068,17 @@ checks `SHA256SUMS` and both formulas against the files. It never runs
 is what gets packaged.
 
 **`tests/test_site.py` is the seventh suite**, and needs no Astro: it
-checks that `tools/site/libdoc.py` finds nothing undocumented in `lib/`,
-that every name a library page lists is one the module exports
-(a program importing them all must compile), that the remark plugin
-turns a page's Pyking blocks into the placeholders `mountCells` reads,
-that no page in `sitesrc/` has a problem the notebook finds in its
-exercises and quizzes, that the sidebar lists every page, and that every
-runnable ```` ```pyking ```` block in `sitesrc/` and in the
-generated library pages runs under `pyk` -- or is refused, where it is
-marked `error`. It takes `--compiler CMD` like the others.
+checks that `tools/help/libdoc.py` finds nothing undocumented or
+documented wrongly in `lib/`, that every name a library page lists is
+one the module exports (a program importing them all must compile),
+that every library example prints its ```` ```stdout ```` block, that the remark
+plugin turns a page's Pyking blocks into the placeholders `mountCells`
+reads, that no page in `sitesrc/` has a problem the notebook finds in
+its exercises and quizzes, that the help's index and the website's left
+menus list every page, that the website's runtime has every sound a
+page plays, and that every runnable ```` ```pyking ```` block of the help's
+pages -- `sitesrc/`, the language reference and the library pages --
+runs under `pyk`, or is refused where it is marked `error`. It takes `--compiler CMD` like the others.
 
 **`tests/test_tinyweb.py` is the eighth suite**, and covers what a
 tinyweb program's log cannot: that every native implementation carries
@@ -2067,8 +2110,8 @@ refusals); then the same scripts through `pykLsp` in `build/pyking.js`
 under node (`tests/lsp/browser.mjs`), which must answer the same; then,
 where a Chromium is found and Monaco is vendored, the playground driven
 by `tests/lsp/playground.mjs` -- its editor as a language server
-client, then its tabs, its REPL (entries, the environment, Copy from
-editor, Stop) and its themes; and the editors' configuration -- the VS
+client, then its tabs (the Help tab among them), its REPL (entries, the
+environment, Copy from editor, Stop) and its themes; and the editors' configuration -- the VS
 Code extension's manifest and grammar, the Emacs mode's eglot entry, and
 every snippet on the website's Editors page. `--update` rewrites the
 `.out` files; read the diffs before keeping them.
