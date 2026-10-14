@@ -198,8 +198,11 @@ public def slider(low: Int, high: Int, value: Int, on_change: (Int) -> () = igno
 ##
 ## # Parameters
 ## - `sample`: the sample's number, as `load_sample` answered.
-## - `at`: when to start, in seconds on the page's clock (see `time`);
-##   a time already past, such as the default 0.0, means now.
+## - `at`: when to start, in seconds on the page's clock (see `time`),
+##   which counts from when the page started rather than from now: two
+##   seconds from now is `at = tw.time() + 2.0`, while `at = 2.0` is
+##   already past once the page has been open two seconds. A time already
+##   past, such as the default 0.0, means now.
 ## - `volume`: how loud, as a multiple of the sample's own volume; 1.0 by
 ##   default.
 ## - `rate`: how fast, as a multiple of normal speed; 2.0 plays it twice

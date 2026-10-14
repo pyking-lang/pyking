@@ -323,6 +323,9 @@ button.pkn-tag:hover { color: var(--pkn-text); border-color: var(--pkn-edge-stro
   border-radius: 0 .4rem .4rem 0;
   overflow-x: auto;
 }
+/* A page has the keyboard while it has the focus. */
+.pkn-page:focus { outline: none; }
+.pkn-page:focus-within { background: var(--pkn-accent-soft); }
 
 /* A cell's standard input and arguments, above its code, shown only for
    a program that reads them. */

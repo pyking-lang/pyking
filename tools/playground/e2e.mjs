@@ -195,7 +195,7 @@ async function main() {
   expect("runs the generated code", /finished/.test(generated), generated);
 
   // The keys are the editor's own actions: Shift+Enter in the source runs
-  // it rather than typing a newline, and Ctrl+Enter compiles.
+  // it rather than typing a newline, and so does Ctrl+Enter.
   console.log("Keys");
   const before = await page.evaluate(() => {
     window.pykingPlayground.clearOutput();
@@ -208,11 +208,15 @@ async function main() {
   expect("Shift+Enter in the source runs it", /finished/.test(await lastLine(page))
          && await page.evaluate(() => window.pykingPlayground.left.getValue()) === before,
          await lastLine(page));
-  await page.evaluate(() => window.pykingPlayground.left.focus());
+  await page.evaluate(() => {
+    window.pykingPlayground.clearOutput();
+    window.pykingPlayground.left.focus();
+  });
   await page.keyboard.press("Control+Enter");
   await settled(page);
-  await page.waitForTimeout(500);
-  expect("Ctrl+Enter compiles", /^Compiled to /.test(await lastLine(page)),
+  await page.waitForTimeout(2000);
+  expect("Ctrl+Enter in the source runs it", /finished/.test(await lastLine(page))
+         && await page.evaluate(() => window.pykingPlayground.left.getValue()) === before,
          await lastLine(page));
 
   // Every example checks through the page's own runtime, with the

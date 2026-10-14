@@ -183,6 +183,10 @@ class Playground {
     ui.stopRight.addEventListener("click", () => this.stopRun());
     ui.copy.addEventListener("click", () => this.copyRight());
     ui.refresh.addEventListener("click", () => this.refreshPage());
+    // A click on the window's bar gives the page in it the keyboard.
+    ui.frameBar.addEventListener("click", (event) => {
+      if (this.pageHost && !event.target.closest("button")) ui.page.focus({ preventScroll: true });
+    });
     ui.clear.addEventListener("click", () => this.clearOutput());
     ui.clearCompiled.addEventListener("click", () => this.clearOutput(ui.compiledOutput));
     for (const tab of ui.tabs) {
@@ -204,26 +208,21 @@ class Playground {
     // An action's keys belong to its own editor, where a command's would
     // be shared by every editor on the page.
     //
-    // Shift+Enter runs, and means the Run button of whichever pane has focus
-    // -- the source pane runs the program itself, the generated pane runs
-    // what is displayed. Overriding it costs nothing, since plain
-    // Enter already inserts a newline and Shift+Enter merely duplicated it.
+    // Shift+Enter and Ctrl+Enter (Cmd+Enter too, on a Mac) run, and mean
+    // the Run button of whichever pane has focus -- the source pane runs
+    // the program itself, the generated pane runs what is displayed.
+    // Overriding them costs nothing, since plain Enter already inserts a
+    // newline. Compiling has no key. While a program runs, they stop it.
     const { KeyMod, KeyCode } = monaco;
-    const bind = (editor, id, label, key, run) =>
-      editor.addAction({ id, label, keybindings: [key], run: () => { run(); } });
+    const RUN = [KeyMod.Shift | KeyCode.Enter, KeyMod.CtrlCmd | KeyCode.Enter,
+                 KeyMod.WinCtrl | KeyCode.Enter];
+    const bind = (editor, id, label, run) =>
+      editor.addAction({ id, label, keybindings: RUN, run: () => { run(); } });
 
-    const COMPILE = KeyMod.CtrlCmd | KeyCode.Enter;
-    const RUN = KeyMod.Shift | KeyCode.Enter;
-    const RUN_ACCEL = KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Enter;
-
-    bind(this.left, "pyk-compile", "Compile", COMPILE, () => this.compile());
-    bind(this.right, "pyk-compile", "Compile", COMPILE, () => this.compile());
-    bind(this.left, "pyk-run", "Run the program", RUN, () => this.runFromSource());
-    bind(this.right, "pyk-run", "Run the generated code", RUN, () => this.runGenerated());
-    bind(this.left, "pyk-run-accel", "Run the program", RUN_ACCEL,
-         () => this.runFromSource());
-    bind(this.right, "pyk-run-accel", "Run the generated code", RUN_ACCEL,
-         () => this.runGenerated());
+    bind(this.left, "pyk-run", "Run the program",
+         () => (this.running ? this.stopRun() : this.runFromSource()));
+    bind(this.right, "pyk-run", "Run the generated code",
+         () => (this.running ? this.stopRun() : this.runGenerated()));
 
     // The same keys when focus is outside both editors -- on a dropdown, a
     // button, or the page itself. Monaco stops propagation for keys it
@@ -242,7 +241,7 @@ class Playground {
       const accel = event.ctrlKey || event.metaKey;
       if (!accel && !event.shiftKey) return;
       event.preventDefault();
-      if (accel && !event.shiftKey) this.compile();
+      if (this.running) this.stopRun();
       else this.runFromSource();
     });
 
@@ -397,7 +396,7 @@ class Playground {
       ? `${this.current} is a view of the front end, not code to run`
       : !how ? whyNotRunnable(target)
       : !haveCode ? "Compile first, then run"
-      : `Run the generated ${target} code (Shift+Enter)`;
+      : `Run the generated ${target} code (Shift+Enter or Ctrl+Enter)`;
   }
 
   // -- running ----------------------------------------------------------
@@ -421,8 +420,10 @@ class Playground {
    *  The interpreter is the reference for what a program *means*
    *  (docs/interpreter.md), and it runs every program the checker accepts
    *  -- so this button works for a program no target in the dropdown can
-   *  compile, which is exactly what "just run my program" should mean. */
-  async runFromSource({ switchTab = true } = {}) {
+   *  compile, which is exactly what "just run my program" should mean.
+   *  A run asked for (`asked`, not "run while you type") asks for the
+   *  program's input and gives a page the keyboard. */
+  async runFromSource({ switchTab = true, asked = true } = {}) {
     // Before starting the runtime, so the one-off "loading the compiler"
     // note survives rather than being wiped by the clear that follows it.
     this.beforeRun();
@@ -443,8 +444,9 @@ class Playground {
       this.switchTab = switchTab;
       if (switchTab && paged) this.showTab("web");
       else if (switchTab && this.tab !== "web") this.showTab("run");
-      const input = await this.askForInput(analysis);
+      const input = await this.askForInput(analysis, asked);
       if (input === null) return;
+      if (asked && paged) this.ui.page.focus({ preventScroll: true });
       await this.executeProgram(source, input);
     } finally {
       // A program that sent its page something goes on running there --
@@ -561,10 +563,17 @@ class Playground {
    *  reads standard input is not interrupted by a box asking for it.
    *  Resolves to {stdin, args}, or to null if the dialog was cancelled.
    *  A program that does not check is not asked about: running it reports
-   *  the refusal. Object? -> Promise<{stdin, args}?> */
-  async askForInput(analysis) {
+   *  the refusal. Without `ask` the last input given is used, unasked.
+   *  Object? -> Bool -> Promise<{stdin, args}?> */
+  async askForInput(analysis, ask = true) {
     if (!analysis?.ok || !(analysis.stdin || analysis.args)) {
       return { stdin: "", args: [] };
+    }
+    if (!ask) {
+      return {
+        stdin: analysis.stdin ? this.input.stdin : "",
+        args: analysis.args ? splitArguments(this.input.args) : [],
+      };
     }
     const { ui } = this;
     ui.inputStdinField.classList.toggle("pyk-hidden", !analysis.stdin);
@@ -695,12 +704,14 @@ class Playground {
     this.ui.runRight.classList.remove("pyk-hidden");
   }
 
-  /** Stops what Run started. `quiet` leaves the log as it is, for a stop
-   *  that is the start of another run. {quiet}? -> () */
+  /** Stops what Run started, and gives its editor the keyboard back.
+   *  `quiet` leaves the log and the focus as they are, for a stop that is
+   *  the start of another run. {quiet}? -> () */
   stopRun({ quiet = false } = {}) {
     if (!this.running) return;
     const { kind } = this.running;
     this.stopped = true;
+    if (!quiet) (kind === "js" ? this.right : this.left).focus();
     const log = kind === "js" ? this.ui.compiledOutput : this.ui.output;
     // A program that has answered and is only waiting for its page's
     // events is let go rather than killed: nothing is running to stop.
@@ -768,8 +779,9 @@ class Playground {
     this.autoRunning = true;
     try {
       // A run of its own accord leaves the tab as it is: typing in the
-      // editor with the REPL showing keeps the REPL showing.
-      await this.runFromSource({ switchTab: false });
+      // editor with the REPL showing keeps the REPL showing. Nor does it
+      // ask for input or take the keyboard.
+      await this.runFromSource({ switchTab: false, asked: false });
     } finally {
       this.autoRunning = false;
     }
@@ -1408,7 +1420,7 @@ function buildDom(host, meta, cfg) {
           <button class="pyk-stop pyk-hidden" data-r="stopLeft"
                   title="Stop the running program">■ Stop</button>
           <button class="pyk-run" data-r="runLeft"
-                  title="Run the program itself (Shift+Enter)">▶ Run</button>
+                  title="Run the program itself (Shift+Enter or Ctrl+Enter)">▶ Run</button>
         </div>
         <div class="pyk-editor" data-r="leftEditor"></div>
       </section>
@@ -1444,7 +1456,7 @@ function buildDom(host, meta, cfg) {
             <span class="pyk-label">Target</span>
             <select data-r="target"></select>
             <button class="pyk-primary" data-r="compile"
-                    title="Compile the source for this target (Ctrl+Enter)">Compile</button>
+                    title="Compile the source for this target">Compile</button>
             <span class="pyk-spacer"></span>
             <button class="pyk-stop pyk-hidden" data-r="stopRight"
                     title="Stop the running program">■ Stop</button>
@@ -1470,13 +1482,13 @@ function buildDom(host, meta, cfg) {
         <div class="pyk-panel pyk-hidden" data-r="panelWeb" role="tabpanel">
           <div class="pyk-stage">
             <div class="pyk-frame">
-              <div class="pyk-frame-bar">
+              <div class="pyk-frame-bar" data-r="frameBar">
                 <div class="pyk-frame-dots" aria-hidden="true"><span></span><span></span><span></span></div>
                 <div class="pyk-frame-title" data-r="pageTitle">playground.pyk</div>
                 <button data-r="refresh"
                         title="Stop the program and run the source again">↻ Refresh</button>
               </div>
-              <div class="pyk-page" data-r="page">${PAGE_PLACEHOLDER}</div>
+              <div class="pyk-page" data-r="page" tabindex="0">${PAGE_PLACEHOLDER}</div>
             </div>
           </div>
           <div class="pyk-gutter pyk-gutter-h" data-r="gutterWeb" role="separator"

@@ -97,6 +97,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   white.
 - `pyk` given a file that does not exist says so as a usage error rather
   than ending with an uncaught exception.
+- A tinyweb page that listens for keys (`on_key`) takes the keyboard
+  when the program starts, in the playground, the notebook and the help,
+  unless an editor has it. Before, a key press went to the Run button.
+  In the playground the whole Web output window takes the keyboard when
+  clicked anywhere, its buttons included, keeps it until something
+  outside is clicked, and outlines its frame while it has it.
+- In the playground, the Web output window's three buttons are grey
+  while it does not have the keyboard, as on a Mac. Running a tinyweb
+  program with Run or its keys gives the window the keyboard, and Stop
+  gives it back to the editor.
+- In the playground, Ctrl+Enter (Cmd+Enter on a Mac) runs the program,
+  as Shift+Enter does, and both stop a program that is running;
+  compiling no longer has a key.
+- In the playground, a run while you type no longer asks for the
+  program's standard input or arguments: it uses the last ones given.
+- tinyweb's `play` documentation says that `at` is a time on the page's
+  clock, not a delay: two seconds from now is `tw.time() + 2.0`.
 - `make website-dev` no longer warns about the grammar's `ebnf` blocks
   or a missing `i18n` collection.
 - The Homebrew package ships the digest beside each library plugin, so

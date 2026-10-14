@@ -290,6 +290,20 @@
   font-size: .8rem; color: var(--pyk-dim);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
+/* The window has the keyboard while the page in it has the focus; the
+   page takes it when clicked anywhere in the window. */
+.pyk-page:focus { outline: none; }
+.pyk-frame { transition: border-color .12s, box-shadow .12s; }
+.pyk-frame:has(> .pyk-page:focus-within) {
+  border-color: var(--pyk-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--pyk-accent) 45%, transparent),
+              0 8px 26px var(--pyk-shadow);
+}
+.pyk-frame:has(> .pyk-page:focus-within) .pyk-frame-title { color: var(--pyk-text); }
+/* An unfocused window's buttons are grey, as on a Mac. */
+.pyk-frame:not(:has(> .pyk-page:focus-within)) .pyk-frame-dots span {
+  background: var(--pyk-edge);
+}
 .pyk-playground .pyk-frame-bar button { height: 26px; padding: .15rem .55rem; font-size: .8rem; }
 .pyk-page-empty {
   color: #6b7076; font-style: italic; margin: 1rem 0; text-align: center;

@@ -168,17 +168,18 @@ Compile, and `Ctrl`/`Cmd`+`Enter`, switch to Compiled code.
   Close it with `Esc`, the ✕, or a click on the backdrop. Every setting, and
   both split positions, are remembered in `localStorage`, so the layout you
   set is the one you come back to.
-- **`Shift`+`Enter` runs** — the same as the **▶ Run** button of whichever
+- **`Shift`+`Enter` and `Ctrl`+`Enter` run** (`Cmd`+`Enter` too, on a
+  Mac) — the same as the **▶ Run** button of whichever
   pane has focus: in the source pane it runs the program with the
   interpreter, in the generated pane it runs what is displayed. With focus anywhere else it
-  runs the source. `Ctrl`/`Cmd`+`Enter` compiles;
-  `Ctrl`/`Cmd`+`Shift`+`Enter` also runs.
+  runs the source. While a program runs, the same keys stop it.
+  Compiling has no key.
 
-  Shift+Enter is registered as a Monaco *action* of each editor, not as a
+  The keys are registered as a Monaco *action* of each editor, not as a
   key listener on the container: Monaco handles keys on its own hidden
   textarea first, so a listener would only fire after Monaco had already
-  typed the newline. Overriding it loses nothing, since plain `Enter`
-  inserts a newline anyway and Shift+Enter merely duplicated it.
+  typed the newline. Overriding them loses nothing, since plain `Enter`
+  inserts a newline anyway.
 
 ### The editor and the language server
 
@@ -280,7 +281,8 @@ Two consequences worth knowing:
 - **A program may import the standard library, and read its input.**
   Run asks the compiler first whether the program reads standard input
   or `sys.args()`, and where it does, a dialog asks for them before the
-  program runs -- the last values offered again. `io` and `sys` are the
+  program runs -- the last values offered again. A run while you type
+  asks nothing and uses the last values given. `io` and `sys` are the
   worker's own, so standard output is this pane; see
   `../webrun/README.md`, "In the browser".
 - **Stopping costs the loaded compiler.** `terminate()` reclaims the thread
@@ -313,6 +315,14 @@ the program go, and what the page shows stays. The page is mounted with
 `PageHost` (`../webrun/README.md`, "A program may show a page"). The page
 is light in both themes, so a canvas drawn in the default black reads as
 it would on a page of its own.
+
+The window has the keyboard while the page in it has the focus: its
+frame is outlined then, and otherwise its three buttons are grey, as on
+a Mac. A click anywhere in the window gives it the focus, a button on
+the page included, and a click outside it, on the editor say, takes it
+away. Running a tinyweb program with Run or its keys gives the window
+the focus, and Stop gives it back to the editor; a run while you type
+leaves it where it is.
 
 A program that imports cannot be compiled in the page (it has no
 program around it), so a tinyweb program is run with the interpreter,
@@ -641,7 +651,7 @@ the page: that it mounts with every target in the dropdown and both
 editors are Monaco, that Compile loads
 the compiler and produces a file, that the `pyking` target prints the front
 end's own output, that both Run buttons produce output, that Shift+Enter
-runs and Ctrl+Enter compiles, that **every example
+and Ctrl+Enter run, that **every example
 compiles for every target it claims** — the same pairs `make check` compiles,
 but through the page's worker rather than under `node` — and that Stop ends a
 program written never to end (`loop: continue`) with the page still
