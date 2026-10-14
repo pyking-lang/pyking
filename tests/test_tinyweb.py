@@ -140,6 +140,7 @@ def log_line(command):
         "play": lambda: (f"play {c('sample')} {seconds(c('at'))} {seconds(c('volume'))} "
                          f"{seconds(c('rate'))}"),
         "on_mouse": lambda: f"on_mouse {c('c')}",
+        "style": lambda: f"style {c('id')} {c('kind')} {c('prop')} {quote(c('value'))}",
     }
     return lines.get(op, lambda: op)()
 

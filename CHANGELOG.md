@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+## [Unreleased]
+
+### Added
+
+- tinyweb pages have a look of their own, the same in the playground,
+  the notebook, the help and on every target: the light look the
+  playground's Web output window had. `tw.theme(name)` switches the
+  whole page to `"light"`, `"dark"`, `"plain"`, `"paper"` or `"retro"`;
+  `page_style`, `button_style`, `label_style`, `slider_style` and
+  `canvas_style` change every element of a kind; `set_style` and
+  `set_colors` change one element. A new page, Getting started ›
+  Styling tinyweb, shows each of them with examples to run.
+
 ## [0.1.2] - 2026-10-12
 
 ### Added

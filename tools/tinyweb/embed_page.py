@@ -9,6 +9,11 @@ renderer the iweb page, the playground and the notebook mount -- and
 this script copies both, as string literals, into the block each
 implementation marks with `BEGIN tinyweb page` and `END tinyweb page`.
 
+The web24 implementation, tinyweb_external_browser.js, draws without
+the page script, but its look is the page's: the block of
+tinyweb_page.js between `BEGIN tinyweb style` and `END tinyweb style` is
+copied into it as it is.
+
     python3 tools/tinyweb/embed_page.py           rewrite every block
     python3 tools/tinyweb/embed_page.py --check   say which are stale
 
@@ -19,6 +24,8 @@ Functions:
   literal_lines(language, text) -- the page as that language's literals.
   block(language, html, js) -- the text between the two markers.
   embedded(path, html, js) -- the file with its block rewritten.
+  style_block(js) -- the page script's style block, markers included.
+  with_style(path, js) -- web24's file with its style block rewritten.
   main(argv) -- rewrites or checks every implementation.
 """
 
@@ -32,6 +39,10 @@ PAGE_JS = LIB / "tinyweb_page.js"
 BEGIN = "BEGIN tinyweb page"
 END = "END tinyweb page"
 NOTE = "written by tools/tinyweb/embed_page.py from tinyweb_page.html and tinyweb_page.js; do not edit"
+
+BROWSER = LIB / "tinyweb_external_browser.js"
+STYLE_BEGIN = "// BEGIN tinyweb style"
+STYLE_END = "// END tinyweb style"
 
 # Each implementation, the language its block is written in.
 IMPLEMENTATIONS = {
@@ -129,6 +140,23 @@ def embedded(path, html, js):
     return "".join(lines[: start + 1]) + block(language, html, js) + "".join(lines[end:])
 
 
+def style_block(js):
+    """The lines of the page script from `BEGIN tinyweb style` to `END
+    tinyweb style`, both included. String -> String"""
+    start, end = js.index(STYLE_BEGIN), js.index(STYLE_END)
+    return js[start:js.index("\n", end) + 1]
+
+
+def with_style(path, js):
+    """The text of web24's implementation with its style block replaced
+    by the page script's, or None where it has none. Path -> String -> String?"""
+    text = path.read_text()
+    if STYLE_BEGIN not in text or STYLE_END not in text:
+        return None
+    start, end = text.index(STYLE_BEGIN), text.index(STYLE_END)
+    return text[:start] + style_block(js) + text[text.index("\n", end) + 1:]
+
+
 def main(argv):
     """Rewrites every implementation's block, or with --check reports the
     stale ones and answers 1. [String] -> Int"""
@@ -153,6 +181,15 @@ def main(argv):
             else:
                 path.write_text(new)
                 print(f"embed_page: wrote {path}")
+    new = with_style(BROWSER, js)
+    if new is None:
+        stale.append(f"{BROWSER.name} has no `{STYLE_BEGIN[3:]}` block")
+    elif new != BROWSER.read_text():
+        if check:
+            stale.append(f"{BROWSER.name} carries an old copy of the page's style")
+        else:
+            BROWSER.write_text(new)
+            print(f"embed_page: wrote {BROWSER}")
     for message in stale:
         print(f"embed_page: {message}", file=sys.stderr)
     if stale and check:

@@ -1789,3 +1789,8 @@ targets = ["python14", "node24", "iweb24", "c89", "c99", "c23", "java8", "java17
 file = "lib_tinyweb_input.pyk"
 libs = ["tinyweb"]
 targets = ["python14", "node24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "lib_tinyweb_style.pyk"
+libs = ["tinyweb"]
+targets = ["python14", "node24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]

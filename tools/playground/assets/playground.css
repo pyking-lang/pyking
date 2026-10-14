@@ -130,8 +130,9 @@
 }
 .pyk-spacer { flex: 1 1 auto; }
 
-/* --- controls --- (the help's buttons are the notebook's own) */
-.pyk-playground button:where(:not(.pyk-help button)), .pyk-playground select {
+/* --- controls --- (the help's buttons are the notebook's own, and a
+   tinyweb page's are tinyweb's) */
+.pyk-playground button:where(:not(.pyk-help button, .pyk-page button)), .pyk-playground select {
   font: inherit; font-size: .86rem;
   color: var(--pyk-text); background: var(--pyk-control);
   border: 1px solid var(--pyk-edge); border-radius: 5px;
@@ -141,9 +142,9 @@
   height: 30px;
 }
 .pyk-playground select { padding-right: 1.4rem; }
-.pyk-playground button:hover:not(:disabled):where(:not(.pyk-help button)),
+.pyk-playground button:hover:not(:disabled):where(:not(.pyk-help button, .pyk-page button)),
 .pyk-playground select:hover { border-color: var(--pyk-accent); }
-.pyk-playground button:disabled:where(:not(.pyk-help button)) { opacity: .4; cursor: not-allowed; }
+.pyk-playground button:disabled:where(:not(.pyk-help button, .pyk-page button)) { opacity: .4; cursor: not-allowed; }
 .pyk-playground .pyk-primary {
   background: var(--pyk-primary-bg); border-color: var(--pyk-primary-edge);
   color: var(--pyk-primary-text); font-weight: 600;
@@ -178,7 +179,8 @@
 }
 .pyk-files:empty { display: none; }
 /* What a program using tinyweb shows. Light in either theme, so a canvas
-   drawn in the default black reads the way it would on a page of its own. */
+   drawn in the default black reads the way it would on a page of its own;
+   tinyweb's theme sets the colours once a program draws. */
 .pyk-page {
   flex: 1 1 auto; min-height: 0; overflow: auto;
   padding: .8rem; background: #f6f6f4; color: #1d1f21;

@@ -7,6 +7,10 @@
 ## in pixels from its top left corner, and a color is a CSS color such
 ## as "#ff0000" or "red".
 ##
+## A page has a look of its own, the same wherever it is shown: `theme`
+## picks one of tinyweb's, the `_style` functions change every element
+## of one kind, and `set_style` and `set_colors` change one element.
+##
 ## A program that handed the page a function -- `on_click`, `on_frame`
 ## and the rest -- keeps running after its last line: the page calls the
 ## function each time the event happens. Sound and pictures are kept in
@@ -192,6 +196,282 @@ public def button(title: String, on_click: () -> () = nothing) -> Int:
 ## ```
 public def slider(low: Int, high: Int, value: Int, on_change: (Int) -> () = ignore) -> Int:
     make_slider(low, high, value, on_change)
+
+
+def known_theme(name: String) -> Bool:
+    match name:
+        case "light":
+            true
+        case "dark":
+            true
+        case "plain":
+            true
+        case "paper":
+            true
+        case "retro":
+            true
+        case _:
+            false
+
+
+# One property of a kind of element, or of the element `id`; "" leaves
+# it as it is.
+def style_text(id: Int, kind: String, property: String, value: String):
+    if value == "":
+        ()
+    else:
+        apply_style(id, kind, property, value)
+
+
+# A length in pixels; a negative one leaves it as it is.
+def style_pixels(id: Int, kind: String, property: String, value: Int):
+    if value < 0:
+        ()
+    else:
+        apply_style(id, kind, property, string(value) ++ "px")
+
+
+## Gives the whole page one of tinyweb's looks: its colors, fonts, and
+## how buttons, sliders and canvases are drawn. A page starts in
+## `"light"`, which looks the same wherever it is shown. Call it before
+## any of the `_style` functions, since it forgets what they changed.
+##
+## The themes are `"light"`, `"dark"`, `"plain"` (the browser's own
+## buttons and sliders, on white), `"paper"` (ink on warm paper, with a
+## serif font) and `"retro"` (green on black, in a typewriter font). A
+## name that is none of these changes nothing, and says so with `debug`.
+##
+## # Parameters
+## - `name`: the theme.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## tw.theme("dark")
+## tw.label("A dark page")
+## tw.button("Press me")
+## tw.slider(0, 10, 3)
+## c = tw.canvas(160, 40)
+## tw.circle(c, 20, 20, 12, "orange")
+## ```
+## ```stdout
+## ```
+public def theme(name: String) -> ():
+    if known_theme(name):
+        apply_style(0, "theme", "name", name)
+    else:
+        debug("tinyweb: there is no theme called \"" ++ name ++ "\"; the themes are light, dark, plain, paper and retro")
+
+
+## Changes the page itself: its background, and the text and spacing
+## everything on it shares. Only what is named changes; the rest stays
+## as the theme has it.
+##
+## # Parameters
+## - `background`: a CSS color for the page.
+## - `color`: a CSS color for its text.
+## - `font`: a font, such as `"serif"`, `"monospace"` or `"Georgia"`.
+## - `size`: the size of its text, in pixels.
+## - `padding`: the space around everything on it, in pixels.
+## - `gap`: the space between one element and the next, in pixels.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## tw.page_style(background = "#fdf6e3", color = "#586e75", font = "serif", size = 18, gap = 16)
+## tw.label("Solarized, with room to breathe")
+## tw.button("OK")
+## ```
+## ```stdout
+## ```
+public def page_style(background: String = "", color: String = "", font: String = "", size: Int = -1, padding: Int = -1, gap: Int = -1) -> ():
+    style_text(0, "page", "background", background)
+    style_text(0, "page", "color", color)
+    style_text(0, "page", "font", font)
+    style_pixels(0, "page", "size", size)
+    style_pixels(0, "page", "padding", padding)
+    style_pixels(0, "page", "gap", gap)
+
+
+## Changes every button on the page, those made already and those made
+## later. Only what is named changes; the rest stays as the theme has it.
+##
+## # Parameters
+## - `background`: a CSS color for the button.
+## - `color`: a CSS color for its text.
+## - `border`: a CSS border, such as `"2px solid navy"` or `"none"`.
+## - `radius`: how round its corners are, in pixels.
+## - `font`: a font, such as `"serif"` or `"monospace"`.
+## - `size`: the size of its text, in pixels.
+## - `padding`: the space between its text and its edge, in pixels.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## tw.button_style(background = "#2f6fdd", color = "white", border = "none", radius = 14, padding = 10)
+## tw.button("Start")
+## tw.button("Stop")
+## ```
+## ```stdout
+## ```
+public def button_style(background: String = "", color: String = "", border: String = "", radius: Int = -1, font: String = "", size: Int = -1, padding: Int = -1) -> ():
+    style_text(0, "button", "background", background)
+    style_text(0, "button", "color", color)
+    style_text(0, "button", "border", border)
+    style_pixels(0, "button", "radius", radius)
+    style_text(0, "button", "font", font)
+    style_pixels(0, "button", "size", size)
+    style_pixels(0, "button", "padding", padding)
+
+
+## Changes every label on the page, those made already and those made
+## later. Only what is named changes; the rest stays as the theme has it.
+##
+## # Parameters
+## - `background`: a CSS color behind the text.
+## - `color`: a CSS color for the text.
+## - `border`: a CSS border, such as `"1px solid gray"`.
+## - `radius`: how round its corners are, in pixels.
+## - `font`: a font, such as `"serif"` or `"monospace"`.
+## - `size`: the size of the text, in pixels.
+## - `padding`: the space between the text and its edge, in pixels.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## tw.label_style(background = "lightyellow", border = "1px solid gold", radius = 6, size = 18, padding = 8)
+## tw.label("Note: labels can look like this.")
+## tw.label("And so does every other one.")
+## ```
+## ```stdout
+## ```
+public def label_style(background: String = "", color: String = "", border: String = "", radius: Int = -1, font: String = "", size: Int = -1, padding: Int = -1) -> ():
+    style_text(0, "label", "background", background)
+    style_text(0, "label", "color", color)
+    style_text(0, "label", "border", border)
+    style_pixels(0, "label", "radius", radius)
+    style_text(0, "label", "font", font)
+    style_pixels(0, "label", "size", size)
+    style_pixels(0, "label", "padding", padding)
+
+
+## Changes every slider on the page, those made already and those made
+## later. Only what is named changes; the rest stays as the theme has it.
+##
+## # Parameters
+## - `accent`: a CSS color for the slider's track and handle.
+## - `width`: how long the slider is, in pixels.
+## - `color`: a CSS color for the value shown beside it.
+## - `font`: a font for that value.
+## - `size`: the size of that value's text, in pixels.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## tw.slider_style(accent = "crimson", width = 300, size = 20)
+## tw.slider(0, 100, 70)
+## ```
+## ```stdout
+## ```
+public def slider_style(accent: String = "", width: Int = -1, color: String = "", font: String = "", size: Int = -1) -> ():
+    style_text(0, "slider", "accent", accent)
+    style_pixels(0, "slider", "width", width)
+    style_text(0, "slider", "color", color)
+    style_text(0, "slider", "font", font)
+    style_pixels(0, "slider", "size", size)
+
+
+## Changes the frame of every canvas on the page, those made already and
+## those made later. What is drawn on a canvas is not changed.
+##
+## # Parameters
+## - `border`: a CSS border, such as `"3px solid black"` or `"none"`.
+## - `radius`: how round its corners are, in pixels.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## tw.canvas_style(border = "3px solid teal", radius = 12)
+## c = tw.canvas(200, 80)
+## tw.rect(c, 20, 20, 160, 40, "teal")
+## ```
+## ```stdout
+## ```
+public def canvas_style(border: String = "", radius: Int = -1) -> ():
+    style_text(0, "canvas", "border", border)
+    style_pixels(0, "canvas", "radius", radius)
+
+
+## Changes the colors of one button, label or slider. It wins over the
+## theme and over the `_style` functions.
+##
+## # Parameters
+## - `id`: the element, as `button`, `label` or `slider` answered.
+## - `color`: a CSS color for its text, or for a slider's track and
+##   handle.
+## - `background`: a CSS color behind it.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## ok = tw.button("OK")
+## cancel = tw.button("Cancel")
+## tw.set_colors(ok, color = "white", background = "seagreen")
+## tw.set_colors(cancel, color = "white", background = "firebrick")
+## ```
+## ```stdout
+## ```
+public def set_colors(id: Int, color: String = "", background: String = "") -> ():
+    style_text(id, "element", "color", color)
+    style_text(id, "element", "accent", color)
+    style_text(id, "element", "background", background)
+
+
+## Changes how one element is drawn: a button, a label, a slider or a
+## canvas. It wins over the theme and over the `_style` functions. Only
+## what is named changes.
+##
+## # Parameters
+## - `id`: the element, as the function that made it answered.
+## - `background`: a CSS color behind it.
+## - `color`: a CSS color for its text.
+## - `border`: a CSS border, such as `"2px dashed orange"`.
+## - `radius`: how round its corners are, in pixels.
+## - `font`: a font, such as `"serif"` or `"monospace"`.
+## - `size`: the size of its text, in pixels.
+## - `padding`: the space between its text and its edge, in pixels.
+## - `accent`: a CSS color for a slider's track and handle.
+## - `width`: its width, in pixels.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## tw.button("Normal")
+## big = tw.button("Important")
+## tw.set_style(big, border = "2px dashed orange", radius = 0, size = 22, padding = 12)
+## title = tw.label("A title")
+## tw.set_style(title, font = "serif", size = 28)
+## ```
+## ```stdout
+## ```
+public def set_style(id: Int, background: String = "", color: String = "", border: String = "", radius: Int = -1, font: String = "", size: Int = -1, padding: Int = -1, accent: String = "", width: Int = -1) -> ():
+    style_text(id, "element", "background", background)
+    style_text(id, "element", "color", color)
+    style_text(id, "element", "border", border)
+    style_pixels(id, "element", "radius", radius)
+    style_text(id, "element", "font", font)
+    style_pixels(id, "element", "size", size)
+    style_pixels(id, "element", "padding", padding)
+    style_text(id, "element", "accent", accent)
+    style_pixels(id, "element", "width", width)
 
 
 ## Plays a sample that `load_sample` loaded.

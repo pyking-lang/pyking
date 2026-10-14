@@ -97,6 +97,8 @@ public def set_label(id: Int, text: String) -> ()
 
 def make_slider(low: Int, high: Int, value: Int, on_change: (Int) -> ()) -> Int
 
+def apply_style(id: Int, kind: String, property: String, value: String) -> ()
+
 ## Starts loading a sound file, so that `play` can play it without a
 ## delay. The file is looked for beside the page first, then among the
 ## samples tinyweb ships: `kick1.wav`, `snare1.wav`, `hihat1.wav` and

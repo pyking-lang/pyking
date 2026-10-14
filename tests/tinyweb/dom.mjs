@@ -8,13 +8,26 @@
 //
 // What is recorded is what a reader would see and hear: every drawing
 // call on a canvas, with the state it was made in; every sound started;
-// and, after each step, the page's elements as a tree. Nothing about
+// and, after each step, the page's elements as a tree, the head's
+// stylesheets included. Nothing about
 // the order elements were made in is, since two implementations may
 // build the same page in different steps.
 //
 // Functions:
 //   install(clock) -- puts the page's globals in place, answering the
 //     recording and what drives it.
+
+// An element's inline style: each property set is an own field, which
+// is what a snapshot lists.
+class FakeStyle {
+  setProperty(name, value) {
+    this[name] = String(value);
+  }
+
+  removeProperty(name) {
+    delete this[name];
+  }
+}
 
 class FakeNode {
   constructor(tag) {
@@ -23,7 +36,7 @@ class FakeNode {
     this.parentNode = null;
     this.listeners = new Map();
     this.attributes = new Map();
-    this.style = {};
+    this.style = new FakeStyle();
     this.text = "";
   }
 
@@ -64,6 +77,10 @@ class FakeNode {
 
   setAttribute(name, value) {
     this.attributes.set(name, String(value));
+  }
+
+  removeAttribute(name) {
+    this.attributes.delete(name);
   }
 
   getAttribute(name) {
@@ -155,11 +172,13 @@ export function install() {
   record = [];
   const clock = { now: 0 };
   const frames = [];
+  const head = new FakeNode("head");
   const body = new FakeNode("body");
   const windowListeners = new FakeNode("window");
 
   globalThis.performance = { now: () => clock.now };
   globalThis.document = {
+    head,
     body,
     baseURI: "http://page.test/",
     createElement: (tag) => new FakeNode(tag),
@@ -249,7 +268,8 @@ export function install() {
 
   return {
     record,
-    snapshot: () => snapshot(body),
+    // The head holds each page's stylesheet, so its look is compared too.
+    snapshot: () => [...snapshot(head), ...snapshot(body)],
     // Delivers one line of an events file the way a reader would cause
     // it, answering whether the line named something there.
     deliver(line) {

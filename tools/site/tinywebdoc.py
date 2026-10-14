@@ -74,6 +74,14 @@ DESCRIPTIONS = {
     "make_slider": "A slider from `low` to `high`, starting at `value`, placed below "
                    "what the page already shows, which calls `on_change` with each new "
                    "value it is moved to. Answers the number that names it.",
+    "apply_style": "Changes the page's look. With `kind` \"theme\", `value` names a "
+                   "theme: \"light\" (the default), \"dark\", \"plain\", \"paper\" or "
+                   "\"retro\". With `kind` \"page\", \"button\", \"label\", "
+                   "\"slider\" or \"canvas\", `property` of every element of that kind "
+                   "becomes `value`; with `kind` \"element\", only the element `id`'s. "
+                   "`property` is one of background, color, border, radius, font, size, "
+                   "padding, gap, accent and width, and `value` is CSS, such as "
+                   "\"#336699\" or \"12px\". `id` is 0 except for an element.",
     "load_sample": "Starts loading the sound file `name` and answers a number naming "
                    "it to `play_sample`. The name is looked up beside where the program "
                    "runs first, and then among the samples tinyweb ships in "

@@ -1,0 +1,30 @@
+# The page's look: a theme, the style of every element of a kind, and
+# the style of one element. The .events file presses the button, which
+# changes the theme and one label while the page is showing.
+
+import tinyweb as tw
+
+tw.web_init(0)
+
+tw.theme("paper")
+tw.theme("no such theme")
+tw.page_style(background = "#fdf6e3", color = "#586e75", font = "serif", size = 18, padding = 12, gap = 16)
+tw.button_style(background = "#268bd2", color = "white", border = "none", radius = 14, font = "monospace", size = 16, padding = 8)
+tw.label_style(background = "lightyellow", color = "#333333", border = "1px solid gold", radius = 4, font = "sans-serif", size = 14, padding = 6)
+tw.slider_style(accent = "crimson", width = 240, color = "crimson", font = "monospace", size = 20)
+tw.canvas_style(border = "3px solid teal", radius = 10)
+
+title = tw.label("Styled")
+tw.set_style(title, background = "navy", color = "white", border = "2px dashed orange", radius = 0, font = "Georgia", size = 28, padding = 10, width = 300)
+level = tw.slider(0, 10, 4)
+tw.set_colors(level, color = "seagreen")
+c = tw.canvas(120, 60)
+tw.set_style(c, border = "1px solid black")
+
+def pressed():
+    tw.theme("retro")
+    tw.set_colors(title, background = "black")
+    print("now retro")
+
+ok = tw.button("Retro", on_click = pressed)
+tw.set_colors(ok, color = "black", background = "gold")

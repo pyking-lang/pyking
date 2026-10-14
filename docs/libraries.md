@@ -305,7 +305,8 @@ JSON array -- and posts each event to `POST /events` as JSON, one at a
 time and in order. Every native implementation carries both files as
 string literals, so a compiled program needs nothing beside itself to
 show its page; `tools/tinyweb/embed_page.py` writes them in, and
-`tests/test_tinyweb.py` fails when a copy is stale.
+`tests/test_tinyweb.py` fails when a copy is stale. The same script
+copies the page's style block into `tinyweb_external_browser.js`.
 
 **The server.** Every native implementation serves the same thing:
 
@@ -347,6 +348,24 @@ browser starts audio only after a gesture, so every click and key press
 on the page starts it. The page asks for the next frame only once the
 last one's commands have arrived (`frame_done`), so a slow program drops
 frames rather than queueing them.
+
+**The page's look.** tinyweb styles its own page, so it looks the same
+in every host. Every styling function sends one command, `{op: "style",
+id, kind, prop, value}`, through the one declaration `apply_style`:
+`kind` is `theme` (`value` a theme's name), `page`, `button`, `label`,
+`slider` or `canvas` (`prop` of every element of that kind), or
+`element` (`prop` of the element `id`). `prop` is one of `background`,
+`color`, `border`, `radius`, `font`, `size`, `padding`, `gap`, `accent`
+and `width`, and `value` is CSS; the Pyking half turns a pixel count
+into `"Npx"` and leaves out what the call did not name. The renderer
+keeps a stylesheet of the page's own, scoped to the element the page is
+mounted in by a `data-tinyweb-page` attribute written three times over,
+so the host page's rules for a button or a body do not outweigh it: a
+theme and a kind's style are rules of that stylesheet, and one
+element's style is set on the element. The themes, and how each
+property becomes CSS, are the block of `tinyweb_page.js` marked `BEGIN
+tinyweb style`; `embed_page.py` copies that block into
+`tinyweb_external_browser.js`, which draws without the page script.
 
 **Samples.** `load_sample(name)` fetches `name` beside the page, and
 then from `tinyweb_assets/` beside the implementation, which holds four
