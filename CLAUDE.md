@@ -1595,7 +1595,10 @@ builds from there; nothing is generated into `sitesrc/` or `lib/`.
   `mountCells` on it -- the notebook's own cell, not a copy. Every one is
   run by `tests/test_site.py`. A run of blocks holding an exercise, a
   quiz, the rules or a stdout block becomes one `.pkn-fragment` instead,
-  which `mountCells` renders and grades as the notebook does.
+  which `mountCells` renders and grades as the notebook does. ```` ```pyking
+  playground ```` adds a "Try in playground" link over the block's corner,
+  `#code=` and the program in URL-safe base64 (`tools/playground/assets/share.js`,
+  which the playground reads on load and Copy code as link writes).
 - **The playground page is `mountPlayground`** from
   `tools/playground/assets/`. Both it and the cells load from `runtime/`
   in the built site, which `site.py` writes from the same `Site` the

@@ -142,7 +142,17 @@ print(io.read_line())   # reads "Ada"
 
 `readonly` keeps a cell from being edited. A ```` ```stdin ```` or
 ```` ```args ```` block just before a cell fills in its input and is not
-shown. Every runnable cell is run by `tests/test_site.py`, so an example
+shown. `playground` is the site's own word: ```` ```pyking playground ````
+puts a **Try in playground** button over the cell's lower right
+corner -- or, with `norun`, the highlighted code's -- a link opening the playground with
+the code in it (`#code=...`, written at build time by
+`tools/playground/assets/share.js`, under `PYKING_SITE_BASE`), and the two
+in a `.pyking-try` box, which `site.css` draws as the code in a dark
+rounded frame, in both themes, with the link a small button in its lower
+right corner. The front page's block is ```` ```pyking norun playground
+````; `site.css` sets it beside the hero on a wide screen, its foot level
+with the foot of the hero's box, and the picture behind the two. A notebook
+accepts the word and ignores it. Every runnable cell is run by `tests/test_site.py`, so an example
 that stops working fails `make test`.
 
 A page may hold the notebook's exercises and quizzes too

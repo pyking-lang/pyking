@@ -17,6 +17,7 @@ import {
   splitArguments, themeFor,
 } from "../webrun/web.js";
 import { LspClient } from "./lsp-client.js";
+import { linkTo, sourceFromHash } from "./share.js";
 
 const STORAGE_KEY = "pyking-playground.settings";
 
@@ -84,6 +85,9 @@ const DEFAULTS = {
   theme: null,
   initialTarget: "node24",
   initialExample: null,               // the first example
+  // Whether the page's own URL may hold a program, `#code=...`
+  // (share.js), which then opens in the editor in place of an example.
+  readLink: true,
 };
 
 export async function mountPlayground(host, options = {}) {
@@ -182,6 +186,7 @@ class Playground {
     ui.stopLeft.addEventListener("click", () => this.stopRun());
     ui.stopRight.addEventListener("click", () => this.stopRun());
     ui.copy.addEventListener("click", () => this.copyRight());
+    ui.copyLink.addEventListener("click", () => this.copyLink());
     ui.refresh.addEventListener("click", () => this.refreshPage());
     // A click on the window's bar gives the page in it the keyboard.
     ui.frameBar.addEventListener("click", (event) => {
@@ -245,13 +250,24 @@ class Playground {
       else this.runFromSource();
     });
 
-    if (this.meta.examples.length) {
+    // No src/examples.toml beside the tools: nothing to offer.
+    if (!this.meta.examples.length) ui.example.classList.add("pyk-hidden");
+    const linked = this.cfg.readLink ? sourceFromHash(location.hash) : null;
+    if (linked !== null) {
+      this.openLinked(linked);
+    } else if (this.meta.examples.length) {
       await this.loadExample(this.cfg.initialExample ?? this.meta.examples[0].file,
                              { silent: true });
     } else {
-      // No src/examples.toml beside the tools: nothing to offer.
-      ui.example.classList.add("pyk-hidden");
       this.setSource(FALLBACK_SOURCE);
+    }
+    if (this.cfg.readLink) {
+      // A link to another program, opened in this tab, changes only the
+      // fragment, and the page is not loaded again.
+      window.addEventListener("hashchange", () => {
+        const text = sourceFromHash(location.hash);
+        if (text !== null) this.openLinked(text);
+      });
     }
     this.onTargetChange();
     // Hover, definition, outline, completion and diagnostics, from the
@@ -273,6 +289,25 @@ class Playground {
   }
 
   // -- examples ---------------------------------------------------------
+
+  /** Puts the program a link held in the editor; it is not run. */
+  openLinked(text) {
+    this.setSource(text);
+    this.ui.example.value = "";
+    this.clearError();
+    this.note("Opened the program in the link.");
+  }
+
+  /** Copy code as link: copies a link that opens the playground with the
+   *  editor's program. */
+  async copyLink() {
+    try {
+      await navigator.clipboard.writeText(linkTo(location.href, this.left.getValue()));
+      this.note("Copied a link to this program: whoever opens it gets it in the editor.");
+    } catch {
+      this.error("The browser refused clipboard access.");
+    }
+  }
 
   async loadExample(file, { silent = false } = {}) {
     const entry = this.meta.examples.find((e) => e.file === file);
@@ -1416,6 +1451,8 @@ function buildDom(host, meta, cfg) {
         <div class="pyk-toolbar">
           <span class="pyk-label">Examples</span>
           <select data-r="example" title="Load an example program"></select>
+          <button data-r="copyLink"
+                  title="Copy a link that opens this program in the playground">Copy code as link</button>
           <span class="pyk-spacer"></span>
           <button class="pyk-stop pyk-hidden" data-r="stopLeft"
                   title="Stop the running program">■ Stop</button>

@@ -4,7 +4,11 @@
 // The fences mean what they mean in a notebook (tools/notebook/README.md):
 // `readonly` and `error` are kept as data attributes, `norun` leaves the
 // block as highlighted code, and a ```stdin or ```args block just before
-// a cell fills in that cell's input and is not shown on its own.
+// a cell fills in that cell's input and is not shown on its own. One word
+// is the site's own: `playground` puts a "Try in playground" link
+// below the block -- a cell, or with `norun` the highlighted code --
+// opening the playground with its code (share.js), and the two in a
+// `.pyking-try` box.
 //
 // A run of adjacent blocks that holds more than that -- an exercise and
 // its solution and tests, a quiz and its answer, the rules, a cell's
@@ -16,12 +20,17 @@
 // Functions:
 //   remarkPykingCells() -- the plugin.
 //   cellHTML(source, words, input) -- one cell's placeholder, as HTML.
+//   tryNode(source, block) -- a block with its playground link below it.
 //   fragmentHTML(blocks) -- a piece of a notebook's placeholder, as HTML.
 
 const CELL_LANGUAGES = ["pyking", "pyk"];
 const INPUT_LANGUAGES = ["stdin", "args"];
 const PART_LANGUAGES = ["stdout", "stderr", "quiz", "answer", "rules"];
-const CELL_WORDS = ["norun", "readonly", "error"];
+import { linkTo } from "../../playground/assets/share.js";
+
+const CELL_WORDS = ["norun", "readonly", "error", "playground"];
+// Where the site's playground page is, under the base the site is built for.
+const PLAYGROUND = (process.env.PYKING_SITE_BASE ?? "/").replace(/\/?$/, "/") + "playground/";
 
 /** The plugin: rewrites every block-holding node's children in place.
  *  () -> (Tree -> ()) */
@@ -43,11 +52,10 @@ function visit(node) {
     }
     if (CELL_LANGUAGES.includes(lang)) {
       const words = (child.meta ?? "").toLowerCase().split(/\s+/).filter(Boolean);
-      if (words.includes("norun")) {
-        out.push({ ...child, lang: "pyking", meta: null });
-      } else {
-        out.push({ type: "html", value: cellHTML(child.value, words, input) });
-      }
+      const block = words.includes("norun")
+        ? { ...child, lang: "pyking", meta: null }
+        : { type: "html", value: cellHTML(child.value, words, input) };
+      out.push(words.includes("playground") ? tryNode(child.value, block) : block);
       input = {};
       continue;
     }
@@ -131,6 +139,20 @@ export function cellHTML(source, words, input) {
     + `<div class="pkn-cell" ${data.join(" ")}>`
     + `<pre class="pkn-cell-fallback"><code>${escape(source.replace(/\n+$/, ""))}</code></pre>`
     + `</div></div>`;
+}
+
+/** A block -- a cell, or highlighted code -- in a `.pyking-try` box with
+ *  a link below it that opens the playground with its code. The box is
+ *  an mdast node rendered as a <div>, so a code block inside it is still
+ *  highlighted as one. String -> Node -> Node */
+export function tryNode(source, block) {
+  const href = linkTo(PLAYGROUND, source.replace(/\n+$/, "") + "\n");
+  return {
+    type: "pykingTry",
+    data: { hName: "div", hProperties: { className: ["pyking-try"] } },
+    children: [block, { type: "html", value: `<p class="pyking-try-foot not-content">`
+      + `<a class="pyking-try-link" href="${escape(href)}">Try in playground</a></p>` }],
+  };
 }
 
 function escape(text) {

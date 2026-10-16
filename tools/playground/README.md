@@ -74,7 +74,7 @@ needs a copy of it saved once.
 ┌──────────────────────────────────────────────────────────────────┐
 │ Pyking Playground  version 0.1.2  ● ready  [☀/☾]  [≡ Settings]   │
 ├────────────────────────────────╥─────────────────────────────────┤
-│ Examples [example ▾]   [▶ Run] ║ Run│Compiled code│Web│REPL│Help
+│ Examples [▾] [Copy code as link] [▶ Run] ║ Run│Compiled code│Web│REPL│Help
 │ ┌────────────────────────────┐ ║ ┌─────────────────────────────┐ │
 │ │ Pyking, highlighted        │ ║ │ the tab showing:            │ │
 │ │ errors underlined in place │ ║ │  Run output -- what Run     │ │
@@ -104,6 +104,21 @@ The right-hand side is five tabs, and the page opens on **Run output**:
 - **Help** is the help `pyk pykhelp` serves -- getting started, the
   language reference and the libraries -- with a menu above the page
   (see "The Help tab").
+
+### A link holding a program
+
+A playground address may carry a program in its fragment,
+`…/playground/#code=<text>`, the text being the program's UTF-8 bytes in
+URL-safe base64 without padding (`assets/share.js`: `encodeSource`,
+`decodeSource`, `sourceFromHash`, `linkTo`). The page then opens with that
+program in the editor in place of the first example, and does not run it;
+a link opened in the same tab later (only the fragment changing) replaces
+the editor's program the same way. Being in the fragment, the program
+never reaches the server. **Copy code as link**, beside Examples, copies such a
+link to what is in the editor. The website's front page has one: its
+"Try in playground" button, written when the site is built
+(`tools/site/README.md`, "Writing a page"). An embedding page that does
+not want its own address read passes `readLink: false`.
 
 Run switches to Web output for a program that imports `tinyweb`, and to
 Run output for any other -- unless Web output is showing, where it stays.
@@ -436,6 +451,7 @@ tools/playground/
     index.html       thin host page: mounts the component, nothing else
     playground.js    the UI (ES module, exports mountPlayground)
     lsp-client.js    the source pane as a language server client
+    share.js         a program in a link (#code=...), read and written
     js-worker.js     generated JavaScript, on its own thread
     playground.css   all styles, scoped under .pyk-playground
 ```
@@ -518,6 +534,7 @@ there so you can take either one.
     examplesURL: "./examples/",   // where the .pyk files live
     initialTarget: "c23",
     initialExample: "use_args.pyk", // the first example by default
+    readLink: true,               // open a #code=... link's program (the default)
     theme: "light",               // omit to let the viewer choose
   });
 </script>

@@ -129,7 +129,9 @@ it is read from, and a ```` ```stderr ```` block what `debug` writes.
 
 An `error` cell shows its refusal as the intended result, labelled so, and
 warns if it unexpectedly runs. `{.pyking .norun}` is read the same as
-`pyking norun`. A block in any other language is shown highlighted
+`pyking norun`. `pyking playground` is the website's: there it puts a
+link below the block that opens the playground with its code, and a
+notebook accepts it and does nothing with it. A block in any other language is shown highlighted
 (Python, JavaScript, C, C++, Java, OCaml, HTML, shell, JSON) or plain.
 
 Links to other `.md` files beside the document open in the notebook too,

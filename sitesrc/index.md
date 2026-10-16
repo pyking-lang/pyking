@@ -16,17 +16,9 @@ hero:
       variant: minimal
 ---
 
-## Try it
-
-This is a whole Pyking program. Press **▶** to run it in your browser,
-change it, and run it again.
-
-```pyking
-def greet(name: String) -> String:
-    return "Hello, " ++ name
-
-for name in ["Ada", "Grace", "Barbara"]:
-    print(greet(name))
+```pyking norun playground
+for name in ["Ada", "Grace", "Don"]:
+    print("Hello, " ++ name)
 ```
 
 ## What Pyking is

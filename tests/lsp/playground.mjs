@@ -5,7 +5,8 @@
 // completion offers a name, go to definition moves the cursor, the
 // outline answers; and that compiling and running still work. Then the
 // right-hand tabs, the REPL (entries, the environment, Copy from editor,
-// Stop) and the light and dark themes. It serves nothing:
+// Stop), the light and dark themes, and a link holding a program (Copy
+// code as link, then the link opened in the same tab). It serves nothing:
 // tests/test_lsp.py starts `pyk playground` and runs this against it.
 //
 // Usage: node playground.mjs <chromium> <url>
@@ -292,6 +293,26 @@ const LSP = `(async () => { ${HELPERS}
   return checks;
 })()`;
 
+const LINK = `(async () => { ${HELPERS}
+  const program = "# å ä ö 👑\\nprint(\\"from the link\\")\\n";
+  let copied = null;
+  Object.defineProperty(navigator, "clipboard",
+    { configurable: true, value: { writeText: async (text) => { copied = text; } } });
+  await source(program);
+  $("[data-r=copyLink]").click();
+  await until(() => copied !== null, 5000);
+  check("Copy code as link copies a link to the playground holding the program",
+    copied && copied.startsWith(location.href.replace(/#.*$/, "") + "#code="), copied);
+  await source("print(1)\\n");
+  location.hash = copied.slice(copied.indexOf("#"));
+  check("opening the link puts its program in the editor",
+    await until(() => app.left.getValue() === program, 5000), app.left.getValue());
+  check("in place of an example", $("[data-r=example]").value === "", $("[data-r=example]").value);
+  await sleep(500);
+  check("and does not run it", !output().includes("from the link"), output());
+  return checks;
+})()`;
+
 const chrome = launch(browser, profile);
 
 let output = { checks: 0, failures: [] };
@@ -331,7 +352,7 @@ try {
   if (!ready) throw new Error("the playground did not become ready");
   for (const [name, phase] of [["the page", PAGE], ["the language server", LSP],
                                ["the tabs", TABS], ["the REPL", REPL],
-                               ["the themes", THEME]]) {
+                               ["the themes", THEME], ["a link", LINK]]) {
     progress(`checking ${name}`);
     for (const [label, ok, detail] of await evaluate(phase)) {
       output.checks += 1;

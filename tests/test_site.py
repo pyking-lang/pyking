@@ -115,6 +115,9 @@ const tree = { type: "root", children: [
   code("pyking", "print(3)"),
   { type: "blockquote", children: [code("pyking", "print(<4>)")] },
   code("python", "print(5)"),
+  code("pyking", "print(7)\n", "playground"),
+  code("pyking", "print(8)", "norun playground"),
+  { type: "paragraph", children: [{ type: "text", value: "after" }] },
   code("pyking", "print(6)", "exercise points = 1"),
   code("stdout", "6"),
 ] };
@@ -122,6 +125,8 @@ plugin()(tree);
 console.log(JSON.stringify(tree.children.map((n) =>
   n.type === "html" ? n.value
   : n.type === "code" ? `code:${n.lang}:${n.meta}`
+  : n.type === "pykingTry" ? `try:${n.data.hName}.${n.data.hProperties.className}:`
+    + n.children.map((c) => c.type === "code" ? `code:${c.lang}:${c.meta}` : c.value).join("|")
   : n.type === "blockquote" ? "quote:" + n.children[0].value
   : n.type)));
 """
@@ -142,6 +147,14 @@ PLUGIN_EXPECTED = [
     'quote:<div class="pkn-notebook pkn-embedded not-content"><div class="pkn-cell" >'
     '<pre class="pkn-cell-fallback"><code>print(&lt;4&gt;)</code></pre></div></div>',
     "code:python:null",
+    'try:div.pyking-try:<div class="pkn-notebook pkn-embedded not-content">'
+    '<div class="pkn-cell" ><pre class="pkn-cell-fallback"><code>print(7)</code></pre>'
+    '</div></div>|<p class="pyking-try-foot not-content"><a class="pyking-try-link" '
+    'href="/playground/#code=cHJpbnQoNykK">Try in playground</a></p>',
+    'try:div.pyking-try:code:pyking:null|<p class="pyking-try-foot not-content">'
+    '<a class="pyking-try-link" href="/playground/#code=cHJpbnQoOCkK">'
+    'Try in playground</a></p>',
+    "paragraph",
     '<div class="pkn-notebook pkn-embedded not-content"><div class="pkn-fragment" '
     'data-markdown="```pyking exercise points = 1\nprint(6)\n```\n\n```stdout\n6\n```">'
     '</div></div>',

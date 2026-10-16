@@ -32,7 +32,8 @@ const KNOWN = {
   rules: ["max", "pass"],
   exercise: ["exercise", "attempts", "points", "penalty", "stdin", "args", "readonly"],
   solution: ["solution", "available", "readonly"],
-  pyking: ["norun", "readonly", "error", "stdin", "args"],
+  // `playground` is the website's (tools/site/src/remark-pyking-cells.mjs).
+  pyking: ["norun", "readonly", "error", "stdin", "args", "playground"],
   stdin: ["args", "visible"],
   args: [],
   stdout: ["visible"],

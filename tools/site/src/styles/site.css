@@ -11,35 +11,202 @@
   --sl-color-accent-high: #1a3168;
 }
 
-/* The front page: sitesrc/pics/pyking.jpeg behind it, under a wash of
-   the page's own colour, lighter at the top and on the right, so the
-   text stays readable in both themes. Fixed to the window, as a layer of its own, since a
-   fixed background-attachment is not supported everywhere. */
-:root[data-has-hero] body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  background:
-    linear-gradient(to right, color-mix(in srgb, var(--sl-color-bg) 55%, transparent),
-                    transparent 65%),
-    linear-gradient(color-mix(in srgb, var(--sl-color-bg) 25%, transparent),
-                    color-mix(in srgb, var(--sl-color-bg) 45%, transparent) 35%,
-                    color-mix(in srgb, var(--sl-color-bg) 90%, transparent) 75%),
-    url("../../build/pics/pyking.jpeg") center 30% / cover no-repeat;
+/* The front page: its top -- the hero and the first block beside or
+   below it -- on a band holding sitesrc/pics/pyking.jpeg, under a wash
+   of the page's own colour, lighter at the top and on the right and
+   fading into the page at its foot; the rest of the page is on the
+   page's own background. The band is the grid's ::before, placed
+   absolutely in the grid's first rows -- so it sizes nothing -- and as
+   wide as the window. The wash is lighter in the light theme, where the hero's
+   box carries the contrast. */
+:root[data-has-hero] {
+  --pyking-wash-side: 55%;
+  --pyking-wash-top: 25%;
+  --pyking-wash-middle: 45%;
+  --pyking-wash-bottom: 90%;
+  --pyking-box: color-mix(in srgb, var(--sl-color-bg) 45%, transparent);
+  overflow-x: clip;
 }
-/* On a narrow screen the hero's text is centred over the crown. */
+:root[data-has-hero][data-theme="light"] {
+  --pyking-wash-side: 30%;
+  --pyking-wash-top: 10%;
+  --pyking-wash-middle: 25%;
+  --pyking-wash-bottom: 70%;
+  --pyking-box: rgba(255, 255, 255, 0.55);
+}
+/* On a narrow screen the hero's text is centred over the crown, and the
+   dark theme washes the top more. */
 @media (max-width: 50em) {
-  :root[data-has-hero] body::before {
-    background:
-      linear-gradient(color-mix(in srgb, var(--sl-color-bg) 60%, transparent),
-                      color-mix(in srgb, var(--sl-color-bg) 90%, transparent) 70%),
-      url("../../build/pics/pyking.jpeg") 55% 30% / cover no-repeat;
+  :root[data-has-hero]:not([data-theme="light"]) {
+    --pyking-wash-side: 0%;
+    --pyking-wash-top: 60%;
+    --pyking-wash-middle: 75%;
+    --pyking-wash-bottom: 90%;
   }
+}
+:root[data-has-hero] {
+  /* The wash, as two background layers: sideways, then downwards. */
+  --pyking-wash:
+    linear-gradient(to right,
+                    color-mix(in srgb, var(--sl-color-bg) var(--pyking-wash-side), transparent),
+                    transparent 65%),
+    linear-gradient(color-mix(in srgb, var(--sl-color-bg) var(--pyking-wash-top), transparent),
+                    color-mix(in srgb, var(--sl-color-bg) var(--pyking-wash-middle), transparent) 40%,
+                    color-mix(in srgb, var(--sl-color-bg) var(--pyking-wash-bottom), transparent) 85%,
+                    var(--sl-color-bg));
 }
 :root[data-has-hero] .page,
 :root[data-has-hero] .main-frame,
 :root[data-has-hero] .content-panel { background: transparent; }
+
+/* The grid: the hero, then the page's first block if it is a
+   `.pyking-try` box (a block marked `playground`), lifted out of the
+   page body by `display: contents`; on a wide screen the two side by
+   side, the block's foot level with the foot of the hero's box. */
+:root[data-has-hero] main .sl-container {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  position: relative;
+}
+:root[data-has-hero] main .sl-markdown-content { display: contents; }
+:root[data-has-hero] main .sl-markdown-content > * { grid-column: 1 / -1; }
+:root[data-has-hero] .hero {
+  grid-row: 1;
+  background: var(--pyking-box);
+  border-radius: 1rem;
+  padding: 1.25rem 2rem 2rem;
+  margin-block: 7rem 1rem;
+}
+/* The title at 70% of Starlight's size for it. */
+:root[data-has-hero] .hero h1 {
+  font-size: calc(0.7 * clamp(var(--sl-text-3xl), calc(0.25rem + 5vw), var(--sl-text-6xl)));
+  line-height: 1.15;
+}
+:root[data-has-hero] main .sl-markdown-content > .pyking-try:first-child {
+  grid-row: 2;
+  margin-block: 0 2rem;
+}
+:root[data-has-hero] main .pyking-try > .expressive-code { margin: 0; }
+:root[data-has-hero] main .sl-container::before {
+  content: "";
+  grid-column: 1 / -1;
+  grid-row: 1 / span 2;
+  position: absolute;
+  z-index: -1;
+  /* Out to the window's edges, up to the header, and a little below
+     the hero, where it fades into the page. */
+  inset: -1.5rem calc(50% - 50vw) -2.5rem;
+  /* The crown, at 41% of the picture's width, right of the middle. */
+  background: var(--pyking-wash),
+    url("../../build/pics/pyking.jpeg") 21% 35% / cover no-repeat;
+}
+/* A `.pyking-try` box: the code in a rounded frame, dark in both themes
+   -- Expressive Code's dark colours, which its light theme replaces on
+   :root -- and the playground link a small button over the code's lower right
+   corner. */
+.pyking-try { position: relative; }
+.pyking-try .expressive-code {
+  --ec-brdRad: 0.75rem;
+  --ec-brdCol: #ffffff1f;
+  --ec-codeBg: #23262f;
+  --ec-codeFg: #d6deeb;
+  --ec-codeSelBg: #1d3b53;
+  --ec-frm-edBg: #23262f;
+  --ec-frm-inlBtnFg: #d6deeb;
+  --ec-frm-inlBtnBrd: #d6deeb;
+  --ec-sbThumbCol: #ffffff17;
+  --ec-sbThumbHoverCol: #ffffff47;
+  --ec-focusBrd: #122d42;
+}
+.pyking-try .expressive-code .frame { box-shadow: 0 0.5rem 1.5rem #0000004d; }
+/* The link takes the copy button's place. */
+.pyking-try .expressive-code .copy { display: none; }
+/* Below the last line on a narrow screen, where the lines are as wide as
+   the frame; over its corner on a wide one. */
+.pyking-try .expressive-code pre { padding-bottom: 2.25rem; }
+:root[data-theme="light"] .pyking-try .expressive-code .ec-line span[style^="--"]:not([class]) {
+  color: var(--0, inherit);
+}
+.pyking-try-foot {
+  position: absolute;
+  right: 0.5rem;
+  bottom: 0.5rem;
+  margin: 0;
+}
+.pyking-try-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.75rem;
+  border-radius: 999rem;
+  background: var(--sl-color-text-accent);
+  color: var(--sl-color-black);
+  font-size: var(--sl-text-sm);
+  font-weight: 600;
+  text-decoration: none;
+}
+.pyking-try-link::after { content: "\2192"; margin-inline-start: 0.4rem; }
+.pyking-try-link:hover { color: var(--sl-color-black); opacity: 0.9; }
+@media (min-width: 72rem) {
+  :root[data-has-hero] main .sl-container {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: 2rem;
+  }
+  :root[data-has-hero] .hero {
+    grid-column: 1;
+    /* One column: Starlight keeps a second for a hero image, and there is none. */
+    grid-template-columns: minmax(0, 1fr);
+    margin-bottom: 2rem;
+  }
+  /* Its foot level with the foot of the hero's box: the hero's bottom
+     margin. */
+  .pyking-try .expressive-code pre { padding-bottom: 0; }
+  :root[data-has-hero] main .sl-markdown-content > .pyking-try:first-child {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: end;
+    margin-block: 0 2rem;
+  }
+  /* Both lines given: an absolute item's `auto` end is the grid's edge.
+     The picture 760px wide, the same size whatever the window's width,
+     moved right so the snake is right of the window's middle, above the
+     code; its edges fade into ::after, the same picture across
+     the window, blurred. */
+  :root[data-has-hero] main .sl-container::before,
+  :root[data-has-hero] main .sl-container::after {
+    grid-column: 1 / -1;
+    grid-row: 1 / 2;
+  }
+  :root[data-has-hero] main .sl-container::before {
+    background: var(--pyking-wash),
+      url("../../build/pics/pyking.jpeg") calc(50% + 225px) top / 760px auto no-repeat;
+    /* Its sides faded, and its foot where ::after's is. */
+    -webkit-mask:
+      linear-gradient(to right, transparent, #000 6rem, #000 calc(100% - 6rem),
+                      transparent) calc(50% + 225px) 0 / 760px 100% no-repeat,
+      linear-gradient(#000 55%, transparent 90%);
+    -webkit-mask-composite: source-in;
+    mask:
+      linear-gradient(to right, transparent, #000 6rem, #000 calc(100% - 6rem),
+                      transparent) calc(50% + 225px) 0 / 760px 100% no-repeat,
+      linear-gradient(#000 55%, transparent 90%);
+    mask-composite: intersect;
+  }
+  :root[data-has-hero] main .sl-container::after {
+    content: "";
+    position: absolute;
+    z-index: -2;
+    /* 4rem past the window on each side, clipped back to it, so the
+       blur's soft edges fall outside what is seen. */
+    inset: -1.5rem calc(50% - 50vw - 4rem) -2.5rem;
+    clip-path: inset(0 4rem);
+    background: var(--pyking-wash),
+      url("../../build/pics/pyking.jpeg") center 30% / cover no-repeat;
+    filter: blur(3rem);
+    /* Faded out before its foot, which the blur would otherwise grey. */
+    -webkit-mask: linear-gradient(#000 55%, transparent 90%);
+    mask: linear-gradient(#000 55%, transparent 90%);
+  }
+}
 
 /* A cell embedded in a page: the notebook's cell, without the notebook's
    page background and type size. */
