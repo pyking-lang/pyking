@@ -2,18 +2,22 @@
 #
 #   make setup           make the build toolchains (once)
 #   make                 build every package into build/
-#   make FORMATS=linux   only some formats (homebrew, linux, vscode)
+#   make FORMATS=linux   only some formats (homebrew, linux, docker, nix,
+#                        vscode)
 #   make ARCHS=arm64     only some architectures (not for publishing)
 #   make install-local   install the local build on this machine
 #   make uninstall-local remove it again
 #   make release         publish the build: pyking-lang/pyking-releases
-#                        and the formula in pyking-lang/homebrew-tap
+#                        (with the Nix flake), the formula in
+#                        pyking-lang/homebrew-tap, and the Docker images
+#                        in ghcr.io/pyking-lang/pyking
 #   make clean           remove build/
 #
-# Homebrew packages are built on an Apple Silicon Mac, Linux ones in
-# Docker: see README.md for the one-time setup. `make packaging` at the
-# repository root builds the compiler and downloads the browser libraries
-# first, which this relies on.
+# Homebrew packages are built on an Apple Silicon Mac; Linux ones, the
+# Docker images and the Nix flake in Docker: see README.md for the
+# one-time setup. `make packaging` at the repository root builds the
+# compiler and downloads the browser libraries first, which this relies
+# on.
 
 PYTHON  ?= python3
 FORMATS ?=
@@ -50,14 +54,18 @@ help:
 	@echo "                      what is done already, and say whether they are"
 	@echo "                      ready"
 	@echo "make                  build every package into build/"
-	@echo "make FORMATS=linux    only those formats (homebrew, linux, vscode)"
+	@echo "make FORMATS=linux    only those formats (homebrew, linux, docker, nix,"
+	@echo "                      vscode); docker and nix are made from linux's"
+	@echo "                      tarballs"
 	@echo "make ARCHS=arm64      only that architecture (not for publishing)"
 	@echo "make install-local    install the local build here: with Homebrew on"
 	@echo "                      a Mac, with install.sh into ~/.local on Linux"
 	@echo "make uninstall-local  remove it again"
 	@echo "make release          publish the build: one release of"
 	@echo "                      pyking-lang/pyking-releases with every platform,"
-	@echo "                      and the formula in pyking-lang/homebrew-tap,"
+	@echo "                      the formula in pyking-lang/homebrew-tap, the"
+	@echo "                      Nix flake in pyking-lang/pyking-releases and"
+	@echo "                      the images in ghcr.io/pyking-lang/pyking,"
 	@echo "                      then asks whether to tag HEAD in"
 	@echo "                      pyking-lang/pyking as release-<VERSION>;"
 	@echo "                      asks first (YES=1 does not)"

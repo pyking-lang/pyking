@@ -1676,6 +1676,26 @@ section that is missing, empty or still `Unreleased`. Add to the
   `pyking_amd64.deb`), which `latest` links and install.sh ask for.
   `make packaging-install` on Linux runs install.sh against `build/`
   (`PYKING_DOWNLOAD_BASE`).
+- **Docker**: made from the Linux tarballs, so it follows `linux` in
+  `FORMATS` and needs its tarballs; `tools/packaging/docker/Dockerfile`
+  has two targets, `slim` (the tree on `debian:13-slim`) and `full` (on
+  `python:3.14-slim-trixie`, with gcc, a JDK, node from nodejs.org
+  checked against `NODE_SHA256`, and the Linux build image's own OCaml
+  at its own path, so a program's external module compiles a plugin
+  that loads). That OCaml's runtime is not PIE, so the image's
+  `ocamlopt` is `docker/ocamlopt`, adding `-no-pie` to every link but
+  `-shared`. Images are tagged locally as they are pushed,
+  `ghcr.io/pyking-lang/pyking:<v>[-full]-<arch>`, and run before they
+  are kept -- in `slim` the playground through a published port, which
+  works because the image sets `PYKING_WEB_HOST=0.0.0.0` (`web_server.ml`
+  listens on 127.0.0.1 otherwise); in `full` `--run` for every family.
+- **Nix**: `build/nix/flake.nix` (`flake()`), each system's release
+  tarball by URL and SRI hash, with `autoPatchelfHook` on Linux and no
+  fixup on macOS, so the signed universal `pyk` is untouched. Nothing
+  needs Nix: in a `nixos/nix` container (`NIX_IMAGE`) the flake is
+  locked (`flake.lock`, pinning `NIXPKGS`), every system's derivation is
+  instantiated, and the same flake with the local Linux tarball in place
+  of the fetch is built and run per architecture.
 - **VS Code** (and Cursor): `tools/editors/vscode/`, plain JavaScript
   over `vscode-languageclient`, packed by its own `make vsix` into
   `pyking-<version>.vsix` (`VSCode.build`; node 20+ and npm on the
@@ -1688,10 +1708,19 @@ The code repository is private, so nothing a user downloads lives in it.
 (`RELEASES_REPO`) -- the Mac tarball, both Linux tarballs and `.deb`s,
 the `.vsix`, install.sh and `SHA256SUMS` in one release per version, marked latest --
 and **the formula to `pyking-lang/homebrew-tap`** (`TAP_REPO`), whose
-`homebrew-` name makes the tap `pyking-lang/tap`. So users run `brew
-install pyking-lang/tap/pyking` (`BREW_INSTALL`) and `curl -fsSL
+`homebrew-` name makes the tap `pyking-lang/tap`. After the tap, the
+release commits the flake (and a regenerated README) to
+`RELEASES_REPO` and runs it from there in a Nix container, then pushes
+the images to `IMAGE_REPO` with the `gh` token (which needs
+`write:packages`) and joins each variant's architectures with `docker
+buildx imagetools create` under `<v>`/`latest` and `<v>-full`/`full`.
+A new ghcr.io package is private until made public once by hand, and the
+release says so when an anonymous pull is refused. So users run `brew
+install pyking-lang/tap/pyking` (`BREW_INSTALL`), `curl -fsSL
 https://github.com/pyking-lang/pyking-releases/releases/latest/download/install.sh
-| sh` (`LINUX_INSTALL`). `make release` (`release()`) needs every file of
+| sh` (`LINUX_INSTALL`), `nix run github:pyking-lang/pyking-releases`
+(`NIX_RUN`) and `docker run ... ghcr.io/pyking-lang/pyking`
+(`DOCKER_RUN`). `make release` (`release()`) needs every file of
 the release for `VERSION`, so it is run where every format was built --
 an Apple Silicon Mac with Docker. It checks everything before changing
 anything -- including git's identity *outside* this repository, since

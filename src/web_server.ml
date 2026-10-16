@@ -266,12 +266,23 @@ let rec answer site fd pending =
             write_all fd (encode path response (meth = "HEAD") keep);
             if keep then answer site fd rest else ("", false))
 
-(** A socket listening on 127.0.0.1: on port itself when it was asked for
-    explicitly, else on the first free one of twenty from it.
-    int -> bool -> (Unix.file_descr * int, string) result *)
+(** The address to listen on: $PYKING_WEB_HOST, 127.0.0.1 without it.
+    () -> (Unix.inet_addr, string) result *)
+let address () =
+  match Sys.getenv_opt "PYKING_WEB_HOST" with
+  | None | Some "" -> Ok Unix.inet_addr_loopback
+  | Some host -> (
+      match Unix.inet_addr_of_string host with
+      | addr -> Ok addr
+      | exception Failure _ ->
+          Error (Printf.sprintf "serve: PYKING_WEB_HOST is %S, not an IPv4 address" host))
+
+(** A socket listening on the address `address` answers: on port itself
+    when it was asked for explicitly, else on the first free one of
+    twenty from it. int -> bool -> (Unix.file_descr * int, string) result *)
 let listen port explicit =
   let tries = if explicit then 1 else 20 in
-  let rec go p =
+  let rec go host p =
     if p >= port + tries then
       Error
         (if explicit then Printf.sprintf "serve: port %d is in use" port
@@ -280,15 +291,15 @@ let listen port explicit =
       let socket = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
       match
         Unix.setsockopt socket Unix.SO_REUSEADDR true;
-        Unix.bind socket (Unix.ADDR_INET (Unix.inet_addr_loopback, p));
+        Unix.bind socket (Unix.ADDR_INET (host, p));
         Unix.listen socket 64
       with
       | () -> Ok (socket, p)
       | exception Unix.Unix_error _ ->
           Unix.close socket;
-          go (p + 1)
+          go host (p + 1)
   in
-  go port
+  Result.bind (address ()) (fun host -> go host port)
 
 (** Closes a socket, ignoring a socket already gone. Unix.file_descr -> () *)
 let close fd = try Unix.close fd with Unix.Unix_error _ -> ()

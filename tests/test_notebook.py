@@ -24,7 +24,8 @@ Five parts:
             manifest and every file tools/playground/playground.py's Site
             names compared with what pyk serves, the mode the page is
             told, and the refusals: a missing file, a file that is not
-            Markdown, a mode there is none of, a missing directory.
+            Markdown, a mode there is none of, a missing directory, an
+            address to listen on that is not one.
   test mode `pyk notebook --mode test` passes features.md, and reports
             exactly what tests/notebook/broken.out says about broken.md.
   page      where a Chromium is found (tests/suite.py, find_chromium) and
@@ -640,6 +641,9 @@ def check_server(compiler):
             "takes no filename")
     refused("a directory that is not there is refused", ["serve", "no-such-directory"],
             "no such directory")
+    refused("a PYKING_WEB_HOST that is not an address is refused", ["serve", str(REPO)],
+            "PYKING_WEB_HOST is \"nowhere\", not an IPv4 address",
+            dict(environment, PYKING_WEB_HOST="nowhere"))
     return checks, failures
 
 

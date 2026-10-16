@@ -173,7 +173,8 @@ which is built into Emacs 29 and later. It ships with Pyking, in
 `tools/emacs/` of the installation: under Homebrew that is
 `$(brew --prefix)/opt/pyking/libexec/tools/emacs/`; with install.sh
 `~/.local/share/pyking/tools/emacs/` (`/usr/local/lib/pyking/tools/emacs/`
-with `--system`); and with the `.deb` `/usr/lib/pyking/tools/emacs/`. Add that directory to `load-path` and `(require 'pyking-mode)`.
+with `--system`); with the `.deb` `/usr/lib/pyking/tools/emacs/`; and
+with Nix `~/.nix-profile/libexec/pyking/tools/emacs/`. Add that directory to `load-path` and `(require 'pyking-mode)`.
 With the mode loaded, `M-x eglot` in a `.pyk` buffer starts the server. To start
 it in every Pyking buffer:
 

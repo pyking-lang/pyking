@@ -28,7 +28,7 @@ type site = {
 (** The port a tool serves on when none is asked for. int *)
 val default_port : int
 
-(** Serves a site on 127.0.0.1 and prints a link to it, with `lines`
+(** Serves a site on 127.0.0.1, or on $PYKING_WEB_HOST, and prints a link to it, with `lines`
     after it, until Ctrl+C: on `port` when `explicit`, else on the first
     free port of twenty from it. Answers why it could not listen.
     site -> string -> int -> bool -> [string] -> (unit, string) result *)

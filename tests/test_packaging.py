@@ -41,6 +41,12 @@ file, and each package's library plugins, which needs neither system --
 checks SHA256SUMS and both formulas against the files, and runs what
 this machine can run. It never runs `brew`, `dpkg -i` or a release.
 
+The Docker and Nix formats are checked without either: the Dockerfile
+has both images and what they need, and the flake installs every
+system's tarball by its checksum, which `make release` insists on; where
+Nix is installed, `nix-instantiate --parse` reads it. A flake in
+tools/packaging/build/nix/ is checked against the tarballs built.
+
 What a release says has changed is CHANGELOG.md's section for its
 version (`packaging.changelog_notes`): the suite checks that 0.1.0's is
 read as a release would show it, and that a section that is missing,
@@ -57,6 +63,7 @@ Functions:
     check_install_sh(tree) -- install.sh, against a local release.
     check_readers() -- the Mach-O and ELF readers, and SHA256SUMS.
     check_built() -- the packages tools/packaging/build/ holds.
+    check_docker_nix(check) -- the Dockerfile, and the flake.
     check_changelog(check) -- what a release says has changed.
     main(argv) -- the command-line entry point.
 """
@@ -572,6 +579,15 @@ def check_built(check):
         wrong = [name for name, sha in sums.items() if not (packaging.BUILD / name).exists()
                  or hashlib.sha256((packaging.BUILD / name).read_bytes()).hexdigest() != sha]
         check("SHA256SUMS matches the files built", not wrong, ", ".join(wrong))
+    built_flake = packaging.Nix.DIRECTORY / "flake.nix"
+    if built_flake.exists():
+        v = packaging.version()
+        tarballs = {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                    for path in packaging.BUILD.glob(f"pyking-{v}-*.tar.gz")}
+        check("build/nix/flake.nix installs the tarballs built, by their checksums",
+              built_flake.read_text() == packaging.flake(v, packaging.flake_sources(v, tarballs)))
+        check("build/nix/flake.lock is beside it",
+              (packaging.Nix.DIRECTORY / "flake.lock").exists())
     archives = sorted(packaging.BUILD.glob("pyking-*-macos*.tar.gz"))
     for archive in archives:
         name = archive.name
@@ -608,6 +624,66 @@ def check_built(check):
             if rb.exists() and name in rb.read_text():
                 check(f"{kind}/pyking.rb has {name}'s checksum", f'sha256 "{sha}"' in rb.read_text())
     return len(archives) + len(linux)
+
+
+def check_docker_nix(check):
+    """The Docker images' Dockerfile and ocamlopt wrapper, and the flake
+    `flake` writes: Nix's spelling of a checksum, every system's tarball
+    in it, that it parses where Nix exists, and that a release refuses a
+    flake that does not describe it. Checks -> ()"""
+    dockerfile = packaging.IMAGE_DOCKERFILE.read_text()
+    for wanted in ("AS slim", "AS full", "ADD pyking.tar.gz", "PYKING_WEB_HOST=0.0.0.0",
+                   "COPY --chmod=755 ocamlopt", "/opt/opam/release/lib/ocaml",
+                   "sha256sum -c", 'ENTRYPOINT ["pyk"]'):
+        check(f"the Dockerfile has {wanted!r}", wanted in dockerfile)
+    wrapper = packaging.IMAGE_DOCKERFILE.parent / "ocamlopt"
+    check("the full image's ocamlopt is executable and links executables with -no-pie",
+          os.access(wrapper, os.X_OK) and "-ccopt -no-pie" in wrapper.read_text())
+    check("a sha256 is spelled as Nix's SRI hash",
+          packaging.sri(hashlib.sha256(b"").hexdigest())
+          == "sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=")
+    v = "9.8.7"
+    names = [f"pyking-{v}-macos.tar.gz"] + [f"pyking-{v}-linux-{u}.tar.gz"
+                                             for u in packaging.UNAME_ARCH.values()]
+    sums = {name: hashlib.sha256(name.encode()).hexdigest() for name in names}
+    sources = packaging.flake_sources(v, sums)
+    check("the flake installs a tarball on every Nix system",
+          sorted(sources) == sorted(packaging.NIX_SYSTEMS), str(sorted(sources)))
+    text = packaging.flake(v, sources)
+    check("the flake fetches each tarball from the release by its checksum",
+          all(f"{packaging.RELEASES}/v{v}/{name}" in text and packaging.sri(sums[name]) in text
+              for name in names))
+    check("both macOS systems install the one universal tarball",
+          sources["x86_64-darwin"] == sources["aarch64-darwin"])
+    check("the flake's braces balance", text.count("{") == text.count("}"))
+    check("the flake names nixpkgs and the version",
+          packaging.NIXPKGS in text and f'version = "{v}";' in text)
+    if shutil.which("nix-instantiate"):
+        with tempfile.TemporaryDirectory(prefix="pyk-packaging-") as directory:
+            (Path(directory) / "flake.nix").write_text(text)
+            parsed = subprocess.run(["nix-instantiate", "--parse",
+                                     str(Path(directory) / "flake.nix")],
+                                    capture_output=True, text=True)
+            check("nix-instantiate parses the flake", parsed.returncode == 0, parsed.stderr)
+    with tempfile.TemporaryDirectory(prefix="pyk-packaging-") as directory:
+        nix = packaging.Nix()
+        nix.DIRECTORY = Path(directory)
+
+        def refused(label, expected):
+            try:
+                nix.release_preflight(v, sums)
+                check(label, not expected, "it was accepted")
+            except packaging.Refusal as refusal:
+                check(label, expected, str(refusal))
+
+        refused("a release with no flake is refused", True)
+        (nix.DIRECTORY / "flake.nix").write_text(text)
+        refused("a release whose flake has no lock is refused", True)
+        (nix.DIRECTORY / "flake.lock").write_text("{}\n")
+        refused("a release whose flake describes it is accepted", False)
+        (nix.DIRECTORY / "flake.nix").write_text(
+            packaging.flake(v, packaging.flake_sources(v, dict(list(sums.items())[1:]))))
+        refused("a release whose flake lacks a system is refused", True)
 
 
 def check_changelog(check):
@@ -666,6 +742,7 @@ def main(argv):
         check_deb(check, tree)
         check_install_sh(check, tree)
     check_macho(check)
+    check_docker_nix(check)
     check_changelog(check)
     built = check_built(check)
     for failure in check.failures:

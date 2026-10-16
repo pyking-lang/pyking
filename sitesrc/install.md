@@ -1,6 +1,6 @@
 ---
 title: Install
-description: Install Pyking on macOS, Linux or WSL.
+description: Install Pyking on macOS, Linux or WSL, with Nix, or run it in Docker.
 ---
 
 Pyking is one program, `pyk`, together with its standard library.
@@ -39,6 +39,38 @@ On Debian and Ubuntu, a `.deb` package is also available:
 curl -fLO https://github.com/pyking-lang/pyking-releases/releases/latest/download/pyking_amd64.deb
 sudo apt install ./pyking_amd64.deb      # pyking_arm64.deb on ARM
 ```
+
+## Nix
+
+On Linux and macOS, with flakes enabled:
+
+```sh
+nix run github:pyking-lang/pyking-releases -- hello.pyk   # run it without installing
+nix profile install github:pyking-lang/pyking-releases    # install pyk
+```
+
+`nix profile upgrade pyking-releases` updates it and `nix profile remove
+pyking-releases` removes it.
+
+## Docker
+
+The image runs `pyk` in the current directory, which is the container's
+`/work`:
+
+```sh
+docker run --rm -it -v "$PWD:/work" ghcr.io/pyking-lang/pyking hello.pyk
+docker run --rm -it -v "$PWD:/work" ghcr.io/pyking-lang/pyking          # the REPL
+```
+
+To use the playground, the notebook or the help, publish the port and
+open the link it prints:
+
+```sh
+docker run --rm -p 8000:8000 ghcr.io/pyking-lang/pyking playground --port 8000
+```
+
+`ghcr.io/pyking-lang/pyking:full` also holds Python, node, a C compiler, a
+JDK and OCaml, so `pyk compile --run` works for every target.
 
 ## Check the installation
 

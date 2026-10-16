@@ -1,0 +1,9 @@
+#!/bin/sh
+# ocamlopt in Pyking's full Docker image. The OCaml there is the Linux
+# build image's, whose runtime was compiled without PIE, while Debian's gcc
+# links a position-independent executable unless told otherwise; so an
+# executable is linked with -no-pie, and a plugin (-shared) as it is.
+case " $* " in
+  *" -shared "*) exec /opt/opam/release/bin/ocamlopt "$@" ;;
+esac
+exec /opt/opam/release/bin/ocamlopt -ccopt -no-pie "$@"

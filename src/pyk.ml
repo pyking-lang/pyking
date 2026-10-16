@@ -274,7 +274,9 @@ let usage_full () =
      playground's Help tab shows too.\n\
      `pyk serve <dir>` serves a directory's files as they are, such as a\n\
      page compiled for web24 or iweb24. Without --port they start at 8000\n\
-     and take the first free port. --mode student hides an exercise's solution and\n\
+     and take the first free port. They listen on 127.0.0.1, or on the\n\
+     address $PYKING_WEB_HOST names (0.0.0.0 for every interface, as in a\n\
+     container). --mode student hides an exercise's solution and\n\
      tests until a student asks for them, --mode teacher shows every\n\
      block, and --mode test serves nothing: it runs every cell, exercise\n\
      and solution under node, checks each against the stdout and stderr\n\

@@ -19,6 +19,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `canvas_style` change every element of a kind; `set_style` and
   `set_colors` change one element. A new page, Getting started ›
   Styling tinyweb, shows each of them with examples to run.
+- Pyking as a Docker image, for x86_64 and arm64:
+  `docker run --rm -it -v "$PWD:/work" ghcr.io/pyking-lang/pyking
+  hello.pyk`. `ghcr.io/pyking-lang/pyking:full` also holds Python, node,
+  gcc, a JDK and OCaml, so `pyk compile --run` runs every target. The
+  playground, the notebook and the help can be opened from outside the
+  container with `-p 8000:8000 ... playground --port 8000`.
+- Pyking as a Nix flake, on Linux and macOS: `nix run
+  github:pyking-lang/pyking-releases`, or `nix profile install
+  github:pyking-lang/pyking-releases`.
+- `PYKING_WEB_HOST` names the address `pyk notebook`, `pyk playground`,
+  `pyk pykhelp` and `pyk serve` listen on, 127.0.0.1 without it;
+  `0.0.0.0` listens on every interface.
 
 ## [0.1.2] - 2026-10-12
 

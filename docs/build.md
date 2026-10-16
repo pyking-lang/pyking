@@ -189,6 +189,9 @@ at `/notebook/` and the help at `/help/` (its pages at `/help/pages/`),
 since the playground's Help tab is the help and its examples are the
 notebook's cells -- and `src/web_server.ml` serves it on
 127.0.0.1 in the `pyk` process, so nothing else has to be installed.
+`$PYKING_WEB_HOST` names another address to listen on; the Docker
+image sets it to `0.0.0.0`, since a container's own 127.0.0.1 cannot be
+reached from outside it.
 `pyk serve DIR` serves a directory's files the same way, which is what
 `--run` does for a `web24` or `iweb24` page. `tools/webrun/server.py`
 and `tools/playground/playground.py` say the same layout in Python, for
@@ -289,7 +292,7 @@ every example on the site with the interpreter, without Astro.
 
 `make packaging` builds that tree into installable packages, with
 `tools/packaging/packaging.py`, writing them into `tools/packaging/build/`,
-and `make release` publishes them. Two formats, each holding a `pyk`
+and `make release` publishes them. Two formats build a `pyk`, each holding one
 that needs nothing but the system's C library, and the library plugins
 compiled by the toolchain that built that `pyk`, since a plugin loads
 only into an executable its own compiler built:
@@ -313,11 +316,27 @@ only into an executable its own compiler built:
   refused, and the built tree is run, plugins and all, in current Debian
   and in Debian 10.
 
+Two more are made from the Linux tarballs and build nothing:
+
+- **Docker**: each architecture's tarball unpacked on Debian 13, as
+  `ghcr.io/pyking-lang/pyking` (pyk alone) and `:full` (with Python,
+  node, gcc, a JDK and the Linux build image's OCaml, so `--run` works
+  for every target), from `tools/packaging/docker/Dockerfile`. The image
+  sets `PYKING_WEB_HOST=0.0.0.0`, so a published port reaches the web
+  tools. Both are run before they are kept, the playground fetched from
+  outside the container.
+- **Nix**: a flake installing each system's release tarball by its
+  sha256, `autoPatchelfHook` fitting the Linux `pyk` to Nix's glibc. It
+  is locked, evaluated and built from the local tarball in a `nixos/nix`
+  container, so no machine needs Nix.
+
 A partial build (`FORMATS=`, `ARCHS=`) is possible and cannot be
 published. `make packaging-setup` makes the toolchains once. One release
 of the public repository `pyking-lang/pyking-releases` holds every
-platform's files, and the formula goes to the tap
-`pyking-lang/homebrew-tap`. `tools/packaging/README.md` has the one-time
+platform's files, the formula goes to the tap
+`pyking-lang/homebrew-tap`, the flake is committed to
+`pyking-lang/pyking-releases` (so it is `github:pyking-lang/pyking-releases`),
+and the images are pushed to `ghcr.io/pyking-lang/pyking`. `tools/packaging/README.md` has the one-time
 setup, the release steps and the install instructions.
 
 The version is the `VERSION` file at the root. `src/dune` turns it into

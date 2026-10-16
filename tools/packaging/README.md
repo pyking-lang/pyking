@@ -1,12 +1,14 @@
 # Packaging
 
 Builds the packages Pyking is installed from on another machine, and
-publishes them. Two formats:
+publishes them. The formats:
 
 | Format | For | Holds |
 |---|---|---|
 | **Homebrew** | macOS 11 or later | a universal `pyk` (Apple Silicon and Intel) and a formula |
 | **Linux** | every distribution, and WSL | a `pyk` per architecture (x86_64, aarch64), linked against glibc 2.28, as a tarball and a `.deb` |
+| **Docker** | anything that runs Docker | the Linux tree on Debian, for x86_64 and arm64: `pyking` (pyk alone) and `pyking:full` (with every target's host), at `ghcr.io/pyking-lang/pyking` |
+| **Nix** | Linux and macOS | a flake in `pyking-lang/pyking-releases` installing the release's tarballs |
 
 Both hold a `pyk` that needs nothing but the system's C library, and the
 standard library's interpreter plugins, compiled by the toolchain that
@@ -69,6 +71,54 @@ It recommends `python3 (>= 3.10)` for the notebook, which apt installs by
 default; `--no-install-recommends` installs `pyk` alone. It is not in an
 apt repository, so `apt upgrade` does not update it: install the next
 `.deb`, or use the one-liner.
+
+### Nix
+
+On Linux and macOS, with flakes enabled:
+
+```sh
+nix run github:pyking-lang/pyking-releases -- hello.pyk   # run it once
+nix profile install github:pyking-lang/pyking-releases    # install pyk
+nix profile upgrade pyking-releases                       # update it
+nix profile remove pyking-releases                        # remove it
+```
+
+The flake builds nothing: its package unpacks the release's tarball for
+the system -- Linux's per architecture, the universal macOS one on
+both Macs -- fetched by its sha256, into `libexec/pyking/`, with
+`bin/pyk` a link. On Linux `autoPatchelfHook` points `pyk` and its
+plugins at Nix's own glibc, since NixOS has no `/lib64/ld-linux*`. It
+is also a flake input like any other (`pyking.packages.${system}.default`).
+
+### Docker
+
+On anything that runs Docker, x86_64 or arm64. The current directory is
+the container's `/work`, which is where `pyk` runs:
+
+```sh
+docker run --rm -it -v "$PWD:/work" ghcr.io/pyking-lang/pyking hello.pyk
+docker run --rm -it -v "$PWD:/work" ghcr.io/pyking-lang/pyking          # the REPL
+docker run --rm -p 8000:8000 ghcr.io/pyking-lang/pyking playground --port 8000
+```
+
+and the printed link opens the playground (or the notebook, or the help)
+in the host's browser: the image sets `PYKING_WEB_HOST=0.0.0.0`, so `pyk`
+listens on the container's every interface rather than its own
+127.0.0.1, which `-p` cannot reach. Publish the port at the same number,
+since the link names the container's. Add `--user "$(id -u):$(id -g)"`
+for what `pyk compile` writes into `/work` to be yours rather than
+root's.
+
+Two images, each for both architectures:
+
+| Tag | Holds |
+|---|---|
+| `latest`, `0.2.0` | `pyk` and its tree on Debian 13 (about 55 MB to download) |
+| `full`, `0.2.0-full` | the same, with Python 3.14, node 24, gcc, a JDK 21 and OCaml 5.5.0 -- the OCaml `pyk` was built by -- so `pyk compile --run` runs every target, and a program's own external module compiles its plugin (about 500 MB) |
+
+A tinyweb program run in a container serves its page on the
+container's 127.0.0.1, so it cannot be opened from outside; the web
+tools above can.
 
 ### What it needs
 
@@ -145,7 +195,14 @@ with the one-time setup below done:
    pyking-0.2.0.vsix                  the VS Code and Cursor extension
    install.sh
    SHA256SUMS                         every file above
+   nix/flake.nix                      the Nix flake, naming the release
+   nix/flake.lock                     the nixpkgs it is locked to
    ```
+
+   and, in Docker rather than in `build/`, one image per variant and
+   architecture, tagged by the name a release pushes it under:
+   `ghcr.io/pyking-lang/pyking:0.2.0-arm64`, `...:0.2.0-x86_64`,
+   `...:0.2.0-full-arm64` and `...:0.2.0-full-x86_64`.
 
    - **macOS:** `pyk` is built twice -- arm64 natively, x86_64 under
      Rosetta -- by toolchains compiled for macOS 11, joined with `lipo`,
@@ -171,6 +228,34 @@ with the one-time setup below done:
      it runs outside the system it was built on and on the oldest glibc
      it promises. The `.deb` is written directly by `packaging.py`, so no
      `dpkg` is needed; it depends on `libc6 (>= 2.28)` and nothing else.
+   - **Docker:** made from the Linux tarballs above, so the format comes
+     after `linux` and needs its tarballs (`FORMATS=linux,docker` builds
+     both): `docker/Dockerfile`, with each architecture's tarball as
+     `pyking.tar.gz` in the build context, has two targets. `slim`
+     unpacks it on `debian:13-slim`; `full` copies that tree onto
+     `python:3.14-slim-trixie`, the same Debian, with gcc, the JDK, node
+     (from nodejs.org, checked against `NODE_SHA256`) and the OCaml of
+     the Linux build image -- the compiler that built this `pyk`, at the
+     path it was installed at, so the plugin of a program's own external
+     module loads. That OCaml's runtime was compiled without PIE, which
+     Debian's gcc links by default, so `ocamlopt` is `docker/ocamlopt`, a
+     wrapper adding `-ccopt -no-pie` to every link but a plugin's
+     (`-shared`). Each image is then run: `pyk --version`, a program and
+     one importing libraries in both; in `slim` the playground, fetched
+     from outside the container through its published port; in `full`
+     `pyk compile --run` for Python, node, C, Java and OCaml, and a
+     program whose external module's plugin is compiled there.
+   - **Nix:** `nix/flake.nix` names every tarball of the release by its
+     URL and its sha256, for `x86_64-linux`, `aarch64-linux` and both
+     Darwins. Everything Nix does happens in a `nixos/nix` container
+     (`NIX_IMAGE`), so no machine needs Nix: `nix flake lock` writes
+     `flake.lock`, pinning `nixpkgs` (`NIXPKGS`); every system's
+     derivation is instantiated, which evaluates each fetch without
+     downloading anything; and, per architecture, the same flake with
+     the local Linux tarball beside it in place of the download is built
+     and its `pyk` run -- its version, a program and one importing
+     libraries, with no OCaml there. The macOS package is evaluated but
+     never built here.
    - **VS Code:** `make -C tools/editors/vscode vsix` packs the extension,
      with the language client it depends on, as `pyking-<version>.vsix`,
      which is checked to hold the client and to say `VERSION`. It needs
@@ -178,8 +263,8 @@ with the one-time setup below done:
      serves every platform: it starts the `pyk lsp` the user installed.
 
    Every format is checked before any is built, so a machine that cannot
-   build one says so at once. `FORMATS=linux` (or `homebrew`, `vscode`) builds some
-   formats, and `ARCHS=arm64` some architectures; neither is meant for
+   build one says so at once. `FORMATS=linux` (or `homebrew`, `docker`, `nix`,
+   `vscode`) builds some formats, and `ARCHS=arm64` some architectures; neither is meant for
    publishing, and `make release` refuses a release that is not complete.
 3. `make packaging-install` installs that build on this machine: through
    Homebrew and the local tap `pyking-lang/local` on a Mac (then runs the
@@ -193,7 +278,12 @@ with the one-time setup below done:
      of the release above exists for `VERSION` and matches `SHA256SUMS`, that the formula
      describes the Mac tarball, that `gh` is logged in, that git has a
      name and an email for the tap commit, that both repositories below
-     exist and are public, and that release `v0.2.0` does not exist yet.
+     exist and are public, and that release `v0.2.0` does not exist yet;
+     that `nix/flake.nix` installs every system's tarball of this release
+     by the checksum in `SHA256SUMS`, and is locked; that every Docker
+     image is there for `VERSION`, that the `gh` login may write packages
+     (`gh auth refresh -s write:packages` gives it the scope), and that
+     `ghcr.io/pyking-lang/pyking:0.2.0` has not been pushed.
      And, for the tag at the end: that no tracked file has uncommitted
      changes (so the release is exactly the commit the tag names), that
      `origin` is `pyking-lang/pyking` and HEAD is already pushed there,
@@ -208,6 +298,36 @@ with the one-time setup below done:
    - It clones **`pyking-lang/homebrew-tap`**, commits the formula as
      `Formula/pyking.rb` ("pyking 0.2.0") and pushes it. `brew upgrade`
      picks it up from there.
+   - It commits `flake.nix`, `flake.lock` and the README to
+     **`pyking-lang/pyking-releases`** ("pyking 0.2.0: the Nix flake") and
+     pushes them, then runs `nix run github:pyking-lang/pyking-releases/<that
+     commit> -- --version` in a Nix container, which downloads the
+     release as a user's Nix would.
+   - It logs Docker in to `ghcr.io` with the `gh` token, pushes the four
+     images, and joins each variant's two architectures with `docker
+     buildx imagetools create` under its version and its floating tag
+     (`0.2.0` and `latest`, `0.2.0-full` and `full`). A new package on
+     ghcr.io is private: the first release says so if the image cannot
+     be pulled without a login, and it is made public once, under
+     Package settings at
+     <https://github.com/orgs/pyking-lang/packages/container/pyking/settings>.
+     Each later version inherits that.
+
+     Should the push fail once the release is out, `make release` will
+     not run again for that version (the release exists), so push them by
+     hand, logged in as `gh auth token | docker login ghcr.io -u <you>
+     --password-stdin`:
+
+     ```sh
+     for t in 0.2.0-arm64 0.2.0-x86_64 0.2.0-full-arm64 0.2.0-full-x86_64; do
+       docker push ghcr.io/pyking-lang/pyking:$t; done
+     docker buildx imagetools create -t ghcr.io/pyking-lang/pyking:0.2.0 \
+       -t ghcr.io/pyking-lang/pyking:latest \
+       ghcr.io/pyking-lang/pyking:0.2.0-arm64 ghcr.io/pyking-lang/pyking:0.2.0-x86_64
+     docker buildx imagetools create -t ghcr.io/pyking-lang/pyking:0.2.0-full \
+       -t ghcr.io/pyking-lang/pyking:full \
+       ghcr.io/pyking-lang/pyking:0.2.0-full-arm64 ghcr.io/pyking-lang/pyking:0.2.0-full-x86_64
+     ```
    - It asks, on its own, `Tag <commit> in pyking-lang/pyking as
      release-0.2.0? [y/N]`, and on yes tags HEAD in the code repository
      -- annotated, "Pyking 0.2.0" -- and pushes the tag to `origin`. On no
@@ -233,7 +353,11 @@ without credentials and so cannot reach a private repository.
 `pyking-lang/homebrew-tap` holds only the formula; its name is what makes
 `brew install pyking-lang/tap/pyking` work, since Homebrew looks for the
 tap `<owner>/<tap>` in the repository `<owner>/homebrew-<tap>`. The first
-release gives each a README if it is empty. `make release` needs `gh`
+release gives each a README if it is empty, and every release rewrites
+`pyking-lang/pyking-releases`'s, beside its flake. The Docker images need
+no repository of their own: `ghcr.io/pyking-lang/pyking` is a package of
+the organisation, linked to `pyking-lang/pyking-releases` by the images'
+`org.opencontainers.image.source` label. `make release` needs `gh`
 (`brew install gh`, then `gh auth login`).
 
 ## Trying a build locally
@@ -255,6 +379,19 @@ instead of a release when `PYKING_DOWNLOAD_BASE` names one:
 
 ```sh
 PYKING_DOWNLOAD_BASE=file://$PWD/tools/packaging/build sh tools/packaging/install.sh
+```
+
+The Docker images are on this machine once built, under the names a
+release pushes:
+
+```sh
+docker run --rm -it -v "$PWD:/work" ghcr.io/pyking-lang/pyking:0.2.0-arm64 hello.pyk
+```
+
+The flake can be tried with Nix, here or in its container:
+
+```sh
+nix run ./tools/packaging/build/nix -- --version    # only once the release exists
 ```
 
 A `.deb` can be tried in a throwaway container:
@@ -303,6 +440,11 @@ docker build --platform linux/amd64 -t pyking-linux-build:x86_64-<hash> tools/pa
 (`make packaging-setup` prints the tags it expects.) A Linux build then
 runs as your own user, with the repository mounted, so what it writes into
 `tools/packaging/build/` is yours.
+
+The Docker format makes nothing of its own: its images are made from
+the Linux packages, and the full one copies the Linux build image's
+OCaml, so setup only checks that those images exist. The Nix format's
+setup pulls `nixos/nix`.
 
 ### macOS: the release toolchains
 
@@ -432,14 +574,19 @@ stages the shipped tree around the machine's own `pyk`, then:
   into a temporary home: installing, installing again, refusing a wrong
   checksum, sending a Mac to Homebrew, refusing an unknown option, and
   uninstalling; and checks that it parses under `dash` and BusyBox;
-- checks the Mach-O and ELF readers and `SHA256SUMS`.
+- checks the Mach-O and ELF readers and `SHA256SUMS`;
+- checks the Docker and Nix formats without either: that the Dockerfile
+  has both images and what they need, and that the flake installs every
+  system's tarball by its checksum, which `make release` refuses
+  otherwise (parsed by `nix-instantiate`, where Nix is installed).
 
 When `tools/packaging/build/` holds packages, it also unpacks them and
 checks each `pyk` -- the Mac's architectures from the Mach-O header, each
 Linux one's architecture, that it is dynamically linked and the glibc it
 asks for from the ELF file, and every package's library plugins, which
 needs neither system -- checks `SHA256SUMS` and both formulas against the
-files, and runs what this machine can run. It never runs `brew`, `dpkg -i`
+files, checks `nix/flake.nix` against the tarballs built, and runs what
+this machine can run. It never runs `brew`, `dpkg -i`
 or a release; `make packaging-install` is the test that installs.
 
 ## Adding a format
@@ -449,7 +596,12 @@ machine cannot build it, or `None`), `setup()`, `build(archs)`, and
 `install_local()` / `uninstall_local()` if it can be installed where it is
 built, entered in `FORMATS`. `make packaging` builds every entry. It ships
 the tree `stage()` builds, writes into `build/`, and adds its files to
-`release_assets`, which is what `make release` publishes.
+`release_assets`, which is what `make release` publishes. A format made
+from another's output, as Docker and Nix are from Linux's tarballs, is
+entered after it, since `FORMATS` is the order they are built in, and
+one published somewhere other than the release -- a registry, a
+repository -- is published by `release()` after the release, and
+checked by it before anything is.
 
 ## Layout
 
@@ -459,6 +611,8 @@ tools/packaging/
                    the formula, the release
   install.sh       the Linux and WSL installer, published with every release
   linux/Dockerfile the Linux build image
+  docker/          the Docker images: Dockerfile (slim and full), and
+                   ocamlopt, the full image's wrapper around OCaml
   Makefile         setup, build, install-local, uninstall-local, release,
                    clean
   README.md

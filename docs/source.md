@@ -1962,7 +1962,8 @@ than the library, since it listens on a socket.
 
 ## `web_server.ml`
 
-**A static HTTP/1.1 server on 127.0.0.1.** One thread: `select` waits
+**A static HTTP/1.1 server on 127.0.0.1**, or on the address
+`$PYKING_WEB_HOST` names (`address`). One thread: `select` waits
 on the listening socket and every connection, so a browser's idle
 speculative connection does not hold up the files a page is waiting
 for. Each connection's unanswered bytes are threaded through the loop as
