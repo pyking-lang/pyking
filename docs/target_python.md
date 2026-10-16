@@ -247,6 +247,13 @@ only on some platforms, and loading a Pyking module by path is right
 either way, so a name in it that would not have collided costs a helper
 and nothing else.
 
+The other direction needs the same care: a library's Python
+implementation that uses the standard library's module of the same
+name. `lib/math/math_external.py` sits beside the generated `math.py`,
+so where `math` is not built in, its own `import math` would find that
+file; it looks for the standard library's everywhere on the path but
+its own directory.
+
 ### Blocks are scopes; Python's are not
 
 Pyking makes every block a scope. Python scopes at function boundaries

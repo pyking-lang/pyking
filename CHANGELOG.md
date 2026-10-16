@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [Unreleased]
+
+### Added
+
+- A `math` library, on every target: `sin`, `cos`, `tan`, `asin`,
+  `acos`, `atan` and `atan2` in degrees, each with a `_rad` twin in
+  radians, and `radians`/`degrees`; `sinh`, `cosh`, `tanh`, `exp`,
+  `log`, `log2`, `log10`, `sqrt`, `cbrt`, `pow`, `hypot` and
+  `distance`; `floor`, `ceil`, `trunc` and `round` answering an Int;
+  `abs`, `min`, `max`, `clamp`, `sign` and a floored `mod` for Ints and
+  Floats alike; `gcd`, `lcm`, `lerp` and `map_range`; and `pi`, `tau`,
+  `e`, `inf`, `nan`, `is_nan` and `is_finite`.
+
+### Fixed
+
+- In the browser, a NaN or an infinity answered by a module implemented
+  in JavaScript reached the interpreter as `()`, and -0.0 as 0.0.
+- A C program is linked with `-lm` by `pyk compile --run`.
+- The library pages list an overloaded export (`int::abs`).
 
 ## [0.1.3] - 2026-10-16
 

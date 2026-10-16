@@ -98,11 +98,14 @@ let plan_for target path modules arguments =
     }
   else if Targets.family_of target = Targets.C then
     (* Every translation unit of the program, the modules first: each is
-       a file of its own, and `main` is in the last. *)
+       a file of its own, and `main` is in the last. `-lm` after them,
+       for the math library's functions, which a Linux C library keeps
+       in libm. *)
     {
       build =
         [
-          [ c_compiler (); "-std=" ^ target; "-o"; binary ] @ others @ [ path ];
+          [ c_compiler (); "-std=" ^ target; "-o"; binary ]
+          @ others @ [ path; "-lm" ];
         ];
       run = ([ binary ] @ arguments);
       directory;

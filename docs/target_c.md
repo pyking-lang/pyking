@@ -891,8 +891,8 @@ output and handed to the compiler with it.
 An external module has no Pyking top level, so no `sys_init()` is
 declared and none is called.
 
-The boundary carries what this backend carries: `Int`, `String`, `Bool`
-and unit. A declaration naming a tuple or a list is refused where a
+The boundary carries what this backend carries: `Int`, `Float`, `String`,
+`Bool` and unit. A declaration naming a tuple or a list is refused where a
 program imports it, before anything is translated -- C has neither.
 Only what a program uses is declared, and only what it uses of a
 library is compiled at all ([modules.md](modules.md), "What a program
@@ -920,3 +920,13 @@ whichever it is compiled under, so it needs the usual
 links quietly and works on most ABIs -- the declaration and the
 definition are in different translation units, so nothing sees both --
 which is why it is worth getting right rather than discovering.
+
+**A program is linked with `-lm`**, after its files, by `--run` and by
+the test harness alike: the `math` library's functions are libm's, which
+glibc keeps apart from the C library, and a library resolves only what
+the files before it left open. Elsewhere `-lm` is accepted and does
+nothing. `math` compiles to a `math.h` of its own beside the program,
+which a quoted `#include "math.h"` would find, so `math_external.c`
+includes the system's as `<math.h>`. C89's has no `log2`, `cbrt`,
+`hypot` or `trunc`; that file uses the library's under C99 and later and
+its own under C89 (libraries.md, "One folder per library").

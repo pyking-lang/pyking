@@ -658,6 +658,10 @@ def run_c(source, workdir, modules, invocation, standard):
         [C_COMPILER, f"-std={standard}", "-pedantic", "-o", binary]
         + [os.path.join(workdir, name + ".c") for name in modules]
         + [generated]
+        # The math library's functions are libm's, which a Linux C
+        # library keeps apart; last, since a library resolves what the
+        # files before it left open.
+        + ["-lm"]
     )
     if built.returncode != 0:
         return None, built.stderr

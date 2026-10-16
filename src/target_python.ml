@@ -1242,7 +1242,8 @@ let escaped info char =
 let shadowed_modules =
   [
     "array"; "atexit"; "binascii"; "builtins"; "cmath"; "errno";
-    "faulthandler"; "fcntl"; "gc"; "grp"; "io"; "itertools"; "marshal"; "msvcrt";
+    "faulthandler"; "fcntl"; "gc"; "grp"; "io"; "itertools"; "marshal"; "math";
+    "msvcrt";
     "nt"; "posix"; "pwd"; "pyexpat"; "select"; "sys"; "syslog"; "time";
     "unicodedata"; "winreg"; "zlib";
   ]

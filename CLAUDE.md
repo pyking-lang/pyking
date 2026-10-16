@@ -83,6 +83,48 @@ editing that section too; `docs/architecture.md` keeps only how the pass
 is *built* (its signature, `tmap`, `same_type`), and points at PYKING.md
 for the rules.
 
+## Static overloading
+
+**Pyking has static overloading**, so a name may stand for several
+definitions told apart by their argument types. Check PYKING.md
+("Static overloading", and "Implicits" beside it) before deciding a
+library or a program needs one name per type.
+
+- **A qualifier makes the names distinct**: `def int::abs(x: Int) ->
+  Int` and `def float::abs(x: Float) -> Float` are two definitions in
+  one block. The qualifier is part of the name and nothing else --
+  `int` and `float` mean nothing to the checker. The lexer reads
+  `int::abs` as one `TokIdent`, with no space on either side of the
+  `::`, and `src/names.ml` is the only place one is taken apart.
+- **A call written without the qualifier is resolved by its
+  arguments**: `abs(-3)` is `int::abs` and `abs(-2.5)` is `float::abs`.
+  The arguments alone decide -- not the result type, not what the call
+  is used for. None fitting, or two, is a type error; so is a call
+  whose argument types are not yet decided, inside a function whose
+  parameter could be anything.
+- **Only a `def` taking at least one argument may be qualified**
+  (`check_plain_name` in `src/parser.ml`): a binding, a `var`, a
+  parameter or a `def` with no parameters has nothing to resolve it by.
+  A plain definition is not a member of any set, and a builtin's name
+  never is.
+- **Across modules**, `m.abs(...)` resolves among the module's public
+  `::` definitions. A `from m import ...` line names them by their
+  qualified names (`from math import int::abs, float::abs`); `from math
+  import abs` is refused. A name both `public` and `implicit` also
+  arrives unqualified in the importing file.
+- **A declaration half may not hold a `::` name**: no pass renames a
+  signature, so a library's `_external.pyk` declares plain names and its
+  Pyking half overloads over them. `lib/math` is the example.
+
+Where it is built: `Typesystem.resolve_overload` decides a call and
+records the choice in `qmap` -- the checker still changes nothing --
+and **`src/elaborate.ml`** rewrites the program by it, renaming `q::b`
+to `q__b` at the definition, every reference and an import's `fields`.
+So no backend and not the interpreter ever sees a `::`; a program that
+also binds the plain `q__b` is refused. `elaborate.ml` resolves
+implicit arguments in the same pass. `docs/overloading.md` and
+`docs/implicits.md` are the long form.
+
 ## Changing the language: always update all five places
 
 A change to what `src/` accepts is not finished until **every** one of
@@ -1154,7 +1196,7 @@ The bootstrap is split into one module per compiler stage:
 
 17. **`src/execution.ml`** — what `--run` runs: one table saying which
    commands each target's host uses to build and run what `pyk compile`
-   wrote (`node prog.js`; `cc -std=c89 -o prog prog.c` and then `prog`;
+   wrote (`node prog.js`; `cc -std=c89 -o prog prog.c -lm` and then `prog`;
    `pyk serve` for `web` and `iweb`, whose pages must be
    served because a browser refuses a module over `file://`; this
    compiler again for
@@ -2187,6 +2229,9 @@ A sixth covers **the standard library's input, output and exit** and
 `debug_values` (each with a sibling `.err`, what `debug` wrote to
 standard error), and `typecheck_release*` (`release = true`: compiled
 with `--release`, and held to writing nothing on standard error).
+`lib_math_*` cover **math** on every target: `lib_math_basic` what is
+exact on every host, `lib_math_approx` what is not, printed to six
+decimals, and `lib_math_from` the overloads through a `from` line.
 
 A seventh covers **tinyweb**: `lib_tinyweb_*`, each with an `.events`
 file and a `.page` file, run headless on every target but web24 --

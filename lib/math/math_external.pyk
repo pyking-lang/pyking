@@ -1,0 +1,35 @@
+# The host's floating-point functions.
+#
+# This is the external half of the module `math`; `math.pyk` beside it
+# is the other half, written in Pyking against what is declared here.
+# The two files are one module (docs/modules.md, "A module in two
+# halves").
+#
+# Every declaration is **private**: math.pyk is what a program calls,
+# and it is where angles are turned into degrees, where `round` decides
+# its ties and where `abs`, `min`, `max`, `clamp` and `sign` are
+# overloaded over Int and Float -- a declaration half may not hold a
+# `::` name (docs/overloading.md). Each answers what the host's own
+# function of the same name answers, in radians.
+
+def host_sin(x: Float) -> Float
+def host_cos(x: Float) -> Float
+def host_tan(x: Float) -> Float
+def host_asin(x: Float) -> Float
+def host_acos(x: Float) -> Float
+def host_atan(x: Float) -> Float
+def host_atan2(y: Float, x: Float) -> Float
+def host_sinh(x: Float) -> Float
+def host_cosh(x: Float) -> Float
+def host_tanh(x: Float) -> Float
+def host_exp(x: Float) -> Float
+def host_log(x: Float) -> Float
+def host_log2(x: Float) -> Float
+def host_log10(x: Float) -> Float
+def host_sqrt(x: Float) -> Float
+def host_cbrt(x: Float) -> Float
+def host_pow(x: Float, y: Float) -> Float
+def host_hypot(x: Float, y: Float) -> Float
+def host_floor(x: Float) -> Float
+def host_ceil(x: Float) -> Float
+def host_trunc(x: Float) -> Float

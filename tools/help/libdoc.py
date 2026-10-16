@@ -44,16 +44,18 @@ from pathlib import Path
 
 DOC = "##"
 
+# A definition's name, which may carry a qualifier: `int::abs`.
+NAME = r"[A-Za-z_]\w*(?:::[A-Za-z_]\w*)?"
 # `public def name : type` -- a signature, from either half.
-SIGNATURE = re.compile(r"^public\s+def\s+([A-Za-z_]\w*)\s*:")
+SIGNATURE = re.compile(rf"^public\s+def\s+({NAME})\s*:(?!:)")
 # `public def name(...)` -- a definition, or a declaration naming its
 # parameters.
-DEFINITION = re.compile(r"^public\s+def\s+([A-Za-z_]\w*)\s*\(")
+DEFINITION = re.compile(rf"^public\s+def\s+({NAME})\s*\(")
 # `public NAME: T = value` -- a value.
 VALUE = re.compile(r"^public\s+([A-Za-z_]\w*)\s*:")
 # `def name : type`, public or not, in a declaration half: the form
 # lib/ no longer uses.
-UNNAMED = re.compile(r"^(?:public\s+)?def\s+[A-Za-z_]\w*\s*:")
+UNNAMED = re.compile(rf"^(?:public\s+)?def\s+{NAME}\s*:(?!:)")
 
 SECTIONS = ("Parameters", "Returns", "Examples")
 
@@ -177,7 +179,7 @@ def signature_parts(signature):
     (name, type, default or None), and its result type -- or None where
     the parameters are not named. String -> (String, [(String, String,
     String?)], String)?"""
-    match = re.match(r"^def\s+(\w+)\s*\(", signature)
+    match = re.match(rf"^def\s+({NAME})\s*\(", signature)
     if not match:
         return None
     depth, i = 1, match.end()

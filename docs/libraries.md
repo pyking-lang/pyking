@@ -13,6 +13,7 @@ imports. A module is up to two files and a library shows both shapes:
 ```
 lib/fs/     fs_external.pyk        fs_external.{py,c,ml}  FsExternal.java
 lib/io/     io.pyk  io_external.pyk     io_external.{py,c,ml}  IoExternal.java
+lib/math/   math.pyk  math_external.pyk  math_external.{py,c,ml}  MathExternal.java
 lib/sys/    sys.pyk  sys_external.pyk   sys_external.{py,c,ml} SysExternal.java
 lib/time/   time.pyk  time_external.pyk  time_external.{py,ml}
 lib/tinyweb/ tinyweb.pyk  tinyweb_external.pyk  tinyweb_external.{py,c,ml}  TinywebExternal.java
@@ -27,8 +28,8 @@ browser (`tinyweb_external_interpreter.js`) and the file joining its
 OCaml implementation to the interpreter (`tinyweb_external_plugin.ml`).
 
 `fs` is entirely the host's: every name it offers is declared, and there
-is no Pyking half because there would be nothing in it. `io`, `sys` and
-`time` have both halves -- what the host provides, and what is written
+is no Pyking half because there would be nothing in it. `io`, `math`,
+`sys` and `time` have both halves -- what the host provides, and what is written
 in Pyking against it -- and a program importing one says `import sys`
 and reaches everything under that one name. See
 [modules.md](modules.md), "A module in two halves".
@@ -77,6 +78,29 @@ what tells the two apart. Every read writes out what has been written so
 far first, so a prompt is on screen before the program waits. `print`
 writes to the same standard output, so the two interleave in the order
 they ran.
+
+`math` is numbers. Its declaration half is the host's floating-point
+functions, all private and all in radians (`host_sin`, `host_floor`,
+...); everything a program calls is written in `math.pyk` over them, so
+every host answers alike:
+
+- **Angles are in degrees**, and each trigonometric function has a
+  `_rad` twin. The degree functions answer exactly at the angles a
+  drawing uses -- `sin` and `cos` at every multiple of 30 degrees, `tan`
+  at every multiple of 45, `inf` at 90 -- and the inverse ones answer a
+  whole number of degrees where they are within 1e-9 of one.
+- **`floor`, `ceil`, `trunc` and `round` answer an Int**, 0 where `int`
+  would; `round` takes a tie away from zero, which no host's own
+  rounding agrees on.
+- **`abs`, `min`, `max`, `clamp`, `sign` and `mod` are overloaded** over
+  Int and Float (`int::abs`, `float::abs`; [overloading.md](overloading.md)),
+  which a declaration half cannot hold. `mod` is floored: its answer has
+  the divisor's sign, and Pyking has no `%`.
+- `cbrt` is exact for a perfect cube, which glibc's is not.
+
+The rest is the host's own answer, which may differ between hosts in the
+last bit; the tests print those to six decimals
+(`tests/lib_math_approx.pyk`).
 
 `now` is one call, which is what makes a reading atomic: six separate
 clock calls could straddle a second and report a date that never
@@ -388,6 +412,7 @@ tests. See `tools/site/README.md`.
 |---|---|---|---|---|---|---|---|---|
 | `fs` | yes | yes | not supported | not supported | yes | yes | yes | yes |
 | `io` | yes | yes | output only | output only | yes | yes | yes | yes |
+| `math` | yes | yes | yes | yes | yes | yes | yes | yes |
 | `sys` | yes | yes | `exit` only | `exit` only | `exit` only | `exit` only | yes | yes |
 | `time` | yes | yes | yes | yes | no | no | yes | yes |
 | `tinyweb` | yes | yes | yes | yes | yes | yes | yes | yes |
@@ -407,6 +432,16 @@ program's own `argv`, which an implementation file cannot see -- so
 `sys_external.c` and `SysExternal.java` define `exit` only, and a program
 using another name does not link. `time` answers a tuple, and does not
 reach either.
+
+`math` is named the way a host's own library is, which three targets
+have to step around. Python loads it by path, as it loads `sys` and
+`time` (below), and `math_external.py` finds the standard library's
+`math` everywhere on the path but the program's own directory. Java
+compiles it to a class `Math` in the program's package, so
+`MathExternal.java` and the generated code write `java.lang.Math` in
+full. C compiles it to a `math.h` of its own, which `math_external.c`
+steps around by including the system's with angle brackets; a C program
+is linked with `-lm`, after its files ([target_c.md](target_c.md)).
 
 `io`, `sys` and `time` reach `ocaml5.5`, and `sys` and `time` need it
 linked with `unix`: nothing in OCaml's `Stdlib` enumerates the

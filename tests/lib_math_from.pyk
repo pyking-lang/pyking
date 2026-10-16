@@ -1,0 +1,10 @@
+# The math library's names brought in with `from`: a value, a plain
+# function, and the two definitions of an overloaded one, which a
+# `from` line names by their qualified names and a call then reaches by
+# the shared one.
+
+from math import pi, sqrt, int::abs, float::abs, int::max, float::max
+
+print(pi, sqrt(9.0))
+print(abs(-4), abs(-4.5))
+print(max(2, 9), max(2.5, -9.0))

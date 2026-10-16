@@ -1,0 +1,1265 @@
+## Numbers: trigonometry in degrees and in radians, powers and
+## logarithms, rounding to an Int, and helpers for drawing and games.
+##
+## Angles are in **degrees**: `sin(90.0)` is `1.0`. Each trigonometric
+## function has a twin ending in `_rad` that works in radians, and
+## `radians` and `degrees` convert between the two. `abs`, `min`, `max`,
+## `clamp`, `sign` and `mod` take two Ints or two Floats and answer the
+## same type; everything else takes and answers Floats, so an Int is
+## passed as `float(n)`.
+
+# The Pyking half of `math`. What the host provides is declared in
+# math_external.pyk beside this file and is in scope here unqualified --
+# the two files are one module -- so `host_sin` below is the host's, and
+# private to this library.
+#
+# Everything a reader sees beyond the host's own functions is decided
+# here rather than per target: the degree functions answer exact values
+# at the angles a beginner draws with (0, 30, 45, 60, 90, ... degrees),
+# where the radian ones are a rounding error away (`sin_rad(pi)` is not
+# 0.0), and the inverse ones answer a whole number of degrees where they
+# are within 1e-9 of one. Rounding to an Int, its ties and the floored
+# modulo are written here for the same reason: the hosts disagree about
+# all three.
+#
+# Pyking has no `!=`, `and`, `or` or `%`, so the tests below are nested
+# `if`s, and `x == x` is how a NaN is told apart.
+
+
+## The ratio of a circle's circumference to its diameter, π.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.pi)
+## ```
+## ```stdout
+## 3.141592653589793
+## ```
+public pi: Float = 3.141592653589793
+
+## A whole turn in radians, 2π.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.tau)
+## ```
+## ```stdout
+## 6.283185307179586
+## ```
+public tau: Float = 6.283185307179586
+
+## Euler's number, the base of the natural logarithm.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.e)
+## ```
+## ```stdout
+## 2.718281828459045
+## ```
+public e: Float = 2.718281828459045
+
+## Positive infinity, larger than every other Float. `-math.inf` is
+## negative infinity.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.inf, -math.inf, 1.0e300 < math.inf)
+## ```
+## ```stdout
+## inf -inf true
+## ```
+public inf: Float = 1.0e999
+
+## Not a number: what an operation with no answer gives, such as
+## `0.0 / 0.0`. A NaN is equal to nothing, itself included, so test for
+## one with `is_nan`.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.nan, math.nan == math.nan, math.is_nan(math.nan))
+## ```
+## ```stdout
+## nan false true
+## ```
+public nan: Float = 0.0 / 0.0
+
+
+## Tells whether `x` is NaN.
+##
+## # Parameters
+## - `x`: the number.
+##
+## # Returns
+## `true` for a NaN, `false` for every other Float.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.is_nan(0.0 / 0.0), math.is_nan(1.0))
+## ```
+## ```stdout
+## true false
+## ```
+public def is_nan(x: Float) -> Bool:
+    return if x == x then false else true
+
+
+## Tells whether `x` is an ordinary number: neither infinite nor NaN.
+##
+## # Parameters
+## - `x`: the number.
+##
+## # Returns
+## `true` unless `x` is an infinity or a NaN.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.is_finite(1.5), math.is_finite(math.inf), math.is_finite(math.nan))
+## ```
+## ```stdout
+## true false false
+## ```
+public def is_finite(x: Float) -> Bool:
+    return x - x == 0.0
+
+
+## An angle in degrees, in radians.
+##
+## # Parameters
+## - `angle`: the angle in degrees.
+##
+## # Returns
+## The same angle in radians: `angle * pi / 180`.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.radians(180.0))
+## ```
+## ```stdout
+## 3.141592653589793
+## ```
+public def radians(angle: Float) -> Float:
+    return angle * pi / 180.0
+
+
+## An angle in radians, in degrees.
+##
+## # Parameters
+## - `angle`: the angle in radians.
+##
+## # Returns
+## The same angle in degrees: `angle * 180 / pi`.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.degrees(math.pi))
+## ```
+## ```stdout
+## 180.0
+## ```
+public def degrees(angle: Float) -> Float:
+    return angle * 180.0 / pi
+
+
+## The size of an Int, without its sign.
+##
+## # Parameters
+## - `x`: the number.
+##
+## # Returns
+## `x` when it is at least 0, and `-x` otherwise.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.abs(-3), math.abs(3))
+## ```
+## ```stdout
+## 3 3
+## ```
+public def int::abs(x: Int) -> Int:
+    return if x < 0 then -x else x
+
+
+## The size of a Float, without its sign.
+##
+## # Parameters
+## - `x`: the number.
+##
+## # Returns
+## `x` when it is at least 0, and `-x` otherwise; NaN for a NaN.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.abs(-2.5), math.abs(-math.inf))
+## ```
+## ```stdout
+## 2.5 inf
+## ```
+public def float::abs(x: Float) -> Float:
+    # 0.0 - x rather than -x, so that abs(-0.0) is 0.0.
+    return if x <= 0.0 then 0.0 - x else x
+
+
+## The smaller of two Ints.
+##
+## # Parameters
+## - `x`: one number.
+## - `y`: the other.
+##
+## # Returns
+## Whichever is smaller.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.min(3, 7), math.min(-3, -7))
+## ```
+## ```stdout
+## 3 -7
+## ```
+public def int::min(x: Int, y: Int) -> Int:
+    return if y < x then y else x
+
+
+## The smaller of two Floats.
+##
+## # Parameters
+## - `x`: one number.
+## - `y`: the other.
+##
+## # Returns
+## Whichever is smaller; NaN when either is NaN.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.min(1.5, 0.5))
+## ```
+## ```stdout
+## 0.5
+## ```
+public def float::min(x: Float, y: Float) -> Float:
+    if is_nan(x):
+        return x
+    else if is_nan(y):
+        return y
+    else:
+        return if y < x then y else x
+
+
+## The larger of two Ints.
+##
+## # Parameters
+## - `x`: one number.
+## - `y`: the other.
+##
+## # Returns
+## Whichever is larger.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.max(3, 7), math.max(-3, -7))
+## ```
+## ```stdout
+## 7 -3
+## ```
+public def int::max(x: Int, y: Int) -> Int:
+    return if y > x then y else x
+
+
+## The larger of two Floats.
+##
+## # Parameters
+## - `x`: one number.
+## - `y`: the other.
+##
+## # Returns
+## Whichever is larger; NaN when either is NaN.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.max(1.5, 0.5))
+## ```
+## ```stdout
+## 1.5
+## ```
+public def float::max(x: Float, y: Float) -> Float:
+    if is_nan(x):
+        return x
+    else if is_nan(y):
+        return y
+    else:
+        return if y > x then y else x
+
+
+## An Int kept within a range: `x` itself when it is between `low` and
+## `high`, and the nearer end when it is outside.
+##
+## # Parameters
+## - `x`: the number.
+## - `low`: the smallest answer.
+## - `high`: the largest answer, at least `low`.
+##
+## # Returns
+## `x` limited to `low` to `high`.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.clamp(5, 0, 10), math.clamp(-5, 0, 10), math.clamp(15, 0, 10))
+## ```
+## ```stdout
+## 5 0 10
+## ```
+public def int::clamp(x: Int, low: Int, high: Int) -> Int:
+    return max(low, min(x, high))
+
+
+## A Float kept within a range: `x` itself when it is between `low` and
+## `high`, and the nearer end when it is outside.
+##
+## # Parameters
+## - `x`: the number.
+## - `low`: the smallest answer.
+## - `high`: the largest answer, at least `low`.
+##
+## # Returns
+## `x` limited to `low` to `high`; NaN when `x` is NaN.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.clamp(1.5, 0.0, 1.0), math.clamp(0.25, 0.0, 1.0))
+## ```
+## ```stdout
+## 1.0 0.25
+## ```
+public def float::clamp(x: Float, low: Float, high: Float) -> Float:
+    return max(low, min(x, high))
+
+
+## The sign of an Int.
+##
+## # Parameters
+## - `x`: the number.
+##
+## # Returns
+## -1 for a negative `x`, 0 for 0, and 1 for a positive `x`.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.sign(-5), math.sign(0), math.sign(5))
+## ```
+## ```stdout
+## -1 0 1
+## ```
+public def int::sign(x: Int) -> Int:
+    if x < 0:
+        return -1
+    else if x > 0:
+        return 1
+    else:
+        return 0
+
+
+## The sign of a Float.
+##
+## # Parameters
+## - `x`: the number.
+##
+## # Returns
+## -1.0 for a negative `x`, 0.0 for zero, 1.0 for a positive `x`, and
+## NaN for a NaN.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.sign(-2.5), math.sign(0.0), math.sign(math.inf))
+## ```
+## ```stdout
+## -1.0 0.0 1.0
+## ```
+public def float::sign(x: Float) -> Float:
+    if x < 0.0:
+        return -1.0
+    else if x > 0.0:
+        return 1.0
+    else if x == 0.0:
+        return 0.0
+    else:
+        return x
+
+
+## The remainder of dividing `x` by `y`, rounding the quotient down, so
+## that the answer has the sign of `y`: `mod(-1, 360)` is 359. That is
+## the remainder to use for wrapping around, such as an angle or a
+## position on a board.
+##
+## # Parameters
+## - `x`: the number divided.
+## - `y`: the number divided by, not 0.
+##
+## # Returns
+## A number from 0 up to, but not including, `y` -- or down to it, when
+## `y` is negative.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.mod(7, 3), math.mod(-7, 3), math.mod(7, -3))
+## ```
+## ```stdout
+## 1 2 -2
+## ```
+public def int::mod(x: Int, y: Int) -> Int:
+    r = x - x / y * y
+    if r < 0:
+        return if y > 0 then r + y else r
+    else if r > 0:
+        return if y < 0 then r + y else r
+    else:
+        return 0
+
+
+## The remainder of dividing `x` by `y`, rounding the quotient down, so
+## that the answer has the sign of `y`: `mod(-90.0, 360.0)` is 270.0.
+##
+## # Parameters
+## - `x`: the number divided.
+## - `y`: the number divided by.
+##
+## # Returns
+## A number from 0 up to, but not including, `y` -- or down to it, when
+## `y` is negative; NaN when `y` is 0 or `x` is infinite.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.mod(-90.0, 360.0), math.mod(7.5, 2.0))
+## ```
+## ```stdout
+## 270.0 1.5
+## ```
+public def float::mod(x: Float, y: Float) -> Float:
+    r = x - y * host_floor(x / y)
+    # A tiny negative x leaves y itself, rounded: wrap it to 0.
+    if y > 0.0:
+        return if r >= y then 0.0 else r
+    else:
+        return if r <= y then 0.0 else r
+
+
+# An angle the inverse functions answered, as a whole number of degrees
+# where it is within 1e-9 of one: asin(0.5) is 30.000000000000004 in
+# radians turned into degrees.
+def whole_degrees(angle: Float) -> Float:
+    nearest = host_floor(angle + 0.5)
+    return if abs(angle - nearest) < 0.000000001 then nearest else angle
+
+
+## The sine of an angle in degrees.
+##
+## # Parameters
+## - `angle`: the angle in degrees.
+##
+## # Returns
+## The sine, from -1 to 1. It is exact at every multiple of 30 degrees:
+## `sin(30.0)` is `0.5` and `sin(180.0)` is `0.0`.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.sin(30.0), math.sin(90.0), math.sin(-90.0))
+## ```
+## ```stdout
+## 0.5 1.0 -1.0
+## ```
+public def sin(angle: Float) -> Float:
+    a = mod(angle, 360.0)
+    if a == 0.0:
+        return 0.0
+    else if a == 30.0:
+        return 0.5
+    else if a == 90.0:
+        return 1.0
+    else if a == 150.0:
+        return 0.5
+    else if a == 180.0:
+        return 0.0
+    else if a == 210.0:
+        return -0.5
+    else if a == 270.0:
+        return -1.0
+    else if a == 330.0:
+        return -0.5
+    else:
+        return host_sin(radians(a))
+
+
+## The cosine of an angle in degrees.
+##
+## # Parameters
+## - `angle`: the angle in degrees.
+##
+## # Returns
+## The cosine, from -1 to 1. It is exact at every multiple of 30 degrees:
+## `cos(60.0)` is `0.5` and `cos(90.0)` is `0.0`.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.cos(0.0), math.cos(60.0), math.cos(90.0), math.cos(180.0))
+## ```
+## ```stdout
+## 1.0 0.5 0.0 -1.0
+## ```
+public def cos(angle: Float) -> Float:
+    a = mod(angle, 360.0)
+    if a == 0.0:
+        return 1.0
+    else if a == 60.0:
+        return 0.5
+    else if a == 90.0:
+        return 0.0
+    else if a == 120.0:
+        return -0.5
+    else if a == 180.0:
+        return -1.0
+    else if a == 240.0:
+        return -0.5
+    else if a == 270.0:
+        return 0.0
+    else if a == 300.0:
+        return 0.5
+    else:
+        return host_cos(radians(a))
+
+
+## The tangent of an angle in degrees.
+##
+## # Parameters
+## - `angle`: the angle in degrees.
+##
+## # Returns
+## The tangent. It is exact at every multiple of 45 degrees, and `inf`
+## at 90 degrees, 270 degrees and so on, where the tangent grows without
+## bound.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.tan(45.0), math.tan(135.0), math.tan(90.0))
+## ```
+## ```stdout
+## 1.0 -1.0 inf
+## ```
+public def tan(angle: Float) -> Float:
+    a = mod(angle, 180.0)
+    if a == 0.0:
+        return 0.0
+    else if a == 45.0:
+        return 1.0
+    else if a == 90.0:
+        return inf
+    else if a == 135.0:
+        return -1.0
+    else:
+        return host_tan(radians(a))
+
+
+## The angle in degrees whose sine is `x`.
+##
+## # Parameters
+## - `x`: the sine, from -1 to 1.
+##
+## # Returns
+## The angle, from -90 to 90 degrees; NaN when `x` is outside -1 to 1.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.asin(0.5), math.asin(1.0), math.asin(-1.0))
+## ```
+## ```stdout
+## 30.0 90.0 -90.0
+## ```
+public def asin(x: Float) -> Float:
+    return whole_degrees(degrees(host_asin(x)))
+
+
+## The angle in degrees whose cosine is `x`.
+##
+## # Parameters
+## - `x`: the cosine, from -1 to 1.
+##
+## # Returns
+## The angle, from 0 to 180 degrees; NaN when `x` is outside -1 to 1.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.acos(0.5), math.acos(0.0), math.acos(-1.0))
+## ```
+## ```stdout
+## 60.0 90.0 180.0
+## ```
+public def acos(x: Float) -> Float:
+    return whole_degrees(degrees(host_acos(x)))
+
+
+## The angle in degrees whose tangent is `x`.
+##
+## # Parameters
+## - `x`: the tangent.
+##
+## # Returns
+## The angle, between -90 and 90 degrees.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.atan(1.0), math.atan(-1.0), math.atan(math.inf))
+## ```
+## ```stdout
+## 45.0 -45.0 90.0
+## ```
+public def atan(x: Float) -> Float:
+    return whole_degrees(degrees(host_atan(x)))
+
+
+## The direction in degrees from the origin to the point (`x`, `y`): the
+## angle a line from (0, 0) to that point makes with the x axis. Unlike
+## `atan(y / x)`, it tells all four quarters of the plane apart. Note the
+## order: `y` comes first.
+##
+## # Parameters
+## - `y`: the point's y coordinate.
+## - `x`: the point's x coordinate.
+##
+## # Returns
+## The angle, from -180 to 180 degrees.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.atan2(1.0, 1.0), math.atan2(1.0, -1.0), math.atan2(-1.0, 0.0))
+## ```
+## ```stdout
+## 45.0 135.0 -90.0
+## ```
+public def atan2(y: Float, x: Float) -> Float:
+    return whole_degrees(degrees(host_atan2(y, x)))
+
+
+## The sine of an angle in radians.
+##
+## # Parameters
+## - `angle`: the angle in radians.
+##
+## # Returns
+## The sine, from -1 to 1.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.sin_rad(0.0), math.sin_rad(math.pi / 2.0))
+## ```
+## ```stdout
+## 0.0 1.0
+## ```
+public def sin_rad(angle: Float) -> Float:
+    return host_sin(angle)
+
+
+## The cosine of an angle in radians.
+##
+## # Parameters
+## - `angle`: the angle in radians.
+##
+## # Returns
+## The cosine, from -1 to 1.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.cos_rad(0.0), math.cos_rad(math.pi))
+## ```
+## ```stdout
+## 1.0 -1.0
+## ```
+public def cos_rad(angle: Float) -> Float:
+    return host_cos(angle)
+
+
+## The tangent of an angle in radians.
+##
+## # Parameters
+## - `angle`: the angle in radians.
+##
+## # Returns
+## The tangent.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.tan_rad(0.0))
+## ```
+## ```stdout
+## 0.0
+## ```
+public def tan_rad(angle: Float) -> Float:
+    return host_tan(angle)
+
+
+## The angle in radians whose sine is `x`.
+##
+## # Parameters
+## - `x`: the sine, from -1 to 1.
+##
+## # Returns
+## The angle, from -π/2 to π/2; NaN when `x` is outside -1 to 1.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.asin_rad(1.0) == math.pi / 2.0)
+## ```
+## ```stdout
+## true
+## ```
+public def asin_rad(x: Float) -> Float:
+    return host_asin(x)
+
+
+## The angle in radians whose cosine is `x`.
+##
+## # Parameters
+## - `x`: the cosine, from -1 to 1.
+##
+## # Returns
+## The angle, from 0 to π; NaN when `x` is outside -1 to 1.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.acos_rad(-1.0) == math.pi)
+## ```
+## ```stdout
+## true
+## ```
+public def acos_rad(x: Float) -> Float:
+    return host_acos(x)
+
+
+## The angle in radians whose tangent is `x`.
+##
+## # Parameters
+## - `x`: the tangent.
+##
+## # Returns
+## The angle, between -π/2 and π/2.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.atan_rad(0.0))
+## ```
+## ```stdout
+## 0.0
+## ```
+public def atan_rad(x: Float) -> Float:
+    return host_atan(x)
+
+
+## The direction in radians from the origin to the point (`x`, `y`), as
+## `atan2` answers it in degrees. `y` comes first.
+##
+## # Parameters
+## - `y`: the point's y coordinate.
+## - `x`: the point's x coordinate.
+##
+## # Returns
+## The angle, from -π to π.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.atan2_rad(0.0, -1.0) == math.pi)
+## ```
+## ```stdout
+## true
+## ```
+public def atan2_rad(y: Float, x: Float) -> Float:
+    return host_atan2(y, x)
+
+
+## The hyperbolic sine of `x`.
+##
+## # Parameters
+## - `x`: the number.
+##
+## # Returns
+## `(e^x - e^-x) / 2`.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.sinh(0.0))
+## ```
+## ```stdout
+## 0.0
+## ```
+public def sinh(x: Float) -> Float:
+    return host_sinh(x)
+
+
+## The hyperbolic cosine of `x`.
+##
+## # Parameters
+## - `x`: the number.
+##
+## # Returns
+## `(e^x + e^-x) / 2`, at least 1.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.cosh(0.0))
+## ```
+## ```stdout
+## 1.0
+## ```
+public def cosh(x: Float) -> Float:
+    return host_cosh(x)
+
+
+## The hyperbolic tangent of `x`.
+##
+## # Parameters
+## - `x`: the number.
+##
+## # Returns
+## `sinh(x) / cosh(x)`, between -1 and 1.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.tanh(0.0), math.tanh(math.inf))
+## ```
+## ```stdout
+## 0.0 1.0
+## ```
+public def tanh(x: Float) -> Float:
+    return host_tanh(x)
+
+
+## e raised to the power `x`.
+##
+## # Parameters
+## - `x`: the exponent.
+##
+## # Returns
+## e^x, always positive.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.exp(0.0), math.exp(1.0) == math.e)
+## ```
+## ```stdout
+## 1.0 true
+## ```
+public def exp(x: Float) -> Float:
+    return host_exp(x)
+
+
+## The natural logarithm of `x`, the power e has to be raised to to give
+## `x`.
+##
+## # Parameters
+## - `x`: the number, greater than 0.
+##
+## # Returns
+## The logarithm; `-inf` for 0, and NaN for a negative `x`.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.log(1.0), math.log(math.e), math.log(0.0))
+## ```
+## ```stdout
+## 0.0 1.0 -inf
+## ```
+public def log(x: Float) -> Float:
+    return host_log(x)
+
+
+## The base-2 logarithm of `x`.
+##
+## # Parameters
+## - `x`: the number, greater than 0.
+##
+## # Returns
+## The logarithm, exact for a power of two; `-inf` for 0, and NaN for a
+## negative `x`.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.log2(8.0), math.log2(0.5))
+## ```
+## ```stdout
+## 3.0 -1.0
+## ```
+public def log2(x: Float) -> Float:
+    return host_log2(x)
+
+
+## The base-10 logarithm of `x`.
+##
+## # Parameters
+## - `x`: the number, greater than 0.
+##
+## # Returns
+## The logarithm; `-inf` for 0, and NaN for a negative `x`.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.log10(1000.0), math.log10(0.01))
+## ```
+## ```stdout
+## 3.0 -2.0
+## ```
+public def log10(x: Float) -> Float:
+    return host_log10(x)
+
+
+## The square root of `x`.
+##
+## # Parameters
+## - `x`: the number, at least 0.
+##
+## # Returns
+## The root that is at least 0; NaN for a negative `x`.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.sqrt(16.0), math.sqrt(2.0))
+## ```
+## ```stdout
+## 4.0 1.4142135623730951
+## ```
+public def sqrt(x: Float) -> Float:
+    return host_sqrt(x)
+
+
+## The cube root of `x`.
+##
+## # Parameters
+## - `x`: the number, which may be negative.
+##
+## # Returns
+## The root, negative for a negative `x`, and exact for a perfect cube.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.cbrt(27.0), math.cbrt(-8.0))
+## ```
+## ```stdout
+## 3.0 -2.0
+## ```
+public def cbrt(x: Float) -> Float:
+    root = host_cbrt(x)
+    # Some hosts' cbrt(27.0) is 3.0000000000000004: a whole number whose
+    # cube is x is the answer.
+    nearest = host_floor(root + 0.5)
+    return if nearest * nearest * nearest == x then nearest else root
+
+
+## `x` raised to the power `y`.
+##
+## # Parameters
+## - `x`: the base.
+## - `y`: the exponent.
+##
+## # Returns
+## x^y. It is NaN for a negative `x` with an exponent that is not a whole
+## number, and `pow(x, 0.0)` is 1.0 for every `x`.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.pow(2.0, 10.0), math.pow(9.0, 0.5), math.pow(2.0, -1.0))
+## ```
+## ```stdout
+## 1024.0 3.0 0.5
+## ```
+public def pow(x: Float, y: Float) -> Float:
+    return host_pow(x, y)
+
+
+## The length of the hypotenuse of a right triangle with sides `x` and
+## `y`: the distance from (0, 0) to (`x`, `y`).
+##
+## # Parameters
+## - `x`: one side.
+## - `y`: the other side.
+##
+## # Returns
+## `sqrt(x * x + y * y)`, without overflowing where `x * x` would.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.hypot(3.0, 4.0))
+## ```
+## ```stdout
+## 5.0
+## ```
+public def hypot(x: Float, y: Float) -> Float:
+    return host_hypot(x, y)
+
+
+## The distance between the points (`x1`, `y1`) and (`x2`, `y2`).
+##
+## # Parameters
+## - `x1`: the first point's x coordinate.
+## - `y1`: the first point's y coordinate.
+## - `x2`: the second point's x coordinate.
+## - `y2`: the second point's y coordinate.
+##
+## # Returns
+## The distance, at least 0.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.distance(1.0, 1.0, 4.0, 5.0))
+## ```
+## ```stdout
+## 5.0
+## ```
+public def distance(x1: Float, y1: Float, x2: Float, y2: Float) -> Float:
+    return host_hypot(x2 - x1, y2 - y1)
+
+
+## The largest whole number not greater than `x`, rounding down.
+##
+## # Parameters
+## - `x`: the number.
+##
+## # Returns
+## The Int; 0 for a NaN, an infinity, or a number outside the Int range,
+## as `int` answers.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.floor(2.7), math.floor(-2.2))
+## ```
+## ```stdout
+## 2 -3
+## ```
+public def floor(x: Float) -> Int:
+    return int(host_floor(x))
+
+
+## The smallest whole number not less than `x`, rounding up.
+##
+## # Parameters
+## - `x`: the number.
+##
+## # Returns
+## The Int; 0 for a NaN, an infinity, or a number outside the Int range,
+## as `int` answers.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.ceil(2.2), math.ceil(-2.7))
+## ```
+## ```stdout
+## 3 -2
+## ```
+public def ceil(x: Float) -> Int:
+    return int(host_ceil(x))
+
+
+## `x` without its fraction, rounding toward zero, as `int(x)` does.
+##
+## # Parameters
+## - `x`: the number.
+##
+## # Returns
+## The Int; 0 for a NaN, an infinity, or a number outside the Int range.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.trunc(2.7), math.trunc(-2.7))
+## ```
+## ```stdout
+## 2 -2
+## ```
+public def trunc(x: Float) -> Int:
+    return int(host_trunc(x))
+
+
+## `x` rounded to the nearest whole number, a tie going away from zero:
+## 2.5 rounds to 3, and -2.5 to -3.
+##
+## # Parameters
+## - `x`: the number.
+##
+## # Returns
+## The Int; 0 for a NaN, an infinity, or a number outside the Int range,
+## as `int` answers.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.round(2.4), math.round(2.5), math.round(-2.5), math.round(-2.6))
+## ```
+## ```stdout
+## 2 3 -3 -3
+## ```
+public def round(x: Float) -> Int:
+    whole = host_trunc(x)
+    # Exact: a Float and its whole part differ by less than one, and
+    # the difference of two such doubles is a double.
+    part = x - whole
+    if part >= 0.5:
+        return int(whole + 1.0)
+    else if part <= -0.5:
+        return int(whole - 1.0)
+    else:
+        return int(whole)
+
+
+# Euclid's algorithm, on two numbers at least 0.
+def euclid(x: Int, y: Int) -> Int:
+    if y == 0:
+        return x
+    else:
+        return euclid(y, x - x / y * y)
+
+
+## The greatest common divisor of two Ints: the largest number both are
+## multiples of.
+##
+## # Parameters
+## - `x`: one number.
+## - `y`: the other.
+##
+## # Returns
+## The divisor, at least 0; `gcd(0, 0)` is 0.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.gcd(12, 18), math.gcd(-4, 6), math.gcd(7, 0))
+## ```
+## ```stdout
+## 6 2 7
+## ```
+public def gcd(x: Int, y: Int) -> Int:
+    return euclid(abs(x), abs(y))
+
+
+## The least common multiple of two Ints: the smallest number that is a
+## multiple of both.
+##
+## # Parameters
+## - `x`: one number.
+## - `y`: the other.
+##
+## # Returns
+## The multiple, at least 0; 0 when either is 0.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.lcm(4, 6), math.lcm(-3, 5), math.lcm(0, 5))
+## ```
+## ```stdout
+## 12 15 0
+## ```
+public def lcm(x: Int, y: Int) -> Int:
+    if x == 0:
+        return 0
+    else if y == 0:
+        return 0
+    else:
+        return abs(x / gcd(x, y) * y)
+
+
+## The number a fraction `t` of the way from `a` to `b`: `a` when `t` is
+## 0, `b` when it is 1, and halfway between them when it is 0.5. A `t`
+## outside 0 to 1 goes past the ends.
+##
+## # Parameters
+## - `a`: where it starts.
+## - `b`: where it ends.
+## - `t`: how far along, usually from 0 to 1.
+##
+## # Returns
+## `a + (b - a) * t`.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.lerp(10.0, 20.0, 0.25), math.lerp(10.0, 20.0, 1.0))
+## ```
+## ```stdout
+## 12.5 20.0
+## ```
+public def lerp(a: Float, b: Float, t: Float) -> Float:
+    return a + (b - a) * t
+
+
+## A number moved from one range to another, keeping its place: `x` is
+## as far from `from_low` towards `from_high` as the answer is from
+## `to_low` towards `to_high`. A mouse position becomes a volume, a
+## time becomes a color.
+##
+## # Parameters
+## - `x`: the number.
+## - `from_low`: the start of the range `x` is in.
+## - `from_high`: the end of that range, not equal to `from_low`.
+## - `to_low`: the start of the range to move it to.
+## - `to_high`: the end of that range.
+##
+## # Returns
+## The number in the new range. A number outside the first range lands
+## outside the second; `clamp` keeps it in.
+##
+## # Examples
+## ```pyking
+## import math
+## print(math.map_range(5.0, 0.0, 10.0, 100.0, 200.0))
+## print(math.map_range(0.25, 0.0, 1.0, 255.0, 0.0))
+## ```
+## ```stdout
+## 150.0
+## 191.25
+## ```
+public def map_range(x: Float, from_low: Float, from_high: Float,
+                     to_low: Float, to_high: Float) -> Float:
+    return to_low + (x - from_low) * (to_high - to_low) / (from_high - from_low)

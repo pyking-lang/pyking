@@ -1310,6 +1310,21 @@ file = "lib_time_now.pyk"
 libs = ["time"]
 targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
+[[cases]]
+file = "lib_math_basic.pyk"
+libs = ["math"]
+targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "lib_math_approx.pyk"
+libs = ["math"]
+targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "lib_math_from.pyk"
+libs = ["math"]
+targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+
 # Two regression cases for collisions between a Pyking module's name, or
 # an exported name, and something the host has already taken. Both are
 # about the *compiler* rather than about any library, which is why they

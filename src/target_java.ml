@@ -2009,7 +2009,8 @@ let float_helper =
       "        if (x == Double.POSITIVE_INFINITY) return \"inf\";";
       "        if (x == Double.NEGATIVE_INFINITY) return \"-inf\";";
       "        String sign = (x < 0.0 || (x == 0.0 && 1.0 / x < 0.0)) ? \"-\" : \"\";";
-      "        double a = Math.abs(x);";
+      (* java.lang written out: a Pyking module `math` is a class Math. *)
+      "        double a = java.lang.Math.abs(x);";
       "        if (a == 0.0) return sign + \"0.0\";";
       "        String s = \"\";";
       "        for (int p = 0; p <= 16; p++) {";

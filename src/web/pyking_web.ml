@@ -221,16 +221,16 @@ let value_of_json text =
     else tuple_at i
   and float_at i =
     match value i with
-    | Interpreter.VString text, j -> (
+    | Interpreter.VString written, j -> (
         let j = skip j in
         if j >= length || text.[j] <> '}' then fail ()
         else
-          match text with
+          match written with
           | "nan" -> (Interpreter.VFloat Stdlib.nan, j + 1)
           | "inf" -> (Interpreter.VFloat Stdlib.infinity, j + 1)
           | "-inf" -> (Interpreter.VFloat Stdlib.neg_infinity, j + 1)
           | _ -> (
-              match float_of_string_opt text with
+              match float_of_string_opt written with
               | Some x -> (Interpreter.VFloat x, j + 1)
               | None -> fail ()))
     | _ -> fail ()

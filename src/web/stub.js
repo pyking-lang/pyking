@@ -158,8 +158,14 @@ function pyk_list(value) {
 // the `pykList` marker a list carries (docs/modules.md, "What may cross
 // the boundary"). `JSON.stringify` drops that marker, so a tuple would
 // reach the interpreter as a list -- this keeps the two apart by
-// writing a tuple as an object the reader knows.
+// writing a tuple as an object the reader knows. JSON has no NaN, no
+// infinity and no -0, so those cross under the Float marker.
 function pyk_encode(value) {
+  if (typeof value === "number" && (!isFinite(value) || Object.is(value, -0))) {
+    var text = value !== value ? "nan" : value === Infinity ? "inf"
+      : value === -Infinity ? "-inf" : "-0.0";
+    return '{"pyk_float":"' + text + '"}';
+  }
   if (Array.isArray(value)) {
     var parts = [];
     for (var i = 0; i < value.length; i += 1) {

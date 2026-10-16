@@ -563,6 +563,11 @@ shadowing one would break the generated file just as thoroughly. And
 would have accepted, so it is renamed for every version rather than
 splitting the family (`tests/renaming_runtime.pyk`).
 
+A *module* name can shadow a class: the module `math` compiles to a
+class `Math` in the program's package, which an unqualified `Math`
+names in every file of it. So the generated code writes
+`java.lang.Math` in full, and so does `lib/math/MathExternal.java`.
+
 ### Immutable bindings stay immutable
 
 Pyking's `=` is a binding, never a reassignment, so it translates to a
