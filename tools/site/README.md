@@ -8,6 +8,7 @@ started, a reference for every library, and the playground. It is
 ```sh
 make website        # build it into website/
 make website-dev    # serve it with Astro's dev server (PORT=n for the port)
+make website-release  # publish it at https://pyking-lang.github.io/
 ```
 
 `website/` is a static site, served from the root of any web server:
@@ -201,3 +202,46 @@ them all.
 
 `trailingSlash` is `"always"`, so a page is `/install/`, served from
 `install/index.html`.
+
+## Publishing
+
+`make website-release` publishes the site at
+<https://pyking-lang.github.io/>, with `publish.py` beside this file. That
+address is GitHub Pages' site of the organisation, served from the root
+of the public repository `pyking-lang/pyking-lang.github.io` with
+GitHub's own certificate, so HTTPS needs no setup. The repository is
+made once:
+
+```sh
+gh repo create pyking-lang/pyking-lang.github.io --public --description "The Pyking website"
+```
+
+and `gh` must be logged in (`gh auth login`) as someone who may push to
+it and change its Pages settings.
+
+- **It checks first**, before building: that `gh` is logged in, that git
+  has a name and an email for the commit, that no tracked file has
+  uncommitted changes and HEAD is already on GitHub in
+  `pyking-lang/pyking` -- so the site is a commit anyone can see -- and
+  that the Pages repository exists and is public. Any version may be
+  published, so a fix to a page can go out between releases.
+- **It builds** `website/` afresh from the working tree, with
+  `PYKING_SITE_URL=https://pyking-lang.github.io/` (the sitemap's
+  addresses) and the base `/`, says what it is about to push, and asks.
+  `make website-release YES=1` does not ask.
+- **It commits** the site to `main` of the Pages repository, on top of
+  the last upload -- one commit per upload, "Pyking 0.2.0 website, from
+  pyking-lang/pyking@<commit>" -- replacing every file but `.git`. Beside
+  the site go `.nojekyll`, without which Pages leaves out every path
+  starting with `_` (Astro's `_astro/`), and a README naming the commit.
+  A site that has not changed is not committed again.
+- **It configures Pages** to serve `main` at its root, creating the site
+  the first time, and enforces HTTPS, which redirects `http://`.
+- **It waits** -- up to ten minutes -- until Pages has built the upload
+  and `https://pyking-lang.github.io/` serves it: the README with the
+  commit, and the front page as it was built. It ends with one line,
+  **SUCCEEDED** or **FAILED** with the reason.
+
+To publish an older site again, check out its commit and run it there;
+the Pages repository's history holds every upload, and Pages serves
+whatever `main` is.

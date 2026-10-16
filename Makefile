@@ -10,6 +10,7 @@
 #   make pykhelp    open the help (getting started, the language reference,
 #                   the libraries) in the browser
 #   make website    build the website into website/
+#   make website-release  publish it at https://pyking-lang.github.io/
 #   make packaging  build the installable packages (macOS and Linux)
 #   make clean      remove what has been generated
 #
@@ -17,7 +18,7 @@
 # built by dune into the executable this directory calls ./pyk.
 
 .PHONY: all help pykhelp build libs test stest check-node playground notebook vendor \
-	website website-dev \
+	website website-dev website-release \
 	packaging packaging-setup packaging-install packaging-uninstall \
 	release \
 	clean clean-pycache clean-build clean-website distclean
@@ -117,6 +118,11 @@ help:
 	@echo "                  the first time (needs node 22.12 or later)"
 	@echo "make website-dev  the same site, served by Astro's dev server;"
 	@echo "                  both need make vendor and run it first"
+	@echo "make website-release  build the website from HEAD and publish it at"
+	@echo "                  https://pyking-lang.github.io/ (the repository"
+	@echo "                  pyking-lang/pyking-lang.github.io, with gh): refuses"
+	@echo "                  uncommitted changes and an unpushed HEAD; asks"
+	@echo "                  first (YES=1 does not)"
 	@echo "make packaging    build the installable packages into"
 	@echo "                  tools/packaging/build/: a universal macOS pyk for"
 	@echo "                  Homebrew (on an Apple Silicon Mac), and static"
@@ -223,6 +229,12 @@ website: build vendor
 
 website-dev: build vendor
 	@python3 tools/site/site.py dev $(if $(PORT),--port $(PORT))
+
+# Builds the website from HEAD for https://pyking-lang.github.io/ and
+# publishes it there with gh (tools/site/publish.py). Asks first; YES=1
+# does not.
+website-release: build vendor
+	@python3 tools/site/publish.py $(if $(YES),--yes)
 
 # The installable packages, built by tools/packaging/'s own Makefile into
 # its build/: the compiler as JavaScript and the browser libraries go in

@@ -1603,6 +1603,15 @@ builds from there; nothing is generated into `sitesrc/` or `lib/`.
   serves reaches the website with no edit here. A file a page fetches
   from `lib/` must have a suffix in `site.py`'s `LIB_SUFFIXES` -- tinyweb's
   sound samples among them, which is why a sound played on the website.
+- **`make website-release` publishes it** at
+  <https://pyking-lang.github.io/> with `tools/site/publish.py`: it
+  refuses uncommitted changes to tracked files and a HEAD not on GitHub,
+  builds `website/` afresh with `PYKING_SITE_URL` set, asks (`YES=1`
+  does not), commits it with `.nojekyll` and a README naming the commit
+  on top of the last upload on `main` of
+  `pyking-lang/pyking-lang.github.io`, has Pages serve that branch's
+  root with HTTPS enforced, and waits until the site serves the upload.
+  `tests/test_site.py` checks what it commits (`fill`).
 - **The website is not shipped.** No package holds `tools/site/`,
   `sitesrc/` or `website/`, and `SHIPPED` must not grow them.
 

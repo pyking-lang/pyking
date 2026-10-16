@@ -36,6 +36,9 @@ Nine parts:
             other languages included; the Help tab's pages are among them.
   runtime   every sound a library's page plays is copied into the
             website's runtime.
+  publish   what `make website-release` commits (tools/site/publish.py,
+            `fill`): a built site replaces everything in a clone but
+            .git, with .nojekyll, and the site's address is https.
   cells     every runnable ```pyking block of the help's pages -- sitesrc/,
             the language reference and the library pages: an `error`
             block must be refused, every other must run, with its
@@ -52,6 +55,7 @@ Functions:
     check_examples(compiler) -- the examples part.
     check_sidebar() -- the sidebar part.
     check_runtime() -- the runtime part.
+    check_publish() -- the publish part.
     blocks(text) -- the runnable Pyking blocks of a Markdown page.
     check_cells(compiler) -- the cells part.
     main(argv) -- the command-line entry point.
@@ -82,6 +86,9 @@ import tinywebdoc  # noqa: E402
 _spec = importlib.util.spec_from_file_location("website", REPO / "tools" / "site" / "site.py")
 website = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(website)
+_spec = importlib.util.spec_from_file_location("publish", REPO / "tools" / "site" / "publish.py")
+publish = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(publish)
 
 SOURCES = REPO / "sitesrc"
 PLUGIN = REPO / "tools" / "site" / "src" / "remark-pyking-cells.mjs"
@@ -355,6 +362,40 @@ def check_runtime():
              f"not copied: {', '.join(left)}" if left else None)]
 
 
+def check_publish():
+    """What `make website-release` commits to the Pages repository: a
+    built site in place of everything in a clone but .git, its paths
+    starting with `_` kept by .nojekyll, and a README naming the commit;
+    and the address is https. () -> [(String, String?)]"""
+    with tempfile.TemporaryDirectory(prefix="pyk-site-") as directory:
+        built, clone = Path(directory) / "website", Path(directory) / "clone"
+        (built / "_astro").mkdir(parents=True)
+        (built / "index.html").write_text("<p>new</p>\n")
+        (built / "_astro" / "page.js").write_text("// new\n")
+        (clone / ".git").mkdir(parents=True)
+        (clone / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+        (clone / "old").mkdir()
+        (clone / "old" / "index.html").write_text("<p>gone</p>\n")
+        (clone / "stale.txt").write_text("gone\n")
+        output = website.OUTPUT
+        publish.website.OUTPUT = built
+        try:
+            publish.fill(clone, "0123456789abcdef")
+        finally:
+            publish.website.OUTPUT = output
+        found = sorted(str(path.relative_to(clone)) for path in clone.rglob("*")
+                       if path.is_file())
+        wanted = [".git/HEAD", ".nojekyll", "README.md", "_astro/page.js", "index.html"]
+        readme = (clone / "README.md").read_text() if (clone / "README.md").exists() else ""
+    return [("a release replaces the Pages clone's files with the site's, keeping .git",
+             None if found == wanted else f"found {found}"),
+            ("the Pages README names the commit the site was built from",
+             None if "0123456789abcdef" in readme else readme),
+            ("the website is published over https, at the root",
+             None if publish.SITE_URL.startswith("https://") and publish.SITE_URL.endswith(".github.io/")
+             else publish.SITE_URL)]
+
+
 def blocks(text):
     """The runnable Pyking blocks of a Markdown page, as the remark
     plugin finds them: each with its words, and the stdin and args
@@ -433,7 +474,7 @@ def main(argv):
     cells, count = check_cells(compiler)
     results = (check_docs() + check_exports(compiler) + check_copies() + check_plugin()
                + check_notebook() + check_examples(compiler) + check_sidebar()
-               + check_runtime() + cells)
+               + check_runtime() + check_publish() + cells)
     failed = 0
     for name, detail in results:
         if detail is None:
