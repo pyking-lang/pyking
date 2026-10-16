@@ -1734,9 +1734,14 @@ class Nix:
         """Runs a shell script in arch's Nix container with flakes on.
         String -> [(Path, String)] -> String -> CompletedProcess"""
         volumes = [a for source, inside in mounts for a in ("-v", f"{source}:{inside}")]
+        config = "experimental-features = nix-command flakes\naccept-flake-config = false"
+        # An emulated architecture (Rosetta, QEMU) cannot load the seccomp
+        # filter Nix puts on a build.
+        if arch != canonical_arch(platform.machine()):
+            config += "\nfilter-syscalls = false"
         return subprocess.run(
             ["docker", "run", "--rm", "--platform", Linux.PLATFORM[arch], *volumes,
-             "-e", "NIX_CONFIG=experimental-features = nix-command flakes\naccept-flake-config = false",
+             "-e", f"NIX_CONFIG={config}",
              NIX_IMAGE, "sh", "-c", script], capture_output=True, text=True)
 
     def check_runs(self, v, arch):
