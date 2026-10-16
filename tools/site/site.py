@@ -52,6 +52,7 @@ import tinywebdoc  # noqa: E402
 # Where tinyweb's pages for other languages go, under Documentation.
 TINYWEB = "documentation/tinyweb"
 OUTPUT = REPO / "website"
+PICTURES = REPO / "sitesrc" / "pics"
 STAGE = HERE / "build"
 MODULES = HERE / "node_modules"
 ASTRO = MODULES / "astro" / "bin" / "astro.mjs"
@@ -242,19 +243,22 @@ def sidebar(index, tinyweb):
 
 def stage():
     """Fills build/: content/ with the help and tinyweb's pages for other
-    languages, public/ from public/, the runtime and tinyweb's downloads,
+    languages, pics/ from sitesrc/pics/, public/ from public/, the runtime
+    and tinyweb's downloads,
     the left menus and the grammar; and empties Astro's cache. () -> ()"""
     server.check_bundle("website")
     server.check_vendor("website")
     # The cache too: Astro keeps the pages it rendered, and would not
     # notice that the remark plugin they were rendered with has changed.
-    for name in ("content", "public", "cache"):
+    for name in ("content", "public", "cache", "pics"):
         shutil.rmtree(STAGE / name, ignore_errors=True)
     for line in libdoc.problems(libdoc.read_modules(libdoc.LIB)):
         print("website: warning: " + line)
     index = helpdoc.write(STAGE / "content")
     (STAGE / "content" / "index.json").unlink()
     _copy_tree(HERE / "public", STAGE / "public")
+    # The pictures the site's stylesheet names, which Astro bundles from here.
+    _copy_tree(PICTURES, STAGE / "pics", (".jpeg", ".jpg", ".png", ".svg", ".webp"))
     # tinyweb's implementations as libraries of their own, with the code
     # Pyking generates for its tests, which needs the compiler.
     tinywebdoc.write(STAGE / "content" / TINYWEB, STAGE / "public" / "tinyweb",

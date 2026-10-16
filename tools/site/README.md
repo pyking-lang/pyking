@@ -37,6 +37,9 @@ sitesrc/                    the pages, by hand (at the repository root)
   documentation/            Documentation: Editors (the language reference
                             is PYKING.md)
   404.md
+  pics/                     pictures the site's stylesheet names, staged
+                            into build/pics/ for Astro to bundle:
+                            pyking.jpeg is the start page's background
 lib/                        the libraries the reference is generated from
 PYKING.md                   the language reference
 

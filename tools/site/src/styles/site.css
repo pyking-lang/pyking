@@ -11,6 +11,36 @@
   --sl-color-accent-high: #1a3168;
 }
 
+/* The front page: sitesrc/pics/pyking.jpeg behind it, under a wash of
+   the page's own colour, lighter at the top and on the right, so the
+   text stays readable in both themes. Fixed to the window, as a layer of its own, since a
+   fixed background-attachment is not supported everywhere. */
+:root[data-has-hero] body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(to right, color-mix(in srgb, var(--sl-color-bg) 55%, transparent),
+                    transparent 65%),
+    linear-gradient(color-mix(in srgb, var(--sl-color-bg) 25%, transparent),
+                    color-mix(in srgb, var(--sl-color-bg) 45%, transparent) 35%,
+                    color-mix(in srgb, var(--sl-color-bg) 90%, transparent) 75%),
+    url("../../build/pics/pyking.jpeg") center 30% / cover no-repeat;
+}
+/* On a narrow screen the hero's text is centred over the crown. */
+@media (max-width: 50em) {
+  :root[data-has-hero] body::before {
+    background:
+      linear-gradient(color-mix(in srgb, var(--sl-color-bg) 60%, transparent),
+                      color-mix(in srgb, var(--sl-color-bg) 90%, transparent) 70%),
+      url("../../build/pics/pyking.jpeg") 55% 30% / cover no-repeat;
+  }
+}
+:root[data-has-hero] .page,
+:root[data-has-hero] .main-frame,
+:root[data-has-hero] .content-panel { background: transparent; }
+
 /* A cell embedded in a page: the notebook's cell, without the notebook's
    page background and type size. */
 .pkn-notebook.pkn-embedded {
