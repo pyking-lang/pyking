@@ -10,7 +10,7 @@
 #   make pykhelp    open the help (getting started, the language reference,
 #                   the libraries) in the browser
 #   make website    build the website into website/
-#   make website-release  publish it at https://pyking-lang.github.io/
+#   make website-release  publish it at https://pyking.org/
 #   make packaging  build the installable packages (macOS and Linux)
 #   make clean      remove what has been generated
 #
@@ -119,7 +119,7 @@ help:
 	@echo "make website-dev  the same site, served by Astro's dev server;"
 	@echo "                  both need make vendor and run it first"
 	@echo "make website-release  build the website from HEAD and publish it at"
-	@echo "                  https://pyking-lang.github.io/ (the repository"
+	@echo "                  https://pyking.org/ (GitHub Pages, from the repository"
 	@echo "                  pyking-lang/pyking-lang.github.io, with gh): refuses"
 	@echo "                  uncommitted changes and an unpushed HEAD; asks"
 	@echo "                  first (YES=1 does not)"
@@ -230,7 +230,7 @@ website: build vendor
 website-dev: build vendor
 	@python3 tools/site/site.py dev $(if $(PORT),--port $(PORT))
 
-# Builds the website from HEAD for https://pyking-lang.github.io/ and
+# Builds the website from HEAD for https://pyking.org/ and
 # publishes it there with gh (tools/site/publish.py). Asks first; YES=1
 # does not.
 website-release: build vendor

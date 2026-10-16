@@ -286,11 +286,13 @@ stages once on start; restart it to see an edit to `sitesrc/` or `lib/`.
 `PYKING_SITE_URL` sets the site's address, which Astro needs for a
 sitemap. `tests/test_site.py` checks the library documentation and runs
 every example on the site with the interpreter, without Astro.
-`make website-release` publishes it at <https://pyking-lang.github.io/>
+`make website-release` publishes it at <https://pyking.org/>
 (`tools/site/publish.py`): built afresh from a committed, pushed HEAD,
 committed with `gh` to the GitHub Pages repository
 `pyking-lang/pyking-lang.github.io` -- one commit per upload, with
-`.nojekyll` -- and waited for until Pages serves it over HTTPS.
+`.nojekyll` and a `CNAME` naming the domain -- and waited for until Pages
+serves it there over HTTPS. The domain's DNS records are in
+`tools/site/README.md`, "The domain".
 `tools/site/README.md` is the long form.
 
 ## Packaging

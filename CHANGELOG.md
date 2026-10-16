@@ -28,9 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pyking as a Nix flake, on Linux and macOS: `nix run
   github:pyking-lang/pyking-releases`, or `nix profile install
   github:pyking-lang/pyking-releases`.
-- `make website-release` publishes the website at
-  https://pyking-lang.github.io/, from the GitHub Pages repository
-  `pyking-lang/pyking-lang.github.io`.
+- `make website-release` publishes the website at https://pyking.org/,
+  from the GitHub Pages repository `pyking-lang/pyking-lang.github.io`.
 - `PYKING_WEB_HOST` names the address `pyk notebook`, `pyk playground`,
   `pyk pykhelp` and `pyk serve` listen on, 127.0.0.1 without it;
   `0.0.0.0` listens on every interface.

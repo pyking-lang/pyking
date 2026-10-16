@@ -8,7 +8,7 @@ started, a reference for every library, and the playground. It is
 ```sh
 make website        # build it into website/
 make website-dev    # serve it with Astro's dev server (PORT=n for the port)
-make website-release  # publish it at https://pyking-lang.github.io/
+make website-release  # publish it at https://pyking.org/
 ```
 
 `website/` is a static site, served from the root of any web server:
@@ -205,12 +205,14 @@ them all.
 
 ## Publishing
 
-`make website-release` publishes the site at
-<https://pyking-lang.github.io/>, with `publish.py` beside this file. That
-address is GitHub Pages' site of the organisation, served from the root
-of the public repository `pyking-lang/pyking-lang.github.io` with
-GitHub's own certificate, so HTTPS needs no setup. The repository is
-made once:
+`make website-release` publishes the site at <https://pyking.org/>, with
+`publish.py` beside this file. GitHub Pages serves it from the root of
+the public repository `pyking-lang/pyking-lang.github.io`, the
+organisation's site, at the custom domain `pyking.org` (`DOMAIN`), with a
+certificate GitHub obtains and renews itself once the domain's DNS points
+at it (see "The domain" below). The old address,
+`https://pyking-lang.github.io/`, redirects there. The repository is made
+once:
 
 ```sh
 gh repo create pyking-lang/pyking-lang.github.io --public --description "The Pyking website"
@@ -226,22 +228,68 @@ it and change its Pages settings.
   that the Pages repository exists and is public. Any version may be
   published, so a fix to a page can go out between releases.
 - **It builds** `website/` afresh from the working tree, with
-  `PYKING_SITE_URL=https://pyking-lang.github.io/` (the sitemap's
-  addresses) and the base `/`, says what it is about to push, and asks.
+  `PYKING_SITE_URL=https://pyking.org/` (the sitemap's addresses) and the
+  base `/`, says what it is about to push, and asks. Where `pyking.org`
+  does not resolve to GitHub Pages yet, it says which DNS records are
+  missing, and uploads anyway.
   `make website-release YES=1` does not ask.
 - **It commits** the site to `main` of the Pages repository, on top of
   the last upload -- one commit per upload, "Pyking 0.2.0 website, from
   pyking-lang/pyking@<commit>" -- replacing every file but `.git`. Beside
   the site go `.nojekyll`, without which Pages leaves out every path
-  starting with `_` (Astro's `_astro/`), and a README naming the commit.
+  starting with `_` (Astro's `_astro/`), `CNAME`, holding `pyking.org`,
+  and a README naming the commit.
   A site that has not changed is not committed again.
-- **It configures Pages** to serve `main` at its root, creating the site
-  the first time, and enforces HTTPS, which redirects `http://`.
+- **It configures Pages** to serve `main` at its root under `pyking.org`,
+  creating the site the first time, and enforces HTTPS (which redirects
+  `http://`) as soon as GitHub has the domain's certificate.
 - **It waits** -- up to ten minutes -- until Pages has built the upload
-  and `https://pyking-lang.github.io/` serves it: the README with the
-  commit, and the front page as it was built. It ends with one line,
-  **SUCCEEDED** or **FAILED** with the reason.
+  and `https://pyking.org/` serves it, with HTTPS enforced: the README
+  with the commit, and the front page as it was built. It ends with one
+  line, **SUCCEEDED**, or **FAILED** with the reason -- what it is still
+  waiting for, what is wrong with the DNS, and Pages' own check of the
+  domain. The first time, the certificate can take up to an hour after
+  the DNS is right; run it again then, which pushes nothing new.
 
 To publish an older site again, check out its commit and run it there;
 the Pages repository's history holds every upload, and Pages serves
 whatever `main` is.
+
+### The domain
+
+`pyking.org` is registered at Namecheap, and its DNS is Namecheap's.
+Under **Domain List → pyking.org → Manage**:
+
+1. **Nameservers** (on the Domain tab) is **Namecheap BasicDNS**.
+2. On **Advanced DNS**, under Host Records, delete what Namecheap put
+   there for `@` and `www` -- a *URL Redirect Record* for `@` and a
+   *CNAME Record* `www` → `parkingpage.namecheap.com.` -- and add:
+
+   | Type | Host | Value |
+   |---|---|---|
+   | A Record | `@` | `185.199.108.153` |
+   | A Record | `@` | `185.199.109.153` |
+   | A Record | `@` | `185.199.110.153` |
+   | A Record | `@` | `185.199.111.153` |
+   | AAAA Record | `@` | `2606:50c0:8000::153` |
+   | AAAA Record | `@` | `2606:50c0:8001::153` |
+   | AAAA Record | `@` | `2606:50c0:8002::153` |
+   | AAAA Record | `@` | `2606:50c0:8003::153` |
+   | CNAME Record | `www` | `pyking-lang.github.io.` |
+
+   with TTL Automatic. `www.pyking.org` then redirects to `pyking.org`.
+   A CAA record, if there is one, must allow `letsencrypt.org`, which
+   issues Pages' certificates; with none, any issuer may.
+3. **Verify the domain** for the organisation, so no other GitHub
+   account can serve a site at it: on GitHub, **pyking-lang → Settings →
+   Pages → Add a domain**, `pyking.org`. It shows a TXT record -- host
+   `_github-pages-challenge-pyking-lang`, and a value -- to add on
+   Advanced DNS as a *TXT Record* (Host is that name without
+   `.pyking.org`); then press **Verify** there.
+
+`dig +short pyking.org` answers the four `185.199.*` addresses once the
+records are live, usually within half an hour. Then `make
+website-release`: GitHub requests the certificate when the domain is set,
+and enforcing HTTPS waits for it. `publish.py`'s `PAGES_A`, `PAGES_AAAA`
+and `PAGES_CNAME` are the same records, which is what its DNS check
+compares with.

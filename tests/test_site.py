@@ -38,7 +38,8 @@ Nine parts:
             website's runtime.
   publish   what `make website-release` commits (tools/site/publish.py,
             `fill`): a built site replaces everything in a clone but
-            .git, with .nojekyll, and the site's address is https.
+            .git, with .nojekyll and the CNAME naming the domain, and the
+            site's address is https at that domain.
   cells     every runnable ```pyking block of the help's pages -- sitesrc/,
             the language reference and the library pages: an `error`
             block must be refused, every other must run, with its
@@ -365,8 +366,9 @@ def check_runtime():
 def check_publish():
     """What `make website-release` commits to the Pages repository: a
     built site in place of everything in a clone but .git, its paths
-    starting with `_` kept by .nojekyll, and a README naming the commit;
-    and the address is https. () -> [(String, String?)]"""
+    starting with `_` kept by .nojekyll, CNAME naming the domain, and a
+    README naming the commit; and the address is https at that domain.
+    () -> [(String, String?)]"""
     with tempfile.TemporaryDirectory(prefix="pyk-site-") as directory:
         built, clone = Path(directory) / "website", Path(directory) / "clone"
         (built / "_astro").mkdir(parents=True)
@@ -385,15 +387,18 @@ def check_publish():
             publish.website.OUTPUT = output
         found = sorted(str(path.relative_to(clone)) for path in clone.rglob("*")
                        if path.is_file())
-        wanted = [".git/HEAD", ".nojekyll", "README.md", "_astro/page.js", "index.html"]
+        wanted = [".git/HEAD", ".nojekyll", "CNAME", "README.md", "_astro/page.js",
+                  "index.html"]
+        cname = (clone / "CNAME").read_text() if (clone / "CNAME").exists() else ""
         readme = (clone / "README.md").read_text() if (clone / "README.md").exists() else ""
     return [("a release replaces the Pages clone's files with the site's, keeping .git",
              None if found == wanted else f"found {found}"),
             ("the Pages README names the commit the site was built from",
              None if "0123456789abcdef" in readme else readme),
-            ("the website is published over https, at the root",
-             None if publish.SITE_URL.startswith("https://") and publish.SITE_URL.endswith(".github.io/")
-             else publish.SITE_URL)]
+            ("the Pages CNAME names the domain, alone",
+             None if cname == publish.DOMAIN + "\n" else repr(cname)),
+            ("the website is published over https, at the domain's root",
+             None if publish.SITE_URL == f"https://{publish.DOMAIN}/" else publish.SITE_URL)]
 
 
 def blocks(text):
