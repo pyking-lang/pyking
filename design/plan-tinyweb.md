@@ -47,10 +47,14 @@ below is held to them.
    Java can carry; a new shape is a new typedef in `target_c.ml` and a
    new interface in `target_java.ml`, and is called out where a step
    needs one.
-4. **Everything is named by an `Int`.** A canvas, a button, a sample, a
-   sound that is playing, a bitmap, a timer: each is the number its
-   function answered, and that number is what changes, moves, stops or
-   removes it.
+4. **Everything is named by a `String`.** A canvas, a button, a sample,
+   a sound that is playing, a bitmap, a timer: each is the identifier its
+   function answered, and that identifier is what changes, moves, stops
+   or removes it. It is the thing's own text where it has one -- a
+   button's title, a label's text, a file's name -- and otherwise its
+   kind (`"canvas"`, `"voice"`, `"timer"`), with the first number from 1
+   added where the page has that name already (`"canvas1"`). The same
+   string is in the commands, on the page and in the log.
 5. **Defaults for everything but the essentials.** `tw.circle(c, x, y,
    r)` draws; the color, the outline and the transparency are named
    arguments with defaults. Named arguments are written in parameter
@@ -176,7 +180,7 @@ offered here; centring is what `align` is for.
 | `push(c)` / `pop(c)` | saves and restores the transformation and the alpha |
 | `reset(c)` | back to no transformation |
 
-**Images**: `load_image(name) -> Int`, found as samples are (beside the
+**Images**: `load_image(name) -> String`, found as samples are (beside the
 page, then in `tinyweb_assets/`), and `image(c, picture, x, y, width,
 height)`. A program draws one before it has loaded and nothing appears;
 the next frame draws it. tinyweb ships a few small CC0 images, as it
@@ -228,8 +232,8 @@ scrolling the page while it has the focus.
 
 | Function | What it does |
 |---|---|
-| `after(seconds, f) -> Int` | calls `f` once, `seconds` from now on the page's clock |
-| `every(seconds, f) -> Int` | calls `f` again and again |
+| `after(seconds, f) -> String` | calls `f` once, `seconds` from now on the page's clock |
+| `every(seconds, f) -> String` | calls `f` again and again |
 | `cancel(timer)` | stops either |
 
 `on_frame` stays the way to animate; these are for "in three seconds"
@@ -239,10 +243,10 @@ and "once a second".
 
 | Function | What it does |
 |---|---|
-| `text_input(placeholder, on_enter) -> Int` | a line of text; `on_enter(text)` when Enter is pressed |
-| `checkbox(title, checked, on_change) -> Int` | `on_change(checked)` |
-| `choice(options, chosen, on_change) -> Int` | a dropdown over a list of strings; `on_change(index)` |
-| `number_input(low, high, value, on_change) -> Int` | a number field |
+| `text_input(placeholder, on_enter) -> String` | a line of text; `on_enter(text)` when Enter is pressed |
+| `checkbox(title, checked, on_change) -> String` | `on_change(checked)` |
+| `choice(options, chosen, on_change) -> String` | a dropdown over a list of strings; `on_change(index)` |
+| `number_input(low, high, value, on_change) -> String` | a number field |
 
 **Changing what is on the page**:
 
@@ -292,12 +296,12 @@ Some sounds have to be *controlled* while they play: background music
 that loops until the level ends, an engine that hums while a key is
 held, a note held as long as a piano key is down, music that fades out
 on "game over". Such a sound is a **voice**: one playing of a sample,
-named by an `Int`, the way a button is. `start` begins one and answers
-its number, and that number is what stops or fades it:
+named by a `String`, the way a button is. `start` begins one and answers
+its identifier, and that identifier is what stops or fades it:
 
 | Function | What it does |
 |---|---|
-| `start(sample, at, volume, rate, pan, loop) -> Int` | starts the sample and answers the voice; with `loop = true` it plays again and again until stopped |
+| `start(sample, at, volume, rate, pan, loop) -> String` | starts the sample and answers the voice; with `loop = true` it plays again and again until stopped |
 | `stop(voice, at)` | stops it, now or at a time on the clock |
 | `fade(voice, volume, over)` | changes its volume smoothly, over `over` seconds; a fade to 0.0 and then a stop is a fade-out |
 | `master_volume(volume)` | everything at once |
@@ -429,7 +433,7 @@ bitmap goes to the page in one command when the program says so.
 
 | Function | What it does |
 |---|---|
-| `bitmap(width, height) -> Int` | a new bitmap, all black, kept by the program |
+| `bitmap(width, height) -> String` | a new bitmap, all black, kept by the program |
 | `set_pixel(b, x, y, color)` | one pixel; sends nothing |
 | `get_pixel(b, x, y) -> Int` | what a pixel holds, answered at once, since the program owns it |
 | `fill_bitmap(b, color)` | every pixel |
@@ -483,9 +487,9 @@ Beside bitmaps, for what is not a picture computed pixel by pixel:
 
 | Function | What it does |
 |---|---|
-| `row() -> Int` | a box whose elements go side by side |
-| `column() -> Int` | a box whose elements go one below another |
-| `panel(title) -> Int` | a column with a frame and a heading |
+| `row() -> String` | a box whose elements go side by side |
+| `column() -> String` | a box whose elements go one below another |
+| `panel(title) -> String` | a column with a frame and a heading |
 | `inside(box)` | elements made after this go into the box |
 | `outside()` | back to the page |
 | `box_style(box, ...)` | like `set_style`, for a box |
@@ -497,13 +501,13 @@ keeps every existing call as it is.
 
 | Function | What it does |
 |---|---|
-| `table(headings, rows) -> Int` | a table from lists of strings, `set_rows` to change it |
-| `list_view(items, on_pick) -> Int` | a list a reader picks from |
-| `text_area(text, on_change) -> Int` | several lines of text to edit |
-| `markdown(text) -> Int` | a label that renders headings, bold, lists and links |
+| `table(headings, rows) -> String` | a table from lists of strings, `set_rows` to change it |
+| `list_view(items, on_pick) -> String` | a list a reader picks from |
+| `text_area(text, on_change) -> String` | several lines of text to edit |
+| `markdown(text) -> String` | a label that renders headings, bold, lists and links |
 | `link(title, url)` | a link that opens in a new tab |
-| `progress(value, high) -> Int` | a progress bar |
-| `chart(kind, values, labels) -> Int` | `"bar"`, `"line"` or `"pie"`, for a dashboard |
+| `progress(value, high) -> String` | a progress bar |
+| `chart(kind, values, labels) -> String` | `"bar"`, `"line"` or `"pie"`, for a dashboard |
 
 **The world outside the page**:
 
@@ -541,10 +545,10 @@ it once and then only says what changes:
 
 | Function | What it does |
 |---|---|
-| `sprite_circle(c, x, y, r, color) -> Int` | a circle the page keeps drawing |
-| `sprite_rect(c, x, y, w, h, color) -> Int` | a rectangle |
-| `sprite_image(c, picture, x, y, w, h) -> Int` | a picture |
-| `sprite_text(c, x, y, words, color, size) -> Int` | text, such as a score |
+| `sprite_circle(c, x, y, r, color) -> String` | a circle the page keeps drawing |
+| `sprite_rect(c, x, y, w, h, color) -> String` | a rectangle |
+| `sprite_image(c, picture, x, y, w, h) -> String` | a picture |
+| `sprite_text(c, x, y, words, color, size) -> String` | text, such as a score |
 | `move(s, x, y)`, `turn(s, degrees)` | where it is, which way it faces |
 | `glide(s, x, y, seconds)` | moves it there smoothly, on the page |
 | `velocity(s, vx, vy)` | keeps it moving with no command a frame |
@@ -565,7 +569,7 @@ background drawn each frame, sprites on top.
   when the program answers ten times a second, as a native program on a
   busy machine may.
 - **Objects, as a beginner thinks of them.** "The ball", "the paddle",
-  each with a number, is how Scratch works, and clicking a sprite is
+  each with a name, is how Scratch works, and clicking a sprite is
   easier than working out what was under the mouse.
 
 **Against sprites:**
@@ -650,8 +654,8 @@ library it uses. A viewer who comes back tomorrow is then recognised.
 
 - Each implementation keeps a page's state, its history for a late
   connection and its event queue per session, instead of once.
-- Element numbers stay unique across sessions (one counter), so an id
-  always names exactly one element on exactly one page.
+- Element identifiers stay unique across sessions (one set of names), so
+  an id always names exactly one element on exactly one page.
 - Every target is held to the same behaviour: the browser targets have
   one viewer, so `on_session` calls `start(1)` once there, and the same
   program runs everywhere -- rule 1.
@@ -722,14 +726,14 @@ longer. Not recommended.
 
 **Separate libraries** (`tinysound`, `tinygame`) need no language change
 either, but the parts are not independent: they share one page, one
-connection to it, one clock, one numbering of elements and one event
+connection to it, one clock, one naming of elements and one event
 loop. Separate libraries would each have their own host implementation
 in seven languages, and those would have to find each other's state in
 every host. Not recommended.
 
-**Submodules: modules inside a library**, recommended. `tinyweb` stays
-the module a beginner imports, and the subjects that come later are
-modules beside it in the same folder, imported by a dotted name:
+**Submodules: names inside the library**, recommended, and built.
+`tinyweb` stays the module a beginner imports, and the subjects that
+come later are submodules of it, named with a dot:
 
 ```
 import tinyweb as tw              # the page, canvases, drawing, widgets, events
@@ -737,62 +741,58 @@ import tinyweb.sound as sound     # voices, tones, the beat, channels
 from tinyweb.game import circles_overlap
 ```
 
-### The language change
+### What the language offers
 
-**Names.** A module path is identifiers joined by dots. `import a.b`
-finds the folder `a` the way `import a` finds it today -- beside the
-importing file, then each `-L`, then `$PYKING_LIB_PATH`, then `lib/` --
-and in it the module `b` (`b.pyk`, `b_external.pyk`, or both, as for any
-module). Nesting may go deeper (`a.b.c` is `a/b/c.pyk`), though the
-standard library would use one level.
+Submodules are in the language (PYKING.md, "Submodules"; the
+implementation is `src/submodules.ml`, described in docs/modules.md,
+"Submodules"). What tinyweb needs of them:
+
+**A submodule is dotted names in one file.** `tinyweb.pyk` defines
+`public def sound.start(...)`, `public def sound.tone(...)`, and so on;
+`tinyweb.sound` is nothing but those names. There is no folder and no
+file per submodule, so finding a module is unchanged: `import
+tinyweb.sound` finds `tinyweb` as today. Deeper paths work too
+(`sound.channel.mute`), though tinyweb would use one level.
 
 **What an import binds.** `import tinyweb.sound` binds `sound`, the last
-part, and `as` renames it as today. This departs from Python, where
-`import a.b` binds `a` and the program writes `a.b.f`. Pyking's qualified
-names are one level, `m.f`, and keeping them one level keeps the parser,
-the checker and every backend as they are; `sound.start(...)` is also
+part, and `as` renames it; `from tinyweb import sound` does the same.
+`from tinyweb.sound import start` takes one name, and
+`tw.sound.start(...)` reaches it through `import tinyweb as tw`. This
+departs from Python, where `import a.b` binds `a`; `sound.start(...)` is
 what a beginner would rather read than `tinyweb.sound.start(...)`.
-PYKING.md says so beside the other departures from Python. `from
-tinyweb.sound import start` works as `from` does today.
 
-**Privacy within a library.** The submodules are written in Pyking
-against tinyweb's one host implementation, so they need its private
-declarations, which today only tinyweb's own Pyking half can see. The
-rule widens by one step: a private declaration of a library's main
-module is visible to the modules of the same library, and to nothing
-outside it. Then:
+**Inside tinyweb**, a submodule's names are always written with their
+whole path -- `sound.start(...)`, even from `sound.tone` -- and nothing
+else in `tinyweb.pyk` may be called `sound`.
 
-- every submodule is Pyking only (`lib/tinyweb/sound.pyk`), and needs no
-  file in any host language;
-- the host implementations stay one per language, holding the page, the
-  connection and every command, as now;
-- a program still cannot reach `make_button` or `apply_style`.
+**Privacy needs nothing new.** Every submodule is in tinyweb's own two
+files, so it sees tinyweb's private declarations as the rest of
+`tinyweb.pyk` does today, and a program still cannot reach
+`make_button` or `apply_style`. A helper a submodule shares with
+another without offering it is a private name, `def sound.mix(...)`,
+which another module is refused.
 
-A module whose name starts with `_` (`tinyweb._shapes`) may be imported
-only by modules of the same library, for helpers a library shares
-between its submodules without offering them.
+**Host functions of a submodule** are dotted declarations in
+`tinyweb_external.pyk`, `def sound.start_voice(...) -> String`, public
+or private as any declaration. Each host implements it under the plain
+name the dotted one compiles to: `sound__start_voice` in Python,
+JavaScript, OCaml and Java, and `tinyweb_sound__start_voice` in C. So
+the host implementations stay one per language, holding the page, the
+connection and every command, as now; a submodule adds functions to
+them and no files.
 
-**What a submodule compiles to.** A module path becomes one flat name in
-each host, `tinyweb_sound`: `tinyweb_sound.py`, `tinyweb_sound.js`,
-`tinyweb_sound.c` and `.h` with names `tinyweb_sound_<field>`,
-`TinywebSound.java`, `tinyweb_sound.ml` and `.mli`. A program's own
-module named `tinyweb_sound` would then collide with it, and is refused
-with a message saying which two modules want one file.
+**What it costs.** `tinyweb.pyk` and `tinyweb_external.pyk` grow with
+every step instead of being split across files, so each is organised by
+`##` headings per submodule. The help still shows one page per
+submodule (below).
 
-**Where it touches the compiler**, following CLAUDE.md's five places:
+**What is left to build** for tinyweb to use it:
 
 | Place | What changes |
 |---|---|
-| `parser.ml`, `syntax.ml` | `import_stmt` and `from_stmt` take a dotted path; `SImport` carries the parts |
-| `module.ml` | finding `a.b` in the folder `a`; the library-wide privacy rule; `_` modules; the flat host name, in one function every backend asks |
-| `typesystem.ml`, the interpreter | nothing beyond what an import already does, since the bound name is one identifier |
-| the backends, `pyk.ml`, `execution.ml` | file and symbol names from the flat name, through `module.ml` |
-| `prune.ml`, `lsp.ml` | a dotted import; go to definition into a submodule's file |
-| `tools/help/libdoc.py`, the website | one library page per submodule, under the library in the menu |
-| the playground and notebook worker | fetching `lib/tinyweb/sound.pyk` for `tinyweb.sound` |
-| `PYKING.md`, `docs/modules.md` | the grammar, the binding rule, privacy within a library |
-| tests | `module_dotted_*` (both import forms, `as`, a deeper path), `fail_typecheck_module_*` for a private name from outside the library, an `_` module from outside, a missing submodule and the flat-name collision |
-| `tools/emacs/pyking-mode.el` | a dotted name after `import` and `from` |
+| `tools/help/libdoc.py`, the website | one library page per submodule, under the library in the menu, from the dotted names' `##` blocks |
+| the playground and the notebook | completion and the outline grouping a library's names by submodule (the language server lists the plain names today) |
+| `PYKING.md`, the library docs | an example of `import tinyweb.sound as sound` once `sound` exists |
 
 ### How tinyweb would be divided
 
@@ -813,16 +813,16 @@ where it is, so no program changes.
 | `tinyweb.sprite` | sprites | step 6 |
 | `tinyweb.session` | sessions | step 7 |
 
-A submodule's functions take the numbers `tinyweb`'s functions answer
-(`bitmap.show_bitmap(c, b, ...)` draws on a canvas from `tw.canvas`),
-since every element of a page shares one numbering.
+A submodule's functions take the identifiers `tinyweb`'s functions
+answer (`bitmap.show_bitmap(c, b, ...)` draws on a canvas from
+`tw.canvas`), since every element of a page shares one set of names.
 
 `math`, `random` and `store` stay libraries of their own, as decided:
 they are not about a page.
 
 ### When
 
-The language change is made before step 3, the first step whose
-functions go into a submodule. Steps 1 and 2 add to `tinyweb` itself and
-need nothing new. Until it exists, nothing in steps 1 and 2 depends on
-it, so the order of the steps does not change.
+The language change is made. What is left for submodules -- the help's
+page per submodule, above -- is done before step 3, the first step whose
+functions go into one. Steps 1 and 2 add to `tinyweb` itself, so the
+order of the steps does not change.
