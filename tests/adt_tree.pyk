@@ -1,0 +1,63 @@
+# A binary search tree: recursion over a parameterized datatype, built
+# by insertion and taken apart by folds.
+
+datatype Tree(a):
+    Empty
+    Node(left: Tree(a), value: a, right: Tree(a))
+
+
+def insert(t: Tree(Int), x: Int) -> Tree(Int):
+    match t:
+        case Empty: Node(Empty, x, Empty)
+        case Node(l, v, r) if x < v: Node(insert(l, x), v, r)
+        case Node(l, v, r) if x > v: Node(l, v, insert(r, x))
+        case Node(_, _, _): t
+
+
+def member(t: Tree(Int), x: Int) -> Bool:
+    match t:
+        case Empty: false
+        case Node(l, v, _) if x < v: member(l, x)
+        case Node(_, v, r) if x > v: member(r, x)
+        case _: true
+
+
+def inorder(t: Tree(a)) -> [a]:
+    match t:
+        case Empty: []
+        case Node(l, v, r): inorder(l) ++ [v] ++ inorder(r)
+
+
+def size(t: Tree(a)) -> Int:
+    match t:
+        case Empty: 0
+        case Node(l, _, r): size(l) + 1 + size(r)
+
+
+def height(t: Tree(a)) -> Int:
+    match t:
+        case Empty: 0
+        case Node(l, _, r):
+            hl = height(l)
+            hr = height(r)
+            1 + (if hl > hr then hl else hr)
+
+
+def from_list(xs: [Int]) -> Tree(Int):
+    loop t = Empty for x in xs:
+        insert(t, x)
+
+
+t = from_list([5, 3, 8, 1, 4, 7, 9, 3])
+print(inorder(t))
+print(size(t), height(t))
+print(member(t, 4), member(t, 6))
+print(from_list([2, 1]))
+
+def tree_map(f: (a) -> b, t: Tree(a)) -> Tree(b):
+    match t:
+        case Empty: Empty
+        case Node(l, v, r): Node(tree_map(f, l), f(v), tree_map(f, r))
+
+print(inorder(tree_map(n => n * n, t)))
+print(tree_map(n => n > 4, from_list([5, 2])))

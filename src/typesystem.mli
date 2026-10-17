@@ -36,7 +36,9 @@
       import_env stmts env store -- binds what a block's imports bring in.
       check_stmt / check_expr -- one statement, one expression.
       same_type a b -- whether two types are the same type.
-      covers patterns -- whether patterns between them match everything.
+      declare_datatypes stmts store -- the datatypes a module declares
+        and imports.
+      check_matches stmts store -- refuses a non-exhaustive `match`.
       zonk type_ store -- a type read back through what was solved.
       displayed type_ store -- the same, with what is still open named.
       settled_type type_ store -- what a deferred function turned out
@@ -121,6 +123,9 @@ type store = {
   modules : (string * sigmap) list;
   tmap : typ IntMap.t;
   qmap : resolution IntMap.t;
+  types : string SMap.t;
+  datatypes : datatype SMap.t;
+  constructors : string SMap.t;
 }
 
 (** Type-checks one module -- or a whole one-file program, which is the
@@ -157,6 +162,17 @@ val empty_store : (string * sigmap) list -> store
     [stmt] -> env -> store -> (env, store) *)
 val declare_functions : stmt list -> env -> store -> env * store
 
+(** store knowing the datatypes these statements declare and the ones
+    their imports bring in: every name spelled as the source may spell
+    it, every constructor, and each field's type. What an entry at the
+    prompt does before it is checked. [stmt] -> store -> store *)
+val declare_datatypes : stmt list -> store -> store
+
+(** Refuses a `match` in these statements that does not match every
+    value, or that has a case no value can reach (exhaustive.ml). Run
+    once the statements are checked. [stmt] -> store -> () *)
+val check_matches : stmt list -> store -> unit
+
 (** env extended with everything a module's imports bring into scope: a
     selected name under the name it is known by here, and a field of a
     plain import under `alias.field`. Every module imported has to be in
@@ -184,11 +200,6 @@ val without_implicits : typ -> typ
     also differ. typ -> typ -> bool *)
 val same_type : typ -> typ -> bool
 
-(** Whether these patterns between them match every value they could be
-    matched against. The question is about the patterns alone -- a list
-    pattern matched against something that is not a list has already
-    been refused. [pattern] -> bool *)
-val covers : pattern list -> bool
 
 (** type_ with every metavariable in it replaced by what it was solved
     to, as deep as the solutions go. This is what turns a type the

@@ -1,0 +1,6 @@
+# Each field is checked against its declared type.
+
+datatype Person:
+    Person(name: String, age: Int)
+
+p = Person("ada", "thirty-six")

@@ -1,0 +1,4 @@
+'tests/fail_typecheck_module_adt_private_mod1.pyk' 6:0-7:20 Type
+  error: 'make' is public, and its type names the datatype 'Secret',
+  which is not: make 'Secret' public too, so that a module holding the
+  value can name its type

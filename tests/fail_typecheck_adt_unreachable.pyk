@@ -1,0 +1,17 @@
+# A case that no value can reach -- every value it matches is taken by
+# a case above it -- is refused rather than left as dead code.
+
+datatype Color:
+    Red
+    Green
+    Blue
+
+
+def name(c: Color) -> String:
+    match c:
+        case Red: "red"
+        case _: "another"
+        case Blue: "blue"
+
+
+print(name(Red))

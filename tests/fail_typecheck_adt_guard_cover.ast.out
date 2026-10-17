@@ -1,0 +1,4 @@
+'tests/fail_typecheck_adt_guard_cover.pyk' 5:4-7:40 Type error: this
+  'match' does not match every value: no case matches _ (a case with a
+  guard does not count, since its guard may be false). Add a case for
+  it, or a 'case _'

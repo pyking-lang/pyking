@@ -1,0 +1,64 @@
+# Fields: reading a named field with `.`, matching fields by name in any
+# order, leaving fields out of a pattern, and defaults evaluated at each
+# construction.
+
+datatype Person:
+    Person(name: String, age: Int, email: String = "none", admin: Bool = false)
+
+
+p = Person("ada", 36)
+q = Person("grace", age = 85, admin = true)
+print(p.name, p.age, p.email, p.admin)
+print(q)
+
+
+def role(x: Person) -> String:
+    match x:
+        case Person(admin = true): "admin"
+        case Person(age = a, name = n) if a < 18: n ++ " is young"
+        case Person(n, email = "none"): n ++ " has no email"
+        case Person(name = n): n
+
+
+print(role(p), role(q), role(Person("tim", 12)), role(Person("lin", 40, "l@x")))
+
+# Every constructor having a field makes it readable whichever built it.
+datatype Animal:
+    Dog(name: String, good: Bool = true)
+    Cat(name: String, lives: Int = 9)
+
+
+for a in [Dog("rex"), Cat("tom"), Cat("kit", lives = 3)]:
+    print(a.name, a)
+
+# A default is evaluated at each construction that leaves it out, in the
+# scope the datatype is declared in.
+var made = 0
+
+
+def next_id() -> Int:
+    made := made + 1
+    return made
+
+
+datatype Ticket:
+    Ticket(title: String, id: Int = next_id())
+
+
+first = Ticket("a")
+second = Ticket("b")
+given = Ticket("c", 100)
+third = Ticket("d")
+print(first, second, given, third)
+print(made)
+
+# A field of a field.
+datatype Line:
+    Line(start: Point, finish: Point)
+
+datatype Point:
+    Point(x: Int, y: Int)
+
+
+l = Line(Point(0, 0), finish = Point(3, 4))
+print(l.finish.x * l.finish.x + l.finish.y * l.finish.y, l.start)

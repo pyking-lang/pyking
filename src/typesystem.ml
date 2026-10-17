@@ -37,6 +37,9 @@
       same_type a b / accepts expected actual -- type comparison.
       unify one other store -- the store in which two types are one.
       declare_functions stmts env store -- binds every def of a block.
+      declare_datatypes stmts store -- the datatypes a module declares
+        and imports.
+      check_matches stmts store -- refuses a non-exhaustive `match`.
       builtin_env () -- the environment a program starts in.
       available module info store -- what a module exports, or a refusal.
       check_exports stmts store -- refuses an export whose type the
@@ -203,7 +206,13 @@ type expected = No_function | Inferring | Declared of typ
       result.
     qmap -- a call's symbol -> what that call denotes, once overloading
       and implicits are resolved: the pass's other result, and what
-      elaborate.ml rewrites the program by. *)
+      elaborate.ml rewrites the program by.
+    types -- each datatype name in scope, as the source spells it
+      (`Tree`, `m.Tree`), and the canonical name the checker's types use.
+    datatypes -- every datatype this module can see, by canonical name,
+      with its parameters and its constructors' field types.
+    constructors -- each constructor in scope, as the source spells it,
+      and the canonical name of the datatype it builds. *)
 type store = {
   environments : env IntMap.t;
   instances : typ IntMap.t;
@@ -217,6 +226,9 @@ type store = {
   modules : (string * sigmap) list;
   tmap : typ IntMap.t;
   qmap : resolution IntMap.t;
+  types : string SMap.t;
+  datatypes : datatype SMap.t;
+  constructors : string SMap.t;
 }
 
 (** The store a program starts checking in, holding the signature of
@@ -235,6 +247,9 @@ let empty_store sigmaps =
     modules = sigmaps;
     tmap = IntMap.empty;
     qmap = IntMap.empty;
+    types = SMap.empty;
+    datatypes = SMap.empty;
+    constructors = SMap.empty;
   }
 
 (* The names a generalised variable is given, in order: a, b, ... z,
@@ -340,6 +355,8 @@ let rec zonk type_ store =
           definition,
           map_implicits (fun t -> zonk t store) implicits )
   | TForall (info, vars, body, sym) -> TForall (info, vars, zonk body store, sym)
+  | TCon (info, name, args, sym) ->
+      TCon (info, name, List.map (fun a -> zonk a store) args, sym)
   | type_ -> type_
 
 (** Every metavariable name left unsolved in type_, in the order met and
@@ -356,6 +373,7 @@ let metas_in type_ store =
           (List.fold_left walk found (params @ implicit_types implicits))
           result
     | TForall (_, _, body, _) -> walk found body
+    | TCon (_, _, args, _) -> List.fold_left walk found args
     | _ -> found
   in
   walk [] type_
@@ -387,6 +405,8 @@ let free_vars_under type_ bound =
              found
              (params @ implicit_types implicits))
           bound result
+    | TCon (_, _, args, _) ->
+        List.fold_left (fun found a -> walk found bound a) found args
     | _ -> found
   in
   walk [] bound type_
@@ -416,6 +436,8 @@ let rec substitute type_ mapping =
           tmsym,
           definition,
           map_implicits (fun t -> substitute t mapping) implicits )
+  | TCon (info, name, args, sym) ->
+      TCon (info, name, List.map (fun a -> substitute a mapping) args, sym)
   | type_ -> type_
 
 (** type_ with the variables `vars` renamed to their positions, so that
@@ -445,6 +467,10 @@ let rec names_in type_ =
       List.fold_left
         (fun s p -> StringSet.union s (names_in p))
         (names_in result) params
+  | TCon (_, _, args, _) ->
+      List.fold_left
+        (fun s a -> StringSet.union s (names_in a))
+        StringSet.empty args
   | _ -> StringSet.empty
 
 (** The index'th type-variable name that is not already spoken for.
@@ -576,6 +602,10 @@ let rec same_type a b =
          they bind, so both are renamed by position first. *)
       List.length mine = List.length theirs
       && same_type (canonical my_body mine) (canonical their_body theirs)
+  | TCon (_, x, xs, _), TCon (_, y, ys, _) ->
+      (* A datatype is its name, which the checker has made canonical,
+         applied to its parameters. *)
+      x = y && List.length xs = List.length ys && List.for_all2 same_type xs ys
   | _ -> false
 
 (** Whether two lists of implicit parameters are the same, name by name
@@ -642,6 +672,9 @@ and instance_for general wanted quantified chosen =
       | TTuple (_, mine, _), TTuple (_, theirs, _)
         when List.length mine = List.length theirs ->
           each mine theirs chosen
+      | TCon (_, x, mine, _), TCon (_, y, theirs, _)
+        when x = y && List.length mine = List.length theirs ->
+          each mine theirs chosen
       | ( TFunction (_, mine, my_result, _, _, _, my_implicits),
           TFunction (_, theirs, their_result, _, _, _, their_implicits) )
         when List.length mine = List.length theirs
@@ -690,6 +723,9 @@ let rec unify one other store =
   | TList (_, mine, _), TList (_, theirs, _) -> unify mine theirs store
   | TTuple (_, mine, _), TTuple (_, theirs, _)
     when List.length mine = List.length theirs ->
+      unify_each mine theirs store
+  | TCon (_, x, mine, _), TCon (_, y, theirs, _)
+    when x = y && List.length mine = List.length theirs ->
       unify_each mine theirs store
   | ( TFunction (_, mine, my_result, _, _, _, my_implicits),
       TFunction (_, theirs, their_result, _, _, _, their_implicits) )
@@ -875,7 +911,7 @@ let record store sym type_ =
 (* --- ground types, and the tables that name them --- *)
 
 (** The ground types the operator and builtin tables name. *)
-type kind = KInt | KFloat | KString | KBool | KList | KTuple
+type kind = KInt | KFloat | KString | KBool | KList | KTuple | KData
 
 (** Whether a type is of this kind, deciding nothing.
     kind -> typ -> bool *)
@@ -886,7 +922,8 @@ let kind_matches kind type_ =
   | KString, TString _
   | KBool, TBool _
   | KList, TList _
-  | KTuple, TTuple _ ->
+  | KTuple, TTuple _
+  | KData, TCon _ ->
       true
   | _ -> false
 
@@ -901,6 +938,7 @@ let kind_type kind info =
   | KBool -> t_bool info
   | KList -> t_list info (t_unknown info)
   | KTuple -> t_tuple info []
+  | KData -> t_tuple info []
 
 (** Whether type_ is one of kinds. A flexible variable counts as any of
     them, since no value of it arrives. typ -> [kind] -> bool *)
@@ -1115,120 +1153,6 @@ let carry_error acc_type actual store =
   Printf.sprintf "this loop carries %s, but its body ends in %s" (printed mine)
     (printed theirs)
 
-(* --- patterns, and what they cover --- *)
-
-(** Whether a pattern matches every value of its type. A tuple's shape is
-    fixed by its type, so a tuple of irrefutable patterns is one too; a
-    list's length is not, so no list pattern is. pattern -> bool *)
-let rec irrefutable pattern =
-  match pattern with
-  | PWildcard _ | PCapture _ -> true
-  | PTuple (_, elements, _) -> List.for_all irrefutable elements
-  | _ -> false
-
-(** Whether these patterns between them match every value they could be
-    matched against. One irrefutable pattern is enough on its own. Three
-    more ways: both of a Bool's values; exact lengths 0 up to k-1 plus one
-    pattern with a rest marker that takes k or more -- the one every
-    recursion over a list is written with; and a column of tuples that
-    covers while every other column matches anything (`covers_column`).
-    The question is about the patterns alone -- a list pattern matched
-    against something that is not a list has already been refused by
-    `check_pattern`. [pattern] -> bool *)
-let rec covers patterns =
-  if List.exists irrefutable patterns then true
-  else
-    (* A Bool has two values, so naming both of them covers it. Int and
-       String cannot be enumerated, and are not tried. *)
-    let booleans =
-      List.filter_map
-        (function PBool (_, value, _) -> Some value | _ -> None)
-        patterns
-    in
-    if List.mem true booleans && List.mem false booleans then true
-    else
-      let lists =
-        List.filter (function PList _ -> true | _ -> false) patterns
-      in
-      let exact =
-        List.filter_map
-          (function
-            | PList (_, prefix, None, _, _) when List.for_all irrefutable prefix
-              ->
-                Some (List.length prefix)
-            | _ -> None)
-          lists
-      in
-      let open_ended =
-        List.exists
-          (function
-            | PList (_, prefix, Some _, suffix, _) ->
-                let fixed = prefix @ suffix in
-                List.for_all irrefutable fixed
-                && List.for_all
-                     (fun n -> List.mem n exact)
-                     (List.init (List.length fixed) (fun i -> i))
-            | _ -> false)
-          lists
-      in
-      if open_ended then true else covers_column patterns
-
-(** Whether a list of tuple patterns covers because *one* of its columns
-    does, every other column matching anything in every pattern.
-
-    A tuple's shape is fixed by its type, so `(a, true)` and `(a, false)`
-    between them take every `(Int, Bool)` for exactly the reason `true`
-    and `false` take every Bool -- and the first column, matching
-    anything either way, cannot rule any value out. Restricting it to one
-    refutable column is what keeps this sound without a full decision
-    procedure: two columns that only cover *together* are answered no,
-    which asks for an arm that is not needed rather than accepting a
-    `match` with a hole in it. [pattern] -> bool *)
-and covers_column patterns =
-  let elements pattern =
-    match pattern with PTuple (_, elements, _) -> Some elements | _ -> None
-  in
-  match List.map elements patterns with
-  | [] -> false
-  | columns when List.exists (fun c -> c = None) columns -> false
-  | columns ->
-      let rows = List.map Option.get columns in
-      let arity = List.length (List.hd rows) in
-      if List.exists (fun row -> List.length row <> arity) rows then false
-      else
-        List.exists
-          (fun column ->
-            List.for_all
-              (fun row ->
-                List.for_all
-                  (fun i -> i = column || irrefutable (List.nth row i))
-                  (List.init arity (fun i -> i)))
-              rows
-            && covers (List.map (fun row -> List.nth row column) rows))
-          (List.init arity (fun i -> i))
-
-(** The patterns a match's cases look at. [match_case] -> [pattern] *)
-let case_patterns cases =
-  List.map (fun (MatchCase (_, pattern, _, _)) -> pattern) cases
-
-(** Refuses a value-form `match` whose cases do not cover every value. A
-    `match` that matches nothing does nothing (PYKING.md), so one whose
-    value is being taken has to be unable to match nothing -- otherwise
-    the type reported for the binding names a value that need never
-    exist. stmt -> string -> () *)
-let require_total stmt what =
-  match stmt with
-  | SMatch (info, _, cases, _) when not (covers (case_patterns cases)) ->
-      raise
-        (Type_error
-           ( info,
-             Printf.sprintf
-               "this 'match' is %s, so it must match every value: add a 'case \
-                _' or a case that binds a name, since a 'match' that matches \
-                nothing yields nothing"
-               what ))
-  | _ -> ()
-
 (* --- where a block is left --- *)
 
 (** Whether one statement says what happens next on every path through
@@ -1242,10 +1166,11 @@ let rec ends_here statement =
       | Some else_body ->
           ends_every_path then_body && ends_every_path else_body)
   | SMatch (_, _, cases, _) ->
-      covers (case_patterns cases)
-      && List.for_all
-           (fun (MatchCase (_, _, body, _)) -> ends_every_path body)
-           cases
+      (* Every `match` matches every value: exhaustive.ml refuses one
+         that does not. *)
+      List.for_all
+        (fun (MatchCase (_, _, _, body, _)) -> ends_every_path body)
+        cases
   | _ -> false
 
 (** Whether every path through a loop body says what happens next --
@@ -1271,6 +1196,233 @@ let type_of env name =
   | Some binding -> Some binding.btype
   | None -> None
 
+
+(* --- datatypes --- *)
+
+(** The part of a canonical datatype name after its module, which is
+    what its own module calls it. string -> string *)
+let base_name canonical =
+  match String.rindex_opt canonical '.' with
+  | Some at -> String.sub canonical (at + 1) (String.length canonical - at - 1)
+  | None -> canonical
+
+(** A written type with every datatype name in it replaced by the
+    canonical one the checker's types use, refusing a name that is not a
+    datatype in scope and one applied to the wrong number of types.
+    Inside a datatype's own declaration `params` are the only type
+    variables there may be. [string]? -> store -> typ -> typ *)
+let rec resolved ?params store type_ =
+  let go = resolved ?params store in
+  match type_ with
+  | TCon (info, spelled, args, sym) -> (
+      match SMap.find_opt spelled store.types with
+      | None ->
+          raise
+            (Type_error
+               ( info,
+                 Printf.sprintf
+                   "unknown type '%s': a type starting with an uppercase \
+                    letter is a datatype, and none of that name is declared \
+                    or imported here"
+                   spelled ))
+      | Some canonical ->
+          let wanted =
+            match SMap.find_opt canonical store.datatypes with
+            | Some (Datatype (_, wanted, _)) -> List.length wanted
+            | None -> List.length args
+          in
+          if List.length args <> wanted then
+            raise
+              (Type_error
+                 ( info,
+                   Printf.sprintf
+                     "'%s' takes %d type parameter%s, but is given %d" spelled
+                     wanted
+                     (if wanted = 1 then "" else "s")
+                     (List.length args) ));
+          TCon (info, canonical, List.map go args, sym))
+  | TVar (info, name, _, true) -> (
+      match params with
+      | Some (owner, names) when not (List.mem name names) ->
+          raise
+            (Type_error
+               ( info,
+                 Printf.sprintf
+                   "'%s' is not a parameter of '%s': a field's type may name \
+                    only the datatype's own type parameters, written \
+                    'datatype %s(%s)'"
+                   name owner owner
+                   (String.concat ", " (names @ [ name ])) ))
+      | _ -> type_)
+  | TList (info, element, sym) -> TList (info, go element, sym)
+  | TTuple (info, elements, sym) -> TTuple (info, List.map go elements, sym)
+  | TFunction (info, ps, result, sym, tmsym, definition, implicits) ->
+      TFunction
+        (info, List.map go ps, go result, sym, tmsym, definition, map_implicits go implicits)
+  | TForall (info, vars, body, sym) ->
+      let params =
+        match params with
+        | Some (owner, names) -> Some (owner, names @ vars)
+        | None -> None
+      in
+      TForall (info, vars, resolved ?params store body, sym)
+  | _ -> type_
+
+(** A written annotation with its datatype names resolved, where there
+    is one. store -> typ? -> typ? *)
+let resolved_option store annotation = Option.map (resolved store) annotation
+
+(** store knowing the datatypes these statements declare and the ones
+    their imports bring in: every name spelled as the source may spell
+    it, every constructor, and each field's type. A datatype's own name
+    is in scope throughout the module, so datatypes may name each other
+    in any order. [stmt] -> store -> store *)
+let declare_datatypes stmts store =
+  let add_imported store (exported, local) (Datatype (canonical, _, constructors) as d) =
+    let store = { store with datatypes = SMap.add canonical d store.datatypes } in
+    let store =
+      if base_name canonical = exported then
+        { store with types = SMap.add local canonical store.types }
+      else store
+    in
+    if List.mem_assoc exported constructors then
+      { store with constructors = SMap.add local canonical store.constructors }
+    else store
+  in
+  let store =
+    List.fold_left
+      (fun store statement ->
+        match statement with
+        | SImport (_, module_, alias, selected, fields, _) -> (
+            match List.assoc_opt module_ store.modules with
+            | None -> store
+            | Some sigmap ->
+                let entries =
+                  List.filter_map
+                    (fun (n, t, _) ->
+                      match t with TData (_, d, _) -> Some (n, d) | _ -> None)
+                    sigmap
+                in
+                if selected then
+                  List.fold_left
+                    (fun store (exported, local) ->
+                      match List.assoc_opt exported entries with
+                      | Some d -> add_imported store (exported, local) d
+                      | None -> store)
+                    store fields
+                else
+                  List.fold_left
+                    (fun store (exported, d) ->
+                      add_imported store (exported, alias ^ "." ^ exported) d)
+                    store entries)
+        | _ -> store)
+      store stmts
+  in
+  let own =
+    List.filter_map
+      (function
+        | SDatatype (info, name, params, constructors, sym, _) ->
+            Some (info, name, params, constructors, sym)
+        | _ -> None)
+      stmts
+  in
+  (* The names first, so a field may name any datatype of the module. *)
+  let store =
+    List.fold_left
+      (fun store (info, name, params, _, _) ->
+        if SMap.mem name store.types then
+          raise
+            (Type_error
+               ( info,
+                 Printf.sprintf
+                   "the datatype '%s' is already declared; a datatype is \
+                    declared once"
+                   name ));
+        {
+          store with
+          types = SMap.add name name store.types;
+          datatypes = SMap.add name (Datatype (name, params, [])) store.datatypes;
+        })
+      store own
+  in
+  let store =
+    List.fold_left
+      (fun store (_, name, _, constructors, _) ->
+        List.fold_left
+          (fun store (Constructor (ci, cname, _, _)) ->
+            (match SMap.find_opt cname store.constructors with
+            | Some owner ->
+                raise
+                  (Type_error
+                     ( ci,
+                       Printf.sprintf
+                         "'%s' is already a constructor of '%s'; a \
+                          constructor belongs to one datatype"
+                         cname (base_name owner) ))
+            | None -> ());
+            { store with constructors = SMap.add cname name store.constructors })
+          store constructors)
+      store own
+  in
+  List.fold_left
+    (fun store (info, name, params, constructors, sym) ->
+      let store, typed =
+        List.fold_left
+          (fun (store, typed) (Constructor (_, cname, fields, csym)) ->
+            let store, fields =
+              List.fold_left
+                (fun (store, fields) (Field (_, label, type_, _, fsym)) ->
+                  let t = resolved ~params:(name, params) store type_ in
+                  (record store fsym t, fields @ [ (label, t) ]))
+                (store, []) fields
+            in
+            let store =
+              record store csym
+                (TCon (info, name, List.map (t_var info) params, 0))
+            in
+            (store, typed @ [ (cname, fields) ]))
+          (store, []) constructors
+      in
+      let d = Datatype (name, params, typed) in
+      let store = { store with datatypes = SMap.add name d store.datatypes } in
+      record store sym (TData (info, d, 0)))
+    store own
+
+(** What a constructor builds, from how the source spells it: the
+    canonical datatype, the constructor's field types and the type of
+    the value it makes, with a fresh metavariable for each of the
+    datatype's parameters. info -> String -> String -> store ->
+    (string, [(String?, typ)], typ, store) *)
+let constructor_use info spelled name store =
+  match SMap.find_opt spelled store.constructors with
+  | None ->
+      raise
+        (Analyses.Analysis_error
+           ( info,
+             Printf.sprintf
+               "unknown constructor '%s': a name starting with an uppercase \
+                letter is a constructor, and no datatype declared or imported \
+                here has one of that name"
+               spelled ))
+  | Some canonical ->
+      let (Datatype (_, params, constructors)) =
+        SMap.find canonical store.datatypes
+      in
+      let fields = List.assoc name constructors in
+      let metas, store = fresh_metas (List.length params) info store in
+      let mapping = List.combine params metas in
+      ( canonical,
+        List.map (fun (label, t) -> (label, substitute t mapping)) fields,
+        TCon (info, canonical, metas, 0),
+        store )
+
+(** How a field of a constructor is named in a message: by its name
+    where it has one, by its position otherwise.
+    String -> int -> String? -> String *)
+let field_named constructor position label =
+  match label with
+  | Some n -> Printf.sprintf "the field '%s' of '%s'" n constructor
+  | None -> Printf.sprintf "field %d of '%s'" (position + 1) constructor
 
 (** The environment a program starts in: every name in
     Builtin.names, at its TBuiltin type. Its own function so
@@ -1318,6 +1470,11 @@ let import_env stmts env store =
               let bound =
                 if selected then local else Printf.sprintf "%s.%s" name exported
               in
+              match type_ with
+              (* A datatype and its constructors are not values; the
+                 store's own tables hold them (`declare_datatypes`). *)
+              | TData _ -> env
+              | _ ->
               (* A public implicit is found by an unqualified call as
                  well, and automatically -- an ordering a module defines
                  is usable in the file that imports it without being
@@ -1429,6 +1586,64 @@ let check_exports stmts store =
       | _ -> ())
     stmts
 
+(** Refuses a public definition, binding or datatype whose type names
+    one of this module's datatypes that is not public: another module
+    could hold such a value but never name its type.
+    [stmt] -> store -> () *)
+let check_exported_datatypes stmts store =
+  let public_types =
+    List.filter_map
+      (function SDatatype (_, name, _, _, _, true) -> Some name | _ -> None)
+      stmts
+  in
+  let own =
+    List.filter_map
+      (function SDatatype (_, name, _, _, _, _) -> Some name | _ -> None)
+      stmts
+  in
+  let rec hidden t =
+    match t with
+    | TCon (_, n, args, _) ->
+        if List.mem n own && not (List.mem n public_types) then Some n
+        else List.find_map hidden args
+    | TList (_, e, _) -> hidden e
+    | TTuple (_, es, _) -> List.find_map hidden es
+    | TFunction (_, ps, r, _, _, _, ips) ->
+        List.find_map hidden (ps @ implicit_types ips @ [ r ])
+    | TForall (_, _, b, _) -> hidden b
+    | TData (_, Datatype (_, _, constructors), _) ->
+        List.find_map
+          (fun (_, fields) -> List.find_map (fun (_, t) -> hidden t) fields)
+          constructors
+    | _ -> None
+  in
+  List.iter
+    (fun statement ->
+      let exported =
+        match statement with
+        | SFunctionDef (info, name, _, _, _, sym, true, _, _)
+        | SLet (info, TargetName (_, name, _), _, _, sym, true, _)
+        | SLetStmt (info, TargetName (_, name, _), _, _, sym, true)
+        | SDatatype (info, name, _, _, sym, true) ->
+            Option.map (fun t -> (info, name, t)) (IntMap.find_opt sym store.tmap)
+        | _ -> None
+      in
+      match exported with
+      | Some (info, name, t) -> (
+          match hidden (zonk t store) with
+          | Some datatype ->
+              raise
+                (Type_error
+                   ( info,
+                     Printf.sprintf
+                       "'%s' is public, and its type names the datatype '%s', \
+                        which is not: make '%s' public too, so that a module \
+                        holding the value can name its type"
+                       name datatype datatype ))
+          | None -> ())
+      | None -> ())
+    stmts
+
 (** node's type, from the signature line that named it or from the
     annotations on its own header, quantified over the type variables it
     leaves free. Raises Type_error if neither says the whole type.
@@ -1462,11 +1677,14 @@ let function_type node store =
               (t_function
                  ~implicits:
                    (List.map
-                      (fun (Param (_, n, t, _, _)) -> IParam (n, Option.get t))
+                      (fun (Param (_, n, t, _, _)) ->
+                        IParam (n, resolved store (Option.get t)))
                       implicits)
                  info
-                 (List.map (fun (Param (_, _, t, _, _)) -> Option.get t) params)
-                 (Option.get return_type))
+                 (List.map
+                    (fun (Param (_, _, t, _, _)) -> resolved store (Option.get t))
+                    params)
+                 (resolved store (Option.get return_type)))
       | _ -> unsupported (stmt_info node))
 
 (** The type a def has: its annotated types, or TUnknown for the missing
@@ -1481,16 +1699,21 @@ let declared_type node store =
           ( info,
             List.map
               (fun (Param (pinfo, _, t, _, _)) ->
-                match t with Some t -> t | None -> t_unknown pinfo)
+                match t with Some t -> resolved store t | None -> t_unknown pinfo)
               params,
-            (match return_type with Some t -> t | None -> t_unknown info),
+            (match return_type with
+            | Some t -> resolved store t
+            | None -> t_unknown info),
             0,
             sym,
             Some node,
             List.map
               (fun (Param (pinfo, pname, t, _, _)) ->
                 IParam
-                  (pname, match t with Some t -> t | None -> t_unknown pinfo))
+                  ( pname,
+                    match t with
+                    | Some t -> resolved store t
+                    | None -> t_unknown pinfo ))
               implicits )
     | _ -> unsupported (stmt_info node)
 
@@ -1544,7 +1767,7 @@ let declare_signatures stmts defined store =
                            name
                            (if annotated <> [] then String.concat ", " annotated
                             else "its return type") ));
-                let type_ = generalize written in
+                let type_ = generalize (resolved store written) in
                 let _, written_type = instantiated type_ in
                 (match written_type with
                 | TFunction (_, _, _, _, _, _, (IParam (implicit, _) :: _)) ->
@@ -1769,7 +1992,8 @@ let monotypes_for group store =
             List.fold_left
               (fun (types, store) param ->
                 match param with
-                | Param (_, _, Some written, _, _) -> (types @ [ written ], store)
+                | Param (_, _, Some written, _, _) ->
+                    (types @ [ resolved store written ], store)
                 | Param (at, _, None, _, _) ->
                     let metas, store = fresh_metas 1 at store in
                     (types @ metas, store))
@@ -1777,7 +2001,7 @@ let monotypes_for group store =
           in
           let result, store =
             match return_type with
-            | Some written -> (written, store)
+            | Some written -> (resolved store written, store)
             | None ->
                 let metas, store = fresh_metas 1 info store in
                 (match metas with [ meta ] -> (meta, store) | _ -> (t_unknown info, store))
@@ -1951,7 +2175,7 @@ let check_annotation annotation actual store =
   match annotation with
   | None -> store
   | Some annotation -> (
-      let annotation = generalize annotation in
+      let annotation = generalize (resolved store annotation) in
       match unify annotation (zonk actual store) store with
       | Some answer -> answer
       | None ->
@@ -2107,7 +2331,6 @@ and check_stmt statement env return_type acc_type store =
          branches having agreed on one is what the `SIf` case below has
          already established. `x = loop ...` binds the accumulator the
          loop stopped with, for the same reason. *)
-      require_total inner "bound to a name";
       let bound_type, _, store =
         check_stmt inner env return_type acc_type store
       in
@@ -2232,7 +2455,6 @@ and check_stmt statement env return_type acc_type store =
          that runs yields. *)
       if return_type = No_function then
         raise (Type_error (info, "'return' outside a function"));
-      require_total inner "returned";
       let actual, _, store = check_stmt inner env return_type acc_type store in
       (actual, env, check_return actual return_type info store)
   | SLoop (info, target, init, annotation, iterate, body, sym) ->
@@ -2269,7 +2491,6 @@ and check_stmt statement env return_type acc_type store =
         match (target, supplied) with
         | Some _, Some supplied_type_ ->
             let last = List.nth body (List.length body - 1) in
-            require_total last "what the next turn carries";
             let both, store = agree (Some accumulator) supplied store in
             if both = None then
               raise
@@ -2308,9 +2529,19 @@ and check_stmt statement env return_type acc_type store =
       let subject_type, store = check_expr subject env store in
       let yielded, seen, store =
         List.fold_left
-          (fun (yielded, seen, store) (MatchCase (case_info, pattern, body, _))
-             ->
+          (fun (yielded, seen, store)
+               (MatchCase (case_info, pattern, guard, body, _)) ->
             let inner, store = check_pattern pattern subject_type env store in
+            (* A guard is asked once the pattern has matched, so it sees
+               what the pattern binds. *)
+            let store =
+              match guard with
+              | None -> store
+              | Some g ->
+                  let g_type, store = check_expr g inner store in
+                  demand g_type (t_bool (expr_info g)) (expr_info g)
+                    "the guard of a 'case'" store
+            in
             let arm_type, store =
               check_stmts body inner return_type acc_type store
             in
@@ -2342,13 +2573,14 @@ and check_stmt statement env return_type acc_type store =
         (None, env, store)
       else
         let store = record store sym (Option.get yielded) in
-        (* A `match` may match nothing at all (PYKING.md), so as a
-           statement it supplies no value of its own -- only the value
-           form, which `covers` has held to being total, does. *)
-        ( (if covers (case_patterns cases) then yielded
-           else Some (unit_type info)),
-          env,
-          store )
+        (* Every `match` matches every value -- exhaustive.ml refuses one
+           that does not -- so it supplies what its arms do. *)
+        (yielded, env, store)
+  | SDatatype (info, _, _, _, _, _) ->
+      (* What a datatype declares was settled before the first statement
+         was checked (`declare_datatypes`), since every datatype of the
+         module is in scope throughout it. *)
+      (Some (unit_type info), env, store)
   | SFunctionSig (info, _, _, _, _) ->
       (* The signature was paired with its definition before this block
          was checked (`declare_signatures`); on its own it says nothing
@@ -2587,6 +2819,111 @@ and expr_type e env store =
       let element_type, store = check_expr element inner store in
       (t_list info element_type, store)
   | ELambda (info, params, body, _) -> check_lambda info params body env store
+  | EConstruct (info, module_, name, args, _) ->
+      (* A constructor is applied to every one of its fields -- the sugar
+         has filled in the defaults and put the named ones in place --
+         and builds a value of its datatype at whatever the fields say
+         the parameters are. *)
+      let spelled = match module_ with Some m -> m ^ "." ^ name | None -> name in
+      let _, fields, result, store = constructor_use info spelled name store in
+      let given = arg_exprs args in
+      if List.length given <> List.length fields then
+        raise
+          (Type_error
+             ( info,
+               Printf.sprintf
+                 "'%s' has %d field%s, but %d %s given%s" spelled
+                 (List.length fields)
+                 (if List.length fields = 1 then "" else "s")
+                 (List.length given)
+                 (if List.length given = 1 then "was" else "were")
+                 (if given = [] then
+                    "; a constructor is not a value, so one with fields is \
+                     always applied to them"
+                  else "") ));
+      let store, _ =
+        List.fold_left2
+          (fun (store, position) argument (label, wanted) ->
+            let actual, store = check_expr argument env store in
+            let store =
+              demand actual wanted (expr_info argument)
+                (field_named spelled position label)
+                store
+            in
+            (store, position + 1))
+          (store, 0) given fields
+      in
+      (zonk result store, store)
+  | EField (info, record, field, _) -> (
+      (* A field is read the same way whichever constructor built the
+         value, so every constructor of the datatype has to have it, at
+         one type. *)
+      let record_type, store = check_expr record env store in
+      match prune record_type store with
+      | TCon (_, canonical, args, _) -> (
+          let (Datatype (_, params, constructors)) =
+            SMap.find canonical store.datatypes
+          in
+          let mapping = List.combine params args in
+          let found =
+            List.map
+              (fun (cname, fields) ->
+                ( cname,
+                  Option.map
+                    (fun (_, t) -> substitute t mapping)
+                    (List.find_opt (fun (label, _) -> label = Some field) fields) ))
+              constructors
+          in
+          match List.find_opt (fun (_, t) -> t = None) found with
+          | Some (cname, _) ->
+              raise
+                (Type_error
+                   ( info,
+                     Printf.sprintf
+                       "'%s' has no field '%s' in every constructor: '%s' has \
+                        none, so a value built by it has nothing to read"
+                       (base_name canonical) field cname ))
+          | None -> (
+              match List.map (fun (_, t) -> Option.get t) found with
+              | [] ->
+                  raise
+                    (Type_error
+                       ( info,
+                         Printf.sprintf "'%s' has no constructors" canonical ))
+              | first :: rest ->
+                  let store =
+                    List.fold_left
+                      (fun store other ->
+                        match unify first other store with
+                        | Some store -> store
+                        | None ->
+                            raise
+                              (Type_error
+                                 ( info,
+                                   Printf.sprintf
+                                     "the field '%s' of '%s' has a different \
+                                      type in different constructors (%s and \
+                                      %s), so reading it has no one type"
+                                     field (base_name canonical)
+                                     (shown first store) (shown other store) )))
+                      store rest
+                  in
+                  (zonk first store, store)))
+      | settled when is_meta settled ->
+          raise
+            (Type_error
+               ( info,
+                 Printf.sprintf
+                   "nothing here says what datatype this value is, so there \
+                    is no telling which field '%s' is meant; annotate it"
+                   field ))
+      | settled ->
+          raise
+            (Type_error
+               ( info,
+                 Printf.sprintf
+                   "'.%s' reads a field of a datatype, but this value is %s"
+                   field (shown settled store) )))
   | ECall _ -> check_call e env store
   | EAdd _ | EConcat _ | ESub _ | EMul _ | EDiv _ | ELessThan _
   | ELessThanEq _ | EGreatThan _ | EGreatThanEq _ | EEq _ ->
@@ -2606,7 +2943,9 @@ and expr_type e env store =
     info -> [param] -> expr -> env -> store -> (typ, store) *)
 and check_lambda info params body env store =
   let written =
-    List.filter_map (fun (Param (_, _, type_, _, _)) -> type_) params
+    List.filter_map
+      (fun (Param (_, _, type_, _, _)) -> resolved_option store type_)
+      params
   in
   let mapping, store =
     List.fold_left
@@ -2621,7 +2960,7 @@ and check_lambda info params body env store =
   let param_types, store =
     List.fold_left
       (fun (types, store) (Param (param_info, _, type_, _, _)) ->
-        match type_ with
+        match resolved_option store type_ with
         | Some written -> (types @ [ substitute written mapping ], store)
         | None ->
             let meta, store = fresh_meta param_info store in
@@ -2955,10 +3294,11 @@ and check_builtin_call name call env store =
   | ("print" | "debug"), _ -> (unit_type info, store)
   | "string", [ value ] ->
       check_builtin_arity name info given;
-      if not (every value [ KInt; KFloat; KString; KBool; KList; KTuple ]) then
+      if not (every value [ KInt; KFloat; KString; KBool; KList; KTuple; KData ])
+      then
         raise
           (builtin_argument_error name (List.hd args) value
-             "Int, Float, String, Bool, a list or a tuple");
+             "Int, Float, String, Bool, a list, a tuple or a datatype");
       (t_string info, store)
   | ("int" | "float" | "bool"), [ value ] ->
       check_builtin_arity name info given;
@@ -3569,6 +3909,72 @@ and check_pattern pattern type_ env store =
         match name with None -> env | Some name -> bind env name (t_string info)
       in
       (env, store)
+  | PConstructor (info, module_, name, fields, _, sym) ->
+      let spelled = match module_ with Some m -> m ^ "." ^ name | None -> name in
+      let _, wanted, result, store = constructor_use info spelled name store in
+      let store =
+        match unify result type_ store with
+        | Some answer -> answer
+        | None ->
+            raise
+              (Type_error
+                 ( info,
+                   Printf.sprintf
+                     "this pattern matches %s, but it is matched against %s"
+                     (shown result store) (shown type_ store) ))
+      in
+      if List.length fields <> List.length wanted then
+        raise
+          (Type_error
+             ( info,
+               Printf.sprintf "'%s' has %d field%s, and this pattern matches %d"
+                 spelled (List.length wanted)
+                 (if List.length wanted = 1 then "" else "s")
+                 (List.length fields) ));
+      let store = record store sym (zonk type_ store) in
+      List.fold_left2
+        (fun (env, store) one (_, field_type) ->
+          check_pattern one (zonk field_type store) env store)
+        (env, store) fields wanted
+  | POr (info, alternatives, sym) -> (
+      (* Every alternative matches the same value and binds the same
+         names, at the same types: whichever of them matched, the arm
+         after it sees one set of bindings. *)
+      match alternatives with
+      | [] -> unsupported info
+      | first :: rest ->
+          let first_env, store = check_pattern first type_ env store in
+          let names = List.map fst (Analyses.pattern_bindings first) in
+          let store =
+            List.fold_left
+              (fun store alternative ->
+                let alternative_env, store =
+                  check_pattern alternative type_ env store
+                in
+                List.fold_left
+                  (fun store name ->
+                    match (type_of first_env name, type_of alternative_env name) with
+                    | Some mine, Some theirs -> (
+                        match unify mine theirs store with
+                        | Some store -> store
+                        | None ->
+                            raise
+                              (Type_error
+                                 ( pattern_info alternative,
+                                   Printf.sprintf
+                                     "'%s' is %s in one alternative of this \
+                                      '|' and %s in another; every \
+                                      alternative binds a name at one type"
+                                     name (shown mine store) (shown theirs store)
+                                 )))
+                    | _ -> store)
+                  store names)
+              store rest
+          in
+          (first_env, record store sym (zonk type_ store)))
+  | PAs (_, inner, name, sym) ->
+      let env, store = check_pattern inner type_ env store in
+      (bind env name type_, record store sym (zonk type_ store))
   | PList (info, prefix, rest, suffix, sym) ->
       let element, store = fresh_meta info store in
       let store = pattern_shape (t_list info element) type_ info store in
@@ -3588,6 +3994,19 @@ and check_pattern pattern type_ env store =
       (env, store)
 
 (* --- the program --- *)
+
+(** Refuses a `match` in these statements that does not match every
+    value, or that has a case no value can reach, in the words
+    exhaustive.ml puts it. Run once the types are worked out, since what
+    a pattern could match is a question about its type.
+    [stmt] -> store -> () *)
+let check_matches stmts store =
+  let tmap = IntMap.map (fun type_ -> zonk type_ store) store.tmap in
+  try
+    Exhaustive.check
+      (fun canonical -> SMap.find_opt canonical store.datatypes)
+      tmap stmts
+  with Exhaustive.Refused (info, message) -> raise (Type_error (info, message))
 
 (** One resolution with every type in it read back through what has
     since been solved. resolution -> store -> resolution *)
@@ -3625,7 +4044,7 @@ and resolved_argument one store =
     them, what every call it resolved denotes.
     [stmt] -> [(string, sigmap)] -> (typ IntMap.t, resolution IntMap.t) *)
 let type_check ?(declared = []) stmts sigmaps =
-  let store = empty_store sigmaps in
+  let store = declare_datatypes stmts (empty_store sigmaps) in
   (* A module's own declaration half is in scope here, unqualified and
      with no import: `foo.pyk` and `foo_external.pyk` are one module, so
      a name the target's source provides is a name of this module (see
@@ -3639,6 +4058,8 @@ let type_check ?(declared = []) stmts sigmaps =
     check_stmts stmts (import_env stmts start store) No_function None store
   in
   check_exports stmts store;
+  check_exported_datatypes stmts store;
+  check_matches stmts store;
   (* Every type is read back once the whole module has been checked,
      because a metavariable open where it was recorded may have been
      solved by something written further down -- a definition worked out

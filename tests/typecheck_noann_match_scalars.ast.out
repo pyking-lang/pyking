@@ -19,4 +19,6 @@ print(initial('alpha'), initial('beta'), initial('gamma'))
 match 9:
     case 1:
         print('never')
+    case _:
+        ()
 print('done')

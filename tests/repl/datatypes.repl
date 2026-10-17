@@ -1,0 +1,23 @@
+datatype Shape:
+    Circle(radius: Float)
+    Square(Float)
+
+s = Circle(2.0)
+s
+s.radius
+def area(x: Shape) -> Float:
+    match x:
+        case Circle(r): 3.0 * r * r
+
+def area(x: Shape) -> Float:
+    match x:
+        case Circle(r) | Square(r) if r > 100.0: 0.0
+        case Circle(r): 3.0 * r * r
+        case Square(a): a * a
+
+area(Square(3.0))
+match s:
+    case Circle(radius = r) as whole: print(whole, r)
+    case _: ()
+
+:ls

@@ -1,0 +1,3 @@
+'tests/fail_typecheck_adt_duplicate_constructor.pyk' 9:4-9:7 Type
+  error: 'Cat' is already a constructor of 'Animal'; a constructor
+  belongs to one datatype

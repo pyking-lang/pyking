@@ -156,7 +156,7 @@ let rec tail_calls_in_stmt statement names found tail =
       | Some else_body -> tail_calls_in else_body names found tail)
   | SMatch (_, _, cases, _) ->
       List.fold_left
-        (fun found (MatchCase (_, _, body, _)) ->
+        (fun found (MatchCase (_, _, _, body, _)) ->
           tail_calls_in body names found tail)
         found cases
   (* A `break` written in one of these would belong to it, and a `def`'s
@@ -298,7 +298,7 @@ let rec goes_round statement context tail =
          | Some else_body -> goes_round_in else_body context tail)
   | SMatch (_, _, cases, _) ->
       List.exists
-        (fun (MatchCase (_, _, body, _)) -> goes_round_in body context tail)
+        (fun (MatchCase (_, _, _, body, _)) -> goes_round_in body context tail)
         cases
   | _ -> false
 
@@ -418,27 +418,12 @@ and rewrite_tail statement context =
       in
       [ s_if info cond then_rewritten otherwise ]
   | SMatch (info, subject, cases, _) ->
-      (* A subject matching no arm falls out of the function as unit,
-         which the `return` after the match is. A match that covers every
-         value cannot do that, and needs none. *)
+      (* Every `match` matches every value (exhaustive.ml), so one in
+         tail position is left only through one of its arms. *)
       let rewritten_cases =
         List.map (fun c -> rewrite_case c context) cases
       in
-      let rewritten = SMatch (info, subject, rewritten_cases, 0) in
-      if
-        (not context.falls_through)
-        || Typesystem.covers
-             (List.map (fun (MatchCase (_, p, _, _)) -> p) cases)
-      then [ rewritten ]
-      else if
-        (* An arm that went round would reach that `return` instead of
-           taking another turn, so a match that needs one is declined. *)
-        not
-          (List.for_all
-             (fun (MatchCase (_, _, body, _)) -> always_returns body)
-             rewritten_cases)
-      then raise Decline
-      else [ rewritten; s_return info (unit_value info) ]
+      [ SMatch (info, subject, rewritten_cases, 0) ]
   | SLoop (info, _, _, _, _, _, _) ->
       (* A loop of the program's own in tail position is what the
          function is worth, so it is bound and then returned. *)
@@ -454,8 +439,8 @@ and rewrite_tail statement context =
 
 (** One arm of a `match` in tail position: its block, rewritten like any
     other. match_case -> context -> match_case *)
-and rewrite_case (MatchCase (info, pattern, body, sym)) context =
-  MatchCase (info, pattern, rewrite_block body context, sym)
+and rewrite_case (MatchCase (info, pattern, guard, body, sym)) context =
+  MatchCase (info, pattern, guard, rewrite_block body context, sym)
 
 (** A statement that is not the block's last: only the `return`s inside
     it change, since each one leaves the function and so is a tail
@@ -481,9 +466,9 @@ and rewrite_inner statement context =
           ( info,
             subject,
             List.map
-              (fun (MatchCase (case_info, pattern, body, case_sym)) ->
+              (fun (MatchCase (case_info, pattern, guard, body, case_sym)) ->
                 MatchCase
-                  (case_info, pattern, rewrite_inners body context, case_sym))
+                  (case_info, pattern, guard, rewrite_inners body context, case_sym))
               cases,
             sym );
       ]
@@ -1159,9 +1144,9 @@ and walk statement work =
   | SMatch (info, subject, cases, sym) ->
       let cases, work =
         List.fold_left
-          (fun (out, work) (MatchCase (case_info, pattern, body, case_sym)) ->
+          (fun (out, work) (MatchCase (case_info, pattern, guard, body, case_sym)) ->
             let body, work = block body work in
-            (out @ [ MatchCase (case_info, pattern, body, case_sym) ], work))
+            (out @ [ MatchCase (case_info, pattern, guard, body, case_sym) ], work))
           ([], work) cases
       in
       (SMatch (info, subject, cases, sym), work)

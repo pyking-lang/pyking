@@ -1,0 +1,9 @@
+ada 36 none false
+Person('grace', 85, 'none', true)
+ada has no email admin tim is young lin
+rex Dog('rex', true)
+tom Cat('tom', 9)
+kit Cat('kit', 3)
+Ticket('a', 1) Ticket('b', 2) Ticket('c', 100) Ticket('d', 3)
+3
+25 Point(0, 0)

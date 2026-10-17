@@ -6,6 +6,10 @@
     so no later stage knows the sugar exists.
     See docs/desugar_args.md.
 
+    A constructor is a definition like any other here: its fields are
+    its parameters, and a constructor pattern is filled in by the same
+    names, with `_` for every field it does not mention.
+
     Data structures:
       parameter -- one parameter of a definition the pass has seen.
       meta -- what a call needs to know about the definition it reaches.
@@ -39,6 +43,8 @@ type meta = { parameters : parameter list; exported : bool }
     a module extended an entry at a time still has in scope. *)
 type module_info = {
   functions : meta SMap.t;
+  constructors : meta SMap.t;
+  datatypes : string list SMap.t;
   others : SSet.t;
   foreign : bool;
   imports : stmt list;
@@ -54,7 +60,14 @@ let no_signatures = SMap.empty
     signatures -> String -> signatures *)
 let external_module signatures name =
   SMap.add name
-    { functions = SMap.empty; others = SSet.empty; foreign = true; imports = [] }
+    {
+      functions = SMap.empty;
+      constructors = SMap.empty;
+      datatypes = SMap.empty;
+      others = SSet.empty;
+      foreign = true;
+      imports = [];
+    }
     signatures
 
 (** What a name means where a call uses it. *)
@@ -62,6 +75,7 @@ type denotation =
   | Definition of meta (* a `def` in scope *)
   | Binding (* anything else a name may be bound to *)
   | Imported of string (* the name an imported module is known by *)
+  | Constructs of meta (* a datatype's constructor in scope *)
 
 (* --- the generated names --- *)
 
@@ -113,6 +127,53 @@ let meta_of func params implicits exported =
     exported;
   }
 
+(** The name a constructor's unnamed field is known by here: one no
+    program can write, so no argument can name it. int -> String *)
+let unnamed_field position = "#" ^ string_of_int (position + 1)
+
+(** What a constructor's fields are, and where its defaults will live.
+    bool -> constructor -> meta *)
+let constructor_meta exported (Constructor (_, name, fields, _)) =
+  {
+    parameters =
+      List.mapi
+        (fun at (Field (_, label, _, default, _)) ->
+          let field = match label with Some n -> n | None -> unnamed_field at in
+          {
+            name = field;
+            default =
+              (match default with
+              | None -> None
+              | Some _ -> Some (default_name name field));
+            implicit = false;
+          })
+        fields;
+    exported;
+  }
+
+(** Every constructor declared directly in this block, with what a call
+    to it needs to know. [stmt] -> (String * meta) list *)
+let block_constructors stmts =
+  List.concat_map
+    (function
+      | SDatatype (_, _, _, constructors, _, public) ->
+          List.map
+            (fun (Constructor (_, name, _, _) as c) ->
+              (name, constructor_meta public c))
+            constructors
+      | _ -> [])
+    stmts
+
+(** Every datatype declared directly in this block, with the names of
+    its constructors. [stmt] -> (String * [String]) list *)
+let block_datatypes stmts =
+  List.filter_map
+    (function
+      | SDatatype (_, name, _, constructors, _, _) ->
+          Some (name, List.map (fun (Constructor (_, n, _, _)) -> n) constructors)
+      | _ -> None)
+    stmts
+
 (** Every def written directly in this block, with what a call to it
     needs to know. [stmt] -> (String * meta) list *)
 let block_definitions stmts =
@@ -150,6 +211,30 @@ let callee_meta signatures scope callee =
               | _ -> None))
       | _ -> None)
   | _ -> None
+
+(** The constructor `[module.]name` reaches, where this pass knows it,
+    and how its generated defaults are reached from here.
+    signatures -> [denotation] -> String? -> String ->
+    (meta * (String -> expr))? *)
+let constructor_reached signatures scope info module_ name =
+  match module_ with
+  | None -> (
+      match SMap.find_opt name scope with
+      | Some (Constructs meta) ->
+          Some (meta, fun generated -> EVar (info, generated, 0))
+      | _ -> None)
+  | Some alias -> (
+      match SMap.find_opt alias scope with
+      | Some (Imported module_) -> (
+          match SMap.find_opt module_ signatures with
+          | Some known when not known.foreign -> (
+              match SMap.find_opt name known.constructors with
+              | Some meta when meta.exported ->
+                  Some
+                    (meta, fun generated -> EQualified (info, alias, generated, 0))
+              | _ -> None)
+          | _ -> None)
+      | _ -> None)
 
 (** The `::` definitions an unqualified callee could mean, each with the
     expression its generated defaults are named by here. Which of them a
@@ -268,7 +353,8 @@ let position parameters name =
     call says nothing the sugar has to act on, so it is left as written.
     info -> String -> meta -> (String -> expr) -> [(String?, expr)] ->
     [expr]? *)
-let ordered info shown meta reach args =
+let ordered ?(field = false) info shown meta reach args =
+  let word = if field then "field" else "parameter" in
   let parameters = meta.parameters in
   let positional = List.filter (fun (name, _) -> name = None) args in
   let named =
@@ -308,7 +394,7 @@ let ordered info shown meta reach args =
           match position parameters name with
           | None ->
               refuse (expr_info e)
-                (Printf.sprintf "'%s' has no parameter '%s'" shown name)
+                (Printf.sprintf "'%s' has no %s '%s'" shown word name)
           | Some at ->
               if at < given then
                 refuse (expr_info e)
@@ -350,9 +436,14 @@ let ordered info shown meta reach args =
         let missing =
           List.filteri (fun at _ -> List.nth filled at = None) parameters
         in
+        let missing = (List.hd missing).name in
+        let missing =
+          if String.length missing > 0 && missing.[0] = '#' then
+            "its field " ^ String.sub missing 1 (String.length missing - 1)
+          else "'" ^ missing ^ "'"
+        in
         refuse info
-          (Printf.sprintf "'%s' needs an argument for '%s'" shown
-             (List.hd missing).name)
+          (Printf.sprintf "'%s' needs an argument for %s" shown missing)
     else Some (List.map Option.get filled)
 
 (** The names an import brings into the module that wrote it, and what
@@ -370,8 +461,13 @@ let import_scope signatures statement scope =
       | Some info_ ->
           List.fold_left
             (fun scope (name, local) ->
-              match SMap.find_opt name info_.functions with
-              | Some meta when meta.exported && not info_.foreign ->
+              match
+                ( SMap.find_opt name info_.functions,
+                  SMap.find_opt name info_.constructors )
+              with
+              | _, Some meta when meta.exported && not info_.foreign ->
+                  SMap.add local (Constructs meta) scope
+              | Some meta, _ when meta.exported && not info_.foreign ->
                   SMap.add local (Definition meta) scope
               | _ -> SMap.add local Binding scope)
             scope fields)
@@ -391,7 +487,59 @@ let shown callee =
 let rec expression signatures scope e =
   let go = expression signatures scope in
   match e with
-  | EInt _ | EFloat _ | EString _ | EBool _ | EVar _ | EQualified _ -> e
+  | EInt _ | EFloat _ | EString _ | EBool _ | EVar _ -> e
+  | EQualified (i, alias, field, s) -> (
+      (* `x.field` is read as `module.name` by the parser, which cannot
+         know which names are modules; a name bound here is a value, and
+         this is its field. *)
+      match SMap.find_opt alias scope with
+      | Some (Binding | Definition _) ->
+          let alias_info =
+            { i with row2 = i.row1; col2 = i.col1 + String.length alias }
+          in
+          EField (i, EVar (alias_info, alias, 0), field, s)
+      | _ -> e)
+  | EField (i, record, field, s) -> EField (i, go record, field, s)
+  | EConstruct (i, module_, name, args, s)
+    when value_named signatures scope i module_ name ->
+      (* An uppercase name the parser read as a constructor, which is a
+         value here: a binding or a `def` of that name, or a public name
+         of the module it is reached through. *)
+      let value =
+        match module_ with
+        | None -> EVar (i, name, 0)
+        | Some alias -> EQualified (i, alias, name, 0)
+      in
+      if args = [] && written_bare i module_ name then go value
+      else go (ECall (i, value, args, s))
+  | EConstruct (i, module_, name, args, s) -> (
+      let args = List.map (fun (n, a) -> (n, go a)) args in
+      let shown =
+        match module_ with Some m -> m ^ "." ^ name | None -> name
+      in
+      (* Every argument ends up in its field's position, carrying the
+         field's name where it has one -- so a stage after this one that
+         keeps a value's fields by name finds the names here. *)
+      let labelled meta values =
+        if List.length values <> List.length meta.parameters then
+          plain_args values
+        else
+          List.map2
+            (fun parameter value ->
+              if String.length parameter.name > 0 && parameter.name.[0] = '#'
+              then (None, value)
+              else (Some parameter.name, value))
+            meta.parameters values
+      in
+      match constructor_reached signatures scope i module_ name with
+      | None -> EConstruct (i, module_, name, args, s)
+      | Some (meta, reach) -> (
+          match ordered ~field:true i shown meta reach args with
+          | None ->
+              if List.exists (fun (n, _) -> n <> None) args then
+                EConstruct (i, module_, name, args, s)
+              else EConstruct (i, module_, name, labelled meta (arg_exprs args), s)
+          | Some filled -> EConstruct (i, module_, name, labelled meta filled, s)))
   | EAdd (i, l, r, s) -> EAdd (i, go l, go r, s)
   | ESub (i, l, r, s) -> ESub (i, go l, go r, s)
   | EMul (i, l, r, s) -> EMul (i, go l, go r, s)
@@ -437,7 +585,11 @@ let rec expression signatures scope e =
             (fun clause ->
               match clause with
               | CompFor (ci, pattern, sequence, cs) ->
-                  CompFor (ci, pattern, expression signatures scope sequence, cs)
+                  CompFor
+                    ( ci,
+                      pattern_of signatures scope pattern,
+                      expression signatures scope sequence,
+                      cs )
               | CompIf (ci, condition, cs) ->
                   CompIf (ci, expression signatures scope condition, cs))
             clauses,
@@ -470,6 +622,87 @@ let rec expression signatures scope e =
           match ordered i (shown callee) meta reach args with
           | None -> ECall (i, callee, plain_args (arg_exprs args), s)
           | Some filled -> ECall (i, callee, plain_args filled, s)))
+
+(** Whether `[module.]name`, written with an uppercase letter, names a
+    value rather than a constructor: a binding or a definition in scope,
+    or another module's name when that module has no constructor of it.
+    [denotation] -> String? -> String -> bool *)
+and value_named signatures scope info module_ name =
+  match module_ with
+  | None -> (
+      match SMap.find_opt name scope with
+      | Some (Binding | Definition _) -> true
+      | _ -> false)
+  | Some alias -> (
+      match SMap.find_opt alias scope with
+      | Some (Imported _) ->
+          constructor_reached signatures scope info module_ name = None
+      | _ -> false)
+
+(** Whether `[module.]name` was written with no parentheses after it,
+    which is what tells a value from a call of one when the parser read
+    it as a constructor. info -> String? -> String -> bool *)
+and written_bare info module_ name =
+  let width =
+    String.length name
+    + match module_ with Some alias -> String.length alias + 1 | None -> 0
+  in
+  info.row1 = info.row2 && info.col2 - info.col1 = width
+
+(** A pattern with every constructor pattern's fields in position: the
+    positional ones first, then each named one where its field is, and
+    `_` for a field not mentioned.
+    signatures -> [denotation] -> pattern -> pattern *)
+and pattern_of signatures scope p =
+  let go = pattern_of signatures scope in
+  match p with
+  | PInt _ | PString _ | PBool _ | PWildcard _ | PCapture _ | PText _ -> p
+  | PTuple (i, elements, s) -> PTuple (i, List.map go elements, s)
+  | PList (i, prefix, rest, suffix, s) ->
+      PList (i, List.map go prefix, rest, List.map go suffix, s)
+  | POr (i, alternatives, s) -> POr (i, List.map go alternatives, s)
+  | PAs (i, inner, name, s) -> PAs (i, go inner, name, s)
+  | PConstructor (i, module_, name, positional, named, s) -> (
+      let positional = List.map go positional in
+      let named = List.map (fun (n, q) -> (n, go q)) named in
+      let shown =
+        match module_ with Some m -> m ^ "." ^ name | None -> name
+      in
+      match constructor_reached signatures scope i module_ name with
+      | None -> PConstructor (i, module_, name, positional, named, s)
+      | Some (meta, _) ->
+          let fields = meta.parameters in
+          let arity = List.length fields in
+          if List.length positional > arity then
+            refuse i
+              (Printf.sprintf "'%s' has %d field%s, and this pattern matches %d"
+                 shown arity
+                 (if arity = 1 then "" else "s")
+                 (List.length positional));
+          List.iter
+            (fun (n, q) ->
+              match position fields n with
+              | None ->
+                  refuse (pattern_info q)
+                    (Printf.sprintf "'%s' has no field '%s'" shown n)
+              | Some at when at < List.length positional ->
+                  refuse (pattern_info q)
+                    (Printf.sprintf
+                       "the field '%s' is already matched by position %d" n
+                       (at + 1))
+              | Some _ -> ())
+            named;
+          let filled =
+            List.mapi
+              (fun at field ->
+                if at < List.length positional then List.nth positional at
+                else
+                  match List.assoc_opt field.name named with
+                  | Some q -> q
+                  | None -> PWildcard (i, 0))
+              fields
+          in
+          PConstructor (i, module_, name, filled, [], s))
 
 (** The first parameter a call of `given` arguments leaves to its
     default. meta -> int -> String *)
@@ -538,6 +771,12 @@ and block signatures scope stmts =
       scope
       (block_definitions stmts)
   in
+  let scope =
+    List.fold_left
+      (fun scope (name, meta) -> SMap.add name (Constructs meta) scope)
+      scope
+      (block_constructors stmts)
+  in
   let taken = List.concat_map bound_here stmts in
   let _, out =
     List.fold_left
@@ -579,6 +818,52 @@ and rewrite signatures scope taken statement =
       ([], SReturnStmt (i, inner, s), scope)
   | SExprStmt (i, e, s) -> ([], SExprStmt (i, go e, s), scope)
   | SBreak _ | SContinue _ | SFunctionSig _ -> ([], statement, scope)
+  | SDatatype (i, name, params, constructors, s, public) ->
+      (* A field's default is a generated def, exactly as a parameter's
+         is, written just before the datatype. *)
+      let generated =
+        List.concat_map
+          (fun (Constructor (_, cname, fields, _)) ->
+            List.filter_map
+              (fun (Field (fi, label, type_, default, _)) ->
+                match (default, label) with
+                | Some e, Some field ->
+                    let generated = default_name cname field in
+                    if List.mem generated taken then
+                      refuse fi
+                        (Printf.sprintf
+                           "the default for '%s' needs the name '%s', which \
+                            this block already binds"
+                           field generated);
+                    Some
+                      (SFunctionDef
+                         ( fi,
+                           generated,
+                           [],
+                           [ SExprStmt (expr_info e, go e, 0) ],
+                           Some type_,
+                           0,
+                           public,
+                           [],
+                           false ))
+                | _ -> None)
+              fields)
+          constructors
+      in
+      let constructors =
+        List.map
+          (fun (Constructor (ci, cname, fields, cs)) ->
+            Constructor
+              ( ci,
+                cname,
+                List.map
+                  (fun (Field (fi, label, type_, _, fs)) ->
+                    Field (fi, label, type_, None, fs))
+                  fields,
+                cs ))
+          constructors
+      in
+      (generated, SDatatype (i, name, params, constructors, s, public), scope)
   | SLoop (i, target, init, t, iterate, body, s) ->
       let inner =
         match target with
@@ -627,14 +912,19 @@ and rewrite signatures scope taken statement =
           ( i,
             go subject,
             List.map
-              (fun (MatchCase (ci, pattern, body, cs)) ->
+              (fun (MatchCase (ci, pattern, guard, body, cs)) ->
                 let inner =
                   List.fold_left
                     (fun scope (name, _) -> SMap.add name Binding scope)
                     scope
                     (Analyses.pattern_bindings pattern)
                 in
-                MatchCase (ci, pattern, block signatures inner body, cs))
+                MatchCase
+                  ( ci,
+                    pattern_of signatures scope pattern,
+                    Option.map (expression signatures inner) guard,
+                    block signatures inner body,
+                    cs ))
               cases,
             s ),
         scope )
@@ -706,16 +996,31 @@ and imported signatures statement =
       match SMap.find_opt module_ signatures with
       | None -> statement
       | Some info_ ->
-          let extra =
+          (* A datatype brings its constructors, which are public with
+             it, and each constructor the defs holding its defaults. *)
+          let constructors =
             List.concat_map
               (fun (name, _) ->
-                match SMap.find_opt name info_.functions with
-                | Some meta when meta.exported ->
-                    List.filter_map
-                      (fun parameter -> parameter.default)
-                      meta.parameters
-                | _ -> [])
+                match SMap.find_opt name info_.datatypes with
+                | Some names -> List.filter (fun n -> n <> name) names
+                | None -> [])
               fields
+          in
+          let defaults_of meta =
+            List.filter_map (fun parameter -> parameter.default) meta.parameters
+          in
+          let extra =
+            constructors
+            @ List.concat_map
+                (fun name ->
+                  match
+                    ( SMap.find_opt name info_.functions,
+                      SMap.find_opt name info_.constructors )
+                  with
+                  | _, Some meta when meta.exported -> defaults_of meta
+                  | Some meta, _ when meta.exported -> defaults_of meta
+                  | _ -> [])
+                (List.map fst fields @ constructors)
           in
           let extra =
             List.filter (fun name -> not (List.mem_assoc name fields)) extra
@@ -738,15 +1043,25 @@ let desugar signatures name stmts =
   (* A module already known under this name is one being extended an
      entry at a time, which is what the prompt does: what it defined
      before is in scope for what it defines now. *)
-  let known, before, imported =
+  let known, known_constructors, known_datatypes, before, imported =
     match SMap.find_opt name signatures with
-    | Some info_ -> (info_.functions, info_.others, info_.imports)
-    | None -> (SMap.empty, SSet.empty, [])
+    | Some info_ ->
+        ( info_.functions,
+          info_.constructors,
+          info_.datatypes,
+          info_.others,
+          info_.imports )
+    | None -> (SMap.empty, SMap.empty, SMap.empty, SSet.empty, [])
   in
   let scope =
     SMap.fold
       (fun name meta scope -> SMap.add name (Definition meta) scope)
       known SMap.empty
+  in
+  let scope =
+    SMap.fold
+      (fun name meta scope -> SMap.add name (Constructs meta) scope)
+      known_constructors scope
   in
   (* What earlier entries bound to something that is not a definition is
      in scope too, and turns the sugar off for that name exactly as a
@@ -783,4 +1098,17 @@ let desugar signatures name stmts =
     imported
     @ List.filter (function SImport _ -> true | _ -> false) stmts
   in
-  (out, SMap.add name { functions; others; foreign = false; imports } signatures)
+  let constructors =
+    List.fold_left
+      (fun constructors (name, meta) -> SMap.add name meta constructors)
+      known_constructors (block_constructors stmts)
+  in
+  let datatypes =
+    List.fold_left
+      (fun datatypes (name, names) -> SMap.add name names datatypes)
+      known_datatypes (block_datatypes stmts)
+  in
+  ( out,
+    SMap.add name
+      { functions; constructors; datatypes; others; foreign = false; imports }
+      signatures )

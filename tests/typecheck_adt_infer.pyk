@@ -1,0 +1,29 @@
+# What the checker infers about datatypes, pinned by the printed AST:
+# a constructor's parameters settled by its fields, an unannotated
+# function generalised over a datatype's parameter, and a pattern
+# settling what an unannotated parameter is.
+
+datatype Pair(a, b):
+    Pair(first: a, second: b)
+
+datatype Maybe(a):
+    No
+    Yes(a)
+
+
+def swap(p):
+    match p:
+        case Pair(x, y): Pair(y, x)
+
+
+def get(m, d):
+    match m:
+        case Yes(v): v
+        case No: d
+
+
+p = Pair(1, "one")
+q = swap(p)
+none = No
+print(q, get(Yes(2), 0), get(none, "empty"))
+print(p.first + 1, q.first ++ "!")

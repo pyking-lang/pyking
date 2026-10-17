@@ -1,0 +1,4 @@
+'tests/fail_typecheck_adt_unknown_constructor.pyk' 8:6-8:12 Name
+  error: unknown constructor 'Purple': a name starting with an
+  uppercase letter is a constructor, and no datatype declared or
+  imported here has one of that name

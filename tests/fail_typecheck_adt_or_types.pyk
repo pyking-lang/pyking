@@ -1,0 +1,11 @@
+# A name every alternative binds has one type, whichever alternative
+# bound it.
+
+datatype Value:
+    Number(Int)
+    Text(String)
+
+
+def show(v: Value) -> String:
+    match v:
+        case Number(x) | Text(x): "value"

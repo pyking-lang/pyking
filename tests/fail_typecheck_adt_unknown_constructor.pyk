@@ -1,0 +1,8 @@
+# A name starting with an uppercase letter is a constructor, and one
+# that no datatype declares is a name error.
+
+datatype Color:
+    Red
+    Green
+
+print(Purple)

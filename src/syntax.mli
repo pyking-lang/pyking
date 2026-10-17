@@ -73,6 +73,14 @@ type expr =
   | ELambda of info * param list * expr * int
       (* (x, y) => expr -- one parameter needs no parentheses. The body
          is one expression; nothing here holds statements. *)
+  | EConstruct of info * string option * string * (string option * expr) list
+                  * int
+      (* [module.]Name(args...) / [module.]Name -- a datatype's
+         constructor applied to its fields, named where the source named
+         them. The option is the module the constructor is reached
+         through. Desugar_args puts every field in its position, named
+         by the field's own name where it has one. *)
+  | EField of info * expr * string * int (* expr.name -- a named field *)
 
 and typ =
   | TInt of info * int (* Int *)
@@ -99,6 +107,19 @@ and typ =
          `rigid`: false for a variable the checker made rather than the
          source. *)
   | TForall of info * string list * typ * int (* all a b. body *)
+  | TCon of info * string * typ list * int
+      (* Name / Name(T1, ...) / module.Name(...) -- a datatype applied
+         to its parameters. In a type the checker made, the name is the
+         canonical one: bare for a datatype of the module being checked,
+         `module.Name` for one declared in another module. *)
+  | TData of info * datatype * int
+      (* what a module's signature says about a datatype it exports.
+         Never written in source, never printed. *)
+
+and datatype = Datatype of string * string list * (string * (string option * typ) list) list
+(* a datatype as another module sees it: its canonical name, its
+   parameters, and each constructor with its fields (the name, where the
+   field has one, and the type). *)
 
 and implicit_param = IParam of string * typ
 (* `implicit name: type`, in a function type. It carries no info and no
@@ -117,6 +138,14 @@ and pattern =
   | PText of info * string * string option * string * int
       (* case "ab" ++ rest ++ "z": prefix, the name the middle binds to
          (None where it is discarded), suffix. *)
+  | PConstructor of info * string option * string * pattern list
+                    * (string * pattern) list * int
+      (* case [module.]Name(p1, ..., field = p): positional patterns,
+         then named ones. Desugar_args puts every field in its position,
+         `_` where none was written, so nothing after it sees a named
+         one. *)
+  | POr of info * pattern list * int (* case p1 | p2 | ...: *)
+  | PAs of info * pattern * string * int (* case p as name: *)
 
 and list_rest = ListRest of info * string option * int
 (* the `..` / `..name` rest marker inside a PList *)
@@ -133,11 +162,20 @@ and param = Param of info * string * typ option * expr option * int
 (* name[: type][= default]. Desugar_args removes every default, so
    nothing after it sees a Some. *)
 
+and constructor = Constructor of info * string * field list * int
+(* Name(field, ...) -- one alternative of a datatype *)
+
+and field = Field of info * string option * typ * expr option * int
+(* Type / name: Type / name = default / name: Type = default -- a field
+   of a constructor. A field written with a literal default and no type
+   has the literal's type. Desugar_args removes every default. *)
+
 and loop_iter =
   | ForIn of info * string * expr * int (* for name in sequence *)
   | WhileTest of info * expr * int (* while condition *)
 
-and match_case = MatchCase of info * pattern * stmt list * int
+and match_case = MatchCase of info * pattern * expr option * stmt list * int
+(* case pattern [if guard]: body *)
 
 and stmt =
   | SLet of info * assign_target * expr * typ option * int * bool * bool
@@ -187,6 +225,9 @@ and stmt =
       (* [public] def name : type -- a def's type on a line of its own *)
   | SMatch of info * expr * match_case list * int
       (* match subject: case pattern: body ... *)
+  | SDatatype of info * string * string list * constructor list * int * bool
+      (* [public] datatype Name(a, b): one constructor per line. The
+         flag is `public`. *)
   | SImport of info * string * string * bool * (string * string) list * int
       (* import module [as name] / from module import field [as name].
          The fields are the module's own name for each thing taken and
@@ -256,6 +297,10 @@ val case_pattern : match_case -> pattern
 
 (** The body of one match case. match_case -> [stmt] *)
 val case_body : match_case -> stmt list
+
+(** The guard of one case clause, where it has one.
+    match_case -> expr option *)
+val case_guard : match_case -> expr option
 
 (** The source span of one statement. stmt -> info *)
 val stmt_info : stmt -> info

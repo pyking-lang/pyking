@@ -77,4 +77,6 @@ print(pick(([], 0)), pick(([3], 4)))
 match 9:
     case 1:
         print('never')
+    case _:
+        ()
 print('done')

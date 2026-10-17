@@ -1,0 +1,2 @@
+'tests/fail_typecheck_adt_guard_type.pyk' 5:18-5:23 Type error: the
+  guard of a 'case' must be Bool, not Int

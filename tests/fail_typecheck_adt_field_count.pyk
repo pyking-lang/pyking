@@ -1,0 +1,10 @@
+# A constructor pattern matches at most as many fields as the
+# constructor has.
+
+datatype Pair:
+    Pair(Int, Int)
+
+
+def first(p: Pair) -> Int:
+    match p:
+        case Pair(a, b, c): a

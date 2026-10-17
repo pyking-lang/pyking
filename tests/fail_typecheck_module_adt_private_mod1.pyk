@@ -1,0 +1,7 @@
+# A public function whose type names a datatype that is not public.
+
+datatype Secret:
+    Secret(Int)
+
+public def make() -> Secret:
+    return Secret(1)

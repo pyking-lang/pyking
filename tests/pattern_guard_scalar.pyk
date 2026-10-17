@@ -1,0 +1,29 @@
+# Guards and or-patterns over scalars, which every backend compiles --
+# C and Java included, where a pattern that binds nothing is a test.
+
+def grade(score: Int) -> String:
+    match score:
+        case 100: "perfect"
+        case 90 | 95 | 99: "almost"
+        case _ if score >= 50: "pass"
+        case _: "fail"
+
+
+def weekday(day: String) -> Bool:
+    match day:
+        case "sat" | "sun": false
+        case _: true
+
+
+print(grade(100), grade(95), grade(60), grade(10))
+print(weekday("sat"), weekday("tue"))
+
+
+def flip(b: Bool) -> Int:
+    match b:
+        case true if 1 > 2: 0
+        case true: 1
+        case false: 2
+
+
+print(flip(true), flip(false))

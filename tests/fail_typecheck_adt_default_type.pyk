@@ -1,0 +1,8 @@
+# A field's type is written, or taken from a literal default: an
+# expression that is not a literal does not say what it is.
+
+def start() -> Int:
+    return 1
+
+datatype Counter:
+    Counter(value = start())

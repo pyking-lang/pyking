@@ -1,0 +1,53 @@
+# Okasaki's red-black tree: the balance function is one or-pattern of
+# four nested alternatives, every one binding the same seven names.
+
+datatype Color:
+    R
+    B
+
+datatype Tree(a):
+    E
+    T(Color, Tree(a), a, Tree(a))
+
+
+def balance(c: Color, l: Tree(a), v: a, r: Tree(a)) -> Tree(a):
+    match (c, l, v, r):
+        case (B, T(R, T(R, a, x, b), y, c2), z, d) | (B, T(R, a, x, T(R, b, y, c2)), z, d) | (B, a, x, T(R, T(R, b, y, c2), z, d)) | (B, a, x, T(R, b, y, T(R, c2, z, d))):
+            T(R, T(B, a, x, b), y, T(B, c2, z, d))
+        case _: T(c, l, v, r)
+
+
+def insert(t: Tree(Int), x: Int) -> Tree(Int):
+    def ins(s: Tree(Int)) -> Tree(Int):
+        match s:
+            case E: T(R, E, x, E)
+            case T(c, l, v, r) if x < v: balance(c, ins(l), v, r)
+            case T(c, l, v, r) if x > v: balance(c, l, v, ins(r))
+            case T(_, _, _, _): s
+    match ins(t):
+        case T(_, l, v, r): T(B, l, v, r)
+        case E: E
+
+
+def elements(t: Tree(a)) -> [a]:
+    match t:
+        case E: []
+        case T(_, l, v, r): elements(l) ++ [v] ++ elements(r)
+
+
+def depth(t: Tree(a)) -> Int:
+    match t:
+        case E: 0
+        case T(_, l, _, r):
+            dl = depth(l)
+            dr = depth(r)
+            1 + (if dl > dr then dl else dr)
+
+
+t = loop t = E for x in range(1, 33):
+    insert(t, x)
+print(elements(t))
+print(depth(t))
+small = loop t = E for x in [3, 1, 2]:
+    insert(t, x)
+print(small)

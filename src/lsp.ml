@@ -311,7 +311,7 @@ let analyse state document previous =
                   Typesystem.type_check ~declared unit.stmts (Module.sigmaps_for unit sigmaps)
                 in
                 Analyses.analyze_mutability unit.stmts;
-                (tmap, Module.module_sigmap unit.stmts unit.declarations tmap)
+                (tmap, Module.module_sigmap unit.name unit.stmts unit.declarations tmap)
               with
               | exception error -> failed error units tmaps sigmaps
               | tmap, sigmap ->
@@ -411,6 +411,11 @@ let rec pattern_bindings pattern =
       @ (match rest with Some (ListRest (i, Some n, s)) -> [ (n, i, s) ] | _ -> [])
       @ List.concat_map pattern_bindings after
   | PText (i, _, Some n, _, s) -> [ (n, i, s) ]
+  | PConstructor (_, _, _, ps, named, _) ->
+      List.concat_map pattern_bindings (ps @ List.map snd named)
+  | POr (_, first :: _, _) -> pattern_bindings first
+  | POr (_, [], _) -> []
+  | PAs (i, inner, n, s) -> pattern_bindings inner @ [ (n, i, s) ]
   | PInt _ | PString _ | PBool _ | PWildcard _ | PText _ -> []
 
 (** An environment with names bound at places in the module resolved.
@@ -493,6 +498,9 @@ let rec resolve_expr ctx env e found =
       resolve_expr ctx env body found
   | ELambda (_, params, body, _) ->
       resolve_expr ctx (bind_all ctx KParameter env (List.map param_binding params)) body found
+  | EConstruct (_, _, _, args, _) ->
+      List.fold_left (fun found a -> go a found) found (arg_exprs args)
+  | EField (_, record, _, _) -> go record found
 
 (** Every name a block uses, and what is in scope where, with its `def`s
     bound before any of it. context -> meaning SMap.t -> [stmt] -> (int,
@@ -552,7 +560,7 @@ and resolve_stmt ctx env stmt found =
         | None -> (inner, found)
       in
       (env, resolve_block ctx inner body (i.row2, i.col2) found)
-  | SBreak _ | SContinue _ | SFunctionSig _ -> (env, found)
+  | SBreak _ | SContinue _ | SFunctionSig _ | SDatatype _ -> (env, found)
   | SIf (i, c, then_, else_, _) ->
       let found = resolve_expr ctx env c found in
       let found = resolve_block ctx env then_ (i.row2, i.col2) found in
@@ -573,8 +581,12 @@ and resolve_stmt ctx env stmt found =
       let found = resolve_expr ctx env subject found in
       ( env,
         List.fold_left
-          (fun found (MatchCase (ci, pattern, body, _)) ->
-            resolve_block ctx (bind_all ctx KValue env (pattern_bindings pattern)) body (ci.row2, ci.col2) found)
+          (fun found (MatchCase (ci, pattern, guard, body, _)) ->
+            let inner = bind_all ctx KValue env (pattern_bindings pattern) in
+            let found =
+              match guard with Some g -> resolve_expr ctx inner g found | None -> found
+            in
+            resolve_block ctx inner body (ci.row2, ci.col2) found)
           found cases )
   | SImport _ -> (bind_import ctx env stmt, found)
 

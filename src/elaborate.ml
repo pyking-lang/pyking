@@ -344,6 +344,13 @@ and expression_body e qmap work =
   | ELambda (i, params, body, s) ->
       let body, work = go body work in
       (ELambda (i, params, body, s), work)
+  | EConstruct (i, module_, name, args, s) ->
+      let names = List.map fst args in
+      let given, work = each (arg_exprs args) work in
+      (EConstruct (i, module_, name, List.combine names given, s), work)
+  | EField (i, record, name, s) ->
+      let record, work = go record work in
+      (EField (i, record, name, s), work)
   | ECall (i, func, args, s) -> (
       let names = List.map fst args in
       let given, work = each (arg_exprs args) work in
@@ -425,7 +432,7 @@ and statement s qmap work =
   | SExprStmt (i, e, sym) ->
       let e, work = go e work in
       (SExprStmt (i, e, sym), work)
-  | SBreak _ | SContinue _ -> (s, work)
+  | SBreak _ | SContinue _ | SDatatype _ -> (s, work)
   | SImport (i, module_, name, selected, fields, sym) ->
       (* What a module exports is renamed with everything else, and an
          import names it by the name the output uses. *)
@@ -472,9 +479,16 @@ and statement s qmap work =
       let subject, work = go subject work in
       let cases, work =
         List.fold_left
-          (fun (out, work) (MatchCase (ci, pattern, body, cs)) ->
+          (fun (out, work) (MatchCase (ci, pattern, guard, body, cs)) ->
+            let guard, work =
+              match guard with
+              | None -> (None, work)
+              | Some g ->
+                  let g, work = go g work in
+                  (Some g, work)
+            in
             let body, work = block body work in
-            (out @ [ MatchCase (ci, pattern, body, cs) ], work))
+            (out @ [ MatchCase (ci, pattern, guard, body, cs) ], work))
           ([], work) cases
       in
       (SMatch (i, subject, cases, sym), work)

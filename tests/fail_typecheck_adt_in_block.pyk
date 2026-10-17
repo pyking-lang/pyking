@@ -1,0 +1,6 @@
+# A datatype is declared at the top level of a module.
+
+def f() -> Int:
+    datatype Local:
+        One
+    return 1

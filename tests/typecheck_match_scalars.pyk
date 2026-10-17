@@ -28,9 +28,12 @@ def initial(word:String) -> Int:
 print(name(0), name(1), name(7))
 print(initial("alpha"), initial("beta"), initial("gamma"))
 
-# A `match` that fits no arm does nothing, and is a statement.
+# A `match` matches every value, so one with nothing to do for the rest
+# says so with `case _`.
 match 9:
     case 1:
         print("never")
+    case _:
+        ()
 
 print("done")

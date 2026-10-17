@@ -90,6 +90,9 @@ type value =
       (* <module>.<field> of an external module: a function the host
          implements in a target language *)
   | VUndefined of string (* a hoisted `def` whose definition has not run *)
+  | VData of string * (string option * value) list
+      (* a value of a datatype: its constructor, and each field with its
+         name where it has one *)
 
 (** A persistent chain of frames. Abstract: `extend`, `lookup` and the
     write-once cell a `def` binds are the machine's own, and

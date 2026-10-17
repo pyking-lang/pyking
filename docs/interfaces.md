@@ -108,6 +108,7 @@ respects that, which is what makes the library link.
 │                              ▼                                       │
 │  typesystem.ml   type_check, and what checking a session one         │
 │                  entry at a time needs                               │
+│  exhaustive.ml   check (the checker's), covers (the OCaml backend's) │
 │  type_experiment.ml   type_check, for the fragment it covers         │
 │                              │                                       │
 │                              ▼                                       │

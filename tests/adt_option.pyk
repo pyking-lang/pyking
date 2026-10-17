@@ -1,0 +1,60 @@
+# Option and Result, written in Pyking: datatypes with parameters, used
+# at several types by one polymorphic function.
+
+datatype Option(a):
+    Nothing
+    Just(a)
+
+datatype Result(a, e):
+    Ok(a)
+    Err(e)
+
+
+def map_option(f: (a) -> b, o: Option(a)) -> Option(b):
+    match o:
+        case Nothing: Nothing
+        case Just(x): Just(f(x))
+
+
+def default(o: Option(a), d: a) -> a:
+    match o:
+        case Nothing: d
+        case Just(x): x
+
+
+def find(xs: [Int], wanted: Int) -> Option(Int):
+    loop i = 0 for x in xs:
+        if x == wanted:
+            return Just(i)
+        i + 1
+    return Nothing
+
+
+def divide(a: Int, b: Int) -> Result(Int, String):
+    if b == 0:
+        return Err("division by zero")
+    return Ok(a / b)
+
+
+def bind(r: Result(a, e), f: (a) -> Result(b, e)) -> Result(b, e):
+    match r:
+        case Ok(x): f(x)
+        case Err(m): Err(m)
+
+
+print(find([3, 5, 7], 7), find([3, 5, 7], 4))
+print(map_option(x => x * 10, find([3, 5, 7], 5)))
+print(map_option(x => string(x) ++ "!", Just(3)))
+print(default(find([1], 2), 0 - 1), default(Just("x"), "y"))
+print(divide(7, 2), divide(1, 0))
+print(bind(divide(100, 5), n => divide(n, 2)))
+print(bind(divide(100, 0), n => divide(n, 2)))
+print(bind(divide(100, 5), n => divide(n, 0)))
+
+# An unannotated function works its datatype out like any other type.
+def or_else(o, d):
+    match o:
+        case Just(x): x
+        case Nothing: d
+
+print(or_else(Just(true), false), or_else(Nothing, "fallback"))

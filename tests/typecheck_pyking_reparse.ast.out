@@ -52,6 +52,8 @@ def announce(n:Int) -> ():
             print('zero')
         case 1:
             print('one')
+        case _:
+            ()
 announce(0)
 announce(1)
 announce(7)

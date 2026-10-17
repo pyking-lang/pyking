@@ -1,0 +1,6 @@
+# A constructor with fields is not a value: it is applied to them.
+
+datatype Wrap:
+    Wrap(Int)
+
+w = Wrap

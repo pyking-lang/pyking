@@ -1,0 +1,7 @@
+# Every alternative of an or-pattern binds the same names: the arm after
+# it sees one set of bindings, whichever alternative matched.
+
+def f(p: (Int, Int)) -> Int:
+    match p:
+        case (x, 0) | (0, y): 1
+        case _: 0

@@ -92,7 +92,8 @@ be changed, but is exposed as a customizable option the same way
 
 (defconst pyking-mode-keywords
   '("for" "in" "if" "while" "loop" "break" "continue" "then" "else" "var"
-    "def" "return" "match" "case" "public" "implicit" "import" "from" "as")
+    "def" "return" "match" "case" "public" "implicit" "import" "from" "as"
+    "datatype")
   "Reserved keywords in Pyking.
 Mirrors the `keywords' list in src/lexer.ml, minus the names broken out
 into `pyking-mode-types' and `pyking-mode-constants' below (each gets its
@@ -104,7 +105,8 @@ has no Python counterpart at all. The last four are the module system's
 \(see \"Modules\" in PYKING.md): `public' marks what a module exports,
 and `import'/`from'/`as' are how another module reaches it. `implicit'
 marks a definition an implicit argument may be resolved to, and an
-implicit parameter in a header or a function type (see \"Implicits\").")
+implicit parameter in a header or a function type (see \"Implicits\").
+`datatype' declares an algebraic data type (see \"Datatypes\").")
 
 (defconst pyking-mode-keywords-regexp
   (regexp-opt pyking-mode-keywords 'symbols)
@@ -167,6 +169,9 @@ builtin.")
    ;; function_def = "def" , ident , "(" ... -- the declared function name.
    '("\\_<def\\_>[ \t]+\\(\\sw+\\)"
      1 font-lock-function-name-face)
+   ;; datatype_stmt = "datatype" , upper_ident , ... -- the declared type.
+   '("\\_<datatype\\_>[ \t]+\\(\\sw+\\)"
+     1 font-lock-type-face)
    ;; var_decl = "var" , ident , "=" , expr -- the declared variable name.
    '("\\_<var\\_>[ \t]+\\(\\sw+\\)"
      1 font-lock-variable-name-face)

@@ -255,6 +255,34 @@ Lists have no representation yet, so an array unambiguously means a
 tuple here. That is what makes this formatting rule safe today, and is
 the thing to revisit when lists arrive: the two will need telling apart.
 
+### Datatypes
+
+A constructor is a function of the module that declares it, building a
+tagged object with the runtime's `pykData`:
+
+```pyking                          # generated JavaScript
+datatype Shape:                    function Circle(v0) {
+    Circle(radius: Float)            return pykData('Circle', [v0], ['radius']);
+    Dot                            }
+```
+
+The object holds the constructor's name (`pykTag`), its fields in
+order (`pykValues`), and each named field again as a property of its
+own name, so `x.radius` is JavaScript's own property access. A pattern
+tests `pykTag` and takes the fields by position. `pykFormat` prints the
+value as Pyking does. A JavaScript number cannot say whether it is a
+Float, so a construction whose arguments hold one is wrapped in
+`pykWithShape`, which records the descriptor `pykShaped` reads (see
+"Floats"). The datatype's own name is bound to its name as a string,
+which is what an import of it imports. The functions hoist, so a
+constructor may be used above its declaration, as Pyking allows.
+
+A `match` with a guard is a labelled block the arms leave with
+`break`, rather than an `if`/`else` chain: a guard is asked after its
+pattern has bound what it binds, and a false one goes on to the next
+case, which a chain cannot say. A `match` with no guard is the chain it
+always was.
+
 ### `loop`, `break` and `continue`
 
 A `loop` is `while (true)` over a `let` holding the accumulator: the

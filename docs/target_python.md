@@ -200,14 +200,17 @@ Emitting it unchanged would produce a file that will not parse, so such
 a name is renamed by the same mechanism that renames a shadowed one:
 
 ```pyking                          # generated Python
-def lambda(n):                     def lambda2(n):
+def lambda(n):                     def lambda_(n):
     n * 2                  ->          return n * 2
 ```
 
 The list comes from the standard `keyword` module (`kwlist` plus
 `softkwlist`) rather than being written out here, so it cannot go stale
-against the Python this compiler runs on. Renaming picks `lambda2`,
-`lambda3`, … — skipping any that is itself taken or reserved.
+against the Python this compiler runs on. Renaming picks `lambda_`,
+the same in every module, so that a public name -- a constructor called
+`None`, most often -- is imported by the name its own module bound it
+under; where that is taken too, `lambda2`, `lambda3`, … — skipping any
+that is itself taken or reserved.
 
 ### Module names Python has already taken
 
@@ -622,6 +625,44 @@ def describe(n):                   def describe(n):
                                            case _:
                                                return 'many'
 ```
+
+Every `match` matches every value (docs/exhaustive.md), so none needs a
+fallthrough. A guard is Python's own `case p if g:`, and an or-pattern
+and an `as` pattern are Python's `|` and `as`. One combination needs
+help: a guard that names what a `++` string split bound, since Python
+binds that only in the arm's body. There the split's bindings are made
+in the guard itself, each as `[name := value]` -- a one-element list,
+which is never false:
+
+```pyking                          # generated Python
+case "say " ++ rest                case str() as __text if __text.startswith('say ') and [rest := __text[4:]] and len(rest) > 3:
+        if len(rest) > 3: ...
+```
+
+A `++` split inside an alternative of `|` is refused: the split is
+tested in the arm's guard, and Python's `|` has no guard per
+alternative.
+
+### Datatypes
+
+A constructor is a class, made at the top of the program by the
+prelude's `__pyk_datatype(name, fields)`: its fields are its
+`__slots__` and its `__match_args__` -- a named field by its name, an
+unnamed one `_0`, `_1`, ... -- so a constructor pattern is Python's own
+class pattern, `case Leaf(v, n):`, and `x.age` is attribute access. The
+datatype's own name is bound to the tuple of its constructors, which is
+what an import of it imports. A value prints through the Bool walker,
+which knows a datatype's value by its `_pyk_tag`:
+
+```pyking                          # generated Python
+datatype Shape:                    Circle = __pyk_datatype('Circle', ('radius',))
+    Circle(radius: Float)          Dot = __pyk_datatype('Dot', ())
+    Dot                            Shape = (Circle, Dot)
+```
+
+The classes are written before anything else because a datatype is in
+scope throughout its module, where a Python class is in scope only from
+its statement on.
 
 ### List comprehensions with refutable patterns
 

@@ -81,6 +81,21 @@ Everything the JavaScript and C targets refuse -- lists, tuples, `for`,
 -- plus the following. All are refused at compile time with a source
 position.
 
+
+### Datatypes, `as`, and a guard or `|` that binds
+
+A datatype's value lives on the heap, which this backend has no value
+model for, as it has none for a list or a tuple: a `datatype`, a
+constructor and a field read are refused with a source position. A
+`match` over scalars still takes or-patterns and guards, where neither
+binds a name: `case 1 | 2:` is one test joined with `||`, and
+`case _ if n > 9:` is the pattern's test `&&` the guard's. A name a
+pattern binds is declared inside the arm, after the test the guard is
+part of, so a guard on a pattern that binds one is refused, and so is an
+`as` pattern and an alternative of `|` that binds. Every `match`
+matches every value, so an unguarded last arm is the chain's `else` --
+which is what makes a `Bool` `match` with no `_` return on every path.
+
 ### Lambdas
 
 ```

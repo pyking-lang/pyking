@@ -1,0 +1,7 @@
+# A guarded case does not count towards covering every value: its guard
+# may be false.
+
+def sign(n: Int) -> String:
+    match n:
+        case x if x > 0: "positive"
+        case x if x <= 0: "not positive"

@@ -18,6 +18,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `abs`, `min`, `max`, `clamp`, `sign` and a floored `mod` for Ints and
   Floats alike; `gcd`, `lcm`, `lerp` and `map_range`; and `pi`, `tau`,
   `e`, `inf`, `nan`, `is_nan` and `is_finite`.
+- Algebraic data types: `datatype Tree(a):` with one constructor per
+  line, fields that are positional, named or defaulted, constructors
+  applied with a call's rules, and `x.field` to read a named field.
+  Datatypes cross modules with `public datatype`. Supported by the
+  interpreter, Python, JavaScript and OCaml; C and Java refuse them.
+- Patterns: constructor patterns with fields by position or by name,
+  or-patterns (`case 1 | 2:`), `as` patterns, and guards
+  (`case n if n > 0:`).
+- design/plan-bootstrap.md: what Pyking still lacks for the compiler to
+  be written in it.
+
+### Changed
+
+- Every `match` must match every value, whether its value is taken or
+  not, and every case must be reachable. A refusal names a value no
+  case matches. A statement `match` with nothing to do for the rest
+  needs `case _: ()`.
+- A Python reserved word used as a name is renamed `word_` rather than
+  `word2`, so that a public one is imported under the same name.
 
 ### Fixed
 

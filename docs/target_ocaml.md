@@ -185,15 +185,11 @@ its parameters, and that is refused:
   value of type a
 ```
 
-### An arm of a `match` that does not cover, where its value is taken
+### `|` around a `++` split or a list split from its end
 
-A `match` no arm takes falls out of it as unit, so the checker types one
-that does not cover as unit wherever it stands. Every runtime
-implementation nonetheless answers with the *arm's* value when an arm
-does match, which is two types for one expression and has no OCaml
-spelling. An arm ending in a non-unit value, in a position whose value
-is taken, is therefore refused; arms that are themselves unit — a body
-of `print`s, say — compile, with `| _ -> ()` written in.
+Both are tested in the arm's `when` (see "`match` and patterns"), and an
+alternative of OCaml's `|` has no `when` of its own, so an alternative
+holding one is refused.
 
 ### An element of a list pattern with elements after `..`
 
@@ -474,10 +470,42 @@ bindings the pattern could not make:
   length, and every element is taken by position with `List.nth`; the
   middle is `List.take` of `List.drop`.
 
-A `when` makes an arm invisible to OCaml's exhaustiveness check, so the
-catch-all a `match` needs is decided from the *unguarded* arms alone.
-Where the clauses cover and a guard hides it, the arm written in is
-`assert false` — unreachable, since the checker already proved coverage.
+A guard is the arm's `when` too, after the pattern's own tests, with
+the bindings a split makes wrapped around it so that it can name them.
+An or-pattern is OCaml's `(p1 | p2)` and an `as` pattern its `(p as
+x)`.
+
+Every `match` matches every value (docs/exhaustive.md), but a `when`
+makes an arm invisible to OCaml's own exhaustiveness check. So
+`Exhaustive.covers` is asked of the arms OCaml *can* see -- those with
+no `when` -- and only where they do not cover is `| _ -> assert false`
+written in. It is unreachable, and writing it where OCaml can see the
+coverage would be warning 11.
+
+### Datatypes
+
+A datatype is OCaml's own variant type, all of a module's in one `type
+... and ...`, its name lowercased (`tree`, with `_` added where OCaml
+has taken the name: `list_`, `option_`) and its parameters `'a`. A
+constructor keeps its name, with `_` added where Stdlib's would be
+shadowed (`None_`, `Some_`, `Ok_`, `Error_`), and one of another module
+is written through it, `Shapes.Circle`:
+
+```pyking                          # generated OCaml
+datatype Tree(a):                  type 'a tree =
+    Leaf                             | Leaf
+    Node(Tree(a), a, Tree(a))        | Node of 'a tree * 'a tree * 'a
+```
+
+Beside the declaration goes one printer per datatype, `pyk_show_tree`,
+taking a printer per type parameter and then the value, and writing it
+as Pyking prints it; a print site hands it the printers for the types
+it was applied to. A field read is a `match` with one arm per
+constructor. A module the program imports declares its datatypes and
+their printers in its `.mli` too. A generated file that declares or
+matches a datatype opens with `[@@@warning "-fragile-match"]`: `_` over
+a datatype is how Pyking says "every other constructor", which OCaml
+calls fragile.
 
 ### `var` and `:=`
 

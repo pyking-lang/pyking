@@ -1,0 +1,64 @@
+# An expression language, the classic: evaluation, simplification with
+# nested patterns and guards, and printing back as text.
+
+datatype Expr:
+    Num(Int)
+    Var(String)
+    Add(Expr, Expr)
+    Mul(Expr, Expr)
+    Neg(Expr)
+    Let(name: String, bound: Expr, body: Expr)
+
+
+def lookup(env: [(String, Int)], name: String) -> Int:
+    match env:
+        case []: 0
+        case [(n, v), ..rest]:
+            if n == name then v else lookup(rest, name)
+
+
+def eval(e: Expr, env: [(String, Int)]) -> Int:
+    match e:
+        case Num(n): n
+        case Var(x): lookup(env, x)
+        case Add(a, b): eval(a, env) + eval(b, env)
+        case Mul(a, b): eval(a, env) * eval(b, env)
+        case Neg(a): 0 - eval(a, env)
+        case Let(x, b, body): eval(body, [(x, eval(b, env))] ++ env)
+
+
+def simplify(e: Expr) -> Expr:
+    match e:
+        case Add(Num(0), x) | Add(x, Num(0)): simplify(x)
+        case Mul(Num(1), x) | Mul(x, Num(1)): simplify(x)
+        case Mul(Num(0), _) | Mul(_, Num(0)): Num(0)
+        case Add(Num(a), Num(b)): Num(a + b)
+        case Mul(Num(a), Num(b)): Num(a * b)
+        case Neg(Neg(x)): simplify(x)
+        case Neg(Num(n)) if n == 0: Num(0)
+        case Add(a, b): Add(simplify(a), simplify(b))
+        case Mul(a, b): Mul(simplify(a), simplify(b))
+        case Neg(a): Neg(simplify(a))
+        case Let(name = x, bound = b, body = body): Let(x, simplify(b), simplify(body))
+        case Num(_) | Var(_): e
+
+
+def show(e: Expr) -> String:
+    match e:
+        case Num(n) if n < 0: "(" ++ string(n) ++ ")"
+        case Num(n): string(n)
+        case Var(x): x
+        case Add(a, b): "(" ++ show(a) ++ " + " ++ show(b) ++ ")"
+        case Mul(a, b): show(a) ++ " * " ++ show(b)
+        case Neg(a): "-" ++ show(a)
+        case Let(x, b, body): "let " ++ x ++ " = " ++ show(b) ++ " in " ++ show(body)
+
+
+e1 = Add(Mul(Num(1), Var("x")), Num(0))
+e2 = Let("x", Num(5), Add(Var("x"), Mul(Num(2), Var("y"))))
+e3 = Neg(Neg(Mul(Add(Num(2), Num(3)), Num(0))))
+for e in [e1, e2, e3]:
+    s = simplify(e)
+    print(show(e), "=>", show(s), "=", eval(s, [("x", 10), ("y", -1)]))
+print(simplify(e1))
+print(Let(name = "z", bound = Num(1), body = Var("z")))

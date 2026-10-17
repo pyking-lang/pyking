@@ -1,0 +1,2 @@
+'tests/fail_typecheck_adt_type_arity.pyk' 7:13-7:22 Type error: 'Pair'
+  takes 2 type parameters, but is given 1

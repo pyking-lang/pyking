@@ -84,6 +84,16 @@ and parse_atom eof tokens =
   | TokTrue i :: rest -> parse_call_tail eof (EBool (i, true, 0)) rest
   | TokFalse i :: rest -> parse_call_tail eof (EBool (i, false, 0)) rest
   | TokIdent (i, module_name) :: TokDot dot :: TokIdent (name_info, name) :: rest
+    when dot.row1 = i.row2
+         && (not (Names.is_qualified module_name))
+         && (not (is_constructor_name module_name))
+         && is_constructor_name name ->
+      (* `module.Name`: a constructor of a datatype another module
+         exports. *)
+      parse_construct eof (combine_info i name_info) (Some module_name) name rest
+  | TokIdent (i, name) :: rest when is_constructor_name name ->
+      parse_construct eof i None name rest
+  | TokIdent (i, module_name) :: TokDot dot :: TokIdent (name_info, name) :: rest
     when dot.row1 = i.row2 && not (Names.is_qualified module_name) ->
       (* `module.name`: a public name of an imported module. The dot must
          be on the module name's own row, for the reason parse_call_tail
@@ -141,12 +151,32 @@ and parse_atom eof tokens =
       raise
         (Parse_error (here eof tokens, "unexpected end of input in expression"))
 
+(** Parses a constructor and its arguments, if a `(` follows on the
+    constructor's own row; without one it is a constructor of no fields.
+    info -> info -> String? -> String -> [token] -> (expr, [token]) *)
+and parse_construct eof i module_ name tokens =
+  match tokens with
+  | TokLParen lp :: rest when lp.row1 = i.row2 ->
+      let args, rparen, rest = parse_args eof rest in
+      check_argument_shape args;
+      parse_call_tail eof
+        (EConstruct (combine_info i rparen, module_, name, args, 0))
+        rest
+  | _ -> parse_call_tail eof (EConstruct (i, module_, name, [], 0)) tokens
+
 (** Parses zero or more call suffixes onto expr, chaining `f(1)(2)`. A
     `(` only extends expr if it starts on the same source row expr ended
-    on, so it cannot swallow the next statement's.
+    on, so it cannot swallow the next statement's. A `.name` on the same
+    row reads a field.
     info -> expr -> [token] -> (expr, [token]) *)
 and parse_call_tail eof e tokens =
   match tokens with
+  | TokDot dot :: TokIdent (ni, name) :: rest
+    when dot.row1 = (expr_info e).row2 && ni.row1 = dot.row2
+         && not (is_constructor_name name) ->
+      parse_call_tail eof
+        (EField (combine_info (expr_info e) ni, e, name, 0))
+        rest
   | TokLParen lp :: rest when lp.row1 = (expr_info e).row2 ->
       let args, rparen, rest = parse_args eof rest in
       let call_info = combine_info (expr_info e) rparen in
@@ -319,6 +349,7 @@ and parse_expr eof tokens =
 and parse_lambda eof tokens =
   match tokens with
   | TokIdent (i, name) :: TokFatArrow _ :: rest ->
+      check_plain_name i name "a parameter";
       let body, rest = parse_expr eof rest in
       Some
         ( ELambda
@@ -502,6 +533,11 @@ and parse_type_atom eof tokens =
       let names, rest = parse_type_vars eof rest in
       let body, rest = parse_type eof rest in
       (TForall (combine_info i (type_info body), names, body, 0), rest)
+  | TokIdent (i, module_) :: TokDot dot :: TokIdent (ni, name) :: rest
+    when dot.row1 = i.row2 && is_type_var module_ && is_constructor_name name ->
+      parse_type_application eof (combine_info i ni) (module_ ^ "." ^ name) rest
+  | TokIdent (i, name) :: rest when is_constructor_name name ->
+      parse_type_application eof i name rest
   | TokIdent (i, name) :: rest when is_type_var name ->
       (TVar (i, name, 0, true), rest)
   | TokLBracket lb :: rest -> (
@@ -549,6 +585,20 @@ and parse_type_atom eof tokens =
   | t :: _ -> raise (Parse_error (token_info t, "expected a type"))
   | [] ->
       raise (Parse_error (here eof tokens, "unexpected end of input in type"))
+
+(** Parses a datatype's name and the types it is applied to, if a `(`
+    follows on the name's own row. info -> String -> [token] ->
+    (typ, [token]) *)
+and parse_type_application eof i name tokens =
+  match tokens with
+  | TokLParen lp :: rest when lp.row1 = i.row2 ->
+      let elements, implicits, _, rp, rest = parse_type_elements eof rest in
+      if implicits <> [] then
+        raise
+          (Parse_error
+             (lp, "a datatype is applied to types, not implicit parameters"))
+      else (TCon (combine_info i rp, name, elements, 0), rest)
+  | _ -> (TCon (i, name, [], 0), tokens)
 
 (** Parses comma-separated types up to and including ')', also saying
     whether a comma came just before that ')' -- which is the whole of
@@ -631,9 +681,12 @@ and parse_param eof tokens =
   let named, type_, i, rest =
     match tokens with
     | TokIdent (i, name) :: TokColon _ :: rest ->
+        check_plain_name i name "a parameter";
         let type_, rest = parse_type eof rest in
         (name, Some type_, combine_info i (type_info type_), rest)
-    | TokIdent (i, name) :: rest -> (name, None, i, rest)
+    | TokIdent (i, name) :: rest ->
+        check_plain_name i name "a parameter";
+        (name, None, i, rest)
     | _ -> raise (Parse_error (here eof tokens, "expected a parameter"))
   in
   match rest with
@@ -859,13 +912,18 @@ and parse_pattern_atom eof tokens =
   | TokTrue i :: rest -> (PBool (i, true, 0), rest)
   | TokFalse i :: rest -> (PBool (i, false, 0), rest)
   | TokIdent (i, "_") :: rest -> (PWildcard (i, 0), rest)
+  | TokIdent (i, module_) :: TokDot dot :: TokIdent (ni, name) :: rest
+    when dot.row1 = i.row2 && is_type_var module_ && is_constructor_name name ->
+      parse_constructor_pattern eof (combine_info i ni) (Some module_) name rest
+  | TokIdent (i, name) :: rest when is_constructor_name name ->
+      parse_constructor_pattern eof i None name rest
   | TokIdent (i, name) :: rest ->
       check_plain_name i name "bound by a pattern";
       (PCapture (i, name, 0), rest)
   | TokLParen lp :: TokRParen rp :: rest ->
       (PTuple (combine_info lp rp, [], 0), rest)
   | TokLParen lp :: rest -> (
-      let first, rest = parse_pattern_concat eof rest in
+      let first, rest = parse_pattern_as eof rest in
       match rest with
       | TokComma _ :: TokRParen rp :: rest ->
           (PTuple (combine_info lp rp, [ first ], 0), rest)
@@ -903,8 +961,54 @@ and parse_pattern_atom eof tokens =
       raise
         (Parse_error
            ( here eof tokens,
-             "expected a pattern (integer, string, '_', identifier, tuple, \
-              or list)" ))
+             "expected a pattern (integer, string, '_', identifier, \
+              constructor, tuple, or list)" ))
+
+(** Parses a constructor pattern after its name: its fields in
+    parentheses, positional ones first and then `name = pattern` ones,
+    where a `(` follows on the name's own row.
+    info -> info -> String? -> String -> [token] -> (pattern, [token]) *)
+and parse_constructor_pattern eof i module_ name tokens =
+  match tokens with
+  | TokLParen lp :: rest when lp.row1 = i.row2 ->
+      let rec fields rest positional named =
+        match rest with
+        | TokRParen rp :: rest -> (List.rev positional, List.rev named, rp, rest)
+        | _ -> (
+            let positional, named, rest =
+              match rest with
+              | TokIdent (ni, field) :: TokEq _ :: rest ->
+                  let p, rest = parse_pattern_as eof rest in
+                  if List.mem_assoc field named then
+                    raise
+                      (Parse_error
+                         ( ni,
+                           Printf.sprintf "the field '%s' is matched twice"
+                             field ));
+                  (positional, (field, p) :: named, rest)
+              | _ ->
+                  let p, rest = parse_pattern_as eof rest in
+                  if named <> [] then
+                    raise
+                      (Parse_error
+                         ( pattern_info p,
+                           "a positional field pattern comes before every \
+                            named one" ));
+                  (p :: positional, named, rest)
+            in
+            match rest with
+            | TokComma _ :: rest -> fields rest positional named
+            | TokRParen rp :: rest ->
+                (List.rev positional, List.rev named, rp, rest)
+            | _ ->
+                raise
+                  (Parse_error
+                     (here eof rest, "expected ',' or ')' in a constructor pattern"))
+            )
+      in
+      let positional, named, rp, rest = fields rest [] [] in
+      (PConstructor (combine_info i rp, module_, name, positional, named, 0), rest)
+  | _ -> (PConstructor (i, module_, name, [], [], 0), tokens)
 
 (** Parses comma-separated list-pattern items up to ']' (each a pattern,
     or a `..`/`..name` rest marker), in source order.
@@ -930,14 +1034,14 @@ and parse_list_pattern_item eof tokens =
       (Either.Right (ListRest (combine_info i name_info, Some name, 0)), rest)
   | TokDotDot i :: rest -> (Either.Right (ListRest (i, None, 0)), rest)
   | _ ->
-      let pattern, rest = parse_pattern_concat eof tokens in
+      let pattern, rest = parse_pattern_as eof tokens in
       (Either.Left pattern, rest)
 
 and parse_pattern_paren_tail eof tokens =
   match tokens with
   | TokRParen i :: rest -> ([], i, rest)
   | _ -> (
-      let elem, rest = parse_pattern_concat eof tokens in
+      let elem, rest = parse_pattern_as eof tokens in
       match rest with
       | TokComma _ :: rest ->
           let elems, rp, rest = parse_pattern_paren_tail eof rest in
@@ -966,15 +1070,43 @@ and parse_pattern_concat eof tokens =
   if List.length segments = 1 then (first, rest)
   else (joined_pattern segments, rest)
 
-(** Parses a pattern: one parse_pattern_concat, or a bare
-    comma-separated sequence of them.
-    info -> [token] -> (pattern, [token]) *)
-and parse_pattern eof tokens =
+(** Parses patterns joined with `|`: an or-pattern, which matches what
+    any of its alternatives matches. info -> [token] -> (pattern, [token]) *)
+and parse_pattern_or eof tokens =
   let first, rest = parse_pattern_concat eof tokens in
+  let rec alternatives rest collected =
+    match rest with
+    | TokBar _ :: after ->
+        let next, rest = parse_pattern_concat eof after in
+        alternatives rest (next :: collected)
+    | _ -> (List.rev collected, rest)
+  in
+  match alternatives rest [ first ] with
+  | [ single ], rest -> (single, rest)
+  | many, rest ->
+      let last = List.nth many (List.length many - 1) in
+      (POr (combine_info (pattern_info first) (pattern_info last), many, 0), rest)
+
+(** Parses an or-pattern, optionally followed by `as name`, which binds
+    the whole value matched as well. info -> [token] -> (pattern, [token]) *)
+and parse_pattern_as eof tokens =
+  let inner, rest = parse_pattern_or eof tokens in
+  match rest with
+  | TokAs _ :: TokIdent (ni, name) :: rest ->
+      check_plain_name ni name "bound by a pattern";
+      (PAs (combine_info (pattern_info inner) ni, inner, name, 0), rest)
+  | TokAs a :: _ ->
+      raise (Parse_error (a, "expected a name after 'as' in a pattern"))
+  | _ -> (inner, rest)
+
+(** Parses a pattern: one parse_pattern_as, or a bare comma-separated
+    sequence of them. info -> [token] -> (pattern, [token]) *)
+and parse_pattern eof tokens =
+  let first, rest = parse_pattern_as eof tokens in
   match rest with
   | TokComma _ :: rest ->
       let rec elements_from rest collected =
-        let elem, rest = parse_pattern_concat eof rest in
+        let elem, rest = parse_pattern_as eof rest in
         let collected = elem :: collected in
         match rest with
         | TokComma _ :: rest2 -> elements_from rest2 collected
@@ -996,11 +1128,18 @@ and parse_case eof tokens =
   | TokCase i :: rest -> (
       let pattern, rest = parse_pattern eof rest in
       check_no_duplicate_captures pattern;
+      let guard, rest =
+        match rest with
+        | TokIf _ :: rest ->
+            let g, rest = parse_expr eof rest in
+            (Some g, rest)
+        | _ -> (None, rest)
+      in
       match rest with
       | TokColon colon_info :: rest ->
           let body, rest = parse_block eof rest colon_info in
           let case_info_ = combine_info i (block_end_info i body) in
-          (MatchCase (case_info_, pattern, body, 0), rest)
+          (MatchCase (case_info_, pattern, guard, body, 0), rest)
       | _ ->
           raise (Parse_error (here eof rest, "expected ':' after case pattern")))
   | _ -> raise (Parse_error (here eof tokens, "expected a 'case' clause"))
@@ -1264,6 +1403,12 @@ and parse_statement eof tokens =
   | TokBreak i :: rest -> (SBreak (i, 0), rest)
   | TokContinue i :: rest -> (SContinue (i, 0), rest)
   | TokMatch i :: rest -> parse_match_stmt eof i rest
+  | TokDatatype i :: _ ->
+      raise
+        (Parse_error
+           ( i,
+             "a datatype belongs to the top level of a module, so it cannot \
+              be declared inside a block" ))
   (* A statement starting with `if` is either an if *statement*
      (`if cond: block`) or an if *expression* used as an expression
      statement. The two share the whole `"if" , expr` prefix, and that
@@ -1375,9 +1520,15 @@ and pattern_captures pattern =
         | _ -> caps
       in
       caps @ List.concat_map pattern_captures suffix
+  | PText (i, _, Some name, _, _) -> [ (name, i) ]
+  | PConstructor (_, _, _, positional, named, _) ->
+      List.concat_map pattern_captures (positional @ List.map snd named)
+  | POr (_, first :: _, _) -> pattern_captures first
+  | PAs (i, inner, name, _) -> pattern_captures inner @ [ (name, i) ]
   | _ -> []
 
-(** Raises Parse_error if pattern binds the same name more than once.
+(** Raises Parse_error if pattern binds the same name more than once, or
+    if the alternatives of an or-pattern bind different names.
     pattern -> () *)
 and check_no_duplicate_captures pattern =
   let rec check seen captures =
@@ -1389,7 +1540,41 @@ and check_no_duplicate_captures pattern =
             (Parse_error (i, Printf.sprintf "duplicate binding '%s' in pattern" name))
         else check (StringSet.add name seen) rest
   in
-  check StringSet.empty (pattern_captures pattern)
+  check StringSet.empty (pattern_captures pattern);
+  check_alternatives pattern
+
+(** Raises Parse_error where two alternatives of one or-pattern bind
+    different names, anywhere in pattern. pattern -> () *)
+and check_alternatives pattern =
+  let names p =
+    List.sort_uniq compare (List.map fst (pattern_captures p))
+  in
+  match pattern with
+  | POr (_, alternatives, _) ->
+      List.iter check_no_duplicate_captures alternatives;
+      let first = names (List.hd alternatives) in
+      List.iter
+        (fun alternative ->
+          let these = names alternative in
+          if these <> first then
+            let missing =
+              List.filter (fun n -> not (List.mem n these)) first
+              @ List.filter (fun n -> not (List.mem n first)) these
+            in
+            raise
+              (Parse_error
+                 ( pattern_info alternative,
+                   Printf.sprintf
+                     "every alternative of '|' binds the same names, and \
+                      '%s' is bound in one of them but not in this one"
+                     (List.hd missing) )))
+        (List.tl alternatives)
+  | PTuple (_, ps, _) -> List.iter check_alternatives ps
+  | PList (_, prefix, _, suffix, _) -> List.iter check_alternatives (prefix @ suffix)
+  | PConstructor (_, _, _, positional, named, _) ->
+      List.iter check_alternatives (positional @ List.map snd named)
+  | PAs (_, inner, _, _) -> check_alternatives inner
+  | _ -> ()
 
 (** Raises Parse_error if a parameter with a default is followed by one
     without: every parameter after the first default must have one too.
@@ -1712,6 +1897,25 @@ and made_implicit stmt implicit_info =
 and is_type_var name =
   String.length name > 0 && name.[0] >= 'a' && name.[0] <= 'z'
 
+(** Whether an identifier names a datatype or a constructor: one
+    starting with an uppercase letter. string -> bool *)
+and is_constructor_name name =
+  String.length name > 0 && name.[0] >= 'A' && name.[0] <= 'Z'
+
+(** Refuses a qualified name where a module name or an import alias
+    stands; either may start with an uppercase letter, since an import
+    may take a datatype. info -> String -> String -> () *)
+and check_import_name info name what =
+  if Names.is_qualified name then
+    raise
+      (Parse_error
+         ( info,
+           Printf.sprintf
+             "'%s' cannot be %s: a '::' name belongs to a 'def' that takes \
+              at least one argument, which is what resolves which of them \
+              a call means"
+             name what ))
+
 (* Pyking has no import-all form: a name a module reaches is written
    down, so reading the file says where every name comes from. *)
 let no_star =
@@ -1726,11 +1930,11 @@ let rec parse_import eof import_info tokens =
   let stmt, tokens =
     match tokens with
     | TokIdent (mi, module_name) :: TokAs _ :: TokIdent (last, alias) :: rest ->
-        check_plain_name mi module_name "a module name";
-        check_plain_name last alias "an import alias";
+        check_import_name mi module_name "a module name";
+        check_import_name last alias "an import alias";
         (SImport (combine_info import_info last, module_name, alias, false, [], 0), rest)
     | TokIdent (last, module_name) :: rest ->
-        check_plain_name last module_name "a module name";
+        check_import_name last module_name "a module name";
         ( SImport
             (combine_info import_info last, module_name, module_name, false, [], 0),
           rest )
@@ -1750,7 +1954,7 @@ let rec parse_import_fields eof tokens =
   let field, last, tokens =
     match tokens with
     | TokIdent (_, field) :: TokAs _ :: TokIdent (last, local) :: rest ->
-        check_plain_name last local "an import alias";
+        check_import_name last local "an import alias";
         ((field, local), last, rest)
     | TokIdent (last, field) :: rest -> ((field, field), last, rest)
     | TokMul i :: _ -> raise (Parse_error (i, no_star))
@@ -1768,7 +1972,7 @@ let rec parse_import_fields eof tokens =
 let parse_from_import eof from_info tokens =
   match tokens with
   | TokIdent (mi, module_name) :: TokImport _ :: rest ->
-      check_plain_name mi module_name "a module name";
+      check_import_name mi module_name "a module name";
       let fields, last, rest = parse_import_fields eof rest in
       let i = combine_info from_info last in
       ([ SImport (i, module_name, module_name, true, fields, 0) ], rest)
@@ -1777,6 +1981,196 @@ let parse_from_import eof from_info tokens =
         (Parse_error (here eof rest, "expected 'import' after the module name"))
   | _ ->
       raise (Parse_error (here eof tokens, "expected a module name after 'from'"))
+
+(** The type a field's literal default has, which is the field's type
+    where none is written. expr -> typ? *)
+let literal_type default =
+  match default with
+  | EInt (i, _, _) | ENeg (i, EInt _, _) -> Some (TInt (i, 0))
+  | EFloat (i, _, _) | ENeg (i, EFloat _, _) -> Some (TFloat (i, 0))
+  | EString (i, _, _) -> Some (TString (i, 0))
+  | EBool (i, _, _) -> Some (TBool (i, 0))
+  | _ -> None
+
+(** Parses one field of a constructor: a type, `name: Type`, `name =
+    literal` or `name: Type = default`. info -> [token] -> (field, [token]) *)
+let parse_field eof tokens =
+  let default_after i label type_ rest =
+    match rest with
+    | TokEq _ :: rest ->
+        let default, rest = parse_expr eof rest in
+        let type_ =
+          match type_ with
+          | Some t -> t
+          | None -> (
+              match literal_type default with
+              | Some t -> t
+              | None ->
+                  raise
+                    (Parse_error
+                       ( expr_info default,
+                         Printf.sprintf
+                           "the field '%s' needs its type written: only a \
+                            literal default says what type a field has"
+                           (Option.value label ~default:"") )))
+        in
+        ( Field (combine_info i (expr_info default), label, type_, Some default, 0),
+          rest )
+    | _ -> (
+        match type_ with
+        | Some t -> (Field (combine_info i (type_info t), label, t, None, 0), rest)
+        | None -> raise (Parse_error (here eof rest, "expected ':' or '=' after a field name")))
+  in
+  match tokens with
+  | TokIdent (i, name) :: TokColon _ :: rest when not (is_constructor_name name) ->
+      check_plain_name i name "a field name";
+      let t, rest = parse_type eof rest in
+      default_after i (Some name) (Some t) rest
+  | TokIdent (i, name) :: (TokEq _ :: _ as rest) when not (is_constructor_name name) ->
+      check_plain_name i name "a field name";
+      default_after i (Some name) None rest
+  | _ ->
+      let t, rest = parse_type eof tokens in
+      (Field (type_info t, None, t, None, 0), rest)
+
+(** Raises Parse_error where a constructor's fields are misshapen: an
+    unnamed field after a named one, a field without a default after one
+    with, or one name used twice. [field] -> () *)
+let check_fields fields =
+  ignore
+    (List.fold_left
+       (fun (named, defaulted, seen) (Field (i, label, _, default, _)) ->
+         (match label with
+         | None when named ->
+             raise
+               (Parse_error
+                  (i, "an unnamed field comes before every named one"))
+         | Some n when List.mem n seen ->
+             raise (Parse_error (i, Printf.sprintf "duplicate field '%s'" n))
+         | _ -> ());
+         if defaulted && default = None then
+           raise
+             (Parse_error
+                ( i,
+                  "this field needs a default, because a field before it has \
+                   one" ));
+         ( named || label <> None,
+           defaulted || default <> None,
+           match label with Some n -> n :: seen | None -> seen ))
+       (false, false, []) fields)
+
+(** Parses one constructor line: a name, and its fields in parentheses
+    where it has any. info -> [token] -> (constructor, [token]) *)
+let parse_constructor eof tokens =
+  match tokens with
+  | TokIdent (i, name) :: TokLParen lp :: rest
+    when is_constructor_name name && lp.row1 = i.row2 ->
+      let rec fields rest collected =
+        match rest with
+        | TokRParen rp :: rest -> (List.rev collected, rp, rest)
+        | _ -> (
+            let f, rest = parse_field eof rest in
+            match rest with
+            | TokComma _ :: rest -> fields rest (f :: collected)
+            | TokRParen rp :: rest -> (List.rev (f :: collected), rp, rest)
+            | _ ->
+                raise
+                  (Parse_error (here eof rest, "expected ',' or ')' after a field")))
+      in
+      let fields, rp, rest = fields rest [] in
+      check_fields fields;
+      (Constructor (combine_info i rp, name, fields, 0), rest)
+  | TokIdent (i, name) :: rest when is_constructor_name name ->
+      (Constructor (i, name, [], 0), rest)
+  | _ ->
+      raise
+        (Parse_error
+           ( here eof tokens,
+             "expected a constructor: a name starting with an uppercase \
+              letter, with its fields in parentheses where it has any" ))
+
+(** Parses a datatype declaration from just after `datatype`: its name,
+    its parameters, and one constructor per indented line.
+    info -> info -> [token] -> (stmt, [token]) *)
+let parse_datatype eof datatype_info tokens =
+  let name_info, name, rest =
+    match tokens with
+    | TokIdent (i, name) :: rest when is_constructor_name name -> (i, name, rest)
+    | _ ->
+        raise
+          (Parse_error
+             ( here eof tokens,
+               "expected the datatype's name, starting with an uppercase \
+                letter" ))
+  in
+  let params, rest =
+    match rest with
+    | TokLParen lp :: rest when lp.row1 = name_info.row2 ->
+        let rec vars rest collected =
+          match rest with
+          | TokIdent (vi, v) :: rest when is_type_var v ->
+              if List.mem v collected then
+                raise
+                  (Parse_error
+                     (vi, Printf.sprintf "duplicate type parameter '%s'" v));
+              (match rest with
+              | TokComma _ :: rest -> vars rest (v :: collected)
+              | TokRParen _ :: rest -> (List.rev (v :: collected), rest)
+              | _ ->
+                  raise
+                    (Parse_error
+                       (here eof rest, "expected ',' or ')' after a type parameter")))
+          | _ ->
+              raise
+                (Parse_error
+                   ( here eof rest,
+                     "a datatype's parameters are type variables: names \
+                      starting with a lowercase letter" ))
+        in
+        vars rest []
+    | _ -> ([], rest)
+  in
+  match rest with
+  | TokColon _ :: TokIndent _ :: rest ->
+      let rec constructors rest collected =
+        match rest with
+        | TokDedent _ :: rest -> (List.rev collected, rest)
+        | _ ->
+            let c, rest = parse_constructor eof rest in
+            let (Constructor (ci, cname, _, _)) = c in
+            (match collected with
+            | Constructor (pi, _, _, _) :: _ when pi.row2 >= ci.row1 ->
+                raise
+                  (Parse_error
+                     (ci, "each constructor starts a line of its own"))
+            | _ -> ());
+            if List.exists (fun (Constructor (_, n, _, _)) -> n = cname) collected
+            then
+              raise
+                (Parse_error
+                   ( ci,
+                     Printf.sprintf "'%s' is already a constructor of '%s'"
+                       cname name ));
+            constructors rest (c :: collected)
+      in
+      let constructors, rest = constructors rest [] in
+      let (Constructor (last, _, _, _)) =
+        List.nth constructors (List.length constructors - 1)
+      in
+      ( SDatatype
+          (combine_info datatype_info last, name, params, constructors, 0, false),
+        rest )
+  | [ TokColon c ] ->
+      raise
+        (Parse_error
+           ( c,
+             "unexpected end of input: a datatype's constructors follow it, \
+              one per indented line" ))
+  | TokColon c :: _ ->
+      raise
+        (Parse_error
+           (c, "a datatype's constructors are written one per line, indented under it"))
+  | _ -> raise (Parse_error (here eof rest, "expected ':' after the datatype's name"))
 
 (** One statement with `public` written in front of it. stmt -> info ->
     stmt *)
@@ -1789,6 +2183,8 @@ let made_public stmt public_info =
         (i, name, params, body, return_type, sym, true, implicits, implicit)
   | SFunctionSig (_, name, type_, sym, _) ->
       SFunctionSig (i, name, type_, sym, true)
+  | SDatatype (_, name, params, constructors, sym, _) ->
+      SDatatype (i, name, params, constructors, sym, true)
   | SLet (_, (TargetName _ as target), e, annotation, sym, _, implicit) ->
       SLet (i, target, e, annotation, sym, true, implicit)
   | SLetStmt (_, (TargetName _ as target), inner, annotation, sym, _) ->
@@ -1805,7 +2201,8 @@ let made_public stmt public_info =
            ( i,
              Printf.sprintf
                "'public' says what a module exports, so it goes in front of a \
-                'def', a 'def' signature line, or an '=' binding, not '%s'"
+                'def', a 'def' signature line, a 'datatype', or an '=' \
+                binding, not '%s'"
                (shorten (statement_text stmt)) ))
 
 (** Parses what a `public` exports: a `def`, a `def name : type`
@@ -1825,7 +2222,11 @@ let parse_public eof public_info tokens =
            ( here eof tokens,
              "expected a definition or a binding after 'public'" ))
   | _ -> ());
-  let stmt, rest = parse_statement eof tokens in
+  let stmt, rest =
+    match tokens with
+    | TokDatatype i :: rest -> parse_datatype eof i rest
+    | _ -> parse_statement eof tokens
+  in
   (made_public stmt public_info, rest)
 
 (** Parses one top-level statement, or the several an `import a, b` line
@@ -1839,6 +2240,9 @@ let parse_top_statement eof tokens =
   | TokFrom i :: rest -> parse_from_import eof i rest
   | TokPublic i :: rest ->
       let stmt, rest = parse_public eof i rest in
+      ([ stmt ], rest)
+  | TokDatatype i :: rest ->
+      let stmt, rest = parse_datatype eof i rest in
       ([ stmt ], rest)
   | _ ->
       let stmt, rest = parse_statement eof tokens in

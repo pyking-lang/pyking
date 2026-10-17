@@ -182,6 +182,38 @@ that way round, because a deferred definition's body is checked in the
 environment recorded where it was written, which is the environment at
 the start of the block.
 
+## Datatypes cross the boundary by name
+
+A `public datatype` exports its own name and every constructor's, so
+each is one of the module's public names and a `from` line may name any
+of them; a datatype named there brings its constructors with it (the
+desugaring pass adds them to the line's fields, beside the defs holding
+their defaults). A constructor that shares its datatype's name is one
+public name, not two.
+
+What a sigmap says about one is a `TData` entry, under the datatype's
+name and under each constructor's: the canonical name, the parameters,
+and each constructor's fields with their types. A datatype's
+**canonical name** is what the checker's types call it -- bare inside
+the module that declares it, `module.Name` everywhere else.
+`Module.module_sigmap name ...` makes the second from the first on the
+way out, qualifying every type in the module's signature, which is why it
+takes the module's name. Since imports are acyclic, a module's own
+datatypes never arrive in a signature it imports, so a bare name in its
+types is always its own. Two datatypes of one name in two modules are
+two types.
+
+`Typesystem.declare_datatypes` reads the entries back into the store's
+tables -- `Tree`, `m.Tree` or an alias's spelling, each to the canonical
+name -- and `import_env` skips them, since a datatype is no value. A
+public definition whose type names a datatype that is not public is
+refused (`check_exported_datatypes`), because a module holding the
+value could not name its type.
+
+The backends write a constructor of another module through it:
+`shapes.Circle` in Python and JavaScript, `Shapes.Circle` in OCaml,
+whose `.mli` declares the module's datatypes and their printers.
+
 ## A public implicit is found unqualified
 
 A name that is **both `public` and `implicit`** is reachable from an

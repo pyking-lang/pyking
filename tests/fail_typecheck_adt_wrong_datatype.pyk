@@ -1,0 +1,15 @@
+# A constructor pattern matches its own datatype's values only.
+
+datatype Color:
+    Red
+    Green
+
+datatype Size:
+    Small
+    Large
+
+
+def f(c: Color) -> Int:
+    match c:
+        case Small: 1
+        case _: 2

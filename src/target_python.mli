@@ -12,6 +12,7 @@
     thing that reads one.
 
     Data structures:
+      Unsupported -- a construct this backend does not translate.
       pyprogram -- a translated program: the host boilerplate and the
         program itself.
 
@@ -21,6 +22,10 @@
 
 (** A translated program: the host boilerplate and the program itself. *)
 type pyprogram
+
+(** A construct this backend does not translate, with the source
+    position. *)
+exception Unsupported of Lexer.info * string
 
 (** Translates a whole program. `tmap` is the type checker's table,
     which is what says whether a `print` argument can hold a Bool and

@@ -1,0 +1,4 @@
+# A field's type may name only the datatype's own parameters.
+
+datatype Box(a):
+    Box(a, b)

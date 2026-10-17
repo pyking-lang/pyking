@@ -61,6 +61,14 @@ type expr =
   | ELambda of info * param list * expr * int
       (* (x, y) => expr -- one parameter needs no parentheses. The body
          is one expression; nothing here holds statements. *)
+  | EConstruct of info * string option * string * (string option * expr) list
+                  * int
+      (* [module.]Name(args...) / [module.]Name -- a datatype's
+         constructor applied to its fields, named where the source named
+         them. The option is the module the constructor is reached
+         through. Desugar_args puts every field in its position, named
+         by the field's own name where it has one. *)
+  | EField of info * expr * string * int (* expr.name -- a named field *)
 
 and typ =
   | TInt of info * int (* Int *)
@@ -87,6 +95,19 @@ and typ =
          `rigid`: false for a variable the checker made rather than the
          source. *)
   | TForall of info * string list * typ * int (* all a b. body *)
+  | TCon of info * string * typ list * int
+      (* Name / Name(T1, ...) / module.Name(...) -- a datatype applied
+         to its parameters. In a type the checker made, the name is the
+         canonical one: bare for a datatype of the module being checked,
+         `module.Name` for one declared in another module. *)
+  | TData of info * datatype * int
+      (* what a module's signature says about a datatype it exports.
+         Never written in source, never printed. *)
+
+and datatype = Datatype of string * string list * (string * (string option * typ) list) list
+(* a datatype as another module sees it: its canonical name, its
+   parameters, and each constructor with its fields (the name, where the
+   field has one, and the type). *)
 
 and implicit_param = IParam of string * typ
 (* `implicit name: type`, in a function type. It carries no info and no
@@ -105,6 +126,14 @@ and pattern =
   | PText of info * string * string option * string * int
       (* case "ab" ++ rest ++ "z": prefix, the name the middle binds to
          (None where it is discarded), suffix. *)
+  | PConstructor of info * string option * string * pattern list
+                    * (string * pattern) list * int
+      (* case [module.]Name(p1, ..., field = p): positional patterns,
+         then named ones. Desugar_args puts every field in its position,
+         `_` where none was written, so nothing after it sees a named
+         one. *)
+  | POr of info * pattern list * int (* case p1 | p2 | ...: *)
+  | PAs of info * pattern * string * int (* case p as name: *)
 
 and list_rest = ListRest of info * string option * int
 (* the `..` / `..name` rest marker inside a PList *)
@@ -121,11 +150,20 @@ and param = Param of info * string * typ option * expr option * int
 (* name[: type][= default]. Desugar_args removes every default, so
    nothing after it sees a Some. *)
 
+and constructor = Constructor of info * string * field list * int
+(* Name(field, ...) -- one alternative of a datatype *)
+
+and field = Field of info * string option * typ * expr option * int
+(* Type / name: Type / name = default / name: Type = default -- a field
+   of a constructor. A field written with a literal default and no type
+   has the literal's type. Desugar_args removes every default. *)
+
 and loop_iter =
   | ForIn of info * string * expr * int (* for name in sequence *)
   | WhileTest of info * expr * int (* while condition *)
 
-and match_case = MatchCase of info * pattern * stmt list * int
+and match_case = MatchCase of info * pattern * expr option * stmt list * int
+(* case pattern [if guard]: body *)
 
 and stmt =
   | SLet of info * assign_target * expr * typ option * int * bool * bool
@@ -175,6 +213,9 @@ and stmt =
       (* [public] def name : type -- a def's type on a line of its own *)
   | SMatch of info * expr * match_case list * int
       (* match subject: case pattern: body ... *)
+  | SDatatype of info * string * string list * constructor list * int * bool
+      (* [public] datatype Name(a, b): one constructor per line. The
+         flag is `public`. *)
   | SImport of info * string * string * bool * (string * string) list * int
       (* import module [as name] / from module import field [as name].
          The fields are the module's own name for each thing taken and
@@ -210,6 +251,8 @@ let expr_info e =
   | EListComp (i, _, _, _) -> i
   | ELambda (i, _, _, _) -> i
   | EQualified (i, _, _, _) -> i
+  | EConstruct (i, _, _, _, _) -> i
+  | EField (i, _, _, _) -> i
 
 (** The symbol of one expression. expr -> int *)
 let expr_sym e =
@@ -237,6 +280,8 @@ let expr_sym e =
   | EListComp (_, _, _, s) -> s
   | ELambda (_, _, _, s) -> s
   | EQualified (_, _, _, s) -> s
+  | EConstruct (_, _, _, _, s) -> s
+  | EField (_, _, _, s) -> s
 
 (** The source span of one type. typ -> info *)
 let type_info t =
@@ -252,6 +297,8 @@ let type_info t =
   | TFunction (i, _, _, _, _, _, _) -> i
   | TVar (i, _, _, _) -> i
   | TForall (i, _, _, _) -> i
+  | TCon (i, _, _, _) -> i
+  | TData (i, _, _) -> i
 
 (** The symbol of one type. typ -> int *)
 let type_sym t =
@@ -267,6 +314,8 @@ let type_sym t =
   | TFunction (_, _, _, s, _, _, _) -> s
   | TVar (_, _, s, _) -> s
   | TForall (_, _, _, s) -> s
+  | TCon (_, _, _, s) -> s
+  | TData (_, _, s) -> s
 
 (** The source span of one pattern. pattern -> info *)
 let pattern_info p =
@@ -279,6 +328,9 @@ let pattern_info p =
   | PTuple (i, _, _) -> i
   | PList (i, _, _, _, _) -> i
   | PText (i, _, _, _, _) -> i
+  | PConstructor (i, _, _, _, _, _) -> i
+  | POr (i, _, _) -> i
+  | PAs (i, _, _, _) -> i
 
 (** The symbol of one pattern. pattern -> int *)
 let pattern_sym p =
@@ -291,6 +343,9 @@ let pattern_sym p =
   | PTuple (_, _, s) -> s
   | PList (_, _, _, _, s) -> s
   | PText (_, _, _, _, s) -> s
+  | PConstructor (_, _, _, _, _, s) -> s
+  | POr (_, _, s) -> s
+  | PAs (_, _, _, s) -> s
 
 (** The source span of one list-pattern rest marker. list_rest -> info *)
 let rest_info (ListRest (i, _, _)) = i
@@ -331,13 +386,17 @@ let loop_iter_info it =
   match it with ForIn (i, _, _, _) -> i | WhileTest (i, _, _) -> i
 
 (** The source span of one case clause. match_case -> info *)
-let case_info (MatchCase (i, _, _, _)) = i
+let case_info (MatchCase (i, _, _, _, _)) = i
 
 (** The pattern of one case clause. match_case -> pattern *)
-let case_pattern (MatchCase (_, p, _, _)) = p
+let case_pattern (MatchCase (_, p, _, _, _)) = p
+
+(** The guard of one case clause, where it has one.
+    match_case -> expr option *)
+let case_guard (MatchCase (_, _, g, _, _)) = g
 
 (** The body of one case clause. match_case -> [stmt] *)
-let case_body (MatchCase (_, _, b, _)) = b
+let case_body (MatchCase (_, _, _, b, _)) = b
 
 (** The source span of one statement. stmt -> info *)
 let stmt_info s =
@@ -357,6 +416,7 @@ let stmt_info s =
   | SFunctionSig (i, _, _, _, _) -> i
   | SMatch (i, _, _, _) -> i
   | SImport (i, _, _, _, _, _) -> i
+  | SDatatype (i, _, _, _, _, _) -> i
 
 (** The symbol of one statement. stmt -> int *)
 let stmt_sym s =
@@ -376,6 +436,7 @@ let stmt_sym s =
   | SFunctionSig (_, _, _, s, _) -> s
   | SMatch (_, _, _, s) -> s
   | SImport (_, _, _, _, _, s) -> s
+  | SDatatype (_, _, _, _, s, _) -> s
 
 (* --- one node with its span replaced ---
    What `dataclasses.replace(node, info=...)` does in src/: a
@@ -408,6 +469,8 @@ let set_expr_info i e =
   | EListComp (_, e2, cs, s) -> EListComp (i, e2, cs, s)
   | ELambda (_, ps, b, s) -> ELambda (i, ps, b, s)
   | EQualified (_, m, n, s) -> EQualified (i, m, n, s)
+  | EConstruct (_, m, n, a, s) -> EConstruct (i, m, n, a, s)
+  | EField (_, e2, n, s) -> EField (i, e2, n, s)
 
 (** One type with its span replaced. info -> typ -> typ *)
 let set_type_info i t =
@@ -423,6 +486,8 @@ let set_type_info i t =
   | TFunction (_, ps, r, s, tm, d, ips) -> TFunction (i, ps, r, s, tm, d, ips)
   | TVar (_, n, s, rigid) -> TVar (i, n, s, rigid)
   | TForall (_, vs, b, s) -> TForall (i, vs, b, s)
+  | TCon (_, n, args, s) -> TCon (i, n, args, s)
+  | TData (_, d, s) -> TData (i, d, s)
 
 (** One pattern with its span replaced. info -> pattern -> pattern *)
 let set_pattern_info i p =
@@ -435,6 +500,9 @@ let set_pattern_info i p =
   | PTuple (_, ps, s) -> PTuple (i, ps, s)
   | PList (_, pre, r, suf, s) -> PList (i, pre, r, suf, s)
   | PText (_, pre, r, suf, s) -> PText (i, pre, r, suf, s)
+  | PConstructor (_, m, n, ps, named, s) -> PConstructor (i, m, n, ps, named, s)
+  | POr (_, ps, s) -> POr (i, ps, s)
+  | PAs (_, p2, n, s) -> PAs (i, p2, n, s)
 
 (** One assignment target with its span replaced.
     info -> assign_target -> assign_target *)
@@ -481,17 +549,18 @@ let with_sym cfg sym self_delimited text =
 let expr_self_delimited e =
   match e with
   | EInt _ | EFloat _ | EString _ | EBool _ | EVar _ | EQualified _ | EList _
-  | ETuple _ | EListComp _ ->
+  | ETuple _ | EListComp _ | EConstruct _ | EField _ ->
       true
   | _ -> false
 
 let type_self_delimited t =
   match t with
-  | TInt _ | TFloat _ | TString _ | TBool _ | TList _ | TTuple _ -> true
+  | TInt _ | TFloat _ | TString _ | TBool _ | TList _ | TTuple _ | TCon _ ->
+      true
   | _ -> false
 
 let pattern_self_delimited p =
-  match p with PText _ -> false | _ -> true
+  match p with PText _ | POr _ | PAs _ -> false | _ -> true
 
 (** The type to print for a node: from tmap if one was given, otherwise
     the node's own annotation.
@@ -581,6 +650,10 @@ and pprint_type_body cfg t =
   | TForall (_, vars, body, _) ->
       Printf.sprintf "all %s. %s" (String.concat " " vars)
         (pprint_type cfg body)
+  | TCon (_, name, [], _) -> name
+  | TCon (_, name, args, _) ->
+      name ^ "(" ^ String.concat ", " (List.map (grouped cfg) args) ^ ")"
+  | TData (_, Datatype (name, _, _), _) -> "datatype " ^ name
 
 (** Formats a type in annotation position, without a symbol suffix when
     it came from tmap (a checker-built type has no symbol of its own).
@@ -596,7 +669,8 @@ let pprint_annotation_type cfg t =
     anywhere is printed as no annotation at all. typ -> bool *)
 let rec spellable t =
   match t with
-  | TUnknown _ | TBuiltin _ -> false
+  | TUnknown _ | TBuiltin _ | TData _ -> false
+  | TCon (_, _, args, _) -> List.for_all spellable args
   | TList (_, element, _) -> spellable element
   | TTuple (_, elements, _) -> List.for_all spellable elements
   | TFunction (_, params, result, _, _, _, implicits) ->
@@ -632,6 +706,13 @@ and pprint_expr_body cfg e min_prec =
   | EBool (_, v, _) -> if v then "true" else "false"
   | EVar (_, name, _) -> name
   | EQualified (_, module_name, name, _) -> module_name ^ "." ^ name
+  | EConstruct (_, module_, name, args, _) ->
+      let reached =
+        match module_ with Some m -> m ^ "." ^ name | None -> name
+      in
+      if args = [] then reached
+      else Printf.sprintf "%s(%s)" reached (pprint_args cfg args)
+  | EField (_, record, name, _) -> pprint_expr cfg record 5 ^ "." ^ name
   | EAdd (_, l, r, _) ->
       wrap_prec 2 min_prec
         (pprint_expr cfg l 2 ^ " + " ^ pprint_expr cfg r 3)
@@ -673,14 +754,7 @@ and pprint_expr_body cfg e min_prec =
   | ECall (_, f, args, _) ->
       (* The callee prints at 5 so a negated one keeps its parens:
          `(-f)(x)` calls the negation, `-f(x)` negates the result. *)
-      Printf.sprintf "%s(%s)" (pprint_expr cfg f 5)
-        (String.concat ", "
-           (List.map
-              (fun (name, a) ->
-                match name with
-                | None -> pprint_expr cfg a 0
-                | Some n -> n ^ " = " ^ pprint_expr cfg a 0)
-              args))
+      Printf.sprintf "%s(%s)" (pprint_expr cfg f 5) (pprint_args cfg args)
   | EList (_, elements, _) ->
       "["
       ^ String.concat ", " (List.map (fun x -> pprint_expr cfg x 0) elements)
@@ -717,6 +791,17 @@ and pprint_expr_body cfg e min_prec =
         (Printf.sprintf "(%s) => %s"
            (String.concat ", " (List.map (pprint_param cfg) params))
            (pprint_expr cfg body 0))
+
+(** Formats a call's arguments, each with the name it was written with.
+    config -> [(String?, expr)] -> string *)
+and pprint_args cfg args =
+  String.concat ", "
+    (List.map
+       (fun (name, a) ->
+         match name with
+         | None -> pprint_expr cfg a 0
+         | Some n -> n ^ " = " ^ pprint_expr cfg a 0)
+       args)
 
 (** Formats one parameter. config -> param -> string *)
 and pprint_param cfg (Param (_, name, type_, default, sym)) =
@@ -793,6 +878,27 @@ and pprint_pattern_body cfg p =
       in
       let parts = parts @ (if suffix <> "" then [ quote_string suffix ] else []) in
       String.concat " ++ " parts
+  | PConstructor (_, module_, name, positional, named, _) ->
+      let reached =
+        match module_ with Some m -> m ^ "." ^ name | None -> name
+      in
+      let parts =
+        List.map (pprint_pattern cfg) positional
+        @ List.map (fun (n, p) -> n ^ " = " ^ pprint_pattern cfg p) named
+      in
+      if parts = [] then reached
+      else reached ^ "(" ^ String.concat ", " parts ^ ")"
+  | POr (_, alternatives, _) ->
+      String.concat " | " (List.map (pprint_alternative cfg) alternatives)
+  | PAs (_, inner, name, _) -> pprint_alternative cfg inner ^ " as " ^ name
+
+(** Formats a pattern where `|` or `as` follows or surrounds it, which
+    parenthesizes one that is itself an `|` or an `as`.
+    config -> pattern -> string *)
+and pprint_alternative cfg p =
+  match p with
+  | POr _ | PAs _ -> "(" ^ pprint_pattern cfg p ^ ")"
+  | _ -> pprint_pattern cfg p
 
 (** Formats one assignment target. config -> assign_target -> string *)
 let rec pprint_target cfg t =
@@ -976,11 +1082,26 @@ and pprint_stmt_body cfg s level =
         :: List.map (fun st -> pprint_stmt cfg st (level + 1)) body)
   | SMatch (_, subject, cases, _) ->
       let lines = [ pad ^ "match " ^ pprint_expr cfg subject 0 ^ ":" ] in
-      let case_lines (MatchCase (_, pattern, body, _)) =
-        (pad ^ "    case " ^ pprint_pattern cfg pattern ^ ":")
+      let case_lines (MatchCase (_, pattern, guard, body, _)) =
+        let guard =
+          match guard with
+          | None -> ""
+          | Some g -> " if " ^ pprint_expr cfg g 1
+        in
+        (pad ^ "    case " ^ pprint_pattern cfg pattern ^ guard ^ ":")
         :: List.map (fun st -> pprint_stmt cfg st (level + 2)) body
       in
       String.concat "\n" (lines @ List.concat_map case_lines cases)
+  | SDatatype (_, name, params, constructors, _, public) ->
+      let params =
+        if params = [] then "" else "(" ^ String.concat ", " params ^ ")"
+      in
+      String.concat "\n"
+        (Printf.sprintf "%s%sdatatype %s%s:" pad (public_prefix public) name
+           params
+        :: List.map
+             (fun c -> pad ^ "    " ^ pprint_constructor cfg c)
+             constructors)
   | SImport (_, module_name, name, selected, fields, _) ->
       if selected then
         let taken =
@@ -993,6 +1114,22 @@ and pprint_stmt_body cfg s level =
         Printf.sprintf "%sfrom %s import %s" pad module_name taken
       else if name = module_name then Printf.sprintf "%simport %s" pad module_name
       else Printf.sprintf "%simport %s as %s" pad module_name name
+
+(** Formats one constructor of a datatype. config -> constructor -> string *)
+and pprint_constructor cfg (Constructor (_, name, fields, _)) =
+  if fields = [] then name
+  else
+    let field (Field (_, label, type_, default, _)) =
+      let text =
+        match label with
+        | None -> pprint_type cfg type_
+        | Some n -> n ^ ": " ^ pprint_type cfg type_
+      in
+      match default with
+      | None -> text
+      | Some e -> text ^ " = " ^ pprint_expr cfg e 0
+    in
+    name ^ "(" ^ String.concat ", " (List.map field fields) ^ ")"
 
 (** The symbols of definitions that a signature line in their own block
     describes. Those print no annotations, since writing both is a

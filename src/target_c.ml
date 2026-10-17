@@ -42,6 +42,9 @@ module SMap = Map.Make (String)
 let construct_names =
   [
     ("EList", "list literals");
+    ("SDatatype", "datatypes, whose values this backend has no heap model for");
+    ("EConstruct", "datatypes, whose values this backend has no heap model for");
+    ("EField", "datatypes, whose values this backend has no heap model for");
     ("ETuple", "tuples");
     ("EListComp", "list comprehensions");
     ("ELambda", "lambdas, which C has no closures for");
@@ -515,6 +518,7 @@ let stmt_kind_name s =
   | SFunctionSig _ -> "SFunctionSig"
   | SMatch _ -> "SMatch"
   | SImport _ -> "SImport"
+  | SDatatype _ -> "SDatatype"
 
 let expr_kind_name e =
   match e with
@@ -541,6 +545,8 @@ let expr_kind_name e =
   | EGreatThan _ -> "EGreatThan"
   | EGreatThanEq _ -> "EGreatThanEq"
   | EEq _ -> "EEq"
+  | EConstruct _ -> "EConstruct"
+  | EField _ -> "EField"
 
 (** One `loop` being translated: one C variable and its type per
     accumulator slot. *)
@@ -1368,9 +1374,33 @@ and match_chain state s scope translate_body =
          that every path returns. *)
       let chain, state =
         List.fold_left
-          (fun (chain, state) (MatchCase (case_info, p, case_body, _)) ->
+          (fun (chain, state) (MatchCase (case_info, p, guard, case_body, _)) ->
             let test, bindings, arm_scope, state =
               pattern_test state p here (block_scope scope)
+            in
+            (* Every `match` matches every value (exhaustive.ml), so the
+               last arm -- the first one this fold meets, with no chain
+               after it yet -- is reached only by what it matches, and
+               is the `else` where it has no guard. *)
+            let test = if guard = None && chain = None then None else test in
+            (* A guard is one more test, asked after the pattern's: so it
+               can see only what the pattern binds, which here is
+               nothing -- a name a pattern binds is declared inside the
+               arm. *)
+            let test, state =
+              match guard with
+              | None -> (test, state)
+              | Some g when bindings <> [] ->
+                  unsupported (expr_info g)
+                    "a guard on a case that binds a name -- the name is \
+                     declared inside the arm, after the test the guard is \
+                     part of"
+              | Some g -> (
+                  let condition, state = expr state g arm_scope false in
+                  match test with
+                  | None -> (Some condition, state)
+                  | Some t ->
+                      (Some (CBinary (expr_info g, "&&", t, condition, Bool)), state))
             in
             let body, state = translate_body state case_body arm_scope in
             let body = bindings @ body in
@@ -1417,6 +1447,32 @@ and pattern_test state p subject scope =
         [],
         scope,
         { state with uses_strcmp = true } )
+  | POr (_, alternatives, _) ->
+      (* Alternatives binding nothing are one test each, joined. *)
+      let tests, state =
+        List.fold_left
+          (fun (tests, state) one ->
+            let test, bindings, _, state = pattern_test state one subject scope in
+            if bindings <> [] then
+              unsupported (pattern_info one)
+                "an alternative of '|' that binds a name";
+            (tests @ [ test ], state))
+          ([], state) alternatives
+      in
+      if List.mem None tests then (None, [], scope, state)
+      else
+        ( Some
+            (List.fold_left
+               (fun joined t -> CBinary (info, "||", joined, t, Bool))
+               (Option.get (List.hd tests))
+               (List.map Option.get (List.tl tests))),
+          [],
+          scope,
+          state )
+  | PConstructor _ ->
+      unsupported info
+        "a datatype -- a value of one lives on the heap, which this \
+         backend has no value model for"
   | p -> unsupported (pattern_info p) "this pattern"
 
 (** Translates one statement, answering it with the scope it leaves

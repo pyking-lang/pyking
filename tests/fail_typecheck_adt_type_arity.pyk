@@ -1,0 +1,9 @@
+# A datatype with parameters is applied to as many types as it has.
+
+datatype Pair(a, b):
+    Pair(a, b)
+
+
+def first(p: Pair(Int)) -> Int:
+    match p:
+        case Pair(x, _): x

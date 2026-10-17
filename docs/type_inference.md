@@ -96,10 +96,24 @@ demand is unification against a type the construct already knows:
    n, s = pair      `pair` is a 2-tuple        →  unify(?p, (?a, ?b))
    return e         every path gives one type  →  unify(?r, typeof(e))
    if c: a else: b  branches are one type      →  unify(typeof(a), typeof(b))
+   Leaf(x, 1)       a constructor's fields     →  unify(typeof(x), ?a), where
+                                                    the value is Tree(?a)
+   case Just(v):    the subject is the datatype →  unify(?s, Option(?a))
+   t.age            `.age` reads a field      →  t's type must already be a
+                                                    datatype: a field name
+                                                    alone says nothing
 ```
 
 Each is written where the construct is checked, and each answers there
 and then. There is no phase that gathers demands and solves them later.
+
+A constructor is used the way a polymorphic function is: each use gives
+the datatype's parameters fresh metavariables, which its fields'
+arguments or sub-patterns then solve, so `Just(1)` is `Option(Int)` and
+`Nothing` stays `Option(?a)` until something says more. A field read is
+the one demand that cannot be made of an open type, since two datatypes
+may both have a field of that name; where the type is still open it is
+refused, asking for an annotation.
 
 ## 4. What is left open becomes a variable
 

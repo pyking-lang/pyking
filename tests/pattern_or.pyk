@@ -1,0 +1,74 @@
+# Or-patterns: alternatives of literals, of tuples, of constructors, and
+# alternatives that bind the same names.
+
+def kind(n: Int) -> String:
+    match n:
+        case 0: "zero"
+        case 1 | 2 | 3: "few"
+        case -1 | -2: "negative few"
+        case _: "many"
+
+
+for n in [0, 2, 3, -2, 9]:
+    print(n, kind(n))
+
+
+def weekend(day: String) -> Bool:
+    match day:
+        case "sat" | "sun": true
+        case _: false
+
+
+print(weekend("sun"), weekend("mon"))
+
+
+def on_axis(p: (Int, Int)) -> String:
+    match p:
+        case (0, 0): "origin"
+        case (x, 0) | (0, x): "on an axis at " ++ string(x)
+        case _: "elsewhere"
+
+
+for p in [(0, 0), (3, 0), (0, -4), (1, 1)]:
+    print(on_axis(p))
+
+datatype Token:
+    Plus
+    Minus
+    Times
+    Number(Int)
+    Name(String)
+
+
+def describe(t: Token) -> String:
+    match t:
+        case Plus | Minus: "additive"
+        case Times: "multiplicative"
+        case Number(n) if n < 0: "negative " ++ string(n)
+        case Number(_) | Name(_): "operand"
+
+
+print([describe(t) for t in [Plus, Times, Number(4), Name("x"), Minus, Number(-3)]])
+
+
+def first_or_last(xs: [Int]) -> Int:
+    match xs:
+        case [x] | [x, _] | [_, x, _]: x
+        case [x, ..]: x
+        case []: 0
+
+
+print(first_or_last([5]), first_or_last([6, 7]), first_or_last([1, 8, 2]), first_or_last([9, 1, 1, 1]), first_or_last([]))
+
+# A nested alternative inside a constructor's field.
+datatype Light:
+    Light(color: String, on: Bool)
+
+
+def warm(l: Light) -> Bool:
+    match l:
+        case Light("red" | "orange" | "yellow", true): true
+        case _: false
+
+
+print(warm(Light("red", true)), warm(Light("orange", false)), warm(Light("blue", true)))

@@ -1,0 +1,3 @@
+'tests/fail_typecheck_adt_nested.pyk' 10:4-13:53 Type error: this
+  'match' does not match every value: no case matches Node(Node(Leaf,
+  _, _), _, _). Add a case for it, or a 'case _'

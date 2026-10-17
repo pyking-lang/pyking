@@ -788,7 +788,7 @@ let front_end options =
                what its Pyking half worked out *and* what that half
                declared public. The names are the source's own, since
                that is what the module importing this one writes. *)
-            let sigmap = Module.module_sigmap unit.stmts unit.declarations tmap in
+            let sigmap = Module.module_sigmap unit.name unit.stmts unit.declarations tmap in
             let elaborated =
               if options.release then Release.program tmap elaborated
               else elaborated
@@ -942,13 +942,16 @@ let compile_unit (unit : Module.t) tmap target path options checked =
   else
     let program = Analyses.apply_signatures unit.stmts in
     if Targets.family_of target = Targets.Python then
-      ( Target_python.pprint_py_program
-          (Target_python.translate_program
-             ~external_fields:context.external_fields
-             ~externals:context.externals ~own:context.context_name program
-             (Option.value tmap ~default:Syntax.IntMap.empty))
-        ^ "\n",
-        [] )
+      let py_program =
+        try
+          Target_python.translate_program
+            ~external_fields:context.external_fields
+            ~externals:context.externals ~own:context.context_name program
+            (Option.value tmap ~default:Syntax.IntMap.empty)
+        with Target_python.Unsupported (info, message) ->
+          fail_unsupported target info message
+      in
+      (Target_python.pprint_py_program py_program ^ "\n", [])
     else if Targets.family_of target = Targets.C then
       (* One backend, two standards: the difference is in how the C is
          printed, not in what it means. *)

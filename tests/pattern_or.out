@@ -1,0 +1,13 @@
+0 zero
+2 few
+3 few
+-2 negative few
+9 many
+true false
+origin
+on an axis at 3
+on an axis at -4
+elsewhere
+['additive', 'multiplicative', 'operand', 'operand', 'additive', 'negative -3']
+5 6 8 9 0
+true false false

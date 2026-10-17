@@ -1,0 +1,9 @@
+# Reading a field needs every constructor to have it: a value built by
+# one without it has nothing to read.
+
+datatype List:
+    Nil
+    Cons(head: Int, tail: List)
+
+l = Cons(1, Nil)
+print(l.head)

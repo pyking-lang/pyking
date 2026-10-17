@@ -1,0 +1,20 @@
+datatype Pair(a, b):
+    Pair(first: a, second: b)
+datatype Maybe(a):
+    No
+    Yes(a)
+def swap(p:Pair(a, b)) -> Pair(b, a):
+    match p:
+        case Pair(x, y):
+            Pair(first = y, second = x)
+def get(m:Maybe(a), d:a) -> a:
+    match m:
+        case Yes(v):
+            v
+        case No:
+            d
+p: Pair(Int, String) = Pair(first = 1, second = 'one')
+q: Pair(String, Int) = swap(p)
+none: Maybe(String) = No
+print(q, get(Yes(2), 0), get(none, 'empty'))
+print(p.first + 1, q.first ++ '!')

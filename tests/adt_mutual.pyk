@@ -1,0 +1,40 @@
+# Mutually recursive datatypes, and functions over them: a rose tree is
+# a value and a forest, and a forest is a list of rose trees -- written
+# here as a datatype of its own.
+
+datatype Rose:
+    Rose(label: String, children: Forest)
+
+datatype Forest:
+    Nil
+    Cons(Rose, Forest)
+
+
+def count(r: Rose) -> Int:
+    match r:
+        case Rose(_, kids): 1 + count_all(kids)
+
+
+def count_all(f: Forest) -> Int:
+    match f:
+        case Nil: 0
+        case Cons(r, rest): count(r) + count_all(rest)
+
+
+def labels(r: Rose) -> [String]:
+    match r:
+        case Rose(l, kids): [l] ++ forest_labels(kids)
+
+
+def forest_labels(f: Forest) -> [String]:
+    match f:
+        case Nil: []
+        case Cons(r, rest): labels(r) ++ forest_labels(rest)
+
+
+leaf = name => Rose(name, Nil)
+tree = Rose("root", Cons(leaf("a"), Cons(Rose("b", Cons(leaf("c"), Nil)), Nil)))
+print(count(tree))
+print(labels(tree))
+print(tree.label, count_all(tree.children))
+print(Cons(leaf("x"), Nil))

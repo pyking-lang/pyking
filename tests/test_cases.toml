@@ -1809,3 +1809,152 @@ targets = ["python14", "node24", "iweb24", "c89", "c99", "c23", "java8", "java17
 file = "lib_tinyweb_style.pyk"
 libs = ["tinyweb"]
 targets = ["python14", "node24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+
+# Datatypes and the patterns that take them apart (PYKING.md,
+# "Datatypes"); every `match` is exhaustive (docs/exhaustive.md).
+
+[[cases]]
+file = "adt_basic.pyk"
+targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "adt_option.pyk"
+targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "adt_tree.pyk"
+targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "adt_expr.pyk"
+targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "adt_mutual.pyk"
+targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "adt_list.pyk"
+targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "adt_fields.pyk"
+targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "adt_redblack.pyk"
+targets = ["python14", "iweb24", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "pattern_or.pyk"
+targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "pattern_guard.pyk"
+targets = ["python14", "iweb24", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "pattern_as.pyk"
+targets = ["python14", "iweb24", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "pattern_guard_scalar.pyk"
+targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
+
+[[cases]]
+file = "typecheck_adt_infer.pyk"
+targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret", "pyking"]
+
+[[cases]]
+file = "module_adt.pyk"
+modules = ["module_adt_mod1.pyk"]
+targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
+
+[[cases]]
+file = "fail_typecheck_module_adt_private.pyk"
+modules = ["fail_typecheck_module_adt_private_mod1.pyk"]
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_adt_constructor_value.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_adt_default_order.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_adt_default_type.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_adt_duplicate_constructor.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_adt_field_count.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_adt_field_missing.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_adt_field_type.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_adt_guard_cover.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_adt_guard_type.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_adt_in_block.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_adt_named_order.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_adt_nested.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_adt_nonexhaustive.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_adt_or_names.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_adt_or_types.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_adt_type_arity.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_adt_type_variable.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_adt_unknown_constructor.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_adt_unknown_type.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_adt_unreachable.pyk"
+targets = ["pyking"]
+
+[[cases]]
+file = "fail_typecheck_adt_wrong_datatype.pyk"
+targets = ["pyking"]

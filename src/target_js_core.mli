@@ -92,6 +92,8 @@ and jsstmt =
          syntax.ml's SImport. *)
   | JsFunc of info * string * string list * jsstmt list
   | JsReturn of info * jsexpr
+  | JsLabeled of info * string * jsstmt list (* label: { ... } *)
+  | JsBreakTo of info * string (* break label; *)
 
 (** Everything the packager decides and the core only names: how each
     runtime operation is called, and how what crosses a module boundary

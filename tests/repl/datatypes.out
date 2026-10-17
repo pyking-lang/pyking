@@ -1,0 +1,12 @@
+Pyking REPL.  :help for commands, :quit to leave.
+> . . . > > Circle(2.0) : Shape
+> '<repl>' 1:0-1:8 Type error: 'Shape' has no field 'radius' in every
+  constructor: 'Square' has none, so a value built by it has nothing
+  to read
+> . . . '<repl>' 2:4-3:35 Type error: this 'match' does not match every value:
+  no case matches Square(_). Add a case for it, or a 'case _'
+> . . . . . > 9.0 : Float
+> . . . Circle(2.0) 2.0
+> s    = Circle(2.0) : Shape
+area = <function> : (Shape) -> Float
+> 

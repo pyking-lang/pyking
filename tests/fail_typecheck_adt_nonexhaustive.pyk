@@ -1,0 +1,16 @@
+# A `match` over a datatype has to name every constructor, or have a
+# case that takes the rest.
+
+datatype Shape:
+    Circle(Float)
+    Square(Float)
+    Triangle(Float, Float, Float)
+
+
+def area(s: Shape) -> Float:
+    match s:
+        case Circle(r): 3.0 * r * r
+        case Square(a): a * a
+
+
+print(area(Circle(1.0)))

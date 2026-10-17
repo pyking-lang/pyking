@@ -38,6 +38,8 @@ type node =
   | NParam of param
   | NLoopIter of loop_iter
   | NMatchCase of match_case
+  | NConstructor of constructor
+  | NFieldDecl of field
   | NStmt of stmt
 
 (** One node's immediate children, in the order src/syntax.ml declares

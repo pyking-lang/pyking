@@ -111,6 +111,10 @@ type oprogram = {
   program_name : string;
   main : bool;
   interface : (string * string) list;
+  types : string list;
+  printers : oitem list;
+  printer_interface : (string * string) list;
+  fragile : bool;
 }
 
 (* --- names ---
@@ -222,6 +226,68 @@ let ocaml_module name =
     string -> string -> string *)
 let reached module_name field =
   Printf.sprintf "%s.%s" (ocaml_module module_name) (public_name field)
+
+(* OCaml's own type names, which a datatype's must not take: the module's
+   own code uses them. *)
+let predefined_types =
+  List.fold_left
+    (fun set name -> StringSet.add name set)
+    StringSet.empty
+    (String.split_on_char ' '
+       "int float string bool unit list option array ref exn char bytes \
+        result format format4 format6 lazy_t in_channel out_channel seq")
+
+(* OCaml's own constructors, which a datatype's must not take: Stdlib's
+   would then mean the program's in everything written after it. *)
+let predefined_constructors =
+  List.fold_left
+    (fun set name -> StringSet.add name set)
+    StringSet.empty
+    (String.split_on_char ' '
+       "None Some Ok Error Left Right Failure Exit Not_found \
+        Invalid_argument End_of_file Division_by_zero Sys_error \
+        Stack_overflow Out_of_memory Match_failure Assert_failure")
+
+(** A canonical datatype name split into its module, where it is
+    another's, and its own name. string -> (string?, string) *)
+let split_canonical canonical =
+  match String.rindex_opt canonical '.' with
+  | Some at ->
+      ( Some (String.sub canonical 0 at),
+        String.sub canonical (at + 1) (String.length canonical - at - 1) )
+  | None -> (None, canonical)
+
+(** A datatype's OCaml type name, in its own module. string -> string *)
+let type_base name =
+  let lower = String.uncapitalize_ascii name in
+  if StringSet.mem lower reserved || StringSet.mem lower predefined_types then
+    lower ^ "_"
+  else lower
+
+(** How a datatype is written here, from its canonical name.
+    string -> string *)
+let datatype_name canonical =
+  match split_canonical canonical with
+  | Some m, n -> ocaml_module m ^ "." ^ type_base n
+  | None, n -> type_base n
+
+(** A constructor's OCaml name in its own module. string -> string *)
+let constructor_base name =
+  if StringSet.mem name predefined_constructors then name ^ "_" else name
+
+(** How a constructor of the datatype `canonical` is written here.
+    string -> string -> string *)
+let constructor_name canonical name =
+  match split_canonical canonical with
+  | Some m, _ -> ocaml_module m ^ "." ^ constructor_base name
+  | None, _ -> constructor_base name
+
+(** The function that prints a datatype's values, from its canonical
+    name. string -> string *)
+let printer_name canonical =
+  match split_canonical canonical with
+  | Some m, n -> ocaml_module m ^ ".pyk_show_" ^ type_base n
+  | None, n -> "pyk_show_" ^ type_base n
 
 (** Every name a `from` line brings in, mapped to the OCaml name it reads
     as: a value of the module that exports it, reached through that
@@ -448,6 +514,11 @@ type ctx = {
   own_module : string;
   own_external : string list;
   names : string SMap.t;
+  (* Every datatype this module can see, by canonical name, and -- while
+     a datatype's printer is being written -- the printer each of its
+     type variables is printed with. *)
+  datatypes : datatype SMap.t;
+  shows : (string * oexpr) list;
 }
 
 (** What a translation accumulates. *)
@@ -701,6 +772,7 @@ let stmt_kind_name s =
   | SFunctionSig _ -> "SFunctionSig"
   | SMatch _ -> "SMatch"
   | SImport _ -> "SImport"
+  | SDatatype _ -> "SDatatype"
 
 let escape_char c =
   match c with
@@ -1082,6 +1154,10 @@ let numeric ctx operand spelling =
   | Some (TFloat _) -> spelling ^ "."
   | _ -> spelling
 
+(** The datatype a canonical name denotes, where this module can see it.
+    ctx -> string -> datatype? *)
+let datatype_of ctx canonical = SMap.find_opt canonical ctx.datatypes
+
 (** Translates one expression. ctx -> acc -> expr -> (oexpr, acc) *)
 let rec expr ctx acc e =
   match e with
@@ -1172,6 +1248,47 @@ let rec expr ctx acc e =
   (* OCaml's `=` is structural equality, which is what Pyking's `==`
      means for every type it compares. *)
   | EEq (_, left, right, _) -> binary ctx acc "=" left right
+  | EConstruct (_, _, name, args, _) -> (
+      let canonical =
+        match type_of ctx e with TCon (_, c, _, _) -> c | _ -> name
+      in
+      let pieces, sequence, acc = in_order ctx acc (arg_exprs args) in
+      let ctor = OVar (constructor_name canonical name) in
+      match pieces with
+      | [] -> (ctor, acc)
+      | [ one ] -> (sequence (OApp (ctor, [ one ])), acc)
+      | many -> (sequence (OApp (ctor, [ OTuple many ])), acc))
+  | EField (_, record, field, _) -> (
+      (* OCaml reads a field by matching: one arm per constructor, each
+         taking the field from where that constructor keeps it. *)
+      match type_of ctx record with
+      | TCon (_, canonical, _, _) -> (
+          match SMap.find_opt canonical ctx.datatypes with
+          | Some (Datatype (_, _, constructors)) ->
+              let o_record, acc = expr ctx acc record in
+              let name, acc = fresh_name ctx acc in
+              let arms =
+                List.map
+                  (fun (cname, fields) ->
+                    let parts =
+                      List.map
+                        (fun (label, _) -> if label = Some field then name else "_")
+                        fields
+                    in
+                    let text =
+                      match parts with
+                      | [] -> constructor_name canonical cname
+                      | [ one ] -> constructor_name canonical cname ^ " " ^ one
+                      | many ->
+                          Printf.sprintf "%s (%s)" (constructor_name canonical cname)
+                            (String.concat ", " many)
+                    in
+                    (text, None, OVar name))
+                  constructors
+              in
+              (OMatch (o_record, arms), acc)
+          | None -> unsupported (expr_info e) "a field of a datatype this module cannot see")
+      | _ -> unsupported (expr_info e) "a field of a value whose type is not settled")
 
 (** One binary operator application.
     ctx -> acc -> string -> expr -> expr -> (oexpr, acc) *)
@@ -1320,6 +1437,20 @@ and string_of ctx acc type_ translated info top =
            naming a type leaves the generated OCaml as polymorphic as
            the Pyking it came from. *)
         (OSeq (OIgnore translated, OStr ""), acc)
+    | TVar (_, variable, _, true) when List.mem_assoc variable ctx.shows ->
+        (OApp (List.assoc variable ctx.shows, [ translated ]), acc)
+    | TCon (_, canonical, args, _) ->
+        (* A datatype's values print through the printer written beside
+           its declaration, handed one printer per type it is applied to. *)
+        let printers, acc =
+          List.fold_left
+            (fun (out, acc) arg ->
+              let name, acc = fresh_name ctx acc in
+              let shown, acc = string_of ctx acc arg (OVar name) info false in
+              (out @ [ OFun [ (name, shown) ] ], acc))
+            ([], acc) args
+        in
+        (OApp (OVar (printer_name canonical), printers @ [ translated ]), acc)
     | type_ ->
         unsupported info
           (Printf.sprintf "printing a value of type %s" (name_of type_))
@@ -1623,13 +1754,76 @@ and matcher ctx acc p used =
                   ]
           in
           ((name, [ OBin (">=", count, OInt (front + back)) ], extracts), acc))
+  | PConstructor (_, _, name, fields, _, sym) ->
+      let canonical =
+        match IntMap.find_opt sym ctx.tmap with
+        | Some (TCon (_, c, _, _)) -> c
+        | _ -> name
+      in
+      let parts, guards, extracts, acc =
+        List.fold_left
+          (fun (parts, guards, extracts, acc) element ->
+            let (text, element_guards, element_extracts), acc =
+              matcher ctx acc element used
+            in
+            ( parts @ [ text ],
+              guards @ element_guards,
+              extracts @ element_extracts,
+              acc ))
+          ([], [], [], acc) fields
+      in
+      let ctor = constructor_name canonical name in
+      let text =
+        match parts with
+        | [] -> ctor
+        | [ one ] -> Printf.sprintf "%s (%s)" ctor one
+        | many -> Printf.sprintf "%s (%s)" ctor (String.concat ", " many)
+      in
+      ((text, guards, extracts), acc)
+  | POr (info, alternatives, _) ->
+      let parts, acc =
+        List.fold_left
+          (fun (parts, acc) one ->
+            let (text, guards, extracts), acc = matcher ctx acc one used in
+            if guards <> [] || extracts <> [] then
+              unsupported info
+                "an alternative of '|' that splits a string or a list from \
+                 its end: this backend tests those in the arm's `when`, which \
+                 an alternative of its own has none of";
+            (parts @ [ text ], acc))
+          ([], acc) alternatives
+      in
+      ((Printf.sprintf "(%s)" (String.concat " | " parts), [], []), acc)
+  | PAs (_, inner, name, _) ->
+      let (text, guards, extracts), acc = matcher ctx acc inner used in
+      ( (Printf.sprintf "(%s as %s)" text (unread (mangle ctx name) used), guards, extracts),
+        acc )
 
 (** One `case` as an OCaml arm: its pattern, what it has to test with
     `when`, and its body with the bindings the pattern could not make
     itself opened in front of it.
     ctx -> acc -> pattern -> oexpr -> ((string, oexpr?, oexpr), acc) *)
-and arm_for ctx acc p body =
-  let (text, guards, extracts), acc = matcher ctx acc p (Some (free body)) in
+and arm_for ?guard ctx acc p body =
+  let used =
+    match guard with
+    | None -> free body
+    | Some g -> StringSet.union (free body) (free g)
+  in
+  let (text, guards, extracts), acc = matcher ctx acc p (Some used) in
+  (* The case's own guard comes after the pattern's tests, and may name
+     what the pattern's bindings make, so they are made around it too. *)
+  let guards =
+    match guard with
+    | None -> guards
+    | Some g ->
+        guards
+        @ [
+            List.fold_left
+              (fun g (name, value) ->
+                OLet ([ { bound = OPatName name; params = []; value } ], g, false))
+              g (List.rev extracts);
+          ]
+  in
   let body =
     List.fold_left
       (fun body (name, value) ->
@@ -1657,7 +1851,7 @@ and unguarded_patterns cases arms =
   List.filteri
     (fun index _ ->
       match List.nth_opt arms index with Some (_, None, _) -> true | _ -> false)
-    (List.map (fun (MatchCase (_, p, _, _)) -> p) cases)
+    (List.map (fun (MatchCase (_, p, _, _, _)) -> p) cases)
 
 (** The fold for the clauses that are left: `[expr for p in seq if c
     ...]` as nested folds. Each `for` becomes a `List.concat_map` over
@@ -1674,7 +1868,9 @@ and clauses ctx acc clause_list element =
       let (text, guard, inner), acc = arm_for ctx acc p inner in
       let arms = [ (text, guard, inner) ] in
       let arms =
-        if guard = None && Typesystem.covers [ p ] then arms
+        if guard = None && Exhaustive.covers (datatype_of ctx)
+             (IntMap.find_opt (pattern_sym p) ctx.tmap) [ p ]
+        then arms
         else arms @ [ ("_", None, OList []) ]
       in
       let o_sequence, acc = expr ctx acc sequence in
@@ -1700,11 +1896,30 @@ and clauses ctx acc clause_list element =
     actually reads. ctx -> acc -> [match_case] -> ([(string, oexpr)], acc) *)
 and arms ctx acc cases =
   List.fold_left
-    (fun (built, acc) (MatchCase (_, p, case_body, _)) ->
+    (fun (built, acc) (MatchCase (_, p, guard, case_body, _)) ->
       let o_body, acc = body ctx acc case_body in
-      let arm, acc = arm_for ctx acc p o_body in
+      let guard, acc = case_guard_of ctx acc guard in
+      let arm, acc = arm_for ?guard ctx acc p o_body in
       (built @ [ arm ], acc))
     ([], acc) cases
+
+(** A case's guard, where it has one. ctx -> acc -> expr? -> (oexpr?, acc) *)
+and case_guard_of ctx acc guard =
+  match guard with
+  | None -> (None, acc)
+  | Some g ->
+      let o, acc = expr ctx acc g in
+      (Some o, acc)
+
+(** Whether the arms OCaml's own check can see -- the ones with no
+    `when` -- match every value of the subject's type, which is what
+    decides whether OCaml needs a catch-all it would otherwise refuse
+    to do without. ctx -> expr -> [match_case] -> [(string, oexpr?,
+    oexpr)] -> bool *)
+and visibly_covers ctx subject cases o_arms =
+  Exhaustive.covers (datatype_of ctx)
+    (IntMap.find_opt (expr_sym subject) ctx.tmap)
+    (unguarded_patterns cases o_arms)
 
 (** A `match` whose value is taken. OCaml requires every value to exist,
     so the clauses must cover -- which typesystem.ml has already required
@@ -1717,7 +1932,7 @@ and match_value ctx acc stmt =
       (* A `when` hides coverage from OCaml, which then wants an arm for
          what the checker already proved cannot arrive. *)
       let o_arms =
-        if Typesystem.covers (unguarded_patterns cases o_arms) then o_arms
+        if visibly_covers ctx subject cases o_arms then o_arms
         else o_arms @ [ ("_", None, OApp (OVar "assert", [ OBool false ])) ]
       in
       (OMatch (o_subject, o_arms), acc)
@@ -1731,15 +1946,16 @@ and match_effects ctx acc stmt =
   | SMatch (_, subject, cases, _) ->
       let o_arms, acc =
         List.fold_left
-          (fun (built, acc) (MatchCase (_, p, case_body, _)) ->
+          (fun (built, acc) (MatchCase (_, p, guard, case_body, _)) ->
             let o_body, acc = effects ctx acc case_body in
-            let arm, acc = arm_for ctx acc p o_body in
+            let guard, acc = case_guard_of ctx acc guard in
+            let arm, acc = arm_for ?guard ctx acc p o_body in
             (built @ [ arm ], acc))
           ([], acc) cases
       in
       let o_arms =
-        if Typesystem.covers (unguarded_patterns cases o_arms) then o_arms
-        else o_arms @ [ ("_", None, OUnit) ]
+        if visibly_covers ctx subject cases o_arms then o_arms
+        else o_arms @ [ ("_", None, OApp (OVar "assert", [ OBool false ])) ]
       in
       let o_subject, acc = expr ctx acc subject in
       (OMatch (o_subject, o_arms), acc)
@@ -1872,33 +2088,9 @@ and last ctx acc statement where =
               let o_then, acc = block ctx acc then_body where in
               let o_else, acc = block ctx acc else_body where in
               (OIf (o_cond, o_then, Some o_else), acc))
-      | SMatch (_, _, cases, _)
-        when tail
-             && Typesystem.covers
-                  (List.map (fun (MatchCase (_, p, _, _)) -> p) cases) ->
-          match_value ctx acc statement
-      | SMatch (_, _, cases, _) when tail ->
-          (* A subject no arm takes leaves unit, where an arm that
-             matches leaves what it ends in: two types for one
-             expression, which OCaml has no way to write. *)
-          List.iter
-            (fun (MatchCase (_, _, case_body, _)) ->
-              match List.rev case_body with
-              | SExprStmt (info, e, _) :: _ -> (
-                  match IntMap.find_opt (expr_sym e) ctx.tmap with
-                  | Some type_ when not (is_unit type_) ->
-                      unsupported info
-                        "an arm of a `match` that does not cover, in a \
-                         position whose value is taken: a subject no arm takes \
-                         leaves unit where this one leaves its own value, and \
-                         OCaml has one type for both"
-                  | _ -> ())
-              | _ -> ())
-            cases;
-          match_effects ctx acc statement
-      (* A `match` no arm takes falls out of it as unit, so one that does
-         not cover is worth unit wherever it stands -- and needs the
-         fallthrough spelled out, which OCaml requires anyway. *)
+      (* Every `match` matches every value (exhaustive.ml), so one in
+         tail position is worth what its arms are. *)
+      | SMatch _ when tail -> match_value ctx acc statement
       | SMatch _ -> match_effects ctx acc statement
       | SLoop _ when tail ->
           (* A loop is an expression here, so a function ending in one
@@ -2108,29 +2300,21 @@ and loop_last ctx acc statement this =
   | SMatch (_, subject, cases, _) ->
       (* Each arm is a path of its own, and a subject no arm takes goes
          round again -- which only a loop carrying nothing can do. *)
-      let covers =
-        Typesystem.covers (List.map (fun (MatchCase (_, p, _, _)) -> p) cases)
-      in
-      if this.carries && not covers then
-        unsupported (stmt_info statement)
-          "a `match` that does not cover as the last statement of a loop \
-           body: a subject no arm takes would say nothing about what the \
-           next turn carries";
       let o_subject, acc = expr ctx acc subject in
       let o_arms, acc =
         List.fold_left
-          (fun (built, acc) (MatchCase (_, p, case_body, _)) ->
+          (fun (built, acc) (MatchCase (_, p, guard, case_body, _)) ->
             let o_body, acc = block ctx acc case_body (InLoop this) in
-            let arm, acc = arm_for ctx acc p o_body in
+            let guard, acc = case_guard_of ctx acc guard in
+            let arm, acc = arm_for ?guard ctx acc p o_body in
             (built @ [ arm ], acc))
           ([], acc) cases
       in
       let o_arms =
-        if Typesystem.covers (unguarded_patterns cases o_arms) then o_arms
-        else if covers then
-          (* Covered, but a `when` hides that from OCaml. *)
+        if visibly_covers ctx subject cases o_arms then o_arms
+        else
+          (* Every value is matched, but a `when` hides that from OCaml. *)
           o_arms @ [ ("_", None, OApp (OVar "assert", [ OBool false ])) ]
-        else o_arms @ [ ("_", None, again this OUnit) ]
       in
       (OMatch (o_subject, o_arms), acc)
   | SExprStmt (_, e, _) when this.carries ->
@@ -2379,8 +2563,10 @@ and items ctx acc stmts =
       | (SLet _ | SLetStmt _) as statement ->
           let b, acc = binding ctx acc statement in
           go (index + 1) ctx acc (OItemLet ([ b ], false) :: built)
-      | SImport _ ->
-          (* Nothing is emitted: a qualified name is written
+      | SImport _ | SDatatype _ ->
+          (* Nothing is emitted for an import or a datatype here: a
+             datatype's declaration is written above every item, and for
+             an import, a qualified name is written
              `Module.name` where it is used, and a name a `from` line
              brought in reads as that same thing. What makes the module's
              own top level run first is the order the files are linked
@@ -2392,7 +2578,8 @@ and items ctx acc stmts =
             if i >= count then (List.rev run, i)
             else
               match List.nth stmts i with
-              | SLet _ | SLetStmt _ | SVar _ | SFunctionDef _ | SImport _ ->
+              | SLet _ | SLetStmt _ | SVar _ | SFunctionDef _ | SImport _
+              | SDatatype _ ->
                   (List.rev run, i)
               | statement -> take (i + 1) (statement :: run)
           in
@@ -2612,6 +2799,13 @@ let rec type_text type_ name top =
      left off and the variables written as they are. *)
   | TForall (_, _, inner, _) -> type_text inner name top
   | TVar (_, variable, _, _) -> Printf.sprintf "'%s" variable
+  | TCon (_, canonical, [], _) -> datatype_name canonical
+  | TCon (_, canonical, [ one ], _) ->
+      Printf.sprintf "%s %s" (type_text one name false) (datatype_name canonical)
+  | TCon (_, canonical, args, _) ->
+      Printf.sprintf "(%s) %s"
+        (String.concat ", " (List.map (fun a -> type_text a name true) args))
+        (datatype_name canonical)
   | type_ ->
       unsupported builtin_info
         (Printf.sprintf
@@ -2901,9 +3095,10 @@ let pprint_ocaml_interface program source =
   in
   String.concat "\n"
     (parts
+    @ List.concat_map (fun t -> [ ""; t ]) program.types
     @ List.concat_map
         (fun (name, type_text) -> [ ""; Printf.sprintf "val %s : %s" name type_text ])
-        program.interface)
+        (program.printer_interface @ program.interface))
   ^ "\n"
 
 (** The whole module: a header, the prelude if needed, and the top-level
@@ -2931,6 +3126,12 @@ let pprint_ocaml_program program source =
           program.program_name;
       ]
   in
+
+  (* A wildcard over a datatype is what Pyking writes for "every other
+     constructor", which OCaml calls fragile. *)
+  let parts =
+    parts @ if program.fragile then [ ""; "[@@@warning \"-fragile-match\"]" ] else []
+  in
   let parts =
     parts @ if program.needs_list_printer then [ ""; list_printer_def ] else []
   in
@@ -2942,10 +3143,160 @@ let pprint_ocaml_program program source =
   let parts =
     parts @ List.concat_map (fun name -> [ ""; conversion_def name ]) program.conversions
   in
+  let parts = parts @ List.concat_map (fun t -> [ ""; t ]) program.types in
+  let parts =
+    parts @ List.concat_map (fun item -> [ ""; pprint_item item ]) program.printers
+  in
   let parts =
     parts @ List.concat_map (fun item -> [ ""; pprint_item item ]) program.items
   in
   String.concat "\n" parts ^ "\n"
+
+(** A type with the datatypes of module `own` named as that module names
+    them: a module's signature calls them `own.Name`, and its own file
+    calls them `Name`. string -> typ -> typ *)
+let rec unqualified own type_ =
+  let go = unqualified own in
+  match type_ with
+  | TCon (i, n, args, s) ->
+      let prefix = own ^ "." in
+      let n =
+        if String.length n > String.length prefix
+           && String.sub n 0 (String.length prefix) = prefix
+        then String.sub n (String.length prefix) (String.length n - String.length prefix)
+        else n
+      in
+      TCon (i, n, List.map go args, s)
+  | TList (i, e, s) -> TList (i, go e, s)
+  | TTuple (i, es, s) -> TTuple (i, List.map go es, s)
+  | TFunction (i, ps, r, s, tm, d, ips) ->
+      TFunction (i, List.map go ps, go r, s, tm, d, List.map (fun (IParam (n, t)) -> IParam (n, go t)) ips)
+  | TForall (i, vs, b, s) -> TForall (i, vs, go b, s)
+  | t -> t
+
+(** A datatype's type parameters as OCaml writes them in front of its
+    name. [string] -> string *)
+let type_parameters params =
+  match params with
+  | [] -> ""
+  | [ one ] -> "'" ^ one ^ " "
+  | many -> "(" ^ String.concat ", " (List.map (fun p -> "'" ^ p) many) ^ ") "
+
+(** The module's datatypes as one OCaml type declaration, in which each
+    may name the others; empty where it declares none.
+    [datatype] -> [string] *)
+let datatype_declarations datatypes =
+  match datatypes with
+  | [] -> []
+  | _ ->
+      [
+        String.concat "\n"
+          (List.mapi
+             (fun index (Datatype (name, params, constructors)) ->
+               let head =
+                 Printf.sprintf "%s %s%s =" (if index = 0 then "type" else "and")
+                   (type_parameters params) (type_base name)
+               in
+               String.concat "\n"
+                 (head
+                 :: List.map
+                      (fun (cname, fields) ->
+                        match fields with
+                        | [] -> "  | " ^ constructor_base cname
+                        | _ ->
+                            Printf.sprintf "  | %s of %s" (constructor_base cname)
+                              (String.concat " * "
+                                 (List.map (fun (_, t) -> type_text t cname false) fields)))
+                      constructors))
+             datatypes);
+      ]
+
+(** One printer per datatype the module declares, writing a value the way
+    Pyking prints it: the constructor and every field by position, with a
+    printer for each type parameter handed in front of the value. Answers
+    the items, what the interface says of each, and the accumulator.
+    ctx -> acc -> [datatype] -> ([oitem], [(string, string)], acc) *)
+let datatype_printers ctx acc datatypes =
+  let rec mentions name t =
+    match t with
+    | TVar (_, v, _, _) -> v = name
+    | TList (_, e, _) -> mentions name e
+    | TTuple (_, es, _) | TCon (_, _, es, _) -> List.exists (mentions name) es
+    | TFunction (_, ps, r, _, _, _, _) -> List.exists (mentions name) (r :: ps)
+    | _ -> false
+  in
+  let rec names_own t =
+    match t with
+    | TCon (_, c, es, _) ->
+        List.exists (fun (Datatype (n, _, _)) -> n = c) datatypes
+        || List.exists names_own es
+    | TList (_, e, _) -> names_own e
+    | TTuple (_, es, _) -> List.exists names_own es
+    | _ -> false
+  in
+  let bindings, interface, acc =
+    List.fold_left
+      (fun (bindings, interface, acc) (Datatype (name, params, constructors)) ->
+        let all_fields = List.concat_map snd constructors in
+        let show_param p =
+          if List.exists (fun (_, t) -> mentions p t) all_fields then "show_" ^ p
+          else "_show_" ^ p
+        in
+        let ctx = { ctx with shows = List.map (fun p -> (p, OVar ("show_" ^ p))) params } in
+        let arms, acc =
+          List.fold_left
+            (fun (arms, acc) (cname, fields) ->
+              let ctor = constructor_base cname in
+              match fields with
+              | [] -> (arms @ [ (ctor, None, OStr cname) ], acc)
+              | _ ->
+                  let names = List.mapi (fun i _ -> Printf.sprintf "f%d" i) fields in
+                  let pieces, acc =
+                    List.fold_left2
+                      (fun (out, acc) (_, t) n ->
+                        let piece, acc = string_of ctx acc t (OVar n) builtin_info false in
+                        (out @ [ piece ], acc))
+                      ([], acc) fields names
+                  in
+                  let joined =
+                    List.fold_left
+                      (fun text piece -> OBin ("^", text, OBin ("^", OStr ", ", piece)))
+                      (List.hd pieces) (List.tl pieces)
+                  in
+                  let text =
+                    OBin ("^", OStr (cname ^ "("), OBin ("^", joined, OStr ")"))
+                  in
+                  let pattern =
+                    match names with
+                    | [ one ] -> Printf.sprintf "%s %s" ctor one
+                    | many -> Printf.sprintf "%s (%s)" ctor (String.concat ", " many)
+                  in
+                  (arms @ [ (pattern, None, text) ], acc))
+            ([], acc) constructors
+        in
+        let printer = "pyk_show_" ^ type_base name in
+        let binding =
+          {
+            bound = OPatName printer;
+            params = List.map (fun p -> OPatName (show_param p)) params @ [ OPatName "value" ];
+            value = OMatch (OVar "value", arms);
+          }
+        in
+        let shown =
+          String.concat ""
+            (List.map (fun p -> Printf.sprintf "('%s -> string) -> " p) params)
+          ^ Printf.sprintf "%s%s -> string" (type_parameters params) (type_base name)
+        in
+        (bindings @ [ binding ], interface @ [ (printer, shown) ], acc))
+      ([], [], acc) datatypes
+  in
+  let recursive =
+    List.exists
+      (fun (Datatype (_, _, constructors)) ->
+        List.exists (fun (_, fields) -> List.exists (fun (_, t) -> names_own t) fields) constructors)
+      datatypes
+  in
+  ((if bindings = [] then [] else [ OItemLet (bindings, recursive) ]), interface, acc)
 
 (** Translates one module of a program to an oprogram, reading the types
     the checker worked out rather than inferring any. pyk.ml runs the
@@ -2975,10 +3326,43 @@ let translate_program stmts tmap (context : Module.context) =
          exports is the plain name the overloading pass gave it
          (docs/overloading.md). *)
       List.filter_map
-        (fun (name, _, _) ->
-          if List.mem name own_external then None
-          else Some (Names.renamed name))
+        (fun (name, type_, _) ->
+          match type_ with
+          (* A datatype is declared in the interface rather than named as
+             a value. *)
+          | TData _ -> None
+          | _ ->
+              if List.mem name own_external then None
+              else Some (Names.renamed name))
         own_sigmap
+  in
+  (* The datatypes this module declares, as the checker recorded them, and
+     every one the modules it imports export. *)
+  let own_datatypes =
+    List.filter_map
+      (function
+        | SDatatype (_, _, _, _, sym, _) -> (
+            match IntMap.find_opt sym tmap with
+            | Some (TData (_, d, _)) -> Some d
+            | _ -> None)
+        | _ -> None)
+      stmts
+  in
+  let datatypes =
+    List.fold_left
+      (fun map (_, sigmap) ->
+        List.fold_left
+          (fun map (_, t, _) ->
+            match t with
+            | TData (_, (Datatype (c, _, _) as d), _) -> SMap.add c d map
+            | _ -> map)
+          map sigmap)
+      SMap.empty context.sigmaps
+  in
+  let datatypes =
+    List.fold_left
+      (fun map (Datatype (c, _, _) as d) -> SMap.add c d map)
+      datatypes own_datatypes
   in
   let names = plan_names stmts exported in
   let names =
@@ -3010,6 +3394,8 @@ let translate_program stmts tmap (context : Module.context) =
           (List.assoc_opt context.context_name context.external_fields)
           ~default:[];
       names;
+      datatypes;
+      shows = [];
     }
   in
   let acc =
@@ -3023,6 +3409,7 @@ let translate_program stmts tmap (context : Module.context) =
     }
   in
   let built, acc = items ctx acc stmts in
+  let printers, printer_interface, acc = datatype_printers ctx acc own_datatypes in
   let keep =
     List.fold_left
       (fun set name -> StringSet.add (public_name name) set)
@@ -3037,6 +3424,14 @@ let translate_program stmts tmap (context : Module.context) =
     conversions = acc.conversions;
     program_name = context.context_name;
     main = context.main;
+    types = datatype_declarations own_datatypes;
+    printers;
+    printer_interface;
+    fragile =
+      own_datatypes <> []
+      || Walk.exists_stmts
+           (function Walk.NPattern (PConstructor _) -> true | _ -> false)
+           stmts;
     interface =
       List.map
         (fun name ->
@@ -3045,7 +3440,9 @@ let translate_program stmts tmap (context : Module.context) =
               (List.find_map
                  (fun (n, t, _) ->
                    if Names.renamed n = name then
-                     Some (Typesystem.without_implicits t)
+                     Some
+                       (unqualified context.context_name
+                          (Typesystem.without_implicits t))
                    else None)
                  own_sigmap
               |> Option.get)

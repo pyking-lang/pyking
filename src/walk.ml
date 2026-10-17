@@ -38,6 +38,8 @@ type node =
   | NParam of param
   | NLoopIter of loop_iter
   | NMatchCase of match_case
+  | NConstructor of constructor
+  | NFieldDecl of field
   | NStmt of stmt
 
 let exprs_of es = List.map (fun e -> NExpr e) es
@@ -70,7 +72,9 @@ let children n =
       | EListComp (_, element, clauses, _) ->
           NExpr element :: List.map (fun c -> NCompClause c) clauses
       | ELambda (_, params, body, _) ->
-          List.map (fun p -> NParam p) params @ [ NExpr body ])
+          List.map (fun p -> NParam p) params @ [ NExpr body ]
+      | EConstruct (_, _, _, args, _) -> exprs_of (arg_exprs args)
+      | EField (_, record, _, _) -> [ NExpr record ])
   | NType t -> (
       match t with
       | TInt _ | TFloat _ | TString _ | TBool _ | TUnknown _ | TBuiltin _
@@ -83,7 +87,12 @@ let children n =
           @ List.map (fun (IParam (_, t)) -> NType t) implicits
           @ [ NType result ]
           @ option_of (fun s -> NStmt s) definition
-      | TForall (_, _, body, _) -> [ NType body ])
+      | TForall (_, _, body, _) -> [ NType body ]
+      | TCon (_, _, args, _) -> List.map (fun t -> NType t) args
+      | TData (_, Datatype (_, _, constructors), _) ->
+          List.concat_map
+            (fun (_, fields) -> List.map (fun (_, t) -> NType t) fields)
+            constructors)
   | NPattern p -> (
       match p with
       | PInt _ | PString _ | PBool _ | PWildcard _ | PCapture _ | PText _ -> []
@@ -91,7 +100,11 @@ let children n =
       | PList (_, prefix, rest, suffix, _) ->
           List.map (fun p -> NPattern p) prefix
           @ option_of (fun r -> NListRest r) rest
-          @ List.map (fun p -> NPattern p) suffix)
+          @ List.map (fun p -> NPattern p) suffix
+      | PConstructor (_, _, _, positional, named, _) ->
+          List.map (fun p -> NPattern p) (positional @ List.map snd named)
+      | POr (_, alternatives, _) -> List.map (fun p -> NPattern p) alternatives
+      | PAs (_, inner, _, _) -> [ NPattern inner ])
   | NListRest _ -> []
   | NCompClause c -> (
       match c with
@@ -110,8 +123,12 @@ let children n =
       match iterate with
       | ForIn (_, _, sequence, _) -> [ NExpr sequence ]
       | WhileTest (_, condition, _) -> [ NExpr condition ])
-  | NMatchCase (MatchCase (_, pattern, body, _)) ->
-      NPattern pattern :: stmts_of body
+  | NMatchCase (MatchCase (_, pattern, guard, body, _)) ->
+      (NPattern pattern :: option_of (fun e -> NExpr e) guard) @ stmts_of body
+  | NConstructor (Constructor (_, _, fields, _)) ->
+      List.map (fun f -> NFieldDecl f) fields
+  | NFieldDecl (Field (_, _, type_, default, _)) ->
+      NType type_ :: option_of (fun e -> NExpr e) default
   | NStmt s -> (
       match s with
       | SBreak _ | SContinue _ | SImport _ -> []
@@ -138,7 +155,9 @@ let children n =
           @ option_of (fun t -> NType t) return_type
       | SFunctionSig (_, _, t, _, _) -> [ NType t ]
       | SMatch (_, subject, cases, _) ->
-          NExpr subject :: List.map (fun c -> NMatchCase c) cases)
+          NExpr subject :: List.map (fun c -> NMatchCase c) cases
+      | SDatatype (_, _, _, constructors, _, _) ->
+          List.map (fun c -> NConstructor c) constructors)
 
 (** f over every node in a subtree, the subtree's own root first.
     ('a -> node -> 'a) -> 'a -> node -> 'a *)
@@ -170,6 +189,7 @@ let name_field n =
   | NType (TBuiltin (_, name, _)) | NType (TVar (_, name, _, _)) -> Some name
   | NParam (Param (_, name, _, _, _)) -> Some name
   | NPattern (PCapture (_, name, _)) -> Some name
+  | NPattern (PAs (_, _, name, _)) -> Some name
   | NListRest (ListRest (_, name, _)) -> name
   | NTarget (TargetName (_, name, _)) -> Some name
   | NLoopIter (ForIn (_, name, _, _)) -> Some name

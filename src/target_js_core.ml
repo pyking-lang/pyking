@@ -97,6 +97,8 @@ and jsstmt =
          syntax.ml's SImport. *)
   | JsFunc of info * string * string list * jsstmt list
   | JsReturn of info * jsexpr
+  | JsLabeled of info * string * jsstmt list (* label: { ... } *)
+  | JsBreakTo of info * string (* break label; *)
 
 (** Everything the packager decides and the core only names: how each
     runtime operation is called, and how what crosses a module boundary
@@ -212,7 +214,7 @@ let reserved =
         true try typeof var void while with yield arguments eval \
         undefined NaN Infinity console String Array document print \
         pykConcat pykFormat pykList pykOutput pykQuote pykWrite require \
-        exports run runtime init")
+        pykData pykWithShape exports run runtime init")
 
 (** `name2`, `name3`, ... -- the first not already spoken for here.
     string -> scope -> string *)
@@ -332,6 +334,7 @@ let stmt_kind_name s =
   | SFunctionSig _ -> "SFunctionSig"
   | SMatch _ -> "SMatch"
   | SImport _ -> "SImport"
+  | SDatatype _ -> "SDatatype"
 
 let expr_kind_name e =
   match e with
@@ -468,6 +471,43 @@ let rec translate_expr e scope =
         ( info,
           translate_expr func scope,
           List.map (fun a -> translate_expr a scope) (arg_exprs args) )
+  | EConstruct (info, module_, name, args, _) ->
+      (* A constructor is a function of this module's or of the one it
+         is reached through. A JavaScript number cannot say whether it is
+         a Float, so a value with a Float field carries a descriptor
+         saying which, read off the arguments' types -- which is how it
+         prints as Pyking prints it (docs/target_js.md, "Datatypes"). *)
+      let callee =
+        match module_ with
+        | None -> JsVar (info, lookup name scope)
+        | Some alias -> translate_expr (EQualified (info, alias, name, 0)) scope
+      in
+      let values = arg_exprs args in
+      let built =
+        JsCall (info, callee, List.map (fun a -> translate_expr a scope) values)
+      in
+      let types = List.map (fun a -> type_of a scope) values in
+      if List.exists (function Some t -> holds_float t | None -> false) types
+      then
+        JsCall
+          ( info,
+            JsVar (info, "pykWithShape"),
+            [
+              built;
+              JsStr
+                ( info,
+                  "("
+                  ^ String.concat ","
+                      (List.map
+                         (function Some t -> float_shape t | None -> ".")
+                         types)
+                  ^ ")" );
+            ] )
+      else built
+  | EField (info, record, name, _) ->
+      (* Every field with a name is a property of the value by that
+         name, whichever constructor built it. *)
+      JsMember (info, translate_expr record scope, name)
   | ELambda (info, params, body, _) ->
       (* An arrow function, whose parameters are its own scope -- the
          one place JavaScript needs no renaming at all. *)
@@ -672,6 +712,74 @@ and pattern_test pattern subject scope =
         | _ -> (bindings, scope)
       in
       (test, bindings, scope)
+  | PConstructor (_, _, name, fields, _, _) ->
+      let tag =
+        JsBinary (info, "===", JsMember (info, subject, "pykTag"), JsStr (info, name))
+      in
+      let values = JsMember (info, subject, "pykValues") in
+      pattern_parts fields
+        (List.mapi (fun i _ -> JsIndex (info, values, JsNum (info, i))) fields)
+        (Some tag) scope
+  | PAs (_, inner, name, _) ->
+      let test, bindings, scope = pattern_test inner subject scope in
+      let js_name, scope = bind name scope in
+      (test, bindings @ [ JsConst (info, JsTargetName (info, js_name), subject) ], scope)
+  | POr (_, alternatives, _) ->
+      (* One test per alternative, joined with `||`; a name every
+         alternative binds is bound once, to what the alternative that
+         matched found there. *)
+      let names =
+        match alternatives with
+        | first :: _ -> List.map fst (Analyses.pattern_bindings first)
+        | [] -> []
+      in
+      let each =
+        List.map
+          (fun one ->
+            let test, bindings, inner = pattern_test one subject scope in
+            let value_of name =
+              let js_name = lookup name inner in
+              List.find_map
+                (function
+                  | JsConst (_, JsTargetName (_, n), e) when n = js_name -> Some e
+                  | _ -> None)
+                bindings
+            in
+            (test, List.map (fun n -> (n, value_of n)) names))
+          alternatives
+      in
+      let test =
+        if List.exists (fun (t, _) -> t = None) each then None
+        else
+          match List.map (fun (t, _) -> Option.get t) each with
+          | first :: rest ->
+              Some
+                (List.fold_left
+                   (fun joined t -> JsBinary (info, "||", joined, t))
+                   first rest)
+          | [] -> None
+      in
+      let bindings, scope =
+        List.fold_left
+          (fun (bindings, scope) name ->
+            let rec chosen = function
+              | [] -> JsVar (info, "undefined")
+              | [ (_, values) ] -> Option.value (List.assoc name values) ~default:(JsVar (info, "undefined"))
+              | (None, values) :: _ ->
+                  Option.value (List.assoc name values) ~default:(JsVar (info, "undefined"))
+              | (Some t, values) :: rest ->
+                  JsCond
+                    ( info,
+                      t,
+                      Option.value (List.assoc name values)
+                        ~default:(JsVar (info, "undefined")),
+                      chosen rest )
+            in
+            let js_name, scope = bind name scope in
+            (bindings @ [ JsConst (info, JsTargetName (info, js_name), chosen each) ], scope))
+          ([], scope) names
+      in
+      (test, bindings, scope)
 
 (** Every sub-pattern's test and bindings, joined with `&&`.
     [pattern] -> [jsexpr] -> jsexpr option -> scope
@@ -767,6 +875,11 @@ let declare_functions stmts scope =
       | SFunctionDef (_, name, _, _, _, _, _, _, _)
         when not (StringSet.mem name scope.block) ->
           snd (bind name scope)
+      | SDatatype _ ->
+          List.fold_left
+            (fun scope name ->
+              if StringSet.mem name scope.block then scope else snd (bind name scope))
+            scope (Module.datatype_names s)
       | SImport _ ->
           List.fold_left
             (fun scope name ->
@@ -830,11 +943,43 @@ and translate_tail_stmts stmts scope =
     stmt -> scope -> ([stmt] -> scope -> [jsstmt]) -> ([jsstmt], scope) *)
 and translate_match s scope translate_body =
   match s with
+  | SMatch (info, subject, cases, _)
+    when List.exists (fun c -> case_guard c <> None) cases ->
+      (* A guard is asked once its pattern has matched and has bound what
+         it binds, and a false one goes on to the next case -- which an
+         if/else chain cannot say, so the cases are a labelled block
+         that each arm leaves when it is done. *)
+      let name, scope = bind "__subject" scope in
+      let label, scope = bind "__match" scope in
+      let arms =
+        List.map
+          (fun (MatchCase (case_info, pattern, guard, body, _)) ->
+            let arm_scope = block_scope scope in
+            let test, bindings, arm_scope =
+              pattern_test pattern (JsVar (info, name)) arm_scope
+            in
+            let body =
+              translate_body body arm_scope @ [ JsBreakTo (case_info, label) ]
+            in
+            let guarded =
+              match guard with
+              | None -> body
+              | Some g -> [ JsIf (case_info, translate_expr g arm_scope, body, None) ]
+            in
+            match test with
+            | None -> JsLabeled (case_info, "", bindings @ guarded)
+            | Some test -> JsIf (case_info, test, bindings @ guarded, None))
+          cases
+      in
+      let held =
+        JsConst (info, JsTargetName (info, name), translate_expr subject scope)
+      in
+      ([ held; JsLabeled (info, label, arms) ], scope)
   | SMatch (info, subject, cases, _) ->
       let name, scope = bind "__subject" scope in
       let chain =
         List.fold_left
-          (fun chain (MatchCase (case_info, pattern, body, _)) ->
+          (fun chain (MatchCase (case_info, pattern, _, body, _)) ->
             let arm_scope = block_scope scope in
             let test, bindings, arm_scope =
               pattern_test pattern (JsVar (info, name)) arm_scope
@@ -988,6 +1133,45 @@ and translate_stmt s scope =
           ([], body_scope) params
       in
       ([ JsFunc (info, js_name, param_names, translate_tail_stmts body body_scope) ], scope)
+  | SDatatype (info, name, _, constructors, _, _) ->
+      (* One function per constructor, building the value; the type's
+         own name is bound too, to its name, so that an import of it has
+         something to import. *)
+      let functions =
+        List.map
+          (fun (Constructor (ci, cname, fields, _)) ->
+            let params = List.mapi (fun i _ -> Printf.sprintf "v%d" i) fields in
+            JsFunc
+              ( ci,
+                lookup cname scope,
+                params,
+                [
+                  JsReturn
+                    ( ci,
+                      JsCall
+                        ( ci,
+                          JsVar (ci, "pykData"),
+                          [
+                            JsStr (ci, cname);
+                            JsArray (ci, List.map (fun p -> JsVar (ci, p)) params);
+                            JsArray
+                              ( ci,
+                                List.map
+                                  (fun (Field (fi, label, _, _, _)) ->
+                                    match label with
+                                    | Some l -> JsStr (fi, l)
+                                    | None -> JsVar (fi, "null"))
+                                  fields );
+                          ] ) );
+                ] ))
+          constructors
+      in
+      let own_name =
+        if List.exists (fun (Constructor (_, n, _, _)) -> n = name) constructors
+        then []
+        else [ JsConst (info, JsTargetName (info, lookup name scope), JsStr (info, name)) ]
+      in
+      (own_name @ functions, scope)
   | s -> unsupported (stmt_info s) (stmt_kind_name s)
 
 (** Translates a loop into `while (true)` over a `let` accumulator
@@ -1383,6 +1567,14 @@ and pprint_js_stmt ?(level = 0) s runtime =
           join_stmts body runtime (level + 1);
           Printf.sprintf "%s}" pad;
         ]
+  | JsLabeled (_, label, body) ->
+      String.concat "\n"
+        [
+          (if label = "" then pad ^ "{" else Printf.sprintf "%s%s: {" pad label);
+          join_stmts body runtime (level + 1);
+          Printf.sprintf "%s}" pad;
+        ]
+  | JsBreakTo (_, label) -> Printf.sprintf "%sbreak %s;" pad label
 
 let concat_helper =
   String.concat "\n"
@@ -1404,6 +1596,29 @@ let list_helper =
       "function pykList(items) {";
       "  items.pykList = true;";
       "  return items;";
+      "}";
+    ]
+
+let data_helper =
+  String.concat "\n"
+    [
+      "// A value of a datatype: its constructor's name and its fields, in";
+      "// order, with each field that has a name also a property by it.";
+      "function pykData(tag, values, names) {";
+      "  const value = { pykTag: tag, pykValues: values, pykShape: null };";
+      "  names.forEach((name, i) => { if (name !== null) value[name] = values[i]; });";
+      "  return value;";
+      "}";
+    ]
+
+let shape_helper =
+  String.concat "\n"
+    [
+      "// Which fields of a datatype's value are Floats, which only the";
+      "// compiler knows: a JavaScript number cannot say.";
+      "function pykWithShape(value, shape) {";
+      "  value.pykShape = shape;";
+      "  return value;";
       "}";
     ]
 
@@ -1443,8 +1658,8 @@ let uses p stmts =
     | JsForOf (_, _, sequence, body) ->
         in_expr sequence || List.exists in_stmt body
     | JsWhile (_, cond, body) -> in_expr cond || List.exists in_stmt body
-    | JsBreak _ | JsContinue _ | JsImport _ -> false
-    | JsFunc (_, _, _, body) -> List.exists in_stmt body
+    | JsBreak _ | JsContinue _ | JsImport _ | JsBreakTo _ -> false
+    | JsFunc (_, _, _, body) | JsLabeled (_, _, body) -> List.exists in_stmt body
   in
   List.exists in_stmt stmts
 
@@ -1465,10 +1680,16 @@ let js_helpers ?(level = 0) stmts =
       stmts
   in
   let uses_concat = uses (function JsConcat _ -> true | _ -> false) stmts in
+  let uses_data = uses (function JsVar (_, "pykData") -> true | _ -> false) stmts in
+  let uses_shape =
+    uses (function JsVar (_, "pykWithShape") -> true | _ -> false) stmts
+  in
   let wanted =
     (* `pykConcat` builds a list, so it needs `pykList` beside it. *)
     (if uses_list || uses_concat then [ list_helper ] else [])
-    @ if uses_concat then [ concat_helper ] else []
+    @ (if uses_concat then [ concat_helper ] else [])
+    @ (if uses_data then [ data_helper ] else [])
+    @ if uses_shape then [ shape_helper ] else []
   in
   String.concat "\n\n"
     (List.map

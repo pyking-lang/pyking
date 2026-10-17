@@ -1,0 +1,6 @@
+# A guard is a condition, so it is a Bool.
+
+def f(n: Int) -> String:
+    match n:
+        case x if x + 1: "yes"
+        case _: "no"

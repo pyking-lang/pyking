@@ -224,13 +224,15 @@ let rec set_source name text = function
   | (held, _) :: rest when held = name -> (name, text) :: rest
   | pair :: rest -> pair :: set_source name text rest
 
-(** Checks entry as one group (defs declared together via
-    `declare_functions`, then `check_stmt` per statement), keeping each
+(** Checks entry as one group (its datatypes declared, defs declared
+    together via `declare_functions`, then `check_stmt` per statement,
+    and every `match` held to matching every value), keeping each
     statement's environment and store rather than only the last. The
     table it filled comes back too: the tail-call pass reads it.
     [stmt] -> Typesystem.env -> Typesystem.store
     -> ([(stmt, typ option, Typesystem.env, Typesystem.store)], typ IntMap.t) *)
 let check_entry entry types store =
+  let store = Typesystem.declare_datatypes entry store in
   let types = Typesystem.import_env entry types store in
   let types, store = Typesystem.declare_functions entry types store in
   let store =
@@ -245,6 +247,7 @@ let check_entry entry types store =
         (checked @ [ (stmt, supplied, types, store) ], types, store))
       ([], types, store) entry
   in
+  Typesystem.check_matches entry store;
   (checked, store.Typesystem.tmap, store.Typesystem.qmap)
 
 (** A value as the prompt shows it: `display_value`, except a function
@@ -287,7 +290,7 @@ let check_import sigmaps high (unit : Module.t) =
       Typesystem.type_check ~declared unit.stmts (Module.sigmaps_for unit sigmaps)
     in
     Analyses.analyze_mutability unit.stmts;
-    let sigmap = Module.module_sigmap unit.stmts unit.declarations tmap in
+    let sigmap = Module.module_sigmap unit.name unit.stmts unit.declarations tmap in
     let elaborated, tmap = Elaborate.program qmap tmap unit.stmts in
     let elaborated = Analyses.symbolize ~start:high elaborated in
     let high = max high (Analyses.highest_sym elaborated) in

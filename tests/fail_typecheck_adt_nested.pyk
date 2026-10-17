@@ -1,0 +1,16 @@
+# Exhaustiveness looks inside constructors: every constructor of a
+# field has to be matched too.
+
+datatype Tree:
+    Leaf
+    Node(Tree, Int, Tree)
+
+
+def leftmost(t: Tree) -> Int:
+    match t:
+        case Leaf: 0
+        case Node(Leaf, v, _): v
+        case Node(Node(Node(_, _, _), v, _), _, _): v
+
+
+print(leftmost(Leaf))

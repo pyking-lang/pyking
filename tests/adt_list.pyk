@@ -1,0 +1,46 @@
+# A list of one's own, as OCaml and Haskell define it: recursion,
+# higher-order functions and an accumulator loop over a datatype.
+
+datatype List(a):
+    Nil
+    Cons(head: a, tail: List(a))
+
+
+def from_array(xs: [a]) -> List(a):
+    match xs:
+        case []: Nil
+        case [x, ..rest]: Cons(x, from_array(rest))
+
+
+def length(l: List(a)) -> Int:
+    def go(rest: List(a), n: Int) -> Int:
+        match rest:
+            case Nil: n
+            case Cons(_, t): go(t, n + 1)
+    return go(l, 0)
+
+
+def map(f: (a) -> b, l: List(a)) -> List(b):
+    match l:
+        case Nil: Nil
+        case Cons(x, rest): Cons(f(x), map(f, rest))
+
+
+def fold(f: (b, a) -> b, init: b, l: List(a)) -> b:
+    match l:
+        case Nil: init
+        case Cons(x, rest): fold(f, f(init, x), rest)
+
+
+def reverse(l: List(a)) -> List(a):
+    fold((acc, x) => Cons(x, acc), Nil, l)
+
+
+l = from_array([1, 2, 3, 4])
+print(l)
+print(length(l), fold((a, b) => a + b, 0, l))
+print(reverse(map(x => x * x, l)))
+print(map(x => "n" ++ string(x), from_array([7])))
+match l:
+    case Cons(head = h, tail = Cons(head = second)): print(h, second)
+    case _: print("short")

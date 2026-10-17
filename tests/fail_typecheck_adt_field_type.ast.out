@@ -1,0 +1,2 @@
+'tests/fail_typecheck_adt_field_type.pyk' 6:18-6:30 Type error: the
+  field 'age' of 'Person' must be Int, not String

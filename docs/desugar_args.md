@@ -238,6 +238,30 @@ report against the default expression's own span.
 An **external** module is recorded in the table as foreign rather than
 merely absent, so a call into one refuses the sugar by name.
 
+## Constructors are definitions here
+
+A datatype's constructor is a definition to this pass, its fields its
+parameters: a construction takes positional, named and defaulted
+arguments exactly as a call does, and a field's default is a generated
+def named `<Constructor>__default__<field>`, written just before the
+datatype. An unnamed field is known by a name no program can write
+(`#1`, `#2`, ...), so no argument can name it. After the pass, every
+argument of a construction is in its field's position and carries the
+field's own name where it has one, which is how the interpreter and the
+JavaScript backend keep a value's fields by name.
+
+A constructor *pattern* is filled in by the same names: the positional
+patterns first, each `field = pattern` put where its field is, in any
+order, and `_` for every field the pattern does not mention. Nothing
+after the pass sees a named field pattern.
+
+Two rewrites belong here because this pass knows what each name means.
+`x.f` is parsed as `module.name`, since the parser cannot know which
+names are modules; where `x` is a binding here it becomes a field read.
+And an uppercase name the parser read as a constructor, but which is a
+binding or a `def` in scope -- `ISO8601 = "..."` -- or another module's
+value, becomes that value, or a call of it.
+
 ## Names
 
 A generated def is `<function>__default__<parameter>`. It is a legal

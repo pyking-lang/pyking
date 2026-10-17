@@ -44,6 +44,7 @@ and which module calls which.
 | [`analyses.ml`](#analysesml) | ~1030 | Static analyses over the AST: mutability (`analyze_mutability`), `symbolize`, which numbers every node, and `effects`, which says what can print. |
 | [`walk.ml`](#walkml) | ~190 | One `children` function over every AST node, for the passes that ask a question of a whole subtree. |
 | [`typesystem.ml`](#typesystemml) | ~3010 | The type checker: one function per AST datatype, producing `tmap` (symbol → type). Also the type *inference*, which is the same machinery run at a call site rather than at a definition. Its fragment is the interpreter's, and nearly all of the OCaml backend's. |
+| [`exhaustive.ml`](#exhaustiveml) | ~420 | Every `match` matches every value and every case is reachable: Maranget's usefulness, over the checker's types. |
 | [`type_experiment.ml`](#type_experimentml) | ~140 | An alternative checker, a fragment of one, run instead of the real one by `--type-experiment`. |
 | [`release.ml`](#releaseml) | ~180 | `--release`: every call to the builtin `debug` removed, before any backend sees the program. |
 | [`prune.ml`](#pruneml) | ~160 | What a program uses of the modules it imports, for the C and Java targets: the rest of each module removed, and every import narrowed. |
@@ -174,19 +175,28 @@ The groups:
 - **`Expr`** — `EInt`, `EString`, `EBool`, `EVar`, `EAdd`, `ESub`,
   `EMul`, `EDiv`, `ENeg`, `EConcat`, `ELessThan`, `ELessThanEq`,
   `EGreatThan`, `EGreatThanEq`, `EEq`, `ECall`, `EList`, `ETuple`,
-  `EIf`, `EListComp`, `ELambda`. `ELambda` holds a `Param` list and one
-  *expression*: a lambda's body is never a block.
+  `EIf`, `EListComp`, `ELambda`, `EConstruct`, `EField`. `ELambda`
+  holds a `Param` list and one *expression*: a lambda's body is never a
+  block. `EConstruct` is a constructor applied to its fields, with the
+  module it is reached through where it is another's; `EField` reads a
+  named field.
 - **`LoopIter`** — `ForIn`, `WhileTest`. A loop's iteration clause;
   `None` for a bare `loop:`. `SFor` and `SWhile` no longer exist:
   `for x in e:` and `while c:` *are* `SLoop`, with no accumulator
   written, which is what lets every combination of the three halves
   work without a construct of its own.
 - **`Pattern`** — `PInt`, `PString`, `PBool`, `PWildcard`, `PCapture`,
-  `PTuple`, `PList`, `PText`. `PText` is a string split around a fixed
-  beginning and end (`"ab" ++ rest`); the list form of `++` is folded
-  into `PList` by the parser, so only the string one is a node.
+  `PTuple`, `PList`, `PText`, `PConstructor`, `POr`, `PAs`. `PText` is a
+  string split around a fixed beginning and end (`"ab" ++ rest`); the
+  list form of `++` is folded into `PList` by the parser, so only the
+  string one is a node. `PConstructor` carries positional and named
+  field patterns; after `desugar_args.ml` every field is positional.
 - **`Type`** — `TInt`, `TString`, `TBool`, `TList`, `TTuple`,
-  `TUnknown`, `TBuiltin`, `TFunction`, `TVar`, `TForall`.
+  `TUnknown`, `TBuiltin`, `TFunction`, `TVar`, `TForall`, `TCon`,
+  `TData`. `TCon` is a datatype applied to its parameters, under the
+  canonical name in a type the checker made; `TData` is what a
+  module's signature says about a datatype, and is never written or
+  printed.
   `TVar` is a type variable a written annotation names and a caller
   chooses; `TForall` binds them, and the outermost one is implicit --
   supplied by the checker and never printed. A `TVar` the *checker* made
@@ -208,11 +218,15 @@ The groups:
 - **`stmt`** — `SLet` (`x = e`), `SLetStmt` (`x = if c: …`), `SVar`,
   `SMutate` (`:=`), `SReturn`, `SReturnStmt`, `SExprStmt`,
   `SLoop` (`loop x = e:`), `SBreak`, `SContinue`, `SIf`,
-  `SFunctionDef`, `SFunctionSig`, `SMatch`, `SImport`. `SLoop` carries
+  `SFunctionDef`, `SFunctionSig`, `SMatch`, `SImport`, `SDatatype`
+  (with its `constructor`s and each one's `field`s). `SLoop` carries
   its accumulator as a `target`/`init` pair, both absent for the bare
   `loop:`; `SBreak` and `SContinue` carry nothing but their span, since
   a loop is worth the accumulator it stopped with.
-- **Single-constructor records** — `param`, `list_rest`, `match_case`.
+- **Single-constructor records** — `param`, `list_rest`, `match_case`
+  (pattern, guard, body), `constructor`, `field`, and `datatype`
+  (canonical name, parameters, constructors with their fields' names and
+  types: what `TData` carries).
 
 Every node carries `info` (its span) and `sym` (its symbol, `0` until
 `symbolize` runs), written first and last in each constructor. Nothing
@@ -275,7 +289,21 @@ Around them:
   grouping. `parse_type` reads an arrow and `parse_type_atom`
   everything else.
 - **`parse_pattern`, `parse_case`, `parse_cases`, `parse_match_stmt`** —
-  `match`/`case`, including list patterns with a `..rest` marker.
+  `match`/`case`, including list patterns with a `..rest` marker, and a
+  case's `if` guard. `parse_pattern_as` and `parse_pattern_or` are the
+  two levels above `++`; `parse_constructor_pattern` reads a
+  constructor's field patterns, positional first. `check_alternatives`
+  refuses an or-pattern whose alternatives bind different names.
+- **`parse_datatype`, `parse_constructor`, `parse_field`** — a
+  `datatype` declaration, reached only from `parse_top_statement` and
+  `parse_public`, so one inside a block is refused. A field written
+  `name = literal` gets the literal's type here (`literal_type`), and
+  `check_fields` holds the fields to a call's rules: unnamed first,
+  every one after a default defaulted.
+- **`parse_construct`, `parse_type_application`** — a constructor in an
+  expression, and a datatype in a type: an uppercase identifier, with
+  its arguments where a `(` follows on its row. `parse_call_tail` reads
+  `.name` after an expression as a field.
 - **`parse_loop_stmt(info, tokens)`** — a `loop`, from just after the
   keyword: the optional accumulator (a target, an optional annotation,
   `=`, an expression) and the body. A loop is also a *bound* value, so
@@ -602,11 +630,23 @@ scheme specifically).
   it an extended copy. The four host operations are in it at their
   `TBuiltin` type, callable but never a value, because none of them
   fits a `TFunction`.
-- **`check_pattern` / `irrefutable` / `covers` / `agree`** — patterns
-  are checked against the type they match and answer what they bind;
-  `covers` says whether a `match` is total (one irrefutable pattern, or
-  list patterns taking every length) and `agree` is what two branches,
+- **`check_pattern` / `agree`** — patterns are checked against the type
+  they match and answer what they bind; `agree` is what two branches,
   two list elements or two meetings of one type variable must reach.
+  Whether a `match` covers every value is not this pass's question but
+  `exhaustive.ml`'s, asked once the types are worked out
+  (`check_matches`); until then every `match` is taken to be total, so
+  a `match` whose every arm returns ends its block.
+- **`types` / `datatypes` / `constructors`** (store fields) — every
+  datatype name in scope as the source spells it (`Tree`, `m.Tree`) and
+  the canonical name it means (bare for this module's own, `module.Name`
+  for another's), each datatype's parameters and its constructors' field
+  types, and each constructor's datatype. Filled once per module by
+  `declare_datatypes`, before the first statement is checked, from the
+  module's own `datatype`s and the `TData` entries of its imports'
+  sigmaps. A written annotation is read through `resolved`, which
+  replaces every datatype name with the canonical one and refuses one
+  that is unknown or applied to the wrong number of types.
 - **`OPERATORS`** — node class → (spelling, list of signatures). A *list*
   because `==` is overloaded: it relates two `Int`s, two `String`s or
   two `Bool`s, and both operands must match the same signature. `+` and
@@ -760,6 +800,38 @@ OCaml-style near the top of the file):
   That one step is recursion, mutual recursion and forward references.
 
 ---
+
+## `exhaustive.ml`
+
+**Every `match` matches every value, and every case is reachable.** Run
+by the checker at the end of `type_check` (`Typesystem.check_matches`),
+since what a pattern can match is a question about its type, and the
+types are only settled then. Its refusal is raised as `Refused` and
+reported as a `Type error`. See [exhaustive.md](exhaustive.md).
+
+### Data structures
+
+- **`head`** — the outermost shape of a value: one constructor of a
+  datatype, `true` or `false`, a tuple of n, an Int or String literal, a
+  string split around a prefix and a suffix, a list of exactly n, or a
+  list of n or more.
+- **`pat`** — a pattern as the algorithm reads it: `Any`, a shape and
+  its parts (`Con`), `Or`, or a list with a rest marker (`Rest`), whose
+  shapes depend on the column it is in.
+
+### Main functions
+
+- **`check datatype tmap stmts`** — every `match` in `stmts`: each case
+  must be useful after the unguarded cases above it, and `_` must not
+  be useful after all of them. `datatype` answers a canonical name's
+  declaration, and `tmap` gives each subject's type.
+- **`useful datatype rows q types`** — the core: a value `q` matches and
+  no row does, as one pattern per column, or `None`. A column whose
+  shapes are all of its type's specializes on each; one whose shapes are
+  not takes the default rows and names a shape no row has.
+- **`covers datatype type_ patterns`** — whether the patterns match
+  every value of a type. The OCaml backend asks it of the arms OCaml can
+  see, to know whether OCaml needs a catch-all.
 
 ## `type_experiment.ml`
 
@@ -1031,7 +1103,10 @@ three are design rather than accident:
 
 - **`Value`** — `VInt`, `VFloat`, `VString`, `VBool`, `VUnit`, `VList`, `VTuple`,
   `VClosure(name, params, body, env)`, `VBuiltin(name)`, and
-  `VUndefined(name)` (a hoisted `def` whose definition has not run yet).
+  `VUndefined(name)` (a hoisted `def` whose definition has not run yet),
+  and `VData(constructor, fields)`, a datatype's value, each field with
+  its name where it has one -- which is what `x.name` looks up, and why
+  `desugar_args.ml` leaves the names on a construction's arguments.
   A lambda is a `VClosure` too, named `lambda`, holding the one
   `SExprStmt` that supplies its body — so applying one goes through the
   machinery a `def` goes through.
@@ -1050,7 +1125,10 @@ three are design rather than accident:
 - **`Kont`** — one class per "what to do with the value I am about to
   get": `KSeq`, `KBind`, `KVarBind` (a `var`), `KMutate` (a `:=`),
   `KBinaryLeft`, `KBinaryRight`, `KCallee`,
-  `KArgument`, `KElement` (one element of a tuple), `KBranch` (an `if`
+  `KArgument`, `KElement` (one element of a tuple, a list or a
+  constructor's fields), `KField` (the value whose field is read),
+  `KGuard` (a case's guard: true runs the body, false tries the cases
+  after it), `KBranch` (an `if`
   statement), `KChoose` (an `if` expression), `KDiscard`, `KStartLoop`,
   `KSequence` (a `for`'s list), `KTest` (a `while`'s condition),
   `KIterate`, `KReturnTo`. Each holds `rest`, so

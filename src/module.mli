@@ -48,8 +48,9 @@
       make_sigmap stmts tmap -- a module's exported names and their types.
       external_sigmap declarations -- what a declaration half offers
         another module: its public names and their declared types.
-      module_sigmap stmts declarations tmap -- what one module exports,
-        both halves together.
+      module_sigmap name stmts declarations tmap -- what one module
+        exports, both halves together.
+      datatype_names stmt -- the names a datatype declares.
       public_declarations declarations -- a declaration half's public
         names and their types.
       sigmaps_for module sigmaps -- the signatures one module needs.
@@ -259,12 +260,17 @@ val external_sigmap : stmt list -> (string * typ * bool) list
     [stmt] -> [(string, typ, bool)] *)
 val public_declarations : stmt list -> (string * typ * bool) list
 
+(** The names a datatype declares: its own, and each constructor's that
+    is not the same. stmt -> [string] *)
+val datatype_names : stmt -> string list
+
 (** What one module exports, both halves together: the public names of
     its Pyking half at the types the checker worked out, and the public
-    names of its declaration half at the types it wrote down.
-    [stmt] -> [stmt] -> typ IntMap.t -> [(string, typ, bool)] *)
+    names of its declaration half at the types it wrote down. Its own
+    datatypes are named `name.Type`, as every other module names them.
+    string -> [stmt] -> [stmt] -> typ IntMap.t -> [(string, typ, bool)] *)
 val module_sigmap :
-  stmt list -> stmt list -> typ IntMap.t -> (string * typ * bool) list
+  string -> stmt list -> stmt list -> typ IntMap.t -> (string * typ * bool) list
 
 (** An external module's declared names and their types.
     [stmt] -> [(string, typ)] *)

@@ -1,0 +1,9 @@
+Just(2) Nothing
+Just(10)
+Just('3!')
+-1 x
+Ok(3) Err('division by zero')
+Ok(10)
+Err('division by zero')
+Err('division by zero')
+true fallback

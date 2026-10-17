@@ -1,0 +1,7 @@
+# Exporting a function whose type names a private datatype is refused in
+# the module that exports it: an importer could hold the value but never
+# name its type.
+
+import fail_typecheck_module_adt_private_mod1 as m
+
+x = m.make()

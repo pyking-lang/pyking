@@ -249,6 +249,12 @@ testing — could be built end to end before the language surface grew:
 | lists, list comprehensions | ✅ | ✅ | ❌ (no heap value model) | ❌ (same) | ✅ (OCaml's own lists) |
 | `match` over scalars | ✅ | ✅ | ✅ (an if/else chain) | ✅ (same) | ✅ (OCaml's own `match`) |
 | `match` over lists and tuples | ✅ | ✅ | ❌ | ❌ | ✅ |
+| datatypes (`datatype`), constructors, `x.field` | ✅ (a class per constructor) | ✅ (a function per constructor, building a tagged object) | ❌ (no heap value model) | ❌ (same) | ✅ (OCaml's own variants) |
+| `match` over datatypes | ✅ (class patterns) | ✅ | ❌ | ❌ | ✅ |
+| or-patterns `p1 \| p2` | ✅ | ✅ | ✅ where no alternative binds a name | ✅ (same) | ✅ |
+| `as` patterns | ✅ | ✅ | ❌ (it binds a name) | ❌ (same) | ✅ |
+| guards `case p if c:` | ✅ | ✅ (a labelled block the arms leave) | ✅ where the pattern binds no name | ✅ (same) | ✅ (`when`) |
+| every `match` matches every value | checked once, for every target (exhaustive.md) | same | same | same | same |
 | … a list pattern with elements after `..` | ✅ | ✅ | ❌ | ❌ | ✅ (a `when` guard, bound by position) |
 | operands and arguments evaluate left to right | ✅ (the host's own rule) | ✅ (same) | ✅ (unspecified in C: temporaries and the comma operator pin it down where two operands can print) | ✅ (the host's own rule) | ✅ (unspecified in OCaml: `let` pins it down, same rule) |
 | `/` (integer division, truncating) | ✅ | ✅ | ✅ | ✅ | ✅ |

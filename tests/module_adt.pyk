@@ -1,0 +1,28 @@
+# Datatypes across modules: constructors and patterns reached through
+# the module (`shapes.Circle`), brought in by a `from` line with their
+# datatype, defaults filled in from the module that declares them, and
+# fields read from a value another module built.
+
+import module_adt_mod1 as shapes
+from module_adt_mod1 import Point, Option
+
+
+def describe(s: shapes.Shape) -> String:
+    match s:
+        case shapes.Circle(r): "circle " ++ string(r)
+        case shapes.Rect(w, height = h): "rect " ++ string(w) ++ "x" ++ string(h)
+
+
+for s in [shapes.Circle(1.0), shapes.Rect(2.0), shapes.Rect(width = 3.0, height = 4.0), shapes.unit_square()]:
+    print(describe(s), shapes.area(s))
+
+p = Point(3, 4)
+print(p, p.x * p.y)
+
+def or_zero(o: Option(Int)) -> Int:
+    match o:
+        case Some(n): n
+        case None: 0
+
+print(shapes.find([1, 2, 3], 2), or_zero(shapes.find([1, 2, 3], 2)), or_zero(shapes.find([], 2)))
+print(Point(x = 0, y = 7).y)

@@ -1,0 +1,29 @@
+# A module exporting datatypes: a public one with its constructors, a
+# record-like one, and functions over them.
+
+public datatype Shape:
+    Circle(radius: Float)
+    Rect(width: Float, height: Float = 1.0)
+
+public datatype Point:
+    Point(x: Int, y: Int)
+
+public datatype Option(a):
+    None
+    Some(a)
+
+public def area(s: Shape) -> Float:
+    match s:
+        case Circle(r): 3.0 * r * r
+        case Rect(w, h): w * h
+
+public def unit_square() -> Shape:
+    return Rect(1.0)
+
+public def find(xs: [Int], wanted: Int) -> Option(Int):
+    match xs:
+        case []: None
+        case [x, ..rest]:
+            if x == wanted:
+                return Some(x)
+            return find(rest, wanted)

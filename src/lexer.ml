@@ -66,9 +66,11 @@ type token =
   | TokDot of info (* '.' *)
   | TokDotDot of info (* '..' (list-pattern "rest" marker: `..`/`..name`) *)
   | TokComma of info (* ',' *)
+  | TokBar of info (* '|' (or-pattern: `case 1 | 2:`) *)
   | TokLBracket of info (* '[' *)
   | TokRBracket of info (* ']' *)
   | TokDef of info (* 'def' *)
+  | TokDatatype of info (* 'datatype' (an algebraic data type) *)
   | TokReturn of info (* 'return' *)
   | TokFor of info (* 'for' *)
   | TokIn of info (* 'in' *)
@@ -123,9 +125,11 @@ let token_info tok =
   | TokDot i -> i
   | TokDotDot i -> i
   | TokComma i -> i
+  | TokBar i -> i
   | TokLBracket i -> i
   | TokRBracket i -> i
   | TokDef i -> i
+  | TokDatatype i -> i
   | TokReturn i -> i
   | TokFor i -> i
   | TokIn i -> i
@@ -180,9 +184,11 @@ let pprint_token tok =
   | TokDot _ -> "TokDot"
   | TokDotDot _ -> "TokDotDot"
   | TokComma _ -> "TokComma"
+  | TokBar _ -> "TokBar"
   | TokLBracket _ -> "TokLBracket"
   | TokRBracket _ -> "TokRBracket"
   | TokDef _ -> "TokDef"
+  | TokDatatype _ -> "TokDatatype"
   | TokReturn _ -> "TokReturn"
   | TokFor _ -> "TokFor"
   | TokIn _ -> "TokIn"
@@ -233,7 +239,7 @@ let keywords =
     "for"; "in"; "if"; "while"; "loop"; "break"; "continue"; "then";
     "else"; "var"; "def"; "return"; "match"; "case"; "public"; "implicit";
     "import";
-    "from"; "as"; "Int"; "Float"; "String"; "Bool"; "true"; "false";
+    "from"; "as"; "datatype"; "Int"; "Float"; "String"; "Bool"; "true"; "false";
   ]
 
 (** The keyword token `name` denotes, or None where it names no keyword.
@@ -259,6 +265,7 @@ let keyword_token name i =
   | "import" -> Some (TokImport i)
   | "from" -> Some (TokFrom i)
   | "as" -> Some (TokAs i)
+  | "datatype" -> Some (TokDatatype i)
   | "Int" -> Some (TokTypeInt i)
   | "Float" -> Some (TokTypeFloat i)
   | "String" -> Some (TokTypeString i)
@@ -489,6 +496,8 @@ let lexing file chars =
         lex xs r (c + 1) stack depth line_start (TokDot (fi r c 1) :: tokens)
     | ',' :: xs ->
         lex xs r (c + 1) stack depth line_start (TokComma (fi r c 1) :: tokens)
+    | '|' :: xs ->
+        lex xs r (c + 1) stack depth line_start (TokBar (fi r c 1) :: tokens)
     | ' ' :: xs -> lex xs r (c + 1) stack depth line_start tokens
     | '\n' :: xs -> lex xs (r + 1) 0 stack depth (depth = 0) tokens
     (* Keywords and identifiers *)

@@ -36,6 +36,9 @@
       make_sigmap stmts tmap -- a module's exported names and their types.
       public_names stmts -- the names a module exports, unchecked.
       check_publics stmts -- the names a module exports, checked.
+      datatype_names stmt -- the names a datatype declares.
+      module_sigmap name stmts declarations tmap -- what one module
+        exports, its own datatypes named as another module names them.
       resolve_imports module loaded -- one module with every import
         settled.
       module_name path -- the module name a file has.
@@ -406,6 +409,18 @@ let imported_modules stmts =
 
 (* --- what a module exports --- *)
 
+(** The names a datatype declares: its own, and each constructor's that
+    is not the same. A datatype and its one constructor often share a
+    name, and it is one name of the module. stmt -> [string] *)
+let datatype_names statement =
+  match statement with
+  | SDatatype (_, name, _, constructors, _, _) ->
+      name
+      :: List.filter_map
+           (fun (Constructor (_, n, _, _)) -> if n = name then None else Some n)
+           constructors
+  | _ -> []
+
 (** Every name the source marked `public`, in order, paired with the
     statement that marked it. A `def` may be marked on its definition or
     on its signature line, so a name can appear twice.
@@ -416,14 +431,17 @@ let public_names stmts =
       match statement with
       | SFunctionDef (_, name, _, _, _, _, true, _, _)
       | SFunctionSig (_, name, _, _, true) ->
-          Some (name, statement)
+          Some [ (name, statement) ]
       (* The parser refuses `public` on a binding that takes a tuple
          apart, so a public target is always one name. *)
       | SLet (_, TargetName (_, name, _), _, _, _, true, _)
       | SLetStmt (_, TargetName (_, name, _), _, _, _, true) ->
-          Some (name, statement)
+          Some [ (name, statement) ]
+      | SDatatype (_, _, _, _, _, true) ->
+          Some (List.map (fun n -> (n, statement)) (datatype_names statement))
       | _ -> None)
     stmts
+  |> List.concat
 
 (** The names an assignment target binds. assign_target -> [string] *)
 let rec target_names target =
@@ -443,6 +461,8 @@ let bound_at_top_level stmts =
           [ (name, statement) ]
       | SLet (_, target, _, _, _, _, _) | SLetStmt (_, target, _, _, _, _) ->
           List.map (fun name -> (name, statement)) (target_names target)
+      | SDatatype _ ->
+          List.map (fun name -> (name, statement)) (datatype_names statement)
       | _ -> [])
     stmts
 
@@ -1059,6 +1079,8 @@ let make_sigmap stmts tmap =
       if List.mem_assoc name exported then
         Some
           ( name,
+            (* A datatype's name and its constructors' are all the
+               datatype, recorded under the declaration's symbol. *)
             IntMap.find (stmt_sym statement) tmap,
             match statement with
             | SFunctionDef (_, _, _, _, _, _, _, _, implicit) -> implicit
@@ -1082,10 +1104,53 @@ let external_sigmap declarations = public_declarations declarations
 
 (** What one module exports, both halves together: the public names of
     its Pyking half at the types the checker worked out, and the public
-    names of its declaration half at the types it wrote down.
-    [stmt] -> [stmt] -> typ IntMap.t -> [(string, typ, bool)] *)
-let module_sigmap stmts declarations tmap =
-  make_sigmap stmts tmap @ public_declarations declarations
+    names of its declaration half at the types it wrote down. Its own
+    datatypes are named `name.Type`, as every other module names them.
+    string -> [stmt] -> [stmt] -> typ IntMap.t -> [(string, typ, bool)] *)
+let rec module_sigmap name stmts declarations tmap =
+  List.map
+    (fun (field, type_, implicit) -> (field, qualified name type_, implicit))
+    (make_sigmap stmts tmap)
+  @ public_declarations declarations
+
+(** A type as another module sees it: every datatype of module `name`
+    named `name.Type`, since in the module's own types it is bare.
+    string -> typ -> typ *)
+and qualified name type_ =
+  let rec go t =
+    match t with
+    | TCon (i, n, args, s) ->
+        let n = if String.contains n '.' then n else name ^ "." ^ n in
+        TCon (i, n, List.map go args, s)
+    | TData (i, Datatype (n, params, constructors), s) ->
+        let n = if String.contains n '.' then n else name ^ "." ^ n in
+        TData
+          ( i,
+            Datatype
+              ( n,
+                params,
+                List.map
+                  (fun (c, fields) ->
+                    (c, List.map (fun (label, t) -> (label, go t)) fields))
+                  constructors ),
+            s )
+    | TList (i, e, s) -> TList (i, go e, s)
+    | TTuple (i, es, s) -> TTuple (i, List.map go es, s)
+    | TFunction (i, ps, r, s, tm, d, ips) ->
+        TFunction
+          ( i,
+            List.map go ps,
+            go r,
+            s,
+            tm,
+            d,
+            List.map (fun (IParam (n, t)) -> IParam (n, go t)) ips )
+    | TForall (i, vs, b, s) -> TForall (i, vs, go b, s)
+    | TInt _ | TFloat _ | TString _ | TBool _ | TUnknown _ | TBuiltin _
+    | TVar _ ->
+        t
+  in
+  go type_
 
 (** The signatures needed to check one module: its own imports', out of
     every module checked so far.

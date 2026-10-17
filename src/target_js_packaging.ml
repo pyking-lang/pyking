@@ -29,11 +29,12 @@ let runtime_module = "pyk-runtime.js"
 let reserved_names modules = modules
 
 (* The formatter every host needs, implementing builtin.ml's
-   print rules. Three values need converting: JavaScript's undefined (a
+   print rules. Four values need converting: JavaScript's undefined (a
    unit-returning function's actual result), which Pyking spells `()`; a
    tuple, which is an array here and prints in Pyking's own notation;
-   and a string inside one, which is quoted where a string on its own is
-   not. Everything else -- numbers, booleans -- already prints the way
+   a string inside one, which is quoted where a string on its own is
+   not; and a datatype's value, built by the compiled program's
+   `pykData`. Everything else -- numbers, booleans -- already prints the way
    Pyking wants. *)
 let format_js =
   String.concat "\n"
@@ -51,6 +52,15 @@ let format_js =
       "  if (Array.isArray(value)) {";
       "    const parts = value.map((element) => pykFormat(element, true));";
       "    return parts.length === 1 ? '(' + parts[0] + ',)' : '(' + parts.join(', ') + ')';";
+      "  }";
+      "  // A datatype's value: its constructor and its fields by position,";
+      "  // each Float one written as a Float where the compiler said so.";
+      "  if (value !== null && typeof value === 'object' && value.pykTag !== undefined) {";
+      "    if (value.pykValues.length === 0) return value.pykTag;";
+      "    const shapes = value.pykShape === null ? null : pykShapeParts(value.pykShape.slice(1, -1));";
+      "    const parts = value.pykValues.map((element, i) =>";
+      "      shapes === null ? pykFormat(element, true) : pykShaped(element, shapes[i], true));";
+      "    return value.pykTag + '(' + parts.join(', ') + ')';";
       "  }";
       "  return String(value);";
       "}";

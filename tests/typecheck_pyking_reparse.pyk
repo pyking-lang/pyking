@@ -95,14 +95,16 @@ print(counted([1, 2, 3], 0), counted(["a"], 0))
 
 
 # A function that genuinely *is* worth unit still needs its fallthrough:
-# a `match` with no arm for a value falls out of it as unit, and the
-# loop the pass builds has to be able to leave that way.
+# a `match` whose last arm does nothing leaves it as unit, and the loop
+# the pass builds has to be able to leave that way.
 def announce(n: Int):
     match n:
         case 0:
             print("zero")
         case 1:
             print("one")
+        case _:
+            ()
 
 
 announce(0)

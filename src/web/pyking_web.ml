@@ -468,7 +468,7 @@ let checked_program main release =
               (Module.sigmaps_for unit sigmaps)
           in
           Analyses.analyze_mutability unit.stmts;
-          let sigmap = Module.module_sigmap unit.stmts unit.declarations tmap in
+          let sigmap = Module.module_sigmap unit.name unit.stmts unit.declarations tmap in
           let elaborated, tmap = Elaborate.program qmap tmap unit.stmts in
           let elaborated =
             if release then Release.program tmap elaborated else elaborated
@@ -770,6 +770,7 @@ let compile_source source target name =
       (* Each backend raises its own refusal; all of them carry an info,
          so all of them underline in the editor like any other error. *)
       | Target_js_core.Unsupported (info, message)
+      | Target_python.Unsupported (info, message)
       | Target_c.Unsupported (info, message)
       | Target_java.Unsupported (info, message)
       | Target_ocaml.Unsupported (info, message) ->

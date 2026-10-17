@@ -1,0 +1,5 @@
+# Every field after one with a default has a default too, so a
+# positional construction is never ambiguous about which it filled.
+
+datatype Point:
+    Point(x: Int = 0, y: Int)

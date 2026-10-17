@@ -1,0 +1,3 @@
+'tests/fail_typecheck_adt_or_types.pyk' 11:25-11:32 Type error: 'x' is
+  Int in one alternative of this '|' and String in another; every
+  alternative binds a name at one type

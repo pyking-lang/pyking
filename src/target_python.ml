@@ -4,6 +4,7 @@
     construct compiles and where the output is not optimal.
 
     Data structures:
+      Unsupported -- a construct this backend does not translate.
       pyexpr / pypattern / pytarget / pycompclause / pystmt -- the
         Python-target AST; see the comment on each variant for its
         shape.
@@ -24,6 +25,10 @@
 
 open Lexer
 open Syntax
+
+(** A construct this backend does not translate, with the source
+    position. *)
+exception Unsupported of info * string
 
 (* --- Python target AST ---
 
@@ -72,6 +77,7 @@ type pyexpr =
          lambda inside a loop pins to the turn it was built in. *)
   | PyKeyword of info * string * pyexpr
       (* name=value, a keyword argument; only ever a PyCall's argument *)
+  | PyWalrus of info * string * pyexpr (* (name := value) *)
 
 and pypattern =
   | PyPInt of info * int (* case 0: *)
@@ -85,6 +91,9 @@ and pypattern =
          possible, put where they belong by `match_case` *)
   | PyPList of info * pypattern list * pylistrest option * pypattern list
       (* case [p1, ..., *rest_or_wildcard, ..., pk]: *)
+  | PyPClass of info * string * pypattern list (* case Name(p1, ...): *)
+  | PyPOr of info * pypattern list (* case p1 | p2: *)
+  | PyPAs of info * pypattern * string (* case p as name: *)
 
 and pylistrest = PyListRest of info * string option
 (* the `*name` / `*_` star sub-pattern of a PyPList *)
@@ -231,6 +240,8 @@ let rec pprint_py_expr ?(min_prec = 0) e =
         (String.concat " " (List.map pprint_py_comp_clause clauses))
   | PyKeyword (_, name, value) ->
       Printf.sprintf "%s=%s" name (pprint_py_expr value)
+  | PyWalrus (_, name, value) ->
+      Printf.sprintf "(%s := %s)" name (pprint_py_expr value)
   | PyLambda (_, params, body) ->
       (* Python's `lambda` binds as loosely as its conditional
          expression, so the same precedence 0: as an operand of
@@ -294,6 +305,12 @@ let rec pprint_py_pattern p =
   (* `str() as name`: the class test is what makes the guard below it
      safe to run on any subject. *)
   | PyPGuarded (_, name, _, _) -> Printf.sprintf "str() as %s" name
+  | PyPClass (_, name, fields) ->
+      Printf.sprintf "%s(%s)" name
+        (String.concat ", " (List.map pprint_py_pattern fields))
+  | PyPOr (_, alternatives) ->
+      String.concat " | " (List.map pprint_py_alternative alternatives)
+  | PyPAs (_, inner, name) -> pprint_py_alternative inner ^ " as " ^ name
   | PyPTuple (_, elements) -> (
       match elements with
       | [ single ] -> Printf.sprintf "(%s,)" (pprint_py_pattern single)
@@ -311,6 +328,13 @@ let rec pprint_py_pattern p =
         @ List.map pprint_py_pattern suffix
       in
       Printf.sprintf "[%s]" (String.concat ", " parts)
+
+(** A pattern where `|` or `as` surrounds it, parenthesized where it is
+    itself one. pypattern -> string *)
+and pprint_py_alternative p =
+  match p with
+  | PyPOr _ | PyPAs _ -> "(" ^ pprint_py_pattern p ^ ")"
+  | _ -> pprint_py_pattern p
 
 (** Renders a statement list as source lines, with a blank line around
     each nested def (never at the block's own start or end).
@@ -499,13 +523,25 @@ let float_helper_def name =
    default (builtin.ml, "what a conversion reads"). *)
 
 let int_helper = "__pyk_int"
+let datatype_helper = "__pyk_datatype"
 let truncate_helper = "__pyk_trunc"
 let float_parse_helper = "__pyk_float_of"
 
 (** The text of one conversion helper. string -> string *)
 let conversion_def name =
   String.concat "\n"
-    (if name = int_helper then
+    (if name = datatype_helper then
+       [
+         Printf.sprintf "def %s(name, fields):" name;
+         "    # One class per constructor; its fields are what `match`";
+         "    # takes apart by position.";
+         "    def __init__(self, *values):";
+         "        for field, value in zip(fields, values):";
+         "            object.__setattr__(self, field, value)";
+         "    return type(name, (), {'__slots__': fields, '__match_args__': fields,";
+         "                           '__init__': __init__, '_pyk_tag': name})";
+       ]
+     else if name = int_helper then
        [
          Printf.sprintf "def %s(s):" name;
          "    digits = s[1:] if s[:1] in ('-', '+') else s";
@@ -666,6 +702,9 @@ let rec pattern_captured_names pattern =
         | Some (ListRest (_, Some name, _)) -> [ name ]
         | _ -> [])
       @ List.concat_map pattern_captured_names suffix
+  | PConstructor (_, _, _, fields, _, _) -> List.concat_map pattern_captured_names fields
+  | POr (_, first :: _, _) -> pattern_captured_names first
+  | PAs (_, inner, name, _) -> pattern_captured_names inner @ [ name ]
   | _ -> []
 
 (** Whether pattern matches every value it could be given -- names, `_`,
@@ -823,6 +862,18 @@ let fresh_py_name name scope =
   in
   go 2
 
+(** Whether a Python name is already spoken for in this function scope.
+    string -> scope -> bool *)
+let is_taken py_name scope =
+  SMap.mem py_name scope.local
+  || SMap.exists (fun _ value -> value = py_name) scope.local
+  || StringSet.mem py_name scope.used
+
+(** The name another module's public `name` is bound under in its own
+    file: a reserved word is `word_` there (see `bind`).
+    string -> string *)
+let public_py_name name = if StringSet.mem name reserved then name ^ "_" else name
+
 (** Binds a Pyking name, renaming only where it would otherwise land on
     a Python name still live in this function scope
     (docs/target_python.md, "Blocks are scopes; Python's are not").
@@ -837,7 +888,12 @@ let bind ?(rebinding = false) ?(loop_carried = true) ?(mutable_ = false) name
   then (SMap.find name scope.local, scope)
   else
     let py_name =
-      if
+      (* A reserved word becomes `word_`, the same in every module, so
+         that a public one -- a constructor called `None` -- is imported
+         by the name it was exported under. *)
+      if StringSet.mem name reserved && not (is_taken (name ^ "_") scope) then
+        name ^ "_"
+      else if
         StringSet.mem name reserved
         || SMap.mem name scope.local
         || SMap.exists (fun _ value -> value = name) scope.local
@@ -949,6 +1005,9 @@ let rec free_in_expr e bound free =
         (StringSet.union bound
            (set_of (List.map (fun (Param (_, n, _, _, _)) -> n) params)))
         free
+  | EConstruct (_, _, _, args, _) ->
+      List.fold_left (fun free arg -> free_in_expr arg bound free) free (arg_exprs args)
+  | EField (_, record, _, _) -> free_in_expr record bound free
   | e -> (
       match Interpreter.binary_operands e with
       | Some (left, right) -> free_in_expr right bound (free_in_expr left bound free)
@@ -1049,14 +1108,16 @@ and free_in_stmt s bound free =
       let free = free_in_expr subject bound free in
       let free =
         List.fold_left
-          (fun free (MatchCase (_, pattern, body, _)) ->
-            free_in_nested body
-              (StringSet.union bound (set_of (pattern_captured_names pattern)))
-              free)
+          (fun free (MatchCase (_, pattern, guard, body, _)) ->
+            let inner = StringSet.union bound (set_of (pattern_captured_names pattern)) in
+            let free =
+              match guard with Some g -> free_in_expr g inner free | None -> free
+            in
+            free_in_nested body inner free)
           free cases
       in
       (bound, free)
-  | SImport _ | SFunctionSig _ -> (bound, free)
+  | SImport _ | SFunctionSig _ | SDatatype _ -> (bound, free)
 
 (** The names stmts read from outside themselves: every name used before
     stmts (or bound) has bound it. [stmt] -> StringSet.t -> StringSet.t *)
@@ -1136,7 +1197,7 @@ let rec captured_in_block stmts bound captured =
           captured_in_block [ inner ] bound captured
       | SMatch (_, _, cases, _) ->
           List.fold_left
-            (fun captured (MatchCase (_, pattern, body, _)) ->
+            (fun captured (MatchCase (_, pattern, _, body, _)) ->
               captured_in_block body
                 (StringSet.union bound (set_of (pattern_captured_names pattern)))
                 captured)
@@ -1178,7 +1239,7 @@ let rec mutated_in_block stmts state =
           mutated_in_block body (written, declared)
       | SMatch (_, _, cases, _) ->
           List.fold_left
-            (fun state (MatchCase (_, _, body, _)) -> mutated_in_block body state)
+            (fun state (MatchCase (_, _, _, body, _)) -> mutated_in_block body state)
             (written, declared) cases
       | SLetStmt (_, _, inner, _, _, _) | SReturnStmt (_, inner, _) ->
           mutated_in_block [ inner ] (written, declared)
@@ -1438,6 +1499,34 @@ let build_format_helper info name floats =
             PyReturn (info, joined [ text "("; out; text ")" ]);
           ],
           None );
+      (* A datatype's value prints as its constructor applied to its
+         fields, every field by position. *)
+      PyIf
+        ( info,
+          call "hasattr" [ v; text "_pyk_tag" ],
+          [
+            PyAssign (info, PyTargetName (info, "out"), text "");
+            PyFor
+              ( info,
+                "f",
+                PyAttr (info, v, "__match_args__"),
+                [
+                  PyAssign (info, PyTargetName (info, "e"), call "getattr" [ v; var "f" ]);
+                  step;
+                ],
+                None );
+            PyReturn
+              ( info,
+                PyAdd
+                  ( info,
+                    PyAttr (info, v, "_pyk_tag"),
+                    PyIfExp
+                      ( info,
+                        PyAttr (info, v, "__match_args__"),
+                        joined [ text "("; out; text ")" ],
+                        text "" ) ) );
+          ],
+          None );
       PyReturn (info, call "str" [ v ]);
     ]
   in
@@ -1562,6 +1651,9 @@ let rec guarded_in py_pattern =
   | PyPTuple (_, elements) -> List.concat_map guarded_in elements
   | PyPList (_, prefix, _, suffix) ->
       List.concat_map guarded_in (prefix @ suffix)
+  | PyPClass (_, _, fields) -> List.concat_map guarded_in fields
+  | PyPOr (_, alternatives) -> List.concat_map guarded_in alternatives
+  | PyPAs (_, inner, _) -> guarded_in inner
   | _ -> []
 
 (** Every guard and binding a pattern carries, in source order: the
@@ -1588,9 +1680,29 @@ let guarded_parts py_pattern =
     pattern -- `case ("a" ++ x, [n] ++ _)` has one nested in a tuple --
     and Python's guard covers the whole arm, which is what "every part
     matched" means. info -> pypattern -> [pystmt] -> pymatchcase *)
-let match_case info py_pattern body =
-  let guard, bindings = guarded_parts py_pattern in
-  PyMatchCase (info, py_pattern, bindings @ body, guard)
+let match_case ?guard info py_pattern body =
+  let found, bindings = guarded_parts py_pattern in
+  match guard with
+  | None -> PyMatchCase (info, py_pattern, bindings @ body, found)
+  | Some written ->
+      (* The case's own guard is asked last, and may name what a split
+         string bound -- so those bindings are made in the guard itself,
+         each a `[name := value]`, which is never empty and so never
+         false. *)
+      let walruses =
+        List.filter_map
+          (function
+            | PyAssign (i, PyTargetName (_, n), e) -> Some (PyList (i, [ PyWalrus (i, n, e) ]))
+            | _ -> None)
+          bindings
+      in
+      let parts = Option.to_list found @ walruses @ [ written ] in
+      let joined =
+        List.fold_left
+          (fun joined part -> PyAnd (info, joined, part))
+          (List.hd parts) (List.tl parts)
+      in
+      PyMatchCase (info, py_pattern, body, Some joined)
 
 (** Translates a pattern, answering it with the scope its captures
     extend. pattern -> scope -> (pypattern, scope) *)
@@ -1675,6 +1787,67 @@ let rec translate_pattern p scope =
               scope )
       in
       (PyPGuarded (info, held, guard, bindings), scope)
+  | PConstructor (info, module_, name, fields, _, _) ->
+      let fields, scope = translate_patterns fields scope in
+      let reached =
+        match module_ with
+        | Some alias -> lookup alias scope ^ "." ^ public_py_name name
+        | None -> lookup name scope
+      in
+      (PyPClass (info, reached, fields), scope)
+  | POr (info, alternatives, _) ->
+      (* Python's own `|`, whose alternatives bind the same names: each
+         one binds them anew, under the Python names the first gave
+         them. *)
+      let first, rest =
+        match alternatives with x :: xs -> (x, xs) | [] -> (p, [])
+      in
+      let py_first, after = translate_pattern first scope in
+      let names = pattern_captured_names first in
+      let renamed =
+        List.map (fun n -> (n, lookup n after)) names
+      in
+      let py_rest =
+        List.map
+          (fun one ->
+            let py_one, inner = translate_pattern one scope in
+            let mapping = List.map (fun n -> (lookup n inner, List.assoc n renamed)) names in
+            rename_pattern mapping py_one)
+          rest
+      in
+      if List.exists (fun q -> guarded_in q <> []) (py_first :: py_rest) then
+        raise
+          (Unsupported
+             ( info,
+               "a `++` string pattern inside '|' is not supported by the \
+                Python backend: the string is split in the arm's guard, and \
+                Python's `|` has none per alternative" ));
+      (PyPOr (info, py_first :: py_rest), after)
+  | PAs (info, inner, name, _) ->
+      let py_inner, scope = translate_pattern inner scope in
+      let py_name, scope = bind name scope in
+      (PyPAs (info, py_inner, py_name), scope)
+
+(** A pattern with the capture names `mapping` gives renamed.
+    [(string, string)] -> pypattern -> pypattern *)
+and rename_pattern mapping p =
+  let go = rename_pattern mapping in
+  let renamed n = Option.value (List.assoc_opt n mapping) ~default:n in
+  match p with
+  | PyPCapture (i, n) -> PyPCapture (i, renamed n)
+  | PyPTuple (i, ps) -> PyPTuple (i, List.map go ps)
+  | PyPList (i, pre, rest, suf) ->
+      PyPList
+        ( i,
+          List.map go pre,
+          (match rest with
+          | Some (PyListRest (ri, Some n)) -> Some (PyListRest (ri, Some (renamed n)))
+          | other -> other),
+          List.map go suf )
+  | PyPClass (i, n, ps) -> PyPClass (i, n, List.map go ps)
+  | PyPOr (i, ps) -> PyPOr (i, List.map go ps)
+  | PyPAs (i, q, n) -> PyPAs (i, go q, renamed n)
+  | other -> other
 
 and translate_patterns patterns scope =
   List.fold_left
@@ -1759,16 +1932,9 @@ let rec falls_through py_body =
       | PyReturn _ -> false
       | PyIf (_, _, then_body, Some else_body) ->
           falls_through then_body || falls_through else_body
-      | PyMatch (_, _, cases)
-        when List.exists
-               (fun (PyMatchCase (_, pattern, _, _)) ->
-                 match pattern with
-                 | PyPWildcard _ | PyPCapture _ -> true
-                 | _ -> false)
-               cases ->
-          (* Only a `match` with an irrefutable arm is guaranteed to run
-             one; otherwise an unmatched subject falls straight
-             through. *)
+      | PyMatch (_, _, cases) ->
+          (* Every `match` runs one of its arms (exhaustive.ml), so it
+             falls through where one of them does. *)
           List.exists
             (fun (PyMatchCase (_, _, body, _)) -> falls_through body)
             cases
@@ -1843,7 +2009,7 @@ let rec movable s in_loop =
   | SLoop (_, _, _, _, _, body, _) -> List.for_all (fun st -> movable st true) body
   | SMatch (_, _, cases, _) ->
       List.for_all
-        (fun (MatchCase (_, _, body, _)) ->
+        (fun (MatchCase (_, _, _, body, _)) ->
           List.for_all (fun st -> movable st in_loop) body)
         cases
   | _ -> true
@@ -2018,7 +2184,22 @@ let rec translate_expr e scope gen =
           alias ^ "_external"
         else alias
       in
-      (PyAttr (info, PyVar (info, reached), name), gen)
+      (PyAttr (info, PyVar (info, reached), public_py_name name), gen)
+  | EConstruct (info, module_, name, args, _) ->
+      (* A constructor is a class (see `datatype_class`), so building a
+         value is calling it. *)
+      let callee =
+        match module_ with
+        | None -> PyVar (info, lookup name scope)
+        | Some alias -> fst (translate_expr (EQualified (info, alias, name, 0)) scope gen)
+      in
+      let py_args, gen = translate_each (arg_exprs args) scope gen in
+      (PyCall (info, callee, py_args), gen)
+  | EField (info, record, name, _) ->
+      let py_record, gen = translate_expr record scope gen in
+      if StringSet.mem name reserved then
+        (PyCall (info, PyVar (info, "getattr"), [ py_record; PyString (info, name) ]), gen)
+      else (PyAttr (info, py_record, name), gen)
   | EAdd (info, l, r, _) -> binary (fun i a b -> PyAdd (i, a, b)) info l r
   (* Python's `+` concatenates strings and lists as well as adding, so
      both Pyking operators land on the same node. *)
@@ -2325,6 +2506,9 @@ and declare_functions stmts scope =
     (fun scope s ->
       match s with
       | SFunctionDef (_, name, _, _, _, _, _, _, _) -> snd (bind name scope)
+      | SDatatype _ ->
+          List.fold_left (fun scope name -> snd (bind name scope)) scope
+            (Module.datatype_names s)
       | SImport (_, _, local, selected, fields, _) ->
           let names =
             if selected then List.map (fun (_, local) -> local) fields
@@ -2491,7 +2675,7 @@ and translate_stmt s scope gen =
                 PyAssign
                   ( info,
                     PyTargetName (info, lookup local_name scope),
-                    PyAttr (info, PyVar (info, held), exported) ))
+                    PyAttr (info, PyVar (info, held), public_py_name exported) ))
               chosen
           in
           if shadowed from_module then
@@ -2507,7 +2691,7 @@ and translate_stmt s scope gen =
                   from_module,
                   List.map
                     (fun (exported, local_name) ->
-                      (exported, lookup local_name scope))
+                      (public_py_name exported, lookup local_name scope))
                     chosen );
             ]
         else if shadowed from_module then [ loaded from_module alias_name ]
@@ -2627,13 +2811,76 @@ and translate_stmt s scope gen =
       in
       ([ PyMatch (info, py_subject, py_cases) ], scope, gen)
   | SFunctionSig _ -> ([], scope, gen)
+  | SDatatype (info, name, _, constructors, _, _) ->
+      (* A class per constructor, made by the prelude's
+         `__pyk_datatype`, and the datatype's own name for the tuple of
+         them -- what an import of it imports. Written at the top of the
+         program, since a datatype is in scope throughout its module. *)
+      let classes =
+        List.map
+          (fun (Constructor (ci, cname, fields, _)) ->
+            PyAssign
+              ( ci,
+                PyTargetName (ci, lookup cname scope),
+                PyCall
+                  ( ci,
+                    PyVar (ci, datatype_helper),
+                    [
+                      PyString (ci, cname);
+                      PyTuple
+                        ( ci,
+                          List.mapi
+                            (fun i (Field (fi, label, _, _, _)) ->
+                              PyString
+                                ( fi,
+                                  match label with
+                                  | Some l -> l
+                                  | None -> "_" ^ string_of_int i ))
+                            fields );
+                    ] ) ))
+          constructors
+      in
+      let own =
+        if List.exists (fun (Constructor (_, n, _, _)) -> n = name) constructors
+        then []
+        else
+          [
+            PyAssign
+              ( info,
+                PyTargetName (info, lookup name scope),
+                PyTuple
+                  ( info,
+                    List.map
+                      (fun (Constructor (ci, cname, _, _)) -> PyVar (ci, lookup cname scope))
+                      constructors ) );
+          ]
+      in
+      ( [],
+        scope,
+        {
+          gen with
+          pending = gen.pending @ classes @ own;
+          conversions =
+            (if List.mem datatype_helper gen.conversions then gen.conversions
+             else gen.conversions @ [ datatype_helper ]);
+        } )
 
 (** One case arm outside a binding.
     match_case -> scope -> gen -> (pymatchcase, gen) *)
-and translate_case (MatchCase (info, pattern, body, _)) scope gen =
+and translate_case (MatchCase (info, pattern, guard, body, _)) scope gen =
   let py_pattern, arm_scope = translate_pattern pattern (block_scope scope) in
+  let guard, gen = translate_guard guard arm_scope gen in
   let py_body, _, gen = translate_stmts body arm_scope gen in
-  (match_case info py_pattern py_body, gen)
+  (match_case ?guard info py_pattern py_body, gen)
+
+(** A case's guard, where it has one, in the scope its pattern bound.
+    expr? -> scope -> gen -> (pyexpr?, gen) *)
+and translate_guard guard scope gen =
+  match guard with
+  | None -> (None, gen)
+  | Some g ->
+      let py_g, gen = translate_expr g scope gen in
+      (Some py_g, gen)
 
 (** Translates a statement list whose last statement is in tail position
     (PYKING.md, "Tail position"; docs/target_python.md, "Tail
@@ -2696,10 +2943,11 @@ and translate_tail_stmt s scope gen =
 
 (** One case arm of a match in tail position.
     match_case -> scope -> gen -> (pymatchcase, gen) *)
-and translate_tail_case (MatchCase (info, pattern, body, _)) scope gen =
+and translate_tail_case (MatchCase (info, pattern, guard, body, _)) scope gen =
   let py_pattern, arm_scope = translate_pattern pattern (block_scope scope) in
+  let guard, gen = translate_guard guard arm_scope gen in
   let py_body, gen = translate_tail_block body arm_scope gen in
-  (match_case info py_pattern py_body, gen)
+  (match_case ?guard info py_pattern py_body, gen)
 
 (** Translates a value-form if/match (docs/target_python.md,
     "Value-form if/match"): the same PyIf/PyMatch the statement form
@@ -2749,11 +2997,12 @@ and translate_value_block stmts py_target scope gen =
 
 (** One case arm of a value-form match.
     match_case -> pytarget -> scope -> gen -> (pymatchcase, gen) *)
-and translate_value_case (MatchCase (info, pattern, body, _)) py_target scope gen
+and translate_value_case (MatchCase (info, pattern, guard, body, _)) py_target scope gen
     =
   let py_pattern, arm_scope = translate_pattern pattern (block_scope scope) in
+  let guard, gen = translate_guard guard arm_scope gen in
   let py_body, gen = translate_value_block body py_target arm_scope gen in
-  (match_case info py_pattern py_body, gen)
+  (match_case ?guard info py_pattern py_body, gen)
 
 (** Translates a loop into Python's own `while True`/`for` over a
     mutable accumulator variable (docs/target_python.md, "loop"): the
@@ -2891,11 +3140,12 @@ and translate_loop_tail s py_target scope gen =
 
 (** One case arm of a match at the tail of a loop body.
     match_case -> pytarget option -> scope -> gen -> (pymatchcase, gen) *)
-and translate_loop_case (MatchCase (info, pattern, body, _)) py_target scope gen
+and translate_loop_case (MatchCase (info, pattern, guard, body, _)) py_target scope gen
     =
   let py_pattern, arm_scope = translate_pattern pattern (block_scope scope) in
+  let guard, gen = translate_guard guard arm_scope gen in
   let py_body, gen = translate_loop_block body py_target arm_scope gen in
-  (match_case info py_pattern py_body, gen)
+  (match_case ?guard info py_pattern py_body, gen)
 
 (** Translates a full program: every helper synthesized along the way is
     prepended. `tmap` is the checker's symbol -> type table, which is

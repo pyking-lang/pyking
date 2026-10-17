@@ -125,6 +125,45 @@ also binds the plain `q__b` is refused. `elaborate.ml` resolves
 implicit arguments in the same pass. `docs/overloading.md` and
 `docs/implicits.md` are the long form.
 
+## Datatypes and patterns
+
+**Pyking has algebraic data types**: `datatype Tree(a):` with one
+constructor per indented line, each with positional, named or
+defaulted fields. PYKING.md, "Datatypes", "Or-patterns, `as` and
+guards" and "Exhaustiveness", is the language; this is where it lives.
+
+- **Uppercase means constructor in a pattern.** The lexer has no new
+  token for it: `parser.ml` reads an uppercase identifier as
+  `EConstruct`/`PConstructor`/`TCon` (`is_constructor_name`). In an
+  expression, `desugar_args.ml` turns one back into a value where a
+  binding or `def` of that name is in scope (`value_named`), so
+  `ISO8601 = "..."` still works. `x.f` is parsed as `EQualified` and made
+  an `EField` there too, where `x` is a binding.
+- **Constructors take a call's rules**, in `desugar_args.ml`: a field is
+  a parameter, a default a generated `<Ctor>__default__<field>` def, and
+  a named field pattern is put in position with `_` for the rest. After
+  it every construction is positional, its arguments still carrying the
+  field names (the interpreter and JavaScript keep fields by name).
+- **Canonical names**: in the checker's types a datatype of the module
+  being checked is bare (`Tree`), another module's is `module.Tree`.
+  `Module.module_sigmap name ...` qualifies on the way out; a sigmap
+  carries a datatype as a `TData` entry under its name and each
+  constructor's. `Typesystem.declare_datatypes` fills the store's
+  `types`/`datatypes`/`constructors` tables, and every written
+  annotation is read through `resolved`.
+- **Every `match` is exhaustive and every case reachable**, decided by
+  **`src/exhaustive.ml`** (Maranget's usefulness), run at the end of
+  `type_check` (`check_matches`) and by the REPL per entry. The checker
+  therefore treats every `match` as total, and so do the tail-call pass
+  and every backend. A guarded case does not count towards covering.
+  `docs/exhaustive.md` is the long form.
+- **Backends**: Python a class per constructor (`__pyk_datatype` in the
+  prelude), JavaScript a function per constructor building a tagged
+  object (`pykData`), OCaml its own variants plus a `pyk_show_*` printer
+  per datatype, the interpreter `VData`. C and Java refuse datatypes,
+  as they refuse lists, but take guards and `|` over scalars where no
+  name is bound.
+
 ## Changing the language: always update all five places
 
 A change to what `src/` accepts is not finished until **every** one of
@@ -2229,6 +2268,11 @@ A sixth covers **the standard library's input, output and exit** and
 `debug_values` (each with a sibling `.err`, what `debug` wrote to
 standard error), and `typecheck_release*` (`release = true`: compiled
 with `--release`, and held to writing nothing on standard error).
+`adt_*`, `pattern_*`, `module_adt`, `typecheck_adt_infer` and
+`fail_typecheck_adt_*` cover **datatypes and patterns**: constructors,
+fields and defaults, parameters, mutual recursion, or-patterns, `as`,
+guards (`pattern_guard_scalar` on C and Java too), and every refusal
+the exhaustiveness pass and the checker make.
 `lib_math_*` cover **math** on every target: `lib_math_basic` what is
 exact on every host, `lib_math_approx` what is not, printed to six
 decimals, and `lib_math_from` the overloads through a `from` line.

@@ -1,0 +1,2 @@
+'tests/fail_typecheck_adt_field_count.pyk' 10:13-10:26 Name error:
+  'Pair' has 2 fields, and this pattern matches 3

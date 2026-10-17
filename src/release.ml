@@ -35,7 +35,7 @@ let unit_for e = ETuple (expr_info e, [], expr_sym e)
 let supplies_unit tmap statement =
   match statement with
   | SLet _ | SLetStmt _ | SVar _ | SMutate _ | SFunctionDef _ | SFunctionSig _
-  | SImport _ ->
+  | SImport _ | SDatatype _ ->
       true
   | SExprStmt (_, e, _) -> (
       match IntMap.find_opt (expr_sym e) tmap with
@@ -70,6 +70,9 @@ let rec expression tmap e =
     | ETuple (i, elements, s) -> ETuple (i, List.map go elements, s)
     | EIf (i, c, a, b, s) -> EIf (i, go c, go a, go b, s)
     | ELambda (i, params, body, s) -> ELambda (i, params, go body, s)
+    | EConstruct (i, m, n, args, s) ->
+        EConstruct (i, m, n, List.map (fun (name, a) -> (name, go a)) args, s)
+    | EField (i, record, n, s) -> EField (i, go record, n, s)
     | EListComp (i, element, clauses, s) ->
         EListComp
           ( i,
@@ -123,7 +126,8 @@ and rewrite tmap statement =
   | SReturn (i, e, s) -> SReturn (i, go e, s)
   | SReturnStmt (i, inner, s) -> SReturnStmt (i, rewrite tmap inner, s)
   | SExprStmt (i, e, s) -> SExprStmt (i, go e, s)
-  | SBreak _ | SContinue _ | SFunctionSig _ | SImport _ -> statement
+  | SBreak _ | SContinue _ | SFunctionSig _ | SImport _ | SDatatype _ ->
+      statement
   | SLoop (i, target, init, t, iterate, body, s) ->
       let iterate =
         match iterate with
@@ -146,8 +150,8 @@ and rewrite tmap statement =
         ( i,
           go subject,
           List.map
-            (fun (MatchCase (ci, pattern, body, cs)) ->
-              MatchCase (ci, pattern, block tmap body, cs))
+            (fun (MatchCase (ci, pattern, guard, body, cs)) ->
+              MatchCase (ci, pattern, Option.map go guard, block tmap body, cs))
             cases,
           s )
   | SFunctionDef (i, name, params, body, return_type, s, public, implicits, implicit)

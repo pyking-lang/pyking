@@ -94,10 +94,12 @@ print(first_or([1, 2], 0), first_or(["a"], "z"), first_or([], true))
 print(pick(([1, 4, 8, 10], 4)), pick(([1, 2], 4)), pick(([5, 6, 7], 9)))
 print(pick(([], 0)), pick(([3], 4)))
 
-# The statement form is held to none of this: it may match nothing, and
-# then it does nothing.
+# The statement form is held to the same rule: a `match` matches every
+# value, so one with nothing to do for the rest says so with `case _`.
 match 9:
     case 1:
         print("never")
+    case _:
+        ()
 
 print("done")

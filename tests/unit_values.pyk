@@ -41,16 +41,6 @@ def only_when_positive(n):
 
 print(only_when_positive(1), only_when_positive(-1))
 
-# The same through a `match` with no irrefutable arm: an unmatched
-# subject falls out of the function as unit.
-def only_zero(n):
-    match n:
-        case 0:
-            "zero"
-
-
-print(only_zero(0), only_zero(7))
-
 # Unit flows through a binding like any other value.
 nothing = announce(2)
 print(nothing)

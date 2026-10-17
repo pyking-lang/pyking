@@ -1,0 +1,9 @@
+# A constructor belongs to one datatype of its module.
+
+datatype Animal:
+    Cat
+    Dog
+
+datatype Pet:
+    Fish
+    Cat

@@ -126,6 +126,11 @@ let rec pattern_bindings pattern =
       List.concat_map pattern_bindings prefix
       @ middle
       @ List.concat_map pattern_bindings suffix
+  | PConstructor (_, _, _, positional, named, _) ->
+      List.concat_map pattern_bindings (positional @ List.map snd named)
+  | POr (_, first :: _, _) -> pattern_bindings first
+  | POr (_, [], _) -> []
+  | PAs (info, inner, name, _) -> pattern_bindings inner @ [ (name, info) ]
   | PInt _ | PString _ | PBool _ | PWildcard _ -> []
 
 (** Extends env with everything pattern binds. env -> pattern -> env *)
@@ -280,7 +285,7 @@ and analyze_value_stmt stmt env =
 
 (** Analyzes one case clause; the pattern's variables are bound in the
     arm's own scope. match_case -> env -> () *)
-and analyze_case (MatchCase (_, pattern, body, _)) env =
+and analyze_case (MatchCase (_, pattern, _, body, _)) env =
   analyze_scope body (bind_pattern env pattern)
 
 (** Analyzes one statement in env. Answers the environment the
@@ -349,6 +354,11 @@ and analyze_stmt s env =
       env
   | SMatch (_, _, cases, _) ->
       List.iter (fun case_clause -> analyze_case case_clause env) cases;
+      env
+  | SDatatype _ ->
+      (* A datatype binds no value name: its own name and its
+         constructors' start with an uppercase letter, which no binding
+         may. *)
       env
   | SFunctionSig _ ->
       (* A signature says what a `def` in this block is; it binds no
@@ -511,6 +521,16 @@ let rec sym_expr counter e =
   | EQualified (i, module_name, name, s) ->
       let s, counter = assign s counter in
       (EQualified (i, module_name, name, s), counter)
+  | EConstruct (i, module_, name, args, s) ->
+      let names = List.map fst args in
+      let args, counter = map_fold sym_expr counter (arg_exprs args) in
+      let args = List.combine names args in
+      let s, counter = assign s counter in
+      (EConstruct (i, module_, name, args, s), counter)
+  | EField (i, record, name, s) ->
+      let record, counter = sym_expr counter record in
+      let s, counter = assign s counter in
+      (EField (i, record, name, s), counter)
 
 and sym_type counter t =
   match t with
@@ -560,6 +580,13 @@ and sym_type counter t =
       let body, counter = sym_type counter body in
       let s, counter = assign s counter in
       (TForall (i, vars, body, s), counter)
+  | TCon (i, name, args, s) ->
+      let args, counter = map_fold sym_type counter args in
+      let s, counter = assign s counter in
+      (TCon (i, name, args, s), counter)
+  | TData (i, d, s) ->
+      let s, counter = assign s counter in
+      (TData (i, d, s), counter)
 
 and sym_pattern counter p =
   match p with
@@ -591,6 +618,25 @@ and sym_pattern counter p =
   | PText (i, prefix, rest, suffix, s) ->
       let s, counter = assign s counter in
       (PText (i, prefix, rest, suffix, s), counter)
+  | PConstructor (i, module_, name, positional, named, s) ->
+      let positional, counter = map_fold sym_pattern counter positional in
+      let named, counter =
+        map_fold
+          (fun counter (n, p) ->
+            let p, counter = sym_pattern counter p in
+            ((n, p), counter))
+          counter named
+      in
+      let s, counter = assign s counter in
+      (PConstructor (i, module_, name, positional, named, s), counter)
+  | POr (i, alternatives, s) ->
+      let alternatives, counter = map_fold sym_pattern counter alternatives in
+      let s, counter = assign s counter in
+      (POr (i, alternatives, s), counter)
+  | PAs (i, inner, name, s) ->
+      let inner, counter = sym_pattern counter inner in
+      let s, counter = assign s counter in
+      (PAs (i, inner, name, s), counter)
 
 and sym_list_rest counter (ListRest (i, name, s)) =
   let s, counter = assign s counter in
@@ -635,11 +681,23 @@ and sym_loop_iter counter it =
       let s, counter = assign s counter in
       (WhileTest (i, condition, s), counter)
 
-and sym_case counter (MatchCase (i, pattern, body, s)) =
+and sym_case counter (MatchCase (i, pattern, guard, body, s)) =
   let pattern, counter = sym_pattern counter pattern in
+  let guard, counter = map_option sym_expr counter guard in
   let body, counter = map_fold sym_stmt counter body in
   let s, counter = assign s counter in
-  (MatchCase (i, pattern, body, s), counter)
+  (MatchCase (i, pattern, guard, body, s), counter)
+
+and sym_constructor counter (Constructor (i, name, fields, s)) =
+  let fields, counter = map_fold sym_field counter fields in
+  let s, counter = assign s counter in
+  (Constructor (i, name, fields, s), counter)
+
+and sym_field counter (Field (i, label, type_, default, s)) =
+  let type_, counter = sym_type counter type_ in
+  let default, counter = map_option sym_expr counter default in
+  let s, counter = assign s counter in
+  (Field (i, label, type_, default, s), counter)
 
 and sym_stmt counter st =
   match st with
@@ -722,6 +780,10 @@ and sym_stmt counter st =
          own symbol is all it has. *)
       let s, counter = assign s counter in
       (SImport (i, module_name, name, selected, fields, s), counter)
+  | SDatatype (i, name, params, constructors, s, public) ->
+      let constructors, counter = map_fold sym_constructor counter constructors in
+      let s, counter = assign s counter in
+      (SDatatype (i, name, params, constructors, s, public), counter)
 
 (* --- the largest symbol already handed out ---
    A tree that has been symbolized once keeps the numbers it has, and
@@ -757,6 +819,8 @@ let rec high_expr e =
         max (high_expr e2) (high_list high_comp_clause clauses)
     | ELambda (_, params, body, _) ->
         max (high_list high_param params) (high_expr body)
+    | EConstruct (_, _, _, args, _) -> high_list high_expr (arg_exprs args)
+    | EField (_, record, _, _) -> high_expr record
   in
   max (expr_sym e) children
 
@@ -773,6 +837,8 @@ and high_type t =
           (max (high_list high_type params) (high_type result))
           (high_option high_stmt definition)
     | TForall (_, _, body, _) -> high_type body
+    | TCon (_, _, args, _) -> high_list high_type args
+    | TData _ -> 0
   in
   max (type_sym t) children
 
@@ -785,6 +851,10 @@ and high_pattern p =
         max
           (max (high_list high_pattern prefix) (high_list high_pattern suffix))
           (high_option (fun (ListRest (_, _, s)) -> s) rest)
+    | PConstructor (_, _, _, positional, named, _) ->
+        high_list high_pattern (positional @ List.map snd named)
+    | POr (_, alternatives, _) -> high_list high_pattern alternatives
+    | PAs (_, inner, _, _) -> high_pattern inner
   in
   max (pattern_sym p) children
 
@@ -813,8 +883,18 @@ and high_loop_iter it =
   | ForIn (_, _, sequence, s) -> max s (high_expr sequence)
   | WhileTest (_, condition, s) -> max s (high_expr condition)
 
-and high_case (MatchCase (_, pattern, body, s)) =
-  max s (max (high_pattern pattern) (high_list high_stmt body))
+and high_case (MatchCase (_, pattern, guard, body, s)) =
+  max s
+    (max
+       (max (high_pattern pattern) (high_option high_expr guard))
+       (high_list high_stmt body))
+
+and high_constructor (Constructor (_, _, fields, s)) =
+  max s
+    (high_list
+       (fun (Field (_, _, type_, default, fs)) ->
+         max fs (max (high_type type_) (high_option high_expr default)))
+       fields)
 
 and high_stmt st =
   let children =
@@ -860,6 +940,8 @@ and high_stmt st =
     | SMatch (_, subject, cases, _) ->
         max (high_expr subject) (high_list high_case cases)
     | SImport _ -> 0
+    | SDatatype (_, _, _, constructors, _, _) ->
+        high_list high_constructor constructors
   in
   max (stmt_sym st) children
 
@@ -1006,8 +1088,8 @@ and apply_in_stmt stmt =
         ( info,
           subject,
           List.map
-            (fun (MatchCase (info, pattern, body, sym)) ->
-              MatchCase (info, pattern, apply_signatures body, sym))
+            (fun (MatchCase (info, pattern, guard, body, sym)) ->
+              MatchCase (info, pattern, guard, apply_signatures body, sym))
             cases,
           sym )
   | stmt -> stmt

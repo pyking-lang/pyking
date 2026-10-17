@@ -1,0 +1,2 @@
+'tests/fail_typecheck_adt_default_order.pyk' 5:22-5:28 Parsing error:
+  this field needs a default, because a field before it has one

@@ -1,0 +1,5 @@
+# A type starting with an uppercase letter is a datatype, which has to
+# be declared or imported.
+
+def f(x: Shape) -> Int:
+    return 1

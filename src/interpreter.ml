@@ -87,6 +87,9 @@ type value =
          implements in a target language, called through host.externals
          rather than by interpreting a body. *)
   | VUndefined of string (* a hoisted `def` whose definition has not run *)
+  | VData of string * (string option * value) list
+      (* a value of a datatype: its constructor, and each field with its
+         name where it has one *)
 
 (** A persistent chain of frames: the names this frame introduces, and
     the frame outside it. A binding is a cell rather than a value, which
@@ -180,6 +183,13 @@ let display_value value =
         | VHostFun (module_, field) ->
             Buffer.add_string out (Printf.sprintf "<%s.%s>" module_ field);
             go rest
+        | VData (name, []) ->
+            Buffer.add_string out name;
+            go rest
+        | VData (name, fields) ->
+            (* Every field, by position, as a constructor is written. *)
+            Buffer.add_string out (name ^ "(");
+            go (commas (List.map snd fields) ")" @ rest)
         | VUndefined _ -> go rest)
   in
   go [ Item value ];
@@ -202,6 +212,7 @@ let describe value =
   | VList _ -> "a list"
   | VTuple elements -> Printf.sprintf "a tuple of %d" (List.length elements)
   | VClosure _ | VBuiltin _ | VHostFun _ -> "a function"
+  | VData (name, _) -> "a value built by '" ^ name ^ "'"
   | VUndefined _ -> "a value"
 
 (* --- hosts --- *)
@@ -390,7 +401,12 @@ type kont =
   | KArgument of expr * value * value list * expr list * env * kont option
   | KElement of expr * value list * expr list * env * kont option
   | KNegate of expr * env * kont option
+  | KField of expr * env * kont option (* the value whose field is read *)
   | KScrutinee of stmt * env * kont option
+  | KGuard of value * match_case list * stmt list * env * env * kont option
+      (* a case's guard: the subject, the cases after this one, this
+         case's body, the environment its pattern bound and the one the
+         `match` is written in *)
   | KComprehend of
       expr
       * want
@@ -796,7 +812,40 @@ and match_pattern env pattern value =
         | Some name -> Some (extend env name (VString middle)))
   | PList (_, prefix, rest, suffix, _), VList items ->
       match_list env prefix rest suffix items
+  | PConstructor (_, _, name, patterns, _, _), VData (built, fields)
+    when name = built && List.length patterns = List.length fields ->
+      List.fold_left2
+        (fun env one (_, part) ->
+          match env with None -> None | Some env -> match_pattern env one part)
+        (Some env) patterns fields
+  | POr (_, alternatives, _), _ ->
+      List.fold_left
+        (fun found one ->
+          match found with
+          | Some _ -> found
+          | None -> match_pattern env one value)
+        None alternatives
+  | PAs (_, inner, name, _), _ -> (
+      match match_pattern env inner value with
+      | None -> None
+      | Some env -> Some (extend env name value))
   | _ -> None
+
+(** The value of a named field. Raises Trap where the value has no such
+    field, which only a program that reached the machine unchecked can
+    manage. info -> value -> string -> value *)
+let field_of info value name =
+  match value with
+  | VData (_, fields) -> (
+      match List.find_opt (fun (label, _) -> label = Some name) fields with
+      | Some (_, v) -> v
+      | None ->
+          raise
+            (Trap
+               (info, Printf.sprintf "%s has no field '%s'" (describe value) name)))
+  | _ ->
+      raise
+        (Trap (info, Printf.sprintf "%s has no field '%s'" (describe value) name))
 
 (** env with every name in an assignment target bound to its part of
     value. Raises Trap if a destructuring target does not fit the value
@@ -856,6 +905,9 @@ let rec evaluate e env =
       VTuple (List.map (fun element -> evaluate element env) elements)
   | EList (_, elements, _) ->
       VList (List.map (fun element -> evaluate element env) elements)
+  | EConstruct (_, _, name, args, _) ->
+      VData (name, List.map (fun (label, a) -> (label, evaluate a env)) args)
+  | EField (info, record, name, _) -> field_of info (evaluate record env) name
   | EListComp (_, element, clauses, _) ->
       VList
         (List.map
@@ -1174,9 +1226,41 @@ and start_elements state node done_ todo env rest =
       }
   | [] ->
       let built =
-        match node with EList _ -> VList done_ | _ -> VTuple done_
+        match node with
+        | EList _ -> VList done_
+        | EConstruct (_, _, name, args, _) ->
+            VData (name, List.combine (List.map fst args) done_)
+        | _ -> VTuple done_
       in
       { state with control = CApply built; env; kont = rest }
+
+(** Tries a `match`'s cases on its subject in order and runs the body of
+    the first whose pattern fits -- once its guard, where it has one, has
+    been evaluated to true. A `match` that fits none supplies unit, which
+    exhaustive.ml makes unreachable.
+    state -> value -> [match_case] -> env -> kont option -> state *)
+and try_cases state value cases env rest =
+  match cases with
+  | [] -> { state with control = CApply unit_value; env; kont = rest }
+  | MatchCase (_, pattern, guard, body, _) :: more -> (
+      match match_pattern env pattern value with
+      | None -> try_cases state value more env rest
+      | Some inner -> (
+          match guard with
+          | None ->
+              {
+                state with
+                control = CApply unit_value;
+                env = inner;
+                kont = Some (KSeq (Array.of_list body, 0, env, rest));
+              }
+          | Some g ->
+              {
+                state with
+                control = CEval g;
+                env = inner;
+                kont = Some (KGuard (value, more, body, inner, env, rest));
+              }))
 
 (* A comprehension is a nested loop that builds a list, and the machine
    runs it as one: `frames` is the loop stack, innermost *first* (the
@@ -1304,6 +1388,14 @@ and step_eval state e =
         }
     | ETuple (_, elements, _) | EList (_, elements, _) ->
         start_elements state e [] elements state.env state.kont
+    | EConstruct (_, _, _, args, _) ->
+        start_elements state e [] (arg_exprs args) state.env state.kont
+    | EField (_, record, _, _) ->
+        {
+          state with
+          control = CEval record;
+          kont = Some (KField (e, state.env, state.kont));
+        }
     | ENeg (_, operand, _) ->
         {
           state with
@@ -1425,7 +1517,8 @@ and step_stmt state stmt =
      It supplies unit. And a signature says what a `def` in this block
      is: the checker has read it, there is nothing to run, and it
      supplies unit too. *)
-  | SImport _ | SFunctionSig _ -> { state with control = CApply unit_value }
+  | SImport _ | SFunctionSig _ | SDatatype _ ->
+      { state with control = CApply unit_value }
   | SFunctionDef _ ->
       (* The name has been in scope since the block began; this is where
          it becomes a function, capturing what is bound here. The
@@ -1567,21 +1660,29 @@ and step_apply state value =
          first that fits has its body run. A `match` that fits none does
          nothing and supplies unit (PYKING.md). *)
       let cases = match stmt with SMatch (_, _, cases, _) -> cases | _ -> [] in
-      let rec try_cases cases =
-        match cases with
-        | [] -> { state with control = CApply unit_value; env; kont = rest }
-        | MatchCase (_, pattern, body, _) :: more -> (
-            match match_pattern env pattern value with
-            | None -> try_cases more
-            | Some inner ->
-                {
-                  state with
-                  control = CApply unit_value;
-                  env = inner;
-                  kont = Some (KSeq (Array.of_list body, 0, env, rest));
-                })
-      in
-      try_cases cases)
+      try_cases state value cases env rest)
+  | Some (KGuard (subject, more, body, inner, env, rest)) -> (
+      match value with
+      | VBool true ->
+          {
+            state with
+            control = CApply unit_value;
+            env = inner;
+            kont = Some (KSeq (Array.of_list body, 0, env, rest));
+          }
+      | VBool false -> try_cases state subject more env rest
+      | other ->
+          failed state
+            (match body with first :: _ -> stmt_info first | [] -> divide_info)
+            (Printf.sprintf "the guard of a 'case' must be Bool, not %s"
+               (describe other)))
+  | Some (KField (node, env, rest)) -> (
+      match node with
+      | EField (info, _, name, _) -> (
+          match field_of info value name with
+          | answer -> { state with control = CApply answer; env; kont = rest }
+          | exception Trap (info, message) -> failed state info message)
+      | _ -> failed state (expr_info node) unsupported_message)
   | Some (KComprehend (node, want, index, frames, done_, env, outer, rest)) ->
       comprehended state node want index frames done_ value env outer rest
   | Some (KReturnTo frame) ->
@@ -1756,8 +1857,12 @@ and imported_bindings stmts exports =
                   if selected then local
                   else Printf.sprintf "%s.%s" name exported
                 in
-                brought
-                @ [ (bound, List.assoc exported (List.assoc module_ exports)) ])
+                (* A datatype and its constructors are no value of the
+                   module's: a constructor is applied where it is
+                   written. *)
+                match List.assoc_opt exported (List.assoc module_ exports) with
+                | Some value -> brought @ [ (bound, value) ]
+                | None -> brought)
               brought fields
         | _ -> brought)
       [] stmts
