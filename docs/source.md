@@ -40,6 +40,7 @@ and which module calls which.
 | [`syntax.ml`](#syntaxml) | ~960 | The AST: one variant type per node group, plus the pretty printer that prints Pyking back out. |
 | [`parser.ml`](#parserml) | ~1520 | Recursive descent, tokens → AST, and the few rules the grammar cannot state. |
 | [`module.ml`](#moduleml) | ~520 | The module system: which modules a program is made of, in what order, what each exports, and what each import means. |
+| [`splash.ml`](#splashml) | ~110 | tinyweb's splash screen: `tinyweb.splash()` called at the end of a program that can play a sound, inside `module.load`. |
 | [`desugar_args.ml`](#desugar_argsml) | ~620 | Default parameters and named arguments, rewritten away before anything else reads the program, so no later stage knows they exist. |
 | [`analyses.ml`](#analysesml) | ~1030 | Static analyses over the AST: mutability (`analyze_mutability`), `symbolize`, which numbers every node, and `effects`, which says what can print. |
 | [`walk.ml`](#walkml) | ~190 | One `children` function over every AST node, for the passes that ask a question of a whole subtree. |
@@ -376,6 +377,9 @@ the signature the next one is checked against. Errors are
   dependencies first and the program itself last, parsed, symbolized
   with one numbering across the whole program, and with every import
   resolved. Raises `Module_error` for a missing module or a cycle.
+  Before the modules are made ready, `with_splash` hands the program's
+  own module to `splash.ml`; `~splash:false` (the language server)
+  leaves it out.
 - **`read_file(path) -> Module`** — one file, lexed and parsed, and
   nothing else: what `--no-typechecking` stops at, which is why nothing
   a program imports is opened under that flag.
@@ -407,6 +411,31 @@ the signature the next one is checked against. Errors are
 - **`module_name(path)` / `module_path(directory, name)`** — the file a
   module name means, and back. A module is looked for beside the file
   that imports it.
+
+---
+
+## `splash.ml`
+
+**tinyweb's splash screen, called where a program can play a sound.** A
+browser plays no sound before the reader has clicked or pressed a key,
+so a program any of whose modules can call tinyweb's `play` or
+`play_file` gets `tinyweb.splash()` as the last statement of its own
+top level -- after an import of tinyweb, under a name the module does
+not use, where it has no plain one. "Can call" is syntactic: a module
+names `play` or `play_file` through a plain import of tinyweb, or takes
+one with `from`. Runs inside `module.load`, on the parsed modules,
+before the sugar is removed and anything is symbolized, so the call is
+checked and compiled like one the program wrote, on every target and
+the interpreter. The REPL has no end of a top level, and does not run
+it.
+
+**Design, in depth:** [libraries.md](libraries.md), "The splash screen".
+
+### Main functions
+
+- **`program name file modules main -> [stmt]`** -- the main module's
+  statements, with the call (and the import) added where the program
+  can play.
 
 ---
 

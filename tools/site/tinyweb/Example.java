@@ -21,6 +21,7 @@ public final class Example {
             Tinyweb.play_sample(snare, 0.0, 0.5, 1.0);
         });
         Tinyweb.make_button("Does nothing", () -> { });
+        Tinyweb.splash();
         System.out.println("built the page");
     }
 }

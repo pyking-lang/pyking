@@ -265,6 +265,17 @@ export function install() {
   };
   // A gesture reaches the page's box on its way to what was touched.
   const touch = () => pageBox()?.dispatch("pointerdown");
+  // A reader facing the splash screen clicks it away before anything
+  // else; what it said is recorded.
+  const pastSplash = () => {
+    for (const node of body.walk()) {
+      if (node.className === "tinyweb-splash") {
+        record.push(`splash: ${JSON.stringify(node.textContent)} dismissed`);
+        node.dispatch("click");
+        return;
+      }
+    }
+  };
 
   return {
     record,
@@ -273,6 +284,7 @@ export function install() {
     // Delivers one line of an events file the way a reader would cause
     // it, answering whether the line named something there.
     deliver(line) {
+      pastSplash();
       if (line.startsWith("key ")) {
         windowListeners.dispatch("keydown", { key: line.slice(4) });
         pageBox()?.dispatch("keydown", { key: line.slice(4) });

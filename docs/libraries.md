@@ -347,8 +347,10 @@ level has ended, in the order they came, each followed by an
 `event_done` command once what it caused has been sent -- which is how
 the test below knows an event is finished. A page that connects late,
 or is reloaded, is sent everything so far first, less what it no longer
-needs: sound, a canvas's drawing before the canvas was cleared, and a
-label's text before it was set again. How each host serves:
+needs: sound a callback played, a canvas's drawing before the canvas was
+cleared, and a label's text before it was set again. The top level's
+sound is kept, since a page a program serves always connects after the
+top level has run. How each host serves:
 
 | implementation | server | where callbacks run |
 |---|---|---|
@@ -405,6 +407,50 @@ OCaml, C or Java with no Pyking at all: `make website` copies them, as
 with `tinyweb.h` and `Tinyweb.java`, onto the site's tinyweb pages, with
 an example in each language and the code Pyking generates for the
 tests. See `tools/site/README.md`.
+
+### The splash screen
+
+A browser plays no sound before the reader has clicked or pressed a key
+on the page. In the playground and a notebook the reader has: the
+program was started with Run, or a key. A page opened from a link has
+not -- the page a program serves, a `web24` or an `iweb24` page -- and
+there tinyweb shows a *splash screen* before the first sound: the whole
+window dimmed, and `Click to Start` in white in its middle. A click or
+any key dismisses it, sound starts, and the page looks as it did.
+
+**When it is shown.** Two commands, `{op: "splash"}` and `{op:
+"splash_text", text}`, sent by `splash()` and `set_splash(message)`, and
+one rule on the page: the splash screen is shown at most once, and only
+where sound has not started, the page was not mounted `activated`, the
+browser does not report the reader active
+(`navigator.userActivation.hasBeenActive`) and the message is not empty.
+Where that holds it is shown by a `splash` command, and by the first
+`play` -- which is how a sound the top level plays waits for the click.
+`tools/webrun/assets/pages.js` mounts every page `activated`, so the
+playground and a notebook never show it.
+
+**The compiler calls it.** A sound a callback plays comes after the
+reader clicked something, but the callback may be a frame's, which no
+click starts. So a program any of whose modules can call `play` or
+`play_file` ends its own top level with `tinyweb.splash()`: `splash.ml`
+adds the call, and an import of tinyweb where the program's own module
+has none, inside `module.load`, so every target and the interpreter run
+it. Where the top level played a sound the splash screen has already
+been shown, and the call does nothing. The REPL has no end of a top
+level and adds nothing; its first `play` still shows it. A program
+written in another language calls `splash()` itself.
+
+**While it is shown the page holds.** Every command after the one that
+showed it waits, the page asks for no frame and reports no event, and
+the clock stops; dismissing it starts audio inside the reader's gesture,
+moves the clock's start on by the time it was shown, and carries out
+what waited. A `play(sample, at = t)` the top level sent therefore
+sounds `t` seconds into the page's clock as if the splash screen had
+not been there. `tinyweb_external_browser.js` draws without commands,
+and holds the same way: each function's effect on the page goes through
+`act`, which runs it now or keeps it until the splash screen goes. The
+splash screen itself, `splashScreen`, is in the page script's style
+block, so the two draw the same one.
 
 ## What each library reaches
 
@@ -574,7 +620,9 @@ own:
   -- and both are run under node against a small page,
   `tests/tinyweb/dom.mjs`, that records every drawing call, every sound
   started and the page's elements after each event. The two recordings
-  must be the same.
+  must be the same. A splash screen the page shows is clicked away
+  before the next event is delivered, as a reader would, and the record
+  says what it said.
 - **Chromium**: where a Chromium is found -- `$PYKING_CHROME`, one on
   the `PATH`, or one Playwright downloaded -- the same is done in a real
   browser, driven over the DevTools protocol (`tests/tinyweb/chrome.mjs`

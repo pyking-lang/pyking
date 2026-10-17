@@ -30,5 +30,6 @@ def play_snare():
 tw.make_button("Play kick", play_kick)
 tw.make_button("Play snare", play_snare)
 tw.make_button("Does nothing", lambda: None)
+tw.splash()
 
 print("built the page")

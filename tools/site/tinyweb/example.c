@@ -39,6 +39,7 @@ int main(void)
     tinyweb_make_button("Play kick", play_kick);
     tinyweb_make_button("Play snare", play_snare);
     tinyweb_make_button("Does nothing", nothing);
+    tinyweb_splash();
     printf("built the page\n");
     return 0;
 }

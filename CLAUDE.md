@@ -1413,6 +1413,22 @@ The bootstrap is split into one module per compiler stage:
    worker imports the JavaScript first. See `docs/repl.md`, "One
    session, two front ends".
 
+26. **`src/splash.ml`** — tinyweb's splash screen, which a browser
+   needs before it plays a sound: a program any of whose modules can
+   call tinyweb's `play` or `play_file` (named through a plain import, or
+   taken with `from`) ends its own top level with `tinyweb.splash()`,
+   after an import of tinyweb under a name the module does not use where
+   it has no plain one. Run by `Module.load` (`with_splash`) on the
+   parsed modules, before the sugar and `symbolize`, so the call is
+   checked and compiled like one the program wrote, on every target and
+   the interpreter; the language server passes `~splash:false`, and the
+   REPL never runs it. What the page does with the call -- shown at most
+   once, never where the page was mounted `activated` (the playground
+   and the notebook, through `pages.js`) or the reader already clicked,
+   and holding the commands, frames and clock until dismissed -- is
+   `tinyweb_page.js`'s and `tinyweb_external_browser.js`'s. See
+   `docs/libraries.md`, "The splash screen".
+
 When extending the lexer (new operators, keywords, string escapes, etc.),
 follow the existing pattern: add an arm to the `match rest with`
 inside `lexing`, add a corresponding `Tok*` constructor, and add an arm
@@ -2044,6 +2060,13 @@ whole. The seed is printed, and `SEED=n` repeats a run. **To verify a
 change, Claude always runs `make test`**, never `make quicktest`, unless
 the prompt says otherwise.
 
+**`make test`, `make stest` and `make quicktest` start from a clean
+build**: each runs `make clean-build` (`_build/`, `build/`, `./pyk` and
+`lib/`'s plugins) and then `make`, since the tree may be shared between
+a Mac and a Linux VM and the other machine's binaries cannot run here.
+Not `make clean`, which would also delete built packages and the
+website.
+
 **`make test` runs `tests/test_all.py`**, which sequences the nine
 suites below rather than each being a line of the Makefile. Three things
 follow, and all three are the point: every suite runs even when an
@@ -2122,7 +2145,10 @@ part of what a session said. Piped input takes `repl.ml`'s plain reader
 rather than the terminal editor, so a case exercises the *session* --
 how an entry is checked against the ones before it, what a value prints
 as, what each meta-command answers -- and not the keystroke handling;
-history, cursor movement and Escape are still untested. Add a case here
+history, cursor movement and Escape are still untested. Each session
+runs in an empty temporary directory, so a stray module where the suite
+was started (a `tinyweb.pyk` a compile left in the root) cannot be what
+an entry imports. Add a case here
 when changing anything about what the prompt prints. It takes
 `--compiler CMD` like the other one.
 
@@ -2293,7 +2319,9 @@ exact on every host, `lib_math_approx` what is not, printed to six
 decimals, and `lib_math_from` the overloads through a `from` line.
 
 A seventh covers **tinyweb**: `lib_tinyweb_*`, each with an `.events`
-file and a `.page` file, run headless on every target but web24 --
+file and a `.page` file -- `lib_tinyweb_splash*` and
+`typecheck_tinyweb_splash_module` for the splash screen and the call the
+compiler adds -- run headless on every target but web24 --
 `PYKING_TINYWEB_LOG` and `PYKING_TINYWEB_EVENTS` are set for every run
 -- and `external_callback_named`, callbacks the hosts call by name.
 web24 and the servers are `tests/test_tinyweb.py`'s.

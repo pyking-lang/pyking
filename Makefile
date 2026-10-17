@@ -84,7 +84,8 @@ help:
 	@echo "                  into build/help/, then make libs"
 	@echo "make libs         compile each lib/*/<name>_external.ml into the"
 	@echo "                  plugin the interpreter loads, <name>_external.cmxs"
-	@echo "make test         all nine suites, then a combined summary: every"
+	@echo "make test         a clean build (make clean-build, then make), then"
+	@echo "                  all nine suites, then a combined summary: every"
 	@echo "                  tests/*.pyk on every target tests/test_cases.toml"
 	@echo "                  lists it for, run in parallel (JOBS=n to say how"
 	@echo "                  parallel), then the REPL's own cases in tests/repl/,"
@@ -205,19 +206,29 @@ check-node:
 	  exit 1; \
 	fi
 
-test: check-node build
+# Every run starts from a clean build: the tree may be shared between
+# machines (a Mac and a Linux VM), and a ./pyk, _build/ or plugin left by
+# the other one cannot run here. `clean-build` rather than `clean`, so
+# built packages and the website survive a test run.
+test: check-node
+	@$(MAKE) --no-print-directory clean-build
+	@$(MAKE) --no-print-directory all
 	@python3 tests/test_all.py $(if $(JOBS),--jobs $(JOBS)) \
 		$(if $(TARGET),--target $(TARGET)) $(if $(SUITE),--suite $(SUITE))
 
 # The same suite with no pool at all, for when a parallel run's timing is
 # itself in question.
-stest: check-node build
+stest: check-node
+	@$(MAKE) --no-print-directory clean-build
+	@$(MAKE) --no-print-directory all
 	@python3 tests/test_all.py --jobs 1 $(if $(TARGET),--target $(TARGET)) \
 		$(if $(SUITE),--suite $(SUITE))
 
 # A random sample of the suite (see tests/test_all.py, `--quick`). The
 # seed is printed, and SEED= repeats the same choice.
-quicktest: check-node build
+quicktest: check-node
+	@$(MAKE) --no-print-directory clean-build
+	@$(MAKE) --no-print-directory all
 	@python3 tests/test_all.py --quick $(or $(PERCENT),5) $(if $(SEED),--seed $(SEED)) \
 		$(if $(JOBS),--jobs $(JOBS)) $(if $(TARGET),--target $(TARGET)) \
 		$(if $(SUITE),--suite $(SUITE))

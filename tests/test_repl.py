@@ -14,6 +14,11 @@ handling; the prompts appear inline in the expected output because that
 is what a pipe sees. Editing itself -- history, cursor movement,
 Escape -- is not covered.
 
+Each session runs in an empty directory of its own, since a module is
+looked for beside where the session runs first: a stray `tinyweb.pyk`
+where the suite was started would otherwise be what `import tinyweb`
+finds.
+
 Usage: python3 tests/test_repl.py [--compiler CMD]
 
 Functions:
@@ -22,8 +27,10 @@ Functions:
     main(argv) -- the command-line entry point.
 """
 
+import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -50,14 +57,16 @@ def run(compiler, case):
         # stderr into stdout rather than captured beside it: a refusal is
         # reported on stderr and a value on stdout, and what a session
         # means is the two in the order they were written.
-        result = subprocess.run(
-            compiler + ["repl"],
-            input=case.read_text(),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            timeout=TIMEOUT,
-        )
+        with tempfile.TemporaryDirectory(prefix="pyk-repl-") as directory:
+            result = subprocess.run(
+                compiler + ["repl"],
+                input=case.read_text(),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=TIMEOUT,
+                cwd=directory,
+            )
     except subprocess.TimeoutExpired:
         return False, f"<timed out after {TIMEOUT}s>", expected
     actual = result.stdout
@@ -71,6 +80,10 @@ def main(argv):
     compiler = DEFAULT_COMPILER
     if "--compiler" in argv:
         compiler = argv[argv.index("--compiler") + 1].split()
+        # A path to the compiler is made absolute, since each session
+        # runs in a directory of its own.
+        if os.sep in compiler[0]:
+            compiler[0] = os.path.abspath(compiler[0])
     found = cases()
     if not found:
         print("no cases in tests/repl/")

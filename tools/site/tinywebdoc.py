@@ -90,6 +90,16 @@ DESCRIPTIONS = {
     "play_sample": "Plays the sample `sample`: at the time `at` on the page's clock, or "
                    "now if that has passed; `volume` times as loud, and `rate` times as "
                    "fast, which raises its pitch as much.",
+    "splash": "Shows the splash screen: the page dimmed, and a message asking the "
+              "reader to click, since a browser plays no sound before the reader has "
+              "clicked or pressed a key. The page waits there -- what the program "
+              "draws next, its frames and its clock -- until the reader does. It is "
+              "shown at most once, and not at all where the reader has already "
+              "clicked. The first `play_sample` before a click shows it too; a "
+              "program that plays sound only from callbacks calls it at the end of "
+              "its main code.",
+    "set_splash": "Sets what the splash screen says, \"Click to Start\" until it is "
+                  "set. An empty `message` turns the splash screen off.",
     "time": "The page's clock, in seconds, as the page last reported it: inside an "
             "`on_frame` callback, the time the frame is for. It is the audio clock "
             "once sound has started, so a time read here is a time `play_sample` "

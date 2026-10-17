@@ -293,7 +293,7 @@ let analyse state document previous =
     | Some (at, kind, message) -> { base with problem = Some { at; kind; message } }
     | None -> { base with internal = Some (Printexc.to_string error) }
   in
-  match Module.load ~from:(sources state) ~libs document.path with
+  match Module.load ~from:(sources state) ~libs ~splash:false document.path with
   | exception error -> failed error kept.units kept.tmaps kept.sigmaps
   | units ->
       let rec check units_left tmaps sigmaps =

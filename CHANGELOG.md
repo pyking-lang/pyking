@@ -49,8 +49,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   target out only through `excluded`, with the reason, and the summary
   lists them; a page's `exited with status N` is read as its exit
   status.
+- tinyweb shows a splash screen, `Click to Start` over the dimmed page,
+  before the first sound on a page opened from a link: the page a
+  program serves, and a `web24` or `iweb24` page. The page waits there
+  until the reader clicks or presses a key, and the sound plays then.
+  `tinyweb.splash()` shows it, `tinyweb.set_splash(message)` changes what
+  it says (`""` turns it off), and a program that can play a sound calls
+  `splash()` at the end of its top level without writing it. The
+  playground and the notebook never show it.
+- `make quicktest`: a random sample of `make test` (`PERCENT=`, 5 by
+  default; `SEED=` repeats a run). Both print a per-target summary at the
+  end.
 
 ### Changed
+
+- A page a program serves plays the sounds the top level played when it
+  connects, rather than leaving them out.
 
 - Every `match` must match every value, whether its value is taken or
   not, and every case must be reachable. A refusal names a value no

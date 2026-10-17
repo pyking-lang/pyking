@@ -6,6 +6,7 @@ circle 3 100 50 20 #000000
 button 4 "Play kick"
 button 5 "Play snare"
 button 6 "Does nothing"
+splash
 > click 4
 play 1 0.000 1.000 1.000
 > click 5

@@ -1,0 +1,22 @@
+# The splash screen: a sound the top level plays before the reader has
+# clicked shows it, with the program's own message, and what the program
+# draws after that waits until the reader dismisses it. The .events file
+# clicks the one button.
+
+import tinyweb as tw
+
+tw.web_init(0)
+tw.set_splash("Click for drums")
+
+c = tw.canvas(200, 100)
+tw.clear(c, "#202020")
+kick = tw.load_sample("kick1.wav")
+tw.play(kick, at = 0.25)
+tw.circle(c, 100, 50, 30, "#ffcc00")
+
+def again():
+    tw.play(kick)
+    print("kick again")
+
+tw.button("Again", on_click = again)
+print("built the page")

@@ -1,0 +1,10 @@
+splash_text "Click for drums"
+canvas 1 200 100
+clear 1 #202020
+load 2 "kick1.wav"
+play 2 0.250 1.000 1.000
+circle 1 100 50 30 #ffcc00
+button 3 "Again"
+splash
+> click 3
+play 2 0.000 1.000 1.000

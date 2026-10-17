@@ -1,0 +1,14 @@
+# The splash screen turned off: an empty message means none is shown,
+# and sound starts at the reader's first click on the page.
+
+import tinyweb as tw
+
+tw.web_init(0)
+tw.set_splash("")
+snare = tw.load_sample("snare1.wav")
+
+def hit():
+    tw.play(snare, volume = 0.5)
+    print("hit")
+
+tw.button("Hit", on_click = hit)

@@ -125,6 +125,46 @@ public def load_sample(name: String) -> Int
 
 def play_sample(sample: Int, at: Float, volume: Float, rate: Float) -> ()
 
+## Shows the splash screen: the page is dimmed and a message asks the
+## reader to click, since a browser plays no sound before the reader has
+## clicked or pressed a key. The page waits there -- what the program
+## draws next, its frames and its clock -- until the reader does. It is
+## shown at most once, and not at all where the reader has already
+## clicked, as in the playground and a notebook. A program that plays a
+## sound calls it at the end of its top level without writing it, and
+## the first `play` before a click shows it too.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## tw.circle(c, 100, 50, 40, "orange")
+## tw.splash()
+## ```
+## ```stdout
+## ```
+public def splash() -> ()
+
+## Sets the message the splash screen shows, `Click to Start` until it is
+## set. An empty message turns the splash screen off, and sound then
+## starts at the reader's first click on the page.
+##
+## # Parameters
+## - `message`: what the splash screen says, or `""` for none.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## tw.set_splash("Click to hear the drums")
+## kick = tw.load_sample("kick1.wav")
+## tw.play(kick)
+## ```
+## ```stdout
+## ```
+public def set_splash(message: String) -> ()
+
 ## Reads the page's clock. Once sound has started this is the audio clock,
 ## so a time read here can be given to `play` to start a sound exactly
 ## then.

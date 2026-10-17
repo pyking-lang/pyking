@@ -29,8 +29,10 @@ export class PageHost {
     if (!this.pages.has(module)) {
       const url = `${this.libURL}${module}/${module}_page.js`;
       this.pages.set(module, import(url)
+        // `activated`: the reader started the program with a click or
+        // a key, so a page may play sound without asking for one.
         .then((library) => library.mountPage(
-          this.element, (event) => this.send(module, event)))
+          this.element, (event) => this.send(module, event), { activated: true }))
         .catch((error) => {
           console.error(`cannot show ${module}'s page: ${error.message}`);
           return null;

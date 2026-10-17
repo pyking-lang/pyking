@@ -46,6 +46,17 @@ A module already in `parsed` but not on the stack has been finished, so
 the walk stops rather than reading it twice -- which is also what makes a
 diamond (two modules importing a third) one module rather than two.
 
+## The program's own module may gain a splash call
+
+Between the walk and making the modules ready, `load` hands the
+program's own module to `splash.ml`: where any module of the program can
+call tinyweb's `play` or `play_file`, the module ends with
+`tinyweb.splash()`, and gains an import of tinyweb first where it has no
+plain one. Done here, on what was parsed, the call is checked, imported
+and compiled like one the program wrote. The language server loads with
+`~splash:false`, so a document is checked as written. See
+[libraries.md](libraries.md), "The splash screen".
+
 ## One numbering across the whole program
 
 Every node of every module gets a symbol from one sequence:

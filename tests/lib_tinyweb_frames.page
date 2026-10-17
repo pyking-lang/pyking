@@ -1,6 +1,7 @@
 canvas 1 200 100
 load 2 "kick1.wav"
 on_frame
+splash
 > frame 0.0
 clear 1 #111111
 circle 1 0 50 10 #ffcc00

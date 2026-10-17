@@ -1,0 +1,5 @@
+button 1 "Kick"
+splash
+> click 1
+load 2 "kick1.wav"
+play 2 0.000 1.000 1.000

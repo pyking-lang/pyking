@@ -1,0 +1,12 @@
+# The module of typecheck_tinyweb_splash_module.pyk that plays the sound.
+
+import tinyweb as tw
+
+def hit():
+    tw.play_file("kick1.wav")
+
+public def start() -> ():
+    tw.web_init(0)
+
+public def drum_button(title: String) -> Int:
+    tw.button(title, on_click = hit)

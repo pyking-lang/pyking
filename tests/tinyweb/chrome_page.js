@@ -134,8 +134,18 @@
     for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
   };
 
+  // A reader facing the splash screen clicks it away before anything
+  // else; what it said is recorded.
+  const pastSplash = () => {
+    const splash = document.querySelector(".tinyweb-splash");
+    if (splash === null) return;
+    record.push(`splash: ${JSON.stringify(splash.textContent)} dismissed`);
+    splash.click();
+  };
+
   window.__pykDeliver = (line) => {
     record.push("> " + line);
+    pastSplash();
     if (line.startsWith("key ")) {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: line.slice(4), bubbles: true }));
       return true;

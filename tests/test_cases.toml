@@ -1517,6 +1517,26 @@ file = "lib_tinyweb_style.pyk"
 libs = ["tinyweb"]
 excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
+# The splash screen a sound needs before the reader has clicked: shown by
+# a sound the top level plays, turned off, and called at the end of a
+# program that plays only through a module of its own -- which is where
+# the compiler adds the call (docs/libraries.md, "The splash screen").
+[[cases]]
+file = "lib_tinyweb_splash.pyk"
+libs = ["tinyweb"]
+excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
+
+[[cases]]
+file = "lib_tinyweb_splash_off.pyk"
+libs = ["tinyweb"]
+excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
+
+[[cases]]
+file = "typecheck_tinyweb_splash_module.pyk"
+libs = ["tinyweb"]
+modules = ["typecheck_tinyweb_splash_module_drums.pyk"]
+excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
+
 # Datatypes and the patterns that take them apart (PYKING.md,
 # "Datatypes"); every `match` is exhaustive (docs/exhaustive.md).
 

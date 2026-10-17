@@ -196,9 +196,12 @@ val read_whole_file : string -> string
     after the importing file's own directory. Raises Module_error for a
     missing module -- naming every path it looked in -- and for a cycle,
     a name that is not exported, or a collision, and the front end's own
-    errors for a module that does not lex or parse.
-    sources -> [lib_entry] -> string -> [t] *)
-val load : ?from:sources -> ?libs:lib_entry list -> string -> t list
+    errors for a module that does not lex or parse. Unless `splash` is
+    false, the main module calls tinyweb's splash at its end where the
+    program can play a sound (splash.ml).
+    sources -> [lib_entry] -> bool? -> string -> [t] *)
+val load :
+  ?from:sources -> ?libs:lib_entry list -> ?splash:bool -> string -> t list
 
 (** The modules an entry typed at the prompt reaches through its imports
     and the session has not loaded yet, prepared as `load` prepares a

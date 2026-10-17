@@ -60,6 +60,8 @@ int tinyweb_make_slider(int low, int high, int value, void (*on_change)(int));
 void tinyweb_apply_style(int id, const char *kind, const char *property, const char *value);
 int tinyweb_load_sample(const char *name);
 void tinyweb_play_sample(int sample, double at, double volume, double rate);
+void tinyweb_splash(void);
+void tinyweb_set_splash(const char *message);
 double tinyweb_time(void);
 void tinyweb_on_frame(void (*draw)(double));
 void tinyweb_on_mouse(int c, void (*click)(int, int));
@@ -312,6 +314,42 @@ static const char *const tinyweb_page_js[] = {
     "    style.host.removeAttribute(\"data-tinyweb-page\");\n",
     "  }\n",
     "}\n",
+    "// What the splash screen says until the program sets it.\n",
+    "const SPLASH_TEXT = \"Click to Start\";\n",
+    "\n",
+    "// The splash screen: the whole window dimmed, and `text` in white in\n",
+    "// its middle under a play sign. String -> Element\n",
+    "function splashScreen(text) {\n",
+    "  const screen = document.createElement(\"div\");\n",
+    "  screen.className = \"tinyweb-splash\";\n",
+    "  screen.setAttribute(\"role\", \"button\");\n",
+    "  screen.style.cssText =\n",
+    "    \"position:fixed;inset:0;z-index:2147483647;display:flex;flex-direction:column;\" +\n",
+    "    \"align-items:center;justify-content:center;gap:24px;background:rgba(0,0,0,0.62);\" +\n",
+    "    \"color:#ffffff;cursor:pointer;user-select:none;font-family:system-ui,sans-serif\";\n",
+    "  const ring = document.createElement(\"div\");\n",
+    "  ring.style.cssText =\n",
+    "    \"width:88px;height:88px;border-radius:50%;border:3px solid #ffffff;display:flex;\" +\n",
+    "    \"align-items:center;justify-content:center;box-shadow:0 0 36px rgba(255,255,255,0.35)\";\n",
+    "  const sign = document.createElement(\"div\");\n",
+    "  sign.style.cssText =\n",
+    "    \"width:0;height:0;margin-left:9px;border-top:19px solid transparent;\" +\n",
+    "    \"border-bottom:19px solid transparent;border-left:32px solid #ffffff\";\n",
+    "  ring.appendChild(sign);\n",
+    "  const words = document.createElement(\"div\");\n",
+    "  words.textContent = text;\n",
+    "  words.style.cssText =\n",
+    "    \"font-size:34px;font-weight:600;letter-spacing:0.03em;text-align:center;\" +\n",
+    "    \"padding:0 24px;text-shadow:0 2px 14px rgba(0,0,0,0.6)\";\n",
+    "  screen.append(ring, words);\n",
+    "  return screen;\n",
+    "}\n",
+    "\n",
+    "// Whether the reader has already done something on this page, which is\n",
+    "// all a browser asks before it plays a sound. () -> Bool\n",
+    "function readerActive() {\n",
+    "  return Boolean(globalThis.navigator?.userActivation?.hasBeenActive);\n",
+    "}\n",
     "// END tinyweb style\n",
     "\n",
     "// Mounts a tinyweb page in `element` and answers {receive, freeze, close}:\n",
@@ -319,8 +357,10 @@ static const char *const tinyweb_page_js[] = {
     "// is how the page reports one. `standalone` is true where the page is\n",
     "// the whole document, which is where a key press is listened for; a\n",
     "// page inside another (a notebook cell) listens on `element`, which\n",
-    "// takes the focus when clicked.\n",
-    "export function mountPage(element, sendEvent, { standalone = false } = {}) {\n",
+    "// takes the focus when clicked. `activated` is true where the reader\n",
+    "// started the program with a click or a key, as in the playground and\n",
+    "// a notebook, and the page then never shows the splash screen.\n",
+    "export function mountPage(element, sendEvent, { standalone = false, activated = false } = {}) {\n",
     "  const box = document.createElement(\"div\");\n",
     "  box.className = \"tinyweb-page\";\n",
     "  box.style.cssText =\n",
@@ -331,7 +371,7 @@ static const char *const tinyweb_page_js[] = {
     "  const canvases = new Map();\n",
     "  const labels = new Map();\n",
     "  const samples = new Map();\n",
-    "  const start = now();\n",
+    "  let start = now();\n",
     "  let audio = null;\n",
     "  let offset = 0;\n",
     "  let frameWanted = false;\n",
@@ -343,6 +383,15 @@ static const char *const tinyweb_page_js[] = {
     "  // shows the focus (:focus-within).\n",
     "  const keyTarget = standalone ? window : element;\n",
     "  let keysWanted = false;\n",
+    "  // The splash screen: what it says, whether it has been shown (or is\n",
+    "  // not needed), and while it is shown the element, the commands held\n",
+    "  // until it is dismissed, and the clock where it stopped.\n",
+    "  let splashText = SPLASH_TEXT;\n",
+    "  let splashDone = activated;\n",
+    "  let splash = null;\n",
+    "  let held = null;\n",
+    "  let heldClock = 0;\n",
+    "  let heldAt = 0;\n",
     "\n",
     "  let focusable = false;    // whether mounting made `element` focusable\n",
     "\n",
@@ -365,11 +414,46 @@ static const char *const tinyweb_page_js[] = {
     "  }\n",
     "\n",
     "  function clockNow() {\n",
+    "    if (held !== null) return heldClock;\n",
     "    return running() ? audio.currentTime + offset : (now() - start) / 1000;\n",
     "  }\n",
     "\n",
     "  function report(event) {\n",
-    "    if (!closed) sendEvent({ ...event, t: clockNow(), running: running() });\n",
+    "    if (!closed && held === null) sendEvent({ ...event, t: clockNow(), running: running() });\n",
+    "  }\n",
+    "\n",
+    "  // Whether a sound now would need the splash screen first.\n",
+    "  function splashWanted() {\n",
+    "    return !splashDone && splashText !== \"\" && !running() && !readerActive();\n",
+    "  }\n",
+    "\n",
+    "  // Shows the splash screen and holds what comes after it: the commands,\n",
+    "  // the frames and the clock.\n",
+    "  function showSplash() {\n",
+    "    splashDone = true;\n",
+    "    heldClock = clockNow();\n",
+    "    heldAt = now();\n",
+    "    held = [];\n",
+    "    splash = splashScreen(splashText);\n",
+    "    splash.addEventListener(\"click\", dismissSplash);\n",
+    "    window.addEventListener(\"keydown\", dismissSplash, true);\n",
+    "    document.body.appendChild(splash);\n",
+    "  }\n",
+    "\n",
+    "  // The reader's click or key: the splash screen goes, sound starts, the\n",
+    "  // clock goes on from where it stopped, and what was held is carried out.\n",
+    "  function dismissSplash(event) {\n",
+    "    if (held === null) return;\n",
+    "    event?.preventDefault?.();\n",
+    "    event?.stopImmediatePropagation?.();\n",
+    "    window.removeEventListener(\"keydown\", dismissSplash, true);\n",
+    "    splash.remove();\n",
+    "    splash = null;\n",
+    "    start += now() - heldAt;\n",
+    "    const pending = held;\n",
+    "    held = null;\n",
+    "    startAudio();\n",
+    "    for (const command of pending) carryOut(command);\n",
     "  }\n",
     "\n",
     "  // Sound may start only after the reader did something, so every\n",
@@ -391,6 +475,10 @@ static const char *const tinyweb_page_js[] = {
     "  box.addEventListener(\"pointerdown\", startAudio);\n",
     "\n",
     "  function onKey(event) {\n",
+    "    if (held !== null) {\n",
+    "      dismissSplash(event);\n",
+    "      return;\n",
+    "    }\n",
     "    startAudio();\n",
     "    if (keysWanted) report({ ev: \"key\", key: event.key });\n",
     "  }\n",
@@ -430,7 +518,7 @@ static const char *const tinyweb_page_js[] = {
     "\n",
     "  function frame() {\n",
     "    if (closed) return;\n",
-    "    if (!frameWaiting) {\n",
+    "    if (!frameWaiting && held === null) {\n",
     "      frameWaiting = true;\n",
     "      report({ ev: \"frame\" });\n",
     "    }\n",
@@ -566,7 +654,18 @@ static const char *const tinyweb_page_js[] = {
     "        samples.set(command.id, loadSample(command.name));\n",
     "        break;\n",
     "      case \"play\":\n",
-    "        play(command);\n",
+    "        if (splashWanted()) {\n",
+    "          showSplash();\n",
+    "          held.push(command);\n",
+    "        } else {\n",
+    "          play(command);\n",
+    "        }\n",
+    "        break;\n",
+    "      case \"splash\":\n",
+    "        if (splashWanted()) showSplash();\n",
+    "        break;\n",
+    "      case \"splash_text\":\n",
+    "        splashText = command.text;\n",
     "        break;\n",
     "      case \"on_frame\":\n",
     "        if (!frameWanted) {\n",
@@ -601,6 +700,10 @@ static const char *const tinyweb_page_js[] = {
     "    if (closed) return;\n",
     "    closed = true;\n",
     "    cancelAnimationFrame(frameRequest);\n",
+    "    if (splash !== null) {\n",
+    "      window.removeEventListener(\"keydown\", dismissSplash, true);\n",
+    "      splash.remove();\n",
+    "    }\n",
     "    keyTarget.removeEventListener(\"keydown\", onKey);\n",
     "    if (!standalone) element.removeEventListener(\"click\", takeFocus);\n",
     "    if (audio !== null) audio.close();\n",
@@ -608,7 +711,11 @@ static const char *const tinyweb_page_js[] = {
     "\n",
     "  return {\n",
     "    receive(commands) {\n",
-    "      if (!closed) for (const command of commands) carryOut(command);\n",
+    "      if (closed) return;\n",
+    "      for (const command of commands) {\n",
+    "        if (held !== null) held.push(command);\n",
+    "        else carryOut(command);\n",
+    "      }\n",
     "    },\n",
     "    // Stops: no more events, frames or sound, and what is shown stays.\n",
     "    freeze,\n",
@@ -716,6 +823,9 @@ static int tw_checked = 0;
 static int tw_listener = -1;
 static int tw_last = 0;
 static double tw_clock = 0.0;
+/* Whether an event has been delivered: until one is, the program is in
+   its top level, whose sound a page connecting later still plays. */
+static int tw_delivered = 0;
 
 static tw_command *tw_history = NULL;
 static size_t tw_history_count = 0;
@@ -1113,7 +1223,22 @@ void tinyweb_play_sample(int sample, double at, double volume, double rate)
     tw_field_float(&json, &line, "at", at);
     tw_field_float(&json, &line, "volume", volume);
     tw_field_float(&json, &line, "rate", rate);
-    tw_finish("play", &json, &line, 0, 0, 0, 0, 0);
+    tw_finish("play", &json, &line, 0, 0, 0, 0, !tw_delivered);
+}
+
+void tinyweb_splash(void)
+{
+    tw_ready();
+    tw_send("splash", "", "splash", 0, 0, 0, 0, 1);
+}
+
+void tinyweb_set_splash(const char *message)
+{
+    tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
+    tw_ready();
+    tw_puts(&line, "splash_text");
+    tw_field_string(&json, &line, "text", message, 0);
+    tw_finish("splash_text", &json, &line, 0, 0, 0, 0, 1);
 }
 
 double tinyweb_time(void)
@@ -1176,6 +1301,7 @@ static size_t tw_queued = 0;
 static void tw_deliver(const tw_event *event)
 {
     size_t i;
+    tw_delivered = 1;
     if (event->has_t) tw_clock = event->t;
     if (strcmp(event->ev, "click") == 0) {
         for (i = 0; i < tw_button_count; i++) {

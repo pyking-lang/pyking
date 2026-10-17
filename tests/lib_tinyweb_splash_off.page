@@ -1,0 +1,6 @@
+splash_text ""
+load 1 "snare1.wav"
+button 2 "Hit"
+splash
+> click 2
+play 1 0.000 0.500 1.000

@@ -949,11 +949,26 @@ let prepare parsed order highest signatures loaded =
       (highest, signatures, loaded @ [ (name, module_) ], modules @ [ module_ ]))
     (highest, signatures, loaded, []) order
 
+(** `parsed` with tinyweb's splash called at the end of the main module
+    `main` where the program can play a sound (splash.ml).
+    string -> [(string, t)] -> [(string, t)] *)
+let with_splash main parsed =
+  let all = List.map (fun (name, module_ : string * t) -> (name, module_.stmts)) parsed in
+  List.map
+    (fun (name, module_) ->
+      if name <> main then (name, module_)
+      else
+        let stmts = Splash.program name module_.path all module_.stmts in
+        (name, { module_ with stmts; imports = imported_modules stmts }))
+    parsed
+
 (** Every module the program in `path` needs, dependencies first and the
     program itself last: read, parsed, symbolized with one numbering
     across the whole program, and with every import resolved. Raises
-    Module_error for a missing module or a cycle. string -> [t] *)
-let load ?(from = disk) ?(libs = []) path =
+    Module_error for a missing module or a cycle. Unless `splash` is
+    false, the main module calls tinyweb's splash at its end where the
+    program can play a sound. bool? -> string -> [t] *)
+let load ?(from = disk) ?(libs = []) ?(splash = true) path =
   (* The program's own file is named on the command line rather than
      resolved, but a name with both files is still a name meaning two
      things, so it is refused here too. *)
@@ -968,6 +983,7 @@ let load ?(from = disk) ?(libs = []) path =
   let parsed, order =
     visit ~from ~libs (module_name path) found None [] [] []
   in
+  let parsed = if splash then with_splash (module_name path) parsed else parsed in
   let _, _, _, modules =
     prepare parsed order 0 Desugar_args.no_signatures []
   in

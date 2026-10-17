@@ -1,0 +1,11 @@
+# A program that plays sound only through a module of its own, and does
+# not import tinyweb itself, still ends by calling tinyweb's splash
+# screen: the compiler adds the import and the call. The name `tinyweb`
+# is taken here, so the import it adds is called something else.
+
+import typecheck_tinyweb_splash_module_drums as drums
+
+tinyweb = "drums"
+drums.start()
+drums.drum_button("Kick")
+print(tinyweb)

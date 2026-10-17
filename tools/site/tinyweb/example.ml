@@ -18,4 +18,5 @@ let () =
          Printf.printf "snare, press %d\n" !presses;
          Tinyweb.play_sample snare 0.0 0.5 1.0));
   ignore (Tinyweb.make_button "Does nothing" (fun () -> ()));
+  Tinyweb.splash ();
   print_endline "built the page"

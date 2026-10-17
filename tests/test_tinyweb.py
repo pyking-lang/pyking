@@ -146,21 +146,20 @@ def log_line(command):
                          f"{seconds(c('rate'))}"),
         "on_mouse": lambda: f"on_mouse {c('c')}",
         "style": lambda: f"style {c('id')} {c('kind')} {c('prop')} {quote(c('value'))}",
+        "splash_text": lambda: f"splash_text {quote(c('text'))}",
     }
     return lines.get(op, lambda: op)()
 
 
 def compacted(lines):
-    """What a page connecting late is sent of these commands: no sound,
-    nothing drawn on a canvas before it was cleared, no label text
-    before it was set again. Applied to what arrived before anything was
+    """What a page connecting late is sent of these commands: nothing
+    drawn on a canvas before it was cleared, no label text before it was
+    set again. The top level's sound is kept. Applied to what arrived before anything was
     delivered, since a page may connect after the top level has sent
     some of it. [String] -> [String]"""
     kept = []
     for line in lines:
         words = line.split(" ")
-        if words[0] == "play":
-            continue
         if words[0] == "clear":
             kept = [k for k in kept
                     if not (k.split(" ")[0] in ("clear", "circle", "rect", "line", "text")

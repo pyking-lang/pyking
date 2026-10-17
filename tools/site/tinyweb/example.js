@@ -22,5 +22,6 @@ tw.make_button("Play snare", () => {
   tw.play_sample(snare, 0.0, 0.5, 1.0);
 });
 tw.make_button("Does nothing", () => {});
+tw.splash();
 
 console.log("built the page");
