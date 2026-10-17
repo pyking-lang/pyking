@@ -148,6 +148,9 @@ let synopsis =
   \                        target's own commands\n\
   \  --release             compile in release mode: every call to debug()\n\
   \                        is removed, and print() is kept\n\
+  \  --tinyweb-log         with the interpreter or the REPL, print what a\n\
+  \                        program sends its tinyweb page, and what the page\n\
+  \                        answers, on stderr as the page runs\n\
   \  --port <n>            serve the notebook, the playground, the help\n\
   \                        or a directory on port <n>\n\
   \  --mode <mode>         the notebook for a student (the default) or a\n\
@@ -328,6 +331,7 @@ type options = {
   tokens : bool;
   tail_calls : bool;
   release : bool;
+  tinyweb_log : bool;
   typecheck : bool;
   type_experiment : bool;
   lib_paths : string list;
@@ -349,6 +353,7 @@ let default_options command =
     tokens = false;
     tail_calls = true;
     release = false;
+    tinyweb_log = false;
     typecheck = true;
     type_experiment = false;
     lib_paths = [];
@@ -437,6 +442,7 @@ let parse_args argv =
     | "--tokens" :: rest -> go { options with tokens = true } positional rest
     | "--run" :: rest -> go { options with run = true } positional rest
     | "--release" :: rest -> go { options with release = true } positional rest
+    | "--tinyweb-log" :: rest -> go { options with tinyweb_log = true } positional rest
     | "--symbols" :: rest -> go { options with symbols = true } positional rest
     | "--no-tail-call-opt" :: rest ->
         go { options with tail_calls = false } positional rest
@@ -538,6 +544,10 @@ let parse_args argv =
     usage_error
       "--release says how a program is compiled, so it only applies to 'pyk \
        compile'";
+  if options.tinyweb_log && command <> default_command && command <> "repl" then
+    usage_error
+      "--tinyweb-log shows what an interpreted program sends its page, so it only \
+       applies to 'pyk <file>' and 'pyk repl'";
   if options.release && not options.typecheck then
     usage_error
       "--release needs the types the checker works out, so it cannot be used \
@@ -1616,6 +1626,9 @@ let command_lsp options =
 (** Runs pyk. [string] -> int *)
 let main argv =
   let options = parse_args argv in
+  (* tinyweb's implementation reads this when its plugin is loaded, and
+     prints its log on stderr as well (lib/tinyweb/tinyweb_external.ml). *)
+  if options.tinyweb_log then Unix.putenv "PYKING_TINYWEB_TRACE" "1";
   if options.command = "repl" then Repl.start ~libs:(library_path options) format_error
   else if options.command = "plugins" then command_plugins options
   else if options.command = "notebook" then command_web Web_tools.Notebook options

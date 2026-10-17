@@ -8,5 +8,5 @@ def hit():
 public def start() -> ():
     tw.web_init(0)
 
-public def drum_button(title: String) -> Int:
+public def drum_button(title: String) -> String:
     tw.button(title, on_click = hit)

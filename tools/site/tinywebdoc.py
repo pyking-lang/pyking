@@ -55,7 +55,8 @@ DESCRIPTIONS = {
                 "`tinyweb: http://127.0.0.1:N/`; port 0 picks any free port. Call it "
                 "before anything else. With `PYKING_TINYWEB_LOG` set it does nothing.",
     "canvas": "A new canvas, `width` by `height` pixels, placed below what the page "
-              "already shows. Answers the number that names it.",
+              "already shows. Answers the string that names it: \"canvas\", with a "
+              "number added where something on the page has that name already.",
     "fill_canvas": "Fills the whole canvas `c` with `color`, a CSS color such as "
                    "`\"#ff0000\"` or `\"red\"`.",
     "draw_circle": "A filled circle on the canvas `c`, centred at (`x`, `y`).",
@@ -67,13 +68,17 @@ DESCRIPTIONS = {
                  "text at (`x`, `y`), `size` pixels high.",
     "make_button": "A button showing `title`, placed below what the page already "
                    "shows, which calls `on_click` each time it is pressed. Answers the "
-                   "number that names it.",
+                   "string that names it: `title`, with a number added where something "
+                   "on the page has that name already.",
     "label": "A line of text, placed below what the page already shows. Answers the "
-             "number that names it to `set_label`.",
+             "string that names it to `set_label`: `text`, with a number added where "
+             "something on the page has that name already.",
     "set_label": "Replaces the text of the label `id` with `text`.",
     "make_slider": "A slider from `low` to `high`, starting at `value`, placed below "
                    "what the page already shows, which calls `on_change` with each new "
-                   "value it is moved to. Answers the number that names it.",
+                   "value it is moved to. Answers the string that names it: \"slider\", "
+                   "with a number added where something on the page has that name "
+                   "already.",
     "apply_style": "Changes the page's look. With `kind` \"theme\", `value` names a "
                    "theme: \"light\" (the default), \"dark\", \"plain\", \"paper\" or "
                    "\"retro\". With `kind` \"page\", \"button\", \"label\", "
@@ -81,9 +86,10 @@ DESCRIPTIONS = {
                    "becomes `value`; with `kind` \"element\", only the element `id`'s. "
                    "`property` is one of background, color, border, radius, font, size, "
                    "padding, gap, accent and width, and `value` is CSS, such as "
-                   "\"#336699\" or \"12px\". `id` is 0 except for an element.",
-    "load_sample": "Starts loading the sound file `name` and answers a number naming "
-                   "it to `play_sample`. The name is looked up beside where the program "
+                   "\"#336699\" or \"12px\". `id` is \"\" except for an element.",
+    "load_sample": "Starts loading the sound file `name` and answers a string naming "
+                   "it to `play_sample`: `name`, with a number added where something on "
+                   "the page has that name already. The name is looked up beside where the program "
                    "runs first, and then among the samples tinyweb ships in "
                    "`tinyweb_assets/`: kick1.wav, snare1.wav, hihat1.wav and "
                    "piano_c1.wav.",

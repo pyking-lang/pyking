@@ -326,7 +326,9 @@ page sits in a browser-window frame named after the example, and its
 **↻ Refresh** stops the program and runs the source again. Such a
 program goes on running after its last line, since the page calls back
 the functions it handed over, so **Stop stays armed**: pressing it lets
-the program go, and what the page shows stays. The page is mounted with
+the program go. A page is only ever the running program's, so whenever
+nothing runs -- Stop pressed, or the program ended -- the frame is empty
+again and says what it is for. The page is mounted with
 `PageHost` (`../webrun/README.md`, "A program may show a page"). The page
 is light in both themes, so a canvas drawn in the default black reads as
 it would on a page of its own.
@@ -338,6 +340,13 @@ the page included, and a click outside it, on the editor say, takes it
 away. Running a tinyweb program with Run or its keys gives the window
 the focus, and Stop gives it back to the editor; a run while you type
 leaves it where it is.
+
+The output pane's header on this tab has a **tinyweb log** switch: on,
+the output shows what the program sends its page and what the page
+answers, one line each, as `debug` output -- what `pyk --tinyweb-log`
+prints on standard error (`../../docs/libraries.md`, "Testing a page").
+Turning it on or off takes effect in the running program at once, and
+the choice is kept with the other settings.
 
 A program that imports compiles as `pyk compile` compiles it: the page
 reads its modules as a run reads them, and the Compiled code tab shows

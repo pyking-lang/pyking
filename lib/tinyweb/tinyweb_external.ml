@@ -767,29 +767,52 @@ let quoted command name =
   | Some (S s) -> quote s
   | Some (I _) | Some (F _) | None -> "\"\""
 
-(* A command as the one line every headless implementation writes. *)
+(* A command as the one line every headless implementation writes: each
+   identifier quoted, and an element's text after it only where the two
+   differ. *)
 let log_line command =
   let f = field command in
+  let q = quoted command in
+  let named id text = if f id = f text then [ q id ] else [ q id; q text ] in
   let words =
     match command.op with
-    | "canvas" -> [ "canvas"; f "id"; f "width"; f "height" ]
-    | "clear" -> [ "clear"; f "c"; f "color" ]
-    | "circle" -> [ "circle"; f "c"; f "x"; f "y"; f "radius"; f "color" ]
-    | "rect" -> [ "rect"; f "c"; f "x"; f "y"; f "width"; f "height"; f "color" ]
-    | "line" -> [ "line"; f "c"; f "x1"; f "y1"; f "x2"; f "y2"; f "color"; f "width" ]
-    | "text" -> [ "text"; f "c"; f "x"; f "y"; f "color"; f "size"; quoted command "words" ]
-    | "button" -> [ "button"; f "id"; quoted command "title" ]
-    | "label" -> [ "label"; f "id"; quoted command "text" ]
-    | "set_label" -> [ "set_label"; f "id"; quoted command "text" ]
-    | "slider" -> [ "slider"; f "id"; f "low"; f "high"; f "value" ]
-    | "load" -> [ "load"; f "id"; quoted command "name" ]
-    | "play" -> [ "play"; f "sample"; f "at"; f "volume"; f "rate" ]
-    | "on_mouse" -> [ "on_mouse"; f "c" ]
-    | "style" -> [ "style"; f "id"; f "kind"; f "prop"; quoted command "value" ]
-    | "splash_text" -> [ "splash_text"; quoted command "text" ]
+    | "canvas" -> [ "canvas"; q "id"; f "width"; f "height" ]
+    | "clear" -> [ "clear"; q "c"; f "color" ]
+    | "circle" -> [ "circle"; q "c"; f "x"; f "y"; f "radius"; f "color" ]
+    | "rect" -> [ "rect"; q "c"; f "x"; f "y"; f "width"; f "height"; f "color" ]
+    | "line" -> [ "line"; q "c"; f "x1"; f "y1"; f "x2"; f "y2"; f "color"; f "width" ]
+    | "text" -> [ "text"; q "c"; f "x"; f "y"; f "color"; f "size"; q "words" ]
+    | "button" -> "button" :: named "id" "title"
+    | "label" -> "label" :: named "id" "text"
+    | "set_label" -> [ "set_label"; q "id"; q "text" ]
+    | "slider" -> [ "slider"; q "id"; f "low"; f "high"; f "value" ]
+    | "load" -> "load" :: named "id" "name"
+    | "play" -> [ "play"; q "sample"; f "at"; f "volume"; f "rate" ]
+    | "on_mouse" -> [ "on_mouse"; q "c" ]
+    | "style" -> [ "style"; q "id"; f "kind"; f "prop"; q "value" ]
+    | "splash_text" -> [ "splash_text"; q "text" ]
     | op -> [ op ]
   in
   String.concat " " words
+
+(* Whether the log is printed on standard error too, as the page runs:
+   what `pyk --tinyweb-log` asks for. *)
+let trace = Sys.getenv_opt "PYKING_TINYWEB_TRACE" <> None
+
+(* An event as the line an events file holds for it. *)
+let event_line event =
+  let text name = Option.value ~default:"" (List.assoc_opt name event) in
+  match List.assoc_opt "ev" event with
+  | Some "click" -> "click " ^ quote (text "id")
+  | Some "slide" -> "slide " ^ quote (text "id") ^ " " ^ text "value"
+  | Some "frame" -> (
+      match float_of_string_opt (text "t") with
+      | Some t -> Printf.sprintf "frame %.3f" t
+      | None -> "frame " ^ text "t")
+  | Some "mouse" -> "mouse " ^ quote (text "c") ^ " " ^ text "x" ^ " " ^ text "y"
+  | Some "key" -> "key " ^ text "key"
+  | Some other -> other
+  | None -> ""
 
 let write_log line =
   match log_file with
@@ -910,35 +933,39 @@ let static path =
 
 (* --- events, as the page writes them --- *)
 
+(* The JSON string starting just after the opening quote at `i` of
+   `text`, decoded, and where it ends. *)
+let string_at text i =
+  let n = String.length text in
+  let buffer = Buffer.create 16 in
+  let rec go i =
+    if i >= n then (Buffer.contents buffer, i)
+    else
+      match text.[i] with
+      | '"' -> (Buffer.contents buffer, i + 1)
+      | '\\' when i + 1 < n -> (
+          match text.[i + 1] with
+          | 'n' -> Buffer.add_char buffer '\n'; go (i + 2)
+          | 't' -> Buffer.add_char buffer '\t'; go (i + 2)
+          | 'r' -> Buffer.add_char buffer '\r'; go (i + 2)
+          | 'b' -> Buffer.add_char buffer '\b'; go (i + 2)
+          | 'f' -> Buffer.add_char buffer '\012'; go (i + 2)
+          | 'u' when i + 5 < n ->
+              let code = int_of_string ("0x" ^ String.sub text (i + 2) 4) in
+              Buffer.add_utf_8_uchar buffer
+                (if Uchar.is_valid code then Uchar.of_int code else Uchar.rep);
+              go (i + 6)
+          | c -> Buffer.add_char buffer c; go (i + 2))
+      | c -> Buffer.add_char buffer c; go (i + 1)
+  in
+  go i
+
 (* The fields of one flat JSON object, each as its text: a string
    decoded, anything else as written. *)
 let parse_object text =
   let n = String.length text in
   let rec space i = if i < n && String.contains " \t\r\n" text.[i] then space (i + 1) else i in
-  let string_at i =
-    let buffer = Buffer.create 16 in
-    let rec go i =
-      if i >= n then (Buffer.contents buffer, i)
-      else
-        match text.[i] with
-        | '"' -> (Buffer.contents buffer, i + 1)
-        | '\\' when i + 1 < n -> (
-            match text.[i + 1] with
-            | 'n' -> Buffer.add_char buffer '\n'; go (i + 2)
-            | 't' -> Buffer.add_char buffer '\t'; go (i + 2)
-            | 'r' -> Buffer.add_char buffer '\r'; go (i + 2)
-            | 'b' -> Buffer.add_char buffer '\b'; go (i + 2)
-            | 'f' -> Buffer.add_char buffer '\012'; go (i + 2)
-            | 'u' when i + 5 < n ->
-                let code = int_of_string ("0x" ^ String.sub text (i + 2) 4) in
-                Buffer.add_utf_8_uchar buffer
-                  (if Uchar.is_valid code then Uchar.of_int code else Uchar.rep);
-                go (i + 6)
-            | c -> Buffer.add_char buffer c; go (i + 2))
-        | c -> Buffer.add_char buffer c; go (i + 1)
-    in
-    go i
-  in
+  let string_at = string_at text in
   let rec fields i acc =
     let i = space i in
     if i >= n || text.[i] = '}' then List.rev acc
@@ -1077,12 +1104,12 @@ let poll timeout =
 
 (* --- the program's side --- *)
 
-let last = ref 0
+let names : string list ref = ref []
 let clock = ref 0.0
-let buttons : (int * (unit -> unit)) list ref = ref []
-let sliders : (int * (int -> unit)) list ref = ref []
+let buttons : (string * (unit -> unit)) list ref = ref []
+let sliders : (string * (int -> unit)) list ref = ref []
 let frames : (float -> unit) list ref = ref []
-let mice : (int * (int -> int -> unit)) list ref = ref []
+let mice : (string * (int -> int -> unit)) list ref = ref []
 let keys : (string -> unit) list ref = ref []
 let after_registered = ref false
 let running_after = ref false
@@ -1112,17 +1139,19 @@ and deliver_queued () =
 
 and deliver event =
   delivered := true;
+  if trace then prerr_endline ("> " ^ event_line event);
+  let text name = Option.value ~default:"" (List.assoc_opt name event) in
   let number name = Option.bind (List.assoc_opt name event) float_of_string_opt in
   let int name = Option.value ~default:0 (Option.map int_of_float (number name)) in
   (match number "t" with Some t -> clock := t | None -> ());
   let each table id f = List.iter (fun (key, g) -> if key = id then f g) table in
   match List.assoc_opt "ev" event with
-  | Some "click" -> each !buttons (int "id") (fun f -> f ())
-  | Some "slide" -> each !sliders (int "id") (fun f -> f (int "value"))
+  | Some "click" -> each !buttons (text "id") (fun f -> f ())
+  | Some "slide" -> each !sliders (text "id") (fun f -> f (int "value"))
   | Some "frame" ->
       List.iter (fun f -> f !clock) !frames;
       send { op = "frame_done"; fields = [] }
-  | Some "mouse" -> each !mice (int "c") (fun f -> f (int "x") (int "y"))
+  | Some "mouse" -> each !mice (text "c") (fun f -> f (int "x") (int "y"))
   | Some "key" ->
       let key = Option.value ~default:"" (List.assoc_opt "key" event) in
       List.iter (fun f -> f key) !keys
@@ -1136,25 +1165,40 @@ and deliver_file () =
       let lines = String.split_on_char '\n' (read_file path) in
       List.iter
         (fun line ->
-          let words = List.filter (fun w -> w <> "") (String.split_on_char ' ' line) in
           if String.trim line <> "" then (
             write_log ("> " ^ line);
             let event =
               if String.length line > 4 && String.sub line 0 4 = "key " then
                 Some [ ("ev", "key"); ("key", String.sub line 4 (String.length line - 4)) ]
-              else
-                match words with
-                | [ "click"; id ] -> Some [ ("ev", "click"); ("id", id) ]
-                | [ "slide"; id; value ] -> Some [ ("ev", "slide"); ("id", id); ("value", value) ]
-                | [ "frame"; t ] -> Some [ ("ev", "frame"); ("t", t) ]
-                | [ "mouse"; c; x; y ] -> Some [ ("ev", "mouse"); ("c", c); ("x", x); ("y", y) ]
-                | _ -> None
+              else event_of_line (String.trim line)
             in
             match event with
             | Some event -> deliver event
             | None -> write_log ("! unknown event: " ^ line)))
         lines
   | _ -> ()
+
+(* One line of an events file other than a key, as the event the page
+   would send: a frame's time, or the element it is on as a quoted string
+   and the numbers after it. *)
+and event_of_line line =
+  let words s = List.filter (fun w -> w <> "") (String.split_on_char ' ' s) in
+  match String.index_opt line ' ' with
+  | None -> None
+  | Some space -> (
+      let kind = String.sub line 0 space in
+      let after = String.trim (String.sub line space (String.length line - space)) in
+      if kind = "frame" then
+        match words after with [ t ] -> Some [ ("ev", "frame"); ("t", t) ] | _ -> None
+      else if after = "" || after.[0] <> '"' then None
+      else
+        let id, stop = string_at after 1 in
+        let rest = words (String.sub after stop (String.length after - stop)) in
+        match (kind, rest) with
+        | "click", [] -> Some [ ("ev", "click"); ("id", id) ]
+        | "slide", [ value ] -> Some [ ("ev", "slide"); ("id", id); ("value", value) ]
+        | "mouse", [ x; y ] -> Some [ ("ev", "mouse"); ("c", id); ("x", x); ("y", y) ]
+        | _ -> None)
 
 (* Says what every function but `web_init` needs first: a log to write
    to, or a page served. *)
@@ -1172,6 +1216,8 @@ and ready () =
 
 and send command =
   ready ();
+  if trace && command.op <> "frame_done" && command.op <> "event_done" then
+    prerr_endline (log_line command);
   match log_file with
   | Some _ -> if command.op <> "frame_done" && command.op <> "event_done" then write_log (log_line command)
   | None ->
@@ -1209,23 +1255,30 @@ let web_init port =
     Stdlib.flush Stdlib.stdout;
     if not !hosted then at_exit after_program)
 
-let fresh () =
-  incr last;
-  !last
+(* A new element's identifier: `name`, or `name` with the first number
+   from 1 that makes it one nothing on the page has. *)
+let fresh name =
+  let rec pick n =
+    let found = if n = 0 then name else name ^ string_of_int n in
+    if List.mem found !names then pick (n + 1) else found
+  in
+  let found = pick 0 in
+  names := found :: !names;
+  found
 
 let canvas width height =
   ready ();
-  let id = fresh () in
-  send { op = "canvas"; fields = [ ("id", I id); ("width", I width); ("height", I height) ] };
+  let id = fresh "canvas" in
+  send { op = "canvas"; fields = [ ("id", S id); ("width", I width); ("height", I height) ] };
   id
 
-let fill_canvas c color = send { op = "clear"; fields = [ ("c", I c); ("color", S color) ] }
+let fill_canvas c color = send { op = "clear"; fields = [ ("c", S c); ("color", S color) ] }
 
 let draw_circle c x y radius color =
   send
     {
       op = "circle";
-      fields = [ ("c", I c); ("x", I x); ("y", I y); ("radius", I radius); ("color", S color) ];
+      fields = [ ("c", S c); ("x", I x); ("y", I y); ("radius", I radius); ("color", S color) ];
     }
 
 let draw_rect c x y width height color =
@@ -1233,7 +1286,7 @@ let draw_rect c x y width height color =
     {
       op = "rect";
       fields =
-        [ ("c", I c); ("x", I x); ("y", I y); ("width", I width); ("height", I height);
+        [ ("c", S c); ("x", I x); ("y", I y); ("width", I width); ("height", I height);
           ("color", S color) ];
     }
 
@@ -1242,7 +1295,7 @@ let draw_line c x1 y1 x2 y2 color width =
     {
       op = "line";
       fields =
-        [ ("c", I c); ("x1", I x1); ("y1", I y1); ("x2", I x2); ("y2", I y2);
+        [ ("c", S c); ("x1", I x1); ("y1", I y1); ("x2", I x2); ("y2", I y2);
           ("color", S color); ("width", I width) ];
     }
 
@@ -1251,54 +1304,54 @@ let draw_text c x y words color size =
     {
       op = "text";
       fields =
-        [ ("c", I c); ("x", I x); ("y", I y); ("color", S color); ("size", I size);
+        [ ("c", S c); ("x", I x); ("y", I y); ("color", S color); ("size", I size);
           ("words", S words) ];
     }
 
 let make_button title on_click =
   ready ();
-  let id = fresh () in
+  let id = fresh title in
   buttons := !buttons @ [ (id, on_click) ];
-  send { op = "button"; fields = [ ("id", I id); ("title", S title) ] };
+  send { op = "button"; fields = [ ("id", S id); ("title", S title) ] };
   id
 
 let label text =
   ready ();
-  let id = fresh () in
-  send { op = "label"; fields = [ ("id", I id); ("text", S text) ] };
+  let id = fresh text in
+  send { op = "label"; fields = [ ("id", S id); ("text", S text) ] };
   id
 
-let set_label id text = send { op = "set_label"; fields = [ ("id", I id); ("text", S text) ] }
+let set_label id text = send { op = "set_label"; fields = [ ("id", S id); ("text", S text) ] }
 
 let apply_style id kind property value =
   send
     {
       op = "style";
-      fields = [ ("id", I id); ("kind", S kind); ("prop", S property); ("value", S value) ];
+      fields = [ ("id", S id); ("kind", S kind); ("prop", S property); ("value", S value) ];
     }
 
 let make_slider low high value on_change =
   ready ();
-  let id = fresh () in
+  let id = fresh "slider" in
   sliders := !sliders @ [ (id, on_change) ];
   send
     {
       op = "slider";
-      fields = [ ("id", I id); ("low", I low); ("high", I high); ("value", I value) ];
+      fields = [ ("id", S id); ("low", I low); ("high", I high); ("value", I value) ];
     };
   id
 
 let load_sample name =
   ready ();
-  let id = fresh () in
-  send { op = "load"; fields = [ ("id", I id); ("name", S name) ] };
+  let id = fresh name in
+  send { op = "load"; fields = [ ("id", S id); ("name", S name) ] };
   id
 
 let play_sample sample at volume rate =
   send
     {
       op = "play";
-      fields = [ ("sample", I sample); ("at", F at); ("volume", F volume); ("rate", F rate) ];
+      fields = [ ("sample", S sample); ("at", F at); ("volume", F volume); ("rate", F rate) ];
     }
 
 let splash () =
@@ -1321,7 +1374,7 @@ let on_frame draw =
 let on_mouse c click =
   ready ();
   mice := !mice @ [ (c, click) ];
-  send { op = "on_mouse"; fields = [ ("c", I c) ] }
+  send { op = "on_mouse"; fields = [ ("c", S c) ] }
 
 let on_key pressed =
   ready ();

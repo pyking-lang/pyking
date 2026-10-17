@@ -7,8 +7,8 @@
 
 #include "tinyweb.h"
 
-static int kick;
-static int snare;
+static const char *kick;
+static const char *snare;
 static int presses = 0;
 
 static void play_kick(void)
@@ -29,7 +29,7 @@ static void nothing(void)
 
 int main(void)
 {
-    int canvas;
+    const char *canvas;
     tinyweb_web_init(0);
     kick = tinyweb_load_sample("kick1.wav");
     snare = tinyweb_load_sample("snare1.wav");

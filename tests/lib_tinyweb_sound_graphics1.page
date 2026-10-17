@@ -1,16 +1,16 @@
-load 1 "kick1.wav"
-load 2 "snare1.wav"
-canvas 3 400 200
-circle 3 100 50 30 #ff0000
-circle 3 100 50 20 #000000
-button 4 "Play kick"
-button 5 "Play snare"
-button 6 "Does nothing"
+load "kick1.wav"
+load "snare1.wav"
+canvas "canvas" 400 200
+circle "canvas" 100 50 30 #ff0000
+circle "canvas" 100 50 20 #000000
+button "Play kick"
+button "Play snare"
+button "Does nothing"
 splash
-> click 4
-play 1 0.000 1.000 1.000
-> click 5
-play 2 0.000 0.500 1.000
-> click 5
-play 2 0.000 0.500 1.000
-> click 6
+> click "Play kick"
+play "kick1.wav" 0.000 1.000 1.000
+> click "Play snare"
+play "snare1.wav" 0.000 0.500 1.000
+> click "Play snare"
+play "snare1.wav" 0.000 0.500 1.000
+> click "Does nothing"

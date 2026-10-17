@@ -292,8 +292,13 @@ by one clock. Its two halves are `tinyweb_external.pyk`, which declares
 what the host does, and `tinyweb.pyk`, which wraps the declarations that
 need a default argument. A program builds a page by calling it: a
 canvas, button, label or slider goes below the ones before it, and every
-one is named by the `Int` its function answers. A sample is an `Int` as
-well, from `load_sample`.
+one is named by the `String` its function answers. A sample is a
+`String` as well, from `load_sample`. The name is the element's own text
+-- a button's title, a label's first text, a sample's file name -- or
+`"canvas"` or `"slider"`, with the first number from 1 added where
+something on the page has that name already: `"canvas"`, `"canvas1"`,
+`"Play kick1"`. It is the same in the commands, on the page
+(`data-tinyweb-id`) and in the log, which is what makes a log readable.
 
 **Commands and events.** Every function but `web_init` sends the page
 one *command*, a plain object such as `{op: "circle", c, x, y, radius,
@@ -578,17 +583,21 @@ A program using `tinyweb` is tested by what it sends its page, not by
 pixels. Two files beside it say so:
 
 - `<name>.events` -- what the page delivers once the top level has
-  ended, one event per line: `click ID`, `slide ID VALUE`, `frame T`,
-  `mouse CANVAS X Y` and `key NAME`.
+  ended, one event per line: `click "ID"`, `slide "ID" VALUE`,
+  `frame T`, `mouse "CANVAS" X Y` and `key NAME`, each element named by
+  its identifier as a JSON string.
 - `<name>.page` -- every command the program sent, one per line, with
-  each delivered event as a `> ` line where it happened:
+  each delivered event as a `> ` line where it happened. An identifier
+  is a JSON string, and an element's text follows it only where the two
+  differ:
 
 ```
-canvas 3 400 800
-circle 3 1 50 30 #ff0000
-button 4 "Play kick"
-> click 4
-play 1 0.000 1.000 1.000
+canvas "canvas" 400 800
+circle "canvas" 1 50 30 #ff0000
+button "Play kick"
+button "Play kick1" "Play kick"
+> click "Play kick"
+play "kick1.wav" 0.000 1.000 1.000
 ```
 
 Two environment variables, each a file path, are how: where
@@ -601,6 +610,16 @@ the log with the `.page` file on every target the case lists. Every
 implementation writes the same lines -- strings as JSON, times to three
 decimals -- so one `.page` file holds for all of them.
 `tests/lib_tinyweb_*.pyk` are the cases.
+
+**The same log while the page runs.** `pyk --tinyweb-log <file>` (and
+`pyk repl --tinyweb-log`) serves the page as usual and prints the log on
+standard error as it goes: each command's line, and each event the page
+sends as `> ` and its line, frames included. `pyk.ml` sets
+`PYKING_TINYWEB_TRACE`, which `tinyweb_external.ml` reads when the
+interpreter loads its plugin. In the playground the Web output tab's
+"tinyweb log" switch does the same: the worker sets `pykTinywebLog`,
+which `tinyweb_external_interpreter.js` calls with each line, and the
+page shows it as `debug` output.
 
 What the log cannot reach is `tests/test_tinyweb.py`'s, a suite of its
 own:

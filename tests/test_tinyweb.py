@@ -124,31 +124,49 @@ def quote(text):
 
 
 def log_line(command):
-    """A command as the line every headless implementation writes for it.
-    {String: Value} -> String"""
+    """A command as the line every headless implementation writes for it:
+    each identifier quoted, and an element's text after it only where the
+    two differ. {String: Value} -> String"""
     c = command.get
+    q = lambda name: quote(c(name))  # noqa: E731
     op = c("op")
     seconds = lambda x: f"{x:.3f}"  # noqa: E731
+
+    def named(id_field, text_field):
+        return q(id_field) + ("" if c(id_field) == c(text_field) else " " + q(text_field))
+
     lines = {
-        "canvas": lambda: f"canvas {c('id')} {c('width')} {c('height')}",
-        "clear": lambda: f"clear {c('c')} {c('color')}",
-        "circle": lambda: f"circle {c('c')} {c('x')} {c('y')} {c('radius')} {c('color')}",
-        "rect": lambda: f"rect {c('c')} {c('x')} {c('y')} {c('width')} {c('height')} {c('color')}",
-        "line": lambda: (f"line {c('c')} {c('x1')} {c('y1')} {c('x2')} {c('y2')} "
+        "canvas": lambda: f"canvas {q('id')} {c('width')} {c('height')}",
+        "clear": lambda: f"clear {q('c')} {c('color')}",
+        "circle": lambda: f"circle {q('c')} {c('x')} {c('y')} {c('radius')} {c('color')}",
+        "rect": lambda: f"rect {q('c')} {c('x')} {c('y')} {c('width')} {c('height')} {c('color')}",
+        "line": lambda: (f"line {q('c')} {c('x1')} {c('y1')} {c('x2')} {c('y2')} "
                          f"{c('color')} {c('width')}"),
-        "text": lambda: f"text {c('c')} {c('x')} {c('y')} {c('color')} {c('size')} {quote(c('words'))}",
-        "button": lambda: f"button {c('id')} {quote(c('title'))}",
-        "label": lambda: f"label {c('id')} {quote(c('text'))}",
-        "set_label": lambda: f"set_label {c('id')} {quote(c('text'))}",
-        "slider": lambda: f"slider {c('id')} {c('low')} {c('high')} {c('value')}",
-        "load": lambda: f"load {c('id')} {quote(c('name'))}",
-        "play": lambda: (f"play {c('sample')} {seconds(c('at'))} {seconds(c('volume'))} "
+        "text": lambda: f"text {q('c')} {c('x')} {c('y')} {c('color')} {c('size')} {q('words')}",
+        "button": lambda: f"button {named('id', 'title')}",
+        "label": lambda: f"label {named('id', 'text')}",
+        "set_label": lambda: f"set_label {q('id')} {q('text')}",
+        "slider": lambda: f"slider {q('id')} {c('low')} {c('high')} {c('value')}",
+        "load": lambda: f"load {named('id', 'name')}",
+        "play": lambda: (f"play {q('sample')} {seconds(c('at'))} {seconds(c('volume'))} "
                          f"{seconds(c('rate'))}"),
-        "on_mouse": lambda: f"on_mouse {c('c')}",
-        "style": lambda: f"style {c('id')} {c('kind')} {c('prop')} {quote(c('value'))}",
-        "splash_text": lambda: f"splash_text {quote(c('text'))}",
+        "on_mouse": lambda: f"on_mouse {q('c')}",
+        "style": lambda: f"style {q('id')} {c('kind')} {c('prop')} {q('value')}",
+        "splash_text": lambda: f"splash_text {q('text')}",
     }
     return lines.get(op, lambda: op)()
+
+
+def split_line(line):
+    """A log or events line as its first word, the quoted identifier after
+    it (None where there is none) and the words after that.
+    String -> (String, String?, [String])"""
+    first, _, rest = line.partition(" ")
+    rest = rest.lstrip()
+    if not rest.startswith('"'):
+        return first, None, rest.split()
+    id, end = json.JSONDecoder().raw_decode(rest)
+    return first, id, rest[end:].split()
 
 
 def compacted(lines):
@@ -159,14 +177,14 @@ def compacted(lines):
     some of it. [String] -> [String]"""
     kept = []
     for line in lines:
-        words = line.split(" ")
-        if words[0] == "clear":
+        op, id, _ = split_line(line)
+        if op == "clear":
             kept = [k for k in kept
-                    if not (k.split(" ")[0] in ("clear", "circle", "rect", "line", "text")
-                            and k.split(" ")[1] == words[1])]
-        if words[0] == "set_label":
+                    if not (split_line(k)[0] in ("clear", "circle", "rect", "line", "text")
+                            and split_line(k)[1] == id)]
+        if op == "set_label":
             kept = [k for k in kept
-                    if not (k.split(" ")[0] == "set_label" and k.split(" ")[1] == words[1])]
+                    if not (split_line(k)[0] == "set_label" and split_line(k)[1] == id)]
         kept.append(line)
     return kept
 
@@ -175,17 +193,16 @@ def event_of(line):
     """An events-file line as the JSON a page posts. String -> {String: Value}"""
     if line.startswith("key "):
         return {"ev": "key", "key": line[4:]}
-    words = line.split()
-    n = lambda i: int(words[i])  # noqa: E731
-    if words[0] == "click":
-        return {"ev": "click", "id": n(1)}
-    if words[0] == "slide":
-        return {"ev": "slide", "id": n(1), "value": n(2)}
-    if words[0] == "frame":
-        return {"ev": "frame", "t": float(words[1])}
-    if words[0] == "mouse":
-        return {"ev": "mouse", "c": n(1), "x": n(2), "y": n(3)}
-    return {"ev": words[0]}
+    kind, id, words = split_line(line)
+    if kind == "click":
+        return {"ev": "click", "id": id}
+    if kind == "slide":
+        return {"ev": "slide", "id": id, "value": int(words[0])}
+    if kind == "frame":
+        return {"ev": "frame", "t": float(words[0])}
+    if kind == "mouse":
+        return {"ev": "mouse", "c": id, "x": int(words[0]), "y": int(words[1])}
+    return {"ev": kind}
 
 
 # --- embedded ---

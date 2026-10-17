@@ -9,9 +9,9 @@ public final class Example {
 
     public static void main(String[] args) {
         Tinyweb.web_init(0);
-        int kick = Tinyweb.load_sample("kick1.wav");
-        int snare = Tinyweb.load_sample("snare1.wav");
-        int canvas = Tinyweb.canvas(400, 200);
+        String kick = Tinyweb.load_sample("kick1.wav");
+        String snare = Tinyweb.load_sample("snare1.wav");
+        String canvas = Tinyweb.canvas(400, 200);
         Tinyweb.draw_circle(canvas, 100, 50, 30, "#ff0000");
         Tinyweb.draw_circle(canvas, 100, 50, 20, "#000000");
         Tinyweb.make_button("Play kick", () -> Tinyweb.play_sample(kick, 0.0, 1.0, 1.0));

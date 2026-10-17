@@ -35,7 +35,7 @@ from http.server import ThreadingHTTPServer as _Server
 _LOG = _os.environ.get("PYKING_TINYWEB_LOG")
 _EVENTS = _os.environ.get("PYKING_TINYWEB_EVENTS")
 
-_last = 0
+_names = set()
 _clock = 0.0
 # Whether an event has been delivered: until one is, the program is in
 # its top level, whose sound a page connecting later still plays.
@@ -60,39 +60,46 @@ def _seconds(x):
 
 
 def _log_line(command):
-    """A command as the one line every headless implementation writes."""
+    """A command as the one line every headless implementation writes:
+    each identifier quoted, and an element's text after it only where the
+    two differ."""
     op = command["op"]
     c = command.get
+    q = lambda name: _quote(c(name))  # noqa: E731
+
+    def named(id_field, text_field):
+        return q(id_field) + ("" if c(id_field) == c(text_field) else " " + q(text_field))
+
     if op == "canvas":
-        return f"canvas {c('id')} {c('width')} {c('height')}"
+        return f"canvas {q('id')} {c('width')} {c('height')}"
     if op == "clear":
-        return f"clear {c('c')} {c('color')}"
+        return f"clear {q('c')} {c('color')}"
     if op == "circle":
-        return f"circle {c('c')} {c('x')} {c('y')} {c('radius')} {c('color')}"
+        return f"circle {q('c')} {c('x')} {c('y')} {c('radius')} {c('color')}"
     if op == "rect":
-        return f"rect {c('c')} {c('x')} {c('y')} {c('width')} {c('height')} {c('color')}"
+        return f"rect {q('c')} {c('x')} {c('y')} {c('width')} {c('height')} {c('color')}"
     if op == "line":
-        return f"line {c('c')} {c('x1')} {c('y1')} {c('x2')} {c('y2')} {c('color')} {c('width')}"
+        return f"line {q('c')} {c('x1')} {c('y1')} {c('x2')} {c('y2')} {c('color')} {c('width')}"
     if op == "text":
-        return f"text {c('c')} {c('x')} {c('y')} {c('color')} {c('size')} {_quote(c('words'))}"
+        return f"text {q('c')} {c('x')} {c('y')} {c('color')} {c('size')} {q('words')}"
     if op == "button":
-        return f"button {c('id')} {_quote(c('title'))}"
+        return f"button {named('id', 'title')}"
     if op == "label":
-        return f"label {c('id')} {_quote(c('text'))}"
+        return f"label {named('id', 'text')}"
     if op == "set_label":
-        return f"set_label {c('id')} {_quote(c('text'))}"
+        return f"set_label {q('id')} {q('text')}"
     if op == "slider":
-        return f"slider {c('id')} {c('low')} {c('high')} {c('value')}"
+        return f"slider {q('id')} {c('low')} {c('high')} {c('value')}"
     if op == "load":
-        return f"load {c('id')} {_quote(c('name'))}"
+        return f"load {named('id', 'name')}"
     if op == "play":
-        return f"play {c('sample')} {_seconds(c('at'))} {_seconds(c('volume'))} {_seconds(c('rate'))}"
+        return f"play {q('sample')} {_seconds(c('at'))} {_seconds(c('volume'))} {_seconds(c('rate'))}"
     if op == "on_mouse":
-        return f"on_mouse {c('c')}"
+        return f"on_mouse {q('c')}"
     if op == "style":
-        return f"style {c('id')} {c('kind')} {c('prop')} {_quote(c('value'))}"
+        return f"style {q('id')} {c('kind')} {c('prop')} {q('value')}"
     if op == "splash_text":
-        return f"splash_text {_quote(c('text'))}"
+        return f"splash_text {q('text')}"
     return op
 
 
@@ -132,10 +139,15 @@ def _send(command):
         _hub.send(command)
 
 
-def _fresh():
-    global _last
-    _last += 1
-    return _last
+def _fresh(name):
+    """A new element's identifier: `name`, or `name` with the first number
+    from 1 that makes it one nothing on the page has."""
+    found, n = name, 0
+    while found in _names:
+        n += 1
+        found = f"{name}{n}"
+    _names.add(found)
+    return found
 
 
 # --- the functions tinyweb_external.pyk declares ---
@@ -154,7 +166,7 @@ def web_init(port):
 
 def canvas(width, height):
     _ready()
-    id = _fresh()
+    id = _fresh("canvas")
     _send({"op": "canvas", "id": id, "width": width, "height": height})
     return id
 
@@ -184,7 +196,7 @@ def draw_text(c, x, y, words, color, size):
 
 def make_button(title, on_click):
     _ready()
-    id = _fresh()
+    id = _fresh(title)
     _buttons[id] = on_click
     _send({"op": "button", "id": id, "title": title})
     return id
@@ -192,7 +204,7 @@ def make_button(title, on_click):
 
 def label(text):
     _ready()
-    id = _fresh()
+    id = _fresh(text)
     _send({"op": "label", "id": id, "text": text})
     return id
 
@@ -207,7 +219,7 @@ def apply_style(id, kind, property, value):
 
 def make_slider(low, high, value, on_change):
     _ready()
-    id = _fresh()
+    id = _fresh("slider")
     _sliders[id] = on_change
     _send({"op": "slider", "id": id, "low": low, "high": high, "value": value})
     return id
@@ -215,7 +227,7 @@ def make_slider(low, high, value, on_change):
 
 def load_sample(name):
     _ready()
-    id = _fresh()
+    id = _fresh(name)
     _send({"op": "load", "id": id, "name": name})
     return id
 
@@ -291,17 +303,23 @@ def _parse_event(line):
     None."""
     if line.startswith("key "):
         return {"ev": "key", "key": line[4:]}
-    words = line.split()
+    words = line.split(None, 1)
     try:
-        if words[0] == "click" and len(words) == 2:
-            return {"ev": "click", "id": int(words[1])}
-        if words[0] == "slide" and len(words) == 3:
-            return {"ev": "slide", "id": int(words[1]), "value": int(words[2])}
         if words[0] == "frame" and len(words) == 2:
             return {"ev": "frame", "t": float(words[1])}
-        if words[0] == "mouse" and len(words) == 4:
-            return {"ev": "mouse", "c": int(words[1]), "x": int(words[2]),
-                    "y": int(words[3])}
+        if words[0] not in ("click", "slide", "mouse") or len(words) < 2:
+            return None
+        # The element is a quoted string, which may hold spaces.
+        id, end = _json.JSONDecoder().raw_decode(words[1].lstrip())
+        rest = words[1].lstrip()[end:].split()
+        if not isinstance(id, str):
+            return None
+        if words[0] == "click" and len(rest) == 0:
+            return {"ev": "click", "id": id}
+        if words[0] == "slide" and len(rest) == 1:
+            return {"ev": "slide", "id": id, "value": int(rest[0])}
+        if words[0] == "mouse" and len(rest) == 2:
+            return {"ev": "mouse", "c": id, "x": int(rest[0]), "y": int(rest[1])}
     except ValueError:
         return None
     return None

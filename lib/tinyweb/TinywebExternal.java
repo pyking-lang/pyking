@@ -56,14 +56,15 @@ public final class TinywebExternal {
     private static final String LOG = System.getenv("PYKING_TINYWEB_LOG");
     private static final String EVENTS = System.getenv("PYKING_TINYWEB_EVENTS");
 
-    private static int last = 0;
     private static double clock = 0.0;
     // Whether an event has been delivered: until one is, the program is
     // in its top level, whose sound a page connecting later still plays.
     private static volatile boolean delivered = false;
-    private static final Map<Integer, Runnable> buttons = new HashMap<Integer, Runnable>();
-    private static final Map<Integer, Consumer<Integer>> sliders =
-        new HashMap<Integer, Consumer<Integer>>();
+    private static final Map<String, Runnable> buttons = new HashMap<String, Runnable>();
+    private static final Map<String, Consumer<Integer>> sliders =
+        new HashMap<String, Consumer<Integer>>();
+    // Every identifier given out so far.
+    private static final java.util.Set<String> names = new java.util.HashSet<String>();
     private static final List<Consumer<Double>> frames = new ArrayList<Consumer<Double>>();
     private static final List<Object[]> mice = new ArrayList<Object[]>();
     private static final List<Consumer<String>> keys = new ArrayList<Consumer<String>>();
@@ -102,9 +103,9 @@ public final class TinywebExternal {
         final String op;
         final StringBuilder json = new StringBuilder();
         final StringBuilder line;
-        int canvas = -1;
+        String canvas = null;
         boolean clears = false;
-        int label = -1;
+        String label = null;
 
         Command(String op) {
             this.op = op;
@@ -133,6 +134,16 @@ public final class TinywebExternal {
         Command text(String name, String value) {
             json.append(",\"").append(name).append("\":").append(quote(value));
             line.append(' ').append(quote(value));
+            return this;
+        }
+
+        /** An element's text after its identifier: in the log line only
+         *  where the two differ. */
+        Command named(String name, String value, String id) {
+            json.append(",\"").append(name).append("\":").append(quote(value));
+            if (!value.equals(id)) {
+                line.append(' ').append(quote(value));
+            }
             return this;
         }
 
@@ -205,9 +216,15 @@ public final class TinywebExternal {
         }
     }
 
-    private static int fresh() {
-        last += 1;
-        return last;
+    /** A new element's identifier: `name`, or `name` with the first
+     *  number from 1 that makes it one nothing on the page has. */
+    private static String fresh(String name) {
+        String found = name;
+        for (int n = 1; names.contains(found); n++) {
+            found = name + n;
+        }
+        names.add(found);
+        return found;
     }
 
     // --- the functions tinyweb_external.pyk declares ---
@@ -230,95 +247,95 @@ public final class TinywebExternal {
         });
     }
 
-    public static int canvas(int width, int height) {
+    public static String canvas(int width, int height) {
         ready();
-        int id = fresh();
-        send(new Command("canvas").number("id", id).number("width", width)
+        String id = fresh("canvas");
+        send(new Command("canvas").text("id", id).number("width", width)
             .number("height", height));
         return id;
     }
 
-    public static void fill_canvas(int c, String color) {
-        Command command = new Command("clear").number("c", c).bare("color", color);
+    public static void fill_canvas(String c, String color) {
+        Command command = new Command("clear").text("c", c).bare("color", color);
         command.canvas = c;
         command.clears = true;
         send(command);
     }
 
-    public static void draw_circle(int c, int x, int y, int radius, String color) {
-        Command command = new Command("circle").number("c", c).number("x", x).number("y", y)
+    public static void draw_circle(String c, int x, int y, int radius, String color) {
+        Command command = new Command("circle").text("c", c).number("x", x).number("y", y)
             .number("radius", radius).bare("color", color);
         command.canvas = c;
         send(command);
     }
 
-    public static void draw_rect(int c, int x, int y, int width, int height, String color) {
-        Command command = new Command("rect").number("c", c).number("x", x).number("y", y)
+    public static void draw_rect(String c, int x, int y, int width, int height, String color) {
+        Command command = new Command("rect").text("c", c).number("x", x).number("y", y)
             .number("width", width).number("height", height).bare("color", color);
         command.canvas = c;
         send(command);
     }
 
-    public static void draw_line(int c, int x1, int y1, int x2, int y2, String color,
+    public static void draw_line(String c, int x1, int y1, int x2, int y2, String color,
                                  int width) {
-        Command command = new Command("line").number("c", c).number("x1", x1)
+        Command command = new Command("line").text("c", c).number("x1", x1)
             .number("y1", y1).number("x2", x2).number("y2", y2).bare("color", color)
             .number("width", width);
         command.canvas = c;
         send(command);
     }
 
-    public static void draw_text(int c, int x, int y, String words, String color, int size) {
-        Command command = new Command("text").number("c", c).number("x", x).number("y", y)
+    public static void draw_text(String c, int x, int y, String words, String color, int size) {
+        Command command = new Command("text").text("c", c).number("x", x).number("y", y)
             .bare("color", color).number("size", size).text("words", words);
         command.canvas = c;
         send(command);
     }
 
-    public static int make_button(String title, Runnable onClick) {
+    public static String make_button(String title, Runnable onClick) {
         ready();
-        int id = fresh();
+        String id = fresh(title);
         buttons.put(id, onClick);
-        send(new Command("button").number("id", id).text("title", title));
+        send(new Command("button").text("id", id).named("title", title, id));
         return id;
     }
 
-    public static int label(String text) {
+    public static String label(String text) {
         ready();
-        int id = fresh();
-        send(new Command("label").number("id", id).text("text", text));
+        String id = fresh(text);
+        send(new Command("label").text("id", id).named("text", text, id));
         return id;
     }
 
-    public static void set_label(int id, String text) {
-        Command command = new Command("set_label").number("id", id).text("text", text);
+    public static void set_label(String id, String text) {
+        Command command = new Command("set_label").text("id", id).text("text", text);
         command.label = id;
         send(command);
     }
 
-    public static void apply_style(int id, String kind, String property, String value) {
-        send(new Command("style").number("id", id).bare("kind", kind).bare("prop", property)
+    public static void apply_style(String id, String kind, String property, String value) {
+        send(new Command("style").text("id", id).bare("kind", kind).bare("prop", property)
             .text("value", value));
     }
 
-    public static int make_slider(int low, int high, int value, Consumer<Integer> onChange) {
+    public static String make_slider(int low, int high, int value, Consumer<Integer> onChange) {
         ready();
-        int id = fresh();
+        String id = fresh("slider");
         sliders.put(id, onChange);
-        send(new Command("slider").number("id", id).number("low", low).number("high", high)
+        send(new Command("slider").text("id", id).number("low", low).number("high", high)
             .number("value", value));
         return id;
     }
 
-    public static int load_sample(String name) {
+    public static String load_sample(String name) {
         ready();
-        int id = fresh();
-        send(new Command("load").number("id", id).text("name", name));
+        String id = fresh(name);
+        send(new Command("load").text("id", id).named("name", name, id));
         return id;
     }
 
-    public static void play_sample(int sample, double at, double volume, double rate) {
-        send(new Command("play").number("sample", sample).seconds("at", at)
+    public static void play_sample(String sample, double at, double volume, double rate) {
+        send(new Command("play").text("sample", sample).seconds("at", at)
             .seconds("volume", volume).seconds("rate", rate));
     }
 
@@ -343,10 +360,10 @@ public final class TinywebExternal {
         send(new Command("on_frame"));
     }
 
-    public static void on_mouse(int c, BiConsumer<Integer, Integer> click) {
+    public static void on_mouse(String c, BiConsumer<Integer, Integer> click) {
         ready();
         mice.add(new Object[] {c, click});
-        send(new Command("on_mouse").number("c", c));
+        send(new Command("on_mouse").text("c", c));
     }
 
     public static void on_key(Consumer<String> pressed) {
@@ -368,12 +385,12 @@ public final class TinywebExternal {
         }
         String kind = event.get("ev");
         if ("click".equals(kind)) {
-            Runnable f = buttons.get(integer(event, "id"));
+            Runnable f = buttons.get(event.get("id"));
             if (f != null) {
                 f.run();
             }
         } else if ("slide".equals(kind)) {
-            Consumer<Integer> f = sliders.get(integer(event, "id"));
+            Consumer<Integer> f = sliders.get(event.get("id"));
             if (f != null) {
                 f.accept(integer(event, "value"));
             }
@@ -383,9 +400,9 @@ public final class TinywebExternal {
             }
             send(new Command("frame_done"));
         } else if ("mouse".equals(kind)) {
-            int c = integer(event, "c");
+            String c = event.get("c");
             for (Object[] entry : new ArrayList<Object[]>(mice)) {
-                if ((Integer) entry[0] == c) {
+                if (entry[0].equals(c)) {
                     ((BiConsumer<Integer, Integer>) entry[1])
                         .accept(integer(event, "x"), integer(event, "y"));
                 }
@@ -411,7 +428,8 @@ public final class TinywebExternal {
     }
 
     /** One line of an events file as the event the page would send, or
-     *  null. */
+     *  null. The element an event is on is a quoted string, which may
+     *  hold spaces, and the numbers it takes follow it. */
     private static Map<String, String> parseLine(String line) {
         Map<String, String> event = new HashMap<String, String>();
         if (line.startsWith("key ")) {
@@ -419,26 +437,45 @@ public final class TinywebExternal {
             event.put("key", line.substring(4));
             return event;
         }
-        String[] words = line.trim().split("\\s+");
+        String trimmed = line.trim();
+        int space = trimmed.indexOf(' ');
+        if (space < 0) {
+            return null;
+        }
+        String kind = trimmed.substring(0, space);
+        String after = trimmed.substring(space).trim();
         try {
-            if (words[0].equals("click") && words.length == 2) {
-                event.put("id", String.valueOf(Integer.parseInt(words[1])));
-            } else if (words[0].equals("slide") && words.length == 3) {
-                event.put("id", String.valueOf(Integer.parseInt(words[1])));
-                event.put("value", String.valueOf(Integer.parseInt(words[2])));
-            } else if (words[0].equals("frame") && words.length == 2) {
-                event.put("t", String.valueOf(Double.parseDouble(words[1])));
-            } else if (words[0].equals("mouse") && words.length == 4) {
-                event.put("c", String.valueOf(Integer.parseInt(words[1])));
-                event.put("x", String.valueOf(Integer.parseInt(words[2])));
-                event.put("y", String.valueOf(Integer.parseInt(words[3])));
+            if (kind.equals("frame")) {
+                String[] words = after.split("\\s+");
+                if (words.length != 1) {
+                    return null;
+                }
+                event.put("t", String.valueOf(Double.parseDouble(words[0])));
             } else {
-                return null;
+                if (after.isEmpty() || after.charAt(0) != '"') {
+                    return null;
+                }
+                StringBuilder id = new StringBuilder();
+                int end = string(after, 1, id);
+                String rest = end >= after.length() ? "" : after.substring(end).trim();
+                String[] words = rest.isEmpty() ? new String[0] : rest.split("\\s+");
+                if (kind.equals("click") && words.length == 0) {
+                    event.put("id", id.toString());
+                } else if (kind.equals("slide") && words.length == 1) {
+                    event.put("id", id.toString());
+                    event.put("value", String.valueOf(Integer.parseInt(words[0])));
+                } else if (kind.equals("mouse") && words.length == 2) {
+                    event.put("c", id.toString());
+                    event.put("x", String.valueOf(Integer.parseInt(words[0])));
+                    event.put("y", String.valueOf(Integer.parseInt(words[1])));
+                } else {
+                    return null;
+                }
             }
         } catch (NumberFormatException error) {
             return null;
         }
-        event.put("ev", words[0]);
+        event.put("ev", kind);
         return event;
     }
 
@@ -578,8 +615,9 @@ public final class TinywebExternal {
             if (!sound && !op.equals("frame_done") && !op.equals("event_done")) {
                 List<Command> kept = new ArrayList<Command>();
                 for (Command old : history) {
-                    boolean hidden = (command.clears && old.canvas == command.canvas)
-                        || (command.label >= 0 && old.label == command.label);
+                    boolean hidden = (command.clears && old.canvas != null
+                            && old.canvas.equals(command.canvas))
+                        || (command.label != null && command.label.equals(old.label));
                     if (!hidden) {
                         kept.add(old);
                     }

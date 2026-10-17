@@ -96,6 +96,7 @@ const TABS = `(async () => { ${HELPERS}
     && /42\\n[\\s\\S]*finished/.test(output()), 30000), active() + ": " + output());
   check("which the whole tab is given to", shown("output")
     && $("[data-r=panelRun]").contains($("[data-r=output]")));
+  check("with no tinyweb log switch there", !shown("tinywebLogBox"));
 
   await app.loadExample("tinyweb1.pyk", { silent: true });
   $("[data-r=runLeft]").click();
@@ -109,8 +110,19 @@ const TABS = `(async () => { ${HELPERS}
   $("[data-r=refresh]").click();
   check("Refresh runs the program again", await until(() => output().includes("built the page")
     && $("[data-r=page] canvas"), 30000), output());
+  check("the Web output tab has a tinyweb log switch", shown("tinywebLogBox"));
+  $("[data-r=tinywebLog]").click();
+  $("[data-r=output]").textContent = "";
+  $("[data-r=refresh]").click();
+  check("which shows the tinyweb log as stderr", await until(() =>
+    $$("[data-r=output] .debug").some((e) => e.textContent.startsWith('canvas "canvas"')), 30000),
+    output());
+  $("[data-r=tinywebLog]").click();
   app.stopRun();
   await until(() => !app.running);
+  check("a stopped program leaves no page, only the line saying what the frame is for",
+    !$("[data-r=page] canvas") && $("[data-r=page] .pyk-page-empty") !== null,
+    $("[data-r=page]").innerHTML.slice(0, 200));
 
   $("[data-r=tabHelp]").click();
   check("the Help tab shows the help, with its menu above the page",

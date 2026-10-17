@@ -229,7 +229,7 @@ export class PykingRuntime {
    *  that does not check is refused the same way either way. */
   async runProgram(source, {
     onOutput, onDebug, onInput, onPage, onFailure, onExit, onEnd,
-    name = "playground.pyk", stdin = "", args = [], release = false,
+    name = "playground.pyk", stdin = "", args = [], release = false, tinywebLog = false,
   } = {}) {
     this._require();
     this.endLive();
@@ -241,7 +241,7 @@ export class PykingRuntime {
     this.onExit = onExit || null;
     this._live = false;
     try {
-      return await this._send("run", { source, name, stdin, args, release });
+      return await this._send("run", { source, name, stdin, args, release, tinywebLog });
     } finally {
       // A program that sent its page something goes on after answering
       // -- the page calls back the functions it gave it -- so it keeps
@@ -290,6 +290,12 @@ export class PykingRuntime {
    *  needs a page"). String -> Object -> () */
   sendEvent(module, data) {
     if (this._live && this.worker) this.worker.postMessage({ type: "event", module, data });
+  }
+
+  /** Whether the running program's tinyweb log is shown, as `debug`
+   *  lines: what `pyk --tinyweb-log` prints on stderr. Bool -> () */
+  setTinywebLog(on) {
+    if (this.worker) this.worker.postMessage({ type: "tinywebLog", on });
   }
 
   /** Lets the live run go: its callbacks are detached and its `onEnd`

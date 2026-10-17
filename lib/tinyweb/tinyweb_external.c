@@ -47,24 +47,24 @@
 #endif
 
 void tinyweb_web_init(int port);
-int tinyweb_canvas(int width, int height);
-void tinyweb_fill_canvas(int c, const char *color);
-void tinyweb_draw_circle(int c, int x, int y, int radius, const char *color);
-void tinyweb_draw_rect(int c, int x, int y, int width, int height, const char *color);
-void tinyweb_draw_line(int c, int x1, int y1, int x2, int y2, const char *color, int width);
-void tinyweb_draw_text(int c, int x, int y, const char *words, const char *color, int size);
-int tinyweb_make_button(const char *title, void (*on_click)(void));
-int tinyweb_label(const char *text);
-void tinyweb_set_label(int id, const char *text);
-int tinyweb_make_slider(int low, int high, int value, void (*on_change)(int));
-void tinyweb_apply_style(int id, const char *kind, const char *property, const char *value);
-int tinyweb_load_sample(const char *name);
-void tinyweb_play_sample(int sample, double at, double volume, double rate);
+const char *tinyweb_canvas(int width, int height);
+void tinyweb_fill_canvas(const char *c, const char *color);
+void tinyweb_draw_circle(const char *c, int x, int y, int radius, const char *color);
+void tinyweb_draw_rect(const char *c, int x, int y, int width, int height, const char *color);
+void tinyweb_draw_line(const char *c, int x1, int y1, int x2, int y2, const char *color, int width);
+void tinyweb_draw_text(const char *c, int x, int y, const char *words, const char *color, int size);
+const char *tinyweb_make_button(const char *title, void (*on_click)(void));
+const char *tinyweb_label(const char *text);
+void tinyweb_set_label(const char *id, const char *text);
+const char *tinyweb_make_slider(int low, int high, int value, void (*on_change)(int));
+void tinyweb_apply_style(const char *id, const char *kind, const char *property, const char *value);
+const char *tinyweb_load_sample(const char *name);
+void tinyweb_play_sample(const char *sample, double at, double volume, double rate);
 void tinyweb_splash(void);
 void tinyweb_set_splash(const char *message);
 double tinyweb_time(void);
 void tinyweb_on_frame(void (*draw)(double));
-void tinyweb_on_mouse(int c, void (*click)(int, int));
+void tinyweb_on_mouse(const char *c, void (*click)(int, int));
 void tinyweb_on_key(void (*pressed)(const char *));
 
 /* BEGIN tinyweb page */
@@ -812,16 +812,17 @@ typedef struct {
     char *json;
     char *line;
     int drawing;
-    int canvas;
+    const char *canvas;
     int setting;
-    int id;
+    const char *id;
 } tw_command;
 
 static const char *tw_log = NULL;
 static const char *tw_events = NULL;
 static int tw_checked = 0;
 static int tw_listener = -1;
-static int tw_last = 0;
+static const char **tw_names = NULL;
+static size_t tw_name_count = 0;
 static double tw_clock = 0.0;
 /* Whether an event has been delivered: until one is, the program is in
    its top level, whose sound a page connecting later still plays. */
@@ -835,9 +836,9 @@ static int tw_batching = 0;
 static int *tw_clients = NULL;
 static size_t tw_client_count = 0;
 
-typedef struct { int id; void (*f)(void); } tw_button;
-typedef struct { int id; void (*f)(int); } tw_slider;
-typedef struct { int c; void (*f)(int, int); } tw_mouse;
+typedef struct { const char *id; void (*f)(void); } tw_button;
+typedef struct { const char *id; void (*f)(int); } tw_slider;
+typedef struct { const char *c; void (*f)(int, int); } tw_mouse;
 static tw_button *tw_buttons = NULL;
 static size_t tw_button_count = 0;
 static tw_slider *tw_sliders = NULL;
@@ -857,6 +858,12 @@ static void *tw_grow(void *array, size_t count, size_t size)
 }
 
 static void tw_after_program(void);
+
+/* Whether two identifiers are the same; NULL is none. */
+static int tw_same(const char *a, const char *b)
+{
+    return a != NULL && b != NULL && strcmp(a, b) == 0;
+}
 
 /* Ends the program with `message`, and with status 1. */
 static void tw_refuse(const char *message)
@@ -950,8 +957,8 @@ static void tw_keep(tw_command command)
     for (i = 0; i < tw_history_count; i++) {
         tw_command *old = &tw_history[i];
         int hidden =
-            (command.drawing == 2 && old->drawing && old->canvas == command.canvas)
-            || (command.setting && old->setting && old->id == command.id);
+            (command.drawing == 2 && old->drawing && tw_same(old->canvas, command.canvas))
+            || (command.setting && old->setting && tw_same(old->id, command.id));
         if (hidden) {
             free(old->json);
             free(old->line);
@@ -973,7 +980,7 @@ static void tw_keep(tw_command command)
    clearing it, `setting` 1 for one setting label `id`, and `kept` 0 for
    one a late page is not sent. */
 static void tw_send(const char *op, const char *fields, const char *line,
-                    int drawing, int canvas, int setting, int id, int kept)
+                    int drawing, const char *canvas, int setting, const char *id, int kept)
 {
     tw_text json = { NULL, 0, 0 };
     tw_ready();
@@ -1042,7 +1049,7 @@ static void tw_field_string(tw_text *json, tw_text *line, const char *name,
 }
 
 static void tw_finish(const char *op, tw_text *json, tw_text *line,
-                      int drawing, int canvas, int setting, int id, int kept)
+                      int drawing, const char *canvas, int setting, const char *id, int kept)
 {
     tw_send(op, json->text == NULL ? "" : json->text, line->text,
             drawing, canvas, setting, id, kept);
@@ -1050,186 +1057,222 @@ static void tw_finish(const char *op, tw_text *json, tw_text *line,
     free(line->text);
 }
 
-static int tw_fresh(void)
+/* A field that is in a command's JSON and not its log line. */
+static void tw_field_json(tw_text *json, const char *name, const char *value)
 {
-    tw_last += 1;
-    return tw_last;
+    tw_puts(json, ",\"");
+    tw_puts(json, name);
+    tw_puts(json, "\":");
+    tw_quote(json, value);
+}
+
+/* An element's text after its identifier: in the log line only where
+   the two differ. */
+static void tw_field_text(tw_text *json, tw_text *line, const char *name,
+                          const char *value, const char *id)
+{
+    if (strcmp(value, id) == 0) tw_field_json(json, name, value);
+    else tw_field_string(json, line, name, value, 0);
+}
+
+/* A new element's identifier: `name`, or `name` with the first number
+   from 1 that makes it one nothing on the page has. */
+static const char *tw_fresh(const char *name)
+{
+    char *found = tw_copy(name);
+    unsigned long n = 0;
+    size_t i;
+    for (;;) {
+        int taken = 0;
+        for (i = 0; i < tw_name_count; i++) {
+            if (strcmp(tw_names[i], found) == 0) taken = 1;
+        }
+        if (!taken) break;
+        n++;
+        free(found);
+        found = (char *) malloc(strlen(name) + 24);
+        if (found == NULL) abort();
+        sprintf(found, "%s%lu", name, n);
+    }
+    tw_names = (const char **) tw_grow((void *) tw_names, tw_name_count, sizeof(const char *));
+    tw_names[tw_name_count++] = found;
+    return found;
 }
 
 /* --- the functions tinyweb_external.pyk declares --- */
 
-int tinyweb_canvas(int width, int height)
+const char *tinyweb_canvas(int width, int height)
 {
     tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
-    int id;
+    const char *id;
     tw_ready();
-    id = tw_fresh();
+    id = tw_fresh("canvas");
     tw_puts(&line, "canvas");
-    tw_field_int(&json, &line, "id", id);
+    tw_field_string(&json, &line, "id", id, 0);
     tw_field_int(&json, &line, "width", width);
     tw_field_int(&json, &line, "height", height);
-    tw_finish("canvas", &json, &line, 0, 0, 0, 0, 1);
+    tw_finish("canvas", &json, &line, 0, NULL, 0, NULL, 1);
     return id;
 }
 
-void tinyweb_fill_canvas(int c, const char *color)
+void tinyweb_fill_canvas(const char *c, const char *color)
 {
     tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
     tw_puts(&line, "clear");
-    tw_field_int(&json, &line, "c", c);
+    tw_field_string(&json, &line, "c", c, 0);
     tw_field_string(&json, &line, "color", color, 1);
-    tw_finish("clear", &json, &line, 2, c, 0, 0, 1);
+    tw_finish("clear", &json, &line, 2, c, 0, NULL, 1);
 }
 
-void tinyweb_draw_circle(int c, int x, int y, int radius, const char *color)
+void tinyweb_draw_circle(const char *c, int x, int y, int radius, const char *color)
 {
     tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
     tw_puts(&line, "circle");
-    tw_field_int(&json, &line, "c", c);
+    tw_field_string(&json, &line, "c", c, 0);
     tw_field_int(&json, &line, "x", x);
     tw_field_int(&json, &line, "y", y);
     tw_field_int(&json, &line, "radius", radius);
     tw_field_string(&json, &line, "color", color, 1);
-    tw_finish("circle", &json, &line, 1, c, 0, 0, 1);
+    tw_finish("circle", &json, &line, 1, c, 0, NULL, 1);
 }
 
-void tinyweb_draw_rect(int c, int x, int y, int width, int height, const char *color)
+void tinyweb_draw_rect(const char *c, int x, int y, int width, int height, const char *color)
 {
     tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
     tw_puts(&line, "rect");
-    tw_field_int(&json, &line, "c", c);
+    tw_field_string(&json, &line, "c", c, 0);
     tw_field_int(&json, &line, "x", x);
     tw_field_int(&json, &line, "y", y);
     tw_field_int(&json, &line, "width", width);
     tw_field_int(&json, &line, "height", height);
     tw_field_string(&json, &line, "color", color, 1);
-    tw_finish("rect", &json, &line, 1, c, 0, 0, 1);
+    tw_finish("rect", &json, &line, 1, c, 0, NULL, 1);
 }
 
-void tinyweb_draw_line(int c, int x1, int y1, int x2, int y2, const char *color, int width)
+void tinyweb_draw_line(const char *c, int x1, int y1, int x2, int y2, const char *color, int width)
 {
     tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
     tw_puts(&line, "line");
-    tw_field_int(&json, &line, "c", c);
+    tw_field_string(&json, &line, "c", c, 0);
     tw_field_int(&json, &line, "x1", x1);
     tw_field_int(&json, &line, "y1", y1);
     tw_field_int(&json, &line, "x2", x2);
     tw_field_int(&json, &line, "y2", y2);
     tw_field_string(&json, &line, "color", color, 1);
     tw_field_int(&json, &line, "width", width);
-    tw_finish("line", &json, &line, 1, c, 0, 0, 1);
+    tw_finish("line", &json, &line, 1, c, 0, NULL, 1);
 }
 
-void tinyweb_draw_text(int c, int x, int y, const char *words, const char *color, int size)
+void tinyweb_draw_text(const char *c, int x, int y, const char *words, const char *color, int size)
 {
     tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
     tw_puts(&line, "text");
-    tw_field_int(&json, &line, "c", c);
+    tw_field_string(&json, &line, "c", c, 0);
     tw_field_int(&json, &line, "x", x);
     tw_field_int(&json, &line, "y", y);
     tw_field_string(&json, &line, "color", color, 1);
     tw_field_int(&json, &line, "size", size);
     tw_field_string(&json, &line, "words", words, 0);
-    tw_finish("text", &json, &line, 1, c, 0, 0, 1);
+    tw_finish("text", &json, &line, 1, c, 0, NULL, 1);
 }
 
-int tinyweb_make_button(const char *title, void (*on_click)(void))
+const char *tinyweb_make_button(const char *title, void (*on_click)(void))
 {
     tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
-    int id;
+    const char *id;
     tw_ready();
-    id = tw_fresh();
+    id = tw_fresh(title);
     tw_buttons = (tw_button *) tw_grow(tw_buttons, tw_button_count, sizeof(tw_button));
     tw_buttons[tw_button_count].id = id;
     tw_buttons[tw_button_count].f = on_click;
     tw_button_count++;
     tw_puts(&line, "button");
-    tw_field_int(&json, &line, "id", id);
-    tw_field_string(&json, &line, "title", title, 0);
-    tw_finish("button", &json, &line, 0, 0, 0, 0, 1);
+    tw_field_string(&json, &line, "id", id, 0);
+    tw_field_text(&json, &line, "title", title, id);
+    tw_finish("button", &json, &line, 0, NULL, 0, NULL, 1);
     return id;
 }
 
-int tinyweb_label(const char *text)
+const char *tinyweb_label(const char *text)
 {
     tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
-    int id;
+    const char *id;
     tw_ready();
-    id = tw_fresh();
+    id = tw_fresh(text);
     tw_puts(&line, "label");
-    tw_field_int(&json, &line, "id", id);
-    tw_field_string(&json, &line, "text", text, 0);
-    tw_finish("label", &json, &line, 0, 0, 0, 0, 1);
+    tw_field_string(&json, &line, "id", id, 0);
+    tw_field_text(&json, &line, "text", text, id);
+    tw_finish("label", &json, &line, 0, NULL, 0, NULL, 1);
     return id;
 }
 
-void tinyweb_set_label(int id, const char *text)
+void tinyweb_set_label(const char *id, const char *text)
 {
     tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
     tw_puts(&line, "set_label");
-    tw_field_int(&json, &line, "id", id);
+    tw_field_string(&json, &line, "id", id, 0);
     tw_field_string(&json, &line, "text", text, 0);
-    tw_finish("set_label", &json, &line, 0, 0, 1, id, 1);
+    tw_finish("set_label", &json, &line, 0, NULL, 1, id, 1);
 }
 
-void tinyweb_apply_style(int id, const char *kind, const char *property, const char *value)
+void tinyweb_apply_style(const char *id, const char *kind, const char *property, const char *value)
 {
     tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
     tw_puts(&line, "style");
-    tw_field_int(&json, &line, "id", id);
+    tw_field_string(&json, &line, "id", id, 0);
     tw_field_string(&json, &line, "kind", kind, 1);
     tw_field_string(&json, &line, "prop", property, 1);
     tw_field_string(&json, &line, "value", value, 0);
-    tw_finish("style", &json, &line, 0, 0, 0, 0, 1);
+    tw_finish("style", &json, &line, 0, NULL, 0, NULL, 1);
 }
 
-int tinyweb_make_slider(int low, int high, int value, void (*on_change)(int))
+const char *tinyweb_make_slider(int low, int high, int value, void (*on_change)(int))
 {
     tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
-    int id;
+    const char *id;
     tw_ready();
-    id = tw_fresh();
+    id = tw_fresh("slider");
     tw_sliders = (tw_slider *) tw_grow(tw_sliders, tw_slider_count, sizeof(tw_slider));
     tw_sliders[tw_slider_count].id = id;
     tw_sliders[tw_slider_count].f = on_change;
     tw_slider_count++;
     tw_puts(&line, "slider");
-    tw_field_int(&json, &line, "id", id);
+    tw_field_string(&json, &line, "id", id, 0);
     tw_field_int(&json, &line, "low", low);
     tw_field_int(&json, &line, "high", high);
     tw_field_int(&json, &line, "value", value);
-    tw_finish("slider", &json, &line, 0, 0, 0, 0, 1);
+    tw_finish("slider", &json, &line, 0, NULL, 0, NULL, 1);
     return id;
 }
 
-int tinyweb_load_sample(const char *name)
+const char *tinyweb_load_sample(const char *name)
 {
     tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
-    int id;
+    const char *id;
     tw_ready();
-    id = tw_fresh();
+    id = tw_fresh(name);
     tw_puts(&line, "load");
-    tw_field_int(&json, &line, "id", id);
-    tw_field_string(&json, &line, "name", name, 0);
-    tw_finish("load", &json, &line, 0, 0, 0, 0, 1);
+    tw_field_string(&json, &line, "id", id, 0);
+    tw_field_text(&json, &line, "name", name, id);
+    tw_finish("load", &json, &line, 0, NULL, 0, NULL, 1);
     return id;
 }
 
-void tinyweb_play_sample(int sample, double at, double volume, double rate)
+void tinyweb_play_sample(const char *sample, double at, double volume, double rate)
 {
     tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
     tw_puts(&line, "play");
-    tw_field_int(&json, &line, "sample", sample);
+    tw_field_string(&json, &line, "sample", sample, 0);
     tw_field_float(&json, &line, "at", at);
     tw_field_float(&json, &line, "volume", volume);
     tw_field_float(&json, &line, "rate", rate);
-    tw_finish("play", &json, &line, 0, 0, 0, 0, !tw_delivered);
+    tw_finish("play", &json, &line, 0, NULL, 0, NULL, !tw_delivered);
 }
 
 void tinyweb_splash(void)
 {
     tw_ready();
-    tw_send("splash", "", "splash", 0, 0, 0, 0, 1);
+    tw_send("splash", "", "splash", 0, NULL, 0, NULL, 1);
 }
 
 void tinyweb_set_splash(const char *message)
@@ -1238,7 +1281,7 @@ void tinyweb_set_splash(const char *message)
     tw_ready();
     tw_puts(&line, "splash_text");
     tw_field_string(&json, &line, "text", message, 0);
-    tw_finish("splash_text", &json, &line, 0, 0, 0, 0, 1);
+    tw_finish("splash_text", &json, &line, 0, NULL, 0, NULL, 1);
 }
 
 double tinyweb_time(void)
@@ -1253,10 +1296,10 @@ void tinyweb_on_frame(void (*draw)(double))
     tw_frames = (void (**)(double)) tw_grow((void *) tw_frames, tw_frame_count,
                                             sizeof(void (*)(double)));
     tw_frames[tw_frame_count++] = draw;
-    tw_send("on_frame", "", "on_frame", 0, 0, 0, 0, 1);
+    tw_send("on_frame", "", "on_frame", 0, NULL, 0, NULL, 1);
 }
 
-void tinyweb_on_mouse(int c, void (*click)(int, int))
+void tinyweb_on_mouse(const char *c, void (*click)(int, int))
 {
     tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
     tw_ready();
@@ -1265,8 +1308,8 @@ void tinyweb_on_mouse(int c, void (*click)(int, int))
     tw_mice[tw_mouse_count].f = click;
     tw_mouse_count++;
     tw_puts(&line, "on_mouse");
-    tw_field_int(&json, &line, "c", c);
-    tw_finish("on_mouse", &json, &line, 0, 0, 0, 0, 1);
+    tw_field_string(&json, &line, "c", c, 0);
+    tw_finish("on_mouse", &json, &line, 0, NULL, 0, NULL, 1);
 }
 
 void tinyweb_on_key(void (*pressed)(const char *))
@@ -1275,7 +1318,7 @@ void tinyweb_on_key(void (*pressed)(const char *))
     tw_keys = (void (**)(const char *)) tw_grow((void *) tw_keys, tw_key_count,
                                                 sizeof(void (*)(const char *)));
     tw_keys[tw_key_count++] = pressed;
-    tw_send("on_key", "", "on_key", 0, 0, 0, 0, 1);
+    tw_send("on_key", "", "on_key", 0, NULL, 0, NULL, 1);
 }
 
 /* --- events --- */
@@ -1285,9 +1328,9 @@ typedef struct {
     char ev[16];
     int has_t;
     double t;
-    int id;
+    char *id;
     int value;
-    int c;
+    char *c;
     int x;
     int y;
     char *key;
@@ -1305,18 +1348,18 @@ static void tw_deliver(const tw_event *event)
     if (event->has_t) tw_clock = event->t;
     if (strcmp(event->ev, "click") == 0) {
         for (i = 0; i < tw_button_count; i++) {
-            if (tw_buttons[i].id == event->id) tw_buttons[i].f();
+            if (tw_same(tw_buttons[i].id, event->id)) tw_buttons[i].f();
         }
     } else if (strcmp(event->ev, "slide") == 0) {
         for (i = 0; i < tw_slider_count; i++) {
-            if (tw_sliders[i].id == event->id) tw_sliders[i].f(event->value);
+            if (tw_same(tw_sliders[i].id, event->id)) tw_sliders[i].f(event->value);
         }
     } else if (strcmp(event->ev, "frame") == 0) {
         for (i = 0; i < tw_frame_count; i++) tw_frames[i](tw_clock);
-        tw_send("frame_done", "", "frame_done", 0, 0, 0, 0, 0);
+        tw_send("frame_done", "", "frame_done", 0, NULL, 0, NULL, 0);
     } else if (strcmp(event->ev, "mouse") == 0) {
         for (i = 0; i < tw_mouse_count; i++) {
-            if (tw_mice[i].c == event->c) tw_mice[i].f(event->x, event->y);
+            if (tw_same(tw_mice[i].c, event->c)) tw_mice[i].f(event->x, event->y);
         }
     } else if (strcmp(event->ev, "key") == 0) {
         for (i = 0; i < tw_key_count; i++) tw_keys[i](event->key == NULL ? "" : event->key);
@@ -1392,8 +1435,13 @@ static tw_event tw_parse_event(const char *text)
             at = tw_string(at + 1, &value);
             if (key.text != NULL && strcmp(key.text, "ev") == 0 && value.text != NULL) {
                 strncpy(event.ev, value.text, sizeof event.ev - 1);
-            } else if (key.text != NULL && strcmp(key.text, "key") == 0) {
-                event.key = value.text == NULL ? tw_copy("") : value.text;
+            } else if (key.text != NULL && (strcmp(key.text, "key") == 0
+                                            || strcmp(key.text, "id") == 0
+                                            || strcmp(key.text, "c") == 0)) {
+                char *text = value.text == NULL ? tw_copy("") : value.text;
+                if (strcmp(key.text, "key") == 0) event.key = text;
+                else if (strcmp(key.text, "id") == 0) event.id = text;
+                else event.c = text;
                 value.text = NULL;
             }
             free(value.text);
@@ -1404,9 +1452,7 @@ static tw_event tw_parse_event(const char *text)
                 if (strcmp(key.text, "t") == 0) {
                     event.has_t = 1;
                     event.t = number;
-                } else if (strcmp(key.text, "id") == 0) event.id = (int) number;
-                else if (strcmp(key.text, "value") == 0) event.value = (int) number;
-                else if (strcmp(key.text, "c") == 0) event.c = (int) number;
+                } else if (strcmp(key.text, "value") == 0) event.value = (int) number;
                 else if (strcmp(key.text, "x") == 0) event.x = (int) number;
                 else if (strcmp(key.text, "y") == 0) event.y = (int) number;
             }
@@ -1418,46 +1464,62 @@ static tw_event tw_parse_event(const char *text)
 }
 
 /* One line of an events file as the event the page would send; 0 where
-   it names none. */
+   it names none. The element an event is on is a quoted string, which
+   may hold spaces, and the numbers it takes follow it. */
 static int tw_parse_line(const char *line, tw_event *event)
 {
     char word[16];
-    double a, b, c;
-    int n;
+    double numbers[3];
+    int n = 0, wanted;
+    const char *at = line;
+    size_t length;
     memset(event, 0, sizeof *event);
     if (strncmp(line, "key ", 4) == 0) {
         strcpy(event->ev, "key");
         event->key = tw_copy(line + 4);
         return 1;
     }
-    n = sscanf(line, "%15s %lf %lf %lf", word, &a, &b, &c);
+    while (*at == ' ') at++;
+    length = strcspn(at, " ");
+    if (length == 0 || length >= sizeof word) return 0;
+    memcpy(word, at, length);
+    word[length] = '\0';
+    at += length;
     strcpy(event->ev, word);
-    if (strcmp(word, "click") == 0 && n == 2) {
-        event->id = (int) a;
-    } else if (strcmp(word, "slide") == 0 && n == 3) {
-        event->id = (int) a;
-        event->value = (int) b;
-    } else if (strcmp(word, "frame") == 0 && n == 2) {
-        event->has_t = 1;
-        event->t = a;
-    } else if (strcmp(word, "mouse") == 0 && n == 4) {
-        event->c = (int) a;
-        event->x = (int) b;
-        event->y = (int) c;
+    while (*at == ' ') at++;
+    if (strcmp(word, "frame") == 0) {
+        wanted = 1;
     } else {
-        return 0;
+        tw_text id = { NULL, 0, 0 };
+        if (strcmp(word, "click") == 0) wanted = 0;
+        else if (strcmp(word, "slide") == 0) wanted = 1;
+        else if (strcmp(word, "mouse") == 0) wanted = 2;
+        else return 0;
+        if (*at != '"') return 0;
+        at = tw_string(at + 1, &id);
+        event->id = id.text == NULL ? tw_copy("") : id.text;
+        event->c = event->id;
     }
-    {
-        /* Nothing may follow what the event takes. */
-        int words = 0;
-        const char *at = line;
-        while (*at != '\0') {
-            while (*at == ' ') at++;
-            if (*at == '\0') break;
-            words++;
-            while (*at != '\0' && *at != ' ') at++;
-        }
-        if (words != n) return 0;
+    /* The numbers, and nothing after them. */
+    for (;;) {
+        char *end;
+        double number;
+        while (*at == ' ' || *at == '\r') at++;
+        if (*at == '\0') break;
+        number = strtod(at, &end);
+        if (end == at || n == 3) return 0;
+        numbers[n++] = number;
+        at = end;
+    }
+    if (n != wanted) return 0;
+    if (strcmp(word, "frame") == 0) {
+        event->has_t = 1;
+        event->t = numbers[0];
+    } else if (strcmp(word, "slide") == 0) {
+        event->value = (int) numbers[0];
+    } else if (strcmp(word, "mouse") == 0) {
+        event->x = (int) numbers[0];
+        event->y = (int) numbers[1];
     }
     return 1;
 }
@@ -1717,7 +1779,7 @@ static void tw_after_program(void)
         tw_poll();
         for (i = 0; i < tw_queued; i++) {
             tw_deliver(&tw_queue[i]);
-            tw_send("event_done", "", "event_done", 0, 0, 0, 0, 0);
+            tw_send("event_done", "", "event_done", 0, NULL, 0, NULL, 0);
             tw_flush();
             fflush(stdout);
             free(tw_queue[i].key);

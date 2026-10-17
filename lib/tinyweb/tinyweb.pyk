@@ -53,7 +53,7 @@ def ignore(value: Int):
 ## ```
 ## ```stdout
 ## ```
-public def clear(c: Int, color: String = "#ffffff") -> ():
+public def clear(c: String, color: String = "#ffffff") -> ():
     fill_canvas(c, color)
 
 
@@ -75,7 +75,7 @@ public def clear(c: Int, color: String = "#ffffff") -> ():
 ## ```
 ## ```stdout
 ## ```
-public def circle(c: Int, x: Int, y: Int, radius: Int, color: String = "#000000") -> ():
+public def circle(c: String, x: Int, y: Int, radius: Int, color: String = "#000000") -> ():
     draw_circle(c, x, y, radius, color)
 
 
@@ -97,7 +97,7 @@ public def circle(c: Int, x: Int, y: Int, radius: Int, color: String = "#000000"
 ## ```
 ## ```stdout
 ## ```
-public def rect(c: Int, x: Int, y: Int, width: Int, height: Int, color: String = "#000000") -> ():
+public def rect(c: String, x: Int, y: Int, width: Int, height: Int, color: String = "#000000") -> ():
     draw_rect(c, x, y, width, height, color)
 
 
@@ -120,7 +120,7 @@ public def rect(c: Int, x: Int, y: Int, width: Int, height: Int, color: String =
 ## ```
 ## ```stdout
 ## ```
-public def line(c: Int, x1: Int, y1: Int, x2: Int, y2: Int, color: String = "#000000", width: Int = 1) -> ():
+public def line(c: String, x1: Int, y1: Int, x2: Int, y2: Int, color: String = "#000000", width: Int = 1) -> ():
     draw_line(c, x1, y1, x2, y2, color, width)
 
 
@@ -142,7 +142,7 @@ public def line(c: Int, x1: Int, y1: Int, x2: Int, y2: Int, color: String = "#00
 ## ```
 ## ```stdout
 ## ```
-public def text(c: Int, x: Int, y: Int, words: String, color: String = "#000000", size: Int = 16) -> ():
+public def text(c: String, x: Int, y: Int, words: String, color: String = "#000000", size: Int = 16) -> ():
     draw_text(c, x, y, words, color, size)
 
 
@@ -154,7 +154,8 @@ public def text(c: Int, x: Int, y: Int, words: String, color: String = "#000000"
 ##   nothing happens.
 ##
 ## # Returns
-## The button's number.
+## The button's identifier: its title, with a number added where
+## something on the page has that name already.
 ##
 ## # Examples
 ## ```pyking
@@ -168,7 +169,7 @@ public def text(c: Int, x: Int, y: Int, words: String, color: String = "#000000"
 ## ```
 ## ```stdout
 ## ```
-public def button(title: String, on_click: () -> () = nothing) -> Int:
+public def button(title: String, on_click: () -> () = nothing) -> String:
     make_button(title, on_click)
 
 
@@ -181,7 +182,8 @@ public def button(title: String, on_click: () -> () = nothing) -> Int:
 ##   to; by default nothing happens.
 ##
 ## # Returns
-## The slider's number.
+## The slider's identifier: `"slider"`, with a number added where
+## something on the page has that name already.
 ##
 ## # Examples
 ## ```pyking
@@ -194,7 +196,7 @@ public def button(title: String, on_click: () -> () = nothing) -> Int:
 ## ```
 ## ```stdout
 ## ```
-public def slider(low: Int, high: Int, value: Int, on_change: (Int) -> () = ignore) -> Int:
+public def slider(low: Int, high: Int, value: Int, on_change: (Int) -> () = ignore) -> String:
     make_slider(low, high, value, on_change)
 
 
@@ -216,7 +218,7 @@ def known_theme(name: String) -> Bool:
 
 # One property of a kind of element, or of the element `id`; "" leaves
 # it as it is.
-def style_text(id: Int, kind: String, property: String, value: String):
+def style_text(id: String, kind: String, property: String, value: String):
     if value == "":
         ()
     else:
@@ -224,7 +226,7 @@ def style_text(id: Int, kind: String, property: String, value: String):
 
 
 # A length in pixels; a negative one leaves it as it is.
-def style_pixels(id: Int, kind: String, property: String, value: Int):
+def style_pixels(id: String, kind: String, property: String, value: Int):
     if value < 0:
         ()
     else:
@@ -259,7 +261,7 @@ def style_pixels(id: Int, kind: String, property: String, value: Int):
 ## ```
 public def theme(name: String) -> ():
     if known_theme(name):
-        apply_style(0, "theme", "name", name)
+        apply_style("", "theme", "name", name)
     else:
         debug("tinyweb: there is no theme called \"" ++ name ++ "\"; the themes are light, dark, plain, paper and retro")
 
@@ -287,12 +289,12 @@ public def theme(name: String) -> ():
 ## ```stdout
 ## ```
 public def page_style(background: String = "", color: String = "", font: String = "", size: Int = -1, padding: Int = -1, gap: Int = -1) -> ():
-    style_text(0, "page", "background", background)
-    style_text(0, "page", "color", color)
-    style_text(0, "page", "font", font)
-    style_pixels(0, "page", "size", size)
-    style_pixels(0, "page", "padding", padding)
-    style_pixels(0, "page", "gap", gap)
+    style_text("", "page", "background", background)
+    style_text("", "page", "color", color)
+    style_text("", "page", "font", font)
+    style_pixels("", "page", "size", size)
+    style_pixels("", "page", "padding", padding)
+    style_pixels("", "page", "gap", gap)
 
 
 ## Changes every button on the page, those made already and those made
@@ -318,13 +320,13 @@ public def page_style(background: String = "", color: String = "", font: String 
 ## ```stdout
 ## ```
 public def button_style(background: String = "", color: String = "", border: String = "", radius: Int = -1, font: String = "", size: Int = -1, padding: Int = -1) -> ():
-    style_text(0, "button", "background", background)
-    style_text(0, "button", "color", color)
-    style_text(0, "button", "border", border)
-    style_pixels(0, "button", "radius", radius)
-    style_text(0, "button", "font", font)
-    style_pixels(0, "button", "size", size)
-    style_pixels(0, "button", "padding", padding)
+    style_text("", "button", "background", background)
+    style_text("", "button", "color", color)
+    style_text("", "button", "border", border)
+    style_pixels("", "button", "radius", radius)
+    style_text("", "button", "font", font)
+    style_pixels("", "button", "size", size)
+    style_pixels("", "button", "padding", padding)
 
 
 ## Changes every label on the page, those made already and those made
@@ -350,13 +352,13 @@ public def button_style(background: String = "", color: String = "", border: Str
 ## ```stdout
 ## ```
 public def label_style(background: String = "", color: String = "", border: String = "", radius: Int = -1, font: String = "", size: Int = -1, padding: Int = -1) -> ():
-    style_text(0, "label", "background", background)
-    style_text(0, "label", "color", color)
-    style_text(0, "label", "border", border)
-    style_pixels(0, "label", "radius", radius)
-    style_text(0, "label", "font", font)
-    style_pixels(0, "label", "size", size)
-    style_pixels(0, "label", "padding", padding)
+    style_text("", "label", "background", background)
+    style_text("", "label", "color", color)
+    style_text("", "label", "border", border)
+    style_pixels("", "label", "radius", radius)
+    style_text("", "label", "font", font)
+    style_pixels("", "label", "size", size)
+    style_pixels("", "label", "padding", padding)
 
 
 ## Changes every slider on the page, those made already and those made
@@ -379,11 +381,11 @@ public def label_style(background: String = "", color: String = "", border: Stri
 ## ```stdout
 ## ```
 public def slider_style(accent: String = "", width: Int = -1, color: String = "", font: String = "", size: Int = -1) -> ():
-    style_text(0, "slider", "accent", accent)
-    style_pixels(0, "slider", "width", width)
-    style_text(0, "slider", "color", color)
-    style_text(0, "slider", "font", font)
-    style_pixels(0, "slider", "size", size)
+    style_text("", "slider", "accent", accent)
+    style_pixels("", "slider", "width", width)
+    style_text("", "slider", "color", color)
+    style_text("", "slider", "font", font)
+    style_pixels("", "slider", "size", size)
 
 
 ## Changes the frame of every canvas on the page, those made already and
@@ -404,8 +406,8 @@ public def slider_style(accent: String = "", width: Int = -1, color: String = ""
 ## ```stdout
 ## ```
 public def canvas_style(border: String = "", radius: Int = -1) -> ():
-    style_text(0, "canvas", "border", border)
-    style_pixels(0, "canvas", "radius", radius)
+    style_text("", "canvas", "border", border)
+    style_pixels("", "canvas", "radius", radius)
 
 
 ## Changes the colors of one button, label or slider. It wins over the
@@ -428,7 +430,7 @@ public def canvas_style(border: String = "", radius: Int = -1) -> ():
 ## ```
 ## ```stdout
 ## ```
-public def set_colors(id: Int, color: String = "", background: String = "") -> ():
+public def set_colors(id: String, color: String = "", background: String = "") -> ():
     style_text(id, "element", "color", color)
     style_text(id, "element", "accent", color)
     style_text(id, "element", "background", background)
@@ -462,7 +464,7 @@ public def set_colors(id: Int, color: String = "", background: String = "") -> (
 ## ```
 ## ```stdout
 ## ```
-public def set_style(id: Int, background: String = "", color: String = "", border: String = "", radius: Int = -1, font: String = "", size: Int = -1, padding: Int = -1, accent: String = "", width: Int = -1) -> ():
+public def set_style(id: String, background: String = "", color: String = "", border: String = "", radius: Int = -1, font: String = "", size: Int = -1, padding: Int = -1, accent: String = "", width: Int = -1) -> ():
     style_text(id, "element", "background", background)
     style_text(id, "element", "color", color)
     style_text(id, "element", "border", border)
@@ -477,7 +479,7 @@ public def set_style(id: Int, background: String = "", color: String = "", borde
 ## Plays a sample that `load_sample` loaded.
 ##
 ## # Parameters
-## - `sample`: the sample's number, as `load_sample` answered.
+## - `sample`: the sample's identifier, as `load_sample` answered.
 ## - `at`: when to start, in seconds on the page's clock (see `time`),
 ##   which counts from when the page started rather than from now: two
 ##   seconds from now is `at = tw.time() + 2.0`, while `at = 2.0` is
@@ -502,7 +504,7 @@ public def set_style(id: Int, background: String = "", color: String = "", borde
 ## ```
 ## ```stdout
 ## ```
-public def play(sample: Int, at: Float = 0.0, volume: Float = 1.0, rate: Float = 1.0) -> ():
+public def play(sample: String, at: Float = 0.0, volume: Float = 1.0, rate: Float = 1.0) -> ():
     play_sample(sample, at, volume, rate)
 
 

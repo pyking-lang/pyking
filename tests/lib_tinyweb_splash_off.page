@@ -1,6 +1,6 @@
 splash_text ""
-load 1 "snare1.wav"
-button 2 "Hit"
+load "snare1.wav"
+button "Hit"
 splash
-> click 2
-play 1 0.000 0.500 1.000
+> click "Hit"
+play "snare1.wav" 0.000 0.500 1.000

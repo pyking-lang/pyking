@@ -33,7 +33,9 @@ public def web_init(port: Int) -> ()
 ## - `height`: its height in pixels.
 ##
 ## # Returns
-## The canvas's number, which the drawing functions take as `c`.
+## The canvas's identifier, which the drawing functions take as `c`:
+## `"canvas"`, with a number added where something on the page has
+## that name already.
 ##
 ## # Examples
 ## ```pyking
@@ -44,19 +46,19 @@ public def web_init(port: Int) -> ()
 ## ```
 ## ```stdout
 ## ```
-public def canvas(width: Int, height: Int) -> Int
+public def canvas(width: Int, height: Int) -> String
 
-def fill_canvas(c: Int, color: String) -> ()
+def fill_canvas(c: String, color: String) -> ()
 
-def draw_circle(c: Int, x: Int, y: Int, radius: Int, color: String) -> ()
+def draw_circle(c: String, x: Int, y: Int, radius: Int, color: String) -> ()
 
-def draw_rect(c: Int, x: Int, y: Int, width: Int, height: Int, color: String) -> ()
+def draw_rect(c: String, x: Int, y: Int, width: Int, height: Int, color: String) -> ()
 
-def draw_line(c: Int, x1: Int, y1: Int, x2: Int, y2: Int, color: String, width: Int) -> ()
+def draw_line(c: String, x1: Int, y1: Int, x2: Int, y2: Int, color: String, width: Int) -> ()
 
-def draw_text(c: Int, x: Int, y: Int, words: String, color: String, size: Int) -> ()
+def draw_text(c: String, x: Int, y: Int, words: String, color: String, size: Int) -> ()
 
-def make_button(title: String, on_click: () -> ()) -> Int
+def make_button(title: String, on_click: () -> ()) -> String
 
 ## Adds a line of text below everything already on the page.
 ##
@@ -64,7 +66,9 @@ def make_button(title: String, on_click: () -> ()) -> Int
 ## - `text`: what the label says.
 ##
 ## # Returns
-## The label's number, which `set_label` takes to change the text.
+## The label's identifier, which `set_label` takes to change the text:
+## the text it starts with, with a number added where something on the
+## page has that name already.
 ##
 ## # Examples
 ## ```pyking
@@ -74,12 +78,12 @@ def make_button(title: String, on_click: () -> ()) -> Int
 ## ```
 ## ```stdout
 ## ```
-public def label(text: String) -> Int
+public def label(text: String) -> String
 
 ## Replaces the text of a label.
 ##
 ## # Parameters
-## - `id`: the label's number, as `label` answered.
+## - `id`: the label's identifier, as `label` answered.
 ## - `text`: the new text.
 ##
 ## # Examples
@@ -93,11 +97,11 @@ public def label(text: String) -> Int
 ## ```
 ## ```stdout
 ## ```
-public def set_label(id: Int, text: String) -> ()
+public def set_label(id: String, text: String) -> ()
 
-def make_slider(low: Int, high: Int, value: Int, on_change: (Int) -> ()) -> Int
+def make_slider(low: Int, high: Int, value: Int, on_change: (Int) -> ()) -> String
 
-def apply_style(id: Int, kind: String, property: String, value: String) -> ()
+def apply_style(id: String, kind: String, property: String, value: String) -> ()
 
 ## Starts loading a sound file, so that `play` can play it without a
 ## delay. The file is looked for beside the page first, then among the
@@ -108,7 +112,8 @@ def apply_style(id: Int, kind: String, property: String, value: String) -> ()
 ## - `name`: the file's name, such as `"kick1.wav"`.
 ##
 ## # Returns
-## The sample's number, which `play` takes.
+## The sample's identifier, which `play` takes: the file's name, with a
+## number added where something on the page has that name already.
 ##
 ## # Examples
 ## ```pyking
@@ -121,9 +126,9 @@ def apply_style(id: Int, kind: String, property: String, value: String) -> ()
 ## ```
 ## ```stdout
 ## ```
-public def load_sample(name: String) -> Int
+public def load_sample(name: String) -> String
 
-def play_sample(sample: Int, at: Float, volume: Float, rate: Float) -> ()
+def play_sample(sample: String, at: Float, volume: Float, rate: Float) -> ()
 
 ## Shows the splash screen: the page is dimmed and a message asks the
 ## reader to click, since a browser plays no sound before the reader has
@@ -224,7 +229,7 @@ public def on_frame(draw: (Float) -> ()) -> ()
 ## ```
 ## ```stdout
 ## ```
-public def on_mouse(c: Int, click: (Int, Int) -> ()) -> ()
+public def on_mouse(c: String, click: (Int, Int) -> ()) -> ()
 
 ## Calls `pressed` each time a key is pressed while the page has the
 ## focus.

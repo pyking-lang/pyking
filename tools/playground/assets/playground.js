@@ -33,6 +33,7 @@ const DEFAULT_SETTINGS = {
   scrollOutput: true,
   clearOnRun: true,
   autoRun: false,
+  tinywebLog: false,
 };
 
 /** How long the source has to sit still before an automatic run. Long
@@ -508,6 +509,7 @@ class Playground {
     }
     if (name === "run") ui.panelRun.appendChild(ui.outputWrap);
     if (name === "web") ui.panelWeb.appendChild(ui.outputWrap);
+    ui.tinywebLogBox.classList.toggle("pyk-hidden", name !== "web");
     if (name === "compiled") this.right.layout();
     if (name === "repl") this.openRepl();
     if (name === "help") this.openHelp();
@@ -672,6 +674,7 @@ class Playground {
         },
         stdin: input.stdin,
         args: input.args,
+        tinywebLog: this.settings.tinywebLog,
       });
       if (result.ok && result.exit) {
         this.error(`— exited with status ${result.exit} —`);
@@ -733,6 +736,9 @@ class Playground {
 
   endRun() {
     this.running = null;
+    // Nothing runs, so the Web output tab shows no page: a page is only
+    // ever the running program's.
+    this.closePage();
     this.ui.stopLeft.classList.add("pyk-hidden");
     this.ui.stopRight.classList.add("pyk-hidden");
     this.ui.runLeft.classList.remove("pyk-hidden");
@@ -1355,6 +1361,12 @@ class Playground {
       this.settings.clearOnRun = this.ui.clearOnRun.checked;
       this.saveSettings();
     });
+    this.ui.tinywebLog.addEventListener("change", () => {
+      this.settings.tinywebLog = this.ui.tinywebLog.checked;
+      // A program already running starts or stops logging at once.
+      this.runtime?.setTinywebLog?.(this.settings.tinywebLog);
+      this.saveSettings();
+    });
     this.ui.resetLayoutButton.addEventListener("click", () => this.resetLayout());
   }
 
@@ -1394,6 +1406,7 @@ class Playground {
     this.applyOutputScroll();
     this.ui.clearOnRun.checked = this.settings.clearOnRun;
     this.ui.autoRun.checked = this.settings.autoRun;
+    this.ui.tinywebLog.checked = this.settings.tinywebLog;
     for (const [key, name] of [["colSplit", "--pyk-col-split"],
                                ["outSplit", "--pyk-out-split"]]) {
       if (this.settings[key]) this.ui.root.style.setProperty(name, this.settings[key]);
@@ -1408,6 +1421,7 @@ class Playground {
       scrollOutput: this.settings.scrollOutput,
       clearOnRun: this.settings.clearOnRun,
       autoRun: this.settings.autoRun,
+      tinywebLog: this.settings.tinywebLog,
       colSplit: style.getPropertyValue("--pyk-col-split") || null,
       outSplit: style.getPropertyValue("--pyk-out-split") || null,
     });
@@ -1482,6 +1496,11 @@ function buildDom(host, meta, cfg) {
             <div class="pyk-output-head">
               <span class="pyk-label">Output</span>
               <span class="pyk-spacer"></span>
+              <label class="pyk-check pyk-hidden" data-r="tinywebLogBox"
+                     title="Show what the program sends its page, and what the page answers, as pyk --tinyweb-log does">
+                <input type="checkbox" data-r="tinywebLog">
+                tinyweb log
+              </label>
               <button data-r="clear">Clear</button>
             </div>
             <pre class="pyk-output" data-r="output"></pre>

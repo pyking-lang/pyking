@@ -1,5 +1,5 @@
-mouse 1 10 20
+mouse "canvas" 10 20
 key a
 key Enter
-slide 3 7
-slide 4 1
+slide "slider" 7
+slide "slider1" 1

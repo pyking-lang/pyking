@@ -57,12 +57,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it says (`""` turns it off), and a program that can play a sound calls
   `splash()` at the end of its top level without writing it. The
   playground and the notebook never show it.
+- `pyk --tinyweb-log` (and `pyk repl --tinyweb-log`) prints what a
+  program sends its tinyweb page, and what the page answers, on stderr
+  while the page runs; the playground's Web output tab has the same as a
+  "tinyweb log" switch.
 - `make quicktest`: a random sample of `make test` (`PERCENT=`, 5 by
   default; `SEED=` repeats a run). Both print a per-target summary at the
   end.
 
 ### Changed
 
+- tinyweb names a canvas, button, label, slider and sample by a String
+  rather than an Int: its text -- a button's title, a label's text, a
+  sample's file name -- or "canvas" or "slider", with a number added
+  where the name is taken. The log and `.events` files quote them.
+- The playground's Web output tab is empty whenever no program runs.
 - A page a program serves plays the sounds the top level played when it
   connects, rather than leaving them out.
 

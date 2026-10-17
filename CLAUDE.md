@@ -1598,7 +1598,9 @@ anything both pages need there rather than copying it.
 - **The playground's right side is five tabs**: Run output (the left
   Run's output), Compiled code (Target, Compile, the right Run, the code
   and its own output), Web output (a tinyweb page in a browser-window
-  frame with Refresh, above the same output Run output shows), REPL
+  frame with Refresh, above the same output Run output shows, whose
+  header has the "tinyweb log" switch; the frame is empty whenever no
+  program runs), REPL
   (a session of `repl_session.ml` on a `PykingRuntime` of its own, its
   environment as a table below) and Help (the help, below). It has a light and a dark theme: colour
   tokens on `.pyk-playground`, overridden under `[data-theme="light"]`,
@@ -1870,6 +1872,7 @@ pyk --version                        print the version (from VERSION)
 
 options: [--tokens] [--symbols] [--no-tail-call-opt]
          [--no-typechecking] [--type-experiment] [--run] [--release]
+         [--tinyweb-log]
          [--target|-t <target>]
          [--lib-path|-L <dir>] (repeatable)
          [--stdout | --output|-o <file>]
@@ -1951,6 +1954,12 @@ suffix to what `-t pyking` prints. The other three select what
 - `--release` compiles in release mode: every call to `debug` is
   removed (`src/release.ml`) and `print` is kept. `pyk compile` alone
   takes it.
+- `--tinyweb-log` is `pyk <file>`'s and `pyk repl`'s alone: tinyweb's
+  log -- each command a program sends its page, each event the page
+  answers with -- printed on stderr while the page runs as usual.
+  `pyk.ml` sets `PYKING_TINYWEB_TRACE`, which `tinyweb_external.ml`
+  reads. The playground's "tinyweb log" switch is the same log
+  (`pykTinywebLog`). See `docs/libraries.md`, "Testing a page".
 - `--run` builds and runs what was compiled, with the commands that
   target's host uses (`src/execution.ml`), each printed before it runs
   on stderr. Cannot be combined with `--stdout`, which writes no file.

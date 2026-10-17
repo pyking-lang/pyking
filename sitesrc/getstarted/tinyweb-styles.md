@@ -130,7 +130,7 @@ tw.slider(0, 100, 60)
 ## One element
 
 `set_colors` and `set_style` change one button, label, slider or canvas,
-named by the number the function that made it answered. They win over
+named by the string the function that made it answered. They win over
 the theme and over the `_style` functions.
 
 ```pyking

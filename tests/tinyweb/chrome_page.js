@@ -121,7 +121,16 @@
     return lines;
   };
 
-  const element = (id) => document.querySelector(`[data-tinyweb-id="${id}"]`);
+// One line of an events file: its kind, the element it is on (a quoted
+  // string), and the numbers after it.
+  const eventWords = (line) => {
+    const found = /^(\w+)\s+("(?:[^"\\]|\\.)*")\s*(.*)$/.exec(line.trim());
+    if (found === null) return line.trim().split(/\s+/);
+    const rest = found[3] === "" ? [] : found[3].split(/\s+/);
+    return [found[1], JSON.parse(found[2]), ...rest];
+  };
+
+  const element = (id) => document.querySelector(`[data-tinyweb-id="${CSS.escape(id)}"]`);
   const touch = (target) =>
     target.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
 
@@ -150,7 +159,7 @@
       window.dispatchEvent(new KeyboardEvent("keydown", { key: line.slice(4), bubbles: true }));
       return true;
     }
-    const words = line.trim().split(/\s+/);
+    const words = eventWords(line);
     const target = element(words[1]);
     switch (words[0]) {
       case "click":
