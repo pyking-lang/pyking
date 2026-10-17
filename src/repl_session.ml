@@ -79,6 +79,7 @@ type host = {
     host -- where the session's lines go. *)
 type session = {
   seen : stmt list;
+  written : stmt list;
   high : int;
   state : Interpreter.state;
   types : Typesystem.env;
@@ -108,6 +109,7 @@ let builtin_kinds () =
 let new_session ?(libs = []) host =
   {
     seen = [];
+    written = [];
     high = 0;
     state = Interpreter.initial_state [] (host.machine None);
     types = Typesystem.builtin_env ();
@@ -354,6 +356,42 @@ let import_modules session stmts =
       },
       stmts )
 
+(** `import_modules`, with every dotted name the entry defines or reaches
+    given the plain name it compiles to first: the modules its imports
+    name are loaded, the entry is rewritten against them and against
+    what earlier entries wrote, and its imports are then resolved.
+    Raises Module_error and the stages' own errors.
+    session -> [stmt] -> string -> (session, [stmt]) *)
+let import_modules_ session stmts source =
+  let roots =
+    List.sort_uniq compare
+      (List.filter_map
+         (function SImport (_, name, _, _, _, _) -> Some (Submodules.root name) | _ -> None)
+         stmts)
+  in
+  let loading =
+    List.filter_map
+      (fun name ->
+        match List.find_opt (function SImport (_, n, _, _, _, _) -> Submodules.root n = name | _ -> false) stmts with
+        | Some (SImport (info, _, _, _, _, sym)) -> Some (SImport (info, name, name, false, [], sym))
+        | _ -> None)
+      roots
+  in
+  let session, _ = import_modules session loading in
+  let imported =
+    List.map
+      (fun (name, (unit : Module.t)) -> (name, (unit.dotted, List.map fst unit.publics)))
+      session.modules
+  in
+  let tokens =
+    try Lexer.lexing repl_module (Lexer.chars_of_string (source ^ "\n")) with _ -> []
+  in
+  let stmts, _, _ =
+    try Submodules.module_ ~context:session.written tokens stmts [] imported
+    with Submodules.Error (info, message) -> raise (Module.Module_error (info, message))
+  in
+  import_modules session stmts
+
 (** The modules the imports in stmts would newly load: what a host has to
     make ready before the entry is submitted. Nothing is loaded into the
     session. Raises Module_error. session -> [stmt] -> [Module.t] *)
@@ -370,11 +408,13 @@ let imported_modules session stmts =
     handle rather than reported here.
     session -> [stmt] -> (exn -> ()) -> string -> (session, exn option) *)
 let submit session stmts report source =
+  let written = stmts in
   (* What the entry imports comes first: the sugar has to know what an
      imported definition's defaults are, and the checker what it
-     exports. *)
+     exports. A submodule an entry names is settled before that, once
+     the modules holding it are loaded (submodules.ml). *)
   match
-    try Ok (import_modules session stmts) with
+    try Ok (import_modules_ session stmts source) with
     | Module.Module_error _ as e -> Error e
     | Lexer.Lex_error _ as e -> Error e
     | Parser.Parse_error _ as e -> Error e
@@ -451,7 +491,7 @@ let submit session stmts report source =
       in
       (* `seen` grows whether or not every statement runs: a symbol
          handed out once must not be handed out again. *)
-      let session = { session with seen; high; kinds } in
+      let session = { session with seen; high; kinds; written = session.written @ written } in
       let state = Interpreter.declare_entry session.state running in
       let state = Interpreter.bind_imports state running session.exports in
       let rec run session state checked =

@@ -1,0 +1,28 @@
+# Submodules: definitions with a dotted name, reached through the module,
+# through a `from` line naming the submodule, through an import of the
+# submodule itself, and one name at a time.
+
+import module_submodule_mod1 as lib
+print(lib.shapes.area(lib.shapes.Square(2.0)))
+print(lib.num.twice(4))
+print(lib.num.twice(1.5))
+print(lib.num.deep.inc(1))
+
+from module_submodule_mod1 import shapes
+s: shapes.Shape = shapes.Circle(1.0)
+print(shapes.area(s))
+match s:
+    case shapes.Circle(r):
+        print("a circle of radius " ++ string(r))
+    case shapes.Square(_):
+        print("a square")
+
+import module_submodule_mod1.num as n
+print(n.limit)
+print(n.deep.inc(n.limit))
+
+from module_submodule_mod1.num.deep import inc
+print(inc(99))
+
+from module_submodule_mod1 import num
+print(num.twice(21))

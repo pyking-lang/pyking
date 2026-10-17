@@ -1,0 +1,6 @@
+# A submodule member that is not public is not reached from another
+# module, through the module or through the submodule.
+
+import module_submodule_mod1 as lib
+
+print(lib.num.helper(1))

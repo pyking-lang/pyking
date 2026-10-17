@@ -1,0 +1,5 @@
+# `a.b` compiles to `a__b`, so a file may not define both.
+
+def a.b(x: Int) -> Int: x
+
+def a__b(x: Int) -> Int: x + 1

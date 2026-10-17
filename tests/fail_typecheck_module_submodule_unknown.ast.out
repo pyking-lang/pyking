@@ -1,0 +1,3 @@
+'tests/fail_typecheck_module_submodule_unknown.pyk' 5:10-5:21 Module
+  error: the submodule 'num' of module 'module_submodule_mod1' has no
+  'nothere'

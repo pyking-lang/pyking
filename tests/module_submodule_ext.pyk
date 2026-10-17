@@ -1,0 +1,9 @@
+# A submodule some of whose functions the host implements, and one the
+# module's Pyking half writes, reached as one submodule.
+
+import module_submodule_ext_mod1 as lib
+from module_submodule_ext_mod1 import sound
+
+print(lib.sound.start(1))
+print(sound.start(2))
+print(sound.twice(3))

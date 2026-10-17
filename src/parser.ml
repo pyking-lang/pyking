@@ -83,13 +83,11 @@ and parse_atom eof tokens =
   | TokString (i, s) :: rest -> parse_call_tail eof (EString (i, s, 0)) rest
   | TokTrue i :: rest -> parse_call_tail eof (EBool (i, true, 0)) rest
   | TokFalse i :: rest -> parse_call_tail eof (EBool (i, false, 0)) rest
-  | TokIdent (i, module_name) :: TokDot dot :: TokIdent (name_info, name) :: rest
-    when dot.row1 = i.row2
-         && (not (Names.is_qualified module_name))
-         && (not (is_constructor_name module_name))
-         && is_constructor_name name ->
+  | TokIdent _ :: TokDot _ :: _ when Option.is_some (constructor_path tokens) ->
       (* `module.Name`: a constructor of a datatype another module
-         exports. *)
+         exports, or of one in a submodule (`shapes.Circle`,
+         `hello.shapes.Circle`). *)
+      let i, module_name, name_info, name, rest = Option.get (constructor_path tokens) in
       parse_construct eof (combine_info i name_info) (Some module_name) name rest
   | TokIdent (i, name) :: rest when is_constructor_name name ->
       parse_construct eof i None name rest
@@ -533,8 +531,8 @@ and parse_type_atom eof tokens =
       let names, rest = parse_type_vars eof rest in
       let body, rest = parse_type eof rest in
       (TForall (combine_info i (type_info body), names, body, 0), rest)
-  | TokIdent (i, module_) :: TokDot dot :: TokIdent (ni, name) :: rest
-    when dot.row1 = i.row2 && is_type_var module_ && is_constructor_name name ->
+  | TokIdent _ :: TokDot _ :: _ when Option.is_some (constructor_path tokens) ->
+      let i, module_, ni, name, rest = Option.get (constructor_path tokens) in
       parse_type_application eof (combine_info i ni) (module_ ^ "." ^ name) rest
   | TokIdent (i, name) :: rest when is_constructor_name name ->
       parse_type_application eof i name rest
@@ -912,8 +910,8 @@ and parse_pattern_atom eof tokens =
   | TokTrue i :: rest -> (PBool (i, true, 0), rest)
   | TokFalse i :: rest -> (PBool (i, false, 0), rest)
   | TokIdent (i, "_") :: rest -> (PWildcard (i, 0), rest)
-  | TokIdent (i, module_) :: TokDot dot :: TokIdent (ni, name) :: rest
-    when dot.row1 = i.row2 && is_type_var module_ && is_constructor_name name ->
+  | TokIdent _ :: TokDot _ :: _ when Option.is_some (constructor_path tokens) ->
+      let i, module_, ni, name, rest = Option.get (constructor_path tokens) in
       parse_constructor_pattern eof (combine_info i ni) (Some module_) name rest
   | TokIdent (i, name) :: rest when is_constructor_name name ->
       parse_constructor_pattern eof i None name rest
@@ -1309,6 +1307,15 @@ and parse_statement eof tokens =
            ( i,
              "only the top level of a module has names to export, so \
               'public' cannot be written inside a block" ))
+  | TokDef _ :: TokIdent (i, _) :: TokDot _ :: _
+  | TokDatatype _ :: TokIdent (i, _) :: TokDot _ :: _
+  | TokIdent (i, _) :: TokDot _ :: TokIdent _ :: (TokEq _ | TokColon _) :: _ ->
+      raise
+        (Parse_error
+           ( i,
+             "a dotted name defines a name in a submodule, which belongs to \
+              the top level of a module, so it cannot be written inside a \
+              block" ))
   | TokImplicit i :: rest ->
       (* `implicit` belongs to a block like any other statement: a
          definition written inside a function is implicit there and
@@ -1902,6 +1909,28 @@ and is_type_var name =
 and is_constructor_name name =
   String.length name > 0 && name.[0] >= 'A' && name.[0] <= 'Z'
 
+(** A datatype or a constructor reached through a path, `m.Name` or
+    `hello.shapes.Name`: where it starts, the lowercase names before it
+    joined by dots, the name's own span, the name, and what follows. Each
+    dot is on the row the name before it ended on.
+    [token] -> (info, string, info, string, [token])? *)
+and constructor_path tokens =
+  let rec go start parts last tokens =
+    match tokens with
+    | TokDot dot :: TokIdent (ni, name) :: rest when dot.row1 = last.row2 ->
+        if is_constructor_name name then
+          Some (start, String.concat "." (List.rev parts), ni, name, rest)
+        else if is_type_var name && not (Names.is_qualified name) then
+          go start (name :: parts) ni rest
+        else None
+    | _ -> None
+  in
+  match tokens with
+  | TokIdent (i, first) :: rest
+    when is_type_var first && not (Names.is_qualified first) ->
+      go i [ first ] i rest
+  | _ -> None
+
 (** Refuses a qualified name where a module name or an import alias
     stands; either may start with an uppercase letter, since an import
     may take a datatype. info -> String -> String -> () *)
@@ -1922,13 +1951,39 @@ let no_star =
   "there is no '*' import in Pyking; name the values and functions to \
    import, or import the module itself and reach them through it"
 
+(** A dotted name, `mymod.foo` or `a.b.c`, joined into one identifier:
+    a definition's name in a submodule, or the module path an import
+    names. Each dot is on the row the name before it ended on, and a name
+    with no dot comes back as it was. [token] -> [token] *)
+let rec merge_name tokens =
+  match tokens with
+  | TokIdent (i, a) :: TokDot dot :: TokIdent (j, b) :: rest
+    when dot.row1 = i.row2 && j.row1 = dot.row2 ->
+      merge_name (TokIdent (combine_info i j, a ^ "." ^ b) :: rest)
+  | _ -> tokens
+
+(** A top-level statement's tokens with the name it defines joined, where
+    that name is dotted: after `def` and `datatype`, and at the start of
+    an `=` binding. A dotted name used rather than defined is left as it
+    was. [token] -> [token] *)
+let rec dotted_definition tokens =
+  match tokens with
+  | (TokPublic _ as t) :: rest | (TokImplicit _ as t) :: rest ->
+      t :: dotted_definition rest
+  | (TokDef _ as t) :: rest | (TokDatatype _ as t) :: rest -> t :: merge_name rest
+  | TokIdent _ :: TokDot _ :: _ -> (
+      match merge_name tokens with
+      | (TokIdent _ as name) :: ((TokEq _ | TokColon _) :: _ as rest) -> name :: rest
+      | _ -> tokens)
+  | _ -> tokens
+
 (** Parses the modules of an `import a, b as c` line, one SImport each.
     The fields are left empty: what a qualified name reaches is the
     module's public names, which only the module system knows.
     info -> info -> [token] -> ([stmt], [token]) *)
 let rec parse_import eof import_info tokens =
   let stmt, tokens =
-    match tokens with
+    match merge_name tokens with
     | TokIdent (mi, module_name) :: TokAs _ :: TokIdent (last, alias) :: rest ->
         check_import_name mi module_name "a module name";
         check_import_name last alias "an import alias";
@@ -1970,7 +2025,7 @@ let rec parse_import_fields eof tokens =
     naming the module and the fields taken from it.
     info -> info -> [token] -> ([stmt], [token]) *)
 let parse_from_import eof from_info tokens =
-  match tokens with
+  match merge_name tokens with
   | TokIdent (mi, module_name) :: TokImport _ :: rest ->
       check_import_name mi module_name "a module name";
       let fields, last, rest = parse_import_fields eof rest in
@@ -2095,7 +2150,11 @@ let parse_constructor eof tokens =
 let parse_datatype eof datatype_info tokens =
   let name_info, name, rest =
     match tokens with
-    | TokIdent (i, name) :: rest when is_constructor_name name -> (i, name, rest)
+    | TokIdent (i, name) :: rest
+      when is_constructor_name (List.hd (List.rev (String.split_on_char '.' name))) ->
+        (* The last part is the datatype's own name: `shapes.Shape` is
+           `Shape` in the submodule `shapes`. *)
+        (i, name, rest)
     | _ ->
         raise
           (Parse_error
@@ -2235,6 +2294,7 @@ let parse_public eof public_info tokens =
     level: parse_statement, which every block goes through, refuses both.
     info -> [token] -> ([stmt], [token]) *)
 let parse_top_statement eof tokens =
+  let tokens = dotted_definition tokens in
   match tokens with
   | TokImport i :: rest -> parse_import eof i rest
   | TokFrom i :: rest -> parse_from_import eof i rest

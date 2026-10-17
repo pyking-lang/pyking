@@ -1,0 +1,5 @@
+# A path into a submodule another module has, to a name it does not.
+
+import module_submodule_mod1 as lib
+
+print(lib.num.nothere(1))

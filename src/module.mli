@@ -103,6 +103,7 @@ type t = {
   publics : (string * Lexer.info) list;
   sigmap : (string * typ * bool) list option;
   is_external : bool;
+  dotted : Submodules.table;  (* each dotted name it defines, and the plain name *)
 }
 
 (** What a backend needs to know about the module it is compiling beyond

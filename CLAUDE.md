@@ -1429,6 +1429,25 @@ The bootstrap is split into one module per compiler stage:
    `tinyweb_page.js`'s and `tinyweb_external_browser.js`'s. See
    `docs/libraries.md`, "The splash screen".
 
+27. **`src/submodules.ml`** — submodules: a definition with a dotted
+   name (`def mymod.foo`, a binding, a datatype, a declaration line) is
+   in a submodule of its file, reached as `hello.mymod.foo`, `from hello
+   import mymod`, `import hello.mymod [as m]` or `from hello.mymod
+   import foo`. The parser joins a dotted *definition* name into one
+   identifier at the top level (`dotted_definition`) and refuses one in
+   a block; `Module.load`'s `prepare` then runs this pass before the
+   sugar, on the module's **tokens**: every path naming a definition
+   becomes the one plain identifier it compiles to (`mymod__foo`; a
+   datatype or constructor keeps its capital, `Shapes__Circle`; an
+   overload keeps its qualifier in front, `int::mymod__abs`), the module
+   is parsed again, and an import naming a submodule becomes the `from`
+   line taking its public members. So nothing after it -- the checker,
+   the interpreter, any backend -- knows submodules exist. `Module.t`
+   keeps each module's `dotted` table for the modules importing it; an
+   import's dotted name is found by its first part (`Submodules.root`).
+   The REPL runs it per entry with earlier entries as `context`. Its
+   refusals are `Module error`s. See `docs/modules.md`, "Submodules".
+
 When extending the lexer (new operators, keywords, string escapes, etc.),
 follow the existing pattern: add an arm to the `match rest with`
 inside `lexing`, add a corresponding `Tok*` constructor, and add an arm

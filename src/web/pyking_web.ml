@@ -802,9 +802,21 @@ let compile_source source target name =
       ]
   in
   let natively = Targets.family_of target = Targets.Ocaml in
+  (* A program that imports, or that has submodules of its own, is read
+     by the module system, which is what settles both. *)
   let imports =
     match Parser.parse (Lexer.lexing name (Lexer.chars_of_string source)) with
-    | program -> List.exists (function Syntax.SImport _ -> true | _ -> false) program
+    | program ->
+        List.exists
+          (function
+            | Syntax.SImport _ -> true
+            | Syntax.SFunctionDef (_, n, _, _, _, _, _, _, _)
+            | Syntax.SFunctionSig (_, n, _, _, _)
+            | Syntax.SDatatype (_, n, _, _, _, _)
+            | Syntax.SLet (_, Syntax.TargetName (_, n, _), _, _, _, _, _) ->
+                String.contains n '.'
+            | _ -> false)
+          program
     | exception _ -> false
   in
   if imports && List.mem target Targets.all then
@@ -877,6 +889,7 @@ let compile_source source target name =
                   publics = [];
                   sigmap = None;
                   is_external = false;
+                  dotted = [];
                 }
             in
             let files, _ =

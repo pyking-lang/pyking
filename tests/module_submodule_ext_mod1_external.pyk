@@ -1,0 +1,8 @@
+# The external half of the module `module_submodule_ext_mod1`: two
+# declarations in its submodule `sound`. The host implements each under
+# the plain name a dotted one compiles to, `sound__start` and
+# `sound__helper`; `sound.helper` is private to the module.
+
+public def sound.start(x: Int) -> Int
+
+def sound.helper(x: Int) -> Int

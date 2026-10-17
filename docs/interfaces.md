@@ -117,6 +117,7 @@ respects that, which is what makes the library link.
 │                  (context)                                           │
 │  elaborate.ml    program: overloading and implicits out of the AST   │
 │  splash.ml       program: tinyweb's splash call, which load adds     │
+│  submodules.ml   module_: dotted names made plain, for load          │
 │                              │                                       │
 │        ┌──────────┬──────┴─────────┬────────────────┐               │
 │        ▼          ▼                ▼                ▼               │
@@ -273,6 +274,7 @@ Beyond that:
 | `Plugin_host.unit_` | `plugin_host.mli` | public | the driver and the REPL build one per external module from what it declared |
 | `Release.program`, `Prune.program` | `release.mli`, `prune.mli` | -- | each takes a module (or a program) and answers it rewritten; neither keeps anything |
 | `Splash.program` | `splash.mli` | -- | `module.ml` hands it the program's own module, with every module's statements, and takes it back with tinyweb's splash called at its end |
+| `Submodules.module_`, `Submodules.table` | `submodules.mli` | public | `module.ml` and the REPL hand it a module's tokens and statements and keep its table in `Module.t` |
 
 **`Typesystem.store` is the one interface here that is wider than it
 should be.** It is the whole of what inference has worked out — eleven

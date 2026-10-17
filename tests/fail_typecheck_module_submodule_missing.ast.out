@@ -1,0 +1,2 @@
+'tests/fail_typecheck_module_submodule_missing.pyk' 3:0-3:34 Module
+  error: module 'module_submodule_mod1' has no submodule 'sound'

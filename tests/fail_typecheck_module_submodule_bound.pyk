@@ -1,0 +1,6 @@
+# A submodule's name is taken in its whole file: a parameter may not
+# be called `util` once `util.twice` exists.
+
+def util.twice(x: Int) -> Int: x * 2
+
+def scaled(util: Int) -> Int: util * 3

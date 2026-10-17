@@ -1,0 +1,17 @@
+def geo__square(x:Int) -> Int:
+    x * x
+def geo__sum_of_squares(a:Int, b:Int) -> Int:
+    geo__square(a) + geo__square(b)
+geo__origin: (Int, Int) = (0, 0)
+datatype Geo__shape__Kind:
+    Geo__shape__Round
+    Geo__shape__Corner(n: Int)
+def geo__shape__corners(k:Geo__shape__Kind) -> Int:
+    match k:
+        case Geo__shape__Round:
+            0
+        case Geo__shape__Corner(n):
+            n
+print(geo__sum_of_squares(3, 4))
+print(geo__origin)
+print(geo__shape__corners(Geo__shape__Corner(n = 4)))

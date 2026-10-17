@@ -99,6 +99,7 @@ type t = {
   publics : (string * Lexer.info) list;
   sigmap : (string * typ * bool) list option;
   is_external : bool;
+  dotted : Submodules.table;
 }
 
 (** Every file a module is written in, the declaration half first: a
@@ -358,6 +359,7 @@ let read_file ?(from = disk) path info =
     imports = [];
     publics = [];
     sigmap = None;
+    dotted = [];
     is_external = is_external_path path;
   }
 
@@ -402,8 +404,9 @@ let imported_modules stmts =
   List.fold_left
     (fun names statement ->
       match statement with
-      | SImport (_, module_, _, _, _, _) when not (List.mem module_ names) ->
-          names @ [ module_ ]
+      | SImport (_, module_, _, _, _, _)
+        when not (List.mem (Submodules.root module_) names) ->
+          names @ [ Submodules.root module_ ]
       | _ -> names)
     [] stmts
 
@@ -900,10 +903,11 @@ let rec visit ?(from = disk) ?(libs = []) name found info parsed order stack =
       List.fold_left
         (fun (parsed, order) statement ->
           match statement with
-          | SImport (import_info, imported_name, _, _, _, _)
-            when Filename.check_suffix imported_name external_marker ->
-              refuse_external_half import_info imported_name
-          | SImport (import_info, imported_name, _, _, _, _) ->
+          | SImport (import_info, dotted_name, _, _, _, _)
+            when Filename.check_suffix (Submodules.root dotted_name) external_marker ->
+              refuse_external_half import_info (Submodules.root dotted_name)
+          | SImport (import_info, dotted_name, _, _, _, _) ->
+              let imported_name = Submodules.root dotted_name in
               let imported =
                 module_file ~from ~libs directory imported_name
                   (Some import_info)
@@ -916,17 +920,46 @@ let rec visit ?(from = disk) ?(libs = []) name found info parsed order stack =
     in
     (parsed, order @ [ name ])
 
+(** A module with every dotted name it defines or reaches given the plain
+    name it compiles to, and its table of them (submodules.ml). `loaded`
+    is every module made ready before it. t -> [(string, t)] -> t *)
+let with_submodules module_ loaded =
+  let imported =
+    List.map
+      (fun (name, (other : t)) -> (name, (other.dotted, List.map fst other.publics)))
+      loaded
+  in
+  match Submodules.module_ module_.tokens module_.stmts module_.declarations imported with
+  | stmts, declarations, dotted ->
+      { module_ with stmts; declarations; dotted; imports = imported_modules stmts }
+  | exception Submodules.Error (info, message) -> raise (Module_error (info, message))
+
 (** The modules `order` names, taken from `parsed` and made ready in
     that order: the sugar removed, symbolized past `highest`, what each
     exports settled again, and every import resolved against the modules
     before it. Answers the highest symbol handed out, the sugar's
     signatures, every module ready so far, and the ones made ready here.
-    [(string, t)] -> [string] -> int -> signatures -> [(string, t)] ->
-    (int, signatures, [(string, t)], [t]) *)
-let prepare parsed order highest signatures loaded =
+    `splash` names the program's own module, which calls tinyweb's splash
+    where the program can play a sound.
+    string? -> [(string, t)] -> [string] -> int -> signatures ->
+    [(string, t)] -> (int, signatures, [(string, t)], [t]) *)
+let prepare ?splash parsed order highest signatures loaded =
   List.fold_left
     (fun (highest, signatures, loaded, modules) name ->
-      let module_ = List.assoc name parsed in
+      let module_ = with_submodules (List.assoc name parsed) loaded in
+      (* The program's own module, last, calls tinyweb's splash at its
+         end where the program can play a sound (splash.ml): after the
+         submodules are settled, since that pass parses a module again. *)
+      let module_ =
+        if splash <> Some name then module_
+        else
+          let all =
+            List.map (fun (other, (unit : t)) -> (other, unit.stmts)) loaded
+            @ [ (name, module_.stmts) ]
+          in
+          let stmts = Splash.program name module_.path all module_.stmts in
+          { module_ with stmts; imports = imported_modules stmts }
+      in
       (* The sugar goes first, so what every later stage sees is
          ordinary Pyking; dependency order is what lets a call reach an
          imported definition's parameters. *)
@@ -949,19 +982,6 @@ let prepare parsed order highest signatures loaded =
       (highest, signatures, loaded @ [ (name, module_) ], modules @ [ module_ ]))
     (highest, signatures, loaded, []) order
 
-(** `parsed` with tinyweb's splash called at the end of the main module
-    `main` where the program can play a sound (splash.ml).
-    string -> [(string, t)] -> [(string, t)] *)
-let with_splash main parsed =
-  let all = List.map (fun (name, module_ : string * t) -> (name, module_.stmts)) parsed in
-  List.map
-    (fun (name, module_) ->
-      if name <> main then (name, module_)
-      else
-        let stmts = Splash.program name module_.path all module_.stmts in
-        (name, { module_ with stmts; imports = imported_modules stmts }))
-    parsed
-
 (** Every module the program in `path` needs, dependencies first and the
     program itself last: read, parsed, symbolized with one numbering
     across the whole program, and with every import resolved. Raises
@@ -983,9 +1003,9 @@ let load ?(from = disk) ?(libs = []) ?(splash = true) path =
   let parsed, order =
     visit ~from ~libs (module_name path) found None [] [] []
   in
-  let parsed = if splash then with_splash (module_name path) parsed else parsed in
+  let splash = if splash then Some (module_name path) else None in
   let _, _, _, modules =
-    prepare parsed order 0 Desugar_args.no_signatures []
+    prepare ?splash parsed order 0 Desugar_args.no_signatures []
   in
   modules
 
@@ -1003,7 +1023,7 @@ let load_imports ?(from = disk) ?(libs = []) ~loaded ~start ~signatures director
     entry =
   let prompt = { name = "<repl>"; path = "<repl>"; tokens = []; stmts = entry;
                  declarations = []; declaration_path = None; imports = [];
-                 publics = []; sigmap = None; is_external = false } in
+                 publics = []; sigmap = None; is_external = false; dotted = [] } in
   let parsed, order =
     List.fold_left
       (fun (parsed, order) statement ->

@@ -1,0 +1,2 @@
+'tests/fail_typecheck_module_submodule_member.pyk' 5:6-5:14 Module
+  error: 'geo.cube' is not defined: the submodule 'geo' has no 'cube'

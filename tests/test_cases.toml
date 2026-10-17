@@ -1220,6 +1220,45 @@ release = true
 file = "module_external_mixed.pyk"
 modules = ["module_external_mixed_mod1_external.pyk", "module_external_mixed_mod1.pyk"]
 
+# Submodules: definitions with a dotted name (`def num.twice`), reached
+# through the module, a submodule import or a `from` line, a datatype's
+# constructors with the path, an overload set, one implemented by the
+# host, and every refusal (docs/modules.md, "Submodules").
+[[cases]]
+file = "module_submodule.pyk"
+modules = ["module_submodule_mod1.pyk"]
+
+[[cases]]
+file = "module_submodule_ext.pyk"
+modules = ["module_submodule_ext_mod1_external.pyk", "module_submodule_ext_mod1.pyk"]
+
+[[cases]]
+file = "typecheck_submodule.pyk"
+
+[[cases]]
+file = "fail_typecheck_module_submodule_bound.pyk"
+
+[[cases]]
+file = "fail_typecheck_module_submodule_private.pyk"
+modules = ["module_submodule_mod1.pyk"]
+
+[[cases]]
+file = "fail_typecheck_module_submodule_missing.pyk"
+modules = ["module_submodule_mod1.pyk"]
+
+[[cases]]
+file = "fail_typecheck_module_submodule_unknown.pyk"
+modules = ["module_submodule_mod1.pyk"]
+
+[[cases]]
+file = "fail_typecheck_module_submodule_member.pyk"
+
+[[cases]]
+file = "fail_typecheck_module_submodule_nested.pyk"
+
+[[cases]]
+file = "fail_typecheck_module_submodule_flat.pyk"
+
 [[cases]]
 file = "float_arithmetic.pyk"
 

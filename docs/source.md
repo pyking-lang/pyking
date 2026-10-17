@@ -40,6 +40,7 @@ and which module calls which.
 | [`syntax.ml`](#syntaxml) | ~960 | The AST: one variant type per node group, plus the pretty printer that prints Pyking back out. |
 | [`parser.ml`](#parserml) | ~1520 | Recursive descent, tokens → AST, and the few rules the grammar cannot state. |
 | [`module.ml`](#moduleml) | ~520 | The module system: which modules a program is made of, in what order, what each exports, and what each import means. |
+| [`submodules.ml`](#submodulesml) | ~520 | Submodules: every dotted name (`mymod.foo`) made the plain name it compiles to, and an import naming a submodule made the `from` line taking its members, inside `module.load`. |
 | [`splash.ml`](#splashml) | ~110 | tinyweb's splash screen: `tinyweb.splash()` called at the end of a program that can play a sound, inside `module.load`. |
 | [`desugar_args.ml`](#desugar_argsml) | ~620 | Default parameters and named arguments, rewritten away before anything else reads the program, so no later stage knows they exist. |
 | [`analyses.ml`](#analysesml) | ~1030 | Static analyses over the AST: mutability (`analyze_mutability`), `symbolize`, which numbers every node, and `effects`, which says what can print. |
@@ -411,6 +412,34 @@ the signature the next one is checked against. Errors are
 - **`module_name(path)` / `module_path(directory, name)`** — the file a
   module name means, and back. A module is looked for beside the file
   that imports it.
+
+---
+
+## `submodules.ml`
+
+**Submodules, made plain.** A name with a dot in it, `def mymod.foo`, is
+in the submodule `mymod` of its file. This pass, run by `module.ml`'s
+`prepare` before the sugar, gives every dotted name the plain name it
+compiles to -- the parts joined by `__`, a capital kept for a datatype or
+a constructor, an overload's qualifier in front -- and turns an import
+naming a submodule into the `from` line taking its public members. It
+works on the module's tokens and parses it again, so expressions,
+patterns and types are covered by one rule. The REPL calls it per
+entry, with the earlier entries as `context`.
+
+**Design, in depth:** [modules.md](modules.md), "Submodules".
+
+### Data structures
+
+- **`Error`** -- a refusal and where, reported as a `Module error`.
+- **`table`** -- a module's dotted names, each with its plain name;
+  `Module.t`'s `dotted` field.
+
+### Main functions
+
+- **`module_ ?context tokens stmts declarations imported`** -- one
+  module rewritten, its declaration half with it, and its table.
+- **`root name`** -- the module an import's dotted name reaches.
 
 ---
 

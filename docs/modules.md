@@ -57,6 +57,58 @@ and compiled like one the program wrote. The language server loads with
 `~splash:false`, so a document is checked as written. See
 [libraries.md](libraries.md), "The splash screen".
 
+## Submodules
+
+A name with a dot in it, `def mymod.foo(...)`, is `foo` in the submodule
+`mymod` of its file (PYKING.md, "Submodules"). A submodule is only those
+names, so nothing about finding a module changes: an import's dotted
+name, `hello.mymod`, is looked for by its first part, and `visit` and
+`imported_modules` read only that (`Submodules.root`).
+
+**`src/submodules.ml` makes them plain names**, inside `prepare` and
+before anything else reads a module, so the sugar, the checker, the
+interpreter and every backend see none. Every dotted name becomes the
+name it compiles to, its parts joined by `__`: `mymod.foo` is
+`mymod__foo`, a datatype or a constructor keeps its capital
+(`shapes.Circle` is `Shapes__Circle`, since OCaml and the parser want
+one), and an overloaded definition keeps its qualifier in front
+(`mymod.int::abs` is `int::mymod__abs`, so overloading picks among
+`mymod.abs`).
+
+It works on **tokens**, which is what lets it reach every expression,
+pattern and type with one rule. The parser has already joined each
+dotted *definition* name into one identifier (`dotted_definition`, at
+the top level only), so the first parse says what the module defines;
+then every path naming one -- `mymod.foo`, `shapes.Circle`,
+`m.foo` through a submodule an import named, and `hello.mymod.foo`
+through a module, which becomes `hello . mymod__foo` -- is joined into
+the one identifier, and the module is parsed again. A path is followed
+only from a name no `.` comes before, and not on an import line. A
+module with no dotted name to settle is not parsed again, so an
+ordinary program is untouched.
+
+**An import naming a submodule** becomes the `from` line taking its
+public members, each under the name the program writes it with:
+`import hello.mymod as m` and `from hello import mymod as m` are both
+`from hello import mymod__foo as m__foo, ...`, and `from hello.mymod
+import foo` is `from hello import mymod__foo as foo`. What each module
+defines is its `dotted` table (dotted name, plain name), kept in
+`Module.t`, which is how the next module knows what `hello.mymod` holds.
+
+**The refusals are the pass's own** (`Submodules.Error`, reported as a
+`Module error`): a name that stands for a submodule bound anywhere in
+the file, a dotted name and its plain one both defined, a submodule or
+a member the module does not have, and a member that is not public,
+each in the words the program wrote. A dotted definition inside a block
+is the parser's.
+
+**Declarations** in a module's `_external.pyk` may be dotted too; the
+host implements each under its plain name (`sound__start`, and in C
+`<module>_sound__start`). **The REPL** runs the same pass per entry,
+with the statements earlier entries wrote as `context`, so a submodule
+defined or imported at one prompt is reached at the next. The language
+server loads with the pass as `pyk` does.
+
 ## One numbering across the whole program
 
 Every node of every module gets a symbol from one sequence:

@@ -1,0 +1,5 @@
+# The Pyking half of the module `module_submodule_ext_mod1`: a function
+# of the submodule `sound` calling the host's private `sound.helper`.
+
+public def sound.twice(x: Int) -> Int:
+    sound.helper(x) * 2

@@ -57,6 +57,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it says (`""` turns it off), and a program that can play a sound calls
   `splash()` at the end of its top level without writing it. The
   playground and the notebook never show it.
+- Submodules: a definition with a dotted name, `public def
+  mymod.foo(x: Int) -> Int`, is `foo` in the submodule `mymod` of its
+  file -- deeper ones too, `mymod.another.foo` -- for a `def`, an `=`
+  binding, a datatype (its constructors written `shapes.Circle`) and a
+  declaration. Another module reaches it as `hello.mymod.foo`, or with
+  `from hello import mymod`, `import hello.mymod [as m]` or `from
+  hello.mymod import foo`.
 - `pyk --tinyweb-log` (and `pyk repl --tinyweb-log`) prints what a
   program sends its tinyweb page, and what the page answers, on stderr
   while the page runs; the playground's Web output tab has the same as a

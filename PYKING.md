@@ -66,6 +66,11 @@ restriction of it, but these are genuinely new.
   imports are a compile-time error rather than a run-time surprise, so
   the modules of a program run in one order, each after everything it
   imports. See "Modules".
+- **Submodules by dotted names**: `def mymod.foo(...)` defines `foo` in
+  the submodule `mymod` of its file, reached as `hello.mymod.foo`, or
+  with `from hello import mymod` or `from hello.mymod import foo`; there
+  are no package folders or `__init__` files. `import hello.mymod` binds
+  `mymod` rather than `hello`. See "Submodules".
 - **Lowercase `true`/`false` boolean literals**: Python spells its two
   boolean values `True`/`False`; Pyking spells them lowercase, `true` and
   `false`, matching most other languages' convention rather than
@@ -287,8 +292,10 @@ top_statement = import_stmt
             | statement ;
 
 import_stmt = "import" , module_item , { "," , module_item } ;
-module_item = ident , [ "as" , ident ] ;
-from_stmt   = "from" , ident , "import" , field_item , { "," , field_item } ;
+module_item = module_path , [ "as" , ident ] ;
+from_stmt   = "from" , module_path , "import" , field_item , { "," , field_item } ;
+(* A module, or a submodule of one: `hello`, `hello.mymod`. *)
+module_path = ident , { "." , ident } ;
 field_item  = ident , [ "as" , ident ] ;
 public_stmt = "public" , ( function_def | function_sig | datatype_stmt
                           | assignment ) ;
@@ -296,7 +303,7 @@ public_stmt = "public" , ( function_def | function_sig | datatype_stmt
 (* A datatype belongs to a module's top level. Its name and every
    constructor's start with an uppercase letter; its parameters are type
    variables. One constructor per line. *)
-datatype_stmt = "datatype" , upper_ident , [ "(" , type_var , { "," , type_var } , ")" ] ,
+datatype_stmt = "datatype" , [ sub_path , "." ] , upper_ident , [ "(" , type_var , { "," , type_var } , ")" ] ,
                 ":" , INDENT , constructor , { constructor } , DEDENT ;
 constructor = upper_ident , [ "(" , [ field , { "," , field } ] , ")" ] ;
 (* A field is a type alone (positional only), or named; a named field's
@@ -338,7 +345,9 @@ function_sig = "def" , def_name , ":" , type
              | "def" , def_name , "(" , [ named_type , { "," , named_type } ] ,
                ")" , "->" , type ;
 named_type   = ident , ":" , type ;
-def_name     = ident | qualified_name ;
+(* A dotted name defines in a submodule: `mymod.foo`, `mymod.deep.foo`. *)
+def_name     = [ sub_path , "." ] , ( ident | qualified_name ) ;
+sub_path     = ident , { "." , ident } ;
 (* No whitespace is permitted on either side of the "::", and neither
    half may be a keyword. *)
 qualified_name = ident , "::" , ident ;
@@ -352,7 +361,7 @@ implicit_param = "implicit" , ident , ":" , type ;
 type         = type_atom , [ "->" , type ] ;
 type_atom    = "Int" | "Float" | "String" | "Bool"
              | type_var
-             | [ ident , "." ] , upper_ident , [ "(" , type , { "," , type } , ")" ]
+             | [ sub_path , "." ] , upper_ident , [ "(" , type , { "," , type } , ")" ]
              | "all" , type_var , { type_var } , "." , type
              | "[" , type , "]"
              | type_paren ;
@@ -404,7 +413,7 @@ pattern_atom = int | "-" , int | string | bool | "_" | ident
              | list_pattern ;
 (* Positional sub-patterns first, then named ones in any order; a field
    not mentioned matches anything. *)
-constructor_pattern = [ ident , "." ] , upper_ident ,
+constructor_pattern = [ sub_path , "." ] , upper_ident ,
                       [ "(" , [ field_pattern , { "," , field_pattern } ] , ")" ] ;
 field_pattern = pattern_as | ident , "=" , pattern_as ;
 
@@ -429,6 +438,7 @@ value_if    = "if" , expr , ":" , block ,
 
 target      = target_atom , { "," , target_atom } ;
 target_atom = ident
+            | sub_path , "." , ident
             | "(" , ")"
             | "(" , target_atom , "," , ")"
             | "(" , target_atom , ( "," , target_atom )+ , [ "," ] , ")" ;
@@ -461,7 +471,7 @@ atom        = ( float | int | string | bool | ident | list_lit | list_comp
               { call_tail | field_tail } ;
 (* A constructor applied to its fields, with a call's arguments; one with
    no fields is written bare. *)
-construct   = [ ident , "." ] , upper_ident , [ call_tail ] ;
+construct   = [ sub_path , "." ] , upper_ident , [ call_tail ] ;
 field_tail  = "." , ident ;
 (* Every named argument comes after every positional one, and they are
    written in the order the callee's parameters are declared. *)
@@ -838,6 +848,12 @@ Notes that don't fall out of the grammar alone:
   definition of 'zero' a call means`). A module-qualified name is
   `m.int::leq`: the module is written with a `.` and the definition's
   own qualifier with a `::`, and the two never mix.
+- A **dotted** `def_name`, datatype name or `=` target -- `mymod.foo` --
+  defines a name in a submodule (see "Submodules"), and is written only
+  at a module's top level: inside a block it is refused. A
+  `qualified_name` goes last, `mymod.int::abs`. Every `.` in a dotted
+  name, in a `module_path` and in a `sub_path` is on the row the name
+  before it ended on.
 - `implicit` in front of a statement marks a `def` or an `=` binding of
   one name, and nothing else. It is a statement's prefix rather than a
   top-level one, so a definition inside a function may be implicit
@@ -4413,6 +4429,66 @@ is built from, so it cannot be written inside a `def`, a loop or a
 branch. Like a `def`, an import is visible throughout the module rather
 than from its line down, so where it is written among the other
 top-level statements does not matter.
+
+### Submodules
+
+A definition whose name has a dot in it is in a **submodule** of its
+module: `mymod.foo` is `foo` in the submodule `mymod`, and
+`mymod.another.foo` is `foo` in `another` inside `mymod`. A submodule is
+nothing but those names -- there is no file or declaration for it -- so
+a library groups what it offers by subject inside one file:
+
+```pyking norun
+# hello.pyk
+public def mymod.foo(x: Int) -> Int: x + 1
+public def mymod.another.foo(x: Int) -> Int: x + 100
+public mymod.limit: Int = 10
+
+public datatype shapes.Shape:
+    Circle(r: Float)
+    Square(s: Float)
+
+def mymod.helper(x: Int) -> Int: mymod.foo(x) * 2
+```
+
+A `def`, a signature line, an `=` binding and a datatype may have a
+dotted name, at a module's top level only. A dotted datatype's
+constructors are in its submodule too: `shapes.Circle(1.0)`, and `case
+shapes.Circle(r):`. Each name is `public` or not on its own, as any
+other is.
+
+**Inside its own file**, a name in a submodule is always written with
+its whole path -- `mymod.foo(1)`, even inside `mymod.helper` -- so a name
+means the same thing wherever it is read. A submodule's name is then
+taken in the whole file: nothing else there, at the top level or in any
+block, may be called `mymod`, so `mymod.foo` is never a field of a
+value. A dotted name and the plain one with `__` in place of each dot
+(`mymod.foo` and `mymod__foo`) are one name, and a module may not define
+both.
+
+**From another module** there are four ways to reach one:
+
+```pyking norun
+import hello
+print(hello.mymod.foo(7))          # through the module
+
+from hello import mymod            # the submodule, by its own name
+print(mymod.foo(8))
+print(mymod.another.foo(8))
+
+import hello.mymod as m            # the same, renamed; without `as`
+print(m.foo(9))                    # it is known as `mymod`
+
+from hello.mymod import foo        # one name out of it
+print(foo(10))
+```
+
+`import hello.mymod` binds `mymod`, the last part, rather than `hello`.
+A name a submodule did not make public is refused from outside, however
+it is reached, and so are a submodule the module does not have and a
+name the submodule does not have. A name that stands for a submodule
+here -- `mymod` above, or `m` -- is taken in the whole file, as one of
+the file's own is.
 
 ### A public implicit arrives unqualified
 

@@ -1,0 +1,5 @@
+# A submodule's definitions are written at the top level of a file.
+
+def outer(x: Int) -> Int:
+    def inner.f(y: Int) -> Int: y
+    x

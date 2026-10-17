@@ -1,0 +1,22 @@
+# The module of module_submodule.pyk: definitions in the submodules
+# `shapes`, `num` and `num.deep`, and one private to the module.
+
+public datatype shapes.Shape:
+    Circle(r: Float)
+    Square(s: Float)
+
+public def shapes.area(x: shapes.Shape) -> Float:
+    match x:
+        case shapes.Circle(r):
+            3.0 * r * r
+        case shapes.Square(s):
+            s * s
+
+public def num.int::twice(x: Int) -> Int: x * 2
+public def num.float::twice(x: Float) -> Float: x * 2.0
+
+public num.limit: Int = 10
+
+public def num.deep.inc(x: Int) -> Int: num.helper(x) + 1
+
+def num.helper(x: Int) -> Int: x

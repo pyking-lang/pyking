@@ -1,0 +1,3 @@
+# An import naming a submodule the module does not have.
+
+import module_submodule_mod1.sound

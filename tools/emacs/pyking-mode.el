@@ -166,11 +166,13 @@ builtin.")
 
 (defconst pyking-mode-font-lock-keywords
   (list
-   ;; function_def = "def" , ident , "(" ... -- the declared function name.
-   '("\\_<def\\_>[ \t]+\\(\\sw+\\)"
+   ;; function_def = "def" , def_name , "(" ... -- the declared function
+   ;; name, a submodule's path (`mymod.foo') included.
+   '("\\_<def\\_>[ \t]+\\(\\(?:\\sw+\\.\\)*\\sw+\\)"
      1 font-lock-function-name-face)
-   ;; datatype_stmt = "datatype" , upper_ident , ... -- the declared type.
-   '("\\_<datatype\\_>[ \t]+\\(\\sw+\\)"
+   ;; datatype_stmt = "datatype" , [ sub_path , "." ] , upper_ident , ...
+   ;; -- the declared type, with its submodule's path.
+   '("\\_<datatype\\_>[ \t]+\\(\\(?:\\sw+\\.\\)*\\sw+\\)"
      1 font-lock-type-face)
    ;; var_decl = "var" , ident , "=" , expr -- the declared variable name.
    '("\\_<var\\_>[ \t]+\\(\\sw+\\)"
@@ -186,7 +188,7 @@ builtin.")
    ;; from being mistaken for a declaration of a variable called `else'.
    ;; A `public' in front of it declares the same name, so it is
    ;; skipped rather than mistaken for the name being declared.
-   '("^[ \t]*\\(?:public[ \t]+\\)?\\(\\sw+\\)[ \t]*:[ \t]*\\(?:Int\\|String\\|Bool\\|[][(]\\)"
+   '("^[ \t]*\\(?:public[ \t]+\\)?\\(\\(?:\\sw+\\.\\)*\\sw+\\)[ \t]*:[ \t]*\\(?:Int\\|String\\|Bool\\|[][(]\\)"
      1 font-lock-variable-name-face)
    ;; mutation = ident , ":=" , expr -- Pyking's one deliberate departure
    ;; from plain Python assignment (see PYKING.md), worth calling out.

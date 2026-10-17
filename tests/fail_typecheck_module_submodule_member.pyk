@@ -1,0 +1,5 @@
+# A dotted name that names no definition of the file's own submodule.
+
+def geo.square(x: Int) -> Int: x * x
+
+print(geo.cube(2))

@@ -1,0 +1,2 @@
+'tests/fail_typecheck_module_submodule_private.pyk' 6:6-6:20 Module
+  error: module 'module_submodule_mod1' does not export 'num.helper'
