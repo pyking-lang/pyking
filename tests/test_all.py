@@ -13,17 +13,26 @@ the other eight are skipped: none of them is a target, and none would
 mean anything narrowed to one. `--suite` runs only the suites named,
 comma-separated (`--suite tinyweb`, `--suite repl,lsp`).
 
+`--quick PERCENT` is `make quicktest`: the programs suite runs the
+latest version of each family only, and node, web, C and Java on
+PERCENT of their cases; packaging, tinyweb and lsp run PERCENT of their
+checks. The choice is random, by `--seed N`, which is printed so a run
+can be repeated.
+
 Usage: python3 tests/test_all.py [--jobs N] [--target T] [--suite S,...]
+                                 [--quick PERCENT [--seed N]]
                                  [--compiler CMD]
 
 Functions:
     parse_args(argv) -- the flags, as a map.
     suites(args) -- the suites to run, in order, with their arguments.
-    report(tally, broken, skipped, reason) -- the combined summary.
+    report(tally, targets, broken, skipped, reason) -- the combined
+      summary.
     main(argv) -- the command-line entry point.
 """
 
 import os
+import random
 import subprocess
 import sys
 import tempfile
@@ -39,16 +48,24 @@ def parse_args(argv):
     """`--jobs N`, `--target T`, `--suite S,...` and `--compiler CMD`, in
     any order. A suite there is none of, or a target with no programs
     suite to narrow, is refused. [String] -> {String: String}"""
-    known = ("--jobs", "--target", "--suite", "--compiler")
+    known = ("--jobs", "--target", "--suite", "--compiler", "--quick", "--seed")
     args = {}
     rest = list(argv)
     while rest:
         flag = rest.pop(0)
         if flag not in known or not rest:
             print(f"usage: test_all.py [--jobs N] [--target T] [--suite S,...] "
-                  f"[--compiler CMD]", file=sys.stderr)
+                  f"[--quick PERCENT [--seed N]] [--compiler CMD]", file=sys.stderr)
             sys.exit(2)
         args[flag] = rest.pop(0)
+    if "--quick" in args:
+        # Checked here rather than by each suite, so a bad value is one
+        # error and not one per suite.
+        suite.sample_flags(["--sample", args["--quick"], "--seed", args.get("--seed", "0")])
+        args.setdefault("--seed", str(random.randrange(1_000_000)))
+    elif "--seed" in args:
+        print("test_all.py: --seed goes with --quick", file=sys.stderr)
+        sys.exit(2)
     if "--suite" in args:
         names = [name for name, _, _ in suites({})]
         unknown = [s for s in _named(args) if s not in names]
@@ -74,7 +91,9 @@ def suites(args):
     target, and only those `--suite` names are run.
     {String: String} -> [(String, String, [String])]"""
     compiler = ["--compiler", args["--compiler"]] if "--compiler" in args else []
-    program = []
+    sampled = (["--sample", args["--quick"], "--seed", args["--seed"]]
+               if "--quick" in args else [])
+    program = list(sampled)
     if "--jobs" in args:
         program += ["--jobs", args["--jobs"]]
     if "--target" in args:
@@ -86,10 +105,10 @@ def suites(args):
         ("libpath", "test_libpath.py", compiler),
         ("playground", "test_playground.py", []),
         ("notebook", "test_notebook.py", compiler),
-        ("packaging", "test_packaging.py", compiler),
+        ("packaging", "test_packaging.py", compiler + sampled),
         ("site", "test_site.py", compiler),
-        ("tinyweb", "test_tinyweb.py", compiler),
-        ("lsp", "test_lsp.py", compiler),
+        ("tinyweb", "test_tinyweb.py", compiler + sampled),
+        ("lsp", "test_lsp.py", compiler + sampled),
         ]
     if "--suite" in args:
         found = [entry for entry in found if entry[0] in _named(args)]
@@ -101,8 +120,14 @@ def main(argv):
     args = parse_args(argv)
     handle, tally = tempfile.mkstemp(prefix="pyk-tally-")
     os.close(handle)
-    environment = dict(os.environ, PYK_TEST_TALLY=tally)
+    handle, targets = tempfile.mkstemp(prefix="pyk-targets-")
+    os.close(handle)
+    environment = dict(os.environ, PYK_TEST_TALLY=tally, PYK_TEST_TARGET_TALLY=targets)
     broken = []
+    if "--quick" in args:
+        print(f"Quick: {args['--quick']}% sampled, seed {args['--seed']} "
+              f"(make quicktest PERCENT={args['--quick']} SEED={args['--seed']} "
+              f"repeats it).", flush=True)
     try:
         for name, script, arguments in suites(args):
             suite.heading(name)
@@ -121,9 +146,10 @@ def main(argv):
         skipped = [name for name, _, _ in suites({}) if name not in ran]
         reason = (f"--target {args['--target']}" if "--target" in args
                   else f"--suite {args.get('--suite')}")
-        return report(tally, broken, skipped, reason)
+        return report(tally, targets, broken, skipped, reason)
     finally:
         os.unlink(tally)
+        os.unlink(targets)
 
 
 def _reported(tally, name):
@@ -131,11 +157,19 @@ def _reported(tally, name):
     return any(written == name for written, _, _ in suite.read_tally(tally))
 
 
-def report(tally, broken, skipped, reason):
-    """The combined summary: one line per suite, then the totals, and why
-    any suite was skipped. Path -> [String] -> [String] -> String -> Int"""
+def report(tally, targets, broken, skipped, reason):
+    """The combined summary: the programs suite per target, one line per
+    suite, then the totals, and why any suite was skipped.
+    Path -> Path -> [String] -> [String] -> String -> Int"""
     counted = suite.read_tally(tally)
     suite.heading("all suites")
+    per_target = suite.read_tally(targets)
+    if per_target:
+        print("  programs per target:")
+        width = max(len(name) for name, _, _ in per_target)
+        for name, passed, failed in per_target:
+            print(f"    {name:<{width}} {passed:>5} passed, {failed:>4} failed")
+        print()
     for name, passed, failed in counted:
         print("  " + suite.COUNTS.format(
             name=name, passed=passed, failed=failed))

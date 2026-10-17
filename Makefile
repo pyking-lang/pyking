@@ -6,6 +6,7 @@
 #                   (TARGET=c23 or TARGET=c for one target or family,
 #                   SUITE=tinyweb for one suite)
 #   make stest      the same suite, one test at a time
+#   make quicktest  a random sample of it (PERCENT=10, 5 by default)
 #   make notebook   open PYKING-TUTORIAL.md as a notebook in the browser
 #   make pykhelp    open the help (getting started, the language reference,
 #                   the libraries) in the browser
@@ -17,7 +18,7 @@
 # Run `make help` for the full list. The compiler is OCaml in src/,
 # built by dune into the executable this directory calls ./pyk.
 
-.PHONY: all help pykhelp build libs test stest check-node playground notebook vendor \
+.PHONY: all help pykhelp build libs test stest quicktest check-node playground notebook vendor \
 	website website-dev website-release \
 	packaging packaging-setup packaging-install packaging-uninstall \
 	release \
@@ -103,6 +104,13 @@ help:
 	@echo "                  packaging, site, tinyweb, lsp"
 	@echo "make stest        the same suite, one test at a time (TARGET and"
 	@echo "                  SUITE as for make test)"
+	@echo "make quicktest    a quick sample of make test: the latest version of"
+	@echo "                  each target family only, node, web, C and Java on"
+	@echo "                  PERCENT of their cases (PERCENT=10; 5 by default),"
+	@echo "                  the packaging, tinyweb and lsp suites on PERCENT of"
+	@echo "                  their checks, the rest whole. Chosen at random;"
+	@echo "                  SEED=n repeats a run. JOBS, TARGET, SUITE as for"
+	@echo "                  make test"
 	@echo "make playground   serve the web playground (pyk playground), then print"
 	@echo "                  a link"
 	@echo "make notebook     serve PYKING-TUTORIAL.md as a notebook (pyk notebook),"
@@ -205,6 +213,13 @@ test: check-node build
 # itself in question.
 stest: check-node build
 	@python3 tests/test_all.py --jobs 1 $(if $(TARGET),--target $(TARGET)) \
+		$(if $(SUITE),--suite $(SUITE))
+
+# A random sample of the suite (see tests/test_all.py, `--quick`). The
+# seed is printed, and SEED= repeats the same choice.
+quicktest: check-node build
+	@python3 tests/test_all.py --quick $(or $(PERCENT),5) $(if $(SEED),--seed $(SEED)) \
+		$(if $(JOBS),--jobs $(JOBS)) $(if $(TARGET),--target $(TARGET)) \
 		$(if $(SUITE),--suite $(SUITE))
 
 # The two web tools, started the way a user of a distribution starts

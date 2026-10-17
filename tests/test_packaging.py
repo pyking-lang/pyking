@@ -53,9 +53,12 @@ read as a release would show it, and that a section that is missing,
 undated or empty is refused.
 
 Usage: python3 tests/test_packaging.py [--compiler PYK]
+                                        [--sample PERCENT [--seed N]]
 
 `--compiler` names the `pyk` to package, `./pyk` by default. It has to be
 an executable file, not a command, since it is what the package holds.
+`--sample PERCENT` (`make quicktest`) runs PERCENT of the seven groups
+of checks, at least one, chosen at random by `--seed N`.
 
 Functions:
     check_stage() -- the shipped tree, installed as Homebrew would.
@@ -717,10 +720,12 @@ def check_changelog(check):
 def main(argv):
     """Runs the checks and reports them. [String] -> Int"""
     compiler = COMPILER
+    percent, seed, argv = suite.sample_flags(argv)
     if argv[:1] == ["--compiler"] and len(argv) == 2:
         compiler = Path(shutil.which(argv[1]) or argv[1]).resolve()
     elif argv:
-        print("usage: test_packaging.py [--compiler PYK]", file=sys.stderr)
+        print("usage: test_packaging.py [--compiler PYK] [--sample PERCENT [--seed N]]",
+              file=sys.stderr)
         return 2
     if not compiler.is_file():
         print(f"packaging: FAILED -- no compiler at {compiler}; `make build` writes it")
@@ -734,17 +739,29 @@ def main(argv):
         suite.footer("packaging", 0, 1, "the compiler is for another platform")
         return 1
     check = Checks()
-    check_stage(check, compiler)
-    vendored = all(path.exists() for path, _ in packaging.server.vendor_files())
-    with tempfile.TemporaryDirectory(prefix="pyk-packaging-") as directory:
-        tree = packaging.stage(compiler, Path(directory) / f"pyking-{packaging.version()}",
-                               vendor=vendored)
-        check_deb(check, tree)
-        check_install_sh(check, tree)
-    check_macho(check)
-    check_docker_nix(check)
-    check_changelog(check)
-    built = check_built(check)
+    groups = suite.sample(["stage", "deb", "install.sh", "macho", "docker and nix",
+                           "changelog", "built"], percent, seed, "groups")
+    if percent is not None:
+        print(f"packaging: {percent:g}% of the groups of checks, seed {seed}: "
+              f"{', '.join(groups)}.", flush=True)
+    if "stage" in groups:
+        check_stage(check, compiler)
+    if "deb" in groups or "install.sh" in groups:
+        vendored = all(path.exists() for path, _ in packaging.server.vendor_files())
+        with tempfile.TemporaryDirectory(prefix="pyk-packaging-") as directory:
+            tree = packaging.stage(compiler, Path(directory) / f"pyking-{packaging.version()}",
+                                   vendor=vendored)
+            if "deb" in groups:
+                check_deb(check, tree)
+            if "install.sh" in groups:
+                check_install_sh(check, tree)
+    if "macho" in groups:
+        check_macho(check)
+    if "docker and nix" in groups:
+        check_docker_nix(check)
+    if "changelog" in groups:
+        check_changelog(check)
+    built = check_built(check) if "built" in groups else 0
     for failure in check.failures:
         print(f"packaging: FAILED {failure}")
     print("packaging: the shipped tree, installed as Homebrew would, "

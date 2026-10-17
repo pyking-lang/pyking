@@ -40,9 +40,14 @@ shows them; files are named relative to tests/lsp/.
   shutdown / exit
 
 Usage: python3 tests/test_lsp.py [--compiler CMD] [--update]
+                                  [--sample PERCENT [--seed N]]
 
 `--update` rewrites every .out from what `pyk lsp` now sends; read the
 diffs before keeping them.
+
+`--sample PERCENT` (`make quicktest`) runs PERCENT of the sessions, and of the
+other three parts (the transport, the playground, the editors), at
+least one, chosen at random by `--seed N`.
 
 Functions:
     parse_script(path) -- a script as steps.
@@ -524,9 +529,10 @@ def check_editors():
 
 
 def parse_args(argv):
-    """`--compiler CMD` and `--update`. [String] -> ([String], Bool)"""
+    """`--compiler CMD`, `--update`, and `--sample PERCENT` with `--seed N`.
+    [String] -> ([String], Bool, Number?, Int)"""
     compiler, update = [DEFAULT_COMPILER], False
-    rest = list(argv)
+    percent, seed, rest = suite.sample_flags(argv)
     while rest:
         flag = rest.pop(0)
         if flag == "--compiler" and rest:
@@ -534,14 +540,19 @@ def parse_args(argv):
         elif flag == "--update":
             update = True
         else:
-            print("usage: test_lsp.py [--compiler CMD] [--update]", file=sys.stderr)
+            print("usage: test_lsp.py [--compiler CMD] [--update] "
+                  "[--sample PERCENT [--seed N]]", file=sys.stderr)
             sys.exit(2)
-    return compiler, update
+    return compiler, update, percent, seed
 
 
 def main(argv):
     """Runs the four parts and reports them. [String] -> Int"""
-    compiler, update = parse_args(argv)
+    compiler, update, percent, seed = parse_args(argv)
+    parts = suite.sample(["transport", "playground", "editors"], percent, seed, "parts")
+    if percent is not None:
+        print(f"lsp: {percent:g}% of the sessions and of the other parts, seed {seed}: "
+              f"{', '.join(parts)}.", flush=True)
     found = shutil.which(compiler[0])
     if found:
         ROOTS.append(Path(os.path.realpath(found)).parent)
@@ -557,7 +568,7 @@ def main(argv):
             failed += 1
             print(f"lsp: FAILED {label}" + (f": {detail}" if detail else ""))
 
-    scripts = sorted(CASES.glob("*.lsp"))
+    scripts = suite.sample(sorted(CASES.glob("*.lsp")), percent, seed, "sessions")
     sessions = {}
     for script in scripts:
         steps = parse_script(script)
@@ -580,12 +591,15 @@ def main(argv):
                    f"expected {want[k] if k < len(want) else None!r}")
     print(f"lsp: {len(scripts)} sessions through `pyk lsp`.")
 
-    checks, failures = check_transport(compiler)
-    for failure in failures:
-        report(failure, False)
-    for _ in range(checks - len(failures)):
-        report("", True)
-    print(f"lsp: the transport, {checks} checks.")
+    if "transport" in parts:
+        checks, failures = check_transport(compiler)
+        for failure in failures:
+            report(failure, False)
+        for _ in range(checks - len(failures)):
+            report("", True)
+        print(f"lsp: the transport, {checks} checks.")
+    else:
+        skipped.append("the transport (not in the sample)")
 
     if not BUNDLE.exists() or shutil.which("node") is None:
         skipped.append("the browser bundle (no build/pyking.js or no node)")
@@ -607,7 +621,9 @@ def main(argv):
         print(f"lsp: {len(sessions)} sessions through the browser bundle.")
 
     chromium = suite.find_chromium()
-    if chromium is None or not MONACO.exists() or not PAGE_DRIVER.exists():
+    if "playground" not in parts:
+        skipped.append("the playground in a browser (not in the sample)")
+    elif chromium is None or not MONACO.exists() or not PAGE_DRIVER.exists():
         why = ("no Chromium found" if chromium is None
                else "no vendored Monaco (make vendor)" if not MONACO.exists() else "no driver")
         skipped.append(f"the playground in a browser ({why})")
@@ -637,13 +653,16 @@ def main(argv):
             finally:
                 test_notebook.stop(process)
 
-    checks, failures, skipped_editors = check_editors()
-    skipped += skipped_editors
-    for failure in failures:
-        report(failure, False)
-    for _ in range(checks - len(failures)):
-        report("", True)
-    print(f"lsp: the editors' configuration, {checks} checks.")
+    if "editors" in parts:
+        checks, failures, skipped_editors = check_editors()
+        skipped += skipped_editors
+        for failure in failures:
+            report(failure, False)
+        for _ in range(checks - len(failures)):
+            report("", True)
+        print(f"lsp: the editors' configuration, {checks} checks.")
+    else:
+        skipped.append("the editors' configuration (not in the sample)")
 
     for part in skipped:
         print(f"lsp: {part} skipped.")

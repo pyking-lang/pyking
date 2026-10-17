@@ -78,12 +78,14 @@ const fs = require("fs");
 globalThis.require = require;
 (0, eval)(fs.readFileSync(process.argv[2], "utf8"));
 const plan = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
+const progress = (text) => process.stderr.write("progress: " + text + "\n");
 
 const failures = [];
 const check = (label, ok, detail) => {
   if (!ok) failures.push(label + ": " + detail);
 };
 
+progress("the bundle is loaded; its entry points");
 // 1. The entry points the page calls. stub.js registers them on the
 //    global object; a rename in src/web/pyking_web.ml that the page was
 //    not told about looks like this.
@@ -119,6 +121,7 @@ const helper = pykFormatHelper();
 check("pykFormatHelper", typeof helper === "string" && helper.length > 0,
       "answered nothing");
 
+progress("the smoke program on " + plan.targets.length + " targets");
 // 3. One small program compiled for every target the page offers, and
 //    run with the interpreter -- the two things a visitor does first.
 for (const target of plan.targets) {
@@ -161,6 +164,7 @@ globalThis.pykFetchSource = (name) => {
     return null;
   }
 };
+progress(plan.examples.length + " examples");
 let pairs = 0;
 for (const example of plan.examples) {
   pairs += 1;
@@ -173,6 +177,7 @@ for (const example of plan.examples) {
 // 5. The REPL tab's session (src/repl_session.ml): what an entry shows
 //    goes to `pykOnShow`, what it prints to `pykOnPrint`, and each answer
 //    carries the errors, the text to put back and the environment.
+progress("the REPL tab's session");
 let repl = 0;
 const replCheck = (label, ok, detail) => {
   repl += 1;
@@ -310,10 +315,9 @@ def run_driver(bundle, prepared):
         prepared_path = Path(directory) / "plan.json"
         prepared_path.write_text(json.dumps(prepared))
         try:
-            result = subprocess.run(
+            result = suite.run_with_progress(
                 NODE + [str(script), str(bundle), str(prepared_path)],
-                capture_output=True, text=True, timeout=STEP_TIMEOUT,
-            )
+                "the bundle", STEP_TIMEOUT)
         except FileNotFoundError:
             return None, ["node not found; it is what runs the compiler bundle"], 0
         except subprocess.TimeoutExpired:
@@ -352,7 +356,12 @@ globalThis.pykLibraryFile = (p) => {
 };
 (0, eval)(fs.readFileSync(bundle, "utf8"));
 const failures = [];
-for (const pair of JSON.parse(fs.readFileSync(pairsFile, "utf8"))) {
+const all = JSON.parse(fs.readFileSync(pairsFile, "utf8"));
+let done = 0;
+for (const pair of all) {
+  if (done++ % 250 === 0) {
+    process.stderr.write(`progress: ${done - 1} of ${all.length} compiled\n`);
+  }
   dir = path.dirname(pair.path);
   const name = path.basename(pair.path);
   const source = fs.readFileSync(pair.path, "utf8");
@@ -404,8 +413,13 @@ def parity_pairs(compiler, offered):
             "text": None if result.returncode else result.stdout,
         }
 
+    done = []
     with concurrent.futures.ThreadPoolExecutor(os.cpu_count() or 4) as pool:
-        return list(pool.map(compiled, wanted))
+        for answer in pool.map(compiled, wanted):
+            done.append(answer)
+            if len(done) % 250 == 0:
+                print(f"  pyk compile: {len(done)} of {len(wanted)} compiled", flush=True)
+    return done
 
 
 def run_parity(bundle, pairs):
@@ -418,10 +432,9 @@ def run_parity(bundle, pairs):
         listed = Path(directory) / "pairs.json"
         listed.write_text(json.dumps(pairs))
         try:
-            result = subprocess.run(
+            result = suite.run_with_progress(
                 NODE + [str(script), str(bundle), str(listed), str(REPO / "lib")],
-                capture_output=True, text=True, timeout=STEP_TIMEOUT, cwd=REPO,
-            )
+                "the page's Compile", STEP_TIMEOUT, cwd=REPO)
         except subprocess.TimeoutExpired:
             return [f"parity: timed out after {STEP_TIMEOUT} seconds"]
         if result.returncode != 0 or not result.stdout.strip():
@@ -456,11 +469,16 @@ def main(argv):
         suite.footer("playground", 0, 1, "no bundle to drive")
         return 1
     prepared = plan()
+    print(f"playground: driving the bundle ({len(prepared['targets'])} targets, "
+          f"{len(prepared['examples'])} examples, the REPL).", flush=True)
     pairs, failures, repl = run_driver(bundle, prepared)
     listed = check_examples()
     # What `pyk compile` compiles, the page's Compile compiles, to the
     # same text.
+    print("playground: compiling every case with `pyk compile` on the page's targets.",
+          flush=True)
     parity = parity_pairs([str(REPO / "pyk")], prepared["targets"])
+    print(f"playground: compiling the same {len(parity)} in the bundle.", flush=True)
     mismatches = run_parity(bundle, parity)
     for mismatch in mismatches:
         print(f"playground: FAILED {mismatch}")

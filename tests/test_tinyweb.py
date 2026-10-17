@@ -31,6 +31,11 @@ each target it lists, and compares the commands it logs with its
              and what was drawn is compared (see `BROWSER` below).
 
 Usage: python3 tests/test_tinyweb.py [--compiler CMD] [--only PART]
+                                      [--sample PERCENT [--seed N]]
+
+`--sample PERCENT` (`make quicktest`) runs PERCENT of each part's checks but the
+embed check, at
+least one, chosen at random by `--seed N`.
 
 Functions:
     page_cases() -- the tinyweb programs, with their .events and .page.
@@ -671,7 +676,12 @@ def check_chromium_served(compiler, chromium, case, target):
 def main(argv):
     compiler = [str(ROOT / "pyk")]
     only = None
-    rest = list(argv)
+    percent, seed, rest = suite.sample_flags(argv)
+
+    def sampled(items, label):
+        """`--sample`'s share of one part's checks. [a] -> String -> [a]"""
+        return suite.sample(items, percent, seed, label)
+
     while rest:
         flag = rest.pop(0)
         if flag == "--compiler" and rest:
@@ -679,7 +689,8 @@ def main(argv):
         elif flag == "--only" and rest:
             only = rest.pop(0)
         else:
-            print("usage: test_tinyweb.py [--compiler CMD] [--only PART]", file=sys.stderr)
+            print("usage: test_tinyweb.py [--compiler CMD] [--only PART] "
+                  "[--sample PERCENT [--seed N]]", file=sys.stderr)
             return 2
     results = []
 
@@ -694,31 +705,33 @@ def main(argv):
             print(f"tinyweb: {name} FAILED\n"
                   + "\n".join("    " + l for l in problem.splitlines()), flush=True)
 
+    if percent is not None:
+        print(f"tinyweb: {percent:g}% of each part's checks, seed {seed}.", flush=True)
     if only in (None, "embedded"):
         for result in check_embedded():
             record(result)
     if only in (None, "refused"):
-        for target in SERVED_TARGETS:
-            for what, body, message in REFUSALS:
-                try:
-                    problem = check_refused(compiler, target, body, message)
-                except Exception as error:  # noqa: BLE001 -- reported, not raised
-                    problem = f"{type(error).__name__}: {error}"
-                record((f"a program that {what} on {target}", problem))
+        for target, (what, body, message) in sampled(
+                [(t, r) for t in SERVED_TARGETS for r in REFUSALS], "refused"):
+            try:
+                problem = check_refused(compiler, target, body, message)
+            except Exception as error:  # noqa: BLE001 -- reported, not raised
+                problem = f"{type(error).__name__}: {error}"
+            record((f"a program that {what} on {target}", problem))
     if only in (None, "served") or (only or "").startswith("served:"):
         targets = SERVED_TARGETS
         if only and only.startswith("served:"):
             targets = [only.split(":", 1)[1]]
-        for case in page_cases():
-            for target in targets:
-                name = f"{case[0].name}.pyk served on {target}"
-                try:
-                    problem = check_served(compiler, case, target)
-                except Exception as error:  # noqa: BLE001 -- reported, not raised
-                    problem = f"{type(error).__name__}: {error}"
-                record((name, problem))
+        for case, target in sampled(
+                [(c, t) for c in page_cases() for t in targets], "served"):
+            name = f"{case[0].name}.pyk served on {target}"
+            try:
+                problem = check_served(compiler, case, target)
+            except Exception as error:  # noqa: BLE001 -- reported, not raised
+                problem = f"{type(error).__name__}: {error}"
+            record((name, problem))
     if only in (None, "default"):
-        for target in DEFAULT_TARGETS:
+        for target in sampled(DEFAULT_TARGETS, "default"):
             name = f"compiled for {target} with no --output, the samples come along"
             try:
                 problem = check_default_output(compiler, target)
@@ -726,7 +739,7 @@ def main(argv):
                 problem = f"{type(error).__name__}: {error}"
             record((name, problem))
     if only in (None, "standalone"):
-        for language in tinywebdoc.LANGUAGES:
+        for language in sampled(tinywebdoc.LANGUAGES, "standalone"):
             name = f"tinyweb for {language.name}, with no Pyking, runs its example"
             try:
                 problem = check_standalone(language)
@@ -734,7 +747,7 @@ def main(argv):
                 problem = f"{type(error).__name__}: {error}"
             record((name, problem))
     if only in (None, "browser"):
-        for case in page_cases():
+        for case in sampled(page_cases(), "browser"):
             name = f"{case[0].name}.pyk drawn directly and through commands, on a page under node"
             try:
                 problem = check_fake_page(compiler, case)
@@ -748,7 +761,7 @@ def main(argv):
             skipped.append("in a real browser: no Chromium found ($PYKING_CHROME, the PATH, "
                            "or Playwright's download)")
         else:
-            for case in page_cases():
+            for case in sampled(page_cases(), "chromium"):
                 name = (f"{case[0].name}.pyk drawn directly, through commands and "
                         f"interpreted, in Chromium")
                 try:
@@ -756,15 +769,16 @@ def main(argv):
                 except Exception as error:  # noqa: BLE001 -- reported, not raised
                     problem = f"{type(error).__name__}: {error}"
                 record((name, problem))
-            for case in page_cases():
-                for target in CHROMIUM_SERVED_TARGETS:
-                    name = (f"{case[0].name}.pyk served on {target}, in Chromium, drawn as "
-                            f"the web24 page draws it")
-                    try:
-                        problem = check_chromium_served(compiler, chromium, case, target)
-                    except Exception as error:  # noqa: BLE001 -- reported, not raised
-                        problem = f"{type(error).__name__}: {error}"
-                    record((name, problem))
+            for case, target in sampled(
+                    [(c, t) for c in page_cases() for t in CHROMIUM_SERVED_TARGETS],
+                    "chromium served"):
+                name = (f"{case[0].name}.pyk served on {target}, in Chromium, drawn as "
+                        f"the web24 page draws it")
+                try:
+                    problem = check_chromium_served(compiler, chromium, case, target)
+                except Exception as error:  # noqa: BLE001 -- reported, not raised
+                    problem = f"{type(error).__name__}: {error}"
+                record((name, problem))
     for what in skipped:
         print(f"tinyweb: skipped {what}.")
     failed = sum(1 for _, problem in results if problem is not None)

@@ -9,6 +9,7 @@ they form, see [architecture.md](architecture.md).
 make                build the compiler into ./pyk, then make libs
 make libs           build the interpreter's library plugins in lib/
 make test           the test suite (make stest for one at a time)
+make quicktest      a random sample of it (PERCENT=10; 5 by default)
 make playground     serve the web playground (pyk playground)
 make notebook       serve PYKING-TUTORIAL.md as a notebook (pyk notebook)
 make vendor         download the browser libraries the two above need

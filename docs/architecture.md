@@ -809,6 +809,11 @@ the manifest lists them, so what the suite prints does not depend on how
 the work was scheduled and a parallel transcript diffs cleanly against a
 serial one.
 
+`make quicktest` (`--sample PERCENT`) runs the latest version of each
+family only, and `node24`, `web24`, `c23` and `java21` on a random
+`PERCENT` of their cases each, at least one; the seed is printed, and
+`SEED=n` repeats the choice.
+
 Two of the names in a `targets` list compile nothing. `typecheck` checks
 a program and compares the printed AST against its `.ast.out`;
 `interpret` runs it with `src/interpreter.ml` and compares its stdout

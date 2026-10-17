@@ -259,6 +259,29 @@ DEFAULT_TARGETS = (
 OPTIONAL_TARGETS = (PYTHON_NOTAIL_TARGET, PYKING_NOTAIL_TARGET, PYKING_NOSUGAR_TARGET)
 
 
+# Under `--sample` (`make quicktest`): the latest version of each family
+# and the targets that compile nothing. These four run on a random share
+# of their cases, the rest on every case.
+SAMPLED_TARGETS = tuple(FAMILIES[f][-1] for f in ("node", "web", "c", "java"))
+QUICK_TARGETS = tuple(
+    t for t in TARGETS
+    if not any(t in members[:-1] for members in FAMILIES.values())
+)
+
+
+def quick_tasks(tasks, percent, seed):
+    """The tasks a sampled run keeps: those on QUICK_TARGETS, with each of
+    SAMPLED_TARGETS cut down to `percent` of its cases.
+    [Task] -> Number -> Int -> [Task]"""
+    kept = []
+    for target in QUICK_TARGETS:
+        mine = [task for task in tasks if task[0] == target]
+        if target in SAMPLED_TARGETS:
+            mine = suite.sample(mine, percent, seed, target)
+        kept += mine
+    return kept
+
+
 def case_targets(case):
     """The targets one case runs on: the defaults for its kind, less what
     `excluded` names, plus what `also` adds. Case -> [String]"""
@@ -1277,6 +1300,7 @@ def positive(value, what):
 def parse_args(argv):
     """How many runs this invocation wants in flight, and what command
     runs the compiler. [String] -> (Int, [String])"""
+    percent, seed, argv = suite.sample_flags(argv)
     parser = argparse.ArgumentParser(
         description="Runs every test program on every target it declares."
     )
@@ -1321,12 +1345,12 @@ def parse_args(argv):
                 f"{', '.join(TARGETS)}, or a family "
                 f"({', '.join(sorted(FAMILIES))})"
             )
-    return jobs, compiler, only
+    return jobs, compiler, only, percent, seed
 
 
 def main():
     global COMPILER
-    jobs, COMPILER, only = parse_args(sys.argv[1:])
+    jobs, COMPILER, only, percent, seed = parse_args(sys.argv[1:])
     cases = load_cases()
     tasks = plan(cases)
     if only is not None:
@@ -1334,11 +1358,19 @@ def main():
         # suite as a whole, not about the targets being run -- and only
         # the runs are narrowed.
         tasks = [task for task in tasks if task[0] in only]
+    if percent is not None:
+        tasks = quick_tasks(tasks, percent, seed)
     shown = TARGETS if only is None else tuple(t for t in TARGETS if t in only)
+    if percent is not None:
+        shown = tuple(t for t in shown if t in QUICK_TARGETS)
     passed = {target: 0 for target in shown}
     failed = {target: 0 for target in shown}
 
     print(f"{len(tasks)} runs on {jobs} worker{'' if jobs == 1 else 's'}.")
+    if percent is not None:
+        print(f"Sampled: {percent:g}% of the cases on "
+              f"{', '.join(t for t in SAMPLED_TARGETS if t in shown)}, "
+              f"seed {seed}; every case on the other targets.")
     for target, report, did_fail in outcomes(tasks, jobs):
         print(report, end="")
         if did_fail:
@@ -1358,6 +1390,7 @@ def main():
             f"    {target:<{width}} {passed[target]:5d} passed, "
             f"{failed[target]:4d} failed  (of {total} supported cases)"
         )
+        suite.target_tally(target, passed[target], failed[target])
     total_passed = sum(passed.values())
     total_failed = sum(failed.values())
     # Counted from the tasks that ran rather than from the manifest: with

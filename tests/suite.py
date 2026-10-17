@@ -14,12 +14,19 @@ Functions:
     footer name passed failed detail -- the one-line summary that closes
       it, and the tally the driver collects.
     read_tally path -- the tallies a run collected, in order.
+    target_tally target passed failed -- one target's counts, for the
+      combined summary's per-target table.
+    sample_flags argv -- `--sample PERCENT` and `--seed N` taken out of
+      a suite's arguments.
+    sample items percent seed label -- a random share of the items.
     find_chromium() -- a Chromium the browser checks can drive, or None.
     run_with_progress command label timeout -- runs a browser driver,
       printing its progress as it goes.
 """
 
+import math
 import os
+import random
 import shutil
 import subprocess
 import threading
@@ -69,6 +76,55 @@ def read_tally(path):
     return out
 
 
+def target_tally(target, passed, failed):
+    """One target's counts, appended to the file `$PYK_TEST_TARGET_TALLY`
+    names, for the per-target table `test_all.py` prints.
+    String -> Int -> Int -> ()"""
+    path = os.environ.get("PYK_TEST_TARGET_TALLY")
+    if path:
+        with open(path, "a") as tally:
+            tally.write(f"{target}\t{passed}\t{failed}\n")
+
+
+def sample_flags(argv):
+    """`--sample PERCENT` and `--seed N` taken out of a suite's
+    arguments, with what is left. PERCENT is None where no sample was
+    asked for. [String] -> (Number?, Int, [String])"""
+    percent, seed, rest = None, 0, []
+    argv = list(argv)
+    while argv:
+        flag = argv.pop(0)
+        if flag in ("--sample", "--seed") and argv:
+            value = argv.pop(0)
+            try:
+                number = float(value) if flag == "--sample" else int(value)
+            except ValueError:
+                raise SystemExit(f"{flag}: expected a number, not {value!r}")
+            if flag == "--sample":
+                if not 0 < number <= 100:
+                    raise SystemExit(f"--sample: expected a percentage above 0 "
+                                     f"and at most 100, not {value!r}")
+                percent = number
+            else:
+                seed = number
+        else:
+            rest.append(flag)
+    return percent, seed, rest
+
+
+def sample(items, percent, seed, label):
+    """`percent` of the items, rounded up so that at least one is kept
+    where there is any, chosen at random by `seed` and `label` and kept
+    in their own order. Every item where `percent` is None.
+    [a] -> Number? -> Int -> String -> [a]"""
+    items = list(items)
+    if percent is None or not items:
+        return items
+    count = min(len(items), max(1, math.ceil(len(items) * percent / 100)))
+    chosen = set(random.Random(f"{seed}:{label}").sample(range(len(items)), count))
+    return [item for k, item in enumerate(items) if k in chosen]
+
+
 CHROME_NAMES = ["chromium", "chromium-browser", "google-chrome", "google-chrome-stable",
                 "chrome", "chrome-headless-shell", "headless_shell"]
 
@@ -104,14 +160,14 @@ def find_chromium():
 PROGRESS = "progress: "
 
 
-def run_with_progress(command, label, timeout):
+def run_with_progress(command, label, timeout, cwd=None):
     """Runs a command as subprocess.run(capture_output=True, text=True)
     would, but prints each `progress:` line it writes to stderr as it
     arrives, indented under `label`, and leaves those lines out of the
     stderr it answers. Raises TimeoutExpired as subprocess.run does.
-    [String] -> String -> Number -> CompletedProcess"""
+    [String] -> String -> Number -> Path? -> CompletedProcess"""
     process = subprocess.Popen(command, stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE, text=True)
+                               stderr=subprocess.PIPE, text=True, cwd=cwd)
     out, err = [], []
 
     def read_out():

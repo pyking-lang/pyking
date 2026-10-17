@@ -2028,6 +2028,19 @@ given, since it is not a target.
 (`--suite` to `tests/test_all.py`); a name there is none of is refused,
 and so is a `TARGET` with a `SUITE` that leaves out `programs`.
 
+**`make quicktest`** is a random sample of `make test` (`--quick
+PERCENT` to `tests/test_all.py`, `PERCENT=10`, 5 by default). The
+programs suite runs the latest version of each family only (`c23`,
+`java21`, ...), with every case on `python14`, `iweb24`, `ocaml5.5`,
+`interpret`, `pyking` and the `_notail`/`_nosugar` targets, and
+PERCENT of the cases on `node24`, `web24`, `c23` and `java21`
+(`quick_tasks`). Packaging, tinyweb and lsp run PERCENT of their
+checks (`--sample PERCENT`; `suite.sample`, rounding up so at least one
+of each group runs); repl, libpath, playground, notebook and site run
+whole. The seed is printed, and `SEED=n` repeats a run. **To verify a
+change, Claude always runs `make test`**, never `make quicktest`, unless
+the prompt says otherwise.
+
 **`make test` runs `tests/test_all.py`**, which sequences the nine
 suites below rather than each being a line of the Makefile. Three things
 follow, and all three are the point: every suite runs even when an
@@ -2037,7 +2050,9 @@ closed by one footer line of a fixed shape; and the run ends with a
 combined summary over all nine. Their counts reach it through
 `$PYK_TEST_TALLY`, a file each suite appends one line to
 (`tests/suite.py`), so a suite run on its own prints exactly what it
-prints here. Each remains a script of its own, with its own
+prints here. The programs suite also writes each target's counts to
+`$PYK_TEST_TARGET_TALLY`, which the combined summary shows as a table
+of its own. Each remains a script of its own, with its own
 `--compiler`.
 
 The first of them is `tests/test_script.py`. It
