@@ -28,7 +28,17 @@ export default defineConfig({
       favicon: "/site/favicon.svg",
       logo: { src: "./src/assets/logo.svg", alt: "Pyking" },
       customCss: ["./src/styles/site.css"],
-      head: [{ tag: "script", attrs: { type: "module", src: prefix + "/site/cells.js" } }],
+      // Dark until a visitor picks a theme: Starlight's own script, which
+      // runs after this one, reads the choice stored here. Choosing Auto
+      // stores "", so only a visitor who never chose gets dark.
+      head: [
+        { tag: "script", attrs: { type: "module", src: prefix + "/site/cells.js" } },
+        {
+          tag: "script",
+          content: "try { if (localStorage.getItem('starlight-theme') === null) " +
+            "localStorage.setItem('starlight-theme', 'dark'); } catch (e) {}",
+        },
+      ],
       // The header puts the sections beside the logo and the search on
       // the right; the left menu is each section's own pages, the one
       // shown opened at its headings (site.py writes sidebar.json). No

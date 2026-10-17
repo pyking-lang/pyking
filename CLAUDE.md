@@ -1636,7 +1636,10 @@ builds from there; nothing is generated into `sitesrc/` or `lib/`.
 - **Five sections**, in the header beside the logo, with the search on
   the right (`src/components/Header.astro`, `src/sections.mjs`): Install,
   Getting started, Documentation (the language reference, Editors, and
-  tinyweb without Pyking), Libraries and Playground. **The menu on the
+  tinyweb without Pyking), Libraries and Playground. The header ends
+  with a GitHub link to <https://github.com/pyking-lang>, and the site
+  is dark until a visitor picks a theme (a `head` script in
+  `astro.config.mjs`). **The menu on the
   left is the section's own pages only**, the page being read opened at
   its `##` headings (`src/components/Sidebar.astro`, over the
   `sidebar.json` `site.py` writes from the help's `index.json`); there

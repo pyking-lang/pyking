@@ -227,6 +227,8 @@
 }
 .pyking-header-left { display: flex; align-items: center; gap: 2rem; min-width: 0; }
 .pyking-header-right { display: flex; align-items: center; gap: 1rem; }
+.pyking-github { display: flex; color: var(--sl-color-text-accent); }
+.pyking-github:hover { color: var(--sl-color-white); }
 .pyking-nav { display: flex; gap: 1.4rem; align-items: center; }
 .pyking-nav a {
   color: var(--sl-color-gray-2);
