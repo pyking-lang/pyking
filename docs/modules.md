@@ -246,9 +246,9 @@ there too. The test suite depends on it: a `fail_typecheck_module_*`
 program has to be refused by every front end that claims to compile a
 file, and the playground's own check asserts exactly that.
 
-A program that imports is not offered as a playground example at all,
-nor are the modules it imports -- the page compiles one file, and a
-module is not a program.
+A program that imports compiles in the playground as `pyk compile`
+compiles it: `compile_modules` in `src/web/pyking_web.ml` reads its
+modules from the page as a run does.
 
 ## Running and compiling a program of several modules
 
@@ -420,10 +420,10 @@ module's own declarations from `Module.context`'s `own_declared`.
 
 ### What a program uses
 
-C and Java compile a subset of the language, so a library's function a
-program never calls must not decide whether it compiles: `sys.env_get`
-walks a list, and would otherwise keep `sys.exit` out of both.
-`src/prune.ml` gives those two targets only what the program reaches.
+C compiles only what needs no heap, so a library's function a program
+never calls must not decide whether it compiles: `sys.env_get` walks a
+list, and would otherwise keep `sys.exit` out of C. `src/prune.ml` gives
+C and Java only what the program reaches.
 Every module but the program's own keeps the definitions its importers
 name, the ones a top-level statement names and the ones those call; a
 statement that is not a definition always stays, since it runs when the
@@ -532,11 +532,12 @@ callback's declared parameter types. A failure in a callback goes to
 types now convert a result, so an external module can return a `Float`
 on `iweb24` as well.
 
-C and Java hand a host only a top-level `def`, which reads what the top
-level bound through a file-scope variable or a static field
-([target_c.md](target_c.md), [target_java.md](target_java.md),
-"Functions as values"); `tests/external_callback_named.pyk` is that
-case, beside `tests/external_callback.pyk`'s lambdas.
+C hands a host a plain function pointer: a top-level `def`, a lambda
+capturing nothing, or the plain function a closure capturing nothing
+carries ([target_c.md](target_c.md), "External modules"). Java hands a
+host a `java.util.function` interface ([target_java.md](target_java.md),
+"External modules"). `tests/external_callback_named.pyk` and
+`tests/external_callback.pyk`'s lambdas are both cases.
 
 A host that delivers events after the top level has ended needs the
 program to stay alive until then: node and a page do by themselves, a

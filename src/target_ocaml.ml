@@ -86,6 +86,8 @@ type oexpr =
   | ODeref of string (* !x -- reading one *)
   | OAssign of string * oexpr (* x := e -- writing one *)
   | OIgnore of oexpr (* ignore (expr) *)
+  | OField of oexpr * string (* e.field -- a polymorphic parameter, used *)
+  | ORecord of string * oexpr (* { field = e } -- one, passed *)
   | OEscape of string * string * string * oexpr
       (* a function body a `return` leaves early: the exception it is
          left by, the cell the value is put in, the name the value comes
@@ -338,17 +340,6 @@ let is_list t = match t with TList _ -> true | _ -> false
 (** t as it would be written in source. typ -> string *)
 let name_of t = pprint_type default_config t
 
-(** Whether an `all` appears anywhere inside a type -- the mark of
-    polymorphism OCaml will not infer for a parameter. typ -> bool *)
-let rec has_forall type_ =
-  match type_ with
-  | TForall _ -> true
-  | TList (_, element, _) -> has_forall element
-  | TTuple (_, elements, _) -> List.exists has_forall elements
-  | TFunction (_, params, result, _, _, _, _) ->
-      List.exists has_forall params || has_forall result
-  | _ -> false
-
 (* --- binding patterns ---
 
    A binding or a parameter is either a name or a tuple taken apart, and
@@ -401,7 +392,7 @@ let rec free e =
   match e with
   | OInt _ | OFloat _ | OStr _ | OBool _ | OUnit -> StringSet.empty
   | OVar name -> StringSet.singleton name
-  | OIgnore e | ORef e -> free e
+  | OIgnore e | ORef e | OField (e, _) | ORecord (_, e) -> free e
   | ODeref name -> StringSet.singleton name
   | OAssign (name, value) -> StringSet.add name (free value)
   | OApp (func, args) -> union_all (free func :: List.map free args)
@@ -485,8 +476,100 @@ type oloop = {
 type position = Tail | Effect | InLoop of oloop
 
 (** What a translation reads. *)
+(* --- polymorphic parameters ---
+
+   OCaml takes a polymorphic parameter only as a record with a
+   polymorphic field, so each such parameter type is one record type,
+   declared at the top of the module (docs/target_ocaml.md, "Polymorphic
+   parameters"). *)
+
+let no_info = { file = "<ocaml>"; row1 = 1; col1 = 0; row2 = 1; col2 = 0 }
+
+(** Every type variable named in a type, bound or not. typ -> [string] *)
+let rec type_vars type_ =
+  match type_ with
+  | TVar (_, v, _, _) -> [ v ]
+  | TList (_, e, _) -> type_vars e
+  | TTuple (_, es, _) | TCon (_, _, es, _) -> List.concat_map type_vars es
+  | TFunction (_, ps, r, _, _, _, _) -> List.concat_map type_vars ps @ type_vars r
+  | TForall (_, _, b, _) -> type_vars b
+  | _ -> []
+
+(** A polymorphic parameter's body with its own variables renamed `b0`,
+    `b1`, ... and every part naming none of them a hole `h0`, `h1`, ...;
+    answers the shaped body and the holes' count. Two parameter types
+    with one shape share a record, whatever fills the holes.
+    typ -> (typ, int) *)
+let poly_shape forall =
+  let index v bound =
+    let rec go i = function
+      | [] -> 0
+      | x :: rest -> if x = v then i else go (i + 1) rest
+    in
+    go 0 bound
+  in
+  let rec shape bound holes t =
+    if not (List.exists (fun v -> List.mem v bound) (type_vars t)) then
+      (TVar (no_info, Printf.sprintf "h%d" holes, 0, true), holes + 1)
+    else
+      match t with
+      | TVar (i, v, s, r) -> (TVar (i, Printf.sprintf "b%d" (index v bound), s, r), holes)
+      | TList (i, e, s) ->
+          let e, holes = shape bound holes e in
+          (TList (i, e, s), holes)
+      | TTuple (i, es, s) ->
+          let es, holes = shape_all bound holes es in
+          (TTuple (i, es, s), holes)
+      | TCon (i, c, es, s) ->
+          let es, holes = shape_all bound holes es in
+          (TCon (i, c, es, s), holes)
+      | TFunction (i, ps, r, a, b, c, d) ->
+          let ps, holes = shape_all bound holes ps in
+          let r, holes = shape bound holes r in
+          (TFunction (i, ps, r, a, b, c, d), holes)
+      | TForall (i, vs, body, s) ->
+          let bound = bound @ vs in
+          let body, holes = shape bound holes body in
+          (TForall (i, List.map (fun v -> Printf.sprintf "b%d" (index v bound)) vs, body, s), holes)
+      | t -> (t, holes)
+  and shape_all bound holes ts =
+    List.fold_left
+      (fun (out, holes) t ->
+        let t, holes = shape bound holes t in
+        (out @ [ t ], holes))
+      ([], holes) ts
+  in
+  match forall with
+  | TForall (_, vs, body, _) -> shape vs 0 body
+  | t -> (t, 0)
+
+(** What tells two polymorphic parameter types apart: their shape.
+    typ -> string *)
+let poly_key forall =
+  let shaped, _ = poly_shape forall in
+  let count = match forall with TForall (_, vs, _, _) -> List.length vs | _ -> 0 in
+  Printf.sprintf "%d.%s" count (pprint_type default_config shaped)
+
+(** Every polymorphic parameter type in a type, at any depth.
+    typ -> [typ] *)
+let rec param_foralls type_ =
+  match type_ with
+  | TFunction (_, ps, r, _, _, _, _) ->
+      List.concat_map
+        (fun p -> (match p with TForall _ -> [ p ] | _ -> []) @ param_foralls p)
+        ps
+      @ param_foralls r
+  | TForall (_, _, b, _) -> param_foralls b
+  | TList (_, e, _) -> param_foralls e
+  | TTuple (_, es, _) | TCon (_, _, es, _) -> List.concat_map param_foralls es
+  | _ -> []
+
 type ctx = {
   tmap : typ IntMap.t;
+  (* The record each polymorphic parameter type is passed as, by
+     `poly_key`, and the parameters in scope that are one, by name. *)
+  polys : (string * string) list;
+  poly_params : string SMap.t;
   printing : Analyses.effects;
   prefix : string;
   (* The names currently declared `var`, which are OCaml `ref`s: a read
@@ -1174,7 +1257,10 @@ let rec expr ctx acc e =
         (OVar (reached (ctx.own_module ^ "_external") name), acc)
         (* A `var` is a cell, so reading it is a dereference. *)
       else if StringSet.mem name ctx.refs then (ODeref (mangle ctx name), acc)
-      else (OVar (mangle ctx name), acc)
+      else (
+        match SMap.find_opt name ctx.poly_params with
+        | Some field -> (OField (OVar (mangle ctx name), field), acc)
+        | None -> (OVar (mangle ctx name), acc))
   | EQualified (_, alias, field, _) ->
       (* A public name of another module, which OCaml reaches the same
          way: through the module that holds it. *)
@@ -1206,6 +1292,24 @@ let rec expr ctx acc e =
          `function_binding` gave the definition to take. *)
       let func_piece = List.hd pieces in
       let arg_pieces = List.tl pieces in
+      (* An argument for a polymorphic parameter goes in its record. *)
+      let wanted =
+        match IntMap.find_opt (expr_sym func) ctx.tmap with
+        | Some (TFunction (_, ps, _, _, _, _, _))
+        | Some (TForall (_, _, TFunction (_, ps, _, _, _, _, _), _)) -> ps
+        | _ -> []
+      in
+      let arg_pieces =
+        List.mapi
+          (fun i piece ->
+            match List.nth_opt wanted i with
+            | Some (TForall _ as p) -> (
+                match List.assoc_opt (poly_key p) ctx.polys with
+                | Some field -> ORecord (field, piece)
+                | None -> piece)
+            | _ -> piece)
+          arg_pieces
+      in
       ( sequence
           (OApp (func_piece, if arg_pieces = [] then [ OUnit ] else arg_pieces)),
         acc )
@@ -2396,43 +2500,38 @@ and binding ctx acc statement =
       unsupported (stmt_info statement)
         (Printf.sprintf "%s as a binding" (stmt_kind_name statement))
 
-(** Refuses a def with a polymorphic *parameter*. OCaml generalizes what
-    a `let` binds, so a polymorphic definition needs nothing said about
-    it here -- but a parameter used at two types inside one body is
-    rank-2, and OCaml takes that only from an explicit `'a.` annotation,
-    which this backend never writes (docs/target_ocaml.md, "Type
-    variables"). ctx -> stmt -> () *)
-and check_rank_one ctx func =
+(** ctx with a def's parameters in scope: each polymorphic one under the
+    record field it is read through, the rest no longer one.
+    ctx -> stmt -> ctx *)
+and with_parameters ctx func =
   let declared =
     match IntMap.find_opt (stmt_sym func) ctx.tmap with
-    | Some (TForall (_, _, TFunction (_, params, _, _, _, _, _), _)) -> Some params
-    | Some (TFunction (_, params, _, _, _, _, _)) -> Some params
-    | _ -> None
+    | Some (TForall (_, _, TFunction (_, params, _, _, _, _, _), _)) -> params
+    | Some (TFunction (_, params, _, _, _, _, _)) -> params
+    | _ -> []
   in
-  match declared with
-  | None -> ()
-  | Some params ->
-      let func_params =
-        match func with
-        | SFunctionDef (_, _, params, _, _, _, _, _, _) -> params
-        | _ -> []
-      in
-      let rec go ps ts =
-        match (ps, ts) with
-        | Param (info, _, _, _, _) :: ps, type_ :: ts ->
-            if has_forall type_ then
-              unsupported info
-                "a polymorphic parameter -- OCaml generalizes a `let`, not a \
-                 parameter, and taking one needs an explicit `'a.` annotation \
-                 this backend does not write"
-            else go ps ts
-        | _ -> ()
-      in
-      go func_params params
+  let func_params =
+    match func with
+    | SFunctionDef (_, _, params, _, _, _, _, _, _) -> params
+    | _ -> []
+  in
+  let poly_params =
+    List.fold_left
+      (fun map (i, Param (_, name, _, _, _)) ->
+        match List.nth_opt declared i with
+        | Some (TForall _ as p) -> (
+            match List.assoc_opt (poly_key p) ctx.polys with
+            | Some field -> SMap.add name field map
+            | None -> SMap.remove name map)
+        | _ -> SMap.remove name map)
+      ctx.poly_params
+      (List.mapi (fun i p -> (i, p)) func_params)
+  in
+  { ctx with poly_params }
 
 (** One def, as an obinding. ctx -> acc -> stmt -> (obinding, acc) *)
 and function_binding ctx acc func =
-  check_rank_one ctx func;
+  let ctx = with_parameters ctx func in
   let ctx =
     {
       ctx with
@@ -2600,6 +2699,8 @@ let rec polish e =
   match e with
   | OInt _ | OFloat _ | OStr _ | OBool _ | OUnit | OVar _ | ODeref _ -> e
   | OIgnore inner -> OIgnore (polish inner)
+  | OField (inner, field) -> OField (polish inner, field)
+  | ORecord (field, inner) -> ORecord (field, polish inner)
   | ORef value -> ORef (polish value)
   | OAssign (name, value) -> OAssign (name, polish value)
   | OApp (func, args) -> OApp (polish func, List.map polish args)
@@ -2813,6 +2914,22 @@ let rec type_text type_ name top =
             interface: %s"
            name (name_of type_))
 
+(** The record a polymorphic parameter type is passed as: one field, by
+    the record's own name, polymorphic in the parameter's variables.
+    string -> typ -> string *)
+let poly_declaration field forall =
+  let shaped, holes = poly_shape forall in
+  let count = match forall with TForall (_, vs, _, _) -> List.length vs | _ -> 0 in
+  let params =
+    match List.init holes (fun i -> Printf.sprintf "'h%d" i) with
+    | [] -> ""
+    | [ one ] -> one ^ " "
+    | many -> "(" ^ String.concat ", " many ^ ") "
+  in
+  Printf.sprintf "type %s%s = { %s : %s. %s }" params field field
+    (String.concat " " (List.init count (fun i -> Printf.sprintf "'b%d" i)))
+    (type_text shaped field true)
+
 (** A public name's type, as a `.mli` writes it. The whole of what OCaml
     is told about a module from outside, so a type OCaml cannot be given
     here is refused rather than guessed at. typ -> string -> string *)
@@ -2930,6 +3047,10 @@ and pprint_bare e level =
         p_seq )
   | OIgnore inner ->
       (Printf.sprintf "ignore %s" (pprint inner p_atom level), p_app)
+  | OField (inner, field) ->
+      (Printf.sprintf "%s.%s" (pprint inner p_atom level) field, p_atom)
+  | ORecord (field, inner) ->
+      (Printf.sprintf "{ %s = %s }" field (pprint inner (p_seq + 1) level), p_atom)
   | OEscape (exc, cell, bound, inner) ->
       (* The exception carries nothing, so OCaml needs no type written
          for it: the value travels in the cell, whose type it infers
@@ -3370,9 +3491,24 @@ let translate_program stmts tmap (context : Module.context) =
       (fun names (local, reached) -> SMap.add local reached names)
       names (imported_names context.external_fields stmts)
   in
+  (* Every polymorphic parameter type the program mentions, each given
+     the record it is passed as. *)
+  let poly_types =
+    IntMap.fold (fun _ t found -> found @ param_foralls t) tmap []
+  in
+  let polys =
+    List.fold_left
+      (fun polys p ->
+        let key = poly_key p in
+        if List.mem_assoc key polys then polys
+        else polys @ [ (key, (Printf.sprintf "pyk_poly%d" (List.length polys + 1), p)) ])
+      [] poly_types
+  in
   let ctx =
     {
       tmap;
+      polys = List.map (fun (key, (field, _)) -> (key, field)) polys;
+      poly_params = SMap.empty;
       printing = Analyses.effects stmts;
       prefix = unused_prefix stmts;
       refs = StringSet.empty;
@@ -3424,7 +3560,9 @@ let translate_program stmts tmap (context : Module.context) =
     conversions = acc.conversions;
     program_name = context.context_name;
     main = context.main;
-    types = datatype_declarations own_datatypes;
+    types =
+      datatype_declarations own_datatypes
+      @ List.map (fun (_, (field, p)) -> poly_declaration field p) polys;
     printers;
     printer_interface;
     fragile =

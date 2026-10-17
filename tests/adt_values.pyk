@@ -1,0 +1,54 @@
+# Datatypes that hold no list and not themselves: every target compiles
+# them, C included, where each is a value of its own rather than a
+# pointer to one.
+
+datatype Suit:
+    Hearts
+    Spades
+
+datatype Card:
+    Card(rank: Int, suit: Suit)
+    Joker
+
+datatype Maybe(a):
+    Nothing
+    Just(a)
+
+datatype Hand:
+    Hand(left: Card, right: Card = Joker)
+
+
+def suit_name(s: Suit) -> String:
+    match s:
+        case Hearts: "hearts"
+        case Spades: "spades"
+
+
+def describe(c: Card) -> String:
+    match c:
+        case Card(1, s): "ace of " ++ suit_name(s)
+        case Card(rank = r, suit = Hearts) if r > 10: "a high heart"
+        case Card(r, Hearts | Spades) as whole: string(r) ++ " (" ++ string(whole) ++ ")"
+        case Joker: "joker"
+
+
+def lookup(n: Int) -> Maybe(String):
+    if n == 1 then Just("one") else Nothing
+
+
+def or_else(m: Maybe(a), fallback: a) -> a:
+    match m:
+        case Just(x): x
+        case Nothing: fallback
+
+
+print(describe(Card(1, Spades)))
+print(describe(Card(12, Hearts)))
+print(describe(Card(5, Spades)))
+print(describe(Joker))
+print(Hand(Card(2, Hearts)))
+print(Hand(Card(3, Spades), right = Card(4, Hearts)).right)
+print(lookup(1), lookup(2))
+print(or_else(lookup(1), "none"), or_else(lookup(7), "none"))
+print(or_else(Just(3), 0), or_else(Nothing, 9))
+print((Just(true), Card(7, Hearts)))

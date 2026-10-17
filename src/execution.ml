@@ -122,7 +122,8 @@ let plan_for target path modules arguments =
       build =
         [
           [ java_compiler (); "--release"; release; "-d"; directory ]
-          @ others @ [ path ];
+          @ others
+          @ [ Filename.concat directory Target_java.runtime_file; path ];
         ];
       run = ([ java_runtime (); "-cp"; directory; class_name ] @ arguments);
       directory;

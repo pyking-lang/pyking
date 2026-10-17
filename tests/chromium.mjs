@@ -9,7 +9,10 @@
 // password, or updating and syncing in the background. Every call
 // answers within CALL_TIMEOUT or fails saying which call it was, and
 // every pending call fails when the connection closes, so a hung browser
-// is reported rather than waited on.
+// is reported rather than waited on. `connect` answers only once the
+// browser shows its first page, as Puppeteer waits: a full Chrome writes
+// its port before it has finished starting, and a call made then may
+// never be answered.
 //
 // Functions:
 //   launch(browser, profile) -- starts Chromium on a fresh profile.
@@ -86,7 +89,7 @@ export async function connect(profile, onEvent = () => {}) {
     for (const { reject } of waiting.values()) reject(new Error("the connection to Chromium closed"));
     waiting.clear();
   };
-  const send = (method, params = {}, sessionId = undefined) => {
+  const call = (method, params, sessionId, timeout) => {
     const id = next++;
     socket.send(JSON.stringify({ id, method, params, sessionId }));
     return new Promise((resolve, reject) => {
@@ -94,12 +97,25 @@ export async function connect(profile, onEvent = () => {}) {
         waiting.delete(id);
         const what = params.expression ? `${method} ${params.expression.slice(0, 80)}` : method;
         reject(new Error(`Chromium did not answer ${what} in ${CALL_TIMEOUT / 1000} s`));
-      }, CALL_TIMEOUT);
+      }, timeout);
       waiting.set(id, {
         resolve: (value) => { clearTimeout(timer); resolve(value); },
         reject: (error) => { clearTimeout(timer); reject(error); },
       });
     });
   };
+  const send = (method, params = {}, sessionId = undefined) =>
+    call(method, params, sessionId, CALL_TIMEOUT);
+  let started = false;
+  for (let i = 0; i < 60 && !started; i++) {
+    try {
+      const { targetInfos } = await call("Target.getTargets", {}, undefined, 2000);
+      started = targetInfos.some((target) => target.type === "page");
+    } catch {
+      started = false;
+    }
+    if (!started) await sleep(250);
+  }
+  if (!started) throw new Error("Chromium started but never showed a page");
   return { send, close: () => socket.close() };
 }

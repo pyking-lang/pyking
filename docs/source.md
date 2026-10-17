@@ -1627,92 +1627,55 @@ instead.
 
 ## `target_c.ml`
 
-**The C backend**, serving `c89`, `c99` and `c23`. One backend rather
-than three because the standards disagree about *printing* — comments,
-whether
-declarations may follow statements, whether `bool` exists — not about
-meaning, so `standard` reaches only the printer.
+**The C backend**, serving `c89`, `c99` and `c23`. One backend because
+the standards disagree about *printing* -- comments, where declarations
+go, how a boolean is spelled -- not about meaning.
 
-**Design, in depth:** [target_c_internals.md](target_c_internals.md)
-(this module's own inference and translation machinery);
-[target_c.md](target_c.md) (what compiles to what, and what's refused).
+**Design, in depth:** [target_c_internals.md](target_c_internals.md);
+[target_c.md](target_c.md) (what compiles to what, and what is refused).
 
-- **The `C*` AST**, and the type vocabulary `INT`/`BOOL`/`STRING`/`UNIT`
-  with `_C_TYPES` and `_FORMATS` (the `printf` conversion per type).
-- **`translate_program(stmts, context=None)`** — the translation, whose
-  real work is
-  the type inference C forces and Pyking never needed: every expression
-  node carries a type, bindings take their initializer's, parameters
-  their annotation (when C can represent it) or a guess from the body,
-  and a function's return type is read off its translated body. Where
-  inference cannot answer, it raises `Unsupported` rather than
-  emitting C that will not compile.
-- **`_Translator.loop` / `plain_loop` / `loop_block` / `loop_tail`** —
-  a `loop` as `while (1)` over one mutable variable per slot, whose C
-  type is the initializer's. Every tail of the body assigns the next
-  turn's value, a `break` is C's own (the variables are left holding
-  what the loop is worth), and the shapes C has no value for -- a loop
-  worth unit or worth a tuple, whose value something wants -- are
-  refused rather than approximated.
-- **`_Translator.in_order` / `sequenced`** — C leaves the order of an
-  operator's operands and a call's arguments unspecified, so operands
-  that `analyses.Effects` says can print are pulled into temporaries and
-  put in front of the result with the comma operator, the one construct
-  that fixes an order inside a C expression. The temporaries are
-  declared at the top of the function (`declarations`), since an operand
-  in a `while` condition runs every turn and one in an `if` expression's
-  branch only when chosen. A `print` is a statement here, so it puts its
-  assignments before itself instead.
-- **`pprint_c_program(program, standard, source)`** and its statement and
-  expression printers — the only place `standard` is consulted.
-  **`pprint_c_header`** is the `.h` a module the program imports is
-  included through: its public names, and the `<name>_init()` that runs
-  its top level.
-- Prototypes are emitted ahead of the definitions, so a call may name a
-  function written further down.
-- **`statics`** -- what the top level binds, lifted to `static`
-  file-scope variables, so a function reads them; and **`Func`**, the
-  type of a top-level `def` used as a value, a pointer to the C
-  function written through a guarded typedef (`function_type_name`,
-  `typedef`, `function_types`). `function_value` makes one, and `call`
-  calls through a name holding one.
+- **`translate_program ?requested stmts tmap context standard`** -- one
+  module, its types read from `tmap`. C has no garbage collector, so it
+  compiles what needs none and refuses a list, a datatype holding
+  itself and a function value that could outlive its environment.
+- **`translate_all units standard`** -- every module of a program, each
+  compiling the instances of its polymorphic functions the others call.
+- **`ctype` / `code`** -- a type as C, every compound one declared once
+  in the file under a name built from its code; **`shower`** the
+  function that prints one.
+- **`instance` / `drain`** -- a polymorphic def compiled once per type a
+  call asks for.
+- **`lift` / `function_value`** -- a nested def or a lambda as a function
+  taking what it captures, and a function value as a closure.
+- **`in_order` / `sequenced`** -- operands that can print, put in
+  temporaries and ordered with the comma operator.
+- **`pprint_c_program` / `pprint_c_header`** -- the translation unit,
+  and the `.h` a module the program imports is included through.
 
 ---
 
 ## `target_java.ml`
 
-**The Java backend**, serving `java8`, `java17` and `java21` — the same
-shape as the C backend, with a `version` parameter instead of a
-`standard`. The three versions differ only in whether a local declaration
-writes `var` (Java 10's local-variable type inference) or spells its type
-out.
+**The Java backend**, serving `java8`, `java17` and `java21`, as three
+shapes of output: plain classes and casts, records with `instanceof`
+patterns, and records with a pattern `switch`.
 
-**Design, in depth:** [target_java_internals.md](target_java_internals.md)
-(this module — mostly a repeat of `target_c.ml`'s own machinery, so
-that page focuses on the differences); [target_java.md](target_java.md)
-(what compiles to what, and what's refused).
+**Design, in depth:** [target_java_internals.md](target_java_internals.md);
+[target_java.md](target_java.md) (what compiles to what).
 
-- **The `J*` AST** — `JInt`, `JStr`, `JBool`, `JVar`, `JBinary`,
-  `JCall`, `JCond`, **`JEquals`** (`.equals()`, since Java's `==` on
-  strings compares references), and the statement variants.
-- **`translate_program(stmts, context=None)`** — infers types the way
-  `target_c.ml`
-  does, including the `while (true)` a `loop` becomes, and additionally
-  proves two things `javac` insists on: **`definitely_returns`** (every
-  path of a value-returning function returns — counting a loop nothing
-  breaks out of, which never finishes) and **`check_reachable`**
-  (nothing follows a statement that always returns, or such a loop).
-  Both are refused at compile time with a position.
-- **`pprint_java_program(program, version, class_name, source)`**.
-- **`statics`** -- what the top level binds, as static fields -- and
-  **`Func`**, a function type, written as the `java.util.function`
-  interface of its shape (`java_type`, called through `apply_method`);
-  a top-level `def` used as a value is a **`JLambda`** calling its
-  method.
-- **`default_class_name(stem)`** — Java requires the file and its public
-  class to match exactly, so `foo_bar.pyk` becomes `FooBar.java`. The
-  driver applies it; deriving a class name from an explicit `--output` is
-  this module's business.
+- **`translate_program stmts tmap context version`** -- one module, its
+  types read from `tmap`: generics for type variables, `java.util.List`
+  for a list, the runtime's `T2`, ... for a tuple, a class per
+  constructor, `java.util.function` for a function value.
+- **`jt`** -- a type as Java; **`pattern`**, **`match_stmt`** and
+  **`switch_stmt`** -- a `match` for each shape.
+- **`lift`** -- a nested def as a static method taking what it captures;
+  **`poly_wrap`** -- a function handed to a polymorphic parameter, as an
+  object of the runtime's interface for it.
+- **`pprint_java_program`** and **`runtime_source`** -- a module's class,
+  and `PykRuntime.java` for the whole program.
+- **`default_class_name(stem)`** -- Java requires the file and its public
+  class to match exactly, so `foo_bar.pyk` becomes `FooBar.java`.
 
 ---
 

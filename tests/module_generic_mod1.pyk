@@ -1,0 +1,15 @@
+# A module exporting a polymorphic datatype and two polymorphic
+# functions: each target compiles a function once, or -- C -- once per
+# type a module that imports it uses it at.
+
+public datatype Pair(a, b):
+    Pair(first: a, second: b)
+
+
+public def flip(p: Pair(a, b)) -> Pair(b, a):
+    match p:
+        case Pair(x, y): Pair(y, x)
+
+
+public def repeat(x: a, n: Int) -> (a, Int):
+    (x, n)

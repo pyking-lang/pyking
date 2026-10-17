@@ -2,7 +2,7 @@ def keep(x:a, y:b) -> a:
     x
 def tag(x:a, n:Int) -> (a, Int):
     (x, n + 1)
-def hold(n:a) -> ((a, Int), (a, String)):
+def hold(n:b) -> ((b, Int), (b, String)):
     def wrap(other:a):
         (n, other)
     (wrap(1), wrap('two'))

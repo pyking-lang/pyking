@@ -65,7 +65,7 @@ $ pyk compile -t ocaml program.pyk
   Construct is not supported
 ```
 
-Beyond that, five things the checker accepts and this backend refuses,
+Beyond that, four things the checker accepts and this backend refuses,
 each because OCaml has no way to be given it. Each raises `Unsupported`
 with a source position, so nothing reaches `ocamlopt` that will not
 build.
@@ -157,14 +157,6 @@ moving it would leave that use reading a name OCaml has not bound yet.
 Only a reference *forward* makes a group. A `def` naming one written
 above it needs nothing done: OCaml already has that one in scope.
 
-### A polymorphic parameter
-
-OCaml generalizes a `let`, not a parameter, so a function taking a
-polymorphic function as an argument needs an explicit `'a.` annotation —
-a record with a polymorphic field, in practice — which this backend does
-not write. A Pyking `def` whose parameter is written `(all a. …)` is
-refused here; the checker's own rank-2 support is unaffected.
-
 ### Printing a value of a type variable
 
 OCaml has no runtime type, so a value whose type is a variable cannot be
@@ -210,10 +202,16 @@ on. This backend is the reason that is true. Two decisions need it:
   type annotations, and OCaml generalizes what a `let` binds, so a
   polymorphic Pyking function becomes a polymorphic OCaml one by itself
   -- `def id(x:a) -> a` is `let id x = x`, usable at every type its
-  Pyking original was. A polymorphic *parameter* is where that stops:
-  OCaml does not generalize one, and taking a function used at two types
-  inside a body needs an explicit `'a.` annotation this backend does not
-  write, so such a `def` is refused with a source position.
+  Pyking original was.
+- **A polymorphic parameter is a record.** OCaml does not generalize a
+  parameter, so a parameter of type `all a. (a) -> a` is passed in a
+  record with a polymorphic field, `{ pyk_poly1 : 'b0. 'b0 -> 'b0 }`,
+  declared at the top of the module -- one record per shape, the parts
+  naming none of its own variables being the record's type parameters.
+  A call wraps its argument, `use { pyk_poly1 = identity }`, and the body
+  reads it, `f.pyk_poly1 1`. The records are declared in the module and
+  its `.mli`, but numbered per module, so another module's call to such
+  a function is not wrapped in the record it takes.
 - **`print` formats by type.** An `Int` argument becomes
   `string_of_int e`, a `Bool` becomes `string_of_bool e`, a `String` is
   written as it is, unit becomes `"()"`, and a list of `Int` goes

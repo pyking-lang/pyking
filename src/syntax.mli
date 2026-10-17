@@ -105,7 +105,9 @@ and typ =
   | TVar of info * string * int * bool
       (* a lowercase name: a type the caller chooses. The flag is
          `rigid`: false for a variable the checker made rather than the
-         source. *)
+         source. A symbol of -1 marks an enclosing definition's
+         variable in the type of a definition written inside it, which
+         prints as `?`. *)
   | TForall of info * string list * typ * int (* all a b. body *)
   | TCon of info * string * typ list * int
       (* Name / Name(T1, ...) / module.Name(...) -- a datatype applied

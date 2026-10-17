@@ -189,8 +189,8 @@ declares itself, and nothing may shadow a `var` anyway (PYKING.md,
 to mean.
 
 This is the one backend that needs any of this. JavaScript closes over
-the binding and OCaml over the `ref`; C and Java have no closures at all
-and refuse such a function outright, with a worded error.
+the binding and OCaml over the `ref`; C and Java keep such a `var` in a
+cell its closures point to.
 
 ### Names that are keywords in Python
 
@@ -584,8 +584,7 @@ common `if`/`else` case stays clean.
 
 Two things are left alone. A `print` in tail position stays a statement:
 it yields unit, and Python's implicit `None` already *is* unit, so
-`return print(x)` would say the same thing less clearly (and is the one
-form the C and Java backends cannot express at all). And a tail that is
+`return print(x)` would say the same thing less clearly. And a tail that is
 a loop or a binding produces no value, so no `return` is emitted and the
 function returns `None`.
 

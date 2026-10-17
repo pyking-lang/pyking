@@ -160,9 +160,10 @@ guards" and "Exhaustiveness", is the language; this is where it lives.
 - **Backends**: Python a class per constructor (`__pyk_datatype` in the
   prelude), JavaScript a function per constructor building a tagged
   object (`pykData`), OCaml its own variants plus a `pyk_show_*` printer
-  per datatype, the interpreter `VData`. C and Java refuse datatypes,
-  as they refuse lists, but take guards and `|` over scalars where no
-  name is bound.
+  per datatype, the interpreter `VData`, Java a class per constructor
+  (records from java17 on, a pattern `switch` on java21) with a factory
+  answering the datatype's own type, and C a tagged union passed by
+  value -- a datatype holding itself needs a heap, and C refuses it.
 
 ## Changing the language: always update all five places
 
@@ -213,18 +214,18 @@ last ones are the ones that get forgotten:
    hand-written like `syntax.ml`'s and drifts just as silently.
 2. **`tests/`** — at least one `.pyk` file exercising the new construct,
    with its `.out` captured from an actual run, **and an entry in
-   `tests/test_cases.toml`** listing the targets it works on. The harness
-   warns about a `.pyk` missing from the manifest, but a wrong target list
-   just silently under-tests. A program that *imports* also lists the
+   `tests/test_cases.toml`**. A case runs on every target; one it cannot
+   run on is named under `excluded` with the reason, which the harness
+   prints in its summary. The harness warns about a `.pyk` missing from
+   the manifest, and about a case that writes a `targets` list. A program that *imports* also lists the
    modules it imports under `modules`, in dependency order -- the
    compiler writes them beside the program's own output, and the C, Java
    and OCaml runners have to name them in that order to build the
-   program at all. A module listed there is not a case of its own. If the checker accepts the construct, that
-   list includes `interpret`: the interpreter is the reference for what
-   the program *means*, and the harness warns about a `typecheck_*` case
-   that leaves it out. If most of an existing test would work on
-   the JS targets but one section would not, split it in two rather than
-   marking the whole file python-only.
+   program at all. A module listed there is not a case of its own. The
+   interpreter is the reference for what the program *means*, so a case
+   does not exclude it. If most of an existing test would work on C but
+   one section needs a heap, split it in two rather than excluding the
+   whole file.
 3. **`PYKING.md`** — feature summary, EBNF grammar, the grammar notes for
    anything the EBNF can't express, and a worked example. Language only:
    no targets or generated code. Its "Type checking" section is the
@@ -471,10 +472,11 @@ The bootstrap is split into one module per compiler stage:
    with a declaration half, skipping a copy onto itself, and a module
    contributes *two* files to every file list, implementation first. See
    `docs/modules.md`, "External modules". The playground's Compile
-   compiles a file with no program around it: it runs `check_publics`
-   (it needs only the file) and lets `typesystem.available` refuse an
-   import (it needs the program), and offers neither a program that
-   imports nor a module it imports as an example. The REPL and the
+   compiles a file that imports nothing on its own, running
+   `check_publics`, and one that imports as a program, reading its
+   modules from the page as Run does (`compile_modules`);
+   `tests/test_playground.py` holds every case's Compile to `pyk
+   compile`'s output. The REPL and the
    browser's Run are programs: **`load_imports`** reads the modules an
    entry at the prompt newly reaches, prepared the way `load` prepares a
    program's (both through `prepare`), and the browser reads the
@@ -940,58 +942,50 @@ The bootstrap is split into one module per compiler stage:
    flushes what `io.write` left unfinished and reports a nonzero
    `sys.exit`; the `iweb24` page asks the bundle for
    `pykRunProgram('<main>\nrelease')` under `--release`.
-11. **`src/target_c.ml`** — the C backend, serving both the `c89` and
-   `c23` targets: a `C*` AST, translation, and a printer taking a
-   `standard` parameter. One backend rather than two because the
-   standards disagree about *printing*, not meaning — comments, whether
-   declarations may follow statements, whether `bool` exists — so the
-   `standard` reaches only `pprint_c_program` and its helpers. Its real
-   work is the type inference C forces and Pyking never needed: every
-   expression node carries an `Int`/`Float`/`String`/`Bool` type, bindings take
-   their initializer's, parameters their annotation (when C can represent
-   it) or a guess from the body, and a function's return type is read off
-   its translated body. When inference cannot answer, raise
-   `Unsupported` with the `Info` rather than emitting C that will
-   not compile. The other thing C forces is *order*: it leaves an
-   operator's operands and a call's arguments unspecified, and real
-   compilers differ by architecture (x86-64 evaluates arguments right to
-   left, AArch64 left to right), so `in_order`/`sequenced` pull every
-   operand `analyses.Effects` says can print into a temporary and put
-   the assignments in front of the result with the comma operator — the
-   one construct that fixes an order *inside* a C expression, which is
-   what a `while` condition and an `if` expression's branches need.
-   `target_ocaml.ml` does the same with `let` for the same reason; keep
-   both reading `Effects` rather than deciding for themselves. What the
-   top level binds is a `static` file-scope variable (`statics`), which
-   is what lets a function read it, and a top-level `def` is a value: a
-   pointer to the C function, its type a `Func` ctype written through a
-   guarded typedef named for its shape (`pyk_fn_ii_v`), which is also
-   what an external module is handed for a callback. `library_names`
-   reserves what the C library declares, since a file-scope name could
-   collide with it. See `docs/target_c.md`, "The top level" and
-   "Functions as values".
+11. **`src/target_c.ml`** — the C backend, serving `c89`, `c99` and
+   `c23`: a `C*` AST, translation, and a printer taking a `standard`
+   parameter, which the standards differ in -- comments, where
+   declarations go, how a boolean is spelled. It **infers no types**: it
+   reads them out of `tmap`, as `target_ocaml.ml` does. C has no garbage
+   collector, so it compiles **everything that needs no heap** and
+   refuses, with the reason, what does: a list, a datatype holding
+   itself, a function value that could outlive the stack frame it
+   captures from, and a polymorphic parameter. A polymorphic function is
+   a template compiled once per instance a call asks for (`instance`,
+   `drain`), and **`translate_all`** translates a program's modules
+   together so each compiles the instances the others ask of it. A tuple
+   is a struct and a datatype a tagged union, both by value; a nested
+   `def` or a lambda is lifted to a function taking what it captures,
+   whose captures the printer fills in at the end (`expand_captures`);
+   a function value is a closure struct -- the function taking its
+   environment, the environment on the stack, and the plain function
+   where it captures nothing, which is what a host is handed for a
+   callback (`pyk_fn_ii_v`). The other thing C forces is *order*: it
+   leaves an operator's operands and a call's arguments unspecified, so
+   `in_order`/`sequenced` pull every operand `analyses.Effects` says can
+   print into a temporary and put the assignments in front of the
+   result with the comma operator. `target_ocaml.ml` does the same with
+   `let`; keep both reading `Effects`. What the top level binds is a
+   `static` file-scope variable. See `docs/target_c.md` and
+   `docs/target_c_internals.md`.
 12. **`src/target_java.ml`** — the Java backend, serving `java8`,
-   `java17` and `java21`: a `J*` AST, translation, and a printer taking a
-   `version` parameter, the same shape `target_c.ml` uses for `standard`
-   — one backend because the three versions disagree only in whether a
-   local declaration writes `var` (Java 10's local-variable type
-   inference, absent from java8) or spells its type out. Infers types the
-   same way `target_c.ml` does (`Int`/`Float`/`String`/`Bool`, from initializers,
-   annotations, and translated return bodies), and additionally checks
-   that every function provably returns on every path
-   (`_definitely_returns`) and that no statement follows one that always
-   does (`_check_reachable`), since `javac` — unlike `cc` — refuses to
-   compile either. Needs no runtime helper the way C's `pyk_concat` and
-   `strcmp` are: string concatenation is Java's own `+`, and equality is
-   `.equals()`. The output file and its class are named in Java's own
-   style rather than the source's, since Java requires the two to match
-   (`default_class_name`; see `pyk.ml` below for where the exception
-   is applied). What the top level binds is a static field (`statics`),
-   and a top-level `def` is a value: the `java.util.function` interface
-   of its shape (`Runnable`, `Consumer`, `BiFunction`, ...; `java_type`,
-   `apply_method`), written as a lambda over `p$1`, `p$2` -- `$` is in no
-   Pyking name -- calling the method (`JLambda`). See
-   `docs/target_java.md`, "The top level" and "Functions as values".
+   `java17` and `java21` as three shapes of output: plain classes and
+   casts, records with `instanceof` patterns, and records with a pattern
+   `switch` for every `match`. It **infers no types**: it reads them out
+   of `tmap`, writing generics for type variables, `java.util.List` for
+   a list, the runtime's `T2`, ... for a tuple, a class per constructor
+   and `java.util.function` for a function value. Every program is
+   written with **`PykRuntime.java`** beside it (`runtime_source`, from
+   all its modules), which `pyk.ml`, `execution.ml` and the harness
+   compile with it. A nested `def` is a static method taking what it
+   captures, a `var` a closure captures a one-element array, and a
+   polymorphic parameter an interface of the runtime with one generic
+   method. javac refuses unreachable code and a method that can fall off
+   its end, so the backend drops what follows a statement that cannot
+   complete (`completes`) and ends such a method with a `throw`. The
+   output file and its class are named in Java's own style rather than
+   the source's (`default_class_name`). See `docs/target_java.md` and
+   `docs/target_java_internals.md`.
 13. **`src/target_ocaml.ml`** — the OCaml backend, serving the `ocaml5.5`
    target: an `O*` AST, translation, and a printer. The only backend
    that infers nothing — it *runs* `typesystem.type_check` and reads the
@@ -1065,10 +1059,9 @@ The bootstrap is split into one module per compiler stage:
    and captures are read positionally, with `var`s excluded. See
    `docs/gap.md` and `tests/lexical_capture_group.pyk`. The test script
    additionally refuses a factory in any program with no `def` inside a
-   loop, which is what keeps ordinary output ordinary. C and Java instead *refuse* a function that
-   reads a binding from around it — they have no closures — except what
-   the top level binds, which they make a file-scope variable and a
-   static field.
+   loop, which is what keeps ordinary output ordinary. C and Java lift a
+   nested function to one of their own taking what it captures, and keep
+   a `var` a closure captures in a cell.
 
    Two more things this backend has to say out loud where no other one
    does. **A `def` that writes a `var` bound outside it opens with
@@ -1401,8 +1394,7 @@ The bootstrap is split into one module per compiler stage:
    list and each source at the same paths (`packaging.py`'s
    `examples_shipped`), so `pyk example` and the playground read it the
    same way in a checkout and an install. `pyk example NAME` refuses to
-   overwrite a file. In the playground, Compile refuses an example that
-   imports, as it does any such program; Run runs it.
+   overwrite a file.
    `design/lsp.md` is the plan, in three steps; step 1 is built.
 
 25. **`src/repl_session.ml`** — a REPL session without the terminal: what
@@ -2132,7 +2124,10 @@ compiles for every target the page offers and runs under the
 interpreter, that **every example the page offers checks** as the
 page's Run checks it, with the standard library it imports, and that
 the REPL tab's session answers (entries, what they show and print, the
-environment, refusals, `:edit`, an import, `:reset`). That last
+environment, refusals, `:edit`, an import, `:reset`), and that every
+case of the manifest compiles in the page, on every target the page
+offers, exactly as `pyk compile --stdout` compiles it (`parity_pairs`,
+`run_parity`). That last
 is `make -C tools/playground check` asked of the bundle directly; the
 example list comes from `playground.py`'s own `example_sources`, so the
 suite and the page cannot disagree about what is offered. It also holds
@@ -2271,8 +2266,10 @@ with `--release`, and held to writing nothing on standard error).
 `adt_*`, `pattern_*`, `module_adt`, `typecheck_adt_infer` and
 `fail_typecheck_adt_*` cover **datatypes and patterns**: constructors,
 fields and defaults, parameters, mutual recursion, or-patterns, `as`,
-guards (`pattern_guard_scalar` on C and Java too), and every refusal
-the exhaustiveness pass and the checker make.
+guards, and every refusal the exhaustiveness pass and the checker make.
+`adt_values`, `closure_downward`, `generic_instances` and
+`module_generic` cover the same ground with no list, so C, which has
+no garbage collector, runs them too.
 `lib_math_*` cover **math** on every target: `lib_math_basic` what is
 exact on every host, `lib_math_approx` what is not, printed to six
 decimals, and `lib_math_from` the overloads through a `from` line.
@@ -2280,7 +2277,7 @@ decimals, and `lib_math_from` the overloads through a `from` line.
 A seventh covers **tinyweb**: `lib_tinyweb_*`, each with an `.events`
 file and a `.page` file, run headless on every target but web24 --
 `PYKING_TINYWEB_LOG` and `PYKING_TINYWEB_EVENTS` are set for every run
--- and `external_callback_named`, the callbacks C and Java can carry.
+-- and `external_callback_named`, callbacks the hosts call by name.
 web24 and the servers are `tests/test_tinyweb.py`'s.
 
 **Four kinds of expected output**, two of them about the tail-call
@@ -2301,24 +2298,22 @@ the distinction: a `.out` is never an AST.
 
 `pyking` and `interpret` are targets in that list but not backends:
 neither generates code for a host. `interpret` *runs* the program, so it
-takes an ordinary `.out`, and **every program that runs at all lists
+takes an ordinary `.out`, and **every program that runs at all runs on
 it**, since every program is type-checked; the harness warns about one
-that does not. `pyking` runs nothing, and two filename prefixes say what
+that excludes it. `pyking` runs nothing, and two filename prefixes say what
 to expect of it:
 
 - **`typecheck_*.pyk`** must type-check, and its `.ast.out` holds the
-  *printed AST*, pinning the types inferred. It **also lists real
-  backends, and `interpret`**, so the program whose types are pinned is
-  one that actually compiles, runs, and means the same thing under the
-  interpreter; its `.out` is that run's output, empty if it prints
-  nothing. The harness warns if such a file lists no backend, because a
-  type nobody executes is a type nobody has tested.
+  *printed AST*, pinning the types inferred. It **also runs on every
+  backend and the interpreter**, so the program whose types are pinned
+  is one that actually compiles, runs, and means the same thing under
+  the interpreter; its `.out` is that run's output, empty if it prints
+  nothing.
 - **`fail_typecheck_*.pyk`** must **not** type-check, and its
   `.ast.out` holds the *error message* — a `Type error`, a `Name error`
   for the two mutability rules, or a `Module error` or `Parsing error`
-  for the module system's own refusals. It lists exactly
-  `targets = ["pyking"]`: a program written to be refused is not one
-  to run.
+  for the module system's own refusals. It runs on `pyking` alone: a
+  program written to be refused is not one to run.
 
 Three families apply those two conventions to **inference**, and they
 are the only tests where the printed AST differs from the source in the

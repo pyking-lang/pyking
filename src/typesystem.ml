@@ -354,9 +354,86 @@ let rec zonk type_ store =
           tmsym,
           definition,
           map_implicits (fun t -> zonk t store) implicits )
-  | TForall (info, vars, body, sym) -> TForall (info, vars, zonk body store, sym)
+  | TForall (info, vars, body, sym) ->
+      (* A variable this scheme binds may share its name with one a
+         solution inside it brings in -- an enclosing definition's,
+         generalised after this one was -- which would then be read as
+         this scheme's own. Such a variable is renamed first. *)
+      let arriving = solution_names body store in
+      let taken = StringSet.union arriving (rigid_names body) in
+      let renamed, _ =
+        List.fold_left
+          (fun (renamed, taken) v ->
+            if not (StringSet.mem v arriving) then (renamed @ [ (v, v) ], taken)
+            else
+              let rec pick n =
+                let candidate = v ^ string_of_int n in
+                if StringSet.mem candidate taken then pick (n + 1) else candidate
+              in
+              let fresh = pick 2 in
+              (renamed @ [ (v, fresh) ], StringSet.add fresh taken))
+          ([], taken) vars
+      in
+      let body =
+        if List.for_all (fun (v, w) -> v = w) renamed then body
+        else rename_rigid body renamed
+      in
+      TForall (info, List.map snd renamed, zonk body store, sym)
   | TCon (info, name, args, sym) ->
       TCon (info, name, List.map (fun a -> zonk a store) args, sym)
+  | type_ -> type_
+
+(** The rigid variables named in a type, solutions not looked through.
+    typ -> StringSet.t *)
+and rigid_names type_ =
+  match type_ with
+  | TVar (_, name, _, true) -> StringSet.singleton name
+  | TList (_, e, _) -> rigid_names e
+  | TTuple (_, es, _) | TCon (_, _, es, _) ->
+      List.fold_left (fun s e -> StringSet.union s (rigid_names e)) StringSet.empty es
+  | TFunction (_, ps, r, _, _, _, _) ->
+      List.fold_left (fun s e -> StringSet.union s (rigid_names e)) (rigid_names r) ps
+  | TForall (_, _, b, _) -> rigid_names b
+  | _ -> StringSet.empty
+
+(** The rigid variables the solutions of a type's metavariables bring in.
+    typ -> store -> StringSet.t *)
+and solution_names type_ store =
+  let rec walk seen t =
+    match t with
+    | TVar (_, name, _, false) -> (
+        if StringSet.mem name seen then StringSet.empty
+        else
+          match SMap.find_opt name store.solutions with
+          | None -> StringSet.empty
+          | Some answer ->
+              StringSet.union (rigid_names answer) (walk (StringSet.add name seen) answer))
+    | TList (_, e, _) -> walk seen e
+    | TTuple (_, es, _) | TCon (_, _, es, _) ->
+        List.fold_left (fun s e -> StringSet.union s (walk seen e)) StringSet.empty es
+    | TFunction (_, ps, r, _, _, _, _) ->
+        List.fold_left (fun s e -> StringSet.union s (walk seen e)) (walk seen r) ps
+    | TForall (_, _, b, _) -> walk seen b
+    | _ -> StringSet.empty
+  in
+  walk StringSet.empty type_
+
+(** type_ with each rigid variable `renamed` names given its new name.
+    typ -> [(string, string)] -> typ *)
+and rename_rigid type_ renamed =
+  match type_ with
+  | TVar (info, name, sym, true) -> (
+      match List.assoc_opt name renamed with
+      | Some fresh -> TVar (info, fresh, sym, true)
+      | None -> type_)
+  | TList (i, e, s) -> TList (i, rename_rigid e renamed, s)
+  | TTuple (i, es, s) -> TTuple (i, List.map (fun e -> rename_rigid e renamed) es, s)
+  | TCon (i, c, es, s) -> TCon (i, c, List.map (fun e -> rename_rigid e renamed) es, s)
+  | TFunction (i, ps, r, a, b, c, d) ->
+      TFunction (i, List.map (fun e -> rename_rigid e renamed) ps, rename_rigid r renamed, a, b, c, d)
+  | TForall (i, vs, b, s) ->
+      let inner = List.filter (fun (v, _) -> not (List.mem v vs)) renamed in
+      TForall (i, vs, rename_rigid b inner, s)
   | type_ -> type_
 
 (** Every metavariable name left unsolved in type_, in the order met and
@@ -1955,7 +2032,7 @@ let free_metas env store =
     Only at the top: a metavariable is a type, never a scheme, so no
     `all` can appear inside one of these.
     stmt -> typ -> StringSet.t -> store -> typ *)
-let generalise node mono outer store =
+let generalise ?(avoid = StringSet.empty) node mono outer store =
   let settled = zonk mono store in
   let open_metas =
     List.filter
@@ -1964,7 +2041,7 @@ let generalise node mono outer store =
   in
   if open_metas = [] then settled
   else
-    let taken = names_in settled in
+    let taken = StringSet.union avoid (names_in settled) in
     let info = stmt_info node in
     let names, chosen =
       List.fold_left
@@ -3641,10 +3718,29 @@ and infer_definition func_type store =
                           StringSet.empty (metas_in mono store)));
               }
             in
+            (* A def written inside this one that holds this one's
+               variables has already named its own, and its type then
+               names both. *)
+            let own = metas_in (zonk mono store) store in
+            let avoid =
+              Walk.fold_stmts
+                (fun found node ->
+                  match node with
+                  | Walk.NStmt (SFunctionDef (_, _, _, _, _, sym, _, _, _)) -> (
+                      match IntMap.find_opt sym store.instances with
+                      | Some (TForall (_, vars, body, _))
+                        when List.exists (fun m -> List.mem m own) (metas_in body store) ->
+                          List.fold_left (fun s v -> StringSet.add v s) found vars
+                      | _ -> found)
+                  | _ -> found)
+                StringSet.empty (def_body other)
+            in
             ( store,
-              schemes @ [ generalise other (zonk mono store) outer store ] ))
+              schemes @ [ (generalise ~avoid other (zonk mono store) outer store, outer) ] ))
           (store, []) group monotypes
       in
+      let outers = List.map snd schemes in
+      let schemes = List.map fst schemes in
       let store =
         List.fold_left2
           (fun store other scheme -> remembering store (stmt_sym other) scheme)
@@ -3652,8 +3748,35 @@ and infer_definition func_type store =
       in
       let store =
         List.fold_left2
-          (fun store (other, scheme) mono ->
+          (fun store ((other, scheme), outer) mono ->
             let settled, store = verifying other scheme mono store in
+            (* A scheme the body holds to is what the body's own types
+               mean: each variable it generalised is that variable from
+               here on, so a type recorded inside the body -- a nested
+               def's among them -- reads back in the scheme's own
+               variables rather than as one nothing settled. *)
+            let store =
+              match settled with
+              | TForall (_, names, _, _) when settled == scheme ->
+                  let open_metas =
+                    List.filter
+                      (fun meta -> not (StringSet.mem meta outer))
+                      (metas_in (zonk mono store) store)
+                  in
+                  if List.length open_metas <> List.length names then store
+                  else
+                    List.fold_left2
+                      (fun store meta name ->
+                        if SMap.mem meta store.solutions then store
+                        else
+                          (* One a definition inside could not generalise
+                             is still written `?` where that definition's
+                             own types are printed. *)
+                          let marked = if StringSet.mem meta store.captured then -1 else 0 in
+                          solving store meta (TVar (stmt_info other, name, marked, true)))
+                      store open_metas names
+              | _ -> store
+            in
             let store = remembering store (stmt_sym other) settled in
             let store = record store (stmt_sym other) settled in
             match instantiated settled with
@@ -3664,7 +3787,7 @@ and infer_definition func_type store =
                   store (def_params other) params
             | _ -> store)
           store
-          (List.combine group schemes)
+          (List.combine (List.combine group schemes) outers)
           monotypes
       in
       (settled_type func_type store, store)
@@ -3742,11 +3865,16 @@ and verified node scheme store =
       | Some (supplied, after) ->
           if satisfies result supplied after = None then None
           else
+            (* Read back through the check's own solutions: those are
+               dropped with the rest of what it worked out, and a
+               metavariable left in the table would later be read as one
+               a different check solved under the same number. *)
             let probe =
               List.fold_left2
                 (fun probe param type_ ->
                   IntMap.add (param_sym param) type_ probe)
-                after.tmap (def_params node) written_params
+                (IntMap.map (fun t -> zonk t after) after.tmap)
+                (def_params node) written_params
             in
             Some (IntMap.add (stmt_sym node) scheme probe))
   | _ -> None
@@ -3766,7 +3894,23 @@ and verifying node scheme mono store =
   match verified node scheme store with
   | None -> (zonk mono store, store)
   | Some probe ->
-      (scheme, { store with tmap = IntMap.fold IntMap.add probe store.tmap })
+      (* A def nested in this body is only declared by the re-check, not
+         worked out again: what the first check worked out stands. *)
+      let rec unknown t =
+        match t with
+        | TUnknown _ -> true
+        | TList (_, e, _) -> unknown e
+        | TTuple (_, es, _) | TCon (_, _, es, _) -> List.exists unknown es
+        | TFunction (_, ps, r, _, _, _, _) -> List.exists unknown ps || unknown r
+        | TForall (_, _, b, _) -> unknown b
+        | _ -> false
+      in
+      let merged =
+        IntMap.union
+          (fun _ probed first -> if unknown probed then Some first else Some probed)
+          probe store.tmap
+      in
+      (scheme, { store with tmap = merged })
 
 (** Checks a fully annotated def's body against its declared types.
     Always yields unit, whatever the function's own type is: a def is a

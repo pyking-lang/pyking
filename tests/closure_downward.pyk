@@ -1,0 +1,55 @@
+# Functions handed down: a nested def or a lambda capturing values,
+# passed to a function that calls it and returns. Nothing it captures
+# has to outlive the call, which is all C -- with no garbage collector --
+# can give a function value.
+
+def apply_twice(f: (Int) -> Int, x: Int) -> Int:
+    f(f(x))
+
+
+def compose_with(f: (Int) -> Int, g: (Int) -> Int, x: Int) -> Int:
+    g(f(x))
+
+
+def scaled(factor: Int, x: Int) -> Int:
+    def times(n: Int) -> Int:
+        n * factor
+    apply_twice(times, x)
+
+
+def counting(limit: Int) -> Int:
+    var seen = 0
+    def visit(n: Int) -> Int:
+        seen := seen + n
+        seen
+    loop i = 0 while i < limit:
+        visit(i)
+        i + 1
+    seen
+
+
+def shifted(offset: Int, x: Int) -> Int:
+    compose_with((n) => n + offset, (n) => n * 2, x)
+
+
+def even_or_odd(n: Int) -> String:
+    def is_even(k: Int) -> Bool:
+        if k == 0 then true else is_odd(k - 1)
+    def is_odd(k: Int) -> Bool:
+        if k == 0 then false else is_even(k - 1)
+    if is_even(n) then "even" else "odd"
+
+
+base = 100
+
+
+def add_base(n: Int) -> Int:
+    n + base
+
+
+print(scaled(3, 2))
+print(counting(5))
+print(shifted(10, 1))
+print(even_or_odd(7), even_or_odd(10))
+print(apply_twice(add_base, 1))
+print(apply_twice((n) => n - 1, 0))

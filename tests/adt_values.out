@@ -1,0 +1,10 @@
+ace of spades
+a high heart
+5 (Card(5, Spades))
+joker
+Hand(Card(2, Hearts), Joker)
+Card(4, Hearts)
+Just('one') Nothing
+one none
+3 9
+(Just(true), Card(7, Hearts))

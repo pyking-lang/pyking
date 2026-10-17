@@ -1,1035 +1,867 @@
-# Which targets each test program is expected to work with.
+# Which targets each test program runs on, and why any it does not.
 #
-# Every program must work with `python`, the reference backend. The
-# JavaScript, C and Java backends support a subset of Pyking so far (see
-# docs/architecture.md), so a program using lists, `for`, `match` or
-# comprehensions is python-only until they grow; tuples work on the
-# JavaScript and OCaml targets but not the C or Java ones. Targets that share a
-# backend always agree: `nodejs`, `esm` and `html` differ only in
-# packaging, `c89`/`c23` only in how the same C is printed, and
-# `java8`/`java17`/`java21` only in how the same Java is printed -- so a
-# program supported by one of a group is supported by all of it.
+# A case runs on every target -- python14, node24, web24, iweb24, c89,
+# c99, c23, java8, java17, java21, ocaml5.5 and interpret -- and on
+# `pyking` too where it is a `typecheck_*` program. The one way to leave
+# a target out is `excluded`, a table from a target or a family (`c`,
+# `java`, `web`, ...) to the reason, which tests/test_script.py prints in
+# its summary. A `fail_typecheck_*` program, written to be refused, runs
+# on `pyking` alone. `also` adds the targets that turn a pass off
+# (`python14_notail`, `pyking_notail`, `pyking_nosugar`).
 #
-# Two of the names here run nothing. `pyking` compiles a program to
-# Pyking and compares the printed AST against its `.ast.out`;
-# `interpret` runs it with src/interpreter.py and compares its output
-# against the same `.out` every compiling target is compared against.
-# Every Pyking program is type-checked, and the interpreter runs exactly
-# what the checker accepts, so every program that runs at all lists
-# `interpret`; only a `fail_typecheck_*` program, written to be refused,
-# does not.
+# Two of the names run nothing. `pyking` compiles a program to Pyking and
+# compares the printed AST against its `.ast.out`; `interpret` runs it
+# with src/interpreter.ml and compares its output against the same `.out`
+# every compiling target is compared against.
 #
 # tests/test_script.py reads this file, runs each program on each of its
 # targets, and compares the output against the sibling `.out` file.
 
 [[cases]]
 file = "arithmetic.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "arithmetic_division.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "boolean_literals.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "boolean_literals_patterns.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "concatenation.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "else_if.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "else_if_nested.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "else_if_nested_loop.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "escapes.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "evaluation_order.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "evaluation_order_branches.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "fail_typecheck_binding_annotation.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_binding_after_def.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_builtin_argument.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_builtin_arity.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_builtin_value.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_call_argument.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_function_return.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_function_type_argument.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_def_binding_clash.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_duplicate_def.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_forward_binding.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_if_branches.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_if_expr_branches.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_infer_argument.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "typecheck_infer_branch.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "fail_typecheck_infer_mixed.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_int_concat.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_int_string1.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_int_string2.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_loop_annotation.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_loop_body.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_loop_crossing.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_loop_outside.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_infer_loop_return.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_loop_tail_type.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_loop_break_operand.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_loop_unreachable.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_list_elements.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_match_arms.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_match_gap.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_match_ints.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_match_partial.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_pattern_type.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_mutual_recursion.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_recursive_call.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_scope_escape.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_statement_line.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_type_mismatch.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_type_rigid.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_type_signature_clash.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_string_plus.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_unbound_name.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "for_complex.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "for_simple.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "function_types.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "if_expr.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "ifelse.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "indent.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "lexical_capture.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "lexical_capture_group.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "lexical_capture_loop.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "lexical_capture_nested.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "list_complex.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "list_comprehension_basic.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "list_comprehension_filter.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "list_comprehension_nested.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "list_comprehension_pattern_helper.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "list_literals.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "list_pattern_match.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "list_pattern_recursive.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "list_pattern_recursive_short.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "loop_corner_cases.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "loop_def_capture.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "loop_early_return.pyk"
-targets = ["python14", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "loop_unit.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "match_int_simple.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "match_int_simple_new.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "match_string_simple.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "negative_numbers.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "nested_for_mutation.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "recursion_forward.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "recursion_mutual.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "recursion_nested.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "recursion_shadowing.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "recursion_simple.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "renaming_keywords.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "renaming_shadowing.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "scopes.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "shadowing.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "shadowing_blocks.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "shadowing_functions.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "shadowing_mutable.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "short_function.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "short_function_values.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "strings.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "subset_control.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "subset_values.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "test1.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "tail_return_boundaries.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "tail_return_nested.pyk"
-targets = ["python14", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "tail_return_subset.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "testen.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "tuples_assign_destructure.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "tuples_complex.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "tuples_functions.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "tuples_lists.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "tuples_literals.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "tuples_match_destructure.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "typecheck_builtins.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_function_if.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_function_types.pyk"
-targets = ["pyking", "python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "typecheck_for_value.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_loop_combined.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_functions.pyk"
-targets = ["pyking", "python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "typecheck_higher_order.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "a function value outliving the stack frame it captures from needs a heap" }
 
 [[cases]]
 file = "typecheck_if.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_infer_basic.pyk"
-targets = ["pyking", "python14", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "typecheck_infer_higher_order.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_infer_if_expr.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_infer_mutual.pyk"
-targets = ["pyking", "pyking_notail", "python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+also = ["pyking_notail"]
 
 [[cases]]
 file = "typecheck_infer_nested_recursion.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_notail"]
+also = ["pyking_notail"]
 
 [[cases]]
 file = "typecheck_infer_partial.pyk"
-targets = ["pyking", "python14", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "typecheck_infer_recursion.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_notail"]
+also = ["pyking_notail"]
 
 [[cases]]
 file = "typecheck_infer_polymorphic.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_infer_variables.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_infer_pinned.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_infer_empty.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "fail_typecheck_infer_pinned.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_infer_returns.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "typecheck_infer_polymorphic_arg.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_infer_generic_lists.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_infer_pipeline.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_hm_annotated_rank2.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "interpret", "pyking"]
+excluded = { c = "a polymorphic parameter needs one function for every type; C compiles one per type" }
 
 [[cases]]
 file = "typecheck_hm_annotation_agrees.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_hm_apply.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_hm_branch_uses.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_hm_compose.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_hm_fold.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_hm_generalisation.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_hm_higher_order.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_hm_letpoly.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_hm_lists.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_hm_loops.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_hm_map.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_hm_mutual.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_hm_nested.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_hm_order.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_hm_pipeline.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_hm_recursion.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_hm_shadowed.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_hm_tuples.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "fail_typecheck_hm_argument.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_hm_infinite.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_hm_occurs.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_hm_rank2.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "typecheck_infer_reuse.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_infer_tail.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_int_string.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_lexical_capture.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_loop_break.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_loop_iteration.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_infer_loop_return.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_loop_simple.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_loop_basic.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_loop_continue.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_loop_nested.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_loop_return.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_loop_string.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_loop_tuple.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_loop_value_forms.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_loop_value.pyk"
-targets = [
-    "python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17",
-    "java21", "ocaml5.5", "iweb24", "interpret", "pyking",
-]
 
-# No C or Java: both refuse a `loop` with no accumulator outright, since
-# neither has a value to give it (docs/target_c.md, docs/target_java.md).
 [[cases]]
 file = "typecheck_loop_unit_value.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_tco_accumulator.pyk"
-targets = ["python14", "python14_notail", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_notail"]
+also = ["python14_notail", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_tco_basic.pyk"
-targets = ["python14", "python14_notail", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_notail"]
+also = ["python14_notail", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_tco_declined.pyk"
-targets = ["pyking", "pyking_notail", "python14", "python14_notail", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+also = ["python14_notail", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_tco_declined_group.pyk"
-targets = ["python14", "python14_notail", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_notail"]
+also = ["python14_notail", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_tco_deep.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_tco_mutual.pyk"
-targets = ["python14", "python14_notail", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_notail"]
+also = ["python14_notail", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_tco_shapes.pyk"
-targets = ["python14", "python14_notail", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_notail"]
+also = ["python14_notail", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_tco_types.pyk"
-targets = ["python14", "python14_notail", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_notail"]
+also = ["python14_notail", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_tco_widths.pyk"
-targets = ["python14", "python14_notail", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_notail"]
+also = ["python14_notail", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_tco_widths_three.pyk"
-targets = ["python14", "python14_notail", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_notail"]
+also = ["python14_notail", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_numeric_recursion.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_notail"]
+also = ["pyking_notail"]
 
 [[cases]]
 file = "typecheck_recursion.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_notail"]
+also = ["pyking_notail"]
 
 [[cases]]
 file = "typecheck_string_recursion.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "fail_typecheck_type_first_class.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "typecheck_type_first_class_twice.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "interpret", "pyking"]
+excluded = { c = "a polymorphic parameter needs one function for every type; C compiles one per type" }
 
 [[cases]]
 file = "typecheck_type_first_class_outer.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "interpret", "pyking"]
+excluded = { c = "a polymorphic parameter needs one function for every type; C compiles one per type" }
 
 [[cases]]
 file = "typecheck_type_first_class.pyk"
-targets = ["python14", "pyking", "iweb24", "interpret"]
+excluded = { c = "a polymorphic parameter needs one function for every type; C compiles one per type" }
 
 [[cases]]
 file = "typecheck_type_signature.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "pyking", "iweb24", "interpret"]
 
 [[cases]]
 file = "typecheck_signature_named.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "pyking", "iweb24", "interpret"]
 
 [[cases]]
 file = "fail_typecheck_signature_named_untyped.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_signature_named_default.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "typecheck_type_variables.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "pyking", "iweb24", "interpret"]
 
 [[cases]]
 file = "typecheck_comprehensions.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_concat_nested.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_concat_parse.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_concat_patterns.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_division.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_expr_evaluator.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_list_pipeline.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_lists.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_map_fold.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_match_exhaustive.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_match_lists.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_match_polymorphic.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_match_scalars.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_match_suffix.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_match_value.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_tail.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "types_atoms.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "types_complex.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "types_lists.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "types_mixed.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "types_tuples.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "unit_values.pyk"
-targets = ["python14", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "value_if.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "value_match.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "value_next_line.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "variables.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "variables_loop.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "while_nested.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "while_simple.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "inline_blocks.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "inline_blocks_value.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "inline_match.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "fail_typecheck_inline_two_statements.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_inline_then_indented.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_def_equals_body.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_case_arrow.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_inline_not_expression.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_inline_else_same_line.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_inline_case_list.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "typecheck_var_basic.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_var_scope.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "fail_typecheck_var_string.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_var_mutate_type.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_mutate_not_var.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_shadow_var.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "typecheck_var_functions.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_var_nested.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "negative_nested.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "renaming_runtime.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "shadowing_depth.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "shadowing_depth_loops.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "printing_quotes.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "printing_quotes_str.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_pyking_reparse.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "match_exhaustive_tuple.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_singleton_tuple.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 # The unannotated twins: each is a `typecheck_*` program above with
 # every annotation taken off, so its `.ast.out` pins what inference
@@ -1037,229 +869,187 @@ targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "py
 
 [[cases]]
 file = "typecheck_noann_builtins.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_noann_division.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_function_if.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_lexical_capture.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_list_pipeline.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_noann_lists.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_noann_loop_basic.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_loop_break.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_loop_iteration.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_noann_loop_nested.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_loop_tuple.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_map_fold.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_noann_match_lists.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_noann_match_scalars.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_match_value.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_recursion.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_string_recursion.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_tco_mutual.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_noann_var_scope.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 
 [[cases]]
 file = "module_qualified.pyk"
 modules = ["module_qualified_mod1.pyk"]
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "module_alias.pyk"
 modules = ["module_alias_mod1.pyk"]
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "module_from.pyk"
 modules = ["module_from_mod1.pyk"]
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "module_multi.pyk"
 modules = ["module_multi_mod1.pyk", "module_multi_mod2.pyk"]
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "module_chain.pyk"
 modules = ["module_chain_mod1.pyk", "module_chain_mod2.pyk"]
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "module_values.pyk"
 modules = ["module_values_mod1.pyk"]
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "module_signature.pyk"
 modules = ["module_signature_mod1.pyk"]
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "module_inferred.pyk"
 modules = ["module_inferred_mod1.pyk"]
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "typecheck_module_public.pyk"
 modules = ["typecheck_module_public_mod1.pyk"]
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "fail_typecheck_module_cycle.pyk"
 modules = ["fail_typecheck_module_cycle_mod1.pyk", "fail_typecheck_module_cycle_mod2.pyk"]
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_module_private.pyk"
 modules = ["fail_typecheck_module_private_mod1.pyk"]
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_module_collision.pyk"
 modules = ["fail_typecheck_module_collision_mod1.pyk"]
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_module_nested.pyk"
 modules = ["fail_typecheck_module_nested_mod1.pyk"]
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_module_public_var.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_module_duplicate.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_module_unannotated.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_module_public_partial.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_module_public_called.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_module_public_value.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_module_external_half.pyk"
 modules = ["external_all_mod1_external.pyk"]
-targets = ["pyking"]
 
 [[cases]]
 file = "external_all.pyk"
 modules = ["external_all_mod1_external.pyk"]
-targets = ["python14", "node24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "external_shapes.pyk"
 modules = ["external_shapes_mod1_external.pyk"]
-targets = ["python14", "node24", "ocaml5.5", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "fail_typecheck_external_body.pyk"
 modules = ["fail_typecheck_external_body_mod1.pyk"]
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_external_private.pyk"
 modules = ["fail_typecheck_external_private_mod1_external.pyk", "fail_typecheck_external_private_mod1.pyk"]
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_external_bodies.pyk"
 modules = ["fail_typecheck_external_bodies_mod1_external.pyk"]
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_external_callback.pyk"
 modules = ["fail_typecheck_external_callback_mod1_external.pyk"]
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_external_callback_nested.pyk"
 modules = ["fail_typecheck_external_callback_nested_mod1_external.pyk"]
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_external_callback_result.pyk"
 modules = ["fail_typecheck_external_callback_result_mod1_external.pyk"]
-targets = ["pyking"]
 
 [[cases]]
 file = "external_callback.pyk"
 modules = ["external_callback_mod1_external.pyk"]
-targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "external_callback_named.pyk"
 modules = ["external_callback_mod1_external.pyk"]
-targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "external_web.pyk"
 modules = ["external_web_mod1_external.pyk"]
-targets = ["node24", "web24", "iweb24", "interpret"]
 
 # The standard library under lib/. A `libs` entry is a library module,
 # not a file in tests/: the compiler finds it on its own search path and
@@ -1268,62 +1058,53 @@ targets = ["node24", "web24", "iweb24", "interpret"]
 # own `modules`, since a library never imports one of those.
 #
 # `fs` is the one library whose whole boundary is scalar -- a String and
-# a Bool cross on every target -- so it is the one that reaches the C
-# and Java targets. It claims no web24/iweb24: a browser has no
-# filesystem, so its browser implementation only says so on the console,
-# and there is no output to compare.
+# a Bool cross on every target. It excludes web24/iweb24: a browser has
+# no filesystem, so its browser implementation only says so on the
+# console, and there is no output to compare.
 
 [[cases]]
 file = "lib_fs_roundtrip.pyk"
 libs = ["fs"]
-targets = ["python14", "node24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+excluded = { web = "a browser page has no file system", iweb = "a browser page has no file system" }
 
 [[cases]]
 file = "lib_fs_exists.pyk"
 libs = ["fs"]
-targets = ["python14", "node24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+excluded = { web = "a browser page has no file system", iweb = "a browser page has no file system" }
 
-# `sys` and `time` build a list and a tuple, which the C and Java
-# targets have no representation for, so neither library's lists and
-# tuples reach them -- `sys.exit` does, below.
-# `time` skips ocaml5.5 for a reason of its own -- `format` parses its
-# format string with a text pattern, which that backend refuses.
-# See docs/libraries.md.
+# `sys` builds lists, which C has no garbage collector for, so `sys.args`
+# and `sys.env` do not reach C -- `sys.exit` does, below. `time` builds
+# a tuple, which every target carries. See docs/libraries.md.
 
 [[cases]]
 file = "lib_sys_arguments.pyk"
 libs = ["sys"]
-targets = ["python14", "node24", "ocaml5.5", "interpret"]
+excluded = { web = "a browser page has no command-line arguments", iweb = "a browser page has no command-line arguments", c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "lib_sys_environment.pyk"
 libs = ["sys"]
-targets = ["python14", "node24", "ocaml5.5", "interpret"]
+excluded = { web = "a browser page has no environment variables", iweb = "a browser page has no environment variables", c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "lib_time_format.pyk"
 libs = ["time"]
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "lib_time_now.pyk"
 libs = ["time"]
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "lib_math_basic.pyk"
 libs = ["math"]
-targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "lib_math_approx.pyk"
 libs = ["math"]
-targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "lib_math_from.pyk"
 libs = ["math"]
-targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 # Two regression cases for collisions between a Pyking module's name, or
 # an exported name, and something the host has already taken. Both are
@@ -1334,12 +1115,10 @@ targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8"
 [[cases]]
 file = "module_shadow_builtin.pyk"
 modules = ["errno.pyk"]
-targets = ["python14", "node24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "module_reserved_export.pyk"
 modules = ["module_reserved_export_mod1.pyk"]
-targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 # The cases with arguments. `arguments` is passed to the program
 # itself -- after `--` for the interpreter, and the host's own way for
@@ -1350,14 +1129,13 @@ targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8"
 file = "lib_sys_arguments_passed.pyk"
 libs = ["sys"]
 arguments = ["alpha", "beta gamma"]
-targets = ["python14", "node24", "ocaml5.5", "interpret"]
+excluded = { web = "a browser page has no command-line arguments", iweb = "a browser page has no command-line arguments", c = "lists need a heap, and C has no garbage collector to free one" }
 
 # The examples `pyk example` hands out (src/examples.toml): hello.pyk,
 # and use_args.pyk, which follows.
 
 [[cases]]
 file = "hello_world.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 # The example `pyk example use_args.pyk` hands out (src/examples.toml),
 # run with arguments and without. The two files are the same program.
@@ -1366,12 +1144,12 @@ targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8"
 file = "lib_sys_use_args.pyk"
 libs = ["sys"]
 arguments = ["3", "Hello world!"]
-targets = ["python14", "ocaml5.5", "interpret"]
+excluded = { web = "a browser page has no command-line arguments", iweb = "a browser page has no command-line arguments", c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "lib_sys_use_args_usage.pyk"
 libs = ["sys"]
-targets = ["python14", "ocaml5.5", "interpret"]
+excluded = { web = "a browser page has no command-line arguments", iweb = "a browser page has no command-line arguments", c = "lists need a heap, and C has no garbage collector to free one" }
 
 # Two libraries at once. `sys` is named before `fs` on purpose: it puts
 # a module `Sys` on the OCaml include path before fs.ml is compiled,
@@ -1381,7 +1159,7 @@ targets = ["python14", "ocaml5.5", "interpret"]
 [[cases]]
 file = "lib_two_libraries.pyk"
 libs = ["sys", "fs"]
-targets = ["python14", "node24", "ocaml5.5", "interpret"]
+excluded = { web = "a browser page has no environment variables", iweb = "a browser page has no environment variables", c = "lists need a heap, and C has no garbage collector to free one" }
 
 # The io library: standard output beside `print`, and standard input.
 # A case reading its input has a sibling .in file, which is what it is
@@ -1392,33 +1170,30 @@ targets = ["python14", "node24", "ocaml5.5", "interpret"]
 [[cases]]
 file = "lib_io_write.pyk"
 libs = ["io"]
-targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "lib_io_read.pyk"
 libs = ["io"]
-targets = ["python14", "node24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+excluded = { web = "a browser page has no standard input", iweb = "a browser page has no standard input" }
 
-# sys.exit, with the status the program ends with in `exit_code`. A
-# page reports the status rather than ending with it, so the browser
-# targets are not run.
+# sys.exit, with the status the program ends with in `exit_code`. A page
+# reports the status on its last line rather than ending with it, and
+# the harness reads that line as the page's status.
 
 [[cases]]
 file = "lib_sys_exit.pyk"
 libs = ["sys"]
 exit_code = 3
-targets = ["python14", "node24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 # `debug`: `print`'s twin, writing to standard error. A sibling .err file
 # holds what it wrote, and every target is compared against it.
 
 [[cases]]
 file = "debug_basic.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "debug_values.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 # `release = true` compiles with --release: every call to `debug` is
 # removed, so each compiled target must write nothing to standard error,
@@ -1428,17 +1203,14 @@ targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
 [[cases]]
 file = "typecheck_release.pyk"
 release = true
-targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_release_values.pyk"
 release = true
-targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret", "pyking"]
 
 [[cases]]
 file = "typecheck_release_shadow.pyk"
 release = true
-targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret", "pyking"]
 
 # A module in two halves: `f1` from the Pyking half, `g1` public from
 # the host's, and `f2` from the Pyking half calling the host's *private*
@@ -1447,342 +1219,277 @@ targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8"
 [[cases]]
 file = "module_external_mixed.pyk"
 modules = ["module_external_mixed_mod1_external.pyk", "module_external_mixed_mod1.pyk"]
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "float_arithmetic.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "float_compare.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "float_convert.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "float_printing.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "float_shapes.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "float_str.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "float_var.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "typecheck_float.pyk"
-targets = ["pyking", "python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "typecheck_float_default.pyk"
-targets = ["pyking", "python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "typecheck_noann_float.pyk"
-targets = ["pyking", "python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "fail_typecheck_float_literal.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_float_mixed.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_float_pattern.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "external_float.pyk"
 modules = ["external_float_mod1_external.pyk"]
-targets = ["python14", "node24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "typecheck_defaults.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_nosugar"]
+also = ["pyking_nosugar"]
 
 [[cases]]
 file = "typecheck_named_args.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_nosugar"]
+also = ["pyking_nosugar"]
 
 [[cases]]
 file = "typecheck_defaults_scope.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_nosugar"]
+also = ["pyking_nosugar"]
 
 [[cases]]
 file = "typecheck_defaults_complex.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret", "pyking", "pyking_nosugar"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+also = ["pyking_nosugar"]
 
 [[cases]]
 file = "typecheck_noann_defaults.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret", "pyking"]
 
 [[cases]]
 file = "module_defaults.pyk"
 modules = ["module_defaults_mod1.pyk"]
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "continuation_lines.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret", "pyking_nosugar"]
+also = ["pyking_nosugar"]
 
 [[cases]]
 file = "fail_typecheck_defaults_trailing.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_defaults_positional.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_defaults_duplicate.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_defaults_order.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_defaults_unknown.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_defaults_repeated.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_defaults_alias.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_defaults_builtin.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_defaults_public.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_defaults_clash.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_defaults_missing.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_external_defaults.pyk"
 modules = ["external_all_mod1_external.pyk"]
-targets = ["pyking"]
 
 [[cases]]
 file = "lambda_basic.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "a function value outliving the stack frame it captures from needs a heap" }
 
 [[cases]]
 file = "lambda_capture.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "a function value outliving the stack frame it captures from needs a heap" }
 
 [[cases]]
 file = "lambda_loop_capture.pyk"
-targets = ["python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_lambda.pyk"
-targets = ["pyking", "python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "a function value outliving the stack frame it captures from needs a heap" }
 
 [[cases]]
 file = "fail_typecheck_lambda_poly.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_lambda_var.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_lambda_default.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "overload_basic.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "overload_poly.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_overload.pyk"
-targets = ["pyking", "python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "implicit_value.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "implicit_function.pyk"
-targets = ["python14", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "implicit_explicit_arg.pyk"
-targets = ["python14", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "typecheck_implicit_nested.pyk"
-targets = ["pyking", "python14", "ocaml5.5", "iweb24", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "module_implicit.pyk"
 modules = ["module_implicit_mod.pyk"]
-targets = ["python14", "ocaml5.5", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_module_implicit.pyk"
 modules = ["typecheck_module_implicit_mod.pyk"]
-targets = ["pyking", "python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "fail_typecheck_overload_none.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_overload_ambiguous.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_overload_open.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_overload_value.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_overload_binding.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_overload_rename.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_overload_asvalue.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_implicit_notimplicit.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_implicit_missing.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_implicit_ambiguous.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_implicit_escape.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_implicit_annotation.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_implicit_depth.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_implicit_marker.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_implicit_lambda.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_implicit_default.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_module_implicit_transitive.pyk"
 modules = ["module_implicit_mod.pyk", "module_implicit_middle.pyk"]
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_external_overload.pyk"
 modules = ["fail_typecheck_external_overload_mod1_external.pyk"]
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_implicit_signature.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "typecheck_implicit_deferred.pyk"
-targets = ["pyking", "python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "fail_typecheck_implicit_passed.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "typecheck_implicit_adapt.pyk"
-targets = ["pyking", "python14", "node24", "web24", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "overload_defaults.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "fail_typecheck_overload_default.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_overload_named.pyk"
-targets = ["pyking"]
 
 # The conversions `string`, `int`, `float` and `bool`: every type each
 # accepts, and every shape of String each refuses, on every target --
 # each implements the same reading rather than its host's own. A
 # conversion with no right answer answers a default (PYKING.md,
-# "Builtins"). `conversions_values` takes lists, and `typecheck_*`
-# leaves a parameter's type to its first call, which C and Java guess
-# rather than infer.
+# "Builtins"). `conversions_values` takes lists, which C has no
+# garbage collector for.
 
 [[cases]]
 file = "conversions.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
 
 [[cases]]
 file = "conversions_values.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "typecheck_conversions.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret", "pyking"]
 
 [[cases]]
 file = "fail_typecheck_conversion_list.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_conversion_unit.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_str_removed.pyk"
-targets = ["pyking"]
 
 # tinyweb: a program building a page. Its .events file is what the page
 # delivers once the top level has ended, and its .page file the commands
@@ -1793,168 +1500,160 @@ targets = ["pyking"]
 [[cases]]
 file = "lib_tinyweb_sound_graphics1.pyk"
 libs = ["tinyweb"]
-targets = ["python14", "node24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
 file = "lib_tinyweb_frames.pyk"
 libs = ["tinyweb"]
-targets = ["python14", "node24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
 file = "lib_tinyweb_input.pyk"
 libs = ["tinyweb"]
-targets = ["python14", "node24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
 file = "lib_tinyweb_style.pyk"
 libs = ["tinyweb"]
-targets = ["python14", "node24", "iweb24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 # Datatypes and the patterns that take them apart (PYKING.md,
 # "Datatypes"); every `match` is exhaustive (docs/exhaustive.md).
 
 [[cases]]
 file = "adt_basic.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "adt_option.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "adt_tree.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
+excluded = { c = "a datatype holding itself needs a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "adt_expr.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "adt_mutual.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
+excluded = { c = "a datatype holding itself needs a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "adt_list.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "adt_fields.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "adt_redblack.pyk"
-targets = ["python14", "iweb24", "ocaml5.5", "interpret"]
+excluded = { c = "a datatype holding itself needs a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "pattern_or.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "pattern_guard.pyk"
-targets = ["python14", "iweb24", "ocaml5.5", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "pattern_as.pyk"
-targets = ["python14", "iweb24", "ocaml5.5", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "pattern_guard_scalar.pyk"
-targets = ["python14", "node24", "web24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "iweb24", "interpret"]
 
 [[cases]]
 file = "typecheck_adt_infer.pyk"
-targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret", "pyking"]
 
 [[cases]]
 file = "module_adt.pyk"
 modules = ["module_adt_mod1.pyk"]
-targets = ["python14", "node24", "web24", "iweb24", "ocaml5.5", "interpret"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "fail_typecheck_module_adt_private.pyk"
 modules = ["fail_typecheck_module_adt_private_mod1.pyk"]
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_adt_constructor_value.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_adt_default_order.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_adt_default_type.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_adt_duplicate_constructor.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_adt_field_count.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_adt_field_missing.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_adt_field_type.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_adt_guard_cover.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_adt_guard_type.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_adt_in_block.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_adt_named_order.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_adt_nested.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_adt_nonexhaustive.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_adt_or_names.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_adt_or_types.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_adt_type_arity.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_adt_type_variable.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_adt_unknown_constructor.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_adt_unknown_type.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_adt_unreachable.pyk"
-targets = ["pyking"]
 
 [[cases]]
 file = "fail_typecheck_adt_wrong_datatype.pyk"
-targets = ["pyking"]
+
+# Datatypes, closures handed down, polymorphic functions and another
+# module's polymorphic functions, none of them needing a list: what C,
+# with no garbage collector, compiles as well as every other target.
+[[cases]]
+file = "adt_values.pyk"
+
+[[cases]]
+file = "closure_downward.pyk"
+
+[[cases]]
+file = "generic_instances.pyk"
+
+[[cases]]
+file = "module_generic.pyk"
+modules = ["module_generic_mod1.pyk"]

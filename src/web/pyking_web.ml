@@ -442,9 +442,12 @@ let browser_sources =
 (** Every module a program reaches -- the file named, and every module it
     imports -- checked and made ready to run, dependencies first: the same
     sequence pyk.ml runs, module by module, each checked against what the
-    ones it imports export. `release` removes every call to `debug`.
-    Raises the front end's own errors. string -> bool -> [Module.t] *)
-let checked_program main release =
+    ones it imports export. `release` removes every call to `debug`, and
+    `natively` leaves tail calls to the host, as pyk.ml does for OCaml.
+    Answers each module with the types worked out for it.
+    Raises the front end's own errors.
+    bool? -> string -> bool -> [(Module.t, typ IntMap.t?)] *)
+let checked_modules ?(natively = false) main release =
   let units = Module.load ~from:browser_sources main in
   (* The tail-call pass builds nodes and so hands out more symbols; they
      continue past the highest in the whole program, since one numbering
@@ -458,9 +461,10 @@ let checked_program main release =
     List.fold_left
       (fun (sigmaps, highest, checked) (unit : Module.t) ->
         if unit.is_external then
-          ( sigmaps @ [ (unit.name, Module.external_sigmap unit.declarations) ],
+          let sigmap = Module.external_sigmap unit.declarations in
+          ( sigmaps @ [ (unit.name, sigmap) ],
             highest,
-            checked @ [ unit ] )
+            checked @ [ ({ unit with sigmap = Some sigmap }, None) ] )
         else
           let declared = Module.external_signatures unit.declarations in
           let tmap, qmap =
@@ -475,17 +479,24 @@ let checked_program main release =
           in
           let elaborated = Analyses.symbolize ~start:highest elaborated in
           let highest = max highest (Analyses.highest_sym elaborated) in
-          let optimized, _ = Opt_tailcall.optimize elaborated tmap in
+          let optimized, tmap =
+            if natively then (elaborated, tmap)
+            else Opt_tailcall.optimize elaborated tmap
+          in
           (* Without this the nodes the pass built keep symbol 0, and the
              interpreter's call-free table -- which is keyed by symbol --
              would answer for the wrong node. *)
           let optimized = Analyses.symbolize ~start:highest optimized in
           ( sigmaps @ [ (unit.name, sigmap) ],
             max highest (Analyses.highest_sym optimized),
-            checked @ [ { unit with stmts = optimized } ] ))
+            checked @ [ ({ unit with stmts = optimized; sigmap = Some sigmap }, Some tmap) ] ))
       ([], highest, []) units
   in
   checked
+
+(** The modules of a program, checked, without their types.
+    string -> bool -> [Module.t] *)
+let checked_program main release = List.map fst (checked_modules main release)
 
 (** A failure before anything ran, as the page reads one: the front
     end's own refusal in `failed`'s shape, or anything else as an
@@ -650,6 +661,130 @@ let analyze main =
           ("args", json_bool (takes "sys" [ "args" ]));
         ]
 
+(** Every file a program of several modules compiles to for target, as
+    pyk.ml writes them: the program's own module first, then each module
+    it imports under its own name, the program's sources coming from the
+    page as a run's do. Raises the front end's and the backends' own
+    errors. string -> string -> [(string, string)] *)
+let compile_modules main target =
+  let family = Targets.family_of target in
+  let checked = checked_modules ~natively:(family = Targets.Ocaml) main false in
+  let checked =
+    if List.mem family [ Targets.C; Targets.Java ] then Prune.program checked else checked
+  in
+  let main_unit = fst (List.nth checked (List.length checked - 1)) in
+  let types tmap = Option.value tmap ~default:Syntax.IntMap.empty in
+  let generated = List.filter (fun ((unit : Module.t), _) -> not unit.is_external) checked in
+  (* The program's own module is the file the page shows first. *)
+  let generated =
+    List.filter (fun (u, _) -> u == main_unit) generated
+    @ List.filter (fun (u, _) -> u != main_unit) generated
+  in
+  let per_unit f = List.concat_map (fun (unit, tmap) -> f unit tmap) generated in
+  match family with
+  | Targets.Pyking ->
+      per_unit (fun unit tmap ->
+          [ (unit.Module.name ^ ".pyking.pyk",
+             Syntax.pprint_program unit.stmts false tmap ^ "\n") ])
+  | Targets.Python ->
+      per_unit (fun unit tmap ->
+          let context = Module.context checked unit in
+          [ ( unit.Module.name ^ ".py",
+              Target_python.pprint_py_program
+                (Target_python.translate_program
+                   ~external_fields:context.external_fields
+                   ~externals:context.externals ~own:context.context_name
+                   (Analyses.apply_signatures unit.stmts) (types tmap))
+              ^ "\n" ) ])
+  | Targets.C ->
+      let translated =
+        Target_c.translate_all
+          (List.map
+             (fun ((unit : Module.t), tmap) ->
+               (Analyses.apply_signatures unit.stmts, types tmap, Module.context checked unit))
+             generated)
+          target
+      in
+      List.concat
+        (List.map2
+           (fun ((unit : Module.t), _) c ->
+          let context = Module.context checked unit in
+          let source = Filename.basename unit.Module.path in
+          (unit.name ^ ".c", Target_c.pprint_c_program c target source)
+          ::
+          (if context.main then []
+           else
+             [ (unit.name ^ Target_c.header_extension,
+                Target_c.pprint_c_header c target source) ]))
+           generated translated)
+  | Targets.Java ->
+      let translated =
+        List.map
+          (fun ((unit : Module.t), tmap) ->
+            let context = Module.context checked unit in
+            ( unit,
+              Target_java.translate_program (Analyses.apply_signatures unit.stmts)
+                (types tmap) context target ))
+          generated
+      in
+      List.map
+        (fun ((unit : Module.t), j) ->
+          let cls = Target_java.default_class_name unit.name in
+          (cls ^ ".java", Target_java.pprint_java_program j target cls (Filename.basename unit.path)))
+        translated
+      @ [ (Target_java.runtime_file, Target_java.runtime_source (List.map snd translated) target) ]
+  | Targets.Ocaml ->
+      per_unit (fun unit tmap ->
+          let context = Module.context checked unit in
+          let o =
+            Target_ocaml.translate_program (Analyses.apply_signatures unit.stmts)
+              (types tmap) context
+          in
+          let source = Filename.basename unit.Module.path in
+          (unit.name ^ Target_ocaml.extension, Target_ocaml.pprint_ocaml_program o source)
+          ::
+          (if context.main then []
+           else
+             [ (unit.name ^ Target_ocaml.interface_extension,
+                Target_ocaml.pprint_ocaml_interface o source) ]))
+  | Targets.Node | Targets.Web ->
+      let taken =
+        Target_js_packaging.reserved_names
+          (List.map (fun ((unit : Module.t), _) -> unit.name) checked)
+      in
+      let files, _ =
+        Target_js_packaging.package_program target
+          (List.map
+             (fun ((unit : Module.t), tmap) ->
+               let context = Module.context checked unit in
+               let js, renames =
+                 Target_js_core.translate_program ~taken
+                   ~external_fields:context.external_fields
+                   ~externals:context.externals ~own:context.context_name
+                   (Analyses.apply_signatures unit.stmts) (types tmap)
+               in
+               (unit, js, renames))
+             checked)
+          (Some (main_unit.name ^ Targets.extension target))
+          false
+      in
+      files
+  | Targets.Iweb ->
+      [ ( main_unit.name ^ Targets.extension target,
+          Target_js_packaging.interpreted_page main
+            (List.concat_map
+               (fun ((unit : Module.t), _) ->
+                 List.map Filename.basename (Module.source_paths unit))
+               checked)
+            (List.filter_map
+               (fun ((unit : Module.t), _) ->
+                 if unit.declarations = [] then None
+                 else
+                   Option.map
+                     (fun file -> (unit.name, file))
+                     (Module.implementation_name unit.name target))
+               checked) ) ]
+
 (** Compile `source` for `target`.
     Answers `{"ok":true,"files":{label:source},"views":[label,...]}` --
     several files for `esm`, which really does emit four -- or a refusal
@@ -667,6 +802,29 @@ let compile_source source target name =
       ]
   in
   let natively = Targets.family_of target = Targets.Ocaml in
+  let imports =
+    match Parser.parse (Lexer.lexing name (Lexer.chars_of_string source)) with
+    | program -> List.exists (function Syntax.SImport _ -> true | _ -> false) program
+    | exception _ -> false
+  in
+  if imports && List.mem target Targets.all then
+    (* A program that imports is read as a run reads it: the module
+       system, with the other files from the page. *)
+    match compile_modules name target with
+    | files ->
+        done_
+          ~views:
+            (if target = "pyking" then List.map fst files else [])
+          files
+    | exception
+        ( Target_js_core.Unsupported (info, message)
+        | Target_python.Unsupported (info, message)
+        | Target_c.Unsupported (info, message)
+        | Target_java.Unsupported (info, message)
+        | Target_ocaml.Unsupported (info, message) ) ->
+        failed (Printf.sprintf "Unsupported by target '%s'" target) info message
+    | exception e -> refused e
+  else
   match front_end source name natively with
   | exception e -> (
       match front_end_error e with
@@ -682,7 +840,7 @@ let compile_source source target name =
              front end *saw*, not code any host could run. *)
           let out = stem ^ ".pyking.pyk" in
           done_ ~views:[ out ]
-            [ (out, Syntax.pprint_program program false (Some tmap)) ]
+            [ (out, Syntax.pprint_program program false (Some tmap) ^ "\n") ]
         else
           (* A `def name : type` line is another spelling of the
              annotations a header could carry, so it is folded onto the
@@ -734,17 +892,24 @@ let compile_source source target name =
                  files @ [ ("io_external.js", io) ]
                else files)
           else if Targets.family_of target = Targets.C then
-            let c = Target_c.translate_program program (lone_context ()) in
+            (* A datatype's C name carries its module's, which `pyk`
+               takes from the file. *)
+            let c =
+              Target_c.translate_program program tmap
+                { (lone_context ()) with context_name = stem }
+                target
+            in
             done_ [ (stem ^ ".c", Target_c.pprint_c_program c target name) ]
           else if Targets.family_of target = Targets.Java then
             (* Java requires the file and its public class to share a
                name. *)
             let cls = Target_java.default_class_name stem in
-            let j = Target_java.translate_program program (lone_context ()) in
+            let j = Target_java.translate_program program tmap (lone_context ()) target in
             done_
               [
                 ( cls ^ ".java",
                   Target_java.pprint_java_program j target cls name );
+                (Target_java.runtime_file, Target_java.runtime_source [ j ] target);
               ]
           else if target = Target_ocaml.target then
             (* The one backend that infers nothing: it reads the types

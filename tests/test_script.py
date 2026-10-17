@@ -1,8 +1,9 @@
-"""Runs every test program against every target it declares support for.
+"""Runs every test program against every target it does not exclude.
 
-`tests/test_cases.toml` lists the programs and their targets; each one is
-compiled, executed, and its output compared against the sibling `.out`
-file. The same `.out` serves every target -- that is the point of the
+`tests/test_cases.toml` lists the programs, and for each the targets it
+leaves out and why (`excluded`); each is compiled for every other
+target, executed, and its output compared against the sibling `.out`
+file. The summary lists every reason a case was left out somewhere. The same `.out` serves every target -- that is the point of the
 exercise: a Pyking program means one thing, whichever backend ran it.
 
 Two kinds of expected output, and the distinction is worth keeping
@@ -242,6 +243,35 @@ FAMILIES = {
     "java": ["java8", "java17", "java21"],
     "ocaml": ["ocaml5.5"],
 }
+
+
+# What a case runs on when the manifest says nothing else: every
+# compiling target and the interpreter, and `pyking` too for a
+# `typecheck_*` program, whose types are pinned. A `fail_typecheck_*`
+# program runs on `pyking` alone. A case leaves a target out only by
+# naming it -- or its family -- under `excluded`, with the reason; the
+# optional targets (`python14_notail`, `pyking_notail`, `pyking_nosugar`)
+# are added with `also`.
+DEFAULT_TARGETS = (
+    "python14", "node24", "web24", "iweb24", "c89", "c99", "c23",
+    "java8", "java17", "java21", "ocaml5.5", INTERPRET_TARGET,
+)
+OPTIONAL_TARGETS = (PYTHON_NOTAIL_TARGET, PYKING_NOTAIL_TARGET, PYKING_NOSUGAR_TARGET)
+
+
+def case_targets(case):
+    """The targets one case runs on: the defaults for its kind, less what
+    `excluded` names, plus what `also` adds. Case -> [String]"""
+    name = case["file"]
+    if name.startswith(FAIL_TYPECHECK_PREFIX):
+        return [PYKING_TARGET]
+    left_out = set()
+    for key in case.get("excluded", {}):
+        left_out.update(selected_targets(key))
+    targets = [t for t in DEFAULT_TARGETS if t not in left_out]
+    if name.startswith(TYPECHECK_PREFIX):
+        targets.append(PYKING_TARGET)
+    return targets + list(case.get("also", []))
 
 
 def selected_targets(name):
@@ -562,9 +592,21 @@ def run_web(source, workdir, modules, invocation):
     with open(os.path.join(workdir, "package.json"), "w") as f:
         f.write('{\n  "type": "module"\n}\n')
     return executed(
-        run(NODE + [loader] + invocation.arguments,
-            cwd=workdir, stdin=invocation.stdin),
+        page_status(run(NODE + [loader] + invocation.arguments,
+                        cwd=workdir, stdin=invocation.stdin)),
         invocation)
+
+
+def page_status(result):
+    """A page's run with the `exited with status N` line it ends on, where
+    `sys.exit` stopped it, made the run's exit status: a page has no
+    status of its own, and that line is how it reports one.
+    CompletedProcess -> CompletedProcess"""
+    found = re.search(r"exited with status (-?[0-9]+)\n\Z", result.stdout)
+    if found and result.returncode == 0:
+        result.stdout = result.stdout[: found.start()]
+        result.returncode = int(found.group(1))
+    return result
 
 
 # The driver that runs an `iweb` page's program outside a browser: the
@@ -620,6 +662,9 @@ if (!result.ok) {
   process.stderr.write(result.stage + ': ' + result.text + '\\n');
   process.exit(1);
 }
+// The page writes `exited with status N` where `sys.exit` ended the
+// program with N; outside a page that is the process's own status.
+else if (result.exit) console.log(`exited with status ${result.exit}`);
 """
 
 
@@ -639,8 +684,8 @@ def run_iweb(source, workdir, modules, invocation):
     with open(driver, "w") as f:
         f.write(IWEB_DRIVER)
     return executed(
-        run(NODE + [driver, workdir, os.path.basename(source)]
-            + invocation.arguments, cwd=workdir, stdin=invocation.stdin),
+        page_status(run(NODE + [driver, workdir, os.path.basename(source)]
+                        + invocation.arguments, cwd=workdir, stdin=invocation.stdin)),
         invocation)
 
 
@@ -682,11 +727,12 @@ def run_java(source, workdir, modules, invocation, version):
     if compiled.returncode != 0:
         return None, compiled.stderr
     release = version.removeprefix("java")
+    # Every module calls into the runtime the compiler writes beside them.
     built = run(
         [JAVA_COMPILER, "--release", release, "-d", workdir]
         + [os.path.join(workdir, java_class_name(name) + ".java")
            for name in modules]
-        + [generated]
+        + [os.path.join(workdir, "PykRuntime.java"), generated]
     )
     if built.returncode != 0:
         return None, built.stderr
@@ -918,6 +964,29 @@ def load_cases():
             f"another program imports; a module is listed only under the "
             f"program that imports it"
         )
+    # A case says what it leaves out and why, never which targets it
+    # runs on: the list is worked out here, once, for every reader.
+    for case in cases:
+        name = case["file"]
+        if "targets" in case:
+            print(
+                f"WARNING: {name} lists `targets`; a case runs everywhere "
+                f"and leaves a target out with `excluded`"
+            )
+        for key, reason in case.get("excluded", {}).items():
+            if not selected_targets(key):
+                print(f"WARNING: {name} excludes {key!r}, which is no target or family")
+            if not isinstance(reason, str) or not reason.strip():
+                print(f"WARNING: {name} excludes {key!r} without a reason")
+        if name.startswith(FAIL_TYPECHECK_PREFIX) and ("excluded" in case or "also" in case):
+            print(
+                f"WARNING: {name} is named {FAIL_TYPECHECK_PREFIX}*, so it runs "
+                f"on {PYKING_TARGET} alone and takes no `excluded` or `also`"
+            )
+        for extra in case.get("also", []):
+            if extra not in OPTIONAL_TARGETS:
+                print(f"WARNING: {name} adds {extra!r}, which is not an optional target")
+        case["targets"] = case_targets(case)
     # The naming convention and the manifest have to agree about which
     # programs have their types pinned, and about which of those are also
     # run, so that neither can drift silently.
@@ -1300,8 +1369,28 @@ def main():
         f"{programs} program{'' if programs == 1 else 's'} over "
         f"{len(shown)} target{'' if len(shown) == 1 else 's'}")
 
+    print_exclusions(cases, shown)
+
     if total_failed:
         sys.exit(1)
+
+
+def print_exclusions(cases, shown):
+    """Prints, per reason, how many cases leave which targets out -- the
+    manifest's only way of not running a case somewhere.
+    [Case] -> [String] -> ()"""
+    reasons = {}
+    for case in cases:
+        for key, reason in case.get("excluded", {}).items():
+            targets = [t for t in selected_targets(key) if t in shown]
+            if targets:
+                reasons.setdefault((key, reason), []).append(case["file"])
+    if not reasons:
+        return
+    print()
+    print("  excluded:")
+    for (key, reason), files in sorted(reasons.items()):
+        print(f"    {key}: {reason} ({len(files)} case{'' if len(files) == 1 else 's'})")
 
 
 if __name__ == "__main__":

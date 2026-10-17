@@ -110,11 +110,11 @@ Decomposition is **UTC** on every host. A local one would depend on the
 host's own zone database, which the targets disagree about, and a
 library that formatted differently per target would be no use.
 
-A declared type has to be one the target can carry. A list or a tuple is
-refused on C and Java ([modules.md](modules.md), "What may cross the
-boundary"), which is why `time` and most of `sys` reach neither -- the
-shape a caller wants is worth more than two targets that could not carry
-it. Those two compile only what a program uses of a library
+A declared type has to be one the target can carry. A list is refused
+on C, which has no garbage collector to free one ([modules.md](modules.md),
+"What may cross the boundary"), which is why most of `sys` does not
+reach it -- the shape a caller wants is worth more than one target that
+could not carry it. C and Java compile only what a program uses of a library
 ([modules.md](modules.md), "What a program uses"), so `sys.exit` reaches
 them while `sys.args` does not.
 
@@ -413,8 +413,8 @@ tests. See `tools/site/README.md`.
 | `fs` | yes | yes | not supported | not supported | yes | yes | yes | yes |
 | `io` | yes | yes | output only | output only | yes | yes | yes | yes |
 | `math` | yes | yes | yes | yes | yes | yes | yes | yes |
-| `sys` | yes | yes | `exit` only | `exit` only | `exit` only | `exit` only | yes | yes |
-| `time` | yes | yes | yes | yes | no | no | yes | yes |
+| `sys` | yes | yes | `exit` only | `exit` only | `exit` only | yes | yes | yes |
+| `time` | yes | yes | yes | yes | yes | yes | yes | yes |
 | `tinyweb` | yes | yes | yes | yes | yes | yes | yes | yes |
 
 "Not supported" and "output only" are the browser implementations above:
@@ -426,12 +426,15 @@ C carries as function pointers and Java as java.util.function
 interfaces ([target_c.md](target_c.md) and
 [target_java.md](target_java.md), "Functions as values").
 
-On C and Java, `sys` offers `exit` alone. `args` and `env` answer a list,
-which neither target can carry, and `prog_name` and `prog_path` need the
-program's own `argv`, which an implementation file cannot see -- so
-`sys_external.c` and `SysExternal.java` define `exit` only, and a program
-using another name does not link. `time` answers a tuple, and does not
-reach either.
+On C, `sys` offers `exit` alone. `args` and `env` answer a list, which
+C cannot carry, and `prog_name` and `prog_path` need the program's own
+`argv`, which an implementation file cannot see -- so `sys_external.c`
+defines `exit` only. `SysExternal.java` defines all five: a Java
+program's generated `main` leaves its arguments and its class in the
+system properties `pyking.args` and `pyking.main`. `time` answers a
+tuple, which C carries as the struct the compiler writes for it, so
+`time_external.c` declares that struct the same way, and
+`TimeExternal.java` answers the runtime's `PykRuntime.T6`.
 
 `math` is named the way a host's own library is, which three targets
 have to step around. Python loads it by path, as it loads `sys` and
@@ -477,7 +480,7 @@ to two files and the generated half calls into the other:
 [[cases]]
 file = "lib_fs_roundtrip.pyk"
 libs = ["fs"]
-targets = ["python14", "node24", "c89", "c99", "c23", "java8", "java17", "java21", "ocaml5.5", "interpret"]
+excluded = { web = "a browser page has no file system", iweb = "a browser page has no file system" }
 ```
 
 `libs` is separate from `modules` because a library is not a file in

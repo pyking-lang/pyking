@@ -86,12 +86,9 @@ site rather than looked up at run time. It is why lambdas are part of
 this change, and it is the one place the pass generates a name
 (`Elaborate.generated_name` says which).
 
-*Not optimal:* a lambda is what C and Java have no closures for, so a
-program whose resolution needs a wrapper compiles on Python,
-JavaScript, OCaml and the interpreter and is refused on those two. A
-generated `def` would have compiled everywhere — a wrapper captures no
-value, only function names — and switching is a change to one function
-in `elaborate.ml` if that turns out to matter.
+*Not optimal:* the wrapper is a lambda, which every target compiles --
+C as a function of its own, since a wrapper captures no value, only
+function names.
 
 ## A function carrying implicits, passed on
 

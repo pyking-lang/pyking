@@ -93,7 +93,9 @@ and typ =
   | TVar of info * string * int * bool
       (* a lowercase name: a type the caller chooses. The flag is
          `rigid`: false for a variable the checker made rather than the
-         source. *)
+         source. A symbol of -1 marks an enclosing definition's
+         variable in the type of a definition written inside it, which
+         prints as `?`. *)
   | TForall of info * string list * typ * int (* all a b. body *)
   | TCon of info * string * typ list * int
       (* Name / Name(T1, ...) / module.Name(...) -- a datatype applied
@@ -646,6 +648,7 @@ and pprint_type_body cfg t =
       in
       Printf.sprintf "(%s) -> %s" (String.concat ", " written)
         (pprint_type cfg result)
+  | TVar (_, _, -1, _) -> "?"
   | TVar (_, name, _, _) -> name
   | TForall (_, vars, body, _) ->
       Printf.sprintf "all %s. %s" (String.concat " " vars)
@@ -669,7 +672,7 @@ let pprint_annotation_type cfg t =
     anywhere is printed as no annotation at all. typ -> bool *)
 let rec spellable t =
   match t with
-  | TUnknown _ | TBuiltin _ | TData _ -> false
+  | TUnknown _ | TBuiltin _ | TData _ | TVar (_, _, -1, _) -> false
   | TCon (_, _, args, _) -> List.for_all spellable args
   | TList (_, element, _) -> spellable element
   | TTuple (_, elements, _) -> List.for_all spellable elements

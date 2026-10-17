@@ -4,776 +4,274 @@
 
 **Key points**
 
-- One backend, `src/target_java.ml`, with a `version` parameter -- the
-  same shape as `src/target_c.ml`'s `standard`. All three versions
-  translate *identically*; only the printer differs, and in one place:
-  whether a local declaration spells out its type or writes `var`.
-- Java is statically typed and Pyking is not, so this backend **infers
-  types** -- `int`, `String`, `boolean` -- for every binding, parameter
-  and function, by the same three rules `target_c.ml` uses.
-- What the top level binds is a static field, so a method reads it as
-  Pyking says it may, and a top-level `def` is a value: the
-  `java.util.function` interface of its shape, as a lambda calling the
-  method, which may be bound, passed and handed to an external module as
-  a callback. A nested `def` and a Pyking lambda are not.
-- Output is one `.java` file with no imports: string concatenation is
-  Java's own `+`, string equality is `.equals()`, and `System.out` needs
-  nothing declared; a function type is written with its full name
-  (`java.util.function.Consumer<Integer>`).
-- `/` is Java's own `/` on `int`: Pyking divides integers truncating
-  toward zero, which is what Java does.
-- **Unlike C, a function must provably return on every path.** `javac`
-  refuses to compile one that can fall off the end instead of returning,
-  where C only warns -- so this backend checks that itself and refuses
-  the program at compile time rather than handing `javac` code it will
-  reject anyway. The same strictness makes code after an unconditional
-  `return` a compile error, so that is checked and refused too.
+- One backend, `src/target_java.ml`. It infers no types of its own:
+  every type it writes is read out of the checker's `tmap`, as
+  `src/target_ocaml.ml` reads them. So it takes the whole language the
+  checker accepts, and `make test` runs every test program on all three
+  versions.
+- Pyking's polymorphism is Java's generics; a list is a `java.util.List`;
+  a tuple is a class of the shared runtime; a datatype is a class per
+  constructor; a function value is a `java.util.function` interface.
+- The three versions are **three shapes of output**: plain classes and
+  casts for java8, records, sealed interfaces and `instanceof` patterns
+  for java17, records and a pattern `switch` for every `match` on java21.
+- Every program is written with **`PykRuntime.java`** beside it: the
+  tuple classes, the function interfaces beyond two parameters, the
+  interfaces polymorphic parameters are passed as, and the helpers that
+  print a value, build a list and convert a String.
+- A nested `def` is a **static method** taking what it captures as its
+  first parameters; a `var` a closure captures lives in a one-element
+  array.
 - The output file and its class are named in Java's own style, not the
-  source's: `foo_bar.pyk` compiles by default to `FooBar.java`, holding
-  `public final class FooBar`. See "Naming the class" below.
-- Least optimal at: renaming more shadowed bindings than a Java method's
-  own scoping strictly requires (inherited from the same conservative
-  scope mechanism `target_c.ml` uses).
+  source's: `foo_bar.pyk` compiles by default to `FooBar.java`. See
+  "Naming the class".
 
 Verified with `javac --release 8`, `--release 17` and `--release 21`
-(the last two by way of a JDK 21 `javac`, which supports emitting all
-three).
+from one JDK 21.
 
-## The three targets
+## The three shapes
 
-| | `java8` | `java17` | `java21` |
-|---|---|---|---|
-| local declarations | `final int x = 1;` | `final var x = 1;` | `final var x = 1;` |
-| compile with | `javac --release 8` | `javac --release 17` | `javac --release 21` |
-
-`var` is local-variable type inference (JEP 286, Java 10): java8 predates
-it and spells the type out; java17 and java21 both have it and use it.
-That is the one axis "use more language features in higher targets" means
-here, because the subset this backend accepts (below) never reaches a
-construct java17 and java21 would themselves translate differently --
-no `record`, no pattern-matching `switch`, nothing a `match` on real
-values or tuples as records would eventually give java21 that java17
-lacks. Until this backend supports one of those, java17 and java21 emit
-the same file beyond the `--release` number in the header comment.
-Everything else is shared: one translation, one AST, one set of type
-rules, one printer with a single `if version` branch in it.
-
-## What is supported
-
-`print`; `def` with parameters, `return` and recursion, its body
-written under the header or on the header's own line (`def f(x): e`);
-`if` / `else if` / `else`;
-`while`; `loop` with `break` and `continue`; `=`, `var`, `:=`; `if … then … else …` expressions;
-integers, strings and booleans; `+ - *`, unary minus, comparisons, and
-calls; a method reading or writing what the top level bound; and a
-top-level `def` of at most two parameters as a value -- bound, passed,
-called through and handed to an external module. Tail position,
-`return if c:`, and unit-returning (`void`) methods are supported too
--- see below.
-
-Type annotations are *used* here rather than erased, when they name a
-type Java can represent -- exactly as in the C targets.
-
-## What is not supported
-
-Everything the JavaScript and C targets refuse -- lists, tuples, `for`,
-`match`/`case`, comprehensions, value-form bindings, `len`/`range`
--- plus the following. All are refused at compile time with a source
-position.
-
-
-### Datatypes, `as`, and a guard or `|` that binds
-
-A datatype's value lives on the heap, which this backend has no value
-model for, as it has none for a list or a tuple: a `datatype`, a
-constructor and a field read are refused with a source position. A
-`match` over scalars still takes or-patterns and guards, where neither
-binds a name: `case 1 | 2:` is one test joined with `||`, and
-`case _ if n > 9:` is the pattern's test `&&` the guard's. A name a
-pattern binds is declared inside the arm, after the test the guard is
-part of, so a guard on a pattern that binds one is refused, and so is an
-`as` pattern and an alternative of `|` that binds. Every `match`
-matches every value, so an unguarded last arm is the chain's `else` --
-which is what makes a `Bool` `match` with no `_` return on every path.
-
-### Lambdas
-
-```
-Unsupported by target 'java21': lambdas, which this backend has no
-closure semantics for
-```
-
-Java *has* lambdas, and a top-level `def` used as a value is compiled
-to one ("Functions as values", below). A Pyking lambda is refused for
-the reason a nested `def` is: it closes over what is around it, which a
-Java lambda can read but not reassign. The two are the same construct
-from here, so they get the same answer.
-
-### Nested `def`
-
-```
-Unsupported by target 'java21': a nested function -- Java has no local
-functions with Pyking's closure semantics; a lambda would need a
-functional-interface type this backend does not infer, and could not
-mutate a captured variable the way a nested `def` may need to
-```
-
-Java's closest equivalent to a nested function is a lambda assigned to a
-functional-interface type (`java.util.function.BiFunction<...>` and
-friends), and it falls short in two ways a straightforward translation
-would need: Java has no built-in functional interface for every arity a
-Pyking function might have, and a lambda cannot reassign a captured local
-the way a `var`-mutating nested `def` could. Rather than emit something
-that works for some nested `def`s and not others, this backend refuses
-all of them, the same call C makes for a different reason (no nested
-functions at all).
-
-### A function that does not return on every path
-
-```
-Unsupported by target 'java21': `f` does not return a value on every
-path; unlike Python, javac refuses to compile a method that can fall off
-the end instead of returning, so make sure every branch ends in `return`
-```
-
-Python returns `None` implicitly when a function's control falls off the
-end; `javac` treats that as a compile error for any method whose return
-type isn't `void`. Two things narrow when this can fire at all. A method
-whose return type *is* `void` -- one yielding unit, see "Tail position
-and unit" above -- is exempt, because there is nothing for it to return.
-And tail position means a branch need only *end in an expression* to
-count as returning, so an exhaustive `if`/`else` satisfies the rule with
-no `return` written. What is left is a genuine gap: a path that produces
-no value in a method some other path gives one to. This backend checks
-for it during translation -- conservatively: it recognises an unconditional `return`, or an `if`/`else`
-whose *both* arms definitely return, which is exactly the shape every
-function in this shared subset already needs to have. It also recognises
-one loop: the `while (true)` a Pyking `loop` compiles to, when nothing
-`break`s out of it. That one is not an optional refinement -- a `loop`
-with no `break` never finishes, so a method ending in one has no path
-off the end, and javac agrees (JLS 14.21: such a statement cannot
-complete normally). Refusing it would refuse a perfectly ordinary
-program. A `while` loop is still never the proof on its own,
-`while true:` included: `stmt_definitely_returns` (see
-`src/target_java.ml`) attempts no analysis of a *condition*,
-deliberately -- real `javac` does special-case a constant-`true` one,
-but recognising that here would mean recognising it for `while 1 == 1:`
-too, and Pyking's `loop` is now the way to write a loop that provably
-does not end. The backend refuses anything it cannot prove returns by
-these rules, rather than
-handing `javac` a file it will reject with a less helpful message and no
-Pyking source position.
-
-### Unreachable code after a `return`
+The same function, a `match` with a guard over a datatype:
 
 ```pyking
-def f(n):
-    if n < 0:
-        return 1
-    else:
-        return 2
-    print(n)     # rejected: never runs
+datatype Shape:
+    Circle(radius: Int)
+    Rect(width: Int, height: Int)
+
+def area(s: Shape) -> Int:
+    match s:
+        case Circle(r): 3 * r * r
+        case Rect(w, h) if w == h: w * w
+        case Rect(w, h): w * h
 ```
 
-```
-Unsupported by target 'java21': unreachable statement -- javac refuses
-code after a branch that always returns, where Python would simply never
-run it; remove it or restructure the function
-```
-
-Python happily keeps dead code after an exhaustive `if`/`else` around; it
-simply never executes. `javac`'s reachability analysis treats it as a
-compile error, so this backend checks for the same shape (a statement
-following one that definitely returns) and refuses it first.
-
-### A `loop` Java cannot give a value
-
-```
-Unsupported by target 'java21': a loop worth `()` -- a loop with no
-accumulator is worth unit, and Java has no value for one; carry the
-value the loop is for, or run the loop for what it does rather than
-what it is worth
-```
-
-The same shapes the C backend refuses, for the same reason: a loop with
-no accumulator (worth unit) or with several slots (worth the tuple of
-them) *whose value something wants*, an `if` with no `else` as the last
-statement of a loop body, and a body ending in something with no value.
-Each is a case Pyking answers with unit or a tuple, which Java has
-nothing to hold. Running such a loop for what it does is fine.
-
-### `:=` that changes a variable's type
-
-```pyking
-var v = 1
-v := "text"     # rejected
-```
-
-A Java local has one type for its whole declaration. As in C, this
-restricts `:=` only -- rebinding with `=` is a *new* binding and gets a
-new Java local, which may well have a different type.
-
-### Type mismatches Java cannot bridge
-
-- `if … then … else …` whose branches differ in type -- Java's `?:` is
-  typed once for both arms in the way this backend uses it.
-- `==` between different types -- likewise.
-- `+` or `++` mixing an integer and a string -- Java would happily
-  stringify the integer for `+`, but that is not what either Pyking
-  operator means (neither has any implicit conversion), so this backend
-  refuses the mix rather than let Java's own `+` paper over it.
-- A type variable in an annotation (`def id(x:a) -> a`). Java has
-  generics, but this backend infers one concrete type per function and
-  emits no type parameters, so a type the caller chooses has nothing
-  here to become.
-- A list, in any form. This backend infers one concrete type per name
-  and has no representation for a list of one; `match` over a scalar is
-  supported, as an if/else chain over the subject.
-
-### A recursive or forward-called function returning non-`Int` without an annotation
-
-```
-Unsupported by target 'java21': `f` calls itself and does not return Int;
-a recursive function's return type is assumed Int unless annotated, so
-annotate it (`-> String`, `-> Bool`)
-
-Unsupported by target 'java21': `g` is called before it is defined and
-does not return Int; a call written above a `def` is typed from the
-annotation, or Int without one, so annotate the return type
-(`-> String`, `-> Bool`)
-```
-
-Same cause as the C targets: a signature must exist before a call can be
-translated, and for a body that has not been read yet the return type
-can only come from the annotation, so without one it starts as `Int`.
-Adding `-> String` or `-> Bool` resolves both.
-
-### A function value Java has no interface for
-
-```
-Unsupported by target 'java21': `add3` is used as a value and takes 3 parameters -- java.util.function has an interface for at most two
-```
-
-A function value is the `java.util.function` interface of its shape
-("Functions as values", below), and the package stops at two
-parameters. One whose own parameters or result are functions is refused
-the same way, since the interfaces are written for values. Calling
-either is fine; using one as a value is not.
-
-### An expression statement that is not a call
-
-Pyking lets any expression stand as a statement and discards its value.
-Java allows only a call, an assignment or an increment there, so `i + 1;`
-is *not a statement* to `javac`. An expression that calls nothing has no
-effect to keep, so it is emitted as a comment rather than as code:
-
-```pyking                          # generated Java
-i + 1                              // i + 1;   (no effect: value discarded)
-print(i)                           System.out.println(i);
-```
-
-One that *is* a call is a legal Java statement and is emitted as such.
-One in between — `f(1) + 2`, a call buried inside an expression — has an
-effect Java cannot express in statement position, so it is refused
-rather than silently dropped.
-
-### Forward references and mutual recursion
-
-These are supported, and need less than they do in C: every `def`'s
-signature is registered before any body is translated, and that is all —
-these are static methods of one class, so Java itself does not care what
-order they are written in and nothing has to be declared ahead.
-
-## The top level
-
-Pyking's methods may read, and `:=` may write, what is bound where they
-are written (PYKING.md, "Names and scoping"), and a method here is
-always written at the top level -- a nested `def` is refused above. So
-what the top level binds is a **static field** of the class, assigned
-where the binding is, in `main` (or `init`, for a module the program
-imports):
+java8 tests the class and casts:
 
 ```java
-public final class Program {
-    private static int status;
-
-    private static void moved(final int value) {
-        TinywebExternal.set_label(status, "slider at " + String.valueOf(value));
+    private static int area(final Shape s) {
+        final Shape s$1 = s;
+        match$2: {
+            if (s$1 instanceof Circle) {
+                final int r = ((Circle) s$1).radius;
+                return 3 * r * r;
+            }
+            if (s$1 instanceof Rect) {
+                final int w = ((Rect) s$1).width;
+                final int h = ((Rect) s$1).height;
+                if (w == h) {
+                    return w * w;
+                }
+            }
+            {
+                final int w2 = ((Rect) s$1).width;
+                final int h2 = ((Rect) s$1).height;
+                return w2 * h2;
+            }
+        }
     }
-
-    public static void main(String[] args) {
-        status = TinywebExternal.label("nothing yet");
-        ...
-    }
-}
 ```
 
-A rebinding is a field of its own (`status2`), as it is a local of its
-own in a block, so a method keeps the value it was written after. A
-block's bindings stay locals. An exported value's field is the binding's
-own, made `public`.
+java17 binds a pattern variable in the `instanceof` and reads the
+record's accessors:
+
+```java
+            if (s$1 instanceof Circle t$3) {
+                final int r = t$3.radius();
+                return 3 * r * r;
+            }
+```
+
+java21 takes the value apart with record patterns, every other test in
+the case's `when`:
+
+```java
+        switch (s$1) {
+            case Circle(var t$2) -> {
+                final int r = t$2;
+                return 3 * r * r;
+            }
+            case Rect(var t$3, var t$4) when PykRuntime.truth((int) t$3 == (int) t$4) -> {
+                ...
+            }
+            ...
+            default -> {
+                throw new IllegalStateException();
+            }
+        }
+```
+
+java8 also spells every local's type, where java17 and java21 write
+`var` for a type that needs no spelling out.
+
+## How types are written
+
+| Pyking | Java |
+|---|---|
+| `Int`, `Float`, `Bool` | `int`, `double`, `boolean`; `Integer`, `Double`, `Boolean` as a type argument |
+| `String` | `String` |
+| `()` | `Void`, whose one value is `null`; a function answering it is `void` |
+| `[T]` | `java.util.List<T>` |
+| `(A, B)` | `PykRuntime.T2<A, B>`, up to `T8` and beyond as a program needs |
+| `(A) -> R`, `(A, B) -> R`, `() -> R` | `java.util.function.Function`, `BiFunction`, `Supplier` |
+| a function of three or more parameters | `PykRuntime.Fn3`, `Fn4`, ... |
+| a type variable `a` | the method's type parameter `A` |
+| `Tree(a)` | the datatype's own class, `Tree<A>` |
+| a parameter of type `all a. (a) -> a` | `PykRuntime.Poly$...`, an interface with one generic method |
+
+A value of a type variable is a boxed object, so `==` on two of them
+unboxes first: Java's `==` on two `Integer`s compares the objects.
+
+**The checker's types come first.** A type it wrote down in the body of
+a polymorphic function is in that function's own variables, so the
+backend can declare every local with its type. Where Java can infer a
+type argument itself -- an empty list, a tuple, a comprehension -- the
+backend lets it rather than writing one down.
+
+**A top-level value of a polymorphic type** -- `same = id`, at
+`(a) -> a` -- has no Java type, since a field has no type parameters. It
+is held as `Object`, built at its type with the variables erased, and
+read back at the type each use instantiates.
+
+**A def nothing reaches is not compiled.** The checker works out an
+unannotated def's types the first time something calls it, so a def no
+live code reaches has none, and nothing needs it.
+
+## Datatypes
+
+A datatype is a base type and a class per constructor. java8 writes an
+abstract class and a final subclass per constructor; java17 and java21
+write a sealed interface and a record per constructor. Each constructor
+implements `PykRuntime.Data`, which is how the runtime prints it, and
+has a factory method of its own name answering the base type:
+
+```java
+    private static Shape Circle(final int radius) {
+        return new Circle(radius);
+    }
+```
+
+A construction calls the factory, so Java infers a polymorphic call's
+type variables from the datatype rather than from the one constructor:
+`fold(f, Nil(), xs)` would otherwise infer `Nil<A>` where it needed
+`List<A>`.
+
+A field every constructor has is a method of the base type,
+`p.name()`, which is what `x.name` compiles to. A field with no name is
+`f$0`, `f$1`, ...; a name Java reserves takes a `$`.
 
 ## Functions as values
 
-A function type is the `java.util.function` interface of its shape,
-with its values boxed:
+A def's name used as a value is a lambda calling its method, of the
+interface its type at that use names. A Pyking lambda is a Java lambda.
+A function answering unit answers `null` as a value, so one interface
+serves both.
 
-| Pyking | Java | called with |
-|---|---|---|
-| `() -> ()` | `Runnable` | `run()` |
-| `() -> R` | `Supplier<R>` | `get()` |
-| `(A) -> ()` | `Consumer<A>` | `accept(a)` |
-| `(A) -> R` | `Function<A, R>` | `apply(a)` |
-| `(A, B) -> ()` | `BiConsumer<A, B>` | `accept(a, b)` |
-| `(A, B) -> R` | `BiFunction<A, B, R>` | `apply(a, b)` |
+A **nested `def`** is lifted to a static method of the class, named
+after the method it was written in (`outer$inner`), taking what it
+captures before its own parameters. What a lifted method captures is
+known only once the module is translated, since one may call another
+that captures more, so the text holds a marker where the captures go and
+the printer fills them in. A captured name is passed under the same
+name it has where it was bound: every local of a method family has a
+name of its own.
 
-A top-level `def` used as a value is a lambda calling its method, with
-parameters named `p$1`, `p$2` -- `$` is in no Pyking name, so they
-shadow nothing:
+A **`var` a closure captures** is a one-element array, `final int[]
+count = { 0 };`, so the closure and its owner write one cell.
+
+A **loop whose body writes a closure** gives every turn its own final
+accumulator, read from the variable the loop carries, since a lambda
+captures only what is effectively final -- and in Pyking each turn's
+accumulator is a binding of its own.
+
+## Polymorphic parameters
+
+A parameter of type `all a. (a) -> a` is an interface of the runtime
+with one generic method, named by a hash of its shape, so two modules
+agree on it without seeing each other:
 
 ```java
-TinywebExternal.on_mouse(c, (p$1, p$2) -> clicked(p$1, p$2));
+    public interface Poly$176b03d5 {
+        <B0> B0 apply(B0 q$1);
+    }
 ```
 
-A parameter annotated with a function type is the interface, called
-through its method; a result that comes back boxed is cast to its
-primitive (`(int) f.apply(n)`), so `==` compares values rather than
-objects. A local holding one spells its type out even where `var` is
-used, since a lambda has no type of its own to infer. That is also what
-an external module is handed for a callback, so its implementation
-declares the parameter as the interface and a Java caller hands it a
-lambda. Only a top-level `def` can be a value, and a parameter's
-function type must be written down.
+A lambda cannot implement a generic method, so a function handed to one
+is an anonymous class whose method calls it. The parts of the type that
+mention none of the parameter's own variables are the interface's type
+parameters, so `all r. ((a) -> r) -> r` is one interface for every `a`.
 
-## How types are inferred
+## Loops and `match`
 
-Identical to [the C targets](target_c.md#how-types-are-inferred): four
-types -- `Int`, `Float`, `String`, `Bool` -- and three rules (a binding
-takes its
-initializer's type; a parameter takes its annotation when Java can
-represent it, else a guess from whether the body concatenates or compares
-it with a string or combines it with a float literal, else `Int`; a
-function's return type is read back off
-its translated body). The same caveat applies: rule 2 is a guess, and an
-unannotated parameter the body only ever returns unchanged will infer
-`Int` and refuse a call site that passes a string. Annotations naming a
-tuple, list or function type are ignored here too — for a function type
-what refuses the program is the *call* through the parameter, `call to
-unknown function`, since a `def` is not a value this backend can pass.
+A loop's accumulator is a local, assigned at the end of each turn; a
+`for` is Java's enhanced `for`; `while c` is Java's `while`. A constant
+condition is wrapped in `PykRuntime.truth`, since javac refuses the body
+of `while (false)`.
 
-**Every argument is checked against the parameter type this backend
-worked out**, and a mismatch is refused with the position of the call,
-as it is in C and for the same reason: Java widens an `int` to a
-`double` silently, so an argument at the wrong type would compile and be
-quietly wrong. A refusal there means this backend could not work the
-type out, not that the program is ill-typed.
+A `match` holds its subject in a local. On java8 and java17 it is an
+if/else chain, and a chain whose cases have guards is a labelled block
+each case leaves with `break`. Every `match` matches every value
+(exhaustive.md), so the last case needs no test. On java21 it is a
+`switch`; a `break` written in one leaves the innermost loop by its
+label, since an unlabelled one would leave the `switch`.
 
-## Floats
+javac refuses a statement it can prove unreachable, and a method that
+can fall off its end: the backend drops what follows a statement that
+cannot complete, and ends a method that can with a `throw`.
 
-A `Float` is a `double`. Arithmetic and `/` are Java's own, which are
-IEEE's, and equality is `==` rather than `.equals()` — the two differ
-exactly on the values Pyking cares about, since `Double.equals` reports
-two NaNs equal and `==` does not. `float(n)` and `int(x)` are casts, and
-Java's narrowing cast truncates toward zero.
+## Printing
 
-`System.out.println` builds its line by string concatenation, so a
-`double` joining it would be written by `Double.toString`. It is wrapped
-in a generated `pykFloatStr` instead, implementing `docs/builtin.md`'s
-rule. Two things about that helper are not optional:
-
-- **`String.format` takes `Locale.ROOT`.** The default locale writes
-  `1,0e+00` wherever the decimal separator is a comma, and one `.out`
-  file is compared against every target.
-- **`Double.toString` is not used.** It was not the shortest round trip
-  before JDK 19, and `java8` is the floor here — so the digits are found
-  by formatting at increasing precision until the text reads back as the
-  same double.
+`print` writes one line with `System.out.println`. A String is itself, an
+Int or Bool its `String.valueOf`, a Float `PykRuntime.floatStr` -- the
+shortest text that reads back as the same double, in Pyking's own
+spelling -- and anything else `PykRuntime.str`, which walks the value at
+run time: a boxed `Double` is a Float, a `List` a list, a `Tuple` a
+tuple, a `Data` a datatype. A Java value carries its class, so the walk
+needs nothing from the compiler.
 
 ## Naming the class
 
 Java requires the file holding a `public` class to share that class's
-name exactly, so this backend cannot simply reuse the source's own
-spelling the way every other target does. With no `--output`, the
-default name is **Java-cased**, not the source's:
+name exactly. With no `--output`, the default name is **Java-cased**:
 
 ```
 $ pyk compile -t java21 foo_bar.pyk   # writes FooBar.java
-$ pyk compile -t java21 test1.pyk     # writes Test1.java
 ```
 
 Words are split on anything that is not a letter or digit, each
-capitalised and run together (`default_class_name` in
-`src/target_java.ml`); a stem with none becomes `Program`, and one that
-would start with a digit gets an underscore prefixed, since neither is a
-legal Java identifier otherwise.
-
-An explicit `--output` is trusted as-is instead: the class is named after
-whatever file the caller chose, lower case and all --
-`--output prog.java` writes a file holding `public final class prog`,
-because that is what `javac` requires of a file called `prog.java`.
-
-## How things compile
-
-### The same program, all three versions
-
-```pyking
-def sign(n): if n < 0 then "neg" else "pos"
-
-
-def classify(n):
-    if n < 0:
-        return "low"
-    else if n == 0:
-        return "zero"
-    else:
-        return "high"
-
-
-var i = 0
-while i < 2:
-    print(sign(i), classify(i), "a" == "b")
-    i := i + 1
-```
-
-`java8`:
-
-```java
-// Generated from prog.pyk by the Pyking compiler. Do not edit.
-// Target: java8. Compile with:  javac --release 8 Prog.java
-//         then run with:            java Prog
-
-public final class Prog {
-
-    private static String sign(final int n) {
-        return n < 0 ? "neg" : "pos";
-    }
-
-    private static String classify(final int n) {
-        if (n < 0) {
-            return "low";
-        } else if (n == 0) {
-            return "zero";
-        } else {
-            return "high";
-        }
-    }
-
-    public static void main(String[] args) {
-        int i = 0;
-        while (i < 2) {
-            System.out.println(sign(i) + " " + classify(i) + " " + "a".equals("b"));
-            i = i + 1;
-        }
-    }
-}
-```
-
-`java17`/`java21` differ in exactly one line -- the loop variable
-declares with `var` instead of spelling out `int`:
-
-```java
-        var i = 0;
-```
-
-Top-level Pyking statements become the body of `main`; `def`s become
-`private static` methods, in source order -- which works because name
-analysis already requires definition before use.
-
-### Tail position and unit (`void`)
-
-A method body's last statement supplies its value (see "Tail position"
-in PYKING.md), so a `return` is pushed down into it, recursively through
-`if` branches -- which also means the definitely-returns check below is
-satisfied by an exhaustive `if`/`else` whose branches merely *end in an
-expression*, with no `return` written:
-
-```pyking                          // generated Java
-def pick(x, y, z):                 private static int pick(final int x, ...) {
-    if z > 5:                          if (z > 5) {
-        x + y              ->              return x + y;
-    else:                              } else {
-        2 * x                              return 2 * x;
-                                       }
-                                   }
-```
-
-A method that returns no value on any path has Pyking's unit type, which
-Java spells `void` -- a body whose tail is a `print` (which yields
-unit), a loop, or a binding. Such a method is exempt from the
-definitely-returns rule, since there is nothing to return:
-
-```pyking                          // generated Java
-def announce(label: String, n):    private static void announce(final String label, final int n) {
-    print(label, n)        ->          System.out.println(label + " " + n);
-                                   }
-```
-
-A `void` call has no value to use, so calling one anywhere but as a
-statement of its own is refused with a source position rather than
-handed to `javac` as `'void' type not allowed here`.
-
-### `loop`, `break` and `continue`
-
-A `loop` is `while (true)` over one non-`final` local holding the
-accumulator. The initializer declares it -- and its Java type is the
-initializer's, by the ordinary inference rule -- every tail of the body
-assigns the next turn's value, and `break`/`continue` are Java's own,
-operand and all: they have none.
-
-```pyking                          // generated Java
-res = loop x = 5:                  var x = 5;
-    if x <= 10:                    while (true) {
-        x + 1                          if (x <= 10) {
-    else:                                  x = x + 1;
-        break                          } else {
-                                           break;
-                                       }
-                                   }
-                                   final var res = x;
-```
-
-The accumulator is the one binding here that is deliberately *not*
-`final` (see "Immutable bindings stay immutable"): Pyking rebinds it
-every turn, and one Java local carries all of them. A loop carrying
-several values gets one local per slot, with the next turn's values
-computed into `final` locals first so that a slot reading another sees
-the turn it is still on.
-
-A loop is worth the accumulator it stopped with, so the locals already
-hold the answer: a `break` is Java's own and leaves them holding what
-this turn started with. A loop of several slots is worth all of them at
-once, which Java has no tuple for -- so one whose value something wants
-is refused, while one run for what it does (the shape every
-accumulator-passing function has after the tail-call pass, whose every
-exit is a `return`) compiles here.
-
-A `while c` can also stop by **running out**, and the loop is worth the
-same accumulator then. Java has no loop `else`, and needs none: the
-exhaustion test is written by this backend itself, `if (!c) break;` at
-the top of a `while (true)`. [target_c.md](target_c.md) says the same
-of C.
-
-Binding a loop is that `final` declaration after it, and a loop in tail
-position is `return x` -- unless nothing breaks out of the loop, in
-which case the `return` is left out, javac refusing a statement that
-cannot be reached.
-
-### Names that are keywords in Java
-
-A name can be a good Pyking identifier and a reserved word in Java --
-`static`, `class`, `final`, `public`, `new`, `instanceof`, and the rest.
-Such a name is renamed by the same mechanism that handles shadowing:
-
-```pyking                          // generated Java
-def static(n):                     private static int static2(final int n) {
-    n * 2                  ->          return n * 2;
-                                   }
-```
-
-The list (`reserved` in `src/target_java.ml`) also holds `String`,
-`System`, `args` and `main`: not keywords, but a Pyking function
-shadowing one would break the generated file just as thoroughly. And
-`_`, which is a keyword in Java 9 and later and an unnamed variable
-(a preview feature) in 21 -- an ordinary Pyking name that `java8` alone
-would have accepted, so it is renamed for every version rather than
-splitting the family (`tests/renaming_runtime.pyk`).
-
-A *module* name can shadow a class: the module `math` compiles to a
-class `Math` in the program's package, which an unqualified `Math`
-names in every file of it. So the generated code writes
-`java.lang.Math` in full, and so does `lib/math/MathExternal.java`.
-
-### Immutable bindings stay immutable
-
-Pyking's `=` is a binding, never a reassignment, so it translates to a
-Java local declared `final`; `var`/`:=` translate to one that is not:
-
-```pyking                          // generated Java (java17)
-x = 1                              final var x = 1;
-var total = 0                      var total = 0;
-total := total + x                 total = total + x;
-```
-
-Method parameters are `final` too -- Pyking has no way to reassign one
-(`:=` only ever targets a `var`), so the parameter really is immutable for
-the whole call, and the generated signature says so.
-
-### `print` and booleans
-
-Every argument's type is known statically, so a `print` call becomes one
-`System.out.println` whose argument is the values joined with Java's own
-`+` -- which means concatenation once either side is a `String`, and is
-what this backend emits for Pyking's `++` as well -- and single spaces:
-
-```pyking                          // generated Java
-print(1, "two", 3 < 4)             System.out.println(1 + " " + "two" + " " + (3 < 4));
-```
-
-No conversion needed for the boolean: Java's `+` already stringifies a
-`boolean` operand as `true`/`false`, which is exactly Pyking's own
-spelling too (see PYKING.md) -- unlike the C targets, where neither
-standard spells a boolean's *printed* form the way Pyking does on its
-own, so `target_c.ml`'s `printf` arguments need an explicit conditional
-expression (see `docs/target_c.md`'s "Booleans"). A single boolean
-argument to `print` on its own (no concatenation to trigger) compiles
-just as directly -- `System.out.println` has an overload that takes a
-`boolean` argument, and it also prints `true`/`false`.
-
-The conversions go by the argument's type. Java's own are used where
-they agree -- a cast widens an int, `String.valueOf` writes an Int or a
-Bool -- and `bool` is a comparison (`s.equals("true")`, `n == 1`). A
-String goes through `pykIntOfString` and `pykFloatOfString`, and `int`
-of a double through `pykTruncate`, private helpers in the class emitted
-only where used: `Integer.parseInt` throws where Pyking answers 0.
-
-`debug` is the same statement on `System.err`. A program compiled with
-`--release` has none left, and a `debug` that was a block's last
-statement, where its block's value is used, is left as the statement
-`()` -- which this backend compiles to nothing. A program's own
-definition named `print` or `debug` is an ordinary call.
-
-### Strings
-
-`String`, Java's own. Equality goes through `.equals()`, since `==` on
-two `String`s compares references and would agree with Python's `==`
-only by the accident of string interning; concatenation is Java's native
-`+`, needing no helper the way C's `pyk_concat` does:
-
-```pyking                          // generated Java
-"a" == "b"                         "a".equals("b")
-greeting + ", " + name + "!"       greeting + ", " + name + "!"
-```
-
-### Scope and renaming
-
-Java blocks are lexical scopes, so shadowing across blocks needs no help.
-Rebinding does: a Java local cannot be declared twice in one block, and
-Pyking's `x = 1` then `x = 2` is two bindings, possibly of two different
-types -- so the second gets a fresh Java name (`x2`), the same mechanism
-`target_c.ml` uses and for the same reason (two Java locals is exactly
-what two different types needs).
-
-*Not optimal:* the renaming scope is shared across an entire translation
-rather than scoped the way Java's own method bodies are, so a function
-parameter that happens to share a name with an unrelated top-level
-binding gets renamed even though the two could never actually collide in
-the generated file (they are in different methods). `tests/subset_values.pyk`'s
-`use(outer)` demonstrates this: its parameter compiles as `outer2`, not
-because Java would object to `outer`, but because this backend's scope
-mechanism does not know method bodies don't share a namespace with `main`.
+capitalised and run together (`Module.class_name`); a stem with none
+becomes `Program`, and one that would start with a digit gets an
+underscore prefixed. An explicit `--output` is trusted as-is: the class
+is named after the file. A module whose class would be `PykRuntime` is
+refused.
 
 ## Modules
 
-Java has classes and no free functions, so a Pyking module becomes a
-class -- named the way this backend names the program's own class, since
-Java requires the file and its public class to match -- and its exports
-become that class's public members.
+A module is a class, its exports public static members, its top level a
+method `init` that `main` calls for every module of the program in
+dependency order. A qualified name is Java's own: `helper.inc(1)` is
+`Helper.inc(1)`. The classes and `PykRuntime.java` are compiled together
+in the default package.
 
-```java
-// Helper2.java
-public final class Helper2 {
-
-    // What this module exports as a value; `init` below is what fills each of them in.
-    public static String greeting;
-
-    private static int scale(final int n) {
-        return n * 2;
-    }
-
-    public static int inc(final int x) {
-        return scale(x) + 1;
-    }
-
-    public static void init() {
-        final var greeting = "hi";
-        Helper2.greeting = greeting;
-    }
-}
-```
-
-```java
-// Program.java
-public final class Program {
-
-    public static void main(String[] args) {
-        // Every module of the program, in the order they must run.
-        Helper2.init();
-
-        System.out.println(Helper2.inc(1));
-        System.out.println(Helper2.greeting);
-    }
-}
-```
-
-**`private`/`public` is the privacy**, and Java gives it for free: a
-method the module does not export is `private static`, as every method
-of a single-module program already was. A public value is a
-`public static` field.
-
-**A qualified name is Java's own.** `helper2.inc(1)` is `Helper2.inc(1)`
-and `helper2.greeting` is `Helper2.greeting`, so nothing has to be
-mangled: the class name *is* the namespace. A name a `from` line took
-resolves to the same thing -- `bump` written in the source is
-`Helper2.inc` in the output.
-
-**`init` writes its own field by name.** The local that worked the value
-out may have the same name as the field, so the assignment says
-`Helper2.greeting` rather than `greeting`, which would be the local's
-own.
-
-**Order is explicit**, as it is in C: `main` calls `Module.init()` for
-every module of the program in dependency order before its own body,
-rather than leaving it to Java's class initialization, which runs when a
-class is first touched and not before.
-
-All the classes are compiled together (`javac -d . Helper2.java
-Program.java`) and live in the default package, which is how they see
-one another.
-
-## Where the output is not optimal
-
-- **Over-eager renaming**, as above -- inherited from the same
-  conservative scope mechanism the C backend uses, which was built for a
-  language (C) where the collision it guards against is real.
-- **Integers are `int`.** No width control beyond Java's own overflow
-  behaviour, and no bignum -- Python's integers are arbitrary precision,
-  so a Pyking program that overflows will disagree with the Python
-  target, the same limitation the C targets have.
-- **Parameter inference is a guess** for unannotated parameters, as in
-  the C targets.
-- **No optimisation.** The backend is a printer: no constant folding, no
-  dead-code elimination. `javac` and the JIT do that work afterwards.
+A program's runtime is the union of what its modules need, so `pyk`
+writes it once, after translating every module.
 
 ## External modules
 
-A module implemented in Java (declared in `sys_external.pyk` -- see
-[modules.md](modules.md)) lives in **`SysExternal.java`**, capitalised
-where the other targets' implementation files are not: javac requires
-the file name and the public class to match, and the generated program
-calls `SysExternal.loadfile(...)`. `Module.class_name` is the rule, the same one that
-names a compiled module's file.
+A module implemented in Java is a class named the same way,
+`SysExternal.java`, copied beside the output and compiled with it. Its
+methods take Java's own types: a callback is the `java.util.function`
+interface of its shape, `Runnable` and `Consumer` for one answering
+unit, and a list or a tuple is the runtime's. A program hands a callback
+a lambda calling the def, or a method reference to a function value.
 
-Nothing is generated for it and nothing is declared: Java resolves the
-class by name, so the file is copied beside the program's output and
-handed to javac with it. An external module has no Pyking top level, so
-no `SysExternal.init()` is emitted or called.
+`sys` reads the program's arguments and its class through two system
+properties, `pyking.args` and `pyking.main`, which the generated `main`
+of a program importing `sys` sets: only `main` is given them.
 
-The boundary carries `Int`, `String`, `Bool` and unit. A declaration
-naming a tuple or a list is refused where a program imports it, before
-anything is translated -- this backend has neither. Only what a program
-uses of a library is compiled at all ([modules.md](modules.md), "What a
-program uses"), so `sys.exit` compiles here while `sys.args` is refused.
+## Where the output is not optimal
 
-**A module in two halves** is compiled too: its Pyking half reaches a
-name its own declaration half provides through the implementation's
-class, `IoExternal.prompt_line(...)`, as an importer reaches a public
-one. `io` and `sys` are both, and `tests/module_external_mixed.pyk` is
-the worked example.
-
-**A declaration taking a callback** takes the interface of the
-callback's shape ("Functions as values"), so the program hands it a
-top-level `def`, as a lambda, which reads what the top level bound
-through static fields. `tests/external_callback_named.pyk` is the worked
-example, and `tinyweb` the library: `TinywebExternal.java` serves a
-program's page with the JDK's own HTTP server and runs the callbacks on
-a thread that waits for `main` to return (libraries.md, "tinyweb").
+- **Every value of a type variable is boxed**, and `==` on one unboxes.
+- **A lifted def takes every name it mentions** from around it, used or
+  shadowed inside.
+- **`int` is 32 bits.** Overflow wraps, which Pyking leaves undefined.
+- **No optimisation**: javac and the JIT do that work.

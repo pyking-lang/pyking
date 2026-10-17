@@ -252,18 +252,16 @@ not build or match one.
 
 ### 14. Datatypes on C and Java
 
-**Pyking today:** C and Java refuse datatypes, as they refuse lists.
+**Pyking today:** done. Java compiles every datatype (a class per
+constructor, records from java17 on); C compiles every datatype that
+does not hold itself, as a tagged union by value.
 
 **Direction:**
-- **Java:** a sealed interface with a record per constructor on
-  java17 and java21, and a final class per constructor on java8.
-  Matching becomes `instanceof` chains, and on java21 a `switch` with
-  record patterns.
-- **C:** a tagged struct on the heap, with no garbage collection, and
-  values never freed. This is acceptable for a compiler run.
-- Both need lists first, which these backends also refuse.
-- The bootstrap does not need either: the self-hosted compiler can
-  start on OCaml, Python or JavaScript.
+- **C:** a datatype holding itself, and lists, need a heap. A tagged
+  struct on the heap, never freed, would be acceptable for a compiler
+  run.
+- The bootstrap does not need it: the self-hosted compiler can start on
+  OCaml, Python, JavaScript or Java.
 
 ### 15. Structural `==` on datatypes
 

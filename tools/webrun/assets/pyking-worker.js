@@ -118,8 +118,13 @@ self.onmessage = (event) => {
       return answer(() => boot(message));
     case "compile":
       // A JSON string, which crosses postMessage as-is.
-      return answer(() => JSON.parse(
-        self.pykCompile(message.source, message.target, message.name)));
+      // The program is supplied as a run supplies it, so a program that
+      // imports compiles against the modules it names.
+      return answer(() => {
+        supply(message);
+        return JSON.parse(
+          self.pykCompile(message.source, message.target, message.name));
+      });
     case "words":
       // What a page reads out of the compiler rather than keeping a copy
       // of: the words its editor highlights, the targets it offers, and

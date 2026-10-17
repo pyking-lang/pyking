@@ -1,0 +1,7 @@
+# Another module's polymorphic functions, used at several types.
+
+import module_generic_mod1 as gm
+
+print(gm.flip(gm.Pair(1, "one")))
+print(gm.flip(gm.Pair(true, 2.5)).first)
+print(gm.repeat("x", 3), gm.repeat(gm.Pair(1, 2), 1))

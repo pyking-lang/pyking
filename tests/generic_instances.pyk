@@ -1,0 +1,41 @@
+# A polymorphic function used at several types: one function on a target
+# whose values share one representation, one per type on C, which writes
+# each instance on its own.
+
+def first(p: (a, b)) -> a:
+    match p:
+        case (x, _): x
+
+
+def swap(p):
+    match p:
+        case (x, y): (y, x)
+
+
+def pick(flag: Bool, yes: a, no: a) -> a:
+    if flag then yes else no
+
+
+def twice(f: (a) -> a, x: a) -> a:
+    f(f(x))
+
+
+def ident(x): x
+
+
+datatype Box(a):
+    Box(a)
+
+
+def unbox(b: Box(a)) -> a:
+    match b:
+        case Box(x): x
+
+
+print(first((1, "one")), first(("two", 2)))
+print(swap((true, 3.5)), swap(swap(("a", 1))))
+print(pick(true, "yes", "no"), pick(false, 1, 2))
+print(twice(ident, 5), twice((s) => s ++ "!", "hey"))
+print(unbox(Box(Box(7))), unbox(Box("x")))
+same = ident
+print(same(3), same("three"))

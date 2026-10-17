@@ -1,5 +1,5 @@
 def collect(lst:[a]) -> [a]:
-    loop kept: [Int] = [] for x in lst:
+    loop kept: [a] = [] for x in lst:
         kept ++ [x]
 def total(lst:[Int]) -> Int:
     loop sum: Int = 0 for n in lst:

@@ -339,9 +339,9 @@ away. Running a tinyweb program with Run or its keys gives the window
 the focus, and Stop gives it back to the editor; a run while you type
 leaves it where it is.
 
-A program that imports cannot be compiled in the page (it has no
-program around it), so a tinyweb program is run with the interpreter,
-the left Run button.
+A program that imports compiles as `pyk compile` compiles it: the page
+reads its modules as a run reads them, and the Compiled code tab shows
+the program's own file first and every module's beside it.
 
 ### The REPL
 
@@ -511,8 +511,8 @@ than parsed out of the source:
    hence the rule.)
 4. **The examples** are `src/examples.toml`'s, the list `pyk example`
    reads, which a package ships. Each is a test case, so `make test`
-   keeps it working. Compile refuses a program that imports, since it
-   compiles one file; Run runs it with the standard library.
+   keeps it working, and `tests/test_playground.py` holds every case's
+   Compile to `pyk compile`'s output.
 
 ## Embedding it in another page
 
@@ -693,9 +693,8 @@ running still work beside them.
   fixes it can still be typed.
 - **C and Java output is display-only.** Copy it out and build it locally —
   the header comment in each generated file gives the exact command.
-- **Compile takes one file.** A program that imports runs, since Run
-  reads the standard library from `lib/`, but Compile refuses its import:
-  it compiles the file on its own.
+- **Compile reads a program's modules as Run does**: from the page, and
+  the standard library from `lib/`.
 
 ## What the page does not offer
 

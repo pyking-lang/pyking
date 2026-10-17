@@ -199,10 +199,10 @@ compile, with the crossing named at each step:
         ├─ Target_js_core.translate_program ~taken stmts
         │    └─ Target_js_packaging.package_program
         │         └─ Target_js_core.pprint_js_program, .uses
-        ├─ Target_c.translate_program stmts context
+        ├─ Target_c.translate_all [(stmts, tmap, context)] standard
         │    └─ Target_c.pprint_c_program / .pprint_c_header
-        ├─ Target_java.translate_program stmts context
-        │    └─ Target_java.pprint_java_program
+        ├─ Target_java.translate_program stmts tmap context version
+        │    └─ Target_java.pprint_java_program, .runtime_source
         ├─ Target_ocaml.translate_program stmts tmap context
         │    └─ Target_ocaml.pprint_ocaml_program / .pprint_ocaml_interface
         ├─ -t pyking: Syntax.pprint_program stmts symbols tmap

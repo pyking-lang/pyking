@@ -21,13 +21,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Algebraic data types: `datatype Tree(a):` with one constructor per
   line, fields that are positional, named or defaulted, constructors
   applied with a call's rules, and `x.field` to read a named field.
-  Datatypes cross modules with `public datatype`. Supported by the
-  interpreter, Python, JavaScript and OCaml; C and Java refuse them.
+  Datatypes cross modules with `public datatype`. Supported on every
+  target; C refuses one that holds itself.
 - Patterns: constructor patterns with fields by position or by name,
   or-patterns (`case 1 | 2:`), `as` patterns, and guards
   (`case n if n > 0:`).
 - design/plan-bootstrap.md: what Pyking still lacks for the compiler to
   be written in it.
+- Every target but C compiles everything the type checker accepts.
+  Java does it in three shapes -- plain classes for java8, records and
+  `instanceof` patterns for java17, records and a pattern `switch` for
+  java21 -- with generics, `java.util.List`, closures and a
+  `PykRuntime.java` written beside every program. C compiles everything
+  that needs no garbage collector: tuples, datatypes that do not hold
+  themselves, polymorphic functions (once per type, across modules
+  too), nested functions, lambdas and function values handed down, and
+  `for x in range(...)`; a list, a datatype holding itself and a closure
+  that would outlive its stack frame are refused with the reason.
+  JavaScript gains `range`, `len` and `x = if ...`/`x = match ...`;
+  OCaml takes a polymorphic parameter, as a record with a polymorphic
+  field.
+- `sys` on Java answers `args`, `env`, `prog_name` and `prog_path`;
+  `time` has Java and C implementations.
+- The playground compiles a program that imports, the standard library
+  included, showing every module's file.
+- `make test` runs every test program on every target. A case leaves a
+  target out only through `excluded`, with the reason, and the summary
+  lists them; a page's `exited with status N` is read as its exit
+  status.
 
 ### Changed
 
@@ -37,6 +58,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   needs `case _: ()`.
 - A Python reserved word used as a name is renamed `word_` rather than
   `word2`, so that a public one is imported under the same name.
+- `tests/test_cases.toml` has no `targets` lists: a case runs on every
+  target unless `excluded` names one with the reason, and `also` adds
+  the targets that turn a pass off.
 
 ### Fixed
 
@@ -44,6 +68,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in JavaScript reached the interpreter as `()`, and -0.0 as 0.0.
 - A C program is linked with `-lm` by `pyk compile --run`.
 - The library pages list an overloaded export (`int::abs`).
+- The type checker recorded some types inside a polymorphic definition
+  at another definition's types -- `[]` in `collect` read `[Int]` --
+  since its re-check's metavariables were later solved under the same
+  numbers; and a polymorphic def nested in another kept the enclosing
+  one's variables unsolved. Both now read back in the definition's own
+  variables, and a printed nested type still shows `?` where Pyking
+  cannot write one.
 
 ## [0.1.3] - 2026-10-16
 

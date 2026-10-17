@@ -23,6 +23,8 @@ Functions:
     plan() -- the bundle, the targets, and every example.
     check_examples() -- what is wrong with src/examples.toml.
     run_driver(bundle, plan) -- one node process over the bundle.
+    parity_pairs(compiler) -- what `pyk compile` makes of every case.
+    run_parity(bundle, pairs) -- the same cases compiled by the bundle.
     main(argv) -- the command-line entry point.
 """
 
@@ -285,7 +287,8 @@ def check_examples():
         if not (REPO / source).is_file():
             problems.append(f"{name}: no file {source}")
         case = cases.get(Path(source).name) if Path(source).parent == Path("tests") else None
-        if case is None or "interpret" not in case["targets"]:
+        if (case is None or case["file"].startswith("fail_")
+                or "interpret" in case.get("excluded", {})):
             problems.append(f"{name}: {source} is not a case of test_cases.toml run by interpret")
         if not name.endswith(".pyk") or "/" in name:
             problems.append(f"{name}: a name is a file name ending in .pyk")
@@ -326,6 +329,111 @@ def run_driver(bundle, prepared):
         shutil.rmtree(directory, ignore_errors=True)
 
 
+# Compiles what `parity_pairs` lists with the bundle, the program's own
+# file supplied as the page supplies it and every other file read from
+# beside it or from lib/, as the page's worker reads them; answers each
+# pair the bundle disagrees with `pyk compile` about.
+PARITY_DRIVER = r"""
+const fs = require("fs");
+const path = require("path");
+globalThis.require = require;
+const [bundle, pairsFile, lib] = process.argv.slice(2);
+let dir = ".";
+globalThis.pykFetchSource = (name) => {
+  const beside = path.join(dir, name);
+  if (fs.existsSync(beside)) return fs.readFileSync(beside, "utf8");
+  const found = /^([A-Za-z_][A-Za-z0-9_]*?)(_external)?\.pyk$/.exec(name);
+  const inLib = found && path.join(lib, found[1], name);
+  return inLib && fs.existsSync(inLib) ? fs.readFileSync(inLib, "utf8") : null;
+};
+globalThis.pykLibraryFile = (p) => {
+  const q = path.join(lib, p);
+  return fs.existsSync(q) ? fs.readFileSync(q, "utf8") : null;
+};
+(0, eval)(fs.readFileSync(bundle, "utf8"));
+const failures = [];
+for (const pair of JSON.parse(fs.readFileSync(pairsFile, "utf8"))) {
+  dir = path.dirname(pair.path);
+  const name = path.basename(pair.path);
+  const source = fs.readFileSync(pair.path, "utf8");
+  globalThis.pykSources = { [name]: source };
+  const result = JSON.parse(pykCompile(source, pair.target, name));
+  const label = pair.path + " -> " + pair.target;
+  if (result.ok !== pair.ok) {
+    failures.push(label + ": " + (pair.ok ? "pyk compiles it and the page refuses it: "
+      + (result.text || "") : "the page compiles what pyk refuses"));
+  } else if (pair.ok && pair.text !== null
+             && !Object.values(result.files).includes(pair.text)) {
+    failures.push(label + ": the page's files differ from what pyk compiles");
+  }
+}
+console.log(JSON.stringify({ failures }));
+"""
+
+
+def parity_pairs(compiler, offered):
+    """Every case of tests/test_cases.toml on every target it runs on that
+    the page offers, with whether `pyk compile` accepts it and the text it
+    prints for the program's own file.
+    [String] -> [String] -> [{...}]"""
+    import concurrent.futures
+    import os
+    sys.path.insert(0, str(HERE))
+    import test_script
+
+    with contextlib.redirect_stdout(io.StringIO()):
+        cases = test_script.load_cases()
+    wanted = []
+    for case in cases:
+        if case["file"].startswith("fail_"):
+            continue
+        for target in case["targets"]:
+            if target in offered:
+                wanted.append((str(HERE / case["file"]), target))
+
+    def compiled(pair):
+        path, target = pair
+        result = subprocess.run(
+            compiler + ["compile", "-t", target, "--stdout", path],
+            capture_output=True, text=True, cwd=REPO,
+        )
+        return {
+            "path": path,
+            "target": target,
+            "ok": result.returncode == 0,
+            "text": None if result.returncode else result.stdout,
+        }
+
+    with concurrent.futures.ThreadPoolExecutor(os.cpu_count() or 4) as pool:
+        return list(pool.map(compiled, wanted))
+
+
+def run_parity(bundle, pairs):
+    """The pairs compiled by the bundle: every one it disagrees with
+    `pyk compile` about. Path -> [{...}] -> [String]"""
+    directory = tempfile.mkdtemp(prefix="pyk-parity-")
+    try:
+        script = Path(directory) / "parity.cjs"
+        script.write_text(PARITY_DRIVER)
+        listed = Path(directory) / "pairs.json"
+        listed.write_text(json.dumps(pairs))
+        try:
+            result = subprocess.run(
+                NODE + [str(script), str(bundle), str(listed), str(REPO / "lib")],
+                capture_output=True, text=True, timeout=STEP_TIMEOUT, cwd=REPO,
+            )
+        except subprocess.TimeoutExpired:
+            return [f"parity: timed out after {STEP_TIMEOUT} seconds"]
+        if result.returncode != 0 or not result.stdout.strip():
+            detail = (result.stderr or result.stdout or "no output").strip()
+            return [f"parity: the driver did not finish: {detail.splitlines()[-1]}"]
+        return json.loads(result.stdout.strip().splitlines()[-1])["failures"]
+    finally:
+        import shutil
+
+        shutil.rmtree(directory, ignore_errors=True)
+
+
 def parse_args(argv):
     """`--bundle FILE` or the default. [String] -> Path"""
     if argv[:1] == ["--bundle"]:
@@ -350,6 +458,12 @@ def main(argv):
     prepared = plan()
     pairs, failures, repl = run_driver(bundle, prepared)
     listed = check_examples()
+    # What `pyk compile` compiles, the page's Compile compiles, to the
+    # same text.
+    parity = parity_pairs([str(REPO / "pyk")], prepared["targets"])
+    mismatches = run_parity(bundle, parity)
+    for mismatch in mismatches:
+        print(f"playground: FAILED {mismatch}")
     for problem in listed:
         print(f"playground: FAILED src/examples.toml: {problem}")
     for failure in failures:
@@ -362,9 +476,14 @@ def main(argv):
           "entry points and the smoke program OK.")
     print(f"playground: {pairs} examples checked in the page.")
     print(f"playground: the REPL, {repl} checks.")
-    failed = len(failures) + len(listed)
+    print(f"playground: {len(parity)} compilations compared with pyk's, "
+          f"{len(mismatches)} differ.")
+    failed = len(failures) + len(listed) + len(mismatches)
     suite.footer(
-        "playground", checks + pairs - len(failures) - (1 if listed else 0), failed,
+        "playground",
+        checks + pairs + len(parity) - len(failures) - len(mismatches)
+        - (1 if listed else 0),
+        failed,
         f"{len(prepared['examples'])} examples, "
         f"{len(prepared['targets'])} targets")
     return 1 if failed else 0

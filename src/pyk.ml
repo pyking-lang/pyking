@@ -922,6 +922,17 @@ let default_name target stem =
     Target_java.default_class_name stem ^ ".java"
   else stem ^ List.assoc target extensions
 
+(** One module translated to Java, or the backend's refusal reported.
+    Module.t -> typ IntMap.t option -> string -> Module.context
+    -> Target_java.jprogram *)
+let java_unit (unit : Module.t) tmap target context =
+  try
+    Target_java.translate_program
+      (Analyses.apply_signatures unit.stmts)
+      (Option.value tmap ~default:Syntax.IntMap.empty)
+      context target
+  with Target_java.Unsupported (info, message) -> fail_unsupported target info message
+
 (** One module compiled for one target: the text of its own file, and
     the companion files that go beside it -- a C header, an OCaml
     interface -- keyed by path. Nothing is written here; a companion is
@@ -929,7 +940,7 @@ let default_name target stem =
     (`--stdout`).
     Module.t -> typ IntMap.t option -> string -> string option -> options
     -> (string, [(string, string)]) *)
-let compile_unit (unit : Module.t) tmap target path options checked =
+let compile_unit ?c_program (unit : Module.t) tmap target path options checked =
   let context = Module.context checked unit in
   let source = basename unit.path in
   if target = pyking_target then
@@ -956,9 +967,15 @@ let compile_unit (unit : Module.t) tmap target path options checked =
       (* One backend, two standards: the difference is in how the C is
          printed, not in what it means. *)
       let c_program =
-        try Target_c.translate_program program context
-        with Target_c.Unsupported (info, message) ->
-          fail_unsupported target info message
+        match c_program with
+        | Some translated -> translated
+        | None -> (
+            try
+              Target_c.translate_program program
+                (Option.value tmap ~default:Syntax.IntMap.empty)
+                context target
+            with Target_c.Unsupported (info, message) ->
+              fail_unsupported target info message)
       in
       let text = Target_c.pprint_c_program c_program target source in
       if context.main || path = None then (text, [])
@@ -982,11 +999,7 @@ let compile_unit (unit : Module.t) tmap target path options checked =
         | Some path -> Filename.remove_extension (basename path)
         | None -> Target_java.default_class_name unit.name
       in
-      let java_program =
-        try Target_java.translate_program program context
-        with Target_java.Unsupported (info, message) ->
-          fail_unsupported target info message
-      in
+      let java_program = java_unit unit tmap target context in
       ( Target_java.pprint_java_program java_program target class_name source,
         [] )
     else if Targets.family_of target = Targets.Ocaml then
@@ -1250,6 +1263,27 @@ let compile_program checked target output_path options =
          an implementation from. *)
       fail_unsupported target info message
   else
+  (* The C modules of a program are translated together, since each
+     compiles the instances of its polymorphic functions the others
+     call. *)
+  let c_programs =
+    if Targets.family_of target <> Targets.C then []
+    else
+      let units = List.filter (fun ((unit : Module.t), _) -> not unit.is_external) checked in
+      let translated =
+        try
+          Target_c.translate_all
+            (List.map
+               (fun ((unit : Module.t), tmap) ->
+                 ( Analyses.apply_signatures unit.stmts,
+                   Option.value tmap ~default:Syntax.IntMap.empty,
+                   Module.context checked unit ))
+               units)
+            target
+        with Target_c.Unsupported (info, message) -> fail_unsupported target info message
+      in
+      List.map2 (fun ((unit : Module.t), _) c -> (unit.name, c)) units translated
+  in
   let files, primary =
     List.fold_left
       (fun (files, primary) ((unit : Module.t), tmap) ->
@@ -1269,7 +1303,8 @@ let compile_program checked target output_path options =
             else Some (join directory (default_name target unit.name))
           in
           let contents, companions =
-            compile_unit unit tmap target path options checked
+            compile_unit ?c_program:(List.assoc_opt unit.name c_programs) unit tmap target path options
+              checked
           in
           let primary = if is_main then contents else primary in
           match path with
@@ -1277,7 +1312,23 @@ let compile_program checked target output_path options =
           | Some path -> (files @ [ (path, contents) ] @ companions, primary))
       ([], "") checked
   in
-  ((files @ if options.stdout then [] else external_copies ()), primary)
+  (* Every module of a Java program calls into one runtime, written beside
+     them. *)
+  let runtime =
+    if Targets.family_of target <> Targets.Java || options.stdout then []
+    else
+      [
+        ( join directory Target_java.runtime_file,
+          Target_java.runtime_source
+            (List.filter_map
+               (fun ((unit : Module.t), tmap) ->
+                 if unit.is_external then None
+                 else Some (java_unit unit tmap target (Module.context checked unit)))
+               checked)
+            target );
+      ]
+  in
+  ((files @ runtime @ if options.stdout then [] else external_copies ()), primary)
 
 (** Runs `pyk compile <file>`: translates every module of the program
     for options.target and writes the files, or prints the program's own

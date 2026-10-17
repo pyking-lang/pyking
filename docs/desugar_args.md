@@ -317,7 +317,6 @@ sugar's own printed form is pinned.
   checks, and it runs until the call-depth limit, reporting a Pyking
   runtime error whose stack trace names `f__default__x`.
 - **Nothing about closures.** A default that reads a binding from
-  around it makes the generated def a closure, which the C and Java
-  backends refuse as they refuse any other — see `docs/target_c.md` and
-  `docs/target_java.md`. A default built from literals and calls
-  compiles everywhere.
+  around it makes the generated def a closure, which every backend
+  compiles as it compiles any other -- C as a function taking what it
+  captures (`docs/target_c.md`).

@@ -31,16 +31,16 @@ test harness all read it from there.
 | target | alias | family | writes | run it with | language coverage |
 |---|---|---|---|---|---|
 | `python14` | `python` | [Python](target_python.md) | `foo.py` | `python3 foo.py` | **everything** |
-| `node24` | `node` | [JavaScript](target_js.md) | `foo.js`, `pyk-runtime.js`, `package.json` | `node foo.js` | subset |
-| `web24` | `web` | [JavaScript](target_js.md) | `foo.html` and the same `.js` files | serve it: `--run` does, and prints the page's URL | subset |
+| `node24` | `node` | [JavaScript](target_js.md) | `foo.js`, `pyk-runtime.js`, `package.json` | `node foo.js` | **everything the checker accepts** |
+| `web24` | `web` | [JavaScript](target_js.md) | `foo.html` and the same `.js` files | serve it: `--run` does, and prints the page's URL | **everything the checker accepts** |
 | `iweb24` | `iweb` | [the interpreter](target_js.md#the-interpreted-target) | `foo.html`, `pyking.js`, the `.pyk` sources | serve it: `--run` does, and prints the page's URL | **everything the checker accepts** |
-| `c89` | | [C](target_c.md) | `foo.c` | `cc -std=c89 foo.c && ./a.out` | subset, minus `/` |
-| `c99` | | [C](target_c.md) | `foo.c` | `cc -std=c99 foo.c && ./a.out` | subset, minus `/` |
-| `c23` | `c` | [C](target_c.md) | `foo.c` | `cc -std=c23 foo.c && ./a.out` | subset, minus `/` |
-| `java8` | | [Java](target_java.md) | `Foo.java` | `javac --release 8 Foo.java && java Foo` | subset, minus `/` |
-| `java17` | | [Java](target_java.md) | `Foo.java` | `javac --release 17 Foo.java && java Foo` | subset, minus `/` |
-| `java21` | `java` | [Java](target_java.md) | `Foo.java` | `javac --release 21 Foo.java && java Foo` | subset, minus `/` |
-| `ocaml5.5` | `ocaml` | [OCaml](target_ocaml.md) | `foo.ml` | `ocamlopt foo.ml -o foo && ./foo` | almost everything that type-checks |
+| `c89` | | [C](target_c.md) | `foo.c` | `cc -std=c89 foo.c && ./a.out` | everything but what needs a heap |
+| `c99` | | [C](target_c.md) | `foo.c` | `cc -std=c99 foo.c && ./a.out` | everything but what needs a heap |
+| `c23` | `c` | [C](target_c.md) | `foo.c` | `cc -std=c23 foo.c && ./a.out` | everything but what needs a heap |
+| `java8` | | [Java](target_java.md) | `Foo.java`, `PykRuntime.java` | `javac --release 8 Foo.java PykRuntime.java && java Foo` | **everything the checker accepts** |
+| `java17` | | [Java](target_java.md) | `Foo.java`, `PykRuntime.java` | `javac --release 17 Foo.java PykRuntime.java && java Foo` | **everything the checker accepts** |
+| `java21` | `java` | [Java](target_java.md) | `Foo.java`, `PykRuntime.java` | `javac --release 21 Foo.java PykRuntime.java && java Foo` | **everything the checker accepts** |
+| `ocaml5.5` | `ocaml` | [OCaml](target_ocaml.md) | `foo.ml` | `ocamlopt foo.ml -o foo && ./foo` | **everything the checker accepts** |
 | `pyking` | | *(the front end itself)* | `foo.pyk` | `pyk foo.pyk` | everything |
 | *(none — `pyk foo.pyk`)* | | [the interpreter](source.md#interpreterml) | nothing | `pyk foo.pyk` | whatever type-checks |
 
@@ -93,10 +93,9 @@ It runs the AST directly (`src/interpreter.ml`) rather than translating
 it, which makes it the *reference* for what a Pyking program means at run
 time: where a compiled target disagrees with it, the target is wrong. Its
 coverage is the type checker's, run for real — the same arrangement the
-`ocaml5.5` target uses — so a program with `var`, `for`, `while`, `match`,
-lists or an unannotated `def` is refused, with the checker's own
-message. A `loop` and a tuple are both inside that fragment. `pyk repl` is the same interpreter with a prompt in front of
-it.
+`ocaml5.5` target uses — so what the checker refuses is refused, with the
+checker's own message. `pyk repl` is the same interpreter with a prompt
+in front of it.
 
 Java is the one exception: it requires its file and public class to
 match exactly, so the default name is Java-cased rather than the
@@ -118,12 +117,15 @@ always accept exactly the same programs:
   translation (`src/target_js_core.ml`), three packagings
   (`src/target_js_packaging.ml`). They differ only in where `print` goes
   and what files come out.
-- **[C](target_c.md)** — `c89`, `c23`. One backend (`src/target_c.ml`)
-  with a `standard` parameter. They differ only in how the same C is
-  printed.
+- **[C](target_c.md)** — `c89`, `c99`, `c23`. One backend
+  (`src/target_c.ml`) with a `standard` parameter. They differ only in
+  how the same C is printed. C has no garbage collector, so the family
+  takes everything that needs no heap and refuses the rest.
 - **[Java](target_java.md)** — `java8`, `java17`, `java21`. One backend
-  (`src/target_java.ml`) with a `version` parameter, the same shape as
-  the C family. They differ only in how the same Java is printed.
+  (`src/target_java.ml`) with a `version` parameter. All three take the
+  whole checked language; they are three shapes of output: plain classes
+  for java8, records and `instanceof` patterns for java17, records and
+  pattern `switch` for java21.
 - **[OCaml](target_ocaml.md)** — `ocaml5.5`. One backend
   (`src/target_ocaml.ml`), and the only family with one member. It
   starts from a *stage* rather than a list of constructs — it runs the
@@ -200,86 +202,36 @@ ordinary defs and ordinary calls and none of them implements anything
 for the feature.
 
 What a target may still refuse is the **default expression**, by its own
-rules: the generated def is a function like any other, so C and Java
-take one that reads what the top level bound and refuse one that reads
-a block's binding, exactly as they refuse any other closure, and any
-target refuses a default built from a construct it does not take. A default built from literals and calls
-compiles everywhere.
+rules: the generated def is a function like any other, so C refuses a
+default that builds a list, as it refuses any other list.
 
 `--no-typechecking -t pyking` is where the sugar can still be seen; it
 is gone from every other output.
 
 ## The shared subset
 
-The Python target compiles all of Pyking. The others implement a common
-subset, chosen so that the whole pipeline — translation, packaging,
-testing — could be built end to end before the language surface grew:
+Every target but C compiles everything the type checker accepts, and
+`make test` runs every test program on every one of them. C has no
+garbage collector, so the C family compiles everything that needs no
+heap and refuses, with a source position and the reason, what does:
 
-| feature | python | javascript | c | java | ocaml |
+| feature | python | javascript | java | ocaml | c |
 |---|---|---|---|---|---|
-| `print` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `def`, parameters, `return`, recursion | ✅ | ✅ | ✅ | ✅ | ✅ |
-| forward references, mutual recursion | ✅ | ✅ | ✅ (prototypes emitted) | ✅ | ✅ (`let rec … and …`; the `def`s must be adjacent) |
-| a block on its header's own line (`def f(x): expr`) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| tail position (last statement is the value) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `return if c:` / `return match e:` | ✅ | ✅ (`if` only) | ✅ (`if` only) | ✅ (`if` only) | ✅ |
-| unit-returning functions (`void`) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `if` / `else if` / `else`, `while` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `loop`, `break`, `continue` | ✅ | ✅ | ✅ | ✅ | ✅ (a local `let rec`, applied at once) |
-| `for x in e:` | ✅ | ✅ (`for…of`) | ❌ (needs lists) | ❌ (same) | ✅ (a local `let rec` walking the list) |
-| `while c:` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| … with an accumulator (`loop a = 0 while c:`) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| a loop whose *value* is taken and is `()` or a tuple | ✅ | ✅ | ❌ (no value for either) | ❌ (same) | ✅ |
-| tail calls run in constant space | ✅ | ✅ | ✅ | ✅ | ✅ (natively; the pass is skipped) |
-| … for a program the type checker accepts | always: every program is checked | same | same | same | n/a |
-| `=`, `var`, `:=` | ✅ | ✅ | ✅ | ✅ | ✅ (`var` is a `ref`) |
-| … a `var` of any type but `Int`/`Float`/`Bool` | ❌ (refused by the checker) | ❌ (same) | ❌ (same) | ❌ (same) | ❌ (same) |
-| `if … then … else …` expressions | ✅ | ✅ | ✅ (branches must agree in type) | ✅ (branches must agree in type) | ✅ (same) |
-| integers, strings, booleans | ✅ | ✅ | ✅ | ✅ | ✅ |
-| floats (IEEE 754 binary64) | ✅ | ✅ (typed at the print site: a JS number cannot say which it is) | ✅ (`double`) | ✅ (`double`) | ✅ (`+. -. *. /.`) |
-| `float(n)` / `int(x)` | ✅ | ✅ | ✅ (casts) | ✅ (casts) | ✅ |
-| `+ - *`, unary minus, comparisons | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `++` (string concatenation) | ✅ | ✅ | ✅ (a generated `pyk_concat`) | ✅ (Java's own `+`) | ✅ (`^`) |
-| type variables (`def id(x:a) -> a`) | ✅ | ✅ | ❌ (one concrete type per function) | ❌ (same) | ✅ (OCaml generalizes a `let` itself) |
-| … a polymorphic *parameter* (`all x. (x) -> x`) | ✅ | ✅ | ❌ | ❌ | ❌ (needs an explicit `'a.`) |
-| printing a value of a type variable | ✅ | ✅ | ❌ | ❌ | ✅ where every call in the module settles it, else ❌ (no runtime type) |
-| a `match` no arm takes, where its value is taken | ✅ (the arm's value, or unit) | ✅ (same) | ❌ | ❌ | ❌ (unit and the arm's type are two types) |
-| `def name : type` on a line of its own | ✅ | ✅ | ✅ | ✅ | ✅ |
-| unary minus | ✅ | ✅ | ✅ | ✅ | ✅ |
-| lists, list comprehensions | ✅ | ✅ | ❌ (no heap value model) | ❌ (same) | ✅ (OCaml's own lists) |
-| `match` over scalars | ✅ | ✅ | ✅ (an if/else chain) | ✅ (same) | ✅ (OCaml's own `match`) |
-| `match` over lists and tuples | ✅ | ✅ | ❌ | ❌ | ✅ |
-| datatypes (`datatype`), constructors, `x.field` | ✅ (a class per constructor) | ✅ (a function per constructor, building a tagged object) | ❌ (no heap value model) | ❌ (same) | ✅ (OCaml's own variants) |
-| `match` over datatypes | ✅ (class patterns) | ✅ | ❌ | ❌ | ✅ |
-| or-patterns `p1 \| p2` | ✅ | ✅ | ✅ where no alternative binds a name | ✅ (same) | ✅ |
-| `as` patterns | ✅ | ✅ | ❌ (it binds a name) | ❌ (same) | ✅ |
-| guards `case p if c:` | ✅ | ✅ (a labelled block the arms leave) | ✅ where the pattern binds no name | ✅ (same) | ✅ (`when`) |
-| every `match` matches every value | checked once, for every target (exhaustive.md) | same | same | same | same |
-| … a list pattern with elements after `..` | ✅ | ✅ | ❌ | ❌ | ✅ (a `when` guard, bound by position) |
-| operands and arguments evaluate left to right | ✅ (the host's own rule) | ✅ (same) | ✅ (unspecified in C: temporaries and the comma operator pin it down where two operands can print) | ✅ (the host's own rule) | ✅ (unspecified in OCaml: `let` pins it down, same rule) |
-| `/` (integer division, truncating) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `/` (IEEE float division) | ✅ (a helper: Python raises on a zero divisor where IEEE answers) | ✅ | ✅ | ✅ | ✅ |
-| type annotations | erased | erased | used, when they name `Int`/`Float`/`String`/`Bool` | used, when they name `Int`/`Float`/`String`/`Bool` | checked, then erased — the output has none |
-| functions as values (passing a `def`, calling a parameter) | ✅ | ✅ | ✅ (a top-level `def`, as a function pointer) | ✅ (a top-level `def` of at most two parameters, as a `java.util.function` lambda) | ✅ |
-| a function reading a binding from around it (a closure) | ✅ | ✅ | ✅ for the top level, a file-scope variable; ❌ for anything else (no closures) | ✅ for the top level, a static field; ❌ for anything else (no closures) | ✅ |
-| a function *writing* a `var` from around it | ✅ (`global`/`nonlocal`) | ✅ | ❌ (same) | ❌ (same) | ✅ (the `ref` it closes over) |
-| a `def` inside a loop, keeping that turn's values | ✅ (a per-turn factory) | ✅ (a per-turn `const`) | ❌ | ❌ | ✅ |
-| static overloading (`def int::leq(...)`) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| implicit parameters (`implicit leq: ...`) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| … one resolved to a definition that takes implicits of its own | ✅ | ✅ | ❌ (the argument built for it is a lambda) | ❌ (same) | ✅ |
-| lambdas (`x => x + 1`) | ✅ (Python's own `lambda`, which is expression-only too) | ✅ (an arrow function) | ❌ (no closures) | ❌ (no closures) | ✅ (`fun x -> …`) |
-| a lambda inside a loop, keeping that turn's values | ✅ (each loop-carried name it reads becomes a parameter defaulted to the turn's value) | ✅ (the same per-turn `const` a `def` gets) | ❌ | ❌ | ✅ |
-| tuples, destructuring | ✅ | ✅ (arrays) | ❌ | ❌ | ✅ |
-| value-form `x = if c:` / `x = match e:` | ✅ | ❌ | ❌ | ❌ | ✅ |
-| `string` | ✅ | ✅ | ✅ (of an Int, Float, String or Bool) | ✅ (the same) | ✅ |
-| `int`, `float`, `bool` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `len`, `range` | ✅ | ❌ (refused at compile time) | ❌ | ❌ | ✅ |
-| nested `def` | ✅ | ✅ | ❌ | ❌ | ✅ |
-| function must provably return on every path | n/a | n/a | n/a | ✅ (`javac` requires it; refused at compile time otherwise) | n/a |
-| modules: `import`, `from`, `public` | ✅ (Python's own `import`) | ✅ (one ES module each, `node` and `web` alike) | ✅ (one translation unit and a header each) | ✅ (one class each) | ✅ (one module and a `.mli` each) |
-| … privacy enforced in the output | ❌ (Python has none) | ❌ (a module exports what it exports) | ✅ (`static`) | ✅ (`private static`) | ✅ (the `.mli` is the export list) |
-| … a module implemented in the target's own language | ✅ (`sys.py`) | ✅ (`sys.js`, an ES module) | ✅ (`sys.c`, declared inline) | ✅ (`Sys.java`) | ✅ (`sys.ml`) |
-| … a module's top level runs before its importers' | ✅ (import does it) | ✅ (ES module order does it) | ✅ (a generated `<name>_init()`) | ✅ (a generated `Module.init()`) | ✅ (link order) |
+| scalars, strings, `++`, every operator | ✅ | ✅ | ✅ | ✅ | ✅ (a string `++` allocates and is never freed) |
+| `def`, recursion, mutual recursion, nested `def` | ✅ | ✅ | ✅ (a nested `def` is a static method taking what it captures) | ✅ | ✅ (a nested `def` is a function taking what it captures) |
+| `loop`, `while`, `break`, `continue`, value forms | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `for x in range(...)` | ✅ | ✅ | ✅ | ✅ | ✅ (a counting loop: no list is built) |
+| `for x in` a list, lists, comprehensions, `len` of a list | ✅ | ✅ | ✅ (`java.util.List`) | ✅ | ❌ lists need a heap |
+| tuples, destructuring | ✅ | ✅ (arrays) | ✅ (the runtime's `T2`, `T3`, ...) | ✅ | ✅ (a struct, by value) |
+| datatypes, `x.field`, every pattern | ✅ | ✅ | ✅ (a class per constructor) | ✅ | ✅ (a tagged union, by value) |
+| … a datatype holding itself (`Tree(a)`) | ✅ | ✅ | ✅ | ✅ | ❌ it needs a heap |
+| type variables | ✅ | ✅ | ✅ (generics) | ✅ | ✅ (one function per type it is used at) |
+| a polymorphic *parameter* (`all x. (x) -> x`) | ✅ | ✅ | ✅ (an interface with a generic method) | ✅ (a record with a polymorphic field) | ❌ it needs one function for every type |
+| functions as values, lambdas | ✅ | ✅ | ✅ (`java.util.function`) | ✅ | ✅ (a function pointer and an environment on the stack) |
+| … a function value that outlives what it captures | ✅ | ✅ | ✅ | ✅ | ❌ its environment would need a heap |
+| a closure writing a `var` from around it | ✅ | ✅ | ✅ (a one-element array) | ✅ | ✅ (a cell its owner keeps) |
+| modules, external modules | ✅ | ✅ | ✅ | ✅ | ✅ (a list or a closure at the boundary is refused) |
+| operands evaluate left to right | ✅ | ✅ | ✅ | ✅ (`let` pins it down) | ✅ (temporaries and the comma operator pin it down) |
 
 Every target supports modules, and every one of them compiles a module
 to a file of its own beside the program's output.
@@ -294,27 +246,27 @@ to arrange and no `init` to call.
 Overloading and implicits are on every target for the same reason tail
 calls are: `src/elaborate.ml` removes them from the AST, so what a
 backend compiles is a program with plain names and ordinary arguments
-(docs/overloading.md, docs/implicits.md). The one exception is the row
-above — an implicit filled by a definition that takes implicits of its
-own is passed as a *lambda*, and C and Java have no closures.
+(docs/overloading.md, docs/implicits.md).
 
 The `ocaml5.5` column starts from the type checker's coverage: the
 backend runs `src/typesystem.ml` and reads the types back, so a program
 the checker refuses is refused here first, in the checker's own words.
-What it takes away is the short list in
-[target_ocaml.md](target_ocaml.md), "What is not supported" — five
-shapes OCaml has no way to be given. A construct the checker starts
-accepting therefore reaches this target without touching the backend,
-unless it is one of those.
+A construct the checker starts accepting reaches this target without
+touching the backend, unless OCaml cannot be given its shape
+([target_ocaml.md](target_ocaml.md), "What is not supported").
 
 A program outside a target's subset is refused at compile time, with a
 source position, rather than emitted as code that will not build:
 
 ```
-$ pyk compile -t node24 tests/for_simple.pyk
-'tests/for_simple.pyk' 2:0-3:22 Unsupported by target 'node24': `for`
-  loops are not supported by the JavaScript backends yet
+$ pyk compile -t c23 tests/list_literals.pyk
+'tests/list_literals.pyk' 1:8-1:10 Unsupported by target 'c23': a list,
+  which needs a heap: C has no garbage collector to free one
 ```
+
+The test manifest says the same thing per program: a case runs on every
+target unless its `excluded` table names one with the reason, and the
+test summary lists every reason (tests/test_cases.toml).
 
 ## Differences that survive the subset
 

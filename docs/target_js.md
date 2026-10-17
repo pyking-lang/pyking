@@ -13,9 +13,7 @@
   binding, `let` a mutable one, and `{ }` blocks are scopes — so `=`,
   `var`, `:=` and block scoping map straight across, with far less
   rewriting than the Python target needs.
-- They implement a **subset** of the language: no lists, tuples, `for`,
-  `match`, comprehensions or value-form bindings. Anything outside it is
-  refused with a source position.
+- They compile everything the type checker accepts.
 - `print` and `debug` are the two things crossing the runtime boundary
   (`src/builtin.ml`). `print` is `console.log` under node, and in a
   browser writes through the `io` library's own implementation, which
@@ -189,15 +187,7 @@ comparisons, and calls. Tail position and `return if c:` are supported
 (see below); nested `def` and lambdas work too — JavaScript has
 closures.
 
-## What is not supported
-
-Refused at compile time, with the source position:
-
-| construct | why |
-|---|---|
-| `for` loops | needs the iterable protocol |
-| value-form `x = if c:` / `x = match e:` | a JavaScript block is not an expression, so a value taken from one needs a temporary this backend does not build |
-| `len`, `range` | no JavaScript standard-library shim yet |
+## Lists, `match` and value forms
 
 `++` is `pykConcat`, which looks at its left operand: a Pyking list is
 an array and JavaScript's `+` would stringify one, so which of the two
@@ -213,10 +203,20 @@ two `class` declarations would not be the same class. A `match` becomes an if/el
 name of its own so it is evaluated once; an arm whose pattern always
 matches becomes the `else`, so a `match` that fits nothing does nothing.
 
-```
-$ pyk compile -t node24 tests/for_simple.pyk
-'tests/for_simple.pyk' 2:0-3:22 Unsupported by target 'node24': `for`
-  loops are not supported by the JavaScript backends yet
+A **value-form binding**, `x = if c:` or `x = match e:`, is a `let`
+each of the statement's tails assigns, read once by the binding after
+it:
+
+```js
+let __value = undefined;
+const __subject = foo;
+if (__subject === 8) {
+  __value = "eight";
+} else {
+  const n = __subject;
+  __value = pykFormat(n);
+}
+const x = __value;
 ```
 
 ## How things compile
@@ -579,15 +579,10 @@ comparison: `x === "true"`, or `x === 1`.
 
 ### `range` and `len`
 
-```
-Unsupported by target 'node24': the builtin `len` is not supported yet
-```
-
-Refused at compile time rather than emitted. A Pyking list is not a
-JavaScript array here, so `range` and `len` have nothing to compile to.
-Until they do, a call to one is a compile error with a source position;
-emitting it would produce a file that loads and then dies at the moment
-it runs.
+Two helpers the module writes for itself where it uses them: `pykRange`
+builds the list of Ints `range` answers, and refuses a step of zero as
+the interpreter does; `pykLen` answers a list's length or a String's in
+UTF-8 bytes, which is how Pyking counts it.
 
 A program that defines its own `len` is naming its own function and
 compiles as usual.

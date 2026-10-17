@@ -702,11 +702,16 @@ The heart of the pass. Given a deferred `TFunction`:
  7  for each member:
         outer  = free_metas(its environment)       §4's side condition
         store.captured |= outer ∩ metas_in(mono)
-        scheme = generalise(node, mono, outer, store)
+        avoid  = the variables of a def inside it whose scheme holds
+                 one of its own metavariables
+        scheme = generalise(node, mono, outer, store, avoid)
 
  8  remember EVERY scheme  ──  before verifying any of them
  9  for each member:
         verifying(...)  → the scheme, or the monotype if it does not hold
+        where the scheme holds: solve each metavariable it generalised
+          to the scheme's variable (marked where a def inside it could
+          not generalise it)
         remember it, record it in `tmap`
 
 10  return settled_type(func_type, store)
@@ -720,6 +725,17 @@ ends.
 Step 5 binds each member in **its own** written-in environment, not the
 group's or the caller's, because what a body captures is what was bound
 where it stands.
+
+Step 9's solutions are what make every type recorded inside a body read
+back in the body's own variables, a nested def's among them: those were
+recorded while the variables were still metavariables, and nothing else
+would ever solve them. A metavariable a def inside could not generalise
+is solved to a variable marked with the symbol -1, which prints as `?`
+(§18), so the printed type of that nested def still says what Pyking
+cannot write; a backend reads its name. `avoid` keeps the two apart:
+where a nested def's own scheme also holds the enclosing def's
+variable, the enclosing def does not take the name the nested one
+already used, so one type never names two variables alike.
 
 ## 16. Generalising
 
@@ -738,8 +754,14 @@ verified : SFunctionDef -> Type -> {Int: Type} -> Store -> {Int: Type}?
 
 Checks the body again with the scheme's variables **rigid** — the same
 check an annotated polymorphic function gets. It answers the `tmap` that
-check filled, so an adopted scheme is what the body's own nodes are
-reported as, or `None`.
+check filled, read back through the check's own solutions, so an
+adopted scheme is what the body's own nodes are reported as, or `None`.
+The check's solutions are dropped with the rest of what it worked out,
+and a metavariable left in the table would later be read as one another
+check solved under the same number. A def nested in the body is only
+declared by the re-check, not worked out again, so what the first check
+recorded for it stands. `zonk` renames a variable a scheme binds where
+a solution inside it brings in one of the same name.
 
 ```
 verifying : ... -> Type
@@ -801,7 +823,8 @@ instead, by `unify`'s last case falling through to `same_type`.
    record(tmap, sym, type_, store)    zonk, then store under the symbol
    displayed(type_, store)            name leftover metavariables a, b, …
                                       — except `store.captured` ones,
-                                        which become `?`
+                                        which become `?`, as does a
+                                        variable marked -1 (§15)
    shown(type_, store)                zonk + displayed + pprint, for a message
    shown_nested(type_, store)         the same, parenthesised where needed
 ```

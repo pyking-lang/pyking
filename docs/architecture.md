@@ -121,13 +121,13 @@ repl`) rather than a `--target`.
 | `src/elaborate.ml` | Overloading and implicits, removed after the checker and before anything else reads the program: a qualified name becomes a plain one, a resolved call names the definition it reaches, and an implicit parameter becomes an ordinary argument. It reads `qmap`, the checker's second table, and extends `tmap` for the nodes it builds -- the checker does not run again. AST in, AST out, so no backend and not the interpreter knows either feature exists. See [implicits.md](implicits.md). |
 | `src/execution.ml` | What `--run` runs: the commands each target's host uses to build and run what was compiled. One table, so the driver stays a sequencer. |
 | `src/release.ml` | `--release`: every call to the builtin `debug` removed, arguments and all -- a call in value position becomes `()`, and a statement is dropped wherever that leaves its block's value as it was. AST in, AST out, after the checker and before the tail-call pass, so no backend knows it exists. See [release.md](release.md). |
-| `src/prune.ml` | What a program uses of the modules it imports: every module but the program's own with the definitions nothing reaches removed, and every import narrowed to the names used. The C and Java targets are given its output, since they compile a subset and a library's unused function must not decide whether a program compiles. See [modules.md](modules.md), "What a program uses". |
+| `src/prune.ml` | What a program uses of the modules it imports: every module but the program's own with the definitions nothing reaches removed, and every import narrowed to the names used. The C and Java targets are given its output: C compiles only what needs no heap, and a library's unused function must not decide whether a program compiles. See [modules.md](modules.md), "What a program uses". |
 | `src/opt_tailcall.ml` | Tail calls into loops: a function that calls itself in tail position becomes a `loop` carrying its parameters, and a group that tail-calls each other becomes one loop they share. AST in, AST out, after the checker and only for a program it accepted — the types decide which groups can share a loop, and what a slot a narrower member does not fill is entered with. `--no-tail-call-opt` turns it off. |
 | `src/target_python.ml` | Python backend: its own `Py*` AST, translation, printer. |
 | `src/target_js_core.ml` | JavaScript AST, translation, printer — with no knowledge of packaging. Reads `tmap` for one thing only: a JavaScript number cannot say whether Pyking called it an Int or a Float, so the type decides how a printed value is written. |
 | `src/target_js_packaging.ml` | Wraps that output into the files each JS target delivers, and supplies the JavaScript side of the runtime interface. |
-| `src/target_c.ml` | C AST, translation, printer, for both `c89` and `c23` — one backend with a `standard` parameter. Infers types, which C needs and Pyking does not have. |
-| `src/target_java.ml` | Java AST, translation, printer, for `java8`, `java17` and `java21` — one backend with a `version` parameter, the same shape as `target_c.ml`. Infers types the same way; also checks that every function provably returns, since `javac` (unlike C) refuses one that doesn't. |
+| `src/target_c.ml` | C AST, translation, printer, for `c89`, `c99` and `c23` — one backend with a `standard` parameter. Reads the checker's types; compiles a polymorphic function once per type, a tuple as a struct, a datatype as a tagged union, a closure with its environment on the stack, and refuses what needs a heap. |
+| `src/target_java.ml` | Java AST, translation, printer, for `java8`, `java17` and `java21` — one backend with a `version` parameter, three shapes of output. Reads the checker's types; writes generics, `java.util.List`, records or classes, and `PykRuntime.java` beside a program. |
 | `src/target_ocaml.ml` | OCaml AST, translation, printer. The one backend that infers nothing: it *runs* `typesystem.ml` and reads the types back out of `tmap`, so a program that does not check is refused with the checker's own message. Its subset is nearly all of what the checker accepts, less a short list of shapes OCaml cannot be given (target_ocaml.md, "What is not supported"). Emits no type annotations. |
 | `src/interpreter.ml` | The interpreter: runtime values, environments, and a resumable small-step machine over the AST. Runs the fragment the checker accepts, and is the reference for what a program *means* at run time. |
 | `src/plugin_host.ml` | How the interpreter reaches a module implemented in a target language: its OCaml implementation, compiled to a plugin (`.cmxs`) and loaded with Dynlink, with each value crossing by its declared type. In the executable, since it starts a process and loads code. See [libraries.md](libraries.md), "How the interpreter reaches an OCaml implementation". |
@@ -291,13 +291,9 @@ parameter that is itself a pair is written `((Int, Bool)) -> Int`. So a
 name bound to a function prints as `g: (Int) -> Int = f`, and that
 re-parses like anything else.
 
-Being writable, a function type can also reach a *backend* — as an
-annotation, since annotations are erased and no backend reads one it
-cannot represent (`annotated_type` in `target_c.ml` and
-`target_java.ml` returns `None` for it, exactly as for a list or tuple
-type, leaving inference to decide). What C and Java refuse is the
-*value*: a call through a parameter is `call to unknown function`,
-which is a limit on functions as values rather than on their types.
+Being writable, a function type also reaches the backends that read
+the checker's types: C writes it as a closure struct and Java as a
+`java.util.function` interface.
 
 Most statements, and every whole program, have type unit, `()`. Two do
 not, and that is what makes `if` checkable: an *expression statement*
@@ -387,8 +383,7 @@ asked the same question — *what value do you supply?* — and `return e`
 answers "e's", exactly as the tail-position table says of it. So a
 branch that returns and a branch that ends in an expression are
 comparable without either being a special case, and no separate
-"does every path return?" pass is needed the way `target_java.ml` still
-needs one for `javac`.
+"does every path return?" pass is needed.
 
 Recursion needs nothing beyond the declaration pass: the function's own
 type is in scope while its body is checked, so a recursive call is
@@ -710,7 +705,7 @@ own page:
   program.
 - **[target_python.md](target_python.md)** — `python`.
 - **[target_js.md](target_js.md)** — `node24`, `web24` and `iweb24`.
-- **[target_c.md](target_c.md)** — `c89`, `c23`.
+- **[target_c.md](target_c.md)** — `c89`, `c99`, `c23`.
 - **[target_ocaml.md](target_ocaml.md)** — `ocaml5.5`. Nearly the whole
   subset that type-checks, compiled with no annotations.
 - **[target_java.md](target_java.md)** — `java8`, `java17`, `java21`.

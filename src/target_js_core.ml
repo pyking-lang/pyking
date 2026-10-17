@@ -214,7 +214,8 @@ let reserved =
         true try typeof var void while with yield arguments eval \
         undefined NaN Infinity console String Array document print \
         pykConcat pykFormat pykList pykOutput pykQuote pykWrite require \
-        pykData pykWithShape exports run runtime init")
+        pykData pykWithShape pykRange pykLen TextEncoder exports run runtime \
+        init")
 
 (** `name2`, `name3`, ... -- the first not already spoken for here.
     string -> scope -> string *)
@@ -271,7 +272,6 @@ let construct_names =
     ("EList", "list literals");
     ("EListComp", "list comprehensions");
     ("SMatch", "`match` statements");
-    ("SLetStmt", "value-form `if`/`match` bindings");
   ]
 
 (** Raises Unsupported naming what (a construct or a node's own name) at
@@ -459,6 +459,13 @@ let rec translate_expr e scope =
       | _, Some (TBool _) -> translated
       | _, Some (TString _) -> is (JsStr (info, "true"))
       | _, _ -> is (JsNum (info, 1)))
+  | ECall (info, EVar (_, (("range" | "len") as name), _), args, _)
+    when lookup name scope = name ->
+      (* Two helpers of the module's own, emitted where used. *)
+      JsCall
+        ( info,
+          JsVar (info, if name = "range" then "pykRange" else "pykLen"),
+          List.map (fun a -> translate_expr a scope) (arg_exprs args) )
   | ECall (info, EVar (_, name, _), _, _)
     when List.mem name Builtin.pure_names && lookup name scope = name ->
       ignore info;
@@ -906,6 +913,9 @@ let rec translate_target target scope =
       in
       (JsTargetArray (info, js_elements), scope)
 
+(** A tail value returned from the function. info -> jsexpr -> jsstmt *)
+let returned info value = JsReturn (info, value)
+
 (** Translates a statement sequence, threading the scope through it.
     [stmt] -> scope -> ([jsstmt], scope) *)
 let rec translate_stmts stmts scope =
@@ -922,8 +932,10 @@ and translate_stmts_only stmts scope = fst (translate_stmts stmts scope)
 
 (** Translates a statement list whose last statement is in tail position
     (PYKING.md, "Tail position"; docs/target_js.md, "Tail position").
-    [stmt] -> scope -> [jsstmt] *)
-and translate_tail_stmts stmts scope =
+    `finish` says what becomes of the value the block ends in: returned,
+    or assigned for a value-form binding.
+    (info -> jsexpr -> jsstmt)? -> [stmt] -> scope -> [jsstmt] *)
+and translate_tail_stmts ?(finish = returned) stmts scope =
   match stmts with
   | [] -> []
   | stmts ->
@@ -933,7 +945,7 @@ and translate_tail_stmts stmts scope =
       let count = List.length stmts in
       let front = List.filteri (fun i _ -> i < count - 1) stmts in
       let body, tail_scope = translate_stmts front scope in
-      body @ translate_tail_stmt (List.nth stmts (count - 1)) tail_scope
+      body @ translate_tail_stmt ~finish (List.nth stmts (count - 1)) tail_scope
 
 (** A `match` as an if/else chain over the subject, held in a name of
     its own so it is evaluated once. `translate_body` decides what an
@@ -997,16 +1009,19 @@ and translate_match s scope translate_body =
   | _ -> ([], scope)
 
 (** The last statement of a body in tail position, as a list of JS
-    statements. stmt -> scope -> [jsstmt] *)
-and translate_tail_stmt s scope =
+    statements. (info -> jsexpr -> jsstmt)? -> stmt -> scope -> [jsstmt] *)
+and translate_tail_stmt ?(finish = returned) s scope =
+  let returning = finish == returned in
   match s with
   | SMatch _ ->
       (* Every arm is in tail position too, so each one's value is the
          function's -- without this the arms would be plain expression
          statements and the function would return nothing. *)
-      fst (translate_match s scope translate_tail_stmts)
-  | SExprStmt (_, e, _) when yields_unit e scope -> fst (translate_stmt s scope)
-  | SExprStmt (info, e, _) -> [ JsReturn (info, translate_expr e scope) ]
+      fst (translate_match s scope (translate_tail_stmts ~finish))
+  | SExprStmt (_, e, _) when returning && yields_unit e scope -> fst (translate_stmt s scope)
+  | SExprStmt (info, e, _) -> [ finish info (translate_expr e scope) ]
+  | SIf (info, _, _, None, _) when not returning ->
+      fst (translate_stmt s scope) @ [ finish info (JsArray (info, [])) ]
   | SIf (_, _, _, None, _) ->
       (* An `if` with no `else` supplies unit whatever its one branch
          ends in (PYKING.md, "Type checking"): a path runs no branch at
@@ -1019,15 +1034,16 @@ and translate_tail_stmt s scope =
         JsIf
           ( info,
             translate_expr cond scope,
-            translate_tail_stmts then_body (block_scope scope),
-            Some (translate_tail_stmts else_body (block_scope scope)) );
+            translate_tail_stmts ~finish then_body (block_scope scope),
+            Some (translate_tail_stmts ~finish else_body (block_scope scope)) );
       ]
   | SLoop (info, _, _, _, _, _, _) ->
       (* A function ending in a loop returns what the loop produced: the
          accumulator it stopped with. *)
       let js_stmts, value, _ = translate_loop s scope in
-      js_stmts @ [ JsReturn (info, value) ]
-  | s -> fst (translate_stmt s scope)
+      js_stmts @ [ finish info value ]
+  | s when returning -> fst (translate_stmt s scope)
+  | s -> fst (translate_stmt s scope) @ [ finish (stmt_info s) (JsArray (stmt_info s, [])) ]
 
 (** Translates one statement, answering it with the scope it leaves
     behind. A loop answers with several statements.
@@ -1045,6 +1061,20 @@ and translate_stmt s scope =
       let js_stmts, value, scope = translate_loop loop scope in
       let js_target, scope = translate_target target scope in
       (js_stmts @ [ JsConst (info, js_target, value) ], scope)
+  | SLetStmt (info, target, inner, _, _, _) ->
+      (* `x = if ...` / `x = match ...`: a `let` the statement's every
+         tail assigns, read once by the binding after it. *)
+      let held, scope = bind "__value" scope in
+      let finish i value = JsAssign (i, JsTargetName (i, held), value) in
+      let body, scope =
+        match inner with
+        | SMatch _ -> translate_match inner scope (translate_tail_stmts ~finish)
+        | _ -> (translate_tail_stmt ~finish inner scope, scope)
+      in
+      let js_target, scope = translate_target target scope in
+      ( (JsLet (info, JsTargetName (info, held), JsVar (info, "undefined")) :: body)
+        @ [ JsConst (info, js_target, JsVar (info, held)) ],
+        scope )
   | SVar (info, name, e, _) ->
       let js_expr = translate_expr e scope in
       let js_name, scope = bind name scope in
@@ -1611,6 +1641,28 @@ let data_helper =
       "}";
     ]
 
+let range_helper =
+  String.concat "\n"
+    [
+      "// Pyking's `range`: a list of Ints, as builtin.ml says.";
+      "function pykRange(a, b, c) {";
+      "  const [start, stop, step] = b === undefined ? [0, a, 1] : [a, b, c === undefined ? 1 : c];";
+      "  if (step === 0) throw new Error(\"'range' step must not be zero\");";
+      "  const items = [];";
+      "  for (let n = start; step > 0 ? n < stop : n > stop; n += step) items.push(n);";
+      "  return pykList(items);";
+      "}";
+    ]
+
+let len_helper =
+  String.concat "\n"
+    [
+      "// Pyking's `len`: a list's items, or a String's bytes in UTF-8.";
+      "function pykLen(value) {";
+      "  return Array.isArray(value) ? value.length : new TextEncoder().encode(value).length;";
+      "}";
+    ]
+
 let shape_helper =
   String.concat "\n"
     [
@@ -1684,9 +1736,14 @@ let js_helpers ?(level = 0) stmts =
   let uses_shape =
     uses (function JsVar (_, "pykWithShape") -> true | _ -> false) stmts
   in
+  let uses_range = uses (function JsVar (_, "pykRange") -> true | _ -> false) stmts in
+  let uses_len = uses (function JsVar (_, "pykLen") -> true | _ -> false) stmts in
   let wanted =
-    (* `pykConcat` builds a list, so it needs `pykList` beside it. *)
-    (if uses_list || uses_concat then [ list_helper ] else [])
+    (* `pykConcat` and `pykRange` build a list, so they need `pykList`
+       beside them. *)
+    (if uses_list || uses_concat || uses_range then [ list_helper ] else [])
+    @ (if uses_range then [ range_helper ] else [])
+    @ (if uses_len then [ len_helper ] else [])
     @ (if uses_concat then [ concat_helper ] else [])
     @ (if uses_data then [ data_helper ] else [])
     @ if uses_shape then [ shape_helper ] else []
