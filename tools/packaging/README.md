@@ -149,7 +149,7 @@ pyk                    the compiler
 LICENSE
 PYKING-TUTORIAL.md
 lib/                   the standard library
-build/pyking.js        the compiler as JavaScript: the iweb24 target and the pages
+share/pyking.js        the compiler as JavaScript: the iweb24 target and the pages
 tools/webrun/          the web tools' scripts, and Ace, Monaco and KaTeX
 tools/notebook/
 tools/playground/      without examples: the playground starts with one program

@@ -115,10 +115,10 @@ let shim name declared =
     @ [ "  ()"; "" ])
 
 (** The directory holding pyk_plugin.cmi, which a plugin is compiled
-    against: build/plugin beside the executable, where `make` puts it
+    against: share/plugin beside the executable, where `make` puts it
     and a package ships it. () -> string *)
 let interface_directory () =
-  Filename.concat (Filename.concat (Install.root ()) "build") "plugin"
+  Filename.concat (Filename.concat (Install.root ()) "share") "plugin"
 
 (** Where a plugin compiled on demand is kept: pyking/plugins under the
     user's cache directory. () -> string *)

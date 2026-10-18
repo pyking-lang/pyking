@@ -1327,7 +1327,7 @@ The bootstrap is split into one module per compiler stage:
 
 20. **`src/install.ml`** — `root ()`, the directory the running
    executable is in *after resolving every symbolic link*. Everything
-   that looks beside `pyk` -- the standard library, `build/pyking.js`
+   that looks beside `pyk` -- the standard library, `share/pyking.js`
    for `iweb`, the web tools -- asks it, since a package manager's
    `bin/pyk` is a link and the tree is beside its target. Do not read
    `Sys.executable_name` for a directory anywhere else.
@@ -1344,7 +1344,7 @@ The bootstrap is split into one module per compiler stage:
    module without being rebuilt. The registration file records each
    declared name in **`src/plugin/pyk_plugin.ml`**, a one-module library
    of its own (unwrapped, linked only into the executable, its `.cmi`
-   copied to `build/plugin/` by `make` so a plugin compiled elsewhere
+   copied to `share/plugin/` by `make` so a plugin compiled elsewhere
    can name it), and a value crosses by its declared type. A plugin
    beside the implementation is used where the digest beside it
    (`<module>_external.digest`: the sources, the registration file, the
@@ -1570,11 +1570,11 @@ the notebook and the website's cells still use Ace. Put
 anything both pages need there rather than copying it.
 
 - **There is no build step**, with one exception. `pyk` serves each
-  tool's files, the shared ones and `build/pyking.js` from where they
+  tool's files, the shared ones and `share/pyking.js` from where they
   sit, and works out what is not a file (the playground's example
   manifest, the bundle's stamp) per request. The exception is the help
   (`tools/help/`): `make` runs `tools/help/help.py`, which writes the
-  help's pages into `build/help/` as `make` writes the bundle into
+  help's pages into `share/help/` as `make` writes the bundle into
   `build/`, and packages ship it. Do not add another generated copy.
 - **Nothing is baked into the pages.** The keyword list, the builtins,
   the targets and the JavaScript value formatter are asked of the loaded
@@ -1629,7 +1629,7 @@ anything both pages need there rather than copying it.
   does with Starlight's. `tools/playground/README.md` is the long form.
 - **The help** (`tools/help/`, `pyk pykhelp`, the playground's Help tab):
   Getting started, the language reference (PYKING.md) and the library
-  reference, generated as Markdown into `build/help/` by
+  reference, generated as Markdown into `share/help/` by
   `tools/help/help.py` -- the same pages the website is built from --
   and shown by `tools/help/assets/help.js` (`mountHelp`), a menu of
   pages above the page, rendered by the notebook's `mountCells` so every
@@ -1648,7 +1648,7 @@ notebook and the playground are served by `pyk` itself, and a
 distribution ships no Python. The one exception is `pyk notebook --mode
 test`, which runs the notebook's code under node. A distribution is a subset of this repository's tree at the
 same relative paths -- `pyk`, `lib/` (with its plugins),
-`build/pyking.js`, `build/plugin/`, `build/help/`, `tools/webrun/` (with
+`share/pyking.js`, `share/plugin/`, `share/help/`, `tools/webrun/` (with
 `vendor/`), `tools/notebook/`, `tools/playground/`, `tools/help/assets/`,
 and `src/examples.toml` with
 the programs it names -- so the one
@@ -2064,7 +2064,7 @@ tuple, a `var` and a `:=` are all inside that fragment.
 Plain `make` builds the compiler: the `Makefile`'s first rule, `all`, is
 `build`, since that is what someone typing `make` in a compiler's
 directory is asking for. It runs `dune build src/pyk.exe` and copies the
-executable to `./pyk`, and writes the help into `build/help/`
+executable to `./pyk`, and writes the help into `share/help/`
 (`tools/help/help.py`). `make help` prints the list of targets, which is
 hand-written, as is the one in `tools/playground/Makefile` it is
 modelled on — add a target and you have to add its line too.
@@ -2208,7 +2208,7 @@ libraries, each exporting a `tag()` naming itself, and runs the program
 -- so what is printed says which library was found. See
 `docs/libraries.md`.
 
-`test_playground.py` drives `build/pyking.js`, the compiler bundle the
+`test_playground.py` drives `share/pyking.js`, the compiler bundle the
 page loads: that its entry points are registered, that one small program
 compiles for every target the page offers and runs under the
 interpreter, that **every example the page offers checks** as the
@@ -2318,7 +2318,7 @@ against `pyk lsp` over stdio, and what the server sent is compared with
 `<name>.out` -- one script per capability, one for the protocol's own
 edges, one where UTF-16 positions matter. Then the transport (a message
 split across writes, a lower-case header, `--log`, the exit status, the
-refusals); then the same scripts through `pykLsp` in `build/pyking.js`
+refusals); then the same scripts through `pykLsp` in `share/pyking.js`
 under node (`tests/lsp/browser.mjs`), which must answer the same; then,
 where a Chromium is found and Monaco is vendored, the playground driven
 by `tests/lsp/playground.mjs` -- its editor as a language server

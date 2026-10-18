@@ -3,7 +3,7 @@
 // messages of a tests/lsp/<name>.lsp script and compares what comes back
 // with what `pyk lsp` answered to the same messages.
 //
-// Usage: node browser.mjs <build/pyking.js> <lib> <directory> < steps.json
+// Usage: node browser.mjs <share/pyking.js> <lib> <directory> < steps.json
 // `steps.json` is [{send: [text...], idle: bool}], and what is written is
 // [[messages answered...] per step], each message as parsed JSON.
 //

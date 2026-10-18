@@ -18,7 +18,7 @@ A notebook may hold **exercises and quizzes**, checked in the page; see
 "Exercises and quizzes" below.
 
 As with the playground, **nothing executes on the server**. The page loads
-the real compiler — `src/` compiled to JavaScript, `build/pyking.js` — into a
+the real compiler — `src/` compiled to JavaScript, `share/pyking.js` — into a
 worker and runs each cell with its interpreter. The server only hands out
 files, and is `pyk` itself (`src/web_tools.ml`), so nothing else has to
 be installed. Test mode alone needs node.
@@ -339,7 +339,7 @@ the document:
 notebook/   tools/notebook/assets
 webrun/     tools/webrun/assets
 vendor/     tools/webrun/vendor
-pyking/     build/pyking.js, and a manifest.json naming it
+pyking/     share/pyking.js, and a manifest.json naming it
 ```
 
 `manifest.json` is `{"bundle": "pyking.js", "stamp": "<any string>"}`.

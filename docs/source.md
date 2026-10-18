@@ -1363,7 +1363,7 @@ registration code calls `register` once per declared name when Dynlink
 loads it; `plugin_host.ml` reads it back with `find`. A library of its
 own, unwrapped and linked only into the executable, so a plugin compiled
 outside this build names it `Pyk_plugin` and finds its `.cmi` in
-`build/plugin/`. Its table is mutable because loading a plugin answers
+`share/plugin/`. Its table is mutable because loading a plugin answers
 nothing: the plugin's initialisation runs for its effect, and this is
 where that effect lands. `after_program f` asks for `f` to run once the
 program's top level has ended, and `pyk.ml` runs them
@@ -2062,7 +2062,7 @@ than the library, since it listens on a socket.
   `tools/notebook/check.js` under node and answers its status, and any
   other mode serves `notebook_site`. The playground serves
   `playground_site`; the help serves `help_site`, refusing where
-  `build/help/` was not generated (`check_help`); `pyk serve` serves a directory, listing one with no
+  `share/help/` was not generated (`check_help`); `pyk serve` serves a directory, listing one with no
   `index.html`. Each refuses a missing compiler bundle or, unless
   `$PYKING_WEB_NO_VENDOR` is set, missing browser libraries, with the
   reason as a sentence for the driver to print.
@@ -2112,7 +2112,7 @@ anything else is `501`.
 ## `install.ml`
 
 **Where this installation keeps what ships beside `pyk`**: `lib/`,
-`build/pyking.js` and `tools/`. `root ()` is the running executable's
+`share/pyking.js` and `tools/`. `root ()` is the running executable's
 directory after `Unix.realpath`, so a `pyk` reached through a symbolic
 link -- Homebrew's `bin/pyk` is two -- finds the directory it was
 installed in. The standard library's search path, the `iweb` target's

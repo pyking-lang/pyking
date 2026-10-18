@@ -15,8 +15,8 @@ publishes them. Each package format is one entry in FORMATS:
   vscode    The VS Code and Cursor extension, a .vsix.
 
 Every format ships the same tree, which `stage` builds: the executable,
-lib/ with each library's interpreter plugin, build/pyking.js,
-build/plugin/, the web tools and the examples, at the paths they have in the
+lib/ with each library's interpreter plugin, share/pyking.js,
+share/plugin/, the web tools and the examples, at the paths they have in the
 repository, since that is where `pyk` looks for them (src/install.ml).
 The plugins are compiled by `build_plugins` with the toolchain that
 built the executable, since a plugin loads only into the `pyk` its
@@ -142,7 +142,7 @@ SHIPPED = [
     ("CHANGELOG.md", "CHANGELOG.md"),
     ("PYKING-TUTORIAL.md", "PYKING-TUTORIAL.md"),
     ("lib", "lib"),
-    ("build/pyking.js", "build/pyking.js"),
+    ("share/pyking.js", "share/pyking.js"),
     ("tools/webrun/package.json", "tools/webrun/package.json"),
     ("tools/webrun/assets", "tools/webrun/assets"),
     ("tools/webrun/vendor", "tools/webrun/vendor"),
@@ -151,9 +151,9 @@ SHIPPED = [
     ("tools/notebook/assets", "tools/notebook/assets"),
     ("tools/playground/assets", "tools/playground/assets"),
     # The help, which `pyk pykhelp` and the playground's Help tab show: its
-    # page and scripts, and the pages `make` generated into build/help/.
+    # page and scripts, and the pages `make` generated into share/help/.
     ("tools/help/assets", "tools/help/assets"),
-    ("build/help", "build/help"),
+    ("share/help", "share/help"),
     ("tools/emacs/pyking-mode.el", "tools/emacs/pyking-mode.el"),
 ]
 # The examples `pyk example` saves and the playground offers: the list,
@@ -166,7 +166,7 @@ SHIPPED_SUFFIXES = {".pyk", ".js", ".ml", ".mli", ".py", ".c", ".h", ".java",
 # that made the binary, never this checkout's by accident, and a plugin
 # itself (a .cmxs) is never copied -- `build_plugins` compiles it for the
 # binary it will be loaded into.
-PLUGIN_DIRECTORY = Path("build") / "plugin"
+PLUGIN_DIRECTORY = Path("share") / "plugin"
 PLUGIN_INTERFACE = REPO / PLUGIN_DIRECTORY / "pyk_plugin.cmi"
 PLUGIN_BUILT = Path("default") / "src" / "plugin" / ".pyk_plugin.objs" / "byte" / "pyk_plugin.cmi"
 

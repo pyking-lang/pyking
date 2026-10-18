@@ -28,7 +28,7 @@ LABEL org.opencontainers.image.title="Pyking" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.source="https://github.com/pyking-lang/pyking-releases"
-# ADD unpacks the tarball. The tree stays together: pyk finds lib/, build/
+# ADD unpacks the tarball. The tree stays together: pyk finds lib/, share/
 # and tools/ beside its own resolved path.
 ADD pyking.tar.gz /opt/
 RUN mv "/opt/pyking-${VERSION}" /opt/pyking \

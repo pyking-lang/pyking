@@ -8,7 +8,8 @@ __pycache__
 \.\#*
 temp/
 _build/
-/build/
+build/
+/share/
 /pyk
 \.DS_Store
 # The interpreter's plugins, which `make libs` builds beside each
@@ -19,6 +20,7 @@ lib/*/*_external.digest
 # the Astro packages it installs.
 /website/
 tools/site/build/
+/share/
 tools/site/node_modules/
 web_examples/
 web_docs/

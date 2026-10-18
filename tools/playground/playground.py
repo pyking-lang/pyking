@@ -6,7 +6,7 @@ end and the same backends `pyk` does -- there is no Python and no Python
 runtime in the page at all.
 
 Nothing is built first: the page, the shared scripts in tools/webrun/,
-the compiler bundle build/pyking.js and the examples src/examples.toml
+the compiler bundle share/pyking.js and the examples src/examples.toml
 lists are served from where they sit, and what the page needs to know about them is
 worked out per request. See README.md for the design.
 

@@ -19,7 +19,7 @@
 const HERE = new URL(".", import.meta.url);
 
 const DEFAULTS = {
-  pagesURL: new URL("pages/", HERE).href,       // build/help/, as served
+  pagesURL: new URL("pages/", HERE).href,       // share/help/, as served
   notebookURL: new URL("../notebook/", HERE).href,
   webrunURL: new URL("../webrun/", HERE).href,
   vendorURL: new URL("../vendor/", HERE).href,

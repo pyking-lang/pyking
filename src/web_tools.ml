@@ -21,7 +21,7 @@ let root () = Install.root ()
 let under parts = List.fold_left Filename.concat (root ()) parts
 
 (** The compiler bundle the pages run. () -> string *)
-let bundle () = under [ "build"; "pyking.js" ]
+let bundle () = under [ "share"; "pyking.js" ]
 
 (** The vendored browser libraries. () -> string *)
 let vendor () = under [ "tools"; "webrun"; "vendor" ]
@@ -99,20 +99,20 @@ let bundle_manifest () =
     [
       ("bundle", json_string "pyking.js");
       ("stamp", json_string stamp);
-      ("note", json_string "build/pyking.js, built from src/ by dune");
+      ("note", json_string "share/pyking.js, built from src/ by dune");
     ]
   ^ "\n"
 
 (** Refuses where the help's pages were not generated.
     string -> (unit, string) result *)
 let check_help command =
-  if Sys.file_exists (under [ "build"; "help"; "index.json" ]) then Ok ()
+  if Sys.file_exists (under [ "share"; "help"; "index.json" ]) then Ok ()
   else
     Error
       (Printf.sprintf
          "%s: the help is not generated (no %s). `make` in the repository \
           writes it; a distribution ships it."
-         command (under [ "build"; "help" ]))
+         command (under [ "share"; "help" ]))
 
 (** What every tool serves: the shared scripts, the vendored libraries,
     the compiler bundle, the standard library, the notebook's scripts
@@ -128,7 +128,7 @@ let common_site () : Web_server.site =
         ("/lib/", under [ "lib" ]);
         ("/notebook/", under [ "tools"; "notebook"; "assets" ]);
         ("/help/", under [ "tools"; "help"; "assets" ]);
-        ("/help/pages/", under [ "build"; "help" ]);
+        ("/help/pages/", under [ "share"; "help" ]);
       ];
     files = [ ("/pyking/pyking.js", bundle ()) ];
     answers = [ ("/pyking/manifest.json", (bundle_manifest, "application/json")) ];

@@ -17,7 +17,7 @@ Then, from a directory outside the repository:
   - the standard library runs under the interpreter from the plugins
     the tree ships, compiled beside it by `build_plugins` -- none is
     compiled again into the cache;
-  - the `iweb24` target compiles, which needs build/pyking.js;
+  - the `iweb24` target compiles, which needs share/pyking.js;
   - `pyk notebook` and `pyk playground` start and serve their pages, and
     `pyk notebook --mode test` checks a notebook;
   - `pyk example` lists the examples and saves one, and the playground
@@ -160,8 +160,8 @@ def check_stage(check, compiler):
         # Before anything runs from the tree: Python writes __pycache__
         # beside a script it runs.
         files = {str(p.relative_to(tree)) for p in tree.rglob("*") if p.is_file()}
-        for wanted in ["pyk", "LICENSE", "CHANGELOG.md", "PYKING-TUTORIAL.md", "build/pyking.js",
-                       "build/plugin/pyk_plugin.cmi", "lib/sys/sys.pyk",
+        for wanted in ["pyk", "LICENSE", "CHANGELOG.md", "PYKING-TUTORIAL.md", "share/pyking.js",
+                       "share/plugin/pyk_plugin.cmi", "lib/sys/sys.pyk",
                        "lib/io/io_external.cmxs", "tools/notebook/check.js",
                        "tools/notebook/assets/index.html",
                        "tools/emacs/pyking-mode.el",
@@ -232,7 +232,7 @@ def check_stage(check, compiler):
               result.stdout + result.stderr)
         result = run([pyk, "compile", "-t", "iweb24", "-o", "page", "hello.pyk"],
                      work, env)
-        check("build/pyking.js is found for the iweb24 target",
+        check("share/pyking.js is found for the iweb24 target",
               result.returncode == 0 and (work / "build" / "page.html").exists()
               and (work / "build" / "pyking.js").exists(),
               result.stderr.strip())
@@ -610,7 +610,7 @@ def check_built(check):
                   str(packaging.macho_archs(pyk)))
             check(f"{name} holds the web tools and the library",
                   (tops[0] / "tools" / "notebook" / "check.js").exists()
-                  and (tops[0] / "lib").is_dir() and (tops[0] / "build" / "pyking.js").exists())
+                  and (tops[0] / "lib").is_dir() and (tops[0] / "share" / "pyking.js").exists())
             plugins = sorted(tops[0].glob("lib/*/*_external.cmxs"))
             check(f"{name} holds the library plugins, each {' + '.join(wanted)}",
                   len(plugins) >= 4 and all(sorted(packaging.macho_archs(p)) == wanted

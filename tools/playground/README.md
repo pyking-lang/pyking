@@ -15,7 +15,7 @@ make             # here: vendor, check, serve
 
 **Nothing is built.** `pyk playground` serves `assets/`, the files the
 playground shares with the notebook in `../webrun/`, the compiler bundle
-`build/pyking.js` and the examples `src/examples.toml` lists from where they sit, so an
+`share/pyking.js` and the examples `src/examples.toml` lists from where they sit, so an
 edit to any of them shows on the next reload. The first `make vendor` (at
 the repository root or here) downloads ~26 MB of Ace, KaTeX and Monaco
 into `../webrun/vendor/` and caches it; see `../webrun/README.md`.
@@ -258,7 +258,7 @@ The server marks `vendor/` cacheable for a day while everything else stays
 `no-store`, since everything else is served straight from the source tree.
 
 **The compiler cannot go stale under you either**, which needs more than
-cache headers: the page fetches `build/pyking.js` once, at boot, so a tab
+cache headers: the page fetches `share/pyking.js` once, at boot, so a tab
 left open across a `make` would go on answering with the compiler it
 started with. `manifest.json` carries a **stamp** of the bundle's bytes,
 which the page re-reads before every compile: when it has moved on, the
@@ -406,7 +406,7 @@ The Help tab mounts the help (`../help/README.md`): a menu of pages, at
 most 30% of the tab's height, the sections on the left and the page's
 headings on the right, above the page
 being read. The pages are the ones the website is built from, generated
-into `build/help/` by `make`, and every example on them is a cell that
+into `share/help/` by `make`, and every example on them is a cell that
 runs there, on a worker of the help's own, with a **Copy to editor**
 button that puts it in the source editor. It is mounted the first time
 the tab is opened, follows the playground's theme, and is found at
@@ -485,14 +485,14 @@ What the page loads, and where the server finds it:
 | `/assets/playground.json` | worked out per request: the version, targets, editor modes, examples |
 | `/webrun/…` | `../webrun/assets/`: the runtime, the compiler's worker, the Pyking language for Monaco |
 | `/vendor/…` | `../webrun/vendor/`: Monaco (and Ace and KaTeX, the notebook's) |
-| `/pyking/pyking.js` | `build/pyking.js`, built from `src/` by dune and js_of_ocaml |
+| `/pyking/pyking.js` | `share/pyking.js`, built from `src/` by dune and js_of_ocaml |
 | `/pyking/manifest.json` | worked out per request: the bundle's name and stamp |
 | `/examples/*.pyk` | each example `src/examples.toml` lists, under the name `pyk example` saves it as |
 
 ### The bundle is evaluated, not required
 
 `check` and `tests/test_playground.py` run the compiled compiler under
-node — and they do that by *reading* `build/pyking.js` and evaluating it,
+node — and they do that by *reading* `share/pyking.js` and evaluating it,
 rather than `require`ing it.
 
 That looks roundabout and is not. The bundle is a classic script, but
@@ -516,7 +516,7 @@ bundle* when the page loads, through the worker's `words` request, rather
 than parsed out of the source:
 
 1. **The compiler** is `dune build src/web/pyking_web.bc.js`, served as
-   `build/pyking.js` — never forked, and never edited here.
+   `share/pyking.js` — never forked, and never edited here.
 2. **The target list** comes from `pykTargets`, which is `pyk.ml`'s own
    `targets`, itself assembled from the backends. `make check` and
    `tests/test_playground.py` fail if a target turns up that has no entry in
@@ -662,7 +662,7 @@ make e2e                         # the same page, in a real browser
 ```
 
 The repository's own `make test` asks the first of those questions too,
-as `tests/test_playground.py`: it drives `build/pyking.js` directly, so
+as `tests/test_playground.py`: it drives `share/pyking.js` directly, so
 it needs no vendored assets, and it reads the example list out of
 `playground.py`'s `example_sources` so the two cannot disagree about
 what the page offers. `tests/test_notebook.py` also starts

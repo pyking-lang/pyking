@@ -10,7 +10,7 @@ Four parts:
             what the server sends is compared with tests/lsp/<name>.out.
             Then the transport itself: framing, a message split across
             writes, --log, the exit status, and the command's refusals.
-  browser   the same scripts through pykLsp in build/pyking.js under
+  browser   the same scripts through pykLsp in share/pyking.js under
             node (tests/lsp/browser.mjs), which must answer the same.
   page      where a Chromium is found and `make vendor` has run, the
             playground driven by tests/lsp/playground.mjs: a marker, a
@@ -79,7 +79,7 @@ import suite  # noqa: E402  (after sys.path, which is what finds it)
 
 REPO = HERE.parent
 CASES = HERE / "lsp"
-BUNDLE = REPO / "build" / "pyking.js"
+BUNDLE = REPO / "share" / "pyking.js"
 LIB = REPO / "lib"
 BROWSER = CASES / "browser.mjs"
 PAGE_DRIVER = CASES / "playground.mjs"
@@ -300,7 +300,7 @@ def run_native(compiler, steps):
 
 
 def run_browser(steps):
-    """The steps through pykLsp in build/pyking.js, under node: per step,
+    """The steps through pykLsp in share/pyking.js, under node: per step,
     the messages it answered. [{..}] -> [[{..}]]"""
     result = subprocess.run(
         ["node", str(BROWSER), str(BUNDLE), str(LIB), str(CASES)],
@@ -602,7 +602,7 @@ def main(argv):
         skipped.append("the transport (not in the sample)")
 
     if not BUNDLE.exists() or shutil.which("node") is None:
-        skipped.append("the browser bundle (no build/pyking.js or no node)")
+        skipped.append("the browser bundle (no share/pyking.js or no node)")
     else:
         for script, (steps, said) in sessions.items():
             try:

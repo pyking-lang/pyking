@@ -6,13 +6,13 @@ Help tab (`tools/playground/`), and `pyk pykhelp`, which serves the help on
 its own.
 
 ```sh
-python3 tools/help/help.py [DIRECTORY]   # write the pages (default build/help/)
+python3 tools/help/help.py [DIRECTORY]   # write the pages (default share/help/)
 python3 tools/help/libdoc.py             # list what is undocumented in lib/
 make pykhelp                             # serve it (pyk pykhelp) and print a link
 ```
 
-`make` runs `help.py` after building the compiler, so `build/help/` is
-always there beside `build/pyking.js`, and every package ships it.
+`make` runs `help.py` after building the compiler, so `share/help/` is
+always there beside `share/pyking.js`, and every package ships it.
 
 ## What is generated
 

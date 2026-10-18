@@ -18,7 +18,7 @@ each example and the playground with the interpreter.
 
 ## What it needs
 
-`make website` builds the compiler and `build/pyking.js` first, and
+`make website` builds the compiler and `share/pyking.js` first, and
 downloads Ace and KaTeX (`make vendor`). It needs **node 22.12 or later**
 and npm. The first build runs `npm ci` here, which installs the pinned
 Astro and Starlight into `node_modules/` (gitignored). It installs with

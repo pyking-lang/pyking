@@ -6,7 +6,7 @@ case the interpreter runs, and checks in the bundle with the standard
 library it imports.
 
 This drives the bundle directly: the bundle is what `make build`
-already writes to `build/pyking.js`, and the example list comes from
+already writes to `share/pyking.js`, and the example list comes from
 `tools/playground/playground.py` itself, so the suite and the page cannot
 disagree about what is offered. The REPL the page's REPL tab runs is
 driven here too: entries, what they print and show, the environment, the
@@ -50,7 +50,7 @@ REPO = HERE.parent
 PLAYGROUND = REPO / "tools" / "playground"
 # What `make build` writes: the same compiler the page loads, as one
 # JavaScript file.
-DEFAULT_BUNDLE = REPO / "build" / "pyking.js"
+DEFAULT_BUNDLE = REPO / "share" / "pyking.js"
 # Long enough that a bundle which has gone wrong is reported rather than
 # hanging. Compiling every example takes a few seconds.
 STEP_TIMEOUT = 600

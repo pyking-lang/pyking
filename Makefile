@@ -1,6 +1,6 @@
 # The Pyking compiler.
 #
-#   make            build the compiler, build/pyking.js and the library
+#   make            build the compiler, share/pyking.js and the library
 #                   plugins the interpreter loads
 #   make test       the compiler's own test suite, run in parallel
 #                   (TARGET=c23 or TARGET=c for one target or family,
@@ -34,7 +34,7 @@ all: build libs
 # `cp`: dune leaves what it builds read-only, and so is the copy, which a
 # second `make` would otherwise fail to overwrite.
 #
-# build/pyking.js is the same compiler as JavaScript -- the interpreter
+# share/pyking.js is the same compiler as JavaScript -- the interpreter
 # the `iweb` target ships and the playground runs. It is built here so
 # there is one copy: tools/playground reuses this rather than running a
 # dune build of its own.
@@ -52,15 +52,15 @@ build:
 	  echo "       wrong platform."; \
 	  echo ""; \
 	  echo "       Run 'make clean' and build again. To stop it recurring,"; \
-	  echo "       keep _build/, ./pyk and build/ out of whatever syncs the"; \
+	  echo "       keep _build/, ./pyk and share/ out of whatever syncs the"; \
 	  echo "       tree; .gitignore already lists all three."; \
 	  exit 1; }
-	@mkdir -p build build/plugin
-	@cp -f _build/default/src/web/pyking_web.bc.js build/pyking.js
+	@mkdir -p share/plugin
+	@cp -f _build/default/src/web/pyking_web.bc.js share/pyking.js
 	@cp -f _build/default/src/plugin/.pyk_plugin.objs/byte/pyk_plugin.cmi \
-	  build/plugin/pyk_plugin.cmi
-	@python3 tools/help/help.py build/help
-	@echo "build: ./pyk, build/pyking.js, build/plugin/ and build/help/"
+	  share/plugin/pyk_plugin.cmi
+	@python3 tools/help/help.py share/help
+	@echo "build: ./pyk, share/pyking.js, share/plugin/ and share/help/"
 
 # The interpreter reaches a library implemented in a target language
 # through its OCaml implementation, compiled to a plugin it loads
@@ -71,7 +71,7 @@ libs: build
 	@./pyk plugins lib
 
 # The help, as `pyk pykhelp` serves it: the pages tools/help/help.py wrote
-# into build/help/ when the compiler was built, which the website and
+# into share/help/ when the compiler was built, which the website and
 # the playground's Help tab show too.
 pykhelp: build vendor
 	./pyk pykhelp $(if $(PORT),--port $(PORT))
@@ -81,7 +81,7 @@ pykhelp: build vendor
 # them from, so update this list whenever a target is added or renamed.
 help:
 	@echo "make              build the compiler into ./pyk and build/, the help"
-	@echo "                  into build/help/, then make libs"
+	@echo "                  into share/help/, then make libs"
 	@echo "make libs         compile each lib/*/<name>_external.ml into the"
 	@echo "                  plugin the interpreter loads, <name>_external.cmxs"
 	@echo "make test         a clean build (make clean-build, then make), then"
@@ -118,7 +118,7 @@ help:
 	@echo "                  then print a link. PORT=n picks the port for both"
 	@echo "make pykhelp      serve the help (pyk pykhelp) -- getting started, the"
 	@echo "                  language reference and the libraries, generated"
-	@echo "                  into build/help/ by make -- then print a link"
+	@echo "                  into share/help/ by make -- then print a link"
 	@echo "make help         this list"
 	@echo "make vendor       download Ace, KaTeX and Monaco into tools/webrun/vendor/, once"
 	@echo "                  (~26 MB; the two above need it and run it first)"
@@ -310,9 +310,10 @@ distclean: clean
 # chose itself -- which is exactly what a *compiled program* is not (see
 # the note on `clean` above).
 clean-build:
-	@rm -rf _build build
+	@rm -rf _build share build/pyking.js build/plugin build/help
+	@rmdir build 2>/dev/null || true
 	@rm -f pyk lib/*/*_external.cmxs lib/*/*_external.digest
-	@echo "clean: removed _build, build/, ./pyk and lib/'s plugins"
+	@echo "clean: removed _build, share/, ./pyk and lib/'s plugins"
 
 # The website and what tools/site/site.py staged for it. Both are names
 # this repository chose, like ./pyk.

@@ -439,6 +439,13 @@ let usage_error message =
   prerr_endline (usage ());
   exit 1
 
+(** Prints message to stderr without the usage text, and exits 1: a
+    refusal about the files a compile would write, not about the
+    command line. string -> 'a *)
+let build_error message =
+  prerr_endline (wrap (Printf.sprintf "Error: %s" message));
+  exit 1
+
 (** Parses argv into an options; exits via usage_error on anything
     malformed. [string] -> options *)
 let parse_args argv =
@@ -1108,13 +1115,13 @@ let compile_program checked target output_path options =
     with Module.Module_error _ as e -> fail e
   in
   (* The compiler as JavaScript, which the `iweb` target ships beside
-     the program: `make` writes it to build/pyking.js, so it is looked
+     the program: `make` writes it to share/pyking.js, so it is looked
      for beside the executable that is asking for it. *)
   let interpreter_js () =
     let here = Install.root () in
     let candidates =
       [
-        join (join here "build") Target_js_packaging.interpreter_module;
+        join (join here "share") Target_js_packaging.interpreter_module;
         join here Target_js_packaging.interpreter_module;
       ]
     in
@@ -1481,7 +1488,7 @@ let fresh_build build =
   if Sys.file_exists build then
     if Sys.is_directory build && Sys.file_exists (join build build_marker) then remove_tree build
     else
-      usage_error
+      build_error
         (Printf.sprintf
            "'%s' is in the way: pyk compile writes what it generates there, \
             and this one was not made by pyk compile (it holds no %s). Move \

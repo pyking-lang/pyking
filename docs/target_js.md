@@ -155,7 +155,7 @@ where `web24` refuses them. The price is that the program is interpreted
 rather than compiled, and that `pyking.js` (about 5 MB) ships with it.
 
 `pyking.js` is the same file the playground runs, built by `make` into
-`build/pyking.js`. The compiler looks for it beside itself; `make` is
+`share/pyking.js`. The compiler looks for it beside itself; `make` is
 what puts it there, and says so plainly if it is not:
 
 ```

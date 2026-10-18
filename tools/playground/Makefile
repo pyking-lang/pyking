@@ -6,7 +6,7 @@
 #   make PORT=9000  serve somewhere other than 8000
 #
 # Nothing is built: `pyk playground` serves assets/, the shared files in
-# ../webrun/ and the compiler bundle ../../build/pyking.js from where they
+# ../webrun/ and the compiler bundle ../../share/pyking.js from where they
 # sit. `make` at the repository root builds that bundle and ../../pyk.
 
 PYTHON ?= python3

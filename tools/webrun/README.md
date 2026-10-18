@@ -37,14 +37,14 @@ It provides:
   component is refused.
 - **`common_site()`** — what both pages load: `/webrun/` (`assets/`),
   `/vendor/` (`vendor/`), `/lib/` (the standard library, `lib/` at the
-  root), `/pyking/pyking.js` (`build/pyking.js` at the root) and
+  root), `/pyking/pyking.js` (`share/pyking.js` at the root) and
   `/pyking/manifest.json`, whose stamp is a hash of the bundle, which a
   page re-reads to notice a rebuild under an open tab.
 
 `pyk` serves on `localhost`, prints a banner with a link, and takes the
 port asked for with `--port`, else 8000 or the next free one. It finds
 everything beside its own executable: `tools/webrun/` and
-`build/pyking.js` under the same root. A distribution keeps the same
+`share/pyking.js` under the same root. A distribution keeps the same
 tree, so the same lookup works in a checkout and in an install (see
 `docs/build.md`, "The web tools").
 

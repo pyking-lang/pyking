@@ -7,7 +7,7 @@ needed to run them. See README.md beside this file and docs/build.md
 ("The web tools").
 
 Nothing here runs Pyking: the page runs the compiler itself, as the
-JavaScript file build/pyking.js.
+JavaScript file share/pyking.js.
 
 Usage: `make vendor`, or directly:
 
@@ -22,7 +22,7 @@ Functions:
     vendor_files() -- every vendored file, with the URL it comes from.
     check_vendor(tool) -- exits with a message if vendor/ is incomplete.
     bundle_manifest() -- the compiler bundle's manifest, with its stamp.
-    check_bundle(tool) -- exits with a message if build/pyking.js is missing.
+    check_bundle(tool) -- exits with a message if share/pyking.js is missing.
     common_site() -- the Site entries every tool shares.
 """
 
@@ -45,7 +45,7 @@ VENDOR = HERE / "vendor"
 # The tools/ directory's parent: the repository in a checkout, and the
 # installation's root in a distribution, which mirrors the same tree.
 ROOT = HERE.parent.parent
-BUNDLE = ROOT / "build" / "pyking.js"
+BUNDLE = ROOT / "share" / "pyking.js"
 # The standard library, which a program run in the page imports from:
 # its Pyking sources, and each module's browser implementation.
 LIB = ROOT / "lib"
@@ -202,7 +202,7 @@ def bundle_manifest():
     () -> Bytes"""
     stamp = _bundle_stamp(BUNDLE.stat().st_mtime_ns, BUNDLE.stat().st_size)
     return json.dumps({"bundle": "pyking.js", "stamp": stamp,
-                       "note": "build/pyking.js, built from src/ by dune"},
+                       "note": "share/pyking.js, built from src/ by dune"},
                       indent=2).encode() + b"\n"
 
 
@@ -214,7 +214,7 @@ def _bundle_stamp(mtime, size):
 
 
 def check_bundle(tool):
-    """Exits with a message when build/pyking.js is missing. String -> ()"""
+    """Exits with a message when share/pyking.js is missing. String -> ()"""
     if not BUNDLE.exists():
         raise SystemExit(
             f"{tool}: no compiler bundle at {BUNDLE}.\n"
@@ -267,7 +267,7 @@ def common_site():
         mounts={"/webrun/": ASSETS, "/vendor/": VENDOR, "/lib/": LIB,
                 "/notebook/": ROOT / "tools" / "notebook" / "assets",
                 "/help/": ROOT / "tools" / "help" / "assets",
-                "/help/pages/": ROOT / "build" / "help"},
+                "/help/pages/": ROOT / "share" / "help"},
         files={"/pyking/pyking.js": BUNDLE},
         answers={"/pyking/manifest.json": (bundle_manifest, "application/json")},
     )

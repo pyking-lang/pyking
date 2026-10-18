@@ -122,6 +122,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- What `make` writes beside `pyk` -- the compiler as JavaScript, the
+  plugin interface and the help -- is in `share/` (was `build/`), so a
+  program compiled at the root of a checkout no longer replaces it.
+  A `build/` that `pyk compile` did not make is refused with the error
+  alone, without the usage text.
 - Named arguments may be written in any order: `box(depth = 6, width =
   4)`. They are evaluated in the order written, then the defaults of the
   parameters left out.

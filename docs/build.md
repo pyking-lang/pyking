@@ -18,7 +18,7 @@ make clean          remove _build/, ./pyk, lib/'s plugins, __pycache__/
 ```
 
 `make` builds three things: `./pyk`, the compiler,
-`build/pyking.js`, the same compiler as JavaScript, and a plugin for
+`share/pyking.js`, the same compiler as JavaScript, and a plugin for
 every library under `lib/` (`make libs`, below). The second is what
 the `iweb` target ships beside a program and what the playground runs,
 and it is built here so there is one copy of it — the playground and
@@ -59,7 +59,7 @@ a plugin fills in when it is loaded. It is a library of its own,
 unwrapped and linked only into the executable, because a plugin is
 compiled outside this build and has to name it by a stable name --
 `Pyk_plugin` -- and find its interface: `make` copies
-`pyk_plugin.cmi` to `build/plugin/`, beside `build/pyking.js`, and a
+`pyk_plugin.cmi` to `share/plugin/`, beside `share/pyking.js`, and a
 package ships it there.
 
 ## The library plugins
@@ -175,7 +175,7 @@ document whose Pyking code blocks are runnable cells, and the help.
 None of them is built. Each is a directory of JavaScript, CSS and HTML
 under `tools/`, served from where it sits by `pyk` itself; the help's
 pages are the one thing generated, by `tools/help/help.py` into
-`build/help/` when `make` builds the compiler:
+`share/help/` when `make` builds the compiler:
 
 ```
 tools/webrun/     what both share: the compiler's worker and runtime,
@@ -183,9 +183,9 @@ tools/webrun/     what both share: the compiler's worker and runtime,
                   (Ace, KaTeX, Monaco)
 tools/playground/ its page
 tools/notebook/   its page, and check.js for test mode
-tools/help/       its page (assets/), and help.py, which writes build/help/
-build/pyking.js   the compiler, which every page loads
-build/help/       the help's pages, as Markdown, with index.json
+tools/help/       its page (assets/), and help.py, which writes share/help/
+share/pyking.js   the compiler, which every page loads
+share/help/       the help's pages, as Markdown, with index.json
 ```
 
 `src/web_tools.ml` says what each page serves -- directories beside the
@@ -234,8 +234,8 @@ alike:
 ```
 pyk                   the compiler
 lib/                  the standard library, with its plugins
-build/pyking.js       the compiler as JavaScript, for the pages
-build/plugin/         what a plugin is compiled against
+share/pyking.js       the compiler as JavaScript, for the pages
+share/plugin/         what a plugin is compiled against
 tools/webrun/         including vendor/, downloaded before packaging
 tools/notebook/
 tools/playground/

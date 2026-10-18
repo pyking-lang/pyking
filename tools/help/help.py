@@ -3,7 +3,7 @@
 read by everything that shows it -- the website (tools/site/site.py),
 the playground's Help tab, and `pyk pykhelp`.
 
-It writes, into one directory (build/help/ by default), every page of
+It writes, into one directory (share/help/ by default), every page of
 sitesrc/ as it is, the language reference made from PYKING.md, and the
 library reference made from lib/ by libdoc.py; and `index.json`, which
 lists the sections, their pages in order, and each page's headings --
@@ -39,7 +39,7 @@ import libdoc  # noqa: E402  (after sys.path, which is what finds it)
 
 SOURCES = REPO / "sitesrc"
 LANGUAGE = REPO / "PYKING.md"
-OUTPUT = REPO / "build" / "help"
+OUTPUT = REPO / "share" / "help"
 
 # The sections, in the order the menus show them. `help` says whether
 # the playground's Help tab shows the section; `pages`, where given,
@@ -169,7 +169,7 @@ def write(directory=OUTPUT):
 
 
 def main(argv=None):
-    """Writes the help into the directory given, or build/help/.
+    """Writes the help into the directory given, or share/help/.
     [String]? -> ()"""
     argv = sys.argv[1:] if argv is None else argv
     directory = Path(argv[0]) if argv else OUTPUT

@@ -23,7 +23,7 @@ Python compiler.
   `Content-Length` on stdin and stdout, and the debounce (below). The
   only part that needs `unix`.
 - **The browser** -- `src/web/pyking_web.ml` registers the same server
-  as `pykLsp(message)` in `build/pyking.js`. The playground's worker
+  as `pykLsp(message)` in `share/pyking.js`. The playground's worker
   speaks LSP to it over `postMessage`, and its editor, Monaco, is the
   client. The playground and every editor get the same answers from the
   same code.
@@ -170,7 +170,7 @@ parts:
    one with non-ASCII text, where UTF-16 positions are pinned. `--update`
    rewrites the `.out` files.
 2. **The browser.** The same scripts through `pykLsp` in
-   `build/pyking.js` under node must give the same messages.
+   `share/pyking.js` under node must give the same messages.
 3. **The playground.** Where a Chromium is found, the playground is
    driven: an error is underlined, a hover shows a type, completion
    offers a name. Reported as skipped otherwise.
