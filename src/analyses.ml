@@ -241,8 +241,9 @@ let rec analyze_stmts stmts env =
     outside it. [stmt] -> env -> () *)
 and analyze_scope stmts env = ignore (analyze_stmts stmts env)
 
-(** Binds the parameters of every lambda written in one statement's own
-    expressions, so the no-shadowing-a-`var` rule reaches inside one.
+(** Binds the parameters of every lambda and the names of every `let`
+    written in one statement's own expressions, so the
+    no-shadowing-a-`var` rule reaches inside them.
     A nested block is not followed: it is analyzed in its own scope,
     with its own bindings, by whichever arm owns it. Nothing else here
     looks at an expression, because no expression mutates anything.
@@ -258,6 +259,9 @@ and analyze_lambdas env node =
           env params
       in
       analyze_lambdas inner (Walk.NExpr body)
+  | Walk.NExpr (ELet (_, target, _, value, body, _)) ->
+      analyze_lambdas env (Walk.NExpr value);
+      analyze_lambdas (bind_target env target Value) (Walk.NExpr body)
   | node -> List.iter (analyze_lambdas env) (Walk.children node)
 
 (** The lambdas written in one statement's own expressions.
@@ -518,12 +522,13 @@ let rec sym_expr counter e =
       let body, counter = sym_expr counter body in
       let s, counter = assign s counter in
       (ELambda (i, params, body, s), counter)
-  | ELet (i, bindings, body, s) ->
-      let names = List.map fst bindings in
-      let values, counter = map_fold sym_expr counter (List.map snd bindings) in
+  | ELet (i, target, type_, value, body, s) ->
+      let target, counter = sym_target counter target in
+      let type_, counter = map_option sym_type counter type_ in
+      let value, counter = sym_expr counter value in
       let body, counter = sym_expr counter body in
       let s, counter = assign s counter in
-      (ELet (i, List.combine names values, body, s), counter)
+      (ELet (i, target, type_, value, body, s), counter)
   | EQualified (i, module_name, name, s) ->
       let s, counter = assign s counter in
       (EQualified (i, module_name, name, s), counter)
@@ -825,8 +830,10 @@ let rec high_expr e =
         max (high_expr e2) (high_list high_comp_clause clauses)
     | ELambda (_, params, body, _) ->
         max (high_list high_param params) (high_expr body)
-    | ELet (_, bindings, body, _) ->
-        max (high_list high_expr (List.map snd bindings)) (high_expr body)
+    | ELet (_, target, type_, value, body, _) ->
+        max
+          (max (high_target target) (high_option high_type type_))
+          (max (high_expr value) (high_expr body))
     | EConstruct (_, _, _, args, _) -> high_list high_expr (arg_exprs args)
     | EField (_, record, _, _) -> high_expr record
   in

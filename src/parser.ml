@@ -340,12 +340,14 @@ and parse_additive eof tokens =
   more left rest
 
 (** Parses the lowest-precedence expression level: a lambda, an if
-    expression or a comparison. info -> [token] -> (expr, [token]) *)
+    expression, a let expression or a comparison.
+    info -> [token] -> (expr, [token]) *)
 and parse_expr eof tokens =
   match tokens with
   | TokIf i :: rest ->
       let cond, rest = parse_expr eof rest in
       parse_if_expr_tail eof i cond rest
+  | TokLet i :: rest -> parse_let eof i rest
   | _ -> (
       match parse_lambda eof tokens with
       | Some answer -> answer
@@ -409,6 +411,47 @@ and check_no_lambda_default (Param (info, name, _, default, _)) =
              Printf.sprintf
                "the lambda parameter '%s' may not have a default value; only                 a 'def' parameter may"
                name ))
+
+(** Parses `target[: type] = value in body`, given the already-parsed
+    `let`. info -> info -> [token] -> (expr, [token]) *)
+and parse_let eof let_info tokens =
+  let target, rest = parse_target eof tokens in
+  let annotation, rest =
+    match rest with
+    | TokColon _ :: rest ->
+        let type_, rest = parse_type eof rest in
+        (Some type_, rest)
+    | _ -> (None, rest)
+  in
+  match rest with
+  | TokEq _ :: rest -> (
+      check_let_target target;
+      let value, rest = parse_expr eof rest in
+      match rest with
+      | TokIn _ :: rest ->
+          let body, rest = parse_expr eof rest in
+          ( ELet (combine_info let_info (expr_info body), target, annotation, value, body, 0),
+            rest )
+      | _ -> raise (Parse_error (here eof rest, "expected 'in' after the value of a 'let'")))
+  | _ -> raise (Parse_error (here eof rest, "expected '=' after the name a 'let' binds"))
+
+(** Refuses a qualified name in a let's target, and a name bound twice
+    there. assign_target -> () *)
+and check_let_target target =
+  let rec names target =
+    match target with
+    | TargetName (info, name, _) ->
+        check_plain_name info name "bound with 'let'";
+        [ (info, name) ]
+    | TargetTuple (_, elements, _) -> List.concat_map names elements
+  in
+  ignore
+    (List.fold_left
+       (fun seen (info, name) ->
+         if List.mem name seen then
+           raise (Parse_error (info, Printf.sprintf "duplicate binding '%s' in 'let'" name))
+         else name :: seen)
+       [] (names target))
 
 (** Parses the `then expr else expr` tail of an if expression, given the
     already-parsed `if` and condition.

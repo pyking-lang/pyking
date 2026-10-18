@@ -1,0 +1,2 @@
+# A `let` may not bind one name twice.
+print(let (a, a) = (1, 2) in a)

@@ -166,6 +166,10 @@ NOTAIL_FLAG = "--no-tail-call-opt"
 # is pinned.
 PYKING_NOSUGAR_TARGET = "pyking_nosugar"
 NOSUGAR_FLAG = "--no-typechecking"
+# The target that runs what `pyking` printed with the interpreter and
+# compares it against the `.out`: the printed program must mean what the
+# source does, evaluation order included.
+PYKING_RERUN_TARGET = "pyking_rerun"
 # What the `pyking` target compares against, beside the `.out` every
 # backend shares.
 AST_SUFFIX = ".ast.out"
@@ -229,6 +233,7 @@ TARGETS = (
     "python14", "node24", "web24", "iweb24", "c89", "c99", "c23",
     "java8", "java17", "java21", "ocaml5.5", INTERPRET_TARGET, PYKING_TARGET,
     PYTHON_NOTAIL_TARGET, PYKING_NOTAIL_TARGET, PYKING_NOSUGAR_TARGET,
+    PYKING_RERUN_TARGET,
 )
 
 # The unversioned name of each family, for `--target`: naming a family
@@ -250,13 +255,14 @@ FAMILIES = {
 # `typecheck_*` program, whose types are pinned. A `fail_typecheck_*`
 # program runs on `pyking` alone. A case leaves a target out only by
 # naming it -- or its family -- under `excluded`, with the reason; the
-# optional targets (`python14_notail`, `pyking_notail`, `pyking_nosugar`)
-# are added with `also`.
+# optional targets (`python14_notail`, `pyking_notail`, `pyking_nosugar`,
+# `pyking_rerun`) are added with `also`.
 DEFAULT_TARGETS = (
     "python14", "node24", "web24", "iweb24", "c89", "c99", "c23",
     "java8", "java17", "java21", "ocaml5.5", INTERPRET_TARGET,
 )
-OPTIONAL_TARGETS = (PYTHON_NOTAIL_TARGET, PYKING_NOTAIL_TARGET, PYKING_NOSUGAR_TARGET)
+OPTIONAL_TARGETS = (PYTHON_NOTAIL_TARGET, PYKING_NOTAIL_TARGET, PYKING_NOSUGAR_TARGET,
+                    PYKING_RERUN_TARGET)
 
 
 # Under `--sample` (`make quicktest`): the latest version of each family
@@ -950,10 +956,31 @@ def run_pyking_nosugar(source, _workdir, modules, invocation):
     return _pyking(source, [NOSUGAR_FLAG], expect_failure=False)
 
 
+def run_pyking_rerun(source, workdir, modules, invocation):
+    """Prints the program with `-t pyking`, writes that beside the
+    modules it imports, runs it with the interpreter and compares what
+    it printed against the `.out`: the printed program has to mean what
+    the one written does."""
+    printed = run(COMPILER + ["compile", "-t", PYKING_TARGET, "--stdout", source])
+    if printed.returncode != 0:
+        return None, printed.stderr
+    for stem in modules:
+        for found in glob.glob(os.path.join(os.path.dirname(source), stem + ".*")):
+            shutil.copy(found, workdir)
+    target = os.path.join(workdir, os.path.basename(source))
+    with open(target, "w") as handle:
+        handle.write(printed.stdout)
+    passed = ["--"] + invocation.arguments if invocation.arguments else []
+    return executed(
+        run(COMPILER + [target] + passed, cwd=workdir, stdin=invocation.stdin),
+        invocation)
+
+
 RUNNERS = {
     PYKING_TARGET: run_pyking,
     PYKING_NOTAIL_TARGET: run_pyking_notail,
     PYKING_NOSUGAR_TARGET: run_pyking_nosugar,
+    PYKING_RERUN_TARGET: run_pyking_rerun,
     PYTHON_NOTAIL_TARGET: run_python_notail,
     INTERPRET_TARGET: run_interpret,
     "python14": run_python,

@@ -1,0 +1,2 @@
+# A `let` binds a name, so it starts with a lowercase letter.
+print(let Big = 1 in Big)

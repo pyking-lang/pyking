@@ -498,9 +498,8 @@ let rec resolve_expr ctx env e found =
       resolve_expr ctx env body found
   | ELambda (_, params, body, _) ->
       resolve_expr ctx (bind_all ctx KParameter env (List.map param_binding params)) body found
-  | ELet (_, bindings, body, _) ->
-      (* The names an ELet binds are made up, so nothing resolves to them. *)
-      go body (List.fold_left (fun found (_, v) -> go v found) found bindings)
+  | ELet (_, target, _, value, body, _) ->
+      resolve_expr ctx (bind_all ctx KValue env (target_bindings target)) body (go value found)
   | EConstruct (_, _, _, args, _) ->
       List.fold_left (fun found a -> go a found) found (arg_exprs args)
   | EField (_, record, _, _) -> go record found

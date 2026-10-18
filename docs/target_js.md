@@ -790,8 +790,9 @@ tuple does not. Returning a plain array where the declaration says
 `[Int]` prints it as a tuple. `tests/external_shapes_mod1_external_node.js`
 is the worked example.
 
-## Named arguments out of order
+## Let expressions
 
-A call whose named arguments are not in parameter order, with more than
-one that has an effect, reaches this backend as an `ELet`
-(`docs/desugar_args.md`), compiled as the call of an arrow function taking the names, `((a, b) => f(b, a))(x(), y())`: JavaScript evaluates a call's arguments left to right.
+A `let target = value in body` (PYKING.md, "Let expressions") is compiled as the call of an arrow function taking the name, `((a) => body)(x())`; a tuple target is a temporary parameter taken apart by a `const` inside the arrow function.
+A call whose named arguments are not in parameter order, with more
+than one that has an effect, reaches this backend as nested `let`s
+(`docs/desugar_args.md`).

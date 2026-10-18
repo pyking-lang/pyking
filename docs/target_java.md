@@ -280,8 +280,9 @@ of a program importing `sys` sets: only `main` is given them.
 - **`int` is 32 bits.** Overflow wraps, which Pyking leaves undefined.
 - **No optimisation**: javac and the JIT do that work.
 
-## Named arguments out of order
+## Let expressions
 
-A call whose named arguments are not in parameter order, with more than
-one that has an effect, reaches this backend as an `ELet`
-(`docs/desugar_args.md`), compiled as `PykRuntime.<A, R>let(x(), a -> PykRuntime.<B, R>let(y(), b -> f(b, a)))`: each value is evaluated before the lambda holding the rest runs. A `var` mentioned inside lives in a cell, as for any lambda (`captured_vars`).
+A `let target = value in body` (PYKING.md, "Let expressions") is compiled as `PykRuntime.<A, R>let(x(), a -> body)`: the value is evaluated before the lambda holding the body runs. A tuple target is held in a temporary and each part bound by a `let` of its own inside it. A `var` mentioned in the body lives in a cell, as for any lambda (`captured_vars`).
+A call whose named arguments are not in parameter order, with more
+than one that has an effect, reaches this backend as nested `let`s
+(`docs/desugar_args.md`).

@@ -1,0 +1,2 @@
+'tests/fail_typecheck_let_missing_in.pyk' 2:16-2:17 Parsing error:
+  expected 'in' after the value of a 'let'

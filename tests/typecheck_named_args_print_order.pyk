@@ -1,0 +1,14 @@
+# Named arguments written out of order are evaluated in the order
+# written: f2 prints before f1. The program `-t pyking` prints binds
+# them with `let`, in that order.
+
+def f1() -> String:
+    print('f1')
+    'num1'
+def f2() -> String:
+    print('f2')
+    'num2'
+def foo(x:Int, my1:String, my2:String) -> String:
+    return string(x) ++ my1 ++ my2
+k2: String = foo(78, my2= f2(), my1=f1())
+print(k2)

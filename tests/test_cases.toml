@@ -7,7 +7,9 @@
 # `java`, `web`, ...) to the reason, which tests/test_script.py prints in
 # its summary. A `fail_typecheck_*` program, written to be refused, runs
 # on `pyking` alone. `also` adds the targets that turn a pass off
-# (`python14_notail`, `pyking_notail`, `pyking_nosugar`).
+# (`python14_notail`, `pyking_notail`, `pyking_nosugar`), and
+# `pyking_rerun`, which runs what `pyking` printed and compares its output
+# against the `.out`.
 #
 # Two of the names run nothing. `pyking` compiles a program to Pyking and
 # compares the printed AST against its `.ast.out`; `interpret` runs it
@@ -1307,11 +1309,11 @@ also = ["pyking_nosugar"]
 
 [[cases]]
 file = "typecheck_named_args.pyk"
-also = ["pyking_nosugar"]
+also = ["pyking_nosugar", "pyking_rerun"]
 
 [[cases]]
 file = "typecheck_defaults_scope.pyk"
-also = ["pyking_nosugar"]
+also = ["pyking_nosugar", "pyking_rerun"]
 
 [[cases]]
 file = "typecheck_defaults_complex.pyk"
@@ -1766,6 +1768,36 @@ file = "adt_values.pyk"
 
 [[cases]]
 file = "named_args_any_order.pyk"
+also = ["pyking_rerun"]
+
+[[cases]]
+file = "typecheck_named_args_print_order.pyk"
+also = ["pyking_rerun"]
+
+[[cases]]
+file = "typecheck_let_expressions.pyk"
+also = ["pyking_rerun"]
+
+[[cases]]
+file = "fail_typecheck_let_scope.pyk"
+
+[[cases]]
+file = "fail_typecheck_let_annotation.pyk"
+
+[[cases]]
+file = "fail_typecheck_let_uppercase.pyk"
+
+[[cases]]
+file = "fail_typecheck_let_var_shadow.pyk"
+
+[[cases]]
+file = "fail_typecheck_let_missing_in.pyk"
+
+[[cases]]
+file = "fail_typecheck_let_duplicate.pyk"
+
+[[cases]]
+file = "fail_typecheck_let_tuple_size.pyk"
 
 [[cases]]
 file = "adt_comma_lines.pyk"

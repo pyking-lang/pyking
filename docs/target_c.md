@@ -401,8 +401,9 @@ includes the system's as `<math.h>`. C89's has no `log2`, `cbrt`,
 `hypot` or `trunc`; that file uses the library's under C99 and later and
 its own under C89 (libraries.md, "One folder per library").
 
-## Named arguments out of order
+## Let expressions
 
-A call whose named arguments are not in parameter order, with more than
-one that has an effect, reaches this backend as an `ELet`
-(`docs/desugar_args.md`), compiled as each value assigned to an evaluation-order temporary with the comma operator, `(pyk_t1 = x(), pyk_t2 = y(), f(pyk_t2, pyk_t1))`, the temporaries declared at the top of the function as `in_order`'s are.
+A `let target = value in body` (PYKING.md, "Let expressions") is compiled as the value assigned to an evaluation-order temporary with the comma operator, `(pyk_t1 = x(), f(pyk_t1))`, a tuple's parts each into one of their own (`pyk_t2 = pyk_t1.a0`), the temporaries declared at the top of the function as `in_order`'s are.
+A call whose named arguments are not in parameter order, with more
+than one that has an effect, reaches this backend as nested `let`s
+(`docs/desugar_args.md`).

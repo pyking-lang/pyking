@@ -91,8 +91,8 @@ be changed, but is exposed as a customizable option the same way
   :group 'pyking)
 
 (defconst pyking-mode-keywords
-  '("for" "in" "if" "while" "loop" "break" "continue" "then" "else" "var"
-    "def" "return" "match" "case" "public" "implicit" "import" "from" "as"
+  '("for" "in" "if" "while" "loop" "break" "continue" "then" "let" "else"
+    "var" "def" "return" "match" "case" "public" "implicit" "import" "from" "as"
     "datatype")
   "Reserved keywords in Pyking.
 Mirrors the `keywords' list in src/lexer.ml, minus the names broken out

@@ -1,0 +1,40 @@
+# `let target = value in body`: an expression binding a name, or taking
+# a tuple apart, for its body alone.
+
+foo = let x = 78 in x + 1
+print(foo)
+
+# Nested: each `let` binds one target, and a later one sees the earlier.
+print(let a = 2 in let b = a * 3 in a + b)
+
+# A tuple taken apart, nested, and an annotation checked.
+pair = (1, (2, 3))
+print(let (x, (y, z)) = pair in x + y * z)
+print(let t: (Int, String) = (4, "four") in t)
+
+# The body reaches as far right as it can; parentheses end it.
+print(1 + (let x = 10 in x) * 2)
+
+# In a lambda's body, and a lambda as the value.
+square_plus = (n) => let m = n * n in m + 1
+print(square_plus(5))
+print(let twice = (k: Int) => k * 2 in twice(twice(3)))
+
+# In an if expression, and an if expression as the value.
+def sign(n: Int) -> String:
+    let s = if n < 0 then "-" else "+" in s ++ string(n)
+
+print(sign(4), sign(-4))
+
+# Shadowing: a let's name hides an outer one in its body only.
+x = 100
+print(let x = 1 in x + 1, x)
+
+
+# The value is evaluated once, before the body.
+def noisy(n: Int) -> Int:
+    print("evaluated", n)
+    n
+
+
+print(let v = noisy(7) in v + v)

@@ -344,11 +344,10 @@ and expression_body e qmap work =
   | ELambda (i, params, body, s) ->
       let body, work = go body work in
       (ELambda (i, params, body, s), work)
-  | ELet (i, bindings, body, s) ->
-      let names = List.map fst bindings in
-      let values, work = each (List.map snd bindings) work in
+  | ELet (i, target, type_, value, body, s) ->
+      let value, work = go value work in
       let body, work = go body work in
-      (ELet (i, List.combine names values, body, s), work)
+      (ELet (i, target, type_, value, body, s), work)
   | EConstruct (i, module_, name, args, s) ->
       let names = List.map fst args in
       let given, work = each (arg_exprs args) work in

@@ -1,0 +1,4 @@
+'tests/fail_typecheck_let_var_shadow.pyk' 3:10-3:11 Name error: cannot
+  bind 'n': the mutable variable 'n' (declared on line 2) is in scope,
+  and a mutable variable may not be shadowed (update it with ':=', or
+  choose another name)

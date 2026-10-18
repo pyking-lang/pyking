@@ -80,6 +80,7 @@ type token =
   | TokBreak of info (* 'break' (ends the enclosing `loop`) *)
   | TokContinue of info (* 'continue' (next turn of the enclosing `loop`) *)
   | TokThen of info (* 'then' (if expression: `if e then e else e`) *)
+  | TokLet of info (* 'let' (let expression: `let x = e in e`) *)
   | TokElse of info (* 'else' *)
   | TokVar of info (* 'var' *)
   | TokPublic of info (* 'public' (module export marker) *)
@@ -139,6 +140,7 @@ let token_info tok =
   | TokBreak i -> i
   | TokContinue i -> i
   | TokThen i -> i
+  | TokLet i -> i
   | TokElse i -> i
   | TokVar i -> i
   | TokPublic i -> i
@@ -198,6 +200,7 @@ let pprint_token tok =
   | TokBreak _ -> "TokBreak"
   | TokContinue _ -> "TokContinue"
   | TokThen _ -> "TokThen"
+  | TokLet _ -> "TokLet"
   | TokElse _ -> "TokElse"
   | TokVar _ -> "TokVar"
   | TokPublic _ -> "TokPublic"
@@ -236,7 +239,7 @@ let max_int_literal = 2147483647
 
 let keywords =
   [
-    "for"; "in"; "if"; "while"; "loop"; "break"; "continue"; "then";
+    "for"; "in"; "if"; "while"; "loop"; "break"; "continue"; "then"; "let";
     "else"; "var"; "def"; "return"; "match"; "case"; "public"; "implicit";
     "import";
     "from"; "as"; "datatype"; "Int"; "Float"; "String"; "Bool"; "true"; "false";
@@ -254,6 +257,7 @@ let keyword_token name i =
   | "break" -> Some (TokBreak i)
   | "continue" -> Some (TokContinue i)
   | "then" -> Some (TokThen i)
+  | "let" -> Some (TokLet i)
   | "else" -> Some (TokElse i)
   | "var" -> Some (TokVar i)
   | "def" -> Some (TokDef i)

@@ -422,9 +422,9 @@ type kont =
          evaluated and where the whole comprehension was written. *)
   | KBranch of stmt * env * kont option
   | KChoose of expr * env * kont option
-  | KLet of string * (string * expr) list * expr * env * kont option
-      (* an `ELet` binding's value has arrived: the name it is bound to,
-         the bindings after it, the body, and the environment so far *)
+  | KLet of assign_target * expr * env * kont option
+      (* a `let`'s value has arrived: the target it is bound to, the
+         body, and the environment the `let` was written in *)
   | KDiscard of env * kont option
       (* throw the incoming value away and deliver unit instead: what an
          `if` with no `else` supplies. *)
@@ -926,11 +926,8 @@ let rec evaluate e env =
           [ SExprStmt (expr_info body, body, 0) ],
           env )
   | ENeg (_, operand, _) -> apply_unary e (evaluate operand env)
-  | ELet (_, bindings, body, _) ->
-      evaluate body
-        (List.fold_left
-           (fun inner (name, value) -> extend inner name (evaluate value env))
-           env bindings)
+  | ELet (_, target, _, value, body, _) ->
+      evaluate body (bind_target env target (evaluate value env))
   | EIf (_, cond, then_expr, else_expr, _) -> (
       (* Only the branch that is chosen is evaluated, here as in the
          machine: an `if` expression chooses, it does not compute both
@@ -1417,12 +1414,11 @@ and step_eval state e =
           control = CEval cond;
           kont = Some (KChoose (e, state.env, state.kont));
         }
-    | ELet (_, [], body, _) -> { state with control = CEval body }
-    | ELet (_, (name, value) :: rest, body, _) ->
+    | ELet (_, target, _, value, body, _) ->
         {
           state with
           control = CEval value;
-          kont = Some (KLet (name, rest, body, state.env, state.kont));
+          kont = Some (KLet (target, body, state.env, state.kont));
         }
     | e -> (
         match binary_operands e with
@@ -1635,19 +1631,12 @@ and step_apply state value =
           failed state (expr_info cond)
             (Printf.sprintf "the condition of an 'if' must be Bool, not %s"
                (describe value)))
-  | Some (KLet (name, bindings, body, env, rest)) -> (
-      (* Each value is evaluated where the call was written; only the
-         body sees the names. *)
-      let bound = extend env name value in
-      match bindings with
-      | [] -> { state with control = CEval body; env = bound; kont = rest }
-      | (next, expression) :: more ->
-          {
-            state with
-            control = CEval expression;
-            env = bound;
-            kont = Some (KLet (next, more, body, bound, rest));
-          })
+  | Some (KLet (target, body, env, rest)) -> (
+      (* The value was evaluated where the `let` is written; only the
+         body sees what it binds. *)
+      match bind_target env target value with
+      | bound -> { state with control = CEval body; env = bound; kont = rest }
+      | exception Trap (info, message) -> failed state info message)
   | Some (KDiscard (env, rest)) ->
       { state with control = CApply unit_value; env; kont = rest }
   | Some (KStartLoop loop) ->

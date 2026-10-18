@@ -73,10 +73,10 @@ type expr =
   | ELambda of info * param list * expr * int
       (* (x, y) => expr -- one parameter needs no parentheses. The body
          is one expression; nothing here holds statements. *)
-  | ELet of info * (string * expr) list * expr * int
-      (* never written: each name bound to its expression, in order, then
-         the body -- what desugar_args.ml makes of a call whose named
-         arguments are not in parameter order *)
+  | ELet of info * assign_target * typ option * expr * expr * int
+      (* let target[: type] = value in body. Desugar_args.ml also makes
+         them, for a call whose named arguments are not in parameter
+         order. *)
   | EConstruct of info * string option * string * (string option * expr) list
                   * int
       (* [module.]Name(args...) / [module.]Name -- a datatype's
@@ -316,11 +316,6 @@ val stmt_sym : stmt -> int
 
 (** One expression with its span replaced. info -> expr -> expr *)
 val set_expr_info : info -> expr -> expr
-
-(** An `ELet` as the call of a lambda taking its names, applied to its
-    values, which keeps its symbol. info -> [(String, expr)] -> expr ->
-    int -> expr *)
-val let_as_call : info -> (string * expr) list -> expr -> int -> expr
 
 (** One type with its span replaced. info -> typ -> typ *)
 val set_type_info : info -> typ -> typ

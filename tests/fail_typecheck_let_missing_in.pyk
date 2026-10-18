@@ -1,0 +1,2 @@
+# A `let` needs `in` before its body.
+print(let x = 1 x)

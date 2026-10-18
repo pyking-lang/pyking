@@ -352,6 +352,24 @@ let expr_kind_name e =
   | ENeg _ -> "ENeg"
   | _ -> "Expr"
 
+(** Binds every name in an assignment target, giving the JavaScript
+    target that stands for it -- a name, or the array pattern that takes
+    a tuple apart. assign_target -> scope -> (jstarget, scope) *)
+let rec translate_target target scope =
+  match target with
+  | TargetName (info, name, _) ->
+      let js_name, scope = bind name scope in
+      (JsTargetName (info, js_name), scope)
+  | TargetTuple (info, elements, _) ->
+      let js_elements, scope =
+        List.fold_left
+          (fun (out, scope) element ->
+            let js_element, scope = translate_target element scope in
+            (out @ [ js_element ], scope))
+          ([], scope) elements
+      in
+      (JsTargetArray (info, js_elements), scope)
+
 (** Translates one expression. Raises Unsupported for a construct
     outside this backend's subset. expr -> scope -> jsexpr *)
 let rec translate_expr e scope =
@@ -515,10 +533,26 @@ let rec translate_expr e scope =
       (* Every field with a name is a property of the value by that
          name, whichever constructor built it. *)
       JsMember (info, translate_expr record scope, name)
-  | ELet (info, bindings, body, s) ->
-      (* JavaScript evaluates a call's arguments left to right: the arrow
-         function's call is the binding. *)
-      translate_expr (let_as_call info bindings body s) scope
+  | ELet (info, target, _, value, body, _) -> (
+      (* An arrow function called on the value: its parameter is the
+         binding, or a temporary a `const` takes apart. *)
+      let body_scope = block_scope scope in
+      let given = [ translate_expr value scope ] in
+      match target with
+      | TargetName (_, name, _) ->
+          let js_name, body_scope = bind name body_scope in
+          JsCall (info, JsArrow (info, [ js_name ], [], translate_expr body body_scope), given)
+      | TargetTuple _ ->
+          let temporary, body_scope = bind "let__value" body_scope in
+          let js_target, body_scope = translate_target target body_scope in
+          JsCall
+            ( info,
+              JsArrow
+                ( info,
+                  [ temporary ],
+                  [ JsConst (info, js_target, JsVar (info, temporary)) ],
+                  translate_expr body body_scope ),
+              given ))
   | ELambda (info, params, body, _) ->
       (* An arrow function, whose parameters are its own scope -- the
          one place JavaScript needs no renaming at all. *)
@@ -898,24 +932,6 @@ let declare_functions stmts scope =
             scope (import_names s)
       | _ -> scope)
     scope stmts
-
-(** Binds every name in an assignment target, giving the JavaScript
-    target that stands for it -- a name, or the array pattern that takes
-    a tuple apart. assign_target -> scope -> (jstarget, scope) *)
-let rec translate_target target scope =
-  match target with
-  | TargetName (info, name, _) ->
-      let js_name, scope = bind name scope in
-      (JsTargetName (info, js_name), scope)
-  | TargetTuple (info, elements, _) ->
-      let js_elements, scope =
-        List.fold_left
-          (fun (out, scope) element ->
-            let js_element, scope = translate_target element scope in
-            (out @ [ js_element ], scope))
-          ([], scope) elements
-      in
-      (JsTargetArray (info, js_elements), scope)
 
 (** A tail value returned from the function. info -> jsexpr -> jsstmt *)
 let returned info value = JsReturn (info, value)

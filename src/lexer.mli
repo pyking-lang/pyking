@@ -73,6 +73,7 @@ type token =
   | TokBreak of info (* 'break' (ends the enclosing `loop`) *)
   | TokContinue of info (* 'continue' (next turn of the enclosing `loop`) *)
   | TokThen of info (* 'then' (if expression: `if e then e else e`) *)
+  | TokLet of info (* 'let' (let expression: `let x = e in e`) *)
   | TokElse of info (* 'else' *)
   | TokVar of info (* 'var' *)
   | TokPublic of info (* 'public' (module export marker) *)

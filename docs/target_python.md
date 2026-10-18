@@ -938,8 +938,9 @@ returns whatever Python computes.
 The boundary carries `Int`, `String`, `Bool`, unit, tuples and lists,
 each as Python's own.
 
-## Named arguments out of order
+## Let expressions
 
-A call whose named arguments are not in parameter order, with more than
-one that has an effect, reaches this backend as an `ELet`
-(`docs/desugar_args.md`), compiled as the call of a lambda taking the names, `(lambda a, b: f(b, a))(x(), y())`: Python evaluates a call's arguments left to right.
+A `let target = value in body` (PYKING.md, "Let expressions") is compiled as the call of a lambda taking the name, `(lambda a: body)(x())`; a tuple target is a comprehension over the one value whose `for` takes it apart, and its only element, `[body for (a, b) in [x()]][0]`.
+A call whose named arguments are not in parameter order, with more
+than one that has an effect, reaches this backend as nested `let`s
+(`docs/desugar_args.md`).

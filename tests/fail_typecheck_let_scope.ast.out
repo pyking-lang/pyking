@@ -1,0 +1,2 @@
+'tests/fail_typecheck_let_scope.pyk' 3:6-3:7 Name error: unbound name
+  'x'

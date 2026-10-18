@@ -1,0 +1,2 @@
+'tests/fail_typecheck_let_tuple_size.pyk' 2:10-2:16 Type error: this
+  binding takes 2 values apart, but its value has type (Int, Int, Int)

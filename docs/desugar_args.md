@@ -123,29 +123,22 @@ expression (`pure`): a literal, a name, a lambda, or a tuple, list,
 constructor or field of those cannot be seen to run, so it may move.
 If at most one slot is impure, moving the others changes nothing either,
 and the call is simply reordered. Otherwise each impure slot is bound,
-in evaluation order, by an `ELet` around the call:
+in evaluation order, by a `let` expression around the call -- the same
+`ELet` node a program writes (PYKING.md, "Let expressions"):
 
 ```
-ELet([named__arg__10_18 = note("depth", 6);
-      named__arg__10_44 = note("width", 4);
-      named__arg__10_6_1 = box__default__height()],
-     box(named__arg__10_44, named__arg__10_6_1, named__arg__10_18))
+let depth__arg = note("depth", 6) in
+let width__arg = note("width", 4) in
+let height__arg = box__default__height() in
+box(width__arg, height__arg, depth__arg)
 ```
 
-`ELet` is an expression node the parser never produces. Its names are
-`named__arg__<row>_<col>` from the argument's position (a default's adds
-the parameter's index), so two in one function never clash -- C and Java
-declare them as the function's own locals. Every stage handles it:
-
-| stage | `ELet` |
-|---|---|
-| `typesystem.ml` | each value checked in the call's scope, the body with the names bound |
-| `interpreter.ml` | `KLet`, one value at a time |
-| Python, JavaScript | the call of a lambda taking the names (`let_as_call`), since both evaluate a call's arguments left to right |
-| OCaml | `let ... in`, nested |
-| C | each value into a temporary with the comma operator |
-| Java | `PykRuntime.<A, R>let(value, name -> rest)`, nested; a `var` the body mentions lives in a cell |
-| `-t pyking` | the body printed with each name replaced by its value: the call in parameter order |
+Each name is the parameter's own with `__arg` after it (`field<k>__arg`
+for a constructor's unnamed field), so the names of one call never
+clash, and one call's inside another's argument is a `let` of its own,
+inside that argument. `-t pyking` prints exactly this, so the printed
+program means what the written one does. How each stage handles a
+`let` is in the target pages, "Let expressions".
 
 A tail call whose arguments were reordered is inside an `ELet`, which
 `opt_tailcall.ml` does not look into, so it stays a call.
@@ -318,7 +311,9 @@ the sugar off for `g` in the next.
 named file alone, so it does not desugar: `-t pyking --no-typechecking`
 prints the program with its defaults and named arguments as written.
 That is the `pyking_nosugar` test target, and it is the only place the
-sugar's own printed form is pinned.
+sugar's own printed form is pinned. The `pyking_rerun` target runs what
+`-t pyking` printed with the interpreter and compares it against the
+`.out`, so a printed `let` that lost the evaluation order fails it.
 
 ## What it does not do
 

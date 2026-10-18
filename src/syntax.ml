@@ -61,10 +61,10 @@ type expr =
   | ELambda of info * param list * expr * int
       (* (x, y) => expr -- one parameter needs no parentheses. The body
          is one expression; nothing here holds statements. *)
-  | ELet of info * (string * expr) list * expr * int
-      (* never written: each name bound to its expression, in order, then
-         the body -- what desugar_args.ml makes of a call whose named
-         arguments are not in parameter order *)
+  | ELet of info * assign_target * typ option * expr * expr * int
+      (* let target[: type] = value in body. Desugar_args.ml also makes
+         them, for a call whose named arguments are not in parameter
+         order. *)
   | EConstruct of info * string option * string * (string option * expr) list
                   * int
       (* [module.]Name(args...) / [module.]Name -- a datatype's
@@ -256,7 +256,7 @@ let expr_info e =
   | EIf (i, _, _, _, _) -> i
   | EListComp (i, _, _, _) -> i
   | ELambda (i, _, _, _) -> i
-  | ELet (i, _, _, _) -> i
+  | ELet (i, _, _, _, _, _) -> i
   | EQualified (i, _, _, _) -> i
   | EConstruct (i, _, _, _, _) -> i
   | EField (i, _, _, _) -> i
@@ -286,7 +286,7 @@ let expr_sym e =
   | EIf (_, _, _, _, s) -> s
   | EListComp (_, _, _, s) -> s
   | ELambda (_, _, _, s) -> s
-  | ELet (_, _, _, s) -> s
+  | ELet (_, _, _, _, _, s) -> s
   | EQualified (_, _, _, s) -> s
   | EConstruct (_, _, _, _, s) -> s
   | EField (_, _, _, s) -> s
@@ -451,16 +451,6 @@ let stmt_sym s =
    parenthesized expression, type, pattern or target is the node inside
    with the parentheses' span. *)
 
-(** An `ELet` as the call of a lambda taking its names, applied to its
-    values, which keeps its symbol. info -> [(String, expr)] -> expr ->
-    int -> expr *)
-let let_as_call info bindings body sym =
-  ECall
-    ( info,
-      ELambda (info, List.map (fun (n, _) -> Param (info, n, None, None, 0)) bindings, body, 0),
-      List.map (fun (_, v) -> (None, v)) bindings,
-      sym )
-
 (** One expression with its span replaced. info -> expr -> expr *)
 let set_expr_info i e =
   match e with
@@ -486,7 +476,7 @@ let set_expr_info i e =
   | EIf (_, c, t, e2, s) -> EIf (i, c, t, e2, s)
   | EListComp (_, e2, cs, s) -> EListComp (i, e2, cs, s)
   | ELambda (_, ps, b, s) -> ELambda (i, ps, b, s)
-  | ELet (_, bs, b, s) -> ELet (i, bs, b, s)
+  | ELet (_, t, a, v, b, s) -> ELet (i, t, a, v, b, s)
   | EQualified (_, m, n, s) -> EQualified (i, m, n, s)
   | EConstruct (_, m, n, a, s) -> EConstruct (i, m, n, a, s)
   | EField (_, e2, n, s) -> EField (i, e2, n, s)
@@ -544,18 +534,15 @@ module StringSet = Set.Make (String)
     annotations of their own.
 
     The three travel as one value the printers pass along, rather than
-    as flags something sets before the walk and clears after it. `lets`
-    is what an `ELet` bound, printed in place of each name, since the
-    node has no source form of its own. *)
+    as flags something sets before the walk and clears after it. *)
 type config = {
   symbols : bool;
   tmap : typ IntMap.t option;
   signed : IntSet.t;
-  lets : (string * expr) list;
 }
 
 (** What every printer starts from: no symbols, no inferred types. *)
-let default_config = { symbols = false; tmap = None; signed = IntSet.empty; lets = [] }
+let default_config = { symbols = false; tmap = None; signed = IntSet.empty }
 
 (** Appends a node's symbol number to text if symbols were asked for.
     A node whose printed form is not already one token or already
@@ -710,6 +697,19 @@ let annotation cfg sym type_ =
   | None -> ""
   | Some t -> if spellable t then ": " ^ pprint_annotation_type cfg t else ""
 
+(** Formats one assignment target. config -> assign_target -> string *)
+let rec pprint_target cfg t =
+  with_sym cfg (target_sym t) true (pprint_target_body cfg t)
+
+and pprint_target_body cfg t =
+  match t with
+  | TargetName (_, name, _) -> name
+  | TargetTuple (_, elements, _) -> (
+      match elements with
+      | [ single ] -> "(" ^ pprint_target cfg single ^ ",)"
+      | _ ->
+          "(" ^ String.concat ", " (List.map (pprint_target cfg) elements) ^ ")")
+
 (** Formats one expression, parenthesized if needed for min_prec.
     config -> expr -> int -> string *)
 let rec pprint_expr cfg e min_prec =
@@ -727,10 +727,7 @@ and pprint_expr_body cfg e min_prec =
   | EFloat (_, v, _) -> Builtin.float_text v
   | EString (_, s, _) -> quote_string s
   | EBool (_, v, _) -> if v then "true" else "false"
-  | EVar (_, name, _) -> (
-      match List.assoc_opt name cfg.lets with
-      | Some bound -> pprint_expr { cfg with lets = [] } bound min_prec
-      | None -> name)
+  | EVar (_, name, _) -> name
   | EQualified (_, module_name, name, _) -> module_name ^ "." ^ name
   | EConstruct (_, module_, name, args, _) ->
       let reached =
@@ -817,10 +814,13 @@ and pprint_expr_body cfg e min_prec =
         (Printf.sprintf "(%s) => %s"
            (String.concat ", " (List.map (pprint_param cfg) params))
            (pprint_expr cfg body 0))
-  | ELet (_, bindings, body, _) ->
-      (* Printed as the call it was made from, each name replaced by the
-         expression it holds. *)
-      pprint_expr { cfg with lets = bindings @ cfg.lets } body min_prec
+  | ELet (_, target, type_, value, body, _) ->
+      (* Lowest precedence, like a lambda: the body reaches as far right
+         as it can. *)
+      wrap_prec 0 min_prec
+        (Printf.sprintf "let %s%s = %s in %s" (pprint_target cfg target)
+           (annotation cfg (target_sym target) type_)
+           (pprint_expr cfg value 0) (pprint_expr cfg body 0))
 
 (** Formats a call's arguments, each with the name it was written with.
     config -> [(String?, expr)] -> string *)
@@ -929,19 +929,6 @@ and pprint_alternative cfg p =
   match p with
   | POr _ | PAs _ -> "(" ^ pprint_pattern cfg p ^ ")"
   | _ -> pprint_pattern cfg p
-
-(** Formats one assignment target. config -> assign_target -> string *)
-let rec pprint_target cfg t =
-  with_sym cfg (target_sym t) true (pprint_target_body cfg t)
-
-and pprint_target_body cfg t =
-  match t with
-  | TargetName (_, name, _) -> name
-  | TargetTuple (_, elements, _) -> (
-      match elements with
-      | [ single ] -> "(" ^ pprint_target cfg single ^ ",)"
-      | _ ->
-          "(" ^ String.concat ", " (List.map (pprint_target cfg) elements) ^ ")")
 
 (** Formats ` -> Type` for a function whose return type is known, ""
     otherwise. config -> int -> typ option -> string *)
@@ -1207,5 +1194,5 @@ let signed_defs stmts =
     type table; every annotation then comes from it instead of from the
     source. [stmt] -> bool -> typ IntMap.t option -> string *)
 let pprint_program stmts symbols tmap =
-  let cfg = { symbols; tmap; signed = signed_defs stmts; lets = [] } in
+  let cfg = { symbols; tmap; signed = signed_defs stmts } in
   String.concat "\n" (List.map (fun s -> pprint_stmt cfg s 0) stmts)

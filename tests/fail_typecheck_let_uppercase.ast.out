@@ -1,0 +1,4 @@
+'tests/fail_typecheck_let_uppercase.pyk' 2:10-2:13 Parsing error:
+  'Big' cannot be bound with 'let': a name a program binds starts with
+  a lowercase letter, and one starting with an uppercase letter is a
+  type or a constructor

@@ -181,10 +181,10 @@ The groups:
   holds a `Param` list and one *expression*: a lambda's body is never a
   block. `EConstruct` is a constructor applied to its fields, with the
   module it is reached through where it is another's; `EField` reads a
-  named field. `ELet` binds names to values in order and is worth its
-  body; the parser never produces it -- `desugar_args.ml` does, for a
-  call whose named arguments are out of parameter order (see
-  `docs/desugar_args.md`).
+  named field. `ELet` is `let target[: type] = value in body`: one
+  target, as an `=` binding's, and worth its body. `desugar_args.ml`
+  also builds them, for a call whose named arguments are out of
+  parameter order (see `docs/desugar_args.md`).
 - **`LoopIter`** — `ForIn`, `WhileTest`. A loop's iteration clause;
   `None` for a bare `loop:`. `SFor` and `SWhile` no longer exist:
   `for x in e:` and `while c:` *are* `SLoop`, with no accumulator
@@ -1193,7 +1193,7 @@ three are design rather than accident:
   constructor's fields), `KField` (the value whose field is read),
   `KGuard` (a case's guard: true runs the body, false tries the cases
   after it), `KBranch` (an `if`
-  statement), `KChoose` (an `if` expression), `KLet` (an `ELet`'s next binding), `KDiscard`, `KStartLoop`,
+  statement), `KChoose` (an `if` expression), `KLet` (a `let`'s value has arrived), `KDiscard`, `KStartLoop`,
   `KSequence` (a `for`'s list), `KTest` (a `while`'s condition),
   `KIterate`, `KReturnTo`. Each holds `rest`, so
   the chain is a linked list — pushing and popping cost one allocation

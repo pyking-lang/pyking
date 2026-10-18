@@ -1,0 +1,2 @@
+'tests/fail_typecheck_let_duplicate.pyk' 2:14-2:15 Parsing error:
+  duplicate binding 'a' in 'let'

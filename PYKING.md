@@ -88,6 +88,11 @@ restriction of it, but these are genuinely new.
   matches Python's exactly. This is a genuinely new *keyword*, so
   `then` is reserved everywhere and can no longer be used as an
   identifier.
+- **`let` expressions**: `let x = 78 in x + 1` binds a name — or takes a
+  tuple apart — for one expression, its body, and is worth the body.
+  Python has no counterpart (its nearest is the `:=` operator, which
+  binds in the enclosing scope instead). `let` is a new keyword, so it
+  is reserved everywhere. See "Let expressions".
 - **`else if` instead of `elif`**: Pyking has no `elif` keyword — an
   `if` statement chains with the two ordinary keywords `else if`, e.g.
   `else if n == 0:` on its own line. It means exactly what Python's
@@ -189,6 +194,9 @@ Expressions:
   expression that is a function, whose body is one expression. A lambda
   is monomorphic; `def` is how a polymorphic function is written (see
   "Lambdas")
+- **Let expressions** (`let x = 78 in x + 1`, `let (a, b) = pair in a + b`)
+  — Pyking extension; one binding, seen by the body alone (see "Let
+  expressions")
 - **Static overloading** (`def int::leq(...)`, `def float::leq(...)`) —
   Pyking extension; a qualifier makes two definitions of one base name
   distinct, and a call written without it is resolved by its arguments
@@ -457,7 +465,7 @@ expr_stmt   = tuple_or_expr ;
 
 tuple_or_expr = expr , { "," , expr } ;
 
-expr        = lambda | if_expr | comparison ;
+expr        = lambda | if_expr | let_expr | comparison ;
 
 (* A lambda takes everything to its right that one expression can hold,
    so `=>` associates to the right and binds looser than every
@@ -467,6 +475,10 @@ lambda_params = ident
             | "(" , [ param , { "," , param } ] , ")" ;
 
 if_expr     = "if" , expr , "then" , expr , "else" , expr ;
+
+(* Like a lambda, the body takes everything to its right that one
+   expression can hold. *)
+let_expr    = "let" , target , [ ":" , type ] , "=" , expr , "in" , expr ;
 
 comparison  = additive , [ comp_op , additive ] ;
 comp_op     = "<" | "<=" | ">" | ">=" | "==" ;
@@ -721,7 +733,7 @@ Notes that don't fall out of the grammar alone:
   can't be named `match` or `case`. The same is true of `Int`, `String`,
   and `Bool` (the atomic type names): they're reserved everywhere, not
   just in type position, so no identifier may be named after one of them
-  either; of `then`, which has no Python counterpart at all; and of
+  either; of `then` and `let`, which have no Python counterpart at all; and of
   `true`/`false`, which do have a Python counterpart (`True`/`False`) but
   not this spelling of one — a Pyking program cannot use `true`, `false`,
   `True`, or `False` as an identifier (the first two because they're
@@ -2407,6 +2419,31 @@ definition. A lambda parameter may not have a default value, since a
 default belongs to the scope a definition is written in. And a lambda
 parameter is a binding like any other, so it may not shadow a `var`.
 
+### Let expressions — Pyking extension
+
+`let target = value in body` is an expression: `value` is evaluated
+once, bound to `target`, and the whole is worth `body`. The target is
+what an `=` binding takes — a name, or a tuple taken apart — with an
+optional annotation, checked as a binding's is. What it binds is seen by
+the body and nowhere else, not even by `value`.
+
+```pyking
+foo = let x = 78 in x + 1
+print(foo)                                  # 79
+
+# One binding per `let`; a later one sees the earlier.
+print(let a = 2 in let b = a * 3 in a + b)  # 8
+
+pair = (1, (2, 3))
+print(let (x, (y, z)) = pair in x + y * z)  # 7
+print(let t: (Int, String) = (4, "four") in t)
+```
+
+Like a lambda, the body takes everything to its right that one
+expression can hold, so parentheses end it: `1 + (let x = 10 in x) * 2`
+is 21. A name a `let` binds starts with a lowercase letter, may not
+shadow a `var`, and may not be bound twice in one target.
+
 ### Static overloading — Pyking extension
 
 Two definitions may share a base name if a **qualifier** tells them
@@ -3572,6 +3609,12 @@ ok:(Int, Int) -> Int = foo      # fine
 A binding with no annotation claims nothing and takes whatever its value
 has; `-t pyking` then prints the type that was worked out, which is what
 makes that output worth reading.
+
+A `let` expression binds by the same rules: its value is checked where
+the `let` is written, its annotation against that value, and its body
+with the target bound. The `let` has its body's type. A name it binds
+has one type, as a name an `=` binding binds does: binding a lambda
+with `let` does not make it polymorphic.
 
 **Blocks and `if`.** A block's type is its last statement's, and unit if
 it is empty. The two branches of an `if` must have the *same* type —

@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Let expressions: `let x = 78 in x + 1` binds a name, or takes a tuple
+  apart (`let (a, b) = pair in a + b`), for its body alone, with an
+  optional annotation. `let` is now a keyword.
 - Tab completes in the REPL, `pyk repl` and the playground's REPL tab
   alike: one name that fits is completed, several as far as they agree,
   and otherwise they are listed with their types -- what the session
@@ -175,6 +178,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `-t pyking` prints a call whose named arguments were written out of
+  order with `let`s binding them in the order written, `let my2__arg =
+  f2() in let my1__arg = f1() in foo(78, my1__arg, my2__arg)`; it
+  printed `foo(78, f1(), f2())`, which evaluates them in the wrong
+  order. A new test target, `pyking_rerun`, runs the printed program and
+  compares its output.
 - On a phone, the website's header shows the five sections as a second
   row; before, they were hidden and only the current section's pages
   were reachable.

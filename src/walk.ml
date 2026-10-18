@@ -74,7 +74,9 @@ let children n =
       | ELambda (_, params, body, _) ->
           List.map (fun p -> NParam p) params @ [ NExpr body ]
       | EConstruct (_, _, _, args, _) -> exprs_of (arg_exprs args)
-      | ELet (_, bindings, body, _) -> exprs_of (List.map snd bindings) @ [ NExpr body ]
+      | ELet (_, target, annotation, value, body, _) ->
+          (NTarget target :: option_of (fun t -> NType t) annotation)
+          @ [ NExpr value; NExpr body ]
       | EField (_, record, _, _) -> [ NExpr record ])
   | NType t -> (
       match t with

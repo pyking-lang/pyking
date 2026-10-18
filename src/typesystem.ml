@@ -2877,14 +2877,13 @@ and expr_type e env store =
       let element_type, store = check_expr element inner store in
       (t_list info element_type, store)
   | ELambda (info, params, body, _) -> check_lambda info params body env store
-  | ELet (_, bindings, body, _) ->
-      let inner, store =
-        List.fold_left
-          (fun (inner, store) (name, value) ->
-            let type_, store = check_expr value env store in
-            (bind inner name type_, store))
-          (env, store) bindings
-      in
+  | ELet (_, target, annotation, value, body, _) ->
+      (* As an `=` binding: the value is checked where the `let` is
+         written, and only the body sees what it binds. *)
+      let value_type, store = check_expr value env store in
+      let store = check_annotation annotation value_type store in
+      let value_type = zonk value_type store in
+      let inner, store = check_target target value_type env store in
       check_expr body inner store
   | EConstruct (info, module_, name, args, _) ->
       (* A constructor is applied to every one of its fields -- the sugar

@@ -348,10 +348,12 @@ let position parameters name =
   in
   at 0 parameters
 
-(** `body` with each binding of `lets` evaluated before it, in order.
+(** `body` inside one `let` per binding of `lets`, the first outermost.
     info -> [(String, expr)] -> expr -> expr *)
 let let_around info lets body =
-  if lets = [] then body else ELet (info, lets, body, 0)
+  List.fold_right
+    (fun (name, value) body -> ELet (info, TargetName (info, name, 0), None, value, body, 0))
+    lets body
 
 (** Whether evaluating an expression can be seen: anything but a
     literal, a name, a lambda, or a tuple, list, constructor or field of
@@ -487,10 +489,10 @@ let ordered ?(field = false) info shown meta reach args =
         if List.length impure <= 1 then Some ([], filled)
         else
           let name at =
-            let i = expr_info (List.nth filled at) in
-            if List.mem_assoc at places || at < given then
-              Printf.sprintf "named__arg__%d_%d" i.row1 i.col1
-            else Printf.sprintf "named__arg__%d_%d_%d" info.row1 info.col1 at
+            let parameter = (List.nth parameters at).name in
+            if String.length parameter > 0 && parameter.[0] = '#' then
+              "field" ^ String.sub parameter 1 (String.length parameter - 1) ^ "__arg"
+            else parameter ^ "__arg"
           in
           let bound =
             List.mapi (fun at e -> (at, e)) filled
@@ -613,8 +615,15 @@ let rec expression signatures scope e =
           scope params
       in
       ELambda (i, params, expression signatures scope body, s)
-  | ELet (i, bindings, body, s) ->
-      ELet (i, List.map (fun (n, v) -> (n, go v)) bindings, go body, s)
+  | ELet (i, target, annotation, value, body, s) ->
+      (* What a let binds shadows a definition in its body, as a
+         lambda's parameters do. *)
+      let scope =
+        List.fold_left
+          (fun scope (name, _) -> SMap.add name Binding scope)
+          scope (Analyses.target_names target)
+      in
+      ELet (i, target, annotation, go value, expression signatures scope body, s)
   | EListComp (i, element, clauses, s) ->
       (* A comprehension binds its patterns' names over the element and
          the clauses after it, so nothing in there is a definition. *)

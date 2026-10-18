@@ -1,0 +1,2 @@
+# A `let` annotation is checked against the value, as an `=` binding's is.
+print(let x: String = 1 in x)

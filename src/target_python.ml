@@ -998,7 +998,10 @@ let rec free_in_expr e bound free =
           (bound, free) clauses
       in
       free_in_expr e comp_bound free
-  | ELet (i, bindings, body, s) -> free_in_expr (let_as_call i bindings body s) bound free
+  | ELet (_, target, _, value, body, _) ->
+      free_in_expr body
+        (StringSet.union bound (set_of (List.map fst (Analyses.target_names target))))
+        (free_in_expr value bound free)
   | ELambda (_, params, body, _) ->
       (* A lambda is a scope: its parameters bind for its body, and what
          the body reads from outside is free here. *)
@@ -2317,10 +2320,24 @@ let rec translate_expr e scope gen =
       in
       let py_element, gen = translate_expr element comp_scope gen in
       (PyListComp (info, py_element, py_clauses), gen)
-  | ELet (info, bindings, body, s) ->
-      (* Python evaluates a call's arguments left to right: the lambda's
-         call is the binding. *)
-      translate_expr (let_as_call info bindings body s) scope gen
+  | ELet (info, TargetName (name_info, name, _), _, value, body, s) ->
+      (* A lambda taking the name, called on the value. *)
+      translate_expr
+        (ECall (info, ELambda (info, [ Param (name_info, name, None, None, 0) ], body, 0), [ (None, value) ], s))
+        scope gen
+  | ELet (info, (TargetTuple _ as target), _, value, body, _) ->
+      (* A comprehension over the one value, whose `for` takes it apart,
+         and its only element. *)
+      let rec pattern target =
+        match target with
+        | TargetName (i, name, s) -> PCapture (i, name, s)
+        | TargetTuple (i, elements, s) -> PTuple (i, List.map pattern elements, s)
+      in
+      let comprehension =
+        EListComp (info, body, [ CompFor (info, pattern target, EList (info, [ value ], 0), 0) ], 0)
+      in
+      let py_comprehension, gen = translate_expr comprehension scope gen in
+      (PyIndex (info, py_comprehension, PyInt (info, 0)), gen)
   | ELambda (info, params, body, _) ->
       (* A Python lambda is a function scope, exactly like a `def` body,
          so its parameters never need renaming and nothing inside it

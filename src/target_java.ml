@@ -703,13 +703,9 @@ let captured_vars body =
               StringSet.union found (mentioned b)
           | Walk.NExpr (ELambda (_, _, b, _)) ->
               StringSet.union found (mentioned [ SExprStmt (no_info, b, 0) ])
-          | Walk.NExpr (ELet (_, bindings, b, _)) ->
-              (* Each value after the first, and the body, is inside a
-                 lambda (`let`). *)
-              List.fold_left
-                (fun found v -> StringSet.union found (mentioned [ SExprStmt (no_info, v, 0) ]))
-                (StringSet.union found (mentioned [ SExprStmt (no_info, b, 0) ]))
-                (match bindings with _ :: rest -> List.map snd rest | [] -> [])
+          | Walk.NExpr (ELet (_, _, _, _, b, _)) ->
+              (* The body is inside a lambda (`let`); the value is not. *)
+              StringSet.union found (mentioned [ SExprStmt (no_info, b, 0) ])
           | Walk.NExpr (EListComp (_, b, clauses, _)) ->
               let found = StringSet.union found (mentioned [ SExprStmt (no_info, b, 0) ]) in
               List.fold_left
@@ -1050,26 +1046,39 @@ let rec expr ctx st scope e =
       let v, st = expr ctx st scope record in
       (atom ~boxed:true (Printf.sprintf "%s.%s()" (at p_atom v) (field_name (Some name) 0)), st)
   | ELambda (_, params, body, _) -> lambda ctx st scope e params body
-  | ELet (_, bindings, body, _) ->
-      (* `PykRuntime.let(value, name -> rest)`, nested: each value is
-         evaluated before the lambda holding the rest runs. *)
-      let rec nest st inner bindings =
-        match bindings with
-        | [] -> expr ctx st inner body
-        | (name, value) :: rest ->
-            let v, st = expr ctx st inner value in
-            let jname, st = fresh st name in
-            let inner =
-              bind_value inner name
-                { value = atom ~boxed:true jname; kind = BLocal; btype = type_of ctx scope value; jname_ = jname }
-            in
-            let r, st = nest st inner rest in
-            let types =
-              jt ctx ~boxed:true (type_of ctx scope value) ^ ", " ^ jt ctx ~boxed:true (type_of ctx scope body)
-            in
-            (atom (Printf.sprintf "%s.<%s>let(%s, %s -> %s)" runtime_class types v.text jname r.text), st)
+  | ELet (_, target, _, value, body, _) ->
+      (* `PykRuntime.let(value, name -> body)`: the value is evaluated
+         before the lambda holding the body runs. A tuple is held in a
+         name of its own and each part bound by a `let` inside it. *)
+      let v, st = expr ctx st scope value in
+      let result = jt ctx ~boxed:true (type_of ctx scope body) in
+      let rec bound st inner target text t rest =
+        let jname, st =
+          match target with TargetName (_, name, _) -> fresh st name | TargetTuple _ -> temp st "t"
+        in
+        let st = need_type st t in
+        let r, st =
+          match target with
+          | TargetName (_, name, _) ->
+              rest st
+                (bind_value inner name { value = atom ~boxed:true jname; kind = BLocal; btype = t; jname_ = jname })
+          | TargetTuple (_, targets, _) ->
+              let types =
+                match t with TTuple (_, ts, _) -> ts | _ -> List.map (fun _ -> TUnknown (no_info, 0)) targets
+              in
+              let rec parts st inner i targets types =
+                match (targets, types) with
+                | target :: targets, ty :: types ->
+                    bound st inner target (tuple_get ctx (atom jname) i).text ty (fun st inner ->
+                        parts st inner (i + 1) targets types)
+                | _ -> rest st inner
+              in
+              parts st inner 0 targets types
+        in
+        ( atom (Printf.sprintf "%s.<%s, %s>let(%s, %s -> %s)" runtime_class (jt ctx ~boxed:true t) result text jname r.text),
+          st )
       in
-      nest st scope bindings
+      bound st scope target v.text (type_of ctx scope value) (fun st inner -> expr ctx st inner body)
   | EListComp (_, element, clauses, _) -> comprehension ctx st scope e element clauses
 
 and exprs ctx st scope es =
