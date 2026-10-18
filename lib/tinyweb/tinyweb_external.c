@@ -56,7 +56,7 @@ typedef int bool;
 #define INADDR_LOOPBACK 0x7f000001UL
 #endif
 
-void tinyweb_web_init(int port);
+void tinyweb_web_start(int port);
 const char *tinyweb_canvas(int width, int height);
 void tinyweb_fill_canvas(const char *c, const char *color);
 void tinyweb_draw_shape(const char *c, const char *kind, const char *numbers, const char *color,
@@ -2876,18 +2876,31 @@ static const char *tw_content_type(const char *path)
 }
 
 /* Answers a file beside where the program runs -- a sample beside the
-   program, or one of tinyweb_assets/ the compiler copied there. */
+   program, or one of tinyweb_assets/ the compiler copied there, or into
+   the build/ there, where `pyk compile` leaves them when it puts the
+   executable outside. */
 static void tw_static(int socket, const char *path)
 {
     const char *at = path;
     struct stat info;
-    FILE *file;
+    FILE *file = NULL;
     tw_text body = { NULL, 0, 0 };
+    tw_text built = { NULL, 0, 0 };
     char chunk[4096];
     size_t got;
     while (*at == '/') at++;
-    if (*at == '\0' || strstr(at, "..") != NULL || stat(at, &info) != 0
-        || !S_ISREG(info.st_mode) || (file = fopen(at, "rb")) == NULL) {
+    if (*at != '\0' && strstr(at, "..") == NULL) {
+        if (stat(at, &info) == 0 && S_ISREG(info.st_mode)) {
+            file = fopen(at, "rb");
+        } else {
+            tw_add(&built, "build/", 6);
+            tw_add(&built, at, strlen(at));
+            tw_add(&built, "", 1);
+            if (stat(built.text, &info) == 0 && S_ISREG(info.st_mode)) file = fopen(built.text, "rb");
+        }
+    }
+    free(built.text);
+    if (file == NULL) {
         tw_reply(socket, 404, "text/plain", "not found\n", 10);
         return;
     }
@@ -3051,7 +3064,7 @@ static void tw_after_program(void)
     }
 }
 
-void tinyweb_web_init(int port)
+void tinyweb_web_start(int port)
 {
     struct sockaddr_in address;
     socklen_t size = sizeof address;

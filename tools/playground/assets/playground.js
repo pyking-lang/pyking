@@ -18,6 +18,7 @@ import {
 } from "../webrun/web.js";
 import { LspClient } from "./lsp-client.js";
 import { linkTo, sourceFromHash } from "./share.js";
+import { packFiles, zip } from "./download.js";
 
 const STORAGE_KEY = "pyking-playground.settings";
 
@@ -187,6 +188,7 @@ class Playground {
     ui.stopLeft.addEventListener("click", () => this.stopRun());
     ui.stopRight.addEventListener("click", () => this.stopRun());
     ui.copy.addEventListener("click", () => this.copyRight());
+    ui.download.addEventListener("click", () => this.download());
     ui.copyLink.addEventListener("click", () => this.copyLink());
     ui.refresh.addEventListener("click", () => this.refreshPage());
     // A click on the window's bar gives the page in it the keyboard.
@@ -357,8 +359,8 @@ class Playground {
     this.showTab("compiled");
     if (!(await this.ensureRuntime())) return;
     const target = this.ui.target.value;
-    const result = await this.runtime.compile(
-      this.left.getValue(), target, "playground.pyk");
+    const source = this.left.getValue();
+    const result = await this.runtime.compile(source, target, "playground.pyk");
     this.clearError();
     const log = this.ui.compiledOutput;
 
@@ -368,6 +370,7 @@ class Playground {
       if (result.info) this.markError(result.info, result.text);
       return;
     }
+    this.compiled = { source, target };
     this.showFiles(result.files, result.views);
     const names = Object.keys(result.files);
     // The `pyking` target compiles nothing *to* anything: the front end
@@ -428,6 +431,7 @@ class Playground {
     const haveCode = Object.keys(this.files).length > 0;
     const viewing = this.views?.has(this.current);
     this.ui.runRight.disabled = !how || !haveCode || viewing;
+    this.ui.download.disabled = !haveCode;
     this.ui.runRight.title = viewing
       ? `${this.current} is a view of the front end, not code to run`
       : !how ? whyNotRunnable(target)
@@ -886,6 +890,43 @@ class Playground {
 
   // -- misc -------------------------------------------------------------
 
+  /** Downloads the last compile as a .zip: its files, what `pyk compile`
+   *  writes beside them, and a Makefile. () -> Promise<()> */
+  async download() {
+    const log = this.ui.compiledOutput;
+    if (!this.compiled || Object.keys(this.files).length === 0) return;
+    const { source, target } = this.compiled;
+    try {
+      const analysis = await this.runtime.analyze(source);
+      const lib = this.runtime.libURL;
+      const fetched = async (url) => {
+        const response = await fetch(url);
+        return response.ok ? new Uint8Array(await response.arrayBuffer()) : null;
+      };
+      const bundle = async () => {
+        const manifest = await (await fetch(this.runtime.pykingURL + "manifest.json")).json();
+        return fetched(this.runtime.pykingURL + manifest.bundle);
+      };
+      const entries = await packFiles({
+        target, files: this.files, externals: analysis.ok ? analysis.externals : [],
+        source, name: "playground.pyk", get: (path) => fetched(lib + path), bundle,
+      });
+      const folder = `playground-${target}`;
+      const bytes = zip(entries.map((e) => ({ name: `${folder}/${e.name}`, data: e.data })));
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(new Blob([bytes], { type: "application/zip" }));
+      link.download = folder + ".zip";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+      this.note(`Downloaded ${folder}.zip: ${entries.length} files. Unzip it and type `
+        + "make to build, make run to run.", log);
+    } catch (err) {
+      this.error("Could not make the download: " + err.message, log);
+    }
+  }
+
   async copyRight() {
     try {
       await navigator.clipboard.writeText(this.right.getValue());
@@ -977,7 +1018,11 @@ class Playground {
       if (!String(globalThis.getSelection?.() ?? "")) ui.replInput.focus();
     });
     ui.replInput.addEventListener("input", () => this.fitReplInput());
-    ui.replInput.addEventListener("keydown", (event) => this.replKey(event));
+    ui.replInput.addEventListener("keydown", (event) => {
+      if (event.key !== "Tab" && event.key !== "Shift") this.hideReplCompletions();
+      this.replKey(event);
+    });
+    ui.replInput.addEventListener("blur", () => this.hideReplCompletions());
     this.showBindings([]);
   }
 
@@ -1026,8 +1071,9 @@ class Playground {
     this.fitReplInput();
   }
 
-  /** What a key does in the prompt: Enter, Shift+Enter, Tab, Backspace in
-   *  the indentation, Escape, and Up and Down through the history.
+  /** What a key does in the prompt: Enter, Shift+Enter, Tab (an indent
+   *  at the start of a line, a completion after a word), Backspace in the
+   *  indentation, Escape, and Up and Down through the history.
    *  KeyboardEvent -> () */
   replKey(event) {
     const input = this.ui.replInput;
@@ -1042,8 +1088,13 @@ class Playground {
       else this.replEnter();
     } else if (event.key === "Tab" && !event.shiftKey) {
       event.preventDefault();
-      input.setRangeText("    ", at, selectionEnd, "end");
-      this.fitReplInput();
+      const line = before.slice(before.lastIndexOf("\n") + 1);
+      if (line.trim() === "" || at !== selectionEnd) {
+        input.setRangeText("    ", at, selectionEnd, "end");
+        this.fitReplInput();
+      } else {
+        this.replTab();
+      }
     } else if (event.key === "Backspace" && at === selectionEnd && at > 0) {
       // Inside a line's indentation, Backspace removes a whole level.
       const line = before.slice(before.lastIndexOf("\n") + 1);
@@ -1069,6 +1120,68 @@ class Playground {
       this.setReplInput(this.replAt === this.replHistory.length
         ? this.replDraft : this.replHistory[this.replAt]);
     }
+  }
+
+  /** Tab after a word: the word completed outright where one name fits,
+   *  as far as every fitting name agrees where several do, and the names
+   *  listed under the prompt, each with its type, where they agree no
+   *  further; clicking one puts it in. () -> Promise<()> */
+  async replTab() {
+    if (!(await this.ensureRepl())) return;
+    const input = this.ui.replInput;
+    const at = input.selectionStart;
+    const before = input.value.slice(0, at);
+    const lineStart = before.lastIndexOf("\n") + 1;
+    const line = input.value.slice(lineStart).split("\n")[0];
+    const { start, items } = await this.replRuntime.replComplete(line, at - lineStart);
+    this.hideReplCompletions();
+    if (items.length === 0) return;
+    const typed = at - lineStart - start;
+    const names = items.map((item) => item.label);
+    let shared = names[0];
+    for (const name of names) {
+      let n = 0;
+      while (n < shared.length && n < name.length && shared[n] === name[n]) n += 1;
+      shared = shared.slice(0, n);
+    }
+    if (shared.length > typed) {
+      input.setRangeText(shared.slice(typed), at, at, "end");
+      this.fitReplInput();
+      return;
+    }
+    const list = this.ui.replComplete;
+    list.textContent = "";
+    for (const item of items.slice(0, 100)) {
+      const row = document.createElement("div");
+      row.className = "item";
+      row.setAttribute("role", "option");
+      const label = document.createElement("span");
+      label.className = "label";
+      label.textContent = item.label;
+      row.append(label);
+      if (item.detail) {
+        const detail = document.createElement("span");
+        detail.className = "detail";
+        detail.textContent = item.detail;
+        row.append(detail);
+      }
+      row.addEventListener("mousedown", (event) => {
+        event.preventDefault();
+        const now = input.selectionStart;
+        input.setRangeText(item.label.slice(typed), now, now, "end");
+        this.hideReplCompletions();
+        this.fitReplInput();
+        input.focus();
+      });
+      list.append(row);
+    }
+    list.classList.remove("pyk-hidden");
+    list.scrollIntoView?.({ block: "nearest" });
+  }
+
+  /** Takes the list of completions away. () -> () */
+  hideReplCompletions() {
+    this.ui.replComplete?.classList.add("pyk-hidden");
   }
 
   /** Opens a new line at the cursor, indented where the parser says the
@@ -1520,6 +1633,8 @@ function buildDom(host, meta, cfg) {
             <!-- No glyph: U+29C9 has no coverage in the usual UI fonts and
                  rendered as an empty box. A word always renders. -->
             <button data-r="copy" title="Copy the generated code">Copy</button>
+            <button data-r="download"
+                    title="Download every compiled file, with a Makefile, as a .zip">Download</button>
           </div>
           <div class="pyk-files" data-r="files"></div>
           <div class="pyk-editor" data-r="rightEditor"></div>
@@ -1574,6 +1689,8 @@ function buildDom(host, meta, cfg) {
                         spellcheck="false" autocomplete="off" autocapitalize="off"
                         aria-label="REPL input"></textarea>
             </div>
+            <div class="pyk-repl-complete pyk-hidden" data-r="replComplete" role="listbox"
+                 aria-label="Completions"></div>
           </div>
           <div class="pyk-gutter pyk-gutter-h" data-r="gutterRepl" role="separator"
                aria-orientation="horizontal" title="Drag to resize"></div>

@@ -22,6 +22,7 @@
       imported_modules session stmts -- what an entry's imports would load.
       bindings session -- what the session has bound.
       run_meta session line report -- runs a meta-command.
+      completions session line col -- what may be typed at col.
       undefined_name error -- the name an "unbound name" error is about. *)
 
 (** Where a session's lines go and how it reaches what it imports.
@@ -99,6 +100,15 @@ val run_meta :
   string ->
   (exn -> unit) ->
   outcome
+
+(** What may be typed where the cursor is: where the word being typed
+    starts, and every name that fits it with its type -- after `m.`, what
+    the module the session imported as `m` exports; at the start of a
+    line beginning `:`, the meta-commands; elsewhere what the session has
+    bound, the modules it imported, the builtins and the keywords. Every
+    command a terminal has is offered when `terminal` says so.
+    bool? -> session -> string -> int -> (int, [(string, string?)]) *)
+val completions : ?terminal:bool -> session -> string -> int -> int * (string * string option) list
 
 (** The name an "unbound name" error is about, or None.
     exn -> string option *)

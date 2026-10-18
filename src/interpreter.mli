@@ -224,6 +224,13 @@ val failure : state -> exn option
 (** The calls in progress, innermost first. state -> [(string, info)] *)
 val stack_trace : state -> (string * info) list
 
+(** The error a machine stopped on, moved out of library code, with the
+    calls in progress from there: where it happened in a file `inside`
+    says is a library's, it is reported at the call that entered the
+    library from outside it. (string -> bool) -> state -> exn -> (exn,
+    [(string, info)]) *)
+val outside_libraries : (string -> bool) -> state -> exn -> exn * (string * info) list
+
 (* --- running statements in an existing machine --- *)
 
 (** state with every def in stmts declared, as one group (their names

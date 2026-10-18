@@ -94,8 +94,8 @@ needs a copy of it saved once.
 The right-hand side is five tabs, and the page opens on **Run output**:
 
 - **Run output** is what the left ▶ Run printed, over the whole tab.
-- **Compiled code** holds the Target list, **Compile**, the right ▶ Run and
-  Copy, with the generated code above and what compiling and running it
+- **Compiled code** holds the Target list, **Compile**, the right ▶ Run,
+  Copy and Download, with the generated code above and what compiling and running it
   said below.
 - **Web output** shows the page a program using `tinyweb` draws, in a
   browser-window frame, above the same output Run output shows (see "The
@@ -136,6 +136,16 @@ Compile, and `Ctrl`/`Cmd`+`Enter`, switch to Compiled code.
   saying why: there is no Python interpreter, C compiler, JVM or OCaml
   runtime in a browser. That is a property of the target, not a shortcoming
   here.
+- **Download**, on the Compiled code tab, saves the last compile as
+  `playground-<target>.zip`: every file it produced, what `pyk compile`
+  writes beside them -- each library's implementation for the target
+  (`<module>_external.*`, read from `lib/`), the browser's `io` on `web24`
+  and `iweb24`, the sources, page script and compiler (`pyking.js`)
+  `iweb24` needs, and the samples and pictures the program names from a
+  library's `<module>_assets/` -- and a `Makefile`: `make` builds it,
+  `make run` builds and runs it (a page is served, with `pyk serve`), and
+  `make clean` removes what `make` built. `assets/download.js` holds the
+  zip writer, the Makefiles and the list of files, with no page in it.
 - **Target** lists every target the compiler has, plus `ast` — the
   target-independent view of the parsed program, which is what every backend
   starts from.
@@ -363,7 +373,9 @@ run there, exactly as at a terminal prompt.
 - The prompt is at the foot of the transcript. **Enter** submits a line
   the parser says is a whole entry, and otherwise opens the next line,
   indented one level after a `:`; a blank line ends a block. **Shift+Enter**
-  always opens a line, **Tab** indents, **Backspace** in the indentation
+  always opens a line, **Tab** indents at the start of a line and
+  completes the word before the cursor elsewhere -- listing what fits,
+  with types, under the prompt where it is not one name -- **Backspace** in the indentation
   removes a level, **Escape** empties the prompt, and **Up** and **Down**
   go through the entries typed before.
 - What an entry shows -- `value : Type`, a command's answer -- is in
@@ -687,7 +699,14 @@ The language server's side of the page is `tests/lsp/playground.mjs`'s,
 which `tests/test_lsp.py` runs in a Chromium over the DevTools protocol:
 an error underlined at its line, a hover showing a type, completion
 offering a name, go to definition, the outline -- and that compiling and
-running still work beside them.
+running still work beside them, and that Download offers a zip holding
+the compiled program and its Makefile.
+
+`tests/test_playground.py` also packs a download for each of a few
+library programs and targets as the page does
+(`tests/playground/download.mjs`): Python's `zipfile` must read it back,
+and where the target runs outside a browser the unpacked folder's
+`make run` must print the program's `.out`.
 
 ## Limitations
 
@@ -701,7 +720,8 @@ running still work beside them.
   safe to leave on: a loop that never ends can be stopped, and the edit that
   fixes it can still be typed.
 - **C and Java output is display-only.** Copy it out and build it locally —
-  the header comment in each generated file gives the exact command.
+  the header comment in each generated file gives the exact command — or
+  Download it and type `make run`.
 - **Compile reads a program's modules as Run does**: from the page, and
   the standard library from `lib/`.
 

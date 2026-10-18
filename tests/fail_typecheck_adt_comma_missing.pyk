@@ -1,0 +1,9 @@
+# Two constructors on one line need a comma between them.
+#
+# This program is expected to FAIL parsing. Its `.ast.out` holds the
+# error message, not a program's output.
+
+datatype Bit:
+    Zero One
+
+print(Zero)

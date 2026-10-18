@@ -422,6 +422,9 @@ type kont =
          evaluated and where the whole comprehension was written. *)
   | KBranch of stmt * env * kont option
   | KChoose of expr * env * kont option
+  | KLet of string * (string * expr) list * expr * env * kont option
+      (* an `ELet` binding's value has arrived: the name it is bound to,
+         the bindings after it, the body, and the environment so far *)
   | KDiscard of env * kont option
       (* throw the incoming value away and deliver unit instead: what an
          `if` with no `else` supplies. *)
@@ -923,6 +926,11 @@ let rec evaluate e env =
           [ SExprStmt (expr_info body, body, 0) ],
           env )
   | ENeg (_, operand, _) -> apply_unary e (evaluate operand env)
+  | ELet (_, bindings, body, _) ->
+      evaluate body
+        (List.fold_left
+           (fun inner (name, value) -> extend inner name (evaluate value env))
+           env bindings)
   | EIf (_, cond, then_expr, else_expr, _) -> (
       (* Only the branch that is chosen is evaluated, here as in the
          machine: an `if` expression chooses, it does not compute both
@@ -1409,6 +1417,13 @@ and step_eval state e =
           control = CEval cond;
           kont = Some (KChoose (e, state.env, state.kont));
         }
+    | ELet (_, [], body, _) -> { state with control = CEval body }
+    | ELet (_, (name, value) :: rest, body, _) ->
+        {
+          state with
+          control = CEval value;
+          kont = Some (KLet (name, rest, body, state.env, state.kont));
+        }
     | e -> (
         match binary_operands e with
         | Some (left, right) ->
@@ -1620,6 +1635,19 @@ and step_apply state value =
           failed state (expr_info cond)
             (Printf.sprintf "the condition of an 'if' must be Bool, not %s"
                (describe value)))
+  | Some (KLet (name, bindings, body, env, rest)) -> (
+      (* Each value is evaluated where the call was written; only the
+         body sees the names. *)
+      let bound = extend env name value in
+      match bindings with
+      | [] -> { state with control = CEval body; env = bound; kont = rest }
+      | (next, expression) :: more ->
+          {
+            state with
+            control = CEval expression;
+            env = bound;
+            kont = Some (KLet (next, more, body, bound, rest));
+          })
   | Some (KDiscard (env, rest)) ->
       { state with control = CApply unit_value; env; kont = rest }
   | Some (KStartLoop loop) ->
@@ -1764,6 +1792,24 @@ let stack_trace state =
         go frame.frame_parent ((frame.frame_name, frame.frame_info) :: trace)
   in
   go state.stack []
+
+(** The error a machine stopped on, moved out of library code, with the
+    calls in progress from there: where it happened in a file `inside`
+    says is a library's, it is reported at the call that entered the
+    library from outside it. (string -> bool) -> state -> exn -> (exn,
+    [(string, info)]) *)
+let outside_libraries inside state error =
+  let trace = stack_trace state in
+  match error with
+  | Runtime_error (info, message) when inside info.Lexer.file ->
+      let rec go calls =
+        match calls with
+        | (_, call) :: rest when inside call.Lexer.file -> go rest
+        | (_, call) :: rest -> (Runtime_error (call, message), rest)
+        | [] -> (error, trace)
+      in
+      go trace
+  | _ -> (error, trace)
 
 (** Applies callee to args in finished machine's environment, as a
     machine of its own run to completion: how a host delivers an event

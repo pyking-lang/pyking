@@ -4,26 +4,11 @@
 #
 # The private declarations are what tinyweb.pyk wraps to give an
 # argument a default, which a declaration cannot carry. Every function
-# here but `web_init` sends one command to the page; see docs/libraries.md, "tinyweb",
+# here but `web_start` sends one command to the page; see docs/libraries.md, "tinyweb",
 # for the commands and how they reach the page.
 
-## Starts the program's page. Run as `pyk program.pyk` or compiled, it
-## serves the page on `port` and prints the address to open; in a browser,
-## the notebook or the playground the page is already there and it does
-## nothing. Call it before any other tinyweb function.
-##
-## # Parameters
-## - `port`: the port to serve on; 0 picks any free one.
-##
-## # Examples
-## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## tw.label("The page is ready.")
-## ```
-## ```stdout
-## ```
-public def web_init(port: Int) -> ()
+# Serves the page on `port`: what `web_init` in tinyweb.pyk calls.
+def web_start(port: Int) -> ()
 
 ## Adds a canvas to draw on, below everything already on the page. It
 ## starts white.

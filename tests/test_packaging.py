@@ -230,10 +230,11 @@ def check_stage(check, compiler):
         result = run([pyk, "use_args.pyk", "--", "2", "hi"], work, env)
         check("the example it saved runs", result.stdout == "0 hi\n1 hi\n",
               result.stdout + result.stderr)
-        result = run([pyk, "compile", "-t", "iweb24", "-o", "page.html", "hello.pyk"],
+        result = run([pyk, "compile", "-t", "iweb24", "-o", "page", "hello.pyk"],
                      work, env)
         check("build/pyking.js is found for the iweb24 target",
-              result.returncode == 0 and (work / "page.html").exists(),
+              result.returncode == 0 and (work / "build" / "page.html").exists()
+              and (work / "build" / "pyking.js").exists(),
               result.stderr.strip())
 
         # Nothing on the PATH: the servers are pyk's own, and need no Python.
@@ -295,9 +296,9 @@ def check_stage(check, compiler):
             [str(pyk)], ["serve", "--port", str(port), str(work)], bare)
         if check("`pyk serve` starts from the package", process is not None, printed):
             try:
-                status, body = test_notebook.fetch(port, "/page.html")
+                status, body = test_notebook.fetch(port, "/build/page.html")
                 check("it serves the iweb24 page compiled above",
-                      status == 200 and body == (work / "page.html").read_bytes(),
+                      status == 200 and body == (work / "build" / "page.html").read_bytes(),
                       f"status {status}")
             finally:
                 test_notebook.stop(process)

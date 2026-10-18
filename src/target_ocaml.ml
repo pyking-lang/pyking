@@ -1351,6 +1351,17 @@ let rec expr ctx acc e =
       match type_of ctx e with
       | TList _ -> binary ctx acc "@" left right
       | _ -> binary ctx acc "^" left right)
+  | ELet (_, bindings, body, _) ->
+      (* Each `let` is evaluated before the next and before the body. *)
+      let rec nest acc bindings =
+        match bindings with
+        | [] -> expr ctx acc body
+        | (name, value) :: rest ->
+            let value, acc = expr ctx acc value in
+            let inner, acc = nest acc rest in
+            (OLet ([ { bound = OPatName (mangle ctx name); params = []; value } ], inner, false), acc)
+      in
+      nest acc bindings
   | ELambda (_, params, body, _) ->
       (* OCaml has no nullary function, so `() => e` takes unit -- the
          same rule a `def` with no parameters follows. *)

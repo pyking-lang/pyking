@@ -135,12 +135,15 @@ let synopsis =
   \                                            open a notebook in the browser\n\
   \       pyk playground [--port N]            open the playground\n\
   \       pyk pykhelp [--port N]               open the help in the browser\n\
-  \       pyk serve [--port N] [<dir>]         serve a directory's files\n\
+  \       pyk serve [--port N] [<dir>|<file>]  serve a directory's files\n\
   \       pyk lsp [--stdio] [--log FILE]       the language server, for editors\n\
   \       pyk example [<name>]                 list the examples, or save one\n\n\
    Options:\n\
-  \  -t, --target <name>   compile for <name> (default: python)\n\
-  \  -o, --output <file>   write the output to <file>\n\
+  \  -t, --target <name>   compile for <name> (default: python); with\n\
+  \                        `pyk <filename>`, compile for it and run it\n\
+  \  -o, --output <file>   name the executable (default: the source's\n\
+  \                        name); what is generated goes in build/ beside\n\
+  \                        it\n\
   \  -L, --lib-path <dir>  a directory of libraries to import from; repeat\n\
   \                        for several\n\
   \  --stdout              print the generated code instead of writing it\n\
@@ -168,6 +171,8 @@ let more_options =
   "More options:\n\
   \  --symbols             with -t pyking, also print each node's symbol\n\
   \  --tokens              print the token stream first\n\
+  \  --no-build            with `compile`, write build/ and its Makefile\n\
+  \                        and build nothing\n\
   \  --no-typechecking     skip the type checker, and with it the\n\
   \                        mutability analysis and the tail-call pass,\n\
   \                        which both need what it works out. Only\n\
@@ -212,11 +217,18 @@ let usage_full () =
      anything else happens -- there is no flag for it and no way round it.\n\n\
      `pyk <filename>` runs the program on the AST, with Pyking's own\n\
      semantics: at least 32-bit integers, and its own runtime errors.\n\n\
-     `pyk compile` writes a file named after the source, in the current\n\
-     directory, unless --output says otherwise. The JavaScript targets write\n\
-     more beside it: one .js per module, pyk-runtime.js, and package.json.\n\
-     The Java targets name the file and its class in Java's own casing:\n\
-     foo_bar.pyk -> FooBar.java. The `iweb` target compiles nothing -- it\n\
+     `pyk compile foo.pyk` writes everything it generates into build/ --\n\
+     a file named after the source, every module's, the runtime -- with a\n\
+     Makefile (make, make run, make clean), builds it with the target's own\n\
+     tools, and puts the executable beside build/: ./foo, or what --output\n\
+     names. For Python, Node and Java that is a script running what is in\n\
+     build/; a page leaves nothing beside it. A build/ an earlier pyk\n\
+     compile made is replaced, and any other is refused. The Java targets\n\
+     name the file and its class in Java's own casing: foo_bar.pyk ->\n\
+     FooBar.java. `pyk foo.pyk -t <target>` builds the same way and runs\n\
+     it from build/, putting nothing beside it. `--stdout` writes nothing,\n\
+     and `-t pyking` writes its one file where --output says. The `iweb`\n\
+     target compiles nothing -- it\n\
      ships the Pyking source and the interpreter, so a browser runs the\n\
      whole language. The `pyking` target writes Pyking again -- the program\n\
      as the front end worked it out, with the types the checker inferred and\n\
@@ -225,7 +237,8 @@ let usage_full () =
      target's host uses, each printed before it runs:\n\n\
     \  python14         python3 prog.py\n\
     \  node24           node prog.js\n\
-    \  web24, iweb24    pyk serve --port 8000 (a page must be served)\n\
+    \  web24, iweb24    pyk serve --port 8000 prog.html (a page must be\n\
+  \                   served; the link printed opens the page)\n\
     \  c89, c99, c23    cc -std=<standard> -o prog prog.c, then prog\n\
     \  java8, java17,   javac --release <version> prog.java, then java prog\n\
     \  java21\n\
@@ -276,7 +289,8 @@ let usage_full () =
      reference and the libraries, with runnable examples -- which the\n\
      playground's Help tab shows too.\n\
      `pyk serve <dir>` serves a directory's files as they are, such as a\n\
-     page compiled for web24 or iweb24. Without --port they start at 8000\n\
+     page compiled for web24 or iweb24; `pyk serve <file>` serves the\n\
+     file's directory and prints a link to the file. Without --port they start at 8000\n\
      and take the first free port. They listen on 127.0.0.1, or on the\n\
      address $PYKING_WEB_HOST names (0.0.0.0 for every interface, as in a\n\
      container). --mode student hides an exercise's solution and\n\
@@ -324,7 +338,9 @@ type options = {
   command : string;
   filename : string option;
   target : string;
+  target_given : bool;
   output : string option;
+  no_build : bool;
   stdout : bool;
   run : bool;
   symbols : bool;
@@ -346,7 +362,9 @@ let default_options command =
     command;
     filename = None;
     target = Targets.default;
+    target_given = false;
     output = None;
+    no_build = false;
     stdout = false;
     run = false;
     symbols = false;
@@ -451,6 +469,7 @@ let parse_args argv =
     | "--type-experiment" :: rest ->
         go { options with type_experiment = true } positional rest
     | "--stdout" :: rest -> go { options with stdout = true } positional rest
+    | "--no-build" :: rest -> go { options with no_build = true } positional rest
     | ("--target" | "-t") :: rest -> (
         match rest with
         | [] -> usage_error "--target requires a <target> argument"
@@ -469,7 +488,7 @@ let parse_args argv =
                        given (String.concat ", " targets)
                        (String.concat ", " (List.map fst Targets.aliases)))
             in
-            go { options with target } positional rest)
+            go { options with target; target_given = true } positional rest)
     | "--port" :: rest -> (
         match rest with
         | [] -> usage_error "--port requires a <number> argument"
@@ -540,6 +559,17 @@ let parse_args argv =
   let options, positional = go (default_options command) [] argv in
   if options.run && options.stdout then
     usage_error "--run needs a file to run, so it cannot be used with --stdout";
+  if options.no_build && (command <> "compile" || options.run || options.stdout) then
+    usage_error
+      "--no-build writes build/ for 'pyk compile' and builds nothing, so it \
+       cannot be used with --run or --stdout, or with another command";
+  if options.target_given && command <> "compile" && command <> default_command then
+    usage_error
+      (Printf.sprintf "--target says what a program is compiled for, so 'pyk %s' takes none" command);
+  if command = default_command && options.output <> None then
+    usage_error
+      "--output names what 'pyk compile' writes; 'pyk <file> -t <target>' builds \
+       into build/ and runs it from there";
   if options.release && command <> "compile" then
     usage_error
       "--release says how a program is compiled, so it only applies to 'pyk \
@@ -606,7 +636,7 @@ let parse_args argv =
     match positional with
     | [] -> options
     | [ directory ] -> { options with filename = Some directory }
-    | _ -> usage_error "'pyk serve' takes one directory at most"
+    | _ -> usage_error "'pyk serve' takes one directory, or one file in it, at most"
   else if command = "example" then
     match positional with
     | [] -> options
@@ -839,8 +869,8 @@ let trace_limit = 10
 (** Runs `pyk <file>` with the interpreter; prints a runtime error (with
     a truncated stack trace) if one occurs. Every module of the program
     runs, in the order it was checked in, each in a top level of its
-    own. [(Module.t, typ IntMap.t option)] -> int *)
-let command_interpret checked arguments =
+    own. [Module.lib_entry]? -> [(Module.t, typ IntMap.t option)] -> [string] -> int *)
+let command_interpret ?(libs = []) checked arguments =
   (* The interpreter runs the AST, and an external module has none: what
      it exports is written in a target language. An interpreted program
      reaches the module's OCaml implementation, loaded as a plugin
@@ -905,10 +935,14 @@ let command_interpret checked arguments =
   match failure with
   | None -> 0
   | Some error ->
+      (* An error in a library's own code is reported where the program
+         called into the library. *)
+      let error, trace =
+        Interpreter.outside_libraries (Module.in_library libs) state error
+      in
       (match format_error error with
       | Some text -> prerr_endline text
       | None -> raise error);
-      let trace = Interpreter.stack_trace state in
       List.iteri
         (fun index (name, info) ->
           if index < trace_limit then
@@ -1340,23 +1374,33 @@ let compile_program checked target output_path options =
   in
   ((files @ runtime @ if options.stdout then [] else external_copies ()), primary)
 
-(** Runs `pyk compile <file>`: translates every module of the program
-    for options.target and writes the files, or prints the program's own
-    module (--stdout). A module the program imports is written beside
-    the program's own output, under its own name.
-    [(Module.t, typ IntMap.t option)] -> options -> int *)
-let command_compile checked options =
-  let target = options.target in
+(** The files a program's modules were compiled to, beside its own in
+    `directory`, in the order they must be built and run: a module is up
+    to two files, the implementation first, since the file generated for
+    the module calls into it.
+    [(Module.t, typ IntMap.t option)] -> string -> string -> [string] *)
+let module_files checked target directory =
+  List.filteri (fun i _ -> i < List.length checked - 1) checked
+  |> List.concat_map (fun ((unit : Module.t), _) ->
+         let implementation =
+           if unit.declarations = [] then []
+           else
+             match Module.implementation_name unit.name target with
+             | Some file -> [ join directory file ]
+             | None -> []
+         in
+         let generated =
+           if unit.is_external then [] else [ join directory (default_name target unit.name) ]
+         in
+         implementation @ generated)
+
+(** Writes what compile_program made for the program compiled to
+    output_path: every file, and a library's assets directory where one
+    is wanted. Refuses to write over the program's own sources.
+    [(Module.t, typ IntMap.t option)] -> options -> string -> [(string,
+    string)] -> () *)
+let write_compiled checked options files =
   let filename = Option.get options.filename in
-  let output_path =
-    match (options.stdout, options.output) with
-    | false, None ->
-        (* Nothing said where to put it: use the source file's own name,
-           with the target's extension, in the directory the command was
-           run from. *)
-        Some (default_name target (stem filename))
-    | _, output -> output
-  in
   (* Every file the program was read from: the program's own, and every
      module it imports. `-t pyking` writes `.pyk` files, and a module is
      written under its own name, so without this a program compiled into
@@ -1399,56 +1443,146 @@ let command_compile checked options =
                 "Note: '%s' already exists and does not set \"type\":                  \"module\"; node will read the generated .js files as                  CommonJS until it does. Left untouched."
                 path))
   in
-  let directory = dirname (Option.value output_path ~default:"") in
-  let files, primary = compile_program checked target output_path options in
-  if options.stdout then (
-    print_string primary;
-    0)
-  else (
-    (* A library's assets go in a directory of their own beside the
-       output, which this makes where the output's own directory is. *)
-    List.iter
-      (fun (path, _) ->
-        let assets = dirname path in
-        let parent = dirname assets in
-        if Filename.check_suffix assets "_assets"
-           && (parent = "" || Sys.file_exists parent)
-           && not (Sys.file_exists assets)
-        then Sys.mkdir assets 0o755)
-      files;
-    List.iter
-      (fun (path, contents) ->
-        if basename path = Target_js_packaging.module_manifest then
-          write_manifest path contents
-        else write path contents)
-      files;
-    if options.run then
-      (* `--stdout` wrote no file, and `parse_args` already refused the
-         combination, so there is always something here to run. The
-         modules the program imports are named in the order they must be
-         built and run, which is the order they were compiled in. *)
-      Execution.execute target
-        (Option.get output_path)
-        (List.filteri (fun i _ -> i < List.length checked - 1) checked
-        |> List.concat_map (fun ((unit : Module.t), _) ->
-               (* A module is up to two files, and the implementation
-                  comes first: the file generated for the module calls
-                  into it, and the targets that link a program are given
-                  their files in the order they must be built. *)
-               let implementation =
-                 if unit.declarations = [] then []
-                 else
-                   match Module.implementation_name unit.name target with
-                   | Some file -> [ join directory file ]
-                   | None -> []
-               in
-               let generated =
-                 if unit.is_external then []
-                 else [ join directory (default_name target unit.name) ]
-               in
-               implementation @ generated))
-        options.arguments
-    else 0)
+  (* A library's assets go in a directory of their own beside the
+     output, which this makes where the output's own directory is. *)
+  List.iter
+    (fun (path, _) ->
+      let assets = dirname path in
+      let parent = dirname assets in
+      if Filename.check_suffix assets "_assets"
+         && (parent = "" || Sys.file_exists parent)
+         && not (Sys.file_exists assets)
+      then Sys.mkdir assets 0o755)
+    files;
+  List.iter
+    (fun (path, contents) ->
+      if basename path = Target_js_packaging.module_manifest then
+        write_manifest path contents
+      else write path contents)
+    files
+
+(** The file a `build/` directory pyk compile made holds, which is what
+    lets the next one remove it. string *)
+let build_marker = ".pyk-build"
+
+(** Removes path and everything under it, never following a link.
+    string -> () *)
+let rec remove_tree path =
+  match (Unix.lstat path).Unix.st_kind with
+  | Unix.S_DIR ->
+      Array.iter (fun entry -> remove_tree (Filename.concat path entry)) (Sys.readdir path);
+      Unix.rmdir path
+  | _ -> Sys.remove path
+
+(** Makes `build` afresh: one an earlier `pyk compile` made, holding
+    build_marker, is removed first, and anything else there is refused.
+    string -> () *)
+let fresh_build build =
+  if Sys.file_exists build then
+    if Sys.is_directory build && Sys.file_exists (join build build_marker) then remove_tree build
+    else
+      usage_error
+        (Printf.sprintf
+           "'%s' is in the way: pyk compile writes what it generates there, \
+            and this one was not made by pyk compile (it holds no %s). Move \
+            it, or compile somewhere else with -o."
+           build build_marker);
+  Sys.mkdir build 0o755;
+  let channel = open_out_bin (join build build_marker) in
+  output_string channel
+    "Made by pyk compile, which removes this folder and makes it again each time it compiles here.\n";
+  close_out channel
+
+(** Writes an executable file. string -> string -> () *)
+let write_executable path contents =
+  let channel = open_out_bin path in
+  output_string channel contents;
+  close_out channel;
+  Unix.chmod path 0o755
+
+(** Puts the program built into `build` where it was asked for, at exe:
+    the binary itself where the target links one, and otherwise a
+    launcher running what is in `build`; nothing for a page.
+    string -> string -> string -> () *)
+let place_executable target output_path exe =
+  match Targets.family_of target with
+  | Targets.C | Targets.Ocaml ->
+      let built = Filename.remove_extension output_path in
+      let channel = open_in_bin built in
+      let contents = really_input_string channel (in_channel_length channel) in
+      close_in channel;
+      write_executable exe contents
+  | _ -> (
+      match Execution.launcher target output_path "$here/build" with
+      | Some line ->
+          write_executable exe
+            ("#!/bin/sh\n# Made by pyk compile: runs the program compiled into build/.\n\
+              here=$(dirname \"$0\")\n" ^ line ^ "\n")
+      | None -> ())
+
+(** Runs `pyk compile <file>`: translates every module of the program
+    for options.target into a directory `build/` beside the executable --
+    `-o` or the source's own name -- with a Makefile, builds it with the
+    target's own tools, and puts the executable, or a launcher, there.
+    `--run` then runs it. `--stdout` prints the program's own module and
+    writes nothing; `-t pyking` writes its file where `-o` says, as one
+    file. With `keep` false (`pyk <file> -t <target>`) nothing is put
+    beside `build/` and the program is run from there.
+    bool? -> [(Module.t, typ IntMap.t option)] -> options -> int *)
+let command_compile ?(keep = true) checked options =
+  let target = options.target in
+  let filename = Option.get options.filename in
+  if options.stdout || (target = pyking_target && keep) then begin
+    let output_path =
+      match (options.stdout, options.output) with
+      | false, None ->
+          (* Nothing said where to put it: use the source file's own
+             name, with the target's extension, in the directory the
+             command was run from. *)
+          Some (default_name target (stem filename))
+      | _, output -> output
+    in
+    let files, primary = compile_program checked target output_path options in
+    if options.stdout then (
+      print_string primary;
+      0)
+    else (
+      write_compiled checked options files;
+      if options.run then
+        Execution.execute target (Option.get output_path)
+          (module_files checked target (dirname (Option.get output_path)))
+          options.arguments
+      else 0)
+  end
+  else
+    let exe = if keep then Option.value options.output ~default:(stem filename) else stem filename in
+    let here = match dirname exe with "" -> "." | d -> d in
+    if not (Sys.file_exists here && Sys.is_directory here) then
+      usage_error
+        (Printf.sprintf "cannot write '%s': the directory '%s' does not exist." exe here);
+    if keep && List.mem (absolute exe) (List.map (fun ((unit : Module.t), _) -> absolute unit.path) checked)
+    then
+      usage_error
+        (Printf.sprintf "writing '%s' would overwrite the program's own source; choose a different -o." exe);
+    let build = join here "build" in
+    let output_path = join build (default_name target (basename exe)) in
+    let files, _ = compile_program checked target (Some output_path) options in
+    fresh_build build;
+    write_compiled checked options files;
+    let modules = module_files checked target build in
+    let makefile = Execution.makefile target output_path modules in
+    let channel = open_out_bin (join build "Makefile") in
+    output_string channel makefile;
+    close_out channel;
+    if options.no_build then 0
+    else
+      let status = Execution.build target output_path modules in
+      if status <> 0 then status
+      else (
+        if keep then place_executable target output_path exe;
+        if options.run || not keep then
+          Execution.run target output_path modules options.arguments here
+        else 0)
 
 (** Runs `pyk plugins <dir>`: builds the plugin of every library in a
     directory of libraries -- each `<dir>/<name>` holding a
@@ -1637,9 +1771,14 @@ let main argv =
   else if options.command = "serve" then command_web Web_tools.Files options
   else if options.command = "lsp" then command_lsp options
   else if options.command = "example" then command_example options
+  else if options.command = default_command && options.target_given then
+    (* `pyk <file> -t <target>`: compiled into build/ and run from there,
+       with nothing put beside it. *)
+    let options = { options with command = "compile"; run = true } in
+    command_compile ~keep:false (front_end options) options
   else
     let checked = front_end options in
     if options.command = "compile" then command_compile checked options
-    else command_interpret checked options.arguments
+    else command_interpret ~libs:(library_path options) checked options.arguments
 
 let () = exit (main (List.tl (Array.to_list Sys.argv)))

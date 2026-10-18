@@ -937,3 +937,9 @@ returns whatever Python computes.
 
 The boundary carries `Int`, `String`, `Bool`, unit, tuples and lists,
 each as Python's own.
+
+## Named arguments out of order
+
+A call whose named arguments are not in parameter order, with more than
+one that has an effect, reaches this backend as an `ELet`
+(`docs/desugar_args.md`), compiled as the call of a lambda taking the names, `(lambda a, b: f(b, a))(x(), y())`: Python evaluates a call's arguments left to right.

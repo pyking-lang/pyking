@@ -34,23 +34,32 @@ by `make` — is the front end for all of it, and has three commands:
 positions. Where a backend disagrees with it, the interpreter is the
 reference; see [docs/targets.md](docs/targets.md).
 
-`compile` writes a file named after the source, unless `--output` (`-o`)
-says otherwise:
+`compile` writes everything it generates into `build/`, with a
+`Makefile`, builds it with the target's own tools, and puts the
+executable beside `build/` — `./hello`, or the name `--output` (`-o`)
+gives:
 
 ```sh
-./pyk c -t python  hello.pyk   # ./hello.py     (python14; the default)
-./pyk c -t node    hello.pyk   # ./hello.js     (node24, an ES module)
-./pyk c -t web     hello.pyk   # ./hello.html + the .js files it loads
-./pyk c -t iweb    hello.pyk   # ./hello.html + pyking.js + hello.pyk
-./pyk c -t c89     hello.pyk   # ./hello.c      (C89)
-./pyk c -t c99     hello.pyk   # ./hello.c      (C99)
-./pyk c -t c       hello.pyk   # ./hello.c      (C23; `c` is the alias)
-./pyk c -t java8   hello.pyk   # ./Hello.java   (Java 8)
-./pyk c -t java17  hello.pyk   # ./Hello.java   (Java 17)
-./pyk c -t java    hello.pyk   # ./Hello.java   (Java 21; `java` is the alias)
-./pyk c -t ocaml   hello.pyk   # ./hello.ml     (ocaml5.5)
-./pyk c -t pyking  hello.pyk   # ./hello.pyk    (Pyking, as the front end has it)
+./pyk c -t python  hello.pyk   # build/hello.py, and ./hello runs it   (python14; the default)
+./pyk c -t node    hello.pyk   # build/hello.js, and ./hello runs it   (node24, an ES module)
+./pyk c -t web     hello.pyk   # build/hello.html + the .js files it loads
+./pyk c -t iweb    hello.pyk   # build/hello.html + pyking.js + hello.pyk
+./pyk c -t c89     hello.pyk   # build/hello.c, and the binary ./hello (C89)
+./pyk c -t c99     hello.pyk   # build/hello.c, and the binary ./hello (C99)
+./pyk c -t c       hello.pyk   # build/hello.c, and the binary ./hello (C23; `c` is the alias)
+./pyk c -t java8   hello.pyk   # build/Hello.java, and ./hello runs it (Java 8)
+./pyk c -t java17  hello.pyk   # build/Hello.java, and ./hello runs it (Java 17)
+./pyk c -t java    hello.pyk   # build/Hello.java, and ./hello runs it (Java 21; `java` is the alias)
+./pyk c -t ocaml   hello.pyk   # build/hello.ml, and the binary ./hello (ocaml5.5)
+./pyk c -t pyking  -o out.pyk hello.pyk   # out.pyk (Pyking, as the front end has it)
+./pyk c -t ocaml   -o hi hello.pyk        # ./hi, and build/hi.ml
+./pyk hello.pyk    -t ocaml               # build it in build/ and run it from there
 ```
+
+`make` in `build/` builds the program again, `make run` runs it and
+`make clean` removes what `make` made. A `build/` an earlier `pyk
+compile` made is replaced; any other is left alone and the compile
+refused.
 
 Every target carries a **version**, and every family has an unversioned
 **alias** naming its latest: `c` is `c23`, `java` is `java21`, `node` is
@@ -71,12 +80,12 @@ node with the unique number the `symbolize` pass gave it:
 ```sh
 ./pyk c -t pyking --stdout hello.pyk             # x: Int = 12 + 20
 ./pyk c -t pyking --symbols --stdout hello.pyk   # x@1: Int = (12@2 + 20@3)@4  @5
-./pyk c -t node24 --run hello.pyk                # $ node hello.js
+./pyk c -t node24 --run hello.pyk                # $ node build/hello.js
 ```
 
 A program that imports something compiles to more than one file: each
-module lands beside the program's own output under its own name, and the
-generated import names it by that name. See
+module lands beside the program's own output in `build/` under its own
+name, and the generated import names it by that name. See
 [docs/modules.md](docs/modules.md).
 
 The type checker runs for every program, whatever is then done with it —
@@ -116,6 +125,7 @@ long ago. `:help` lists the rest.
 On a Mac, with [Homebrew](https://brew.sh):
 
 ```sh
+brew update
 brew install pyking-lang/tap/pyking
 ```
 

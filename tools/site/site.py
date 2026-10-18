@@ -61,9 +61,10 @@ ASTRO = MODULES / "astro" / "bin" / "astro.mjs"
 MINIMUM_NODE = (22, 12)
 
 # What a browser fetches from lib/: a module's Pyking source, its
-# browser implementation, and the sounds a page plays (tinyweb's samples,
-# in tinyweb_assets/). The plugins and the other targets' files stay.
-LIB_SUFFIXES = (".pyk", ".js", ".wav", ".mp3", ".ogg", ".png")
+# browser implementation, the sounds a page plays (tinyweb's samples,
+# in tinyweb_assets/), and each other target's implementation, which the
+# playground's Download puts beside a compiled program. The plugins stay.
+LIB_SUFFIXES = (".pyk", ".js", ".wav", ".mp3", ".ogg", ".png", ".py", ".c", ".ml", ".java")
 
 
 def check_node():

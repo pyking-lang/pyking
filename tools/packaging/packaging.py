@@ -2208,7 +2208,7 @@ def releases_readme():
     """The README of RELEASES_REPO. () -> String"""
     return (f"# Pyking releases\n\nReleases of Pyking, a compiler and interpreter with "
             "no dependencies.\n\n## macOS\n\nmacOS 11 or later, Apple Silicon and "
-            f"Intel, with [Homebrew](https://brew.sh):\n\n```sh\n{BREW_INSTALL}\n```\n\n"
+            f"Intel, with [Homebrew](https://brew.sh):\n\n```sh\nbrew update\n{BREW_INSTALL}\n```\n\n"
             "## Linux and WSL\n\nAny distribution, x86_64 or aarch64. Installs into "
             f"`~/.local`, with no sudo:\n\n```sh\n{LINUX_INSTALL}\n```\n\n"
             "`sh -s -- --system` installs for every user instead, `--version X` a "
@@ -2228,7 +2228,7 @@ def releases_readme():
 
 def tap_readme():
     """The README of TAP_REPO. () -> String"""
-    return (f"# Pyking's Homebrew tap\n\n```sh\n{BREW_INSTALL}\n```\n\nThe formulas "
+    return (f"# Pyking's Homebrew tap\n\n```sh\nbrew update\n{BREW_INSTALL}\n```\n\nThe formulas "
             f"install the releases in [{RELEASES_REPO}]({HOMEPAGE}).\n")
 
 

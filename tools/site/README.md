@@ -59,7 +59,8 @@ tools/site/
   src/remark-pyking-cells.mjs   ```pyking blocks -> cell placeholders, and
                                 exercises and quizzes -> fragments
   src/components/Header.astro     the logo and the sections, the search
-  src/components/HeaderNav.astro  the header's sections
+  src/components/HeaderNav.astro  the header's sections, a second row
+                                  of the header below 60rem (site.css)
   src/components/Sidebar.astro    the left menu: the section's pages
   src/assets/logo.svg       the logo, a python wearing a crown (also the
                             favicon, public/site/favicon.svg)
@@ -91,8 +92,9 @@ tools/site/
    headings; there is no table of contents on the right. `public/` is
    `public/` plus `runtime/`, which holds what `pyk playground` serves
    (the shared web scripts, `vendor/`, the bundle and its manifest,
-   `lib/` -- its Pyking sources, its browser scripts and the sounds a
-   page plays -- the playground's assets and examples, the notebook's
+   `lib/` -- its Pyking sources, its browser scripts, the sounds a page
+   plays and each target's implementation, for the playground's
+   Download -- the playground's assets and examples, the notebook's
    scripts and the help), each at the URL path the server gives it. `pyking.tmLanguage.json` is the grammar code blocks are
    highlighted with, made from the compiler's own keyword and builtin lists
    (`pykKeywords`, `pykBuiltins`). Astro's cache is emptied.

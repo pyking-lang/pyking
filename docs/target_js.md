@@ -789,3 +789,9 @@ rather than reading types, so a list carries `pykList === true` and a
 tuple does not. Returning a plain array where the declaration says
 `[Int]` prints it as a tuple. `tests/external_shapes_mod1_external_node.js`
 is the worked example.
+
+## Named arguments out of order
+
+A call whose named arguments are not in parameter order, with more than
+one that has an effect, reaches this backend as an `ELet`
+(`docs/desugar_args.md`), compiled as the call of an arrow function taking the names, `((a, b) => f(b, a))(x(), y())`: JavaScript evaluates a call's arguments left to right.

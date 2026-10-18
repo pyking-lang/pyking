@@ -460,6 +460,11 @@ does for a plain statement following a multi-level nested block."
             (setq prev-opens-block (or (pyking--line-ends-with-colon-p)
                                        (pyking--line-ends-with-eq-p)))
             (pyking--goto-logical-line-start)
+            ;; A `datatype' header may hold its first constructors after
+            ;; its `:' (`datatype Bit: Zero, One'), and still have more
+            ;; on indented lines under it.
+            (when (pyking--line-first-word-matches-p "\\_<datatype\\_>")
+              (setq prev-opens-block t))
             ;; Its indentation, though, is its first line's.
             (setq prev-indent (current-indentation))
             (setq prev-is-dedenter (pyking--dedenter-line-p)))

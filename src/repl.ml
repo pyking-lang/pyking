@@ -224,10 +224,12 @@ let shift = 2
 let escape_delay = 0.05
 
 (** How entries arrive: `read` answers one entry (None at end of input,
-    "" if abandoned), `ask` puts a question and reads one key, and
-    `interactive` says whether there is a terminal to edit in. *)
+    "" if abandoned), completing a word on Tab with the function it is
+    handed (Repl_session.completions), `ask` puts a question and reads
+    one key, and `interactive` says whether there is a terminal to edit
+    in. *)
 type reader = {
-  read : string -> string option;
+  read : (string -> int -> int * (string * string option) list) -> string -> string option;
   ask : string -> string;
   interactive : bool;
 }
@@ -493,7 +495,46 @@ let editor is_complete indent_for idle =
     | _ -> ());
     result
   in
-  let read initial =
+  (* Tab: an indentation step where only spaces are before the cursor,
+     and otherwise the word before it completed -- outright where one
+     name fits, as far as every fitting name agrees where several do,
+     and with the names listed below the entry where they agree no
+     further. *)
+  let tab complete buf =
+    let line = line_of buf in
+    if String.trim (String.sub line 0 buf.col) = "" then insert buf indent_width
+    else
+      let start, items = complete line buf.col in
+      let typed = buf.col - start in
+      let names = List.map fst items in
+      let shared = Completion.common_prefix names in
+      if items = [] then buf
+      else if String.length shared > typed then
+        insert buf (String.sub shared typed (String.length shared - typed))
+      else begin
+        to_bottom ();
+        let widest = List.fold_left (fun w n -> max w (String.length n)) 0 names in
+        let shown =
+          List.map
+            (fun (name, detail) ->
+              match detail with
+              | Some d -> Printf.sprintf "  %-*s  %s" widest name d
+              | None -> "  " ^ name)
+            items
+        in
+        let shown =
+          if List.length shown > 40 then
+            List.filteri (fun i _ -> i < 40) shown
+            @ [ Printf.sprintf "  ... and %d more" (List.length shown - 40) ]
+          else shown
+        in
+        write ("\r\n" ^ String.concat "\r\n" shown ^ "\r\n");
+        rows_up := 0;
+        rows_total := 1;
+        buf
+      end
+  in
+  let read complete initial =
     let buf = if initial = "" then empty_buffer else buffer_of initial in
     columns := terminal_columns ();
     with_raw (fun () ->
@@ -521,7 +562,7 @@ let editor is_complete indent_for idle =
                   let buf, live, index =
                     match name with
                     | "enter" -> (newline buf (indent_for (before buf)), live, index)
-                    | "tab" -> (insert buf indent_width, live, index)
+                    | "tab" -> (tab complete buf, live, index)
                     | "backspace" -> (backspace buf, live, index)
                     | "delete" -> (delete buf, live, index)
                     | "kill" -> (kill_to_end buf, live, index)
@@ -602,7 +643,7 @@ let read_entry read_line =
     `idle` runs before each line is read.
     (() -> ()) -> reader *)
 let pipe_reader idle =
-  let read _initial =
+  let read _complete _initial =
     read_entry (fun shown ->
         idle ();
         print_string shown;
@@ -710,7 +751,7 @@ let start ?read ?session ?(libs = []) format_error =
   let reader = match read with Some reader -> reader | None -> make_reader idle in
   print_endline banner;
   let rec loop session pending =
-    match reader.read pending with
+    match reader.read (completions ~terminal:true session) pending with
     | None ->
         print_newline ();
         0

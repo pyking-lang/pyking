@@ -184,6 +184,10 @@ val join : string -> string -> string
     string -> string *)
 val absolute : string -> string
 
+(** Whether a file is in one of the library directories: a module of a
+    library, rather than of the program. [lib_entry] -> string -> bool *)
+val in_library : lib_entry list -> string -> bool
+
 (** The contents of a file. string -> string *)
 val read_whole_file : string -> string
 

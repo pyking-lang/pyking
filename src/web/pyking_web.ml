@@ -15,6 +15,7 @@
       pykLsp(message) / pykLspIdle()    the language server (lsp.ml)
       pykReplStart() / pykReplLine(text) / pykReplImports(text)
         / pykReplSubmit(text)           the REPL (repl_session.ml)
+      pykReplComplete("col\nline")      what Tab offers in the REPL
       pykTargets()                      the targets, as JSON
       pykFormatHelper()                 the JS value formatter's source
       pykKeywords() / pykBuiltins()     the language's own word lists
@@ -30,6 +31,7 @@
       run_source source name -- run, as a JSON string.
       repl_line / repl_imports / repl_submit -- the REPL's entries, as
         JSON strings.
+      repl_complete text -- what Tab offers, as a JSON string.
       targets_json () / format_helper () -- what the page reads out of
         the compiler rather than guessing at. *)
 
@@ -514,7 +516,19 @@ let checked_modules ?(natively = false) main release =
           let optimized = Analyses.symbolize ~start:highest optimized in
           ( sigmaps @ [ (unit.name, sigmap) ],
             max highest (Analyses.highest_sym optimized),
-            checked @ [ ({ unit with stmts = optimized; sigmap = Some sigmap }, Some tmap) ] ))
+            checked
+            @ [
+                ( {
+                    unit with
+                    stmts = optimized;
+                    sigmap = Some sigmap;
+                    (* The plain names the overloading pass gave what the
+                       module exports, which the generated file declares
+                       -- as pyk.ml's front_end does. *)
+                    publics = List.map (fun (name, info) -> (Names.renamed name, info)) unit.publics;
+                  },
+                  Some tmap );
+              ] ))
       ([], highest, []) units
   in
   checked
@@ -801,14 +815,24 @@ let compile_modules main target =
                (fun ((unit : Module.t), _) ->
                  List.map Filename.basename (Module.source_paths unit))
                checked)
-            (List.filter_map
-               (fun ((unit : Module.t), _) ->
-                 if unit.declarations = [] then None
-                 else
-                   Option.map
-                     (fun file -> (unit.name, file))
-                     (Module.implementation_name unit.name target))
-               checked) ) ]
+            (let externals =
+               List.filter_map
+                 (fun ((unit : Module.t), _) ->
+                   if unit.declarations = [] then None
+                   else
+                     Option.map
+                       (fun file -> (unit.name, file))
+                       (Module.implementation_name unit.name target))
+                 checked
+             in
+             (* `print` writes through `io`'s browser implementation, which
+                the page loads whether or not the program imports it --
+                as `pyk compile` writes it. *)
+             if List.mem_assoc "io" externals then externals
+             else
+               externals
+               @ Option.to_list
+                   (Option.map (fun file -> ("io", file)) (Module.implementation_name "io" target))) ) ]
 
 (** Compile `source` for `target`.
     Answers `{"ok":true,"files":{label:source},"views":[label,...]}` --
@@ -1150,6 +1174,31 @@ let repl_line text =
       ("indent", json_string (Repl_session.next_indent text));
     ]
 
+(** What may be typed at a column of a line of the REPL's input: `text`
+    is the column, a newline, and the line. JSON `{"start": N, "items":
+    [{"label": ..., "detail": ...}]}`. string -> string *)
+let repl_complete text =
+  let col, line =
+    match String.index_opt text '\n' with
+    | Some i ->
+        ( Option.value ~default:0 (int_of_string_opt (String.sub text 0 i)),
+          String.sub text (i + 1) (String.length text - i - 1) )
+    | None -> (0, text)
+  in
+  let start, items = Repl_session.completions !repl_state line col in
+  json_object
+    [
+      ("start", string_of_int start);
+      ( "items",
+        json_array
+          (List.map
+             (fun (label, detail) ->
+               json_object
+                 ([ ("label", json_string label) ]
+                 @ match detail with Some d -> [ ("detail", json_string d) ] | None -> []))
+             items) );
+    ]
+
 (** The modules implemented in JavaScript that text's imports would newly
     load, as a JSON array of names: what the page imports before the
     entry is submitted. Empty where text does not parse or its imports
@@ -1249,6 +1298,7 @@ let () =
   register0 "pykReplStart" repl_start;
   register1 "pykReplLine" repl_line;
   register1 "pykReplImports" repl_imports;
+  register1 "pykReplComplete" repl_complete;
   register1 "pykReplSubmit" repl_submit;
   register0 "pykTargets" targets_json;
   register0 "pykFormatHelper" format_helper;

@@ -498,6 +498,9 @@ let rec resolve_expr ctx env e found =
       resolve_expr ctx env body found
   | ELambda (_, params, body, _) ->
       resolve_expr ctx (bind_all ctx KParameter env (List.map param_binding params)) body found
+  | ELet (_, bindings, body, _) ->
+      (* The names an ELet binds are made up, so nothing resolves to them. *)
+      go body (List.fold_left (fun found (_, v) -> go v found) found bindings)
   | EConstruct (_, _, _, args, _) ->
       List.fold_left (fun found a -> go a found) found (arg_exprs args)
   | EField (_, record, _, _) -> go record found
@@ -852,20 +855,8 @@ let item label kind detail =
     ([ ("label", Json.String label); ("kind", Json.Number (float_of_int kind)) ]
     @ match detail with Some d -> [ ("detail", Json.String d) ] | None -> [])
 
-(** Whether a name was made up by a pass rather than written: a default
-    argument's helper, an elaborated overload. string -> bool *)
-let hidden name = Desugar_args.generated_name name || Elaborate.generated_name name
-
-(** The qualifier written before the cursor, as in `m.` or `m.pa`, if
-    there is one. string -> int -> string? *)
-let qualifier line col =
-  let rec back i = if i > 0 && (match line.[i - 1] with 'A' .. 'Z' | 'a' .. 'z' | '0' .. '9' | '_' -> true | _ -> false) then back (i - 1) else i in
-  let start = back (min col (String.length line)) in
-  if start > 0 && line.[start - 1] = '.' then
-    let stop = start - 1 in
-    let first = back stop in
-    if first < stop then Some (String.sub line first (stop - first)) else None
-  else None
+let hidden = Completion.hidden
+let qualifier = Completion.qualifier
 
 (** What may be written at a position of a document: after `m.`, what
     module m exports; elsewhere the names in scope there, the keywords

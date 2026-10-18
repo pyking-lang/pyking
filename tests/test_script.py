@@ -447,11 +447,24 @@ def executed(result, invocation):
 
 
 def compile_to(source, target, output, flags=()):
-    return run(
-        COMPILER + ["compile", "--target", target, "--output", output]
+    """Compiles source for target so that its main file is `output`, with
+    every other file beside it, as the runners expect. `pyk compile`
+    writes into build/ beside the executable it is asked for, so this
+    asks for one named after `output` with --no-build -- the runners
+    build with their own, stricter flags -- and moves build/'s files up."""
+    directory = os.path.dirname(output)
+    executable = os.path.join(directory, os.path.splitext(os.path.basename(output))[0])
+    compiled = run(
+        COMPILER + ["compile", "--target", target, "--no-build", "--output", executable]
         + list(flags)
         + [source]
     )
+    build = os.path.join(directory, "build")
+    if compiled.returncode == 0 and os.path.isdir(build):
+        for name in os.listdir(build):
+            shutil.move(os.path.join(build, name), os.path.join(directory, name))
+        os.rmdir(build)
+    return compiled
 
 
 # The Python backend builds a per-turn factory (`__pyk_turn1`) for a

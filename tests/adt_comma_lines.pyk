@@ -1,0 +1,24 @@
+# Constructors written several to a line, separated by commas: on the
+# datatype's own line, on the indented lines under it, or both.
+
+datatype Color: Green, Blue, Yellow, Black(num: Int)
+    Red
+    Gray(num: Int), White
+
+datatype Bit: Zero, One
+
+datatype Shape:
+    Circle(r: Float), Square(s: Float)
+    Dot
+
+def name(c: Color) -> String:
+    match c:
+        case Green: "green"
+        case Blue | Yellow: "blue or yellow"
+        case Black(n): "black " ++ string(n)
+        case Red: "red"
+        case Gray(num = n): "gray " ++ string(n)
+        case White: "white"
+
+print(name(Green), name(Black(3)), name(Gray(num = 7)), name(White), name(Yellow))
+print(One, Square(2.0), Dot)

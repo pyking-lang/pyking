@@ -119,7 +119,8 @@ restriction of it, but these are genuinely new.
   once in a fixed position, e.g. `case [first, ..rest]:` or
   `case [a, b, ..middle, z]:`.
 - **Datatypes**: `datatype Tree(a):` declares an algebraic data type,
-  one constructor per line, each with its fields -- positional, named,
+  its constructors on indented lines or after its `:`, several to a
+  line separated by commas, each with its fields -- positional, named,
   defaulted -- and a value is built by calling a constructor with the
   rules a call to a `def` follows (`Leaf(7, age = 100)`). Python's
   nearest is a class per constructor; a datatype is one type, its
@@ -258,7 +259,8 @@ Statements:
 Structure:
 
 - Left-to-right evaluation: an operator's operands and a call's
-  arguments run in the order they are written, and all of a call's
+  arguments run in the order they are written -- named arguments
+  included, whatever order the parameters are in -- and all of a call's
   arguments before the call (see "Evaluation order")
 - Indentation-based blocks, with a line continued while a bracket is
   open (see "Lines and continuation")
@@ -306,9 +308,13 @@ public_stmt = "public" , ( function_def | function_sig | datatype_stmt
 
 (* A datatype belongs to a module's top level. Its name and every
    constructor's start with an uppercase letter; its parameters are type
-   variables. One constructor per line. *)
+   variables. Its constructors follow the ':' on its own line, or on
+   indented lines under it, or both; a line holds one or more,
+   separated by commas. *)
 datatype_stmt = "datatype" , [ sub_path , "." ] , upper_ident , [ "(" , type_var , { "," , type_var } , ")" ] ,
-                ":" , INDENT , constructor , { constructor } , DEDENT ;
+                ":" , ( constructor_line , [ INDENT , { constructor_line } , DEDENT ]
+                      | INDENT , constructor_line , { constructor_line } , DEDENT ) ;
+constructor_line = constructor , { "," , constructor } ;
 constructor = upper_ident , [ "(" , [ field , { "," , field } ] , ")" ] ;
 (* A field is a type alone (positional only), or named; a named field's
    type may be left to a literal default. Unnamed fields come first, and
@@ -477,8 +483,8 @@ atom        = ( float | int | string | bool | ident | list_lit | list_comp
    no fields is written bare. *)
 construct   = [ sub_path , "." ] , upper_ident , [ call_tail ] ;
 field_tail  = "." , ident ;
-(* Every named argument comes after every positional one, and they are
-   written in the order the callee's parameters are declared. *)
+(* Every named argument comes after every positional one; the named
+   ones may be written in any order. *)
 call_tail   = "(" , [ call_args ] , ")" ;
 call_args   = expr , { "," , expr } , { "," , named_arg }
             | named_arg , { "," , named_arg } ;
@@ -806,8 +812,10 @@ Notes that don't fall out of the grammar alone:
 - A guard is any expression, read after the pattern and up to the
   `:`. It is asked only once its pattern has matched, and it sees the
   names the pattern binds.
-- A `datatype` is written at a module's top level only, one constructor
-  per line; inside a block it is a parse error. A field written
+- A `datatype` is written at a module's top level only; inside a block
+  it is a parse error. Two constructors on one line are separated by a
+  comma, and a line of them after the header's starts a line of its
+  own. A field written
   `name = default` with no type takes its default's type, so the
   default must be a literal there; any other default needs the type
   written, `name: Int = start()`.
@@ -1893,10 +1901,9 @@ Three rules:
 
 - **Every positional argument comes first.** A positional argument after
   a named one has no position left to mean.
-- **Names are written in the order the parameters are declared.**
-  `box(depth = 6, width = 4)` is refused. Nothing is therefore ever
-  reordered, and the arguments of a call still run left to right
-  whatever they are named (see "Evaluation order").
+- **Names may be written in any order.** `box(depth = 6, width = 4)`
+  is `box(4, 2, 6)`. The arguments still run in the order they are
+  written (see "Evaluation order"): the depth's before the width's.
 - **A parameter is filled once.** Naming one that a positional argument
   already filled is refused, as is naming the same one twice.
 
@@ -1918,7 +1925,28 @@ part of a function's type.
 
 An omitted argument is worth its default **in its own position**, so a
 default with an effect has that effect between the supplied arguments
-around it rather than before or after all of them.
+around it rather than before or after all of them -- where the names
+are written in the parameters' order. Where they are not, every
+argument written runs first, in the order written, and then the
+defaults of the parameters left out, in the parameters' order:
+
+```pyking
+def note(label: String, n: Int) -> Int:
+    print(label)
+    n
+
+def box(width: Int, height: Int = note("height", 1), depth: Int = 2) -> Int:
+    width * 100 + height * 10 + depth
+
+print(box(depth = note("depth", 6), width = note("width", 4)))
+```
+
+```
+depth
+width
+height
+416
+```
 
 ### Type annotations
 
@@ -2822,6 +2850,19 @@ a module, and every datatype of the module is in scope throughout it,
 so datatypes may name each other in any order, and one may name
 itself.
 
+Constructors may share a line, separated by commas, and the first line
+of them may follow the datatype's `:` directly; each further line of
+them is indented under it:
+
+```pyking
+datatype Color: Red, Green, Blue
+    Gray(level: Int), Black
+
+datatype Bit: Zero, One
+
+print(Gray(3), One)
+```
+
 A value prints as the constructor applied to its fields, every field by
 position, a string among them quoted: `Rect(2.0, 3.0)`.
 
@@ -2841,7 +2882,7 @@ print(Account("don", currency = "EUR"))
 
 A constructor is called with exactly the rules a `def` is (see "Default
 parameters" and "Named arguments"): positional arguments first, named
-ones in the order the fields are declared, every field without a default
+ones in any order, every field without a default
 given something, and a default evaluated at each construction that
 leaves it out, in the scope the datatype is declared in. The unnamed
 fields come first, and every field after one with a default has one

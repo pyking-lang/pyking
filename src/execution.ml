@@ -82,19 +82,15 @@ let plan_for target path modules arguments =
     { build = []; run = ([ "node"; path ] @ arguments); directory; note = None }
   else if List.mem (Targets.family_of target) [ Targets.Web; Targets.Iweb ] then
     (* A page of ES modules has to be *served*: a browser refuses a
-       module fetched over file://. So `--run` serves the output
-       directory with this executable's own server (`pyk serve`) and
-       leaves it running, which is what looking at the page needs -- and
-       prints the page's own address, since the server only says which
-       port it took. *)
+       module fetched over file://. So `--run` serves the page with this
+       executable's own server (`pyk serve`), which serves its directory
+       and prints the page's own address, and leaves it running, which
+       is what looking at the page needs. *)
     {
       build = [];
-      run = [ Sys.executable_name; "serve"; "--port"; web_port; directory ];
+      run = [ Sys.executable_name; "serve"; "--port"; web_port; path ];
       directory;
-      note =
-        Some
-          (Printf.sprintf "open http://localhost:%s/%s" web_port
-             (Filename.basename path));
+      note = None;
     }
   else if Targets.family_of target = Targets.C then
     (* Every translation unit of the program, the modules first: each is
@@ -188,10 +184,18 @@ let shell_quote word =
     the name is the program being run, since a bare name would be looked
     up on PATH. [string] -> string -> string *)
 let shown command directory =
+  let inside = directory ^ Filename.dir_sep in
   let word text first =
     if text = directory then "."
     else if (not (Filename.is_relative text)) && Filename.dirname text = directory
     then (if first then "./" else "") ^ Filename.basename text
+    else if
+      (not (Filename.is_relative text))
+      && String.length text > String.length inside
+      && String.sub text 0 (String.length inside) = inside
+    then
+      (if first then "./" else "")
+      ^ String.sub text (String.length inside) (String.length text - String.length inside)
     else text
   in
   String.concat " "
@@ -219,6 +223,128 @@ let run_command command directory =
           match snd (Unix.waitpid [] pid) with
           | Unix.WEXITED code -> code
           | Unix.WSIGNALED signal | Unix.WSTOPPED signal -> 128 + signal))
+
+(** Runs what builds what was compiled to path, each command printed
+    first, in the directory it was compiled into. Answers 0, or the
+    status of the step that failed. string -> string -> [string] -> int *)
+let build target path modules =
+  let plan = plan_for target path modules [] in
+  let rec go commands =
+    match commands with
+    | [] -> 0
+    | command :: rest ->
+        let status = run_command command plan.directory in
+        if status <> 0 then status else go rest
+  in
+  go plan.build
+
+(** Runs the program built from path, printed first, in `directory`,
+    passing it `arguments`. Answers its status.
+    string -> string -> [string] -> [string] -> string -> int *)
+let run target path modules arguments directory =
+  let plan = plan_for target path modules arguments in
+  (match plan.note with
+  | Some note -> Printf.eprintf "  %s\n%!" note
+  | None -> ());
+  run_command plan.run (Module.absolute directory)
+
+(** The shell line a launcher runs the program compiled to path with,
+    where the target builds no binary and is no page: its host, named by
+    the variable a shell may override, and the file it is handed, under
+    `here`. None for the other targets.
+    string -> string -> string -> string? *)
+let launcher target path here =
+  let relative = Filename.concat here (Filename.basename path) in
+  match Targets.family_of target with
+  | Targets.Python -> Some (Printf.sprintf "exec \"${PYTHON:-python3}\" \"%s\" \"$@\"" relative)
+  | Targets.Node -> Some (Printf.sprintf "exec \"${NODE:-node}\" \"%s\" \"$@\"" relative)
+  | Targets.Java ->
+      Some
+        (Printf.sprintf "exec \"${JAVA:-java}\" -cp \"%s\" %s \"$@\"" here
+           (Filename.remove_extension (Filename.basename path)))
+  | _ -> None
+
+(** A Makefile for the directory path was compiled into, saying with the
+    commands `--run` uses how to build the program (`make`), run it
+    (`make run`, with `ARGS`) and remove what `make` made (`make clean`).
+    Each tool is a variable the command line may set.
+    string -> string -> [string] -> string *)
+let makefile target path modules =
+  let plan = plan_for target path modules [] in
+  let directory = plan.directory in
+  let local word =
+    if word = directory then "."
+    else if (not (Filename.is_relative word)) && Module.dirname word = directory then
+      Filename.basename word
+    else word
+  in
+  let ocaml = ocaml_compiler () in
+  (* A command's tool as the variable naming it, and its other words as
+     a shell reads them. *)
+  let line command =
+    let tool, rest =
+      match command with
+      | first :: rest when first = c_compiler () -> ("$(CC)", rest)
+      | first :: rest when first = java_compiler () -> ("$(JAVAC)", rest)
+      | first :: rest when first = java_runtime () -> ("$(JAVA)", rest)
+      | "python3" :: rest -> ("$(PYTHON)", rest)
+      | "node" :: rest -> ("$(NODE)", rest)
+      | first :: rest when first = Sys.executable_name -> ("$(PYK)", rest)
+      | words
+        when List.length words >= List.length ocaml
+             && List.filteri (fun i _ -> i < List.length ocaml) words = ocaml ->
+          ("$(OCAMLOPT)", List.filteri (fun i _ -> i >= List.length ocaml) words)
+      | first :: rest -> ("./" ^ local first, rest)
+      | [] -> ("", [])
+    in
+    "\t" ^ String.concat " " (tool :: List.map (fun w -> shell_quote (local w)) rest)
+  in
+  let binary = Filename.remove_extension (Filename.basename path) in
+  let sources = List.map (fun p -> local (Module.absolute p)) (modules @ [ path ]) in
+  let built, product, clean =
+    match Targets.family_of target with
+    | Targets.C -> (true, binary, [ binary ])
+    | Targets.Ocaml -> (true, binary, [ binary; "*.cmi"; "*.cmx"; "*.o" ])
+    | Targets.Java -> (true, binary ^ ".class", [ "*.class" ])
+    | _ -> (false, "", [])
+  in
+  let recipes = List.map line plan.build @ [ line plan.run ] in
+  let tools =
+    List.filter
+      (fun (variable, _) ->
+        List.exists
+          (fun recipe ->
+            let needle = "$(" ^ variable ^ ")" in
+            let n = String.length needle in
+            let rec at i = i + n <= String.length recipe && (String.sub recipe i n = needle || at (i + 1)) in
+            at 0)
+          recipes)
+      [
+        ("CC", c_compiler ());
+        ("OCAMLOPT", String.concat " " ocaml);
+        ("JAVAC", java_compiler ());
+        ("JAVA", java_runtime ());
+        ("PYTHON", "python3");
+        ("NODE", "node");
+        ("PYK", shell_quote Sys.executable_name);
+      ]
+  in
+  String.concat "\n"
+    ([
+       Printf.sprintf "# Made by `pyk compile -t %s`: `make` builds the program, `make run`" target;
+       "# runs it (`make run ARGS='a b'` passes it arguments), and `make clean`";
+       "# removes what `make` made. The next `pyk compile` replaces this folder.";
+       "";
+     ]
+    @ List.map (fun (variable, value) -> variable ^ " ?= " ^ value) tools
+    @ [ ""; (if built then "all: " ^ product else "all:"); "" ]
+    @ (if built then
+         [ product ^ ": " ^ String.concat " " sources ]
+         @ List.map line plan.build @ [ "" ]
+       else [])
+    @ [ "run: all"; line plan.run ^ " $(ARGS)"; "" ]
+    @ [ "clean:"; (if clean = [] then "\t@true" else "\trm -f " ^ String.concat " " clean); "" ]
+    @ [ ".PHONY: all run clean"; "" ])
 
 (** Builds and runs what was compiled to path, printing each command
     before it runs. `modules` names the program's other files, in the

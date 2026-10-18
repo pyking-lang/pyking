@@ -867,3 +867,9 @@ nothing else.
 Passing the flags explicitly also matters for `-w +a`: OCaml 5 moved the
 `unix` directory, and a plain `ocamlopt` that finds it anyway does so
 through a deprecated auto-include whose alert would fail the suite.
+
+## Named arguments out of order
+
+A call whose named arguments are not in parameter order, with more than
+one that has an effect, reaches this backend as an `ELet`
+(`docs/desugar_args.md`), compiled as `let a = x () in let b = y () in f b a`.

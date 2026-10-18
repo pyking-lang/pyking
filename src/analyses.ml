@@ -518,6 +518,12 @@ let rec sym_expr counter e =
       let body, counter = sym_expr counter body in
       let s, counter = assign s counter in
       (ELambda (i, params, body, s), counter)
+  | ELet (i, bindings, body, s) ->
+      let names = List.map fst bindings in
+      let values, counter = map_fold sym_expr counter (List.map snd bindings) in
+      let body, counter = sym_expr counter body in
+      let s, counter = assign s counter in
+      (ELet (i, List.combine names values, body, s), counter)
   | EQualified (i, module_name, name, s) ->
       let s, counter = assign s counter in
       (EQualified (i, module_name, name, s), counter)
@@ -819,6 +825,8 @@ let rec high_expr e =
         max (high_expr e2) (high_list high_comp_clause clauses)
     | ELambda (_, params, body, _) ->
         max (high_list high_param params) (high_expr body)
+    | ELet (_, bindings, body, _) ->
+        max (high_list high_expr (List.map snd bindings)) (high_expr body)
     | EConstruct (_, _, _, args, _) -> high_list high_expr (arg_exprs args)
     | EField (_, record, _, _) -> high_expr record
   in

@@ -1,7 +1,0 @@
-# Named fields are written in the order they are declared, exactly as
-# named arguments are.
-
-datatype Box:
-    Box(width: Int, height: Int)
-
-b = Box(height = 2, width = 3)

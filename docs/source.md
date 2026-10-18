@@ -177,11 +177,14 @@ The groups:
 - **`Expr`** — `EInt`, `EString`, `EBool`, `EVar`, `EAdd`, `ESub`,
   `EMul`, `EDiv`, `ENeg`, `EConcat`, `ELessThan`, `ELessThanEq`,
   `EGreatThan`, `EGreatThanEq`, `EEq`, `ECall`, `EList`, `ETuple`,
-  `EIf`, `EListComp`, `ELambda`, `EConstruct`, `EField`. `ELambda`
+  `EIf`, `EListComp`, `ELambda`, `ELet`, `EConstruct`, `EField`. `ELambda`
   holds a `Param` list and one *expression*: a lambda's body is never a
   block. `EConstruct` is a constructor applied to its fields, with the
   module it is reached through where it is another's; `EField` reads a
-  named field.
+  named field. `ELet` binds names to values in order and is worth its
+  body; the parser never produces it -- `desugar_args.ml` does, for a
+  call whose named arguments are out of parameter order (see
+  `docs/desugar_args.md`).
 - **`LoopIter`** — `ForIn`, `WhileTest`. A loop's iteration clause;
   `None` for a bare `loop:`. `SFor` and `SWhile` no longer exist:
   `for x in e:` and `while c:` *are* `SLoop`, with no accumulator
@@ -1190,7 +1193,7 @@ three are design rather than accident:
   constructor's fields), `KField` (the value whose field is read),
   `KGuard` (a case's guard: true runs the body, false tries the cases
   after it), `KBranch` (an `if`
-  statement), `KChoose` (an `if` expression), `KDiscard`, `KStartLoop`,
+  statement), `KChoose` (an `if` expression), `KLet` (an `ELet`'s next binding), `KDiscard`, `KStartLoop`,
   `KSequence` (a `for`'s list), `KTest` (a `while`'s condition),
   `KIterate`, `KReturnTo`. Each holds `rest`, so
   the chain is a linked list — pushing and popping cost one allocation
@@ -1503,7 +1506,8 @@ Here the buffer is a list of lines: Up and Down move within the entry and,
 at its edges, step through the history of entries — so a function comes
 back whole and can be edited anywhere in it. Left and Right move through
 it a character at a time (across line boundaries), Tab inserts one level
-of indentation, Shift+Return finishes an entry without the blank line
+of indentation at the start of a line and completes the word before the
+cursor elsewhere (`Repl_session.completions`), Shift+Return finishes an entry without the blank line
 (where the terminal distinguishes it from Return — `named` reads both
 the `CSI u` and the older `modifyOtherKeys` encodings), Escape abandons
 what is being typed, Ctrl-C does the same, and Ctrl-D at an empty prompt
@@ -1960,6 +1964,17 @@ holds the state between messages. See
 - **`position` / `row_col`** -- the one conversion between
   `Lexer.info` (rows from 1, byte columns) and LSP positions (lines from
   0, UTF-16 columns).
+
+---
+
+## `completion.ml`
+
+**What completion needs whoever asks**: the word ending at a column and
+the module written before it with a `.` (`word_before`, `qualifier`),
+which names a pass made up (`hidden`), the candidates fitting a prefix
+(`matching`) and what they have in common (`common_prefix`). `lsp.ml`
+and `repl_session.ml` (`completions`) each work their candidates out
+and use these. See `docs/repl.md`, "Completion".
 
 ---
 

@@ -231,6 +231,19 @@ class Function:
 
 # --- the declarations, read ---
 
+# A host function the library publishes under another name than the one
+# tinyweb_external.pyk declares: the Pyking half gives `web_init` its
+# default and calls the host's `web_start`.
+PUBLISHED = {"web_start": "web_init"}
+
+
+def published(text):
+    """`text` with every host function named as the library publishes it.
+    String -> String"""
+    for host, name in PUBLISHED.items():
+        text = re.sub(r"\b(tinyweb_)?" + host + r"\b", lambda m: (m.group(1) or "") + name, text)
+    return text
+
 def _split(text):
     """Splits `text` at the commas not inside brackets. String -> [String]"""
     parts, depth, current = [], 0, ""
@@ -293,8 +306,9 @@ def functions():
         else:
             continue
         _, params, result = declared
-        found.append(Function(name, list(zip(names[name], params)), result,
-                              DESCRIPTIONS[name]))
+        shown = PUBLISHED.get(name, name)
+        found.append(Function(shown, list(zip(names[name], params)), result,
+                              DESCRIPTIONS[shown]))
     return found
 
 
@@ -493,18 +507,18 @@ def library_files(language):
     """The library as `language` publishes it: {file name: text}.
     Language -> {String: String}"""
     if language.slug == "python":
-        return {"tinyweb.py": (LIB / "tinyweb_external.py").read_text()}
+        return {"tinyweb.py": published((LIB / "tinyweb_external.py").read_text())}
     if language.slug == "javascript":
-        return {"tinyweb.js": (LIB / "tinyweb_external_node.js").read_text(),
+        return {"tinyweb.js": published((LIB / "tinyweb_external_node.js").read_text()),
                 "package.json": '{\n  "type": "module"\n}\n'}
     if language.slug == "ocaml":
-        return {"tinyweb.ml": (LIB / "tinyweb_external.ml").read_text(),
+        return {"tinyweb.ml": published((LIB / "tinyweb_external.ml").read_text()),
                 "tinyweb.mli": ocaml_interface()}
     if language.slug == "c":
-        return {"tinyweb.c": (LIB / "tinyweb_external.c").read_text(),
+        return {"tinyweb.c": published((LIB / "tinyweb_external.c").read_text()),
                 "tinyweb.h": c_header()}
     if language.slug == "java":
-        return {"Tinyweb.java": (LIB / "TinywebExternal.java").read_text()
+        return {"Tinyweb.java": published((LIB / "TinywebExternal.java").read_text())
                 .replace("TinywebExternal", "Tinyweb")}
     raise ValueError(language.slug)
 
@@ -537,12 +551,20 @@ def examples(compiler, language, directory):
         target.mkdir(parents=True, exist_ok=True)
         main = "Program.java" if language.slug == "java" else "program" + {
             "python": ".py", "javascript": ".js", "ocaml": ".ml", "c": ".c"}[language.slug]
-        ran = subprocess.run(compiler + ["compile", "-t", language.target, "-o",
-                                         str(target / main), str(source)],
+        # `pyk compile` writes into build/ beside the executable it is
+        # asked for, with a Makefile; the files are moved up, and the
+        # marker that lets the next compile replace build/ is left out.
+        ran = subprocess.run(compiler + ["compile", "-t", language.target, "--no-build", "-o",
+                                         str(target / "program"), str(source)],
                              capture_output=True, text=True)
         if ran.returncode != 0:
             raise SystemExit(f"website: {name} does not compile for {language.target}:\n"
                              + ran.stderr)
+        build = target / "build"
+        for path in build.iterdir():
+            if path.name != ".pyk-build":
+                shutil.move(str(path), str(target / path.name))
+        shutil.rmtree(build)
         shutil.rmtree(target / "tinyweb_assets", ignore_errors=True)
         out.append((name, target / main))
     return out

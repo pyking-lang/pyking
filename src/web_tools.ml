@@ -270,20 +270,27 @@ let help_site () =
 
 (** Serves a site, answering 0 when it was stopped. Web_server.site ->
     string -> int option -> [string] -> (int, string) result *)
-let serve site title port lines =
+let serve ?page site title port lines =
   let chosen = Option.value ~default:Web_server.default_port port in
-  Result.map (fun () -> 0) (Web_server.serve site title chosen (port <> None) lines)
+  Result.map (fun () -> 0) (Web_server.serve ?page site title chosen (port <> None) lines)
 
 let ( let* ) = Result.bind
 
 let start tool port mode path =
   match tool with
   | Files ->
-      let directory = Module.absolute (Option.value ~default:"." path) in
+      (* A file is served from its directory, and the link printed is
+         the file's own -- what `--run` on a page target prints. *)
+      let given = Module.absolute (Option.value ~default:"." path) in
+      let directory, page =
+        if Sys.file_exists given && not (Sys.is_directory given) then
+          (Module.dirname given, Filename.basename given)
+        else (given, "")
+      in
       if not (Sys.file_exists directory && Sys.is_directory directory) then
         Error (Printf.sprintf "pyk serve: no such directory: %s" (Option.value ~default:"." path))
       else
-        serve
+        serve ~page
           { mounts = [ ("/", directory) ]; files = []; answers = []; listing = true }
           directory port []
   | Playground ->

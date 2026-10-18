@@ -383,8 +383,12 @@ say where the elements made next go -- the page keeps the box it is
 adding to. `page_style(align = ...)` sets where the page's elements
 stand across it, and `set_style` takes a `weight` and a `height`.
 
-**Where the page is.** A program starts with `web_init(port)`, and what
-that does depends on where it runs:
+**Where the page is.** A program starts with `web_init(port)` -- `port`
+defaults to 0, so `web_init()` will do -- and what that does depends on
+where it runs. `web_init` is written in tinyweb's Pyking half, to give
+`port` its default, and calls the host's private `web_start`; the
+standalone libraries publish `web_start` as `web_init`
+(`tools/site/tinywebdoc.py`, `PUBLISHED`).
 
 | where the program runs | the page | `web_init(port)` |
 |---|---|---|

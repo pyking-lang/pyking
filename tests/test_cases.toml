@@ -1339,9 +1339,6 @@ file = "fail_typecheck_defaults_positional.pyk"
 file = "fail_typecheck_defaults_duplicate.pyk"
 
 [[cases]]
-file = "fail_typecheck_defaults_order.pyk"
-
-[[cases]]
 file = "fail_typecheck_defaults_unknown.pyk"
 
 [[cases]]
@@ -1732,9 +1729,6 @@ file = "fail_typecheck_adt_guard_type.pyk"
 file = "fail_typecheck_adt_in_block.pyk"
 
 [[cases]]
-file = "fail_typecheck_adt_named_order.pyk"
-
-[[cases]]
 file = "fail_typecheck_adt_nested.pyk"
 
 [[cases]]
@@ -1769,6 +1763,15 @@ file = "fail_typecheck_adt_wrong_datatype.pyk"
 # with no garbage collector, compiles as well as every other target.
 [[cases]]
 file = "adt_values.pyk"
+
+[[cases]]
+file = "named_args_any_order.pyk"
+
+[[cases]]
+file = "adt_comma_lines.pyk"
+
+[[cases]]
+file = "fail_typecheck_adt_comma_missing.pyk"
 
 [[cases]]
 file = "closure_downward.pyk"

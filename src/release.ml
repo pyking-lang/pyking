@@ -70,6 +70,8 @@ let rec expression tmap e =
     | ETuple (i, elements, s) -> ETuple (i, List.map go elements, s)
     | EIf (i, c, a, b, s) -> EIf (i, go c, go a, go b, s)
     | ELambda (i, params, body, s) -> ELambda (i, params, go body, s)
+    | ELet (i, bindings, body, s) ->
+        ELet (i, List.map (fun (n, v) -> (n, go v)) bindings, go body, s)
     | EConstruct (i, m, n, args, s) ->
         EConstruct (i, m, n, List.map (fun (name, a) -> (name, go a)) args, s)
     | EField (i, record, n, s) -> EField (i, go record, n, s)

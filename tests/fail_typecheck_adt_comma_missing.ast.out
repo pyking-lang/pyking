@@ -1,0 +1,3 @@
+'tests/fail_typecheck_adt_comma_missing.pyk' 7:9-7:12 Parsing error: a
+  line of constructors starts a line of its own; write a ',' between
+  two constructors on one line

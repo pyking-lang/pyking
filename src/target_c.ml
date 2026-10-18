@@ -1188,6 +1188,23 @@ and expr ctx st scope e =
       let accessor, st = field_accessor ctx st info rt name in
       (atom (Printf.sprintf "%s(%s)" accessor v.text), st)
   | ELambda (_, params, body, _) -> lambda ctx st scope e params body
+  | ELet (_, bindings, body, _) ->
+      (* Each value into a temporary, by the comma operator, in order;
+         the body then reads the temporaries. *)
+      let steps, inner, st =
+        List.fold_left
+          (fun (steps, inner, st) (name, value) ->
+            let v, st = expr ctx st scope value in
+            let t = type_of ctx scope value in
+            let ct, st = ctype ctx st info t in
+            let temp, st = fresh_temp st ct in
+            ( steps @ [ Printf.sprintf "%s = %s" temp (at p_assign v) ],
+              bind_value inner name { value = atom temp; kind = BLocal; btype = t; cname_ = temp },
+              st ))
+          ([], scope, st) bindings
+      in
+      let result, st = expr ctx st inner body in
+      (sequenced steps result, st)
 
 and escaping what =
   Printf.sprintf

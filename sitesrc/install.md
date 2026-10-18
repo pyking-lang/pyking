@@ -11,6 +11,7 @@ Compiling, interpreting and the REPL need nothing else.
 Install with [Homebrew](https://brew.sh):
 
 ```sh
+brew update
 brew install pyking-lang/tap/pyking
 ```
 
@@ -88,8 +89,8 @@ Then run it with the interpreter, or compile it and run the result:
 
 ```sh
 pyk hello.pyk                          # run it with the interpreter
-pyk compile -t python hello.pyk        # write hello.py
-pyk compile -t node --run hello.pyk    # compile to JavaScript and run it with node
+pyk hello.pyk -t node                  # compile to JavaScript and run it with node
+pyk compile -t c hello.pyk             # compile to C: build/hello.c, and the program ./hello
 ```
 
 To start from an example instead, list them and save one in the current

@@ -269,6 +269,12 @@ export class PykingRuntime {
     this._require();
     return this._send("repl", { action: "line", text });
   }
+  /** What Tab offers at column `col` of `line`: {start, items}, each
+   *  item {label, detail?} (Repl_session.completions). */
+  async replComplete(line, col) {
+    this._require();
+    return this._send("repl", { action: "complete", text: `${col}\n${line}` });
+  }
   async replSubmit(text, { onOutput, onShow, onDebug } = {}) {
     this._require();
     this.onOutput = onOutput || null;

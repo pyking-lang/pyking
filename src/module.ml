@@ -248,6 +248,17 @@ let disk = { exists = Sys.file_exists; contents = read_whole_file }
     failed import names it by. *)
 type lib_entry = { lib_directory : string; lib_origin : string }
 
+(** Whether a file is in one of the library directories: a module of a
+    library, rather than of the program. [lib_entry] -> string -> bool *)
+let in_library libs file =
+  let file = absolute file in
+  List.exists
+    (fun entry ->
+      let inside = absolute entry.lib_directory ^ Filename.dir_sep in
+      String.length file > String.length inside
+      && String.sub file 0 (String.length inside) = inside)
+    libs
+
 (** The folder one library occupies in a search-path directory: one per
     library, named after the module. string -> string -> string *)
 let library_directory directory name = join directory name

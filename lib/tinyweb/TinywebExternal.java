@@ -330,7 +330,7 @@ public final class TinywebExternal {
 
     // --- the functions tinyweb_external.pyk declares ---
 
-    public static void web_init(int port) {
+    public static void web_start(int port) {
         if (LOG != null || hub != null) {
             return;
         }

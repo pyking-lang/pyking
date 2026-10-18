@@ -1288,8 +1288,9 @@ The bootstrap is split into one module per compiler stage:
    nothing into the tree. The `tmap` is handed to `pprint_program`, so
    `-t pyking` prints inferred types rather than written
    ones. Every flag has a default: `--target` is `python`, and with no
-   `--stdout`/`--output` the program is compiled to a file named
-   from the source stem and the target's extension — except the Java
+   `--stdout` the program is compiled into `build/` beside the
+   executable `--output` names, by default the source stem, in files
+   named from that name and the target's extension — except the Java
    targets, where the driver instead calls
    `target_java.default_class_name(stem)`, since Java requires the file
    and its public class to match and the source's own spelling usually
@@ -1878,12 +1879,13 @@ maintainer; see `tools/packaging/README.md`.
 
 ```
 pyk [options] <filename> [-- args]   run it with the interpreter
+pyk <filename> -t <target> [-- args] build it in build/ and run it
 pyk repl                             start the REPL
 pyk compile [options] <filename>     compile it (alias: pyk c)
 pyk notebook [--port N] <file.md>    serve a notebook, print a link
 pyk playground [--port N]            serve the playground, print a link
 pyk pykhelp [--port N]               serve the help, print a link
-pyk serve [--port N] [<dir>]         serve a directory's files, print a link
+pyk serve [--port N] [<dir>|<file>]  serve a directory's files, print a link
 pyk plugins <dir>                    build the interpreter's library plugins
 pyk lsp [--stdio] [--log FILE]       the language server, for editors
 pyk example [<name>]                 list the examples, or save one here
@@ -1894,7 +1896,7 @@ options: [--tokens] [--symbols] [--no-tail-call-opt]
          [--tinyweb-log]
          [--target|-t <target>]
          [--lib-path|-L <dir>] (repeatable)
-         [--stdout | --output|-o <file>]
+         [--stdout | --output|-o <file>] [--no-build]
          [-- <the program's own arguments>]
 ```
 
@@ -1979,30 +1981,43 @@ suffix to what `-t pyking` prints. The other three select what
   `pyk.ml` sets `PYKING_TINYWEB_TRACE`, which `tinyweb_external.ml`
   reads. The playground's "tinyweb log" switch is the same log
   (`pykTinywebLog`). See `docs/libraries.md`, "Testing a page".
-- `--run` builds and runs what was compiled, with the commands that
+- `--run` runs what was compiled and built, with the commands that
   target's host uses (`src/execution.ml`), each printed before it runs
   on stderr. Cannot be combined with `--stdout`, which writes no file.
+  On `web24`/`iweb24` it runs `pyk serve` on the page, which prints a
+  link to the page itself.
 - `--stdout` compiles and prints the generated source: the program's own
   module, since what is written beside it exists only as files.
-- `--output <file>` compiles and writes to `<file>`. A single-file target
-  writes exactly that path. The JavaScript targets write more beside it:
-  one `.js` per module, `pyk-runtime.js`, and `package.json`
-  (`{"type": "module"}`, which is what lets them all be plain `.js`). An
-  existing `package.json` is never overwritten — it belongs to the
-  surrounding project.
+- Everything generated goes into **`build/`**, beside the executable,
+  with a `Makefile` (`make`, `make run`, `make clean`); `pyk compile`
+  then builds it with the target's tools and puts the executable
+  beside `build/`: the binary for C and OCaml, a launcher script for
+  Python, Node and Java, nothing for a page. A `build/` an earlier
+  compile made holds `.pyk-build` and is replaced; any other is
+  refused. `pyk <file> -t <target>` builds the same way and runs the
+  program from `build/`, putting nothing beside it. `--no-build`
+  writes `build/` and builds nothing -- what the test harness and the
+  website's examples use, since they build with their own flags. See
+  `docs/pyk.md`, "`build/`".
+- `--output <file>` names the executable, and `build/` goes beside it:
+  `-o out/hi` writes `out/hi` and `out/build/hi.ml`. The JavaScript
+  targets write more in `build/`: one `.js` per module,
+  `pyk-runtime.js`, and `package.json` (`{"type": "module"}`, which is
+  what lets them all be plain `.js`). `-t pyking` is the exception: it
+  writes its one file where `--output` says, as before.
 - A module the program imports is written beside the program's own
   output, under its own name and the target's extension -- which is also
   what the generated import in that output names it by. C and OCaml
   write a companion beside each (`helper.h`, `helper.mli`).
-- With neither of the two above, the compiler names the file: the source's own stem
-  plus the target's extension (`extensions` in `pyk.ml`, fed by each
-  backend), in the *current* directory — `-t node24 tests/hello.pyk`
-  writes `./hello.js`. Writing over the input, or into a directory that
-  doesn't exist, is a usage error rather than a traceback, checked per
-  file since the JavaScript targets write several. The Java targets are the exception: the
-  default name is Java-cased instead of the source's own stem, since Java
-  requires the file and its public class to match exactly — `-t java21
-  tests/foo_bar.pyk` writes `./FooBar.java`, not `./foo_bar.java`.
+- With no `--output`, the executable is the source's own stem, in the
+  *current* directory, and the generated file is that stem plus the
+  target's extension (`extensions` in `pyk.ml`, fed by each backend) —
+  `-t node24 tests/hello.pyk` writes `./build/hello.js` and `./hello`.
+  Writing over the input, or into a directory that doesn't exist, is a
+  usage error rather than a traceback. The Java targets are the
+  exception: the generated file is Java-cased instead of the source's
+  own stem, since Java requires the file and its public class to match
+  exactly — `-t java21 tests/foo_bar.pyk` writes `build/FooBar.java`.
 
 **Every target has a version, and every family an unversioned alias for
 its latest.** `src/targets.ml` is the one place any of them is named --
@@ -2185,7 +2200,10 @@ when changing anything about what the prompt prints. It takes
 the other two and both covering what a (program, target) pair cannot
 express. `test_libpath.py` is about the *invocation*: the order of `-L`
 flags, `$PYKING_LIB_PATH`, a name that resolves in two places at once,
-and the wording of a failure. Each case builds a throwaway tree of tiny
+and the wording of a failure -- and where `pyk compile` writes
+(`build_cases`): `build/` and what goes beside it, its Makefile, an
+earlier one replaced and anyone else's refused, `pyk <file> -t <target>`
+and `pyk serve` on a page. Each case builds a throwaway tree of tiny
 libraries, each exporting a `tag()` naming itself, and runs the program
 -- so what is printed says which library was found. See
 `docs/libraries.md`.

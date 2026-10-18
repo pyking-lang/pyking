@@ -2877,6 +2877,15 @@ and expr_type e env store =
       let element_type, store = check_expr element inner store in
       (t_list info element_type, store)
   | ELambda (info, params, body, _) -> check_lambda info params body env store
+  | ELet (_, bindings, body, _) ->
+      let inner, store =
+        List.fold_left
+          (fun (inner, store) (name, value) ->
+            let type_, store = check_expr value env store in
+            (bind inner name type_, store))
+          (env, store) bindings
+      in
+      check_expr body inner store
   | EConstruct (info, module_, name, args, _) ->
       (* A constructor is applied to every one of its fields -- the sugar
          has filled in the defaults and put the named ones in place --

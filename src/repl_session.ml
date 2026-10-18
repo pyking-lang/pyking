@@ -21,6 +21,7 @@
       accept session stmts report source -- submit, reporting a refusal.
       bindings session -- what the session has bound.
       run_meta session line report -- runs a meta-command.
+      completions session line col -- what may be typed at col.
       undefined_name error -- the name an "unbound name" error is about. *)
 
 open Lexer
@@ -501,7 +502,9 @@ let submit session stmts report source =
             let after = Interpreter.eval_in state stmt in
             match Interpreter.failure after with
             | Some error ->
-                report error;
+                (* An error in a library's own code is reported where the
+                   entry called into the library. *)
+                report (fst (Interpreter.outside_libraries (Module.in_library session.libs) after error));
                 ({ session with state }, None)
             | None ->
                 let session =
@@ -792,6 +795,47 @@ let run_meta ?(extra = []) session line report =
       session.host.write (Printf.sprintf "unknown command '%s'; :help lists them" word);
       plain session
   | Some command -> command session argument report
+
+(** What may be typed where the cursor is: where the word being typed
+    starts, and every name that fits it with its type -- after `m.`, what
+    the module the session imported as `m` exports; at the start of a
+    line beginning `:`, the meta-commands; elsewhere what the session has
+    bound, the modules it imported, the builtins and the keywords. Every
+    command a terminal has is offered when `terminal` says so.
+    bool? -> session -> string -> int -> (int, [(string, string?)]) *)
+let completions ?(terminal = false) session line col =
+  let start, prefix, module_ = Completion.word_before line col in
+  let shown t = Syntax.pprint_type Syntax.default_config t in
+  let imported =
+    List.filter_map
+      (fun s -> match s with SImport (_, real, alias, false, _, _) -> Some (alias, real) | _ -> None)
+      session.written
+  in
+  let candidates =
+    match module_ with
+    | Some m -> (
+        match List.assoc_opt m imported with
+        | None -> []
+        | Some real -> (
+            match List.assoc_opt real session.sigmaps with
+            | None -> []
+            | Some sigmap -> List.map (fun (name, t, _) -> (name, Some (shown t))) sigmap))
+    | None when String.length prefix > 0 && prefix.[0] = ':' && String.trim (String.sub line 0 start) = "" ->
+        List.filter_map
+          (fun (usage, what, terminal_only) ->
+            if terminal_only && not terminal then None
+            else
+              let word = match String.index_opt usage ' ' with Some i -> String.sub usage 0 i | None -> usage in
+              let word = match String.index_opt word ',' with Some i -> String.sub word 0 i | None -> word in
+              Some (word, Some what))
+          command_help
+    | None ->
+        List.map (fun (name, t) -> (name, Some (shown t))) (binding_types session)
+        @ List.map (fun (alias, real) -> (alias, Some ("module " ^ real))) imported
+        @ List.map (fun name -> (name, Some "builtin")) Builtin.names
+        @ List.map (fun k -> (k, None)) Lexer.keywords
+  in
+  (start, Completion.matching prefix candidates)
 
 (* What the front end says when a name resolves to nothing. Read here
    rather than re-derived: the wording is analyses.ml's, in one place,

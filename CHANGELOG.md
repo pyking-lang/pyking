@@ -10,6 +10,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Tab completes in the REPL, `pyk repl` and the playground's REPL tab
+  alike: one name that fits is completed, several as far as they agree,
+  and otherwise they are listed with their types -- what the session
+  has bound, the modules it imported (`math.` offers what `math`
+  exports), the builtins, the keywords, and the meta-commands after a
+  `:`. Tab at the start of a line still indents.
+- `pyk <file> -t <target>` compiles the program for that target, builds
+  it in `build/` and runs it from there.
+- A datatype's constructors may share a line, separated by commas, and
+  the first of them may follow the datatype's `:`: `datatype Color:
+  Red, Green, Blue`.
+- `tinyweb.web_init()`: the port defaults to 0, any free one.
+- The playground's Compiled code tab has a Download button: the compiled
+  files, each library's implementation and the assets the program names,
+  with a Makefile (`make`, `make run`, `make clean`), as one .zip.
+- `pyk serve <file>` serves the file's directory and prints a link to
+  the file itself.
+
 - A `math` library, on every target: `sin`, `cos`, `tan`, `asin`,
   `acos`, `atan` and `atan2` in degrees, each with a `_rad` twin in
   radians, and `radians`/`degrees`; `sinh`, `cosh`, `tanh`, `exp`,
@@ -104,6 +122,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Named arguments may be written in any order: `box(depth = 6, width =
+  4)`. They are evaluated in the order written, then the defaults of the
+  parameters left out.
+- `pyk compile` writes everything it generates into `build/`, with a
+  Makefile (`make`, `make run`, `make clean`), builds it with the
+  target's own tools, and puts only the executable beside `build/` --
+  the binary for C and OCaml, a launcher script for Python, Node and
+  Java, nothing for a page. `--output` names the executable. A `build/`
+  an earlier compile made is replaced, and any other refused.
+  `--no-build` writes `build/` and builds nothing. `-t pyking` writes
+  its one file as before.
+- `--run` on `web24` and `iweb24` prints a link straight to the page.
+- The install instructions run `brew update` before `brew install
+  pyking-lang/tap/pyking`.
+
 - Every name a program binds -- with `=`, `var` or `def`, a parameter, a
   loop variable, a pattern or an import alias -- starts with a lowercase
   letter or `_`; an uppercase name is always a type or a constructor, so
@@ -133,6 +166,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the targets that turn a pass off.
 
 ### Fixed
+
+- On a phone, the website's header shows the five sections as a second
+  row; before, they were hidden and only the current section's pages
+  were reachable.
+- In the playground, compiling a program that imports `math` for
+  `node24` or `web24` exported its overloaded names unrenamed
+  (`int::abs`), and an `iweb24` page of a program importing anything
+  but `io` printed nothing.
 
 - In the browser, a NaN or an infinity answered by a module implemented
   in JavaScript reached the interpreter as `()`, and -0.0 as 0.0.

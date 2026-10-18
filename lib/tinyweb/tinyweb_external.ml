@@ -32,9 +32,16 @@ let events_file = Stdlib.Sys.getenv_opt "PYKING_TINYWEB_EVENTS"
 (* Set by the interpreter's plugin, which runs `after_program` itself. *)
 let hosted = ref false
 
-(* Where a library sample is looked for, after beside the program. *)
+(* Where a library sample is looked for, after beside the program: beside
+   the executable, and in the build/ beside it, where `pyk compile` leaves
+   the assets when it puts the executable outside. *)
 let assets =
-  ref [ Filename.concat (Filename.dirname Stdlib.Sys.executable_name) "tinyweb_assets" ]
+  let here = Filename.dirname Stdlib.Sys.executable_name in
+  ref
+    [
+      Filename.concat here "tinyweb_assets";
+      Filename.concat (Filename.concat here "build") "tinyweb_assets";
+    ]
 
 (* BEGIN tinyweb page *)
 (* written by tools/tinyweb/embed_page.py from tinyweb_page.html and tinyweb_page.js; do not edit *)
@@ -1942,7 +1949,7 @@ and send command =
 
 (* --- the functions tinyweb_external.pyk declares --- *)
 
-let web_init port =
+let web_start port =
   if log_file = None && !listener = None then (
     if port < 0 || port > 65535 then
       refuse

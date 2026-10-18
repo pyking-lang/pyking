@@ -4,7 +4,7 @@
 // compiler's worker: an error is underlined, a hover shows a type,
 // completion offers a name, go to definition moves the cursor, the
 // outline answers; and that compiling and running still work. Then the
-// right-hand tabs, the REPL (entries, the environment, Copy from editor,
+// right-hand tabs, the REPL (entries, Tab completion, the environment, Copy from editor,
 // Stop), the light and dark themes, and a link holding a program (Copy
 // code as link, then the link opened in the same tab). It serves nothing:
 // tests/test_lsp.py starts `pyk playground` and runs this against it.
@@ -73,6 +73,18 @@ const PAGE = `(async () => { ${HELPERS}
     app.right.getModel().getLanguageId());
   check("highlighted", await until(() => new Set($$("[data-r=rightEditor] .view-lines span span")
       .map((s) => s.className)).size >= 2), "one token class");
+
+  const offered = [];
+  const made = URL.createObjectURL;
+  URL.createObjectURL = (blob) => { offered.push(blob); return made.call(URL, blob); };
+  $("[data-r=download]").click();
+  check("Download offers a zip", await until(() => offered.length > 0, 20000), "nothing offered");
+  URL.createObjectURL = made;
+  const zipped = offered[0] ? new Uint8Array(await offered[0].arrayBuffer()) : new Uint8Array();
+  const listing = new TextDecoder().decode(zipped);
+  check("holding the program and a Makefile", zipped[0] === 0x50 && zipped[1] === 0x4b
+    && listing.includes("playground-python14/playground.py")
+    && listing.includes("playground-python14/Makefile"), listing.slice(0, 200));
 
   $("[data-r=runLeft]").click();
   const ran = await until(() => /finished/.test(output()), 30000);
@@ -185,6 +197,29 @@ const REPL = `(async () => { ${HELPERS}
   await enter(":ls");
   check(":ls answers", /x\\s+= 21 : Int/.test(log()), log());
 
+  const tab = async (text) => {
+    input.value = text;
+    input.setSelectionRange(text.length, text.length);
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
+    await sleep(500);
+  };
+  await tab("dou");
+  check("Tab completes the one name that fits", input.value === "double", JSON.stringify(input.value));
+  input.value = "";
+  await enter("delta = 1");
+  await tab("d");
+  check("Tab with several that fit lists them, each with its type",
+    shown("replComplete") && $("[data-r=replComplete]").textContent.includes("delta")
+    && $("[data-r=replComplete]").textContent.includes("(Int) -> Int"),
+    $("[data-r=replComplete]").textContent);
+  $$("[data-r=replComplete] .item").find((row) => row.textContent.startsWith("delta"))
+    ?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+  check("and clicking one puts it in", input.value === "delta" && !shown("replComplete"),
+    JSON.stringify(input.value));
+  await tab("    ");
+  check("Tab at the start of a line indents", input.value === "        ", JSON.stringify(input.value));
+  input.value = "";
+
   app.left.setSelection(new monaco.Range(1, 1, 1, 1));
   $("[data-r=replCopy]").click();
   check("Copy from editor with nothing marked says to mark something",
@@ -208,7 +243,10 @@ const REPL = `(async () => { ${HELPERS}
     && log().includes("session starts again") && rows().join() === "no bindings yet", 30000),
     rows());
   await enter("z = 5");
-  check("and the new session works", rows().join("|") === "z 5 Int", rows());
+  // An entry made while the session is still starting again waits for
+  // it, so its bindings arrive once the new worker has loaded.
+  check("and the new session works", await until(() => rows().join("|") === "z 5 Int", 30000),
+    JSON.stringify([rows(), input.value]));
   return checks;
 })()`;
 

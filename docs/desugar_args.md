@@ -103,39 +103,52 @@ placement is the rule. `tests/typecheck_defaults_scope.pyk` pins it,
 including the nested case where the default reads an enclosing
 function's parameter.
 
-## Named arguments are written in parameter order
+## Named arguments in any order
 
 ```pyking
-box(width = 4, depth = 6)      # fine
-box(depth = 6, width = 4)      # refused
+box(width = 4, depth = 6)      # in parameter order
+box(depth = 6, width = 4)      # in any other
 ```
 
-The restriction is what removes an entire subsystem. Without it, a call
-whose names are out of order has to preserve the source order of its
-argument expressions, which means temporaries:
+Both become a positional call, `box(4, box__default__height(), 6)`. What
+differs is evaluation order: Pyking evaluates the arguments as written
+-- the depth's before the width's -- and then the defaults of the
+parameters left out, in parameter order. A call whose names are already
+in parameter order keeps the old rule, a default evaluated in its own
+position, so no existing program changes meaning.
 
-```pyking
-supplied_c = first()
-supplied_a = second()
-foo(supplied_a, default_b, supplied_c)
+Putting the arguments in position therefore needs nothing when the
+names are in order. When they are not, the pass looks at each slot's
+expression (`pure`): a literal, a name, a lambda, or a tuple, list,
+constructor or field of those cannot be seen to run, so it may move.
+If at most one slot is impure, moving the others changes nothing either,
+and the call is simply reordered. Otherwise each impure slot is bound,
+in evaluation order, by an `ELet` around the call:
+
+```
+ELet([named__arg__10_18 = note("depth", 6);
+      named__arg__10_44 = note("width", 4);
+      named__arg__10_6_1 = box__default__height()],
+     box(named__arg__10_44, named__arg__10_6_1, named__arg__10_18))
 ```
 
-Temporaries are statements, and a call is not always in statement
-position. There is no way to hoist one out of a `while` condition, an
-`if`-expression branch or a comprehension body without changing when it
-runs, so the rule would need a three-tier policy — reorder freely when
-every argument is call-free, hoist temporaries when the call is a
-statement, refuse otherwise — and the third tier means a program stops
-compiling as soon as its call is nested one level deeper.
+`ELet` is an expression node the parser never produces. Its names are
+`named__arg__<row>_<col>` from the argument's position (a default's adds
+the parameter's index), so two in one function never clash -- C and Java
+declare them as the function's own locals. Every stage handles it:
 
-With the order fixed, nothing is ever reordered. Arguments run left to
-right in parameter order, which is what they already did, and a call
-means the same thing wherever it is written.
+| stage | `ELet` |
+|---|---|
+| `typesystem.ml` | each value checked in the call's scope, the body with the names bound |
+| `interpreter.ml` | `KLet`, one value at a time |
+| Python, JavaScript | the call of a lambda taking the names (`let_as_call`), since both evaluate a call's arguments left to right |
+| OCaml | `let ... in`, nested |
+| C | each value into a temporary with the comma operator |
+| Java | `PykRuntime.<A, R>let(value, name -> rest)`, nested; a `var` the body mentions lives in a cell |
+| `-t pyking` | the body printed with each name replaced by its value: the call in parameter order |
 
-A default fills its own positional slot, so its side effects fall
-*between* the supplied arguments around it rather than before or after
-all of them. That follows from the same rule and is stated in
-PYKING.md.
+A tail call whose arguments were reordered is inside an `ELet`, which
+`opt_tailcall.ml` does not look into, so it stays a call.
 
 ## An implicit parameter may be left out
 

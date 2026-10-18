@@ -421,3 +421,32 @@ real `pending` value directly. A command that "only reports" (`:ls`,
 `:type`) and a command that "changes the session" (`:load`, `:reset`)
 end up looking identical to the loop — both just return a session — and
 the asymmetry is confined to the one command that actually needs it.
+
+## Completion
+
+Tab completes the word before the cursor, in `pyk repl` and in the
+playground's REPL tab alike: `Repl_session.completions session line col`
+answers where the word starts and every name that fits, each with its
+type. After `m.` it offers what the module the session imported as `m`
+exports (`session.sigmaps`, found through the imports in
+`session.written`); at the start of a line beginning `:`, the
+meta-commands, those only a terminal has only there; elsewhere what the
+session has bound, the modules it imported, the builtins and the
+keywords. What a pass made up -- a default's helper, an overload's
+plain name -- is never offered.
+
+The pieces the language server's completion uses too are in
+`src/completion.ml`: the word before the cursor and its `m.`
+(`word_before`), which names are hidden, filtering by prefix, and the
+common prefix of the candidates. Each caller works its candidates out
+from what it knows -- `lsp.ml` from a checked document, the session from
+its environments -- so the REPL does not run the language server.
+
+What a Tab does is the same in both front ends. Where only spaces are
+before the cursor it indents, as it always did. Otherwise one fitting
+name is completed outright; several are completed as far as they agree;
+and where they agree no further they are listed -- below the entry in
+the terminal (the editor then draws the entry again), in a list under
+the prompt in the page, where clicking one puts it in. The page asks the
+worker through `pykReplComplete`.
+

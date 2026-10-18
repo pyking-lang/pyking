@@ -348,11 +348,28 @@ let position parameters name =
   in
   at 0 parameters
 
+(** `body` with each binding of `lets` evaluated before it, in order.
+    info -> [(String, expr)] -> expr -> expr *)
+let let_around info lets body =
+  if lets = [] then body else ELet (info, lets, body, 0)
+
+(** Whether evaluating an expression can be seen: anything but a
+    literal, a name, a lambda, or a tuple, list, constructor or field of
+    those. expr -> bool *)
+let rec pure e =
+  match e with
+  | EInt _ | EFloat _ | EString _ | EBool _ | EVar _ | EQualified _ | ELambda _ -> true
+  | ETuple (_, es, _) | EList (_, es, _) -> List.for_all pure es
+  | EConstruct (_, _, _, args, _) -> List.for_all (fun (_, a) -> pure a) args
+  | ENeg (_, o, _) -> pure o
+  | EField (_, r, _, _) -> pure r
+  | _ -> false
+
 (** The full positional argument list one call supplies, filling every
     omitted parameter with a call to its default. Answers None where the
     call says nothing the sugar has to act on, so it is left as written.
     info -> String -> meta -> (String -> expr) -> [(String?, expr)] ->
-    [expr]? *)
+    ([(String, expr)], [expr])? *)
 let ordered ?(field = false) info shown meta reach args =
   let word = if field then "field" else "parameter" in
   let parameters = meta.parameters in
@@ -404,15 +421,22 @@ let ordered ?(field = false) info shown meta reach args =
               else (at, e))
         named
     in
-    let rec increasing = function
-      | (a, _) :: ((b, second) :: _ as rest) ->
-          if a >= b then
-            refuse (expr_info second)
-              "named arguments must be written in parameter order"
-          else increasing rest
-      | _ -> ()
+    let rec repeated = function
+      | (a, _) :: rest -> (
+          match List.find_opt (fun (b, _) -> a = b) rest with
+          | Some (_, second) ->
+              refuse (expr_info second)
+                (Printf.sprintf "'%s' is given twice in this call"
+                   (List.nth parameters a).name)
+          | None -> repeated rest)
+      | [] -> ()
     in
-    increasing places;
+    repeated places;
+    let rec increasing = function
+      | (a, _) :: ((b, _) :: _ as rest) -> a < b && increasing rest
+      | _ -> true
+    in
+    let in_order = increasing places in
     let supplied = List.map snd positional in
     let filled =
       List.mapi
@@ -444,7 +468,44 @@ let ordered ?(field = false) info shown meta reach args =
         in
         refuse info
           (Printf.sprintf "'%s' needs an argument for %s" shown missing)
-    else Some (List.map Option.get filled)
+    else
+      let filled = List.map Option.get filled in
+      if in_order then Some ([], filled)
+      else
+        (* Named arguments out of parameter order are evaluated as
+           written, before the defaults of the parameters left out. *)
+        let rank at =
+          if at < given then at
+          else
+            match List.find_index (fun (p, _) -> p = at) places with
+            | Some k -> given + k
+            | None -> given + List.length places + at
+        in
+        let impure =
+          List.filteri (fun at _ -> not (pure (List.nth filled at))) filled
+        in
+        if List.length impure <= 1 then Some ([], filled)
+        else
+          let name at =
+            let i = expr_info (List.nth filled at) in
+            if List.mem_assoc at places || at < given then
+              Printf.sprintf "named__arg__%d_%d" i.row1 i.col1
+            else Printf.sprintf "named__arg__%d_%d_%d" info.row1 info.col1 at
+          in
+          let bound =
+            List.mapi (fun at e -> (at, e)) filled
+            |> List.filter (fun (_, e) -> not (pure e))
+            |> List.map (fun (at, e) -> (rank at, (name at, e)))
+            |> List.sort (fun (a, _) (b, _) -> compare a b)
+            |> List.map snd
+          in
+          let filled =
+            List.mapi
+              (fun at e ->
+                if pure e then e else EVar (expr_info e, name at, 0))
+              filled
+          in
+          Some (bound, filled)
 
 (** The names an import brings into the module that wrote it, and what
     each one means. signatures -> stmt -> scope -> scope *)
@@ -527,7 +588,8 @@ let rec expression signatures scope e =
               if List.exists (fun (n, _) -> n <> None) args then
                 EConstruct (i, module_, name, args, s)
               else EConstruct (i, module_, name, labelled meta (arg_exprs args), s)
-          | Some filled -> EConstruct (i, module_, name, labelled meta filled, s)))
+          | Some (lets, filled) ->
+              let_around i lets (EConstruct (i, module_, name, labelled meta filled, s))))
   | EAdd (i, l, r, s) -> EAdd (i, go l, go r, s)
   | ESub (i, l, r, s) -> ESub (i, go l, go r, s)
   | EMul (i, l, r, s) -> EMul (i, go l, go r, s)
@@ -551,6 +613,8 @@ let rec expression signatures scope e =
           scope params
       in
       ELambda (i, params, expression signatures scope body, s)
+  | ELet (i, bindings, body, s) ->
+      ELet (i, List.map (fun (n, v) -> (n, go v)) bindings, go body, s)
   | EListComp (i, element, clauses, s) ->
       (* A comprehension binds its patterns' names over the element and
          the clauses after it, so nothing in there is a definition. *)
@@ -609,7 +673,7 @@ let rec expression signatures scope e =
       | Some (meta, reach) -> (
           match ordered i (shown callee) meta reach args with
           | None -> ECall (i, callee, plain_args (arg_exprs args), s)
-          | Some filled -> ECall (i, callee, plain_args filled, s)))
+          | Some (lets, filled) -> let_around i lets (ECall (i, callee, plain_args filled, s))))
 
 (** A pattern with every constructor pattern's fields in position: the
     positional ones first, then each named one where its field is, and
@@ -720,7 +784,7 @@ and overloaded info shown candidates args build =
     | [ (name, meta, reach, true) ] -> (
         match ordered info name meta reach args with
         | None -> build (plain_args (arg_exprs args))
-        | Some filled -> build (plain_args filled))
+        | Some (lets, filled) -> let_around info lets (build (plain_args filled)))
     | _ -> build args
 
 (** Rewrites one block: its definitions are visible throughout it, and

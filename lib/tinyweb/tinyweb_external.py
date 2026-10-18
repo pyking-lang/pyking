@@ -205,7 +205,7 @@ def _fresh(name):
 
 # --- the functions tinyweb_external.pyk declares ---
 
-def web_init(port):
+def web_start(port):
     global _hub
     if _LOG is not None or _hub is not None:
         return

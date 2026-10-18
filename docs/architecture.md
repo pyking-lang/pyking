@@ -141,6 +141,7 @@ repl`) rather than a `--target`.
 | `src/version.ml` | The version, generated from the root's `VERSION` file by `src/dune`; `pyk --version` prints it. |
 | `src/web_tools.ml` | `pyk notebook`, `pyk playground` and `pyk serve`: what each serves, from the tree beside the executable. |
 | `src/web_server.ml` | A small HTTP/1.1 server on 127.0.0.1, in the `pyk` process, which `web_tools.ml` serves each tool with. See [build.md](build.md), "The web tools". |
+| `src/completion.ml` | What completion needs whoever asks: the word before the cursor and its `m.`, which names are hidden, the candidates fitting a prefix and their common prefix. `lsp.ml` and `repl_session.ml` share it. |
 | `src/lsp.ml` | The language server: one message in, the messages to send out; checks a document as a program with the stages above and reads hover, definition, outline and completion out of them. In the library, so the browser bundle serves it too. See [../design/lsp.md](../design/lsp.md). |
 | `src/json.ml` | JSON read and written, for the language server. |
 | `src/examples.ml` | The examples `pyk example` lists and saves and the playground offers, read from `src/examples.toml`. |
@@ -448,7 +449,7 @@ State = (control, env, kont, stack, runtime, loops)
 
 control   CEval(expr) | CStmt(stmt) | CApply(value) | CDone(v) | CFailed(e)
 kont      a linked chain of continuations: KSeq, KBind, KBinaryLeft,
-          KBinaryRight, KCallee, KArgument, KElement, KBranch, KChoose,
+          KBinaryRight, KCallee, KArgument, KElement, KBranch, KChoose, KLet,
           KDiscard, KStartLoop, KSequence, KTest, KIterate, KReturnTo
 stack     Pyking's own call stack: Frame(name, info, kont, env, parent,
           depth, loops)
@@ -552,26 +553,29 @@ file that loads the program, and nothing else.
 
 ### Naming the output
 
-With no `--output`, the compiler names the file itself: the source file's
-own name, the target's extension, in the directory the command was run
-from. `pyk compile -t node tests/hello.pyk` writes `./hello.js`, and
-`-t python` would have written `./hello.py`.
+Everything the compiler generates goes into a directory `build/`, made
+afresh each time, with a `Makefile`; the compiler builds it and puts the
+executable beside `build/` -- the source file's own name, in the
+directory the command was run from, or what `--output` names (see
+[pyk.md](pyk.md), "`build/`"). `pyk compile -t node tests/hello.pyk`
+writes `build/hello.js` and a launcher `./hello`, and `-t python` would
+have written `build/hello.py`.
 
 The Java targets are the one exception: Java requires the file holding a
 `public` class to share that class's name exactly, so the source's own
 spelling would not do. `pyk compile -t java tests/foo_bar.pyk` writes
-`./FooBar.java`, holding `public final class FooBar` — see "Naming the
+`build/FooBar.java`, holding `public final class FooBar` — see "Naming the
 class" in [target_java.md](target_java.md#naming-the-class) for the exact
 rule and what an explicit `--output` does instead.
 
-`--output` overrides that, and the JavaScript targets write more than
-the file it names: `pyk compile -t web -o out/prog.html` writes
+The JavaScript targets write more than the program's own file:
+`pyk compile -t web -o out/prog` writes
 
 ```
-out/prog.html       the page that loads the program
-out/prog.js         the program
-out/helper.js       one file per module it imports
-out/pyk-runtime.js  `print`, and the value formatting every module shares
+out/build/prog.html       the page that loads the program
+out/build/prog.js         the program
+out/build/helper.js       one file per module it imports
+out/build/pyk-runtime.js  `print`, and the value formatting every module shares
 ```
 
 `node` writes one more, `package.json` (`{ "type": "module" }`), which
@@ -596,7 +600,8 @@ since the files beside it exist only as files.
 
 A `web24` or `iweb24` page has to be **served**: a browser refuses a
 module fetched over `file://`, and both load one. `--run` starts
-`pyk serve` in the output directory for that reason.
+`pyk serve` on the page for that reason, which serves its directory and
+prints a link to the page itself.
 
 ## Command line
 
@@ -631,9 +636,11 @@ runs.
 
 The flags are shared by every command rather than being per-command, so
 `--tokens` and `--symbols` mean the same thing wherever they are
-written. `--target`/`-t`, `--output`/`-o`, `--stdout` and `--run` only
-affect `pyk compile`, which with none of them writes a file the compiler
-names (see "Naming the output" above). `--release` is accepted by `pyk
+written. `--output`/`-o`, `--stdout` and `--run` only affect `pyk
+compile`, which with none of them builds into `build/` and puts the
+executable beside it (see "Naming the output" above); `--target`/`-t`
+with `pyk <file>` builds the same way and runs the program from
+`build/`. `--release` is accepted by `pyk
 compile` alone, and removes every call to `debug`
 ([release.md](release.md)).
 

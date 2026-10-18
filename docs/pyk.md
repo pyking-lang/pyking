@@ -283,19 +283,54 @@ it imports export -- is handed one value for all of it,
 one module gets a `Context` saying so, which is what keeps a single-file
 program's output byte-for-byte what it was before there were modules.
 
+## `build/`: where `pyk compile` writes, and what it leaves beside it
+
+`pyk compile foo.pyk -t ocaml` writes every file it generates into a
+directory `build/`, and leaves one thing beside it: the executable,
+`./foo` -- or the name `-o` gives, `-o out/hi` putting `out/hi` beside
+`out/build/`. The generated files inside are named as they always were,
+after the executable's name (`build/hi.ml`, `build/Hi.java`), and the
+program's modules, runtimes and libraries' implementations and assets
+sit beside them.
+
+- `build/` is made afresh each time. One an earlier `pyk compile` made
+  holds `.pyk-build` (`build_marker`), and is removed first
+  (`remove_tree`, which never follows a link); any other `build/` is
+  refused rather than removed, since it is somebody's own.
+- `build/Makefile` (`Execution.makefile`) says the same commands `--run`
+  uses: `make` builds, `make run` runs (`ARGS` passes arguments), `make
+  clean` removes what `make` made. Each tool is a variable (`CC`,
+  `OCAMLOPT`, `JAVAC`, `JAVA`, `PYTHON`, `NODE`, `PYK`).
+- `pyk compile` then builds it with the target's own tools
+  (`Execution.build`) and puts the executable in place
+  (`place_executable`): the binary itself for C and OCaml; for Python,
+  Node and Java a launcher, a shell script running what is in `build/`
+  (`Execution.launcher`); nothing for a page, whose files are all in
+  `build/`.
+- `--run` then runs it, in the directory the executable is in, as
+  before. `pyk <file> -t <target>` is the same with nothing put beside
+  `build/`: built there, and run from there.
+- `--no-build` writes `build/` and its Makefile and builds nothing --
+  for the test harness and the website's examples, which build with
+  their own flags.
+- `--stdout` writes nothing, and `-t pyking` writes its one file where
+  `-o` says, as it always did: the Pyking it prints is a view of the
+  program rather than something to build.
+
+A library's assets are copied into `build/`, so tinyweb's C and OCaml
+implementations, which look beside where the program runs and beside the
+executable, look in the `build/` there too.
+
 ## Running what was compiled: `--run` and `src/execution.ml`
 
 `--run` compiles for the selected target and then builds and runs the
 result the way a user would by hand. What each target needs to do that
 is that target's own knowledge — `node prog.js`, but `cc -std=c89 -o
 prog prog.c` *and then* `prog` — so it lives in `src/execution.ml`, not
-here. The driver's whole part is one line at the end of
-`command_compile`:
-
-```ocaml
-if options.run then
-  Execution.execute target (Option.get output_path) module_outputs
-```
+here. The driver's part is three calls at the end of
+`command_compile`: `Execution.makefile`, written into `build/`;
+`Execution.build`, run there; and, for `--run`, `Execution.run`, in the
+directory the executable is in.
 
 `plan_for(target, path, modules)` answers with a `Plan`: the build
 commands (each of which must succeed), the command that is the program
@@ -318,8 +353,10 @@ same variables `tests/test_script.py` reads, so a machine set up to run
 the suite is set up to run this.
 
 Two targets are runnable in a way the others are not, and both are the
-table's business rather than a special case here. `web` is a page, so
-running it means handing it to `xdg-open` (`open` on macOS). `pyking`
+table's business rather than a special case here. `web` and `iweb` are
+pages, so running one means serving it: `pyk serve` handed the page
+itself, which serves its directory and prints a link straight to the
+page. `pyking`
 compiles Pyking to Pyking, so running it means handing it back to this
 compiler: this very executable, run on the generated source, which is
 the interpreter.
@@ -329,6 +366,16 @@ because it is a statement about the *arguments*: `--stdout` writes no
 file, so there is nothing for `--run` to run.
 
 ## `pyk <file>`: the interpreter, and the plugins it loads first
+
+A runtime error raised in a library's own code -- a file under one of
+the library directories (`Module.in_library`) -- is reported where the
+program called into the library, the trace going on from there
+(`Interpreter.outside_libraries`); the REPL does the same with an
+entry's error.
+
+With `-t <target>`, `pyk <file>` runs the program on that target
+instead: compiled into `build/`, built and run from there -- `pyk
+compile --run` with nothing put beside `build/` (see "`build/`").
 
 `command_interpret` loads the plugin of every module the program reaches
 with a declaration half (`Plugin_host.load`, which refuses one with no

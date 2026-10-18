@@ -236,7 +236,7 @@ function run(message) {
 // one as an entry first imports it, kept for the rest of the session.
 let replModules = null;
 
-/** One request of the REPL: "start", "line" or "submit" (see above).
+/** One request of the REPL: "start", "line", "complete" or "submit" (see above).
  *  An entry importing tinyweb is refused here: its page is the Run's. */
 function repl({ action, text = "" }) {
   if (typeof self.pykReplStart !== "function") {
@@ -247,6 +247,7 @@ function repl({ action, text = "" }) {
     return JSON.parse(self.pykReplStart());
   }
   if (action === "line") return JSON.parse(self.pykReplLine(text));
+  if (action === "complete") return JSON.parse(self.pykReplComplete(text));
   if (replModules === null) replModules = own({ stdin: "", args: [] });
   const needed = JSON.parse(self.pykReplImports(text))
     .filter((name) => !(name in replModules));

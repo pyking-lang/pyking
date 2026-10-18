@@ -345,7 +345,7 @@ let run site listener =
   in
   loop []
 
-let serve site title port explicit lines =
+let serve ?(page = "") site title port explicit lines =
   match listen port explicit with
   | Error message -> Error message
   | Ok (listener, port) -> (
@@ -354,7 +354,7 @@ let serve site title port explicit lines =
       Sys.catch_break true;
       print_newline ();
       Printf.printf "  %s is being served.\n\n" title;
-      Printf.printf "      http://localhost:%d/\n\n" port;
+      Printf.printf "      http://localhost:%d/%s\n\n" port page;
       List.iter (fun line -> Printf.printf "  %s\n" line) lines;
       print_string
         "  Open that link in a browser (ctrl/cmd-click it in most\n\

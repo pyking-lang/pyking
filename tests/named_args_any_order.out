@@ -1,0 +1,37 @@
+written out of order:
+  depth
+  width
+  height default
+4x1x6
+nothing to evaluate:
+5x3x2
+a positional one first:
+  width
+  depth
+  height
+1x8x7
+  count
+shown 2
+  second
+  first
+(1, 2)
+  inner b
+  inner a
+  outer depth
+  height default
+9x1x32
+  b0
+  a
+  b1
+  a
+  b2
+  a
+13
+  b0
+  acc
+  b1
+  acc
+1
+  h
+  w
+Size(3, 2)

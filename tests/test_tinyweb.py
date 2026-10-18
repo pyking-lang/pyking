@@ -444,9 +444,9 @@ def served_command(compiler, stem, target, workdir):
     source = str(stem.with_suffix(".pyk"))
     if target == "interpret":
         return compiler + [source]
-    extension = SERVED_TARGETS[target]
-    name = "Program" if extension == ".java" else "program"
-    output = os.path.join(workdir, name + extension)
+    # `pyk compile` writes into build/ beside the executable it is asked
+    # for, and --run runs it from there.
+    output = os.path.join(workdir, "program")
     return compiler + ["compile", "-t", target, "-o", output, "--run", source]
 
 
@@ -529,7 +529,7 @@ def check_default_output(compiler, target):
             return (ran.stderr or ran.stdout).strip()
         wanted = sorted(p.name for p in (LIB / "tinyweb_assets").iterdir()
                         if p.is_file() and not p.name.startswith("."))
-        found = Path(workdir) / "tinyweb_assets"
+        found = Path(workdir) / "build" / "tinyweb_assets"
         got = sorted(p.name for p in found.iterdir()) if found.is_dir() else []
         return None if got == wanted else f"tinyweb_assets/ holds {got}, expected {wanted}"
 
@@ -597,6 +597,22 @@ DRIVER = HERE / "tinyweb" / "drive.mjs"
 NODE = ["node", "--no-experimental-detect-module"]
 
 
+def page_compiled(compiler, target, directory, stem):
+    """Compiles `stem.pyk` for a page target so that `directory` holds
+    program.html and everything beside it: `pyk compile` writes into
+    build/ beside the name it is given, whose files are moved up.
+    -> CompletedProcess"""
+    ran = subprocess.run(compiler + ["compile", "-t", target, "-o", str(directory / "program"),
+                                     str(stem.with_suffix(".pyk"))],
+                         capture_output=True, text=True, timeout=TIMEOUT)
+    build = directory / "build"
+    if ran.returncode == 0 and build.is_dir():
+        for path in build.iterdir():
+            shutil.move(str(path), str(directory / path.name))
+        build.rmdir()
+    return ran
+
+
 def builds(compiler, stem, workdir):
     """The program compiled for web24 twice, into two directories: once
     as the target builds it, with tinyweb_external_browser.js drawing
@@ -605,9 +621,7 @@ def builds(compiler, stem, workdir):
     -> ((Path, Path)?, String?)"""
     direct, commands = Path(workdir) / "direct", Path(workdir) / "commands"
     direct.mkdir()
-    ran = subprocess.run(compiler + ["compile", "-t", "web24", "-o", str(direct / "program.html"),
-                                     str(stem.with_suffix(".pyk"))],
-                         capture_output=True, text=True, timeout=TIMEOUT)
+    ran = page_compiled(compiler, "web24", direct, stem)
     if ran.returncode != 0:
         return None, ran.stderr
     shutil.copytree(direct, commands)
@@ -682,10 +696,7 @@ def check_chromium(compiler, chromium, case):
             return problem
         interpreted = Path(workdir) / "interpreted"
         interpreted.mkdir()
-        ran = subprocess.run(compiler + ["compile", "-t", "iweb24", "-o",
-                                         str(interpreted / "program.html"),
-                                         str(stem.with_suffix(".pyk"))],
-                             capture_output=True, text=True, timeout=TIMEOUT)
+        ran = page_compiled(compiler, "iweb24", interpreted, stem)
         if ran.returncode != 0:
             return ran.stderr
         pages = list(built) + [interpreted]

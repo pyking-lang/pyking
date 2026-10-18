@@ -2175,7 +2175,8 @@ let parse_constructor eof tokens =
               letter, with its fields in parentheses where it has any" ))
 
 (** Parses a datatype declaration from just after `datatype`: its name,
-    its parameters, and one constructor per indented line.
+    its parameters, and its constructors: comma-separated on the header's
+    line, on indented lines, or both.
     info -> info -> [token] -> (stmt, [token]) *)
 let parse_datatype eof datatype_info tokens =
   let name_info, name, rest =
@@ -2219,46 +2220,75 @@ let parse_datatype eof datatype_info tokens =
         vars rest []
     | _ -> ([], rest)
   in
+  (* One line of constructors, separated by commas; the line before it,
+     if any, ended where `collected` starts. *)
+  let constructor_line rest collected =
+    let add c collected =
+      let (Constructor (ci, cname, _, _)) = c in
+      if List.exists (fun (Constructor (_, n, _, _)) -> n = cname) collected then
+        raise
+          (Parse_error
+             (ci, Printf.sprintf "'%s' is already a constructor of '%s'" cname name));
+      c :: collected
+    in
+    let first, rest = parse_constructor eof rest in
+    let (Constructor (ci, _, _, _)) = first in
+    (match collected with
+    | Constructor (pi, _, _, _) :: _ when pi.row2 >= ci.row1 ->
+        raise
+          (Parse_error
+             ( ci,
+               "a line of constructors starts a line of its own; write a ',' \
+                between two constructors on one line" ))
+    | _ -> ());
+    let rec more rest collected =
+      match rest with
+      | TokComma _ :: rest ->
+          let c, rest = parse_constructor eof rest in
+          more rest (add c collected)
+      | _ -> (collected, rest)
+    in
+    more rest (add first collected)
+  in
+  let rec indented rest collected =
+    match rest with
+    | TokDedent _ :: rest -> (collected, rest)
+    | _ ->
+        let collected, rest = constructor_line rest collected in
+        indented rest collected
+  in
+  let finish collected rest =
+    let constructors = List.rev collected in
+    let (Constructor (last, _, _, _)) = List.hd collected in
+    ( SDatatype
+        (combine_info datatype_info last, name, params, constructors, 0, false),
+      rest )
+  in
   match rest with
   | TokColon _ :: TokIndent _ :: rest ->
-      let rec constructors rest collected =
-        match rest with
-        | TokDedent _ :: rest -> (List.rev collected, rest)
-        | _ ->
-            let c, rest = parse_constructor eof rest in
-            let (Constructor (ci, cname, _, _)) = c in
-            (match collected with
-            | Constructor (pi, _, _, _) :: _ when pi.row2 >= ci.row1 ->
-                raise
-                  (Parse_error
-                     (ci, "each constructor starts a line of its own"))
-            | _ -> ());
-            if List.exists (fun (Constructor (_, n, _, _)) -> n = cname) collected
-            then
-              raise
-                (Parse_error
-                   ( ci,
-                     Printf.sprintf "'%s' is already a constructor of '%s'"
-                       cname name ));
-            constructors rest (c :: collected)
-      in
-      let constructors, rest = constructors rest [] in
-      let (Constructor (last, _, _, _)) =
-        List.nth constructors (List.length constructors - 1)
-      in
-      ( SDatatype
-          (combine_info datatype_info last, name, params, constructors, 0, false),
-        rest )
+      let collected, rest = indented rest [] in
+      finish collected rest
+  | TokColon c :: (TokIdent (i, _) :: _ as rest) when i.row1 = c.row2 -> (
+      (* Constructors on the header's own line, and perhaps more on the
+         indented lines under it. *)
+      let collected, rest = constructor_line rest [] in
+      match rest with
+      | TokIndent _ :: rest ->
+          let collected, rest = indented rest collected in
+          finish collected rest
+      | _ -> finish collected rest)
   | [ TokColon c ] ->
       raise
         (Parse_error
            ( c,
              "unexpected end of input: a datatype's constructors follow it, \
-              one per indented line" ))
+              on its line or on indented lines" ))
   | TokColon c :: _ ->
       raise
         (Parse_error
-           (c, "a datatype's constructors are written one per line, indented under it"))
+           ( c,
+             "a datatype's constructors are written after its ':', or on \
+              indented lines under it" ))
   | _ -> raise (Parse_error (here eof rest, "expected ':' after the datatype's name"))
 
 (** One statement with `public` written in front of it. stmt -> info ->

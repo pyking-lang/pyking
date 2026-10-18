@@ -3,7 +3,7 @@
 # bold, and a canvas stretched to another size.
 import tinyweb as tw
 
-tw.web_init(0)
+tw.web_init()
 tw.page_style(align = "center")
 title = tw.label("Layout")
 tw.set_style(title, size = 28, weight = 700)

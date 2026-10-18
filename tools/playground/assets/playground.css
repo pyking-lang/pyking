@@ -341,6 +341,17 @@
   caret-color: var(--pyk-accent);
 }
 .pyk-repl-input:disabled { opacity: .5; }
+.pyk-repl-complete {
+  margin: 4px 0 0 2ch; max-height: 12em; overflow: auto;
+  border: 1px solid var(--pyk-edge); border-radius: 4px;
+  background: var(--pyk-sunken); width: max-content; max-width: 100%;
+}
+.pyk-repl-complete .item {
+  display: flex; gap: 2ch; padding: 1px 8px; cursor: pointer; white-space: pre;
+}
+.pyk-repl-complete .item:hover { background: var(--pyk-control); }
+.pyk-repl-complete .label { color: var(--pyk-repl-entry); }
+.pyk-repl-complete .detail { color: var(--pyk-repl-type); }
 .pyk-env-wrap {
   flex: none; height: var(--pyk-out-split, 34%); min-height: 0;
   display: flex; flex-direction: column;

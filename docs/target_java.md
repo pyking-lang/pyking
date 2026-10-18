@@ -279,3 +279,9 @@ of a program importing `sys` sets: only `main` is given them.
   shadowed inside.
 - **`int` is 32 bits.** Overflow wraps, which Pyking leaves undefined.
 - **No optimisation**: javac and the JIT do that work.
+
+## Named arguments out of order
+
+A call whose named arguments are not in parameter order, with more than
+one that has an effect, reaches this backend as an `ELet`
+(`docs/desugar_args.md`), compiled as `PykRuntime.<A, R>let(x(), a -> PykRuntime.<B, R>let(y(), b -> f(b, a)))`: each value is evaluated before the lambda holding the rest runs. A `var` mentioned inside lives in a cell, as for any lambda (`captured_vars`).

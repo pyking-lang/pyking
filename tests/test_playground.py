@@ -10,7 +10,11 @@ already writes to `build/pyking.js`, and the example list comes from
 `tools/playground/playground.py` itself, so the suite and the page cannot
 disagree about what is offered. The REPL the page's REPL tab runs is
 driven here too: entries, what they print and show, the environment, the
-refusals, `:edit`, an import and `:reset`.
+refusals, `:edit`, an import and `:reset`. So is the Compiled code
+tab's Download (tools/playground/assets/download.js): each case in
+DOWNLOADS is compiled by the bundle and packed as the page packs it, the
+zip is read back by Python's zipfile, and a case that runs is unpacked
+and built and run with its own Makefile (tests/playground/download.mjs).
 
 What it does not cover is the page: mounting, the editor, the worker
 boundary and the sandboxed iframe are what
@@ -25,6 +29,7 @@ Functions:
     run_driver(bundle, plan) -- one node process over the bundle.
     parity_pairs(compiler) -- what `pyk compile` makes of every case.
     run_parity(bundle, pairs) -- the same cases compiled by the bundle.
+    check_downloads(bundle) -- the Download of every case in DOWNLOADS.
     main(argv) -- the command-line entry point.
 """
 
@@ -92,7 +97,7 @@ progress("the bundle is loaded; its entry points");
 for (const name of ["pykCompile", "pykRun", "pykRunProgram", "pykAnalyze",
                     "pykTargets", "pykFormatHelper", "pykKeywords",
                     "pykBuiltins", "pykReplStart", "pykReplLine",
-                    "pykReplImports", "pykReplSubmit"]) {
+                    "pykReplImports", "pykReplSubmit", "pykReplComplete"]) {
   check("entry point " + name, typeof globalThis[name] === "function",
         "not registered on the global object");
 }
@@ -229,6 +234,26 @@ replCheck(":edit puts the definition back", answer.pending === "def f(n):\n    n
 answer = submit(":ls");
 replCheck(":ls shows what the environment holds", shown.join("|") === "x = 20 : Int|f = <function> : (Int) -> Int",
           JSON.stringify(shown));
+const offered = (col, line) => JSON.parse(pykReplComplete(col + "\n" + line));
+let complete = offered(1, "f");
+replCheck("Tab offers what is bound, with its type, a keyword and a builtin",
+          complete.start === 0 && JSON.stringify(complete.items.map((i) => i.label))
+            === JSON.stringify(["f", "false", "float", "for", "from"])
+          && complete.items[0].detail === "(Int) -> Int", JSON.stringify(complete));
+complete = offered(6, "y = x + ");
+replCheck("Tab where nothing has been typed offers everything",
+          complete.start === 6 && complete.items.some((i) => i.label === "x"), JSON.stringify(complete).slice(0, 200));
+complete = offered(2, ":e");
+replCheck("Tab at the start offers the commands a page has",
+          complete.items.length === 1 && complete.items[0].label === ":edit", JSON.stringify(complete));
+complete = offered(2, ":l");
+replCheck("and not one only a terminal has", complete.items.some((i) => i.label === ":ls")
+          && !complete.items.some((i) => i.label === ":load"), JSON.stringify(complete));
+answer = submit("import math");
+complete = offered(9, "math.flo");
+replCheck("Tab after an imported module's name offers what it exports",
+          complete.start === 5 && complete.items.some((i) => i.label === "floor")
+          && complete.items.every((i) => i.label.startsWith("flo")), JSON.stringify(complete));
 answer = submit(":help");
 replCheck(":help leaves out what only a terminal has",
           shown.join("\n").includes(":reset") && !shown.join("\n").includes(":load"),
@@ -447,6 +472,52 @@ def run_parity(bundle, pairs):
         shutil.rmtree(directory, ignore_errors=True)
 
 
+# The Download's cases: a program, a target, and either `run` -- the
+# unpacked zip's `make run` prints the program's .out -- or `holds`, files
+# the zip must hold.
+DOWNLOAD_DRIVER = HERE / "playground" / "download.mjs"
+DOWNLOAD_RUNS = ["python14", "node24", "c89", "c23", "java21", "ocaml5.5"]
+DOWNLOADS = (
+    [{"program": "tests/lib_math_basic.pyk", "target": t, "run": True}
+     for t in DOWNLOAD_RUNS]
+    + [{"program": "tests/lib_random_basic.pyk", "target": t, "run": True}
+       for t in DOWNLOAD_RUNS]
+    + [{"program": "tests/lib_tinyweb_image.pyk", "target": t, "run": True,
+        "events": "tests/lib_tinyweb_image.events"} for t in DOWNLOAD_RUNS]
+    + [{"program": "tests/lib_tinyweb_image.pyk", "target": "web24",
+        "holds": ["playground.html", "playground.js", "tinyweb.js",
+                  "tinyweb_external.js", "io_external.js", "pyk-runtime.js",
+                  "tinyweb_assets/ball.png", "tinyweb_assets/star.png", "Makefile"]},
+       {"program": "tests/lib_tinyweb_image.pyk", "target": "iweb24",
+        "holds": ["playground.html", "playground.pyk", "pyking.js", "tinyweb.pyk",
+                  "tinyweb_external.pyk", "tinyweb_external.js", "io_external.js",
+                  "tinyweb_page.js", "tinyweb_assets/ball.png", "Makefile"]}])
+
+
+def check_downloads(bundle):
+    """The Download of every case in DOWNLOADS: (checks passed, failures).
+    Path -> (Int, [String])"""
+    directory = tempfile.mkdtemp(prefix="pyk-download-")
+    try:
+        listed = Path(directory) / "cases.json"
+        listed.write_text(json.dumps(DOWNLOADS))
+        try:
+            result = suite.run_with_progress(
+                NODE + [str(DOWNLOAD_DRIVER), str(bundle), str(REPO / "lib"), str(listed)],
+                "the Download", STEP_TIMEOUT, cwd=REPO)
+        except subprocess.TimeoutExpired:
+            return 0, [f"download: timed out after {STEP_TIMEOUT} seconds"]
+        if result.returncode != 0 or not result.stdout.strip():
+            detail = (result.stderr or result.stdout or "no output").strip()
+            return 0, [f"download: the driver did not finish: {detail.splitlines()[-1]}"]
+        answer = json.loads(result.stdout.strip().splitlines()[-1])
+        return answer["checks"], answer["failures"]
+    finally:
+        import shutil
+
+        shutil.rmtree(directory, ignore_errors=True)
+
+
 def parse_args(argv):
     """`--bundle FILE` or the default. [String] -> Path"""
     if argv[:1] == ["--bundle"]:
@@ -480,6 +551,10 @@ def main(argv):
     parity = parity_pairs([str(REPO / "pyk")], prepared["targets"])
     print(f"playground: compiling the same {len(parity)} in the bundle.", flush=True)
     mismatches = run_parity(bundle, parity)
+    print(f"playground: packing and building {len(DOWNLOADS)} downloads.", flush=True)
+    downloaded, download_failures = check_downloads(bundle)
+    for failure in download_failures:
+        print(f"playground: FAILED download: {failure}")
     for mismatch in mismatches:
         print(f"playground: FAILED {mismatch}")
     for problem in listed:
@@ -496,11 +571,13 @@ def main(argv):
     print(f"playground: the REPL, {repl} checks.")
     print(f"playground: {len(parity)} compilations compared with pyk's, "
           f"{len(mismatches)} differ.")
-    failed = len(failures) + len(listed) + len(mismatches)
+    print(f"playground: {downloaded} of {len(DOWNLOADS)} downloads packed, "
+          "unpacked and built.")
+    failed = len(failures) + len(listed) + len(mismatches) + len(download_failures)
     suite.footer(
         "playground",
         checks + pairs + len(parity) - len(failures) - len(mismatches)
-        - (1 if listed else 0),
+        - (1 if listed else 0) + downloaded,
         failed,
         f"{len(prepared['examples'])} examples, "
         f"{len(prepared['targets'])} targets")

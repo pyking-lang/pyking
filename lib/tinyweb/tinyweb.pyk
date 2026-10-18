@@ -137,6 +137,26 @@ def float_points_text(points: [(Float, Float)]) -> String:
     joined([floats2(x, y) for (x, y) in points])
 
 
+## Starts the program's page. Run as `pyk program.pyk` or compiled, it
+## serves the page on `port` and prints the address to open; in a browser,
+## the notebook or the playground the page is already there and it does
+## nothing. Call it before any other tinyweb function.
+##
+## # Parameters
+## - `port`: the port to serve on; 0, the default, picks any free one.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init()
+## tw.label("The page is ready.")
+## ```
+## ```stdout
+## ```
+public def web_init(port: Int = 0) -> ():
+    web_start(port)
+
+
 ## Draws a circle on the canvas `c`: filled, outlined, or both.
 ##
 ## # Parameters

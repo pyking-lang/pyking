@@ -515,6 +515,10 @@ let rec translate_expr e scope =
       (* Every field with a name is a property of the value by that
          name, whichever constructor built it. *)
       JsMember (info, translate_expr record scope, name)
+  | ELet (info, bindings, body, s) ->
+      (* JavaScript evaluates a call's arguments left to right: the arrow
+         function's call is the binding. *)
+      translate_expr (let_as_call info bindings body s) scope
   | ELambda (info, params, body, _) ->
       (* An arrow function, whose parameters are its own scope -- the
          one place JavaScript needs no renaming at all. *)

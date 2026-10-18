@@ -703,6 +703,13 @@ let captured_vars body =
               StringSet.union found (mentioned b)
           | Walk.NExpr (ELambda (_, _, b, _)) ->
               StringSet.union found (mentioned [ SExprStmt (no_info, b, 0) ])
+          | Walk.NExpr (ELet (_, bindings, b, _)) ->
+              (* Each value after the first, and the body, is inside a
+                 lambda (`let`). *)
+              List.fold_left
+                (fun found v -> StringSet.union found (mentioned [ SExprStmt (no_info, v, 0) ]))
+                (StringSet.union found (mentioned [ SExprStmt (no_info, b, 0) ]))
+                (match bindings with _ :: rest -> List.map snd rest | [] -> [])
           | Walk.NExpr (EListComp (_, b, clauses, _)) ->
               let found = StringSet.union found (mentioned [ SExprStmt (no_info, b, 0) ]) in
               List.fold_left
@@ -723,7 +730,8 @@ let writes_closure stmts =
   Walk.exists_stmts
     (fun node ->
       match node with
-      | Walk.NStmt (SFunctionDef _) | Walk.NExpr (ELambda _) | Walk.NExpr (EListComp _) -> true
+      | Walk.NStmt (SFunctionDef _) | Walk.NExpr (ELambda _) | Walk.NExpr (EListComp _)
+      | Walk.NExpr (ELet _) -> true
       | _ -> false)
     stmts
 
@@ -1042,6 +1050,26 @@ let rec expr ctx st scope e =
       let v, st = expr ctx st scope record in
       (atom ~boxed:true (Printf.sprintf "%s.%s()" (at p_atom v) (field_name (Some name) 0)), st)
   | ELambda (_, params, body, _) -> lambda ctx st scope e params body
+  | ELet (_, bindings, body, _) ->
+      (* `PykRuntime.let(value, name -> rest)`, nested: each value is
+         evaluated before the lambda holding the rest runs. *)
+      let rec nest st inner bindings =
+        match bindings with
+        | [] -> expr ctx st inner body
+        | (name, value) :: rest ->
+            let v, st = expr ctx st inner value in
+            let jname, st = fresh st name in
+            let inner =
+              bind_value inner name
+                { value = atom ~boxed:true jname; kind = BLocal; btype = type_of ctx scope value; jname_ = jname }
+            in
+            let r, st = nest st inner rest in
+            let types =
+              jt ctx ~boxed:true (type_of ctx scope value) ^ ", " ^ jt ctx ~boxed:true (type_of ctx scope body)
+            in
+            (atom (Printf.sprintf "%s.<%s>let(%s, %s -> %s)" runtime_class types v.text jname r.text), st)
+      in
+      nest st scope bindings
   | EListComp (_, element, clauses, _) -> comprehension ctx st scope e element clauses
 
 and exprs ctx st scope es =
@@ -2747,6 +2775,10 @@ let runtime_source programs version =
         "    @SafeVarargs";
         "    public static <T> T[] cell(T... value) {";
         "        return value;";
+        "    }";
+        "";
+        "    public static <A, R> R let(A value, java.util.function.Function<A, R> body) {";
+        "        return body.apply(value);";
         "    }";
         "";
         "    public static <T> java.util.List<T> empty() {";
