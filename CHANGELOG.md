@@ -104,6 +104,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Every name a program binds -- with `=`, `var` or `def`, a parameter, a
+  loop variable, a pattern or an import alias -- starts with a lowercase
+  letter or `_`; an uppercase name is always a type or a constructor, so
+  `PI = 3.14` is now refused and written `pi = 3.14`.
+- The time library's format constants are `time.iso8601_format`,
+  `time.date_format`, `time.time_format`, `time.datetime_format` and
+  `time.compact_format` (were `ISO8601`, `DATE`, `TIME`, `DATETIME` and
+  `COMPACT`).
 - A `var` may hold a value of any type -- a String, a tuple, a list, a
   datatype's value or a function -- not only an Int, a Float or a Bool.
 - tinyweb names a canvas, button, label, slider and sample by a String

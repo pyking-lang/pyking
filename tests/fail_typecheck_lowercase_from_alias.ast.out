@@ -1,0 +1,3 @@
+'tests/fail_typecheck_lowercase_from_alias.pyk' 7:38-7:43 Parsing
+  error: 'round' cannot be the alias of 'Circle': a type or a
+  constructor is known by a name starting with an uppercase letter

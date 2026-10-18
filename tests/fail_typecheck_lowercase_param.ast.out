@@ -1,0 +1,4 @@
+'tests/fail_typecheck_lowercase_param.pyk' 6:10-6:11 Parsing error:
+  'X' cannot be a parameter: a name a program binds starts with a
+  lowercase letter, and one starting with an uppercase letter is a
+  type or a constructor

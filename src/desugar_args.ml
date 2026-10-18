@@ -500,18 +500,6 @@ let rec expression signatures scope e =
           EField (i, EVar (alias_info, alias, 0), field, s)
       | _ -> e)
   | EField (i, record, field, s) -> EField (i, go record, field, s)
-  | EConstruct (i, module_, name, args, s)
-    when value_named signatures scope i module_ name ->
-      (* An uppercase name the parser read as a constructor, which is a
-         value here: a binding or a `def` of that name, or a public name
-         of the module it is reached through. *)
-      let value =
-        match module_ with
-        | None -> EVar (i, name, 0)
-        | Some alias -> EQualified (i, alias, name, 0)
-      in
-      if args = [] && written_bare i module_ name then go value
-      else go (ECall (i, value, args, s))
   | EConstruct (i, module_, name, args, s) -> (
       let args = List.map (fun (n, a) -> (n, go a)) args in
       let shown =
@@ -622,32 +610,6 @@ let rec expression signatures scope e =
           match ordered i (shown callee) meta reach args with
           | None -> ECall (i, callee, plain_args (arg_exprs args), s)
           | Some filled -> ECall (i, callee, plain_args filled, s)))
-
-(** Whether `[module.]name`, written with an uppercase letter, names a
-    value rather than a constructor: a binding or a definition in scope,
-    or another module's name when that module has no constructor of it.
-    [denotation] -> String? -> String -> bool *)
-and value_named signatures scope info module_ name =
-  match module_ with
-  | None -> (
-      match SMap.find_opt name scope with
-      | Some (Binding | Definition _) -> true
-      | _ -> false)
-  | Some alias -> (
-      match SMap.find_opt alias scope with
-      | Some (Imported _) ->
-          constructor_reached signatures scope info module_ name = None
-      | _ -> false)
-
-(** Whether `[module.]name` was written with no parentheses after it,
-    which is what tells a value from a call of one when the parser read
-    it as a constructor. info -> String? -> String -> bool *)
-and written_bare info module_ name =
-  let width =
-    String.length name
-    + match module_ with Some alias -> String.length alias + 1 | None -> 0
-  in
-  info.row1 = info.row2 && info.col2 - info.col1 = width
 
 (** A pattern with every constructor pattern's fields in position: the
     positional ones first, then each named one where its field is, and

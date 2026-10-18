@@ -1,0 +1,4 @@
+'tests/fail_typecheck_lowercase_var.pyk' 6:0-6:3 Parsing error:
+  'Count' cannot be declared with 'var': a name a program binds starts
+  with a lowercase letter, and one starting with an uppercase letter
+  is a type or a constructor

@@ -8,11 +8,11 @@
 import time
 
 epoch = time.of_instant(0)
-print(time.format(epoch, time.ISO8601))
-print(time.format(epoch, time.DATE))
-print(time.format(epoch, time.TIME))
-print(time.format(epoch, time.DATETIME))
-print(time.format(epoch, time.COMPACT))
+print(time.format(epoch, time.iso8601_format))
+print(time.format(epoch, time.date_format))
+print(time.format(epoch, time.time_format))
+print(time.format(epoch, time.datetime_format))
+print(time.format(epoch, time.compact_format))
 later = time.of_instant(1767225599)
-print(time.format(later, time.ISO8601))
-print(time.format(later, time.COMPACT))
+print(time.format(later, time.iso8601_format))
+print(time.format(later, time.compact_format))

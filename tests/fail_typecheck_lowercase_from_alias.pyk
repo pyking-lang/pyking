@@ -1,0 +1,9 @@
+# A `from` line may rename a datatype or a constructor, and the new
+# name starts with an uppercase letter as the old one does.
+#
+# This program is expected to FAIL parsing. Its `.ast.out` holds the
+# error message, not a program's output.
+
+from module_adt_mod1 import Circle as round
+
+print(round(1.0))

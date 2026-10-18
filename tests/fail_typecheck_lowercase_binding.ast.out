@@ -1,0 +1,4 @@
+'tests/fail_typecheck_lowercase_binding.pyk' 7:0-7:2 Parsing error:
+  'PI' cannot be bound with '=': a name a program binds starts with a
+  lowercase letter, and one starting with an uppercase letter is a
+  type or a constructor

@@ -1,0 +1,4 @@
+'tests/fail_typecheck_lowercase_def.pyk' 6:4-6:9 Parsing error:
+  'Twice' cannot be the name of a 'def': a name a program binds starts
+  with a lowercase letter, and one starting with an uppercase letter
+  is a type or a constructor

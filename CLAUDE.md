@@ -134,11 +134,11 @@ guards" and "Exhaustiveness", is the language; this is where it lives.
 
 - **Uppercase means constructor in a pattern.** The lexer has no new
   token for it: `parser.ml` reads an uppercase identifier as
-  `EConstruct`/`PConstructor`/`TCon` (`is_constructor_name`). In an
-  expression, `desugar_args.ml` turns one back into a value where a
-  binding or `def` of that name is in scope (`value_named`), so
-  `ISO8601 = "..."` still works. `x.f` is parsed as `EQualified` and made
-  an `EField` there too, where `x` is a binding.
+  `EConstruct`/`PConstructor`/`TCon` (`is_constructor_name`), and no
+  name a program binds may start with an uppercase letter
+  (`check_lowercase`), so one is always a type or a constructor. `x.f`
+  is parsed as `EQualified` and made an `EField` in `desugar_args.ml`,
+  where `x` is a binding.
 - **Constructors take a call's rules**, in `desugar_args.ml`: a field is
   a parameter, a default a generated `<Ctor>__default__<field>` def, and
   a named field pattern is put in position with `_` for the rest. After

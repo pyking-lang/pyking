@@ -1437,6 +1437,27 @@ file = "fail_typecheck_overload_open.pyk"
 file = "fail_typecheck_overload_value.pyk"
 
 [[cases]]
+file = "fail_typecheck_lowercase_binding.pyk"
+
+[[cases]]
+file = "fail_typecheck_lowercase_def.pyk"
+
+[[cases]]
+file = "fail_typecheck_lowercase_param.pyk"
+
+[[cases]]
+file = "fail_typecheck_lowercase_var.pyk"
+
+[[cases]]
+file = "fail_typecheck_lowercase_loop.pyk"
+
+[[cases]]
+file = "fail_typecheck_lowercase_import.pyk"
+
+[[cases]]
+file = "fail_typecheck_lowercase_from_alias.pyk"
+
+[[cases]]
 file = "fail_typecheck_overload_binding.pyk"
 
 [[cases]]

@@ -125,6 +125,10 @@ restriction of it, but these are genuinely new.
   nearest is a class per constructor; a datatype is one type, its
   constructors are its only values, and `match` takes them apart. See
   "Datatypes".
+- **Uppercase is for types and constructors**: every name a program
+  binds starts with a lowercase letter or `_`, so a constant is
+  `pi = 3.14` rather than Python's `PI = 3.14`, and an uppercase name is
+  always a type or a constructor.
 - **Every `match` matches every value**: a `match` that some value
   reaches no case of is refused at compile time, naming a value it
   misses, and so is a case no value can reach. Python's `match` quietly
@@ -807,10 +811,14 @@ Notes that don't fall out of the grammar alone:
   `name = default` with no type takes its default's type, so the
   default must be a literal there; any other default needs the type
   written, `name: Int = start()`.
-- An uppercase identifier in an expression is a constructor, unless a
-  binding or a `def` of that name is in scope: `ISO8601 = "..."` and
-  `print(ISO8601)` are an ordinary binding and its use. A name a pattern
-  binds always starts with a lowercase letter or `_`.
+- An uppercase identifier in an expression is a constructor. Every
+  name a program binds -- with `=`, `var` or `def`, as a parameter, a
+  loop variable, in a pattern, or as an import's alias -- starts with a
+  lowercase letter or `_`; one starting with an uppercase letter is
+  refused at parse time, since an uppercase name is a type or a
+  constructor. A constant is written `pi = 3.14`, not `PI = 3.14`. A
+  `from` line renaming a datatype or a constructor gives it a name
+  starting with an uppercase letter, as the name it renames does.
 - `x.name` reads a field where `x` is a value, and reaches a module's
   public name where `x` is an imported module; the two are told apart by
   what `x` is bound to. The `.` and the field name are on the line the
@@ -1082,7 +1090,9 @@ matching"](#matchcase-pattern-matching) below.
 
 An identifier is a name starting with a letter or underscore, followed by
 any number of letters, digits, or underscores. Using a name in an
-expression looks it up as a variable reference.
+expression looks it up as a variable reference. A name a program binds
+starts with a lowercase letter or an underscore: one starting with an
+uppercase letter is a type or a constructor (see "Datatypes").
 
 ```python
 x = 10
@@ -3342,8 +3352,9 @@ kinds, reported under three labels:
 
 - the shape rules the grammar cannot state: a value-form `if` must have
   its `else` and every branch must end in an expression (see the section
-  on `if`/`match` statements as bound values), and a `case` pattern may
-  not bind the same name twice. These are reported as `Parsing error`.
+  on `if`/`match` statements as bound values), a `case` pattern may
+  not bind the same name twice, and no name a program binds starts with
+  an uppercase letter. These are reported as `Parsing error`.
 - names and types, both settled by the checker: every name must be bound
   where it is used, and every value must have the type its use requires.
   An unbound name is a `Name error`; everything else below is a

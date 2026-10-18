@@ -11,7 +11,7 @@
 # The names, and who writes them:
 #   pykFormat, pykQuote, pykConcat, pykList,
 #   pykOutput, pykWrite, print                -- the JavaScript packagings
-#   Array, document                           -- host globals the same
+#   document                                  -- a host global the same
 #                                                prelude *calls*, which a
 #                                                binding would shadow out
 #                                                from under it
@@ -39,9 +39,8 @@ print(pykOutput, pykWrite, pyk_concat, __pyk_str)
 # Host globals the prelude reaches for while formatting: shadowing one
 # is not a redeclaration but a substitution, and shows up as a run-time
 # TypeError rather than a parse error.
-Array = 9
 document = 10
-print(Array, document)
+print(document)
 
 
 # `++` pulls in the concatenation helper, and printing a Bool pulls in
@@ -82,15 +81,10 @@ print(pykList2)
 # -- which is a silent substitution, not a shadow.
 #
 #   mod / mod_       -- OCaml suffixes a reserved word with `_`
-#   Foo / v_Foo      -- OCaml prefixes an uppercase name with `v_`
 #   final / final2   -- the others count upwards (in renaming_keywords)
 mod = 13
 mod_ = 14
 print(mod, mod_)
-
-Foo = 15
-v_Foo = 16
-print(Foo, v_Foo)
 
 
 # Rebinding one of them, so shadow-renaming and runtime-renaming compose.

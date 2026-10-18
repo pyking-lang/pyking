@@ -72,6 +72,23 @@ let rec check_plain_name info name what =
              "'%s' cannot be %s: a '::' name belongs to a 'def' that takes \
               at least one argument, which is what resolves which of them \
               a call means"
+             name what ));
+  check_lowercase info name what
+
+(** Refuses a bound name, or any part of a dotted or `::` one, starting
+    with an uppercase letter: that is a type or a constructor (PYKING.md,
+    "Names"). info -> String -> String -> () *)
+and check_lowercase info name what =
+  let parts = String.split_on_char '.' (Names.base name) in
+  let parts = match Names.qualifier name with Some q -> q :: parts | None -> parts in
+  if List.exists is_constructor_name parts then
+    raise
+      (Parse_error
+         ( info,
+           Printf.sprintf
+             "'%s' cannot be %s: a name a program binds starts with a \
+              lowercase letter, and one starting with an uppercase letter \
+              is a type or a constructor"
              name what ))
 
 (** Parses one atom: a literal, name, parenthesized expression, tuple,
@@ -1322,12 +1339,14 @@ and parse_statement eof tokens =
          nowhere else. *)
       let stmt, rest = parse_statement eof rest in
       (made_implicit stmt i, rest)
-  | TokDef i :: TokIdent (_, name) :: TokColon _ :: rest ->
+  | TokDef i :: TokIdent (ni, name) :: TokColon _ :: rest ->
       (* `def name : type` -- a signature on a line of its own, for the
          `def name(...)` in this same block. *)
+      check_lowercase ni name "the name of a 'def'";
       let type_, rest = parse_type eof rest in
       (SFunctionSig (combine_info i (type_info type_), name, type_, 0, false), rest)
   | TokDef i :: TokIdent (ni, name) :: TokLParen _ :: rest -> (
+      check_lowercase ni name "the name of a 'def'";
       let params, implicits, rest = parse_params eof rest in
       if Names.is_qualified name && params = [] then
         raise
@@ -1943,7 +1962,8 @@ and check_import_name info name what =
              "'%s' cannot be %s: a '::' name belongs to a 'def' that takes \
               at least one argument, which is what resolves which of them \
               a call means"
-             name what ))
+             name what ));
+  check_lowercase info name what
 
 (* Pyking has no import-all form: a name a module reaches is written
    down, so reading the file says where every name comes from. *)
@@ -2009,7 +2029,17 @@ let rec parse_import_fields eof tokens =
   let field, last, tokens =
     match tokens with
     | TokIdent (_, field) :: TokAs _ :: TokIdent (last, local) :: rest ->
-        check_import_name last local "an import alias";
+        if is_constructor_name field then (
+          if not (is_constructor_name local) then
+            raise
+              (Parse_error
+                 ( last,
+                   Printf.sprintf
+                     "'%s' cannot be the alias of '%s': a type or a \
+                      constructor is known by a name starting with an \
+                      uppercase letter"
+                     local field )))
+        else check_import_name last local "an import alias";
         ((field, local), last, rest)
     | TokIdent (last, field) :: rest -> ((field, field), last, rest)
     | TokMul i :: _ -> raise (Parse_error (i, no_star))

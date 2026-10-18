@@ -28,36 +28,36 @@
 ## # Examples
 ## ```pyking
 ## import time
-## print(time.format((2026, 10, 4, 12, 30, 0), time.ISO8601))
+## print(time.format((2026, 10, 4, 12, 30, 0), time.iso8601_format))
 ## ```
 ## ```stdout
 ## 2026-10-04T12:30:00Z
 ## ```
-public ISO8601: String = "yyyy-MM-ddTHH:mm:ssZ"
+public iso8601_format: String = "yyyy-MM-ddTHH:mm:ssZ"
 
 ## The format string for a date alone, as in `2026-10-04`.
 ##
 ## # Examples
 ## ```pyking
 ## import time
-## print(time.format((2026, 10, 4, 12, 30, 0), time.DATE))
+## print(time.format((2026, 10, 4, 12, 30, 0), time.date_format))
 ## ```
 ## ```stdout
 ## 2026-10-04
 ## ```
-public DATE: String = "yyyy-MM-dd"
+public date_format: String = "yyyy-MM-dd"
 
 ## The format string for a time of day alone, as in `12:30:00`.
 ##
 ## # Examples
 ## ```pyking
 ## import time
-## print(time.format((2026, 10, 4, 12, 30, 0), time.TIME))
+## print(time.format((2026, 10, 4, 12, 30, 0), time.time_format))
 ## ```
 ## ```stdout
 ## 12:30:00
 ## ```
-public TIME: String = "HH:mm:ss"
+public time_format: String = "HH:mm:ss"
 
 ## The format string for a date and a time separated by a space, as in
 ## `2026-10-04 12:30:00`.
@@ -65,12 +65,12 @@ public TIME: String = "HH:mm:ss"
 ## # Examples
 ## ```pyking
 ## import time
-## print(time.format((2026, 10, 4, 12, 30, 0), time.DATETIME))
+## print(time.format((2026, 10, 4, 12, 30, 0), time.datetime_format))
 ## ```
 ## ```stdout
 ## 2026-10-04 12:30:00
 ## ```
-public DATETIME: String = "yyyy-MM-dd HH:mm:ss"
+public datetime_format: String = "yyyy-MM-dd HH:mm:ss"
 
 ## The format string for a date and a time with nothing between the
 ## fields, as in `20261004123000`, which sorts in time order as text.
@@ -78,12 +78,12 @@ public DATETIME: String = "yyyy-MM-dd HH:mm:ss"
 ## # Examples
 ## ```pyking
 ## import time
-## print(time.format((2026, 10, 4, 12, 30, 0), time.COMPACT))
+## print(time.format((2026, 10, 4, 12, 30, 0), time.compact_format))
 ## ```
 ## ```stdout
 ## 20261004123000
 ## ```
-public COMPACT: String = "yyyyMMddHHmmss"
+public compact_format: String = "yyyyMMddHHmmss"
 
 
 # One digit as text. `string` would do it, but the JavaScript backends have
@@ -157,8 +157,8 @@ public def of_instant(t:Int) -> (Int, Int, Int, Int, Int, Int):
 ## # Parameters
 ## - `t`: `(year, month, day, hour, minute, second)`, as `now` and
 ##   `of_instant` answer.
-## - `fmt`: the pattern; `ISO8601`, `DATE`, `TIME`, `DATETIME` and
-##   `COMPACT` are ready-made ones.
+## - `fmt`: the pattern; `iso8601_format`, `date_format`, `time_format`,
+##   `datetime_format` and `compact_format` are ready-made ones.
 ##
 ## # Returns
 ## The formatted text.

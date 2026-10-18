@@ -255,12 +255,11 @@ patterns first, each `field = pattern` put where its field is, in any
 order, and `_` for every field the pattern does not mention. Nothing
 after the pass sees a named field pattern.
 
-Two rewrites belong here because this pass knows what each name means.
+One rewrite belongs here because this pass knows what each name means.
 `x.f` is parsed as `module.name`, since the parser cannot know which
 names are modules; where `x` is a binding here it becomes a field read.
-And an uppercase name the parser read as a constructor, but which is a
-binding or a `def` in scope -- `ISO8601 = "..."` -- or another module's
-value, becomes that value, or a call of it.
+An uppercase name is always a constructor: no binding may start with an
+uppercase letter, which the parser refuses.
 
 ## Names
 

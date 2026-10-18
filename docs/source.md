@@ -320,8 +320,11 @@ end — a new grammar rule combines infos the same way rather than reusing
 one token's span. **`here(tokens)`** is the position to blame when the
 input has run out.
 
-Five checks live here rather than in a later stage, so that they fail
-with a source position at parse time: **`check_no_duplicate_captures`**
+Six checks live here rather than in a later stage, so that they fail
+with a source position at parse time: **`check_lowercase`** (no name a
+program binds starts with an uppercase letter, which is kept for types
+and constructors; `check_plain_name` and `check_import_name` call it),
+**`check_no_duplicate_captures`**
 (a pattern may not bind one name twice), **`check_value_stmt`** (every
 branch of a value-form `if`/`match` must yield a value — which
 `target_python.ml` then relies on), **`check_own_line`** (a

@@ -1,0 +1,8 @@
+# The same rule for the name an import binds.
+#
+# This program is expected to FAIL parsing. Its `.ast.out` holds the
+# error message, not a program's output.
+
+import math as M
+
+print(M.pi)

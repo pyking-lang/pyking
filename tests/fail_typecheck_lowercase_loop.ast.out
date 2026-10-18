@@ -1,0 +1,4 @@
+'tests/fail_typecheck_lowercase_loop.pyk' 6:0-6:3 Parsing error: 'I'
+  cannot be a loop variable: a name a program binds starts with a
+  lowercase letter, and one starting with an uppercase letter is a
+  type or a constructor

@@ -1,0 +1,9 @@
+# A name bound with `=` starts with a lowercase letter: one starting
+# with an uppercase letter is a type or a constructor.
+#
+# This program is expected to FAIL parsing. Its `.ast.out` holds the
+# error message, not a program's output.
+
+PI = 3
+
+print(PI)

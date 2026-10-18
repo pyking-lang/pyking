@@ -1,0 +1,4 @@
+'tests/fail_typecheck_lowercase_import.pyk' 6:15-6:16 Parsing error:
+  'M' cannot be an import alias: a name a program binds starts with a
+  lowercase letter, and one starting with an uppercase letter is a
+  type or a constructor
