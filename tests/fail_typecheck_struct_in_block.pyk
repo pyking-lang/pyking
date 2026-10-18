@@ -1,0 +1,5 @@
+# A struct belongs to the top level of a module.
+
+def make() -> Int:
+    struct Point(x: Int)
+    1

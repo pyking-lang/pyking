@@ -1,0 +1,7 @@
+# A `..` with every field already written has nothing to fill.
+
+struct Point(x: Int, y: Int)
+
+
+p = Point(1, 2)
+print(Point(3, 4, ..p))

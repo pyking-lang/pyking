@@ -155,6 +155,12 @@ type variables from the datatype rather than from the one constructor:
 `fold(f, Nil(), xs)` would otherwise infer `Nil<A>` where it needed
 `List<A>`.
 
+A datatype of one constructor -- a `struct` -- is that constructor's
+class alone, which is then the type: a record on java17 and java21, a
+final class on java8, with no base type and no factory. A construction
+is `new Point(1, 2)` (`new Box<>(...)` where it has parameters), and a
+pattern on it tests nothing.
+
 A field every constructor has is a method of the base type,
 `p.name()`, which is what `x.name` compiles to. A field with no name is
 `f$0`, `f$1`, ...; a name Java reserves takes a `$`.

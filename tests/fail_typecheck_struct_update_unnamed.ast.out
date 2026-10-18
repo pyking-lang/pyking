@@ -1,0 +1,3 @@
+'tests/fail_typecheck_struct_update_unnamed.pyk' 8:26-8:27 Name error:
+  '..' fills a field by its name, and field 1 of 'Tagged' has none:
+  give it before the '..'

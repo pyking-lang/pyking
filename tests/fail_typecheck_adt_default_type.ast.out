@@ -1,3 +1,3 @@
-'tests/fail_typecheck_adt_default_type.pyk' 8:20-8:27 Parsing error:
-  the field 'value' needs its type written: only a literal default
-  says what type a field has
+'tests/fail_typecheck_adt_default_type.pyk' 6:22-6:32 Type error: the
+  default of the field 'items' does not decide its type (it is [a]);
+  write the type: 'items: T = ...'

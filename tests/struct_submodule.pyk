@@ -1,0 +1,10 @@
+# A struct with a dotted name is in a submodule of its file, as a
+# datatype is, and its constructor is reached through the same path.
+
+struct shapes.Point(x: Int, y = 2)
+
+
+p = shapes.Point(1)
+print(p, shapes.Point(x = 3, ..p))
+match p:
+    case shapes.Point(a, b): print(a + b)

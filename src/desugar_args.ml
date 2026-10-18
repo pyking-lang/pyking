@@ -30,12 +30,19 @@ module SSet = Set.Make (String)
 
 (* --- what the pass knows --- *)
 
-(** One parameter of a definition: its name, and the name of the
-    generated def holding its default, where it has one. *)
-type parameter = { name : string; default : string option; implicit : bool }
+(** Where a parameter's default comes from. *)
+type default =
+  | Generated of string (* the name of the generated def holding it *)
+  | Literal of expr (* a literal, written at each call that omits it *)
 
-(** What a call needs to know about the definition it reaches. *)
-type meta = { parameters : parameter list; exported : bool }
+(** One parameter of a definition: its name, and its default, where it
+    has one. *)
+type parameter = { name : string; default : default option; implicit : bool }
+
+(** What a call needs to know about the definition it reaches: its
+    parameters, whether it is exported, and, for a constructor, whether
+    it is its datatype's only one. *)
+type meta = { parameters : parameter list; exported : bool; sole : bool }
 
 (** One module: its definitions, the other names its top level binds,
     whether it is written in another language, in which case the sugar
@@ -86,6 +93,12 @@ let marker = "__default__"
     String -> String -> String *)
 let default_name func param = func ^ marker ^ param
 
+(** The name of the def holding one constructor field's default: one
+    starting with a lowercase letter, as a def's name does, which no
+    function's default can take. String -> String -> String *)
+let field_default_name constructor field =
+  "field" ^ marker ^ constructor ^ "__" ^ field
+
 (** Whether this name is one the pass made up rather than one the
     program wrote. String -> Bool *)
 let generated_name name =
@@ -109,22 +122,49 @@ let bound_here statement =
   | SFunctionDef (_, name, _, _, _, _, _, _, _) -> [ name ]
   | statement -> List.map fst (Analyses.bound_names statement)
 
+(** The literal a default is, where it is one whose type is the one
+    written for its parameter or field, or nothing is written: such a
+    default is written at each call rather than generated as a def.
+    typ? -> expr -> expr? *)
+let inlined annotation default =
+  let kind =
+    match default with
+    | EInt _ | ENeg (_, EInt _, _) -> Some `Int
+    | EFloat _ | ENeg (_, EFloat _, _) -> Some `Float
+    | EString _ -> Some `String
+    | EBool _ -> Some `Bool
+    | _ -> None
+  in
+  match (kind, annotation) with
+  | None, _ -> None
+  | Some _, None
+  | Some `Int, Some (TInt _)
+  | Some `Float, Some (TFloat _)
+  | Some `String, Some (TString _)
+  | Some `Bool, Some (TBool _) ->
+      Some default
+  | Some _, Some _ -> None
+
+(** Where one default comes from, given the name of the def that would
+    hold it. String -> typ? -> expr? -> default? *)
+let default_of generated annotation default =
+  match default with
+  | None -> None
+  | Some e -> (
+      match inlined annotation e with
+      | Some literal -> Some (Literal literal)
+      | None -> Some (Generated generated))
+
 (** What a definition's parameters are, and where its defaults will
-    live. String -> [param] -> bool -> meta *)
+    live. String -> [param] -> [param] -> bool -> meta *)
 let meta_of func params implicits exported =
-  let one implicit (Param (_, name, _, default, _)) =
-    {
-      name;
-      default =
-        (match default with
-        | None -> None
-        | Some _ -> Some (default_name func name));
-      implicit;
-    }
+  let one implicit (Param (_, name, annotation, default, _)) =
+    { name; default = default_of (default_name func name) annotation default; implicit }
   in
   {
     parameters = List.map (one false) params @ List.map (one true) implicits;
     exported;
+    sole = false;
   }
 
 (** The name a constructor's unnamed field is known by here: one no
@@ -132,23 +172,21 @@ let meta_of func params implicits exported =
 let unnamed_field position = "#" ^ string_of_int (position + 1)
 
 (** What a constructor's fields are, and where its defaults will live.
-    bool -> constructor -> meta *)
-let constructor_meta exported (Constructor (_, name, fields, _)) =
+    bool -> bool -> constructor -> meta *)
+let constructor_meta exported sole (Constructor (_, name, fields, _)) =
   {
     parameters =
       List.mapi
-        (fun at (Field (_, label, _, default, _)) ->
+        (fun at (Field (_, label, type_, default, _)) ->
           let field = match label with Some n -> n | None -> unnamed_field at in
           {
             name = field;
-            default =
-              (match default with
-              | None -> None
-              | Some _ -> Some (default_name name field));
+            default = default_of (field_default_name name field) type_ default;
             implicit = false;
           })
         fields;
     exported;
+    sole;
   }
 
 (** Every constructor declared directly in this block, with what a call
@@ -157,9 +195,10 @@ let block_constructors stmts =
   List.concat_map
     (function
       | SDatatype (_, _, _, constructors, _, public) ->
+          let sole = List.length constructors = 1 in
           List.map
             (fun (Constructor (_, name, _, _) as c) ->
-              (name, constructor_meta public c))
+              (name, constructor_meta public sole c))
             constructors
       | _ -> [])
     stmts
@@ -367,6 +406,18 @@ let rec pure e =
   | EField (_, r, _, _) -> pure r
   | _ -> false
 
+(** A literal default as written at a call: at the call's own span, so
+    nothing reports it at the definition's, which may be in another file.
+    info -> expr -> expr *)
+let rec placed info literal =
+  match literal with
+  | EInt (_, v, s) -> EInt (info, v, s)
+  | EFloat (_, v, s) -> EFloat (info, v, s)
+  | EString (_, v, s) -> EString (info, v, s)
+  | EBool (_, v, s) -> EBool (info, v, s)
+  | ENeg (_, inner, s) -> ENeg (info, placed info inner, s)
+  | e -> e
+
 (** The full positional argument list one call supplies, filling every
     omitted parameter with a call to its default. Answers None where the
     call says nothing the sugar has to act on, so it is left as written.
@@ -449,7 +500,9 @@ let ordered ?(field = false) info shown meta reach args =
             | Some e -> Some e
             | None -> (
                 match parameter.default with
-                | Some generated -> Some (ECall (info, reach generated, [], 0))
+                | Some (Generated generated) ->
+                    Some (ECall (info, reach generated, [], 0))
+                | Some (Literal literal) -> Some (placed info literal)
                 | None -> None))
         parameters
     in
@@ -568,30 +621,13 @@ let rec expression signatures scope e =
       let shown =
         match module_ with Some m -> m ^ "." ^ name | None -> name
       in
-      (* Every argument ends up in its field's position, carrying the
-         field's name where it has one -- so a stage after this one that
-         keeps a value's fields by name finds the names here. *)
-      let labelled meta values =
-        if List.length values <> List.length meta.parameters then
-          plain_args values
-        else
-          List.map2
-            (fun parameter value ->
-              if String.length parameter.name > 0 && parameter.name.[0] = '#'
-              then (None, value)
-              else (Some parameter.name, value))
-            meta.parameters values
-      in
-      match constructor_reached signatures scope i module_ name with
-      | None -> EConstruct (i, module_, name, args, s)
-      | Some (meta, reach) -> (
-          match ordered ~field:true i shown meta reach args with
-          | None ->
-              if List.exists (fun (n, _) -> n <> None) args then
-                EConstruct (i, module_, name, args, s)
-              else EConstruct (i, module_, name, labelled meta (arg_exprs args), s)
-          | Some (lets, filled) ->
-              let_around i lets (EConstruct (i, module_, name, labelled meta filled, s))))
+      let reached = constructor_reached signatures scope i module_ name in
+      let construct args = constructed i module_ name s shown reached args in
+      match List.assoc_opt (Some spread_label) args with
+      | Some base ->
+          let explicit = List.filter (fun (n, _) -> n <> Some spread_label) args in
+          updated i shown reached explicit base construct
+      | None -> construct args)
   | EAdd (i, l, r, s) -> EAdd (i, go l, go r, s)
   | ESub (i, l, r, s) -> ESub (i, go l, go r, s)
   | EMul (i, l, r, s) -> EMul (i, go l, go r, s)
@@ -683,6 +719,123 @@ let rec expression signatures scope e =
           match ordered i (shown callee) meta reach args with
           | None -> ECall (i, callee, plain_args (arg_exprs args), s)
           | Some (lets, filled) -> let_around i lets (ECall (i, callee, plain_args filled, s))))
+
+(** One construction, its arguments already rewritten, with every
+    argument in its field's position, carrying the field's name where it
+    has one -- so a stage after this one that keeps a value's fields by
+    name finds the names here.
+    info -> String? -> String -> int -> String ->
+    (meta * (String -> expr))? -> [(String?, expr)] -> expr *)
+and constructed i module_ name s shown reached args =
+  let labelled meta values =
+    if List.length values <> List.length meta.parameters then
+      plain_args values
+    else
+      List.map2
+        (fun parameter value ->
+          if String.length parameter.name > 0 && parameter.name.[0] = '#'
+          then (None, value)
+          else (Some parameter.name, value))
+        meta.parameters values
+  in
+  match reached with
+  | None -> EConstruct (i, module_, name, args, s)
+  | Some (meta, reach) -> (
+      match ordered ~field:true i shown meta reach args with
+      | None ->
+          if List.exists (fun (n, _) -> n <> None) args then
+            EConstruct (i, module_, name, args, s)
+          else EConstruct (i, module_, name, labelled meta (arg_exprs args), s)
+      | Some (lets, filled) ->
+          let_around i lets (EConstruct (i, module_, name, labelled meta filled, s)))
+
+(** A construction written with `..base`, as one giving every field it
+    leaves out from `base` by name. What it writes is evaluated as
+    written, and `base` after it, once: a base that is not a name is bound
+    by a `let`, and so is every argument before it that is not pure.
+    `rebuild` makes the construction of the arguments it is handed.
+    info -> String -> (meta * (String -> expr))? -> [(String?, expr)] ->
+    expr -> ([(String?, expr)] -> expr) -> expr *)
+and updated info shown reached explicit base rebuild =
+  let meta =
+    match reached with
+    | Some (meta, _) -> meta
+    | None ->
+        refuse (expr_info base)
+          (Printf.sprintf
+             "'..' fills the fields of '%s' by name, and '%s' is not a \
+              constructor this module can see the fields of"
+             shown shown)
+  in
+  if not meta.sole then
+    refuse (expr_info base)
+      (Printf.sprintf
+         "'..' takes the fields it fills from a value built by the same \
+          constructor, so it is written only for a datatype with one \
+          constructor, and '%s' is one of several"
+         shown);
+  let given = List.length (List.filter (fun (n, _) -> n = None) explicit) in
+  let named = List.filter_map fst explicit in
+  let missing =
+    List.filteri
+      (fun at parameter -> at >= given && not (List.mem parameter.name named))
+      meta.parameters
+  in
+  if missing = [] then
+    refuse (expr_info base)
+      (Printf.sprintf "'..' has no field to fill: every field of '%s' is given"
+         shown);
+  List.iter
+    (fun parameter ->
+      if String.length parameter.name > 0 && parameter.name.[0] = '#' then
+        refuse (expr_info base)
+          (Printf.sprintf
+             "'..' fills a field by its name, and %s of '%s' has none: give \
+              it before the '..'"
+             ("field " ^ String.sub parameter.name 1 (String.length parameter.name - 1))
+             shown))
+    missing;
+  let simple = match base with EVar _ -> true | _ -> false in
+  (* The arguments written are evaluated before the base, so where the
+     base needs a `let`, each of them that can be seen to run needs one
+     before it. *)
+  let before, explicit =
+    if simple || List.for_all (fun (_, e) -> pure e) explicit then ([], explicit)
+    else
+      let bound =
+        List.mapi
+          (fun at (label, e) ->
+            if pure e then (None, (label, e))
+            else
+              let field =
+                match label with
+                | Some n -> n
+                | None ->
+                    let p = (List.nth meta.parameters at).name in
+                    if String.length p > 0 && p.[0] = '#' then
+                      "field" ^ String.sub p 1 (String.length p - 1)
+                    else p
+              in
+              let temp = field ^ "__arg" in
+              (Some (temp, e), (label, EVar (expr_info e, temp, 0))))
+          explicit
+      in
+      (List.filter_map fst bound, List.map snd bound)
+  in
+  let before, reference =
+    if simple then (before, base)
+    else
+      let temp = "update__base" in
+      (before @ [ (temp, base) ], EVar (expr_info base, temp, 0))
+  in
+  let filled =
+    List.map
+      (fun parameter ->
+        ( Some parameter.name,
+          EField (expr_info base, reference, parameter.name, 0) ))
+      missing
+  in
+  let_around info before (rebuild (explicit @ filled))
 
 (** A pattern with every constructor pattern's fields in position: the
     positional ones first, then each named one where its field is, and
@@ -862,8 +1015,14 @@ and rewrite signatures scope taken statement =
             List.filter_map
               (fun (Field (fi, label, type_, default, _)) ->
                 match (default, label) with
-                | Some e, Some field ->
-                    let generated = default_name cname field in
+                | Some e, Some field when inlined type_ e = None ->
+                    if public && type_ = None then
+                      refuse fi
+                        (Printf.sprintf
+                           "a default for an exported datatype's field needs \
+                            a type unless it is a literal: '%s: Int = ...'"
+                           field);
+                    let generated = field_default_name cname field in
                     if List.mem generated taken then
                       refuse fi
                         (Printf.sprintf
@@ -876,7 +1035,7 @@ and rewrite signatures scope taken statement =
                            generated,
                            [],
                            [ SExprStmt (expr_info e, go e, 0) ],
-                           Some type_,
+                           type_,
                            0,
                            public,
                            [],
@@ -971,8 +1130,15 @@ and rewrite signatures scope taken statement =
       let generated =
         List.filter_map
           (fun (Param (pi, param, annotation, default, _)) ->
+            if default <> None && public && annotation = None then
+              refuse pi
+                (Printf.sprintf
+                   "a default for an exported function's parameter needs a \
+                    type: '%s: Int = ...'"
+                   param);
             match default with
             | None -> None
+            | Some e when inlined annotation e <> None -> None
             | Some e ->
                 let generated = default_name name param in
                 if List.mem generated taken then
@@ -981,12 +1147,6 @@ and rewrite signatures scope taken statement =
                        "the default for '%s' needs the name '%s', which this \
                         block already binds"
                        param generated);
-                if public && annotation = None then
-                  refuse pi
-                    (Printf.sprintf
-                       "a default for an exported function's parameter needs \
-                        a type: '%s: Int = ...'"
-                       param);
                 Some
                   (SFunctionDef
                      ( pi,
@@ -1042,7 +1202,12 @@ and imported signatures statement =
               fields
           in
           let defaults_of meta =
-            List.filter_map (fun parameter -> parameter.default) meta.parameters
+            List.filter_map
+              (fun parameter ->
+                match parameter.default with
+                | Some (Generated generated) -> Some generated
+                | _ -> None)
+              meta.parameters
           in
           let extra =
             constructors

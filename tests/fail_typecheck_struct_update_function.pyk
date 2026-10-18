@@ -1,0 +1,7 @@
+# A function has no fields for `..` to fill.
+
+def add(x: Int, y: Int) -> Int:
+    x + y
+
+
+print(add(1, ..2))

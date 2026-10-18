@@ -133,7 +133,10 @@ a tuple or a datatype: each is refused where it is written.
 
 A constructor is a function building the struct, `pyk_mk_<code>_Circle`;
 a field every constructor has is read by a function switching on the
-tag. A `match` holds its subject in a local and is an if/else chain of
+tag. A datatype of one constructor -- a `struct` -- is a plain struct
+with no tag and no union, its named fields members of their own names,
+an unnamed one `f<i>`; a field read is `p.x`, and a pattern on it tests
+nothing. A `match` holds its subject in a local and is an if/else chain of
 tests on it; every `match` matches every value (exhaustive.md), so the
 last case needs no test. Where a case has a guard, the cases are a
 chain of `if`s that a matched one leaves by `goto`.

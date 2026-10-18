@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Structs: `struct Point(x: Int, y = 78)` declares a datatype of one
+  constructor named as the type is, its fields on the line or on
+  indented lines under `struct Point:`, with type parameters written
+  `struct Pair(a, b):` or taken from the fields' type variables.
+  `struct` is now a keyword.
+- Updates: `Point(x = 5, ..p)` builds a value of a datatype of one
+  constructor taking every field not written from `p`.
+- A field's default may be any expression without its type written:
+  the field takes the default's type.
+
+### Changed
+
+- A default that is a literal is written at each call that leaves it
+  out, rather than generated as a def.
+- C compiles a datatype of one constructor as a plain struct, Java as
+  its record (or class) alone, and OCaml reads one's field with `let`.
+
 ### Fixed
 
 - A page running the compiler (the playground, the notebook, the

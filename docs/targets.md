@@ -227,7 +227,7 @@ heap and refuses, with a source position and the reason, what does:
 | `for x in range(...)` | ✅ | ✅ | ✅ | ✅ | ✅ (a counting loop: no list is built) |
 | `for x in` a list, lists, comprehensions, `len` of a list | ✅ | ✅ | ✅ (`java.util.List`) | ✅ | ❌ lists need a heap |
 | tuples, destructuring | ✅ | ✅ (arrays) | ✅ (the runtime's `T2`, `T3`, ...) | ✅ | ✅ (a struct, by value) |
-| datatypes, `x.field`, every pattern | ✅ | ✅ | ✅ (a class per constructor) | ✅ | ✅ (a tagged union, by value) |
+| datatypes, `x.field`, every pattern | ✅ | ✅ | ✅ (a class per constructor; a record alone for one) | ✅ | ✅ (a tagged union, by value; a plain struct for one constructor) |
 | … a datatype holding itself (`Tree(a)`) | ✅ | ✅ | ✅ | ✅ | ❌ it needs a heap |
 | type variables | ✅ | ✅ | ✅ (generics) | ✅ | ✅ (one function per type it is used at) |
 | a polymorphic *parameter* (`all x. (x) -> x`) | ✅ | ✅ | ✅ (an interface with a generic method) | ✅ (a record with a polymorphic field) | ❌ it needs one function for every type |

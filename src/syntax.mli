@@ -171,10 +171,12 @@ and param = Param of info * string * typ option * expr option * int
 and constructor = Constructor of info * string * field list * int
 (* Name(field, ...) -- one alternative of a datatype *)
 
-and field = Field of info * string option * typ * expr option * int
+and field = Field of info * string option * typ option * expr option * int
 (* Type / name: Type / name = default / name: Type = default -- a field
    of a constructor. A field written with a literal default and no type
-   has the literal's type. Desugar_args removes every default. *)
+   has the literal's type; one with any other default and no type has
+   None, and the type checker takes its type from the default.
+   Desugar_args removes every default. *)
 
 and loop_iter =
   | ForIn of info * string * expr * int (* for name in sequence *)
@@ -242,6 +244,10 @@ and stmt =
          system. *)
 
 (* --- the span and the symbol each node carries --- *)
+
+(** The label an argument written `..e` carries in a constructor's
+    argument list. Desugar_args removes every one. String *)
+val spread_label : string
 
 (** The source span of one expression. expr -> info *)
 val expr_info : expr -> info

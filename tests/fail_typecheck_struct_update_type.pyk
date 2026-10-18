@@ -1,0 +1,10 @@
+# The base of an update is a value of the struct being built.
+
+struct Point(x: Int, y: Int)
+
+
+struct Size(x: Int, height: Int)
+
+
+s = Size(1, 2)
+print(Point(x = 3, ..s))

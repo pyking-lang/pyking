@@ -1,0 +1,4 @@
+# Two fields on one line of a struct are separated by a comma.
+
+struct Size:
+    width: Int height: Int

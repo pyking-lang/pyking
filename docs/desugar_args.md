@@ -249,12 +249,19 @@ merely absent, so a call into one refuses the sugar by name.
 A datatype's constructor is a definition to this pass, its fields its
 parameters: a construction takes positional, named and defaulted
 arguments exactly as a call does, and a field's default is a generated
-def named `<Constructor>__default__<field>`, written just before the
+def named `field__default__<Constructor>__<field>` -- starting with a
+lowercase letter, as a def's name must -- written just before the
 datatype. An unnamed field is known by a name no program can write
 (`#1`, `#2`, ...), so no argument can name it. After the pass, every
 argument of a construction is in its field's position and carries the
 field's own name where it has one, which is how the interpreter and the
 JavaScript backend keep a value's fields by name.
+
+A field written with no type and a default that is not a literal keeps
+no type in the AST (`Field`'s type is `None`): its generated def has no
+return type, and the type checker takes the field's type from it where
+the def is written (docs/type_inference.md, "A field's type from its
+default").
 
 A constructor *pattern* is filled in by the same names: the positional
 patterns first, each `field = pattern` put where its field is, in any
@@ -266,6 +273,34 @@ One rewrite belongs here because this pass knows what each name means.
 names are modules; where `x` is a binding here it becomes a field read.
 An uppercase name is always a constructor: no binding may start with an
 uppercase letter, which the parser refuses.
+
+## A literal default is written at the call
+
+A default that is a literal -- an integer, a float, a string or a
+boolean, with no type written or the literal's own -- generates no def:
+each call that leaves it out is given the literal itself, so
+`def step(n: Int = 1)` called as `step()` is `step(1)`. A literal
+evaluates to the same value wherever it is written and can be seen to
+do nothing, so moving it from the definition to the call changes
+nothing a program can observe; what it saves is a def and a call per
+omitted argument in every backend's output. `parameter.default` says
+which of the two a default is (`Literal` or `Generated`), and an import
+brings in only the generated ones.
+
+## `..base` in a construction
+
+`C(x = e, ..base)` fills every field of `C` not written before the `..`
+from `base`, by name: it becomes `C(x = e, y = base.y, ...)`, and then
+goes through the ordering above like any construction (`updated`). Only
+a constructor that is its datatype's only one may be written so
+(`meta.sole`), so the fields `base` holds are the constructor's. What
+is written before the `..` is evaluated first, then `base`, once: a
+base that is not a name is bound by `let update__base = base in ...`,
+and where it is, each argument before it that is not `pure` is bound
+first by a `let` of its own, `<field>__arg`, in the order written. A
+field with no name cannot be read by name, so `..` refuses to fill one.
+The parser keeps `..base` as an argument labelled `..`
+(`Syntax.spread_label`); nothing after this pass sees one.
 
 ## Names
 

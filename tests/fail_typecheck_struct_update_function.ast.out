@@ -1,0 +1,4 @@
+'tests/fail_typecheck_struct_update_function.pyk' 7:15-7:16 Parsing
+  error: '..' gives a constructor the fields of another value, and a
+  function has no fields: '..' is written only in a constructor's
+  arguments

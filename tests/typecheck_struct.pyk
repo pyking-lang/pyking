@@ -1,0 +1,21 @@
+# What a struct and an update stand for: a datatype of one constructor,
+# and a construction taking the fields it does not write from the base.
+
+def three() -> Float:
+    3.0
+
+
+struct Point(x: Int, y = 78)
+
+
+struct Pair(a, b):
+    first: a, second: b
+
+
+struct Scaled(factor = three() * 2.0, name: String = "s")
+
+
+p = Point(1, 2)
+q = Point(x = 5, ..p)
+r = Pair(first = true, ..Pair(1, "one"))
+print(q, r, Scaled())

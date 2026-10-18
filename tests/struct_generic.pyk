@@ -1,0 +1,23 @@
+# A struct's type parameters: written before the `:` of the block form,
+# and in the one-line form every type variable its fields name, in the
+# order they first appear.
+
+struct Pair(a, b):
+    first: a
+    second: b
+
+
+struct Box(value: a, label = "box")
+
+
+struct Tagged(tag: String, left: a, right: b, extra: a)
+
+
+def swap(p: Pair(a, b)) -> Pair(b, a):
+    Pair(p.second, p.first)
+
+
+print(Pair(1, "one"), swap(Pair(1, "one")))
+print(Box(true), Box(3, label = "three").label)
+t = Tagged("t", 1, "r", 2)
+print(t.left + t.extra, t.right)

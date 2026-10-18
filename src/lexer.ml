@@ -71,6 +71,7 @@ type token =
   | TokRBracket of info (* ']' *)
   | TokDef of info (* 'def' *)
   | TokDatatype of info (* 'datatype' (an algebraic data type) *)
+  | TokStruct of info (* 'struct' (a datatype of one constructor) *)
   | TokReturn of info (* 'return' *)
   | TokFor of info (* 'for' *)
   | TokIn of info (* 'in' *)
@@ -131,6 +132,7 @@ let token_info tok =
   | TokRBracket i -> i
   | TokDef i -> i
   | TokDatatype i -> i
+  | TokStruct i -> i
   | TokReturn i -> i
   | TokFor i -> i
   | TokIn i -> i
@@ -191,6 +193,7 @@ let pprint_token tok =
   | TokRBracket _ -> "TokRBracket"
   | TokDef _ -> "TokDef"
   | TokDatatype _ -> "TokDatatype"
+  | TokStruct _ -> "TokStruct"
   | TokReturn _ -> "TokReturn"
   | TokFor _ -> "TokFor"
   | TokIn _ -> "TokIn"
@@ -242,7 +245,7 @@ let keywords =
     "for"; "in"; "if"; "while"; "loop"; "break"; "continue"; "then"; "let";
     "else"; "var"; "def"; "return"; "match"; "case"; "public"; "implicit";
     "import";
-    "from"; "as"; "datatype"; "Int"; "Float"; "String"; "Bool"; "true"; "false";
+    "from"; "as"; "datatype"; "struct"; "Int"; "Float"; "String"; "Bool"; "true"; "false";
   ]
 
 (** The keyword token `name` denotes, or None where it names no keyword.
@@ -270,6 +273,7 @@ let keyword_token name i =
   | "from" -> Some (TokFrom i)
   | "as" -> Some (TokAs i)
   | "datatype" -> Some (TokDatatype i)
+  | "struct" -> Some (TokStruct i)
   | "Int" -> Some (TokTypeInt i)
   | "Float" -> Some (TokTypeFloat i)
   | "String" -> Some (TokTypeString i)

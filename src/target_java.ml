@@ -195,8 +195,12 @@ let ctor_class module_class name =
   if StringSet.mem name java_lang || name = module_class then name ^ "_" else name
 
 (** What a datatype's own type is called in Java: its name, unless one of
-    its constructors already is. string -> datatype -> string *)
+    its constructors already is -- and its constructor's class, where it
+    has only the one. string -> datatype -> string *)
 let type_class module_class (Datatype (canonical, _, ctors)) =
+  match ctors with
+  | [ (c, _) ] -> ctor_class module_class c
+  | _ ->
   let name =
     match String.rindex_opt canonical '.' with
     | Some at -> String.sub canonical (at + 1) (String.length canonical - at - 1)
@@ -785,6 +789,15 @@ let ctor_fields ctx info t name =
   | Some fields -> List.mapi (fun i (label, ft) -> (field_name label i, substitute bound ft)) fields
   | None -> unsupported info (Printf.sprintf "no constructor %s" name)
 
+(** Whether a type is a datatype of one constructor, whose class is the
+    type itself. ctx -> info -> typ -> bool *)
+let sole_constructor ctx info t =
+  match t with
+  | TCon _ ->
+      let Datatype (_, _, ctors), _ = datatype_of ctx info t in
+      List.length ctors = 1
+  | _ -> false
+
 (* --- patterns ---
    A pattern is the tests that decide it and the names it binds, each to
    a place in the subject -- an expression that can be read twice, since
@@ -866,6 +879,9 @@ let rec pattern ctx st p (s : jexpr) (t : typ) binding =
       in
       let types = List.map snd declared in
       match (ctx.shape, binding) with
+      | _ when sole_constructor ctx info t ->
+          (* Its datatype's only constructor: nothing to test. *)
+          parts ctx st fields (fields_of s) types binding
       | (Java17 | Java21), true ->
           let held, st = temp st "t" in
           let test = mk p_rel (Printf.sprintf "%s instanceof %s %s" (at p_rel s) typed held) in
@@ -1037,11 +1053,14 @@ let rec expr ctx st scope e =
       let canonical, targs_ = match t with TCon (_, c, a, _) -> (c, a) | _ -> ("", []) in
       let st = need_type st t in
       let values, st = exprs ctx st scope (arg_exprs args) in
-      ignore targs_;
       (* A constructor's factory answers the datatype's own type, which is
-         what Java has to infer a call's type variables from. *)
+         what Java has to infer a call's type variables from. A datatype
+         of one constructor is its class, built with `new`. *)
       let cls = ctor_ref ctx canonical name in
-      (atom (Printf.sprintf "%s(%s)" cls (String.concat ", " (List.map (fun v -> v.text) values))), st)
+      let arguments = String.concat ", " (List.map (fun v -> v.text) values) in
+      if sole_constructor ctx (expr_info e) t then
+        (atom (Printf.sprintf "new %s%s(%s)" cls (if targs_ = [] then "" else "<>") arguments), st)
+      else (atom (Printf.sprintf "%s(%s)" cls arguments), st)
   | EField (_, record, name, _) ->
       let v, st = expr ctx st scope record in
       (atom ~boxed:true (Printf.sprintf "%s.%s()" (at p_atom v) (field_name (Some name) 0)), st)
@@ -2595,8 +2614,25 @@ let pprint_datatype shape d =
         (String.concat ", " (List.map fst fields));
     ]
   in
-  match shape with
-  | Java8 ->
+  match (shape, d.d_ctors) with
+  | Java8, [ (cls, name, fields) ] ->
+      String.concat "\n"
+        ([ Printf.sprintf "    %s static final class %s%s implements %s.Data {" visibility cls params runtime_class ]
+        @ List.map (fun (n, t) -> Printf.sprintf "        public final %s %s;" t n) fields
+        @ [ Printf.sprintf "        public %s(%s) {" cls (String.concat ", " (List.map (fun (n, t) -> t ^ " " ^ n) fields)) ]
+        @ List.map (fun (n, _) -> Printf.sprintf "            this.%s = %s;" n n) fields
+        @ [ "        }" ]
+        @ List.map (fun (n, t) -> Printf.sprintf "        public %s %s() { return %s; }" t n n) d.d_shared
+        @ data_methods name fields @ [ "    }" ])
+  | _, [ (cls, name, fields) ] ->
+      String.concat "\n"
+        ([
+           Printf.sprintf "    %s record %s%s(%s) implements %s.Data {" visibility cls params
+             (String.concat ", " (List.map (fun (n, t) -> t ^ " " ^ n) fields))
+             runtime_class;
+         ]
+        @ data_methods name fields @ [ "    }" ])
+  | Java8, _ ->
       let base =
         Printf.sprintf "    %s static abstract class %s%s implements %s.Data {\n%s    }" visibility d.d_type params runtime_class
           (String.concat "" (List.map (fun (n, t) -> Printf.sprintf "        public abstract %s %s();\n" t n) d.d_shared))
@@ -2614,7 +2650,7 @@ let pprint_datatype shape d =
           @ data_methods name fields @ [ "    }" ])
       in
       String.concat "\n\n" (base :: List.map ctor d.d_ctors)
-  | _ ->
+  | _, _ ->
       let base =
         Printf.sprintf "    %s sealed interface %s%s extends %s.Data permits %s {\n%s    }" visibility d.d_type params runtime_class
           (String.concat ", " (List.map (fun (c, _, _) -> c) d.d_ctors))

@@ -93,7 +93,7 @@ be changed, but is exposed as a customizable option the same way
 (defconst pyking-mode-keywords
   '("for" "in" "if" "while" "loop" "break" "continue" "then" "let" "else"
     "var" "def" "return" "match" "case" "public" "implicit" "import" "from" "as"
-    "datatype")
+    "datatype" "struct")
   "Reserved keywords in Pyking.
 Mirrors the `keywords' list in src/lexer.ml, minus the names broken out
 into `pyking-mode-types' and `pyking-mode-constants' below (each gets its
@@ -106,7 +106,8 @@ has no Python counterpart at all. The last four are the module system's
 and `import'/`from'/`as' are how another module reaches it. `implicit'
 marks a definition an implicit argument may be resolved to, and an
 implicit parameter in a header or a function type (see \"Implicits\").
-`datatype' declares an algebraic data type (see \"Datatypes\").")
+`datatype' declares an algebraic data type (see \"Datatypes\"), and
+`struct' one with a single constructor (see \"Structs\").")
 
 (defconst pyking-mode-keywords-regexp
   (regexp-opt pyking-mode-keywords 'symbols)
@@ -173,6 +174,9 @@ builtin.")
    ;; datatype_stmt = "datatype" , [ sub_path , "." ] , upper_ident , ...
    ;; -- the declared type, with its submodule's path.
    '("\\_<datatype\\_>[ \t]+\\(\\(?:\\sw+\\.\\)*\\sw+\\)"
+     1 font-lock-type-face)
+   ;; struct_stmt = "struct" , [ sub_path , "." ] , upper_ident , ...
+   '("\\_<struct\\_>[ \t]+\\(\\(?:\\sw+\\.\\)*\\sw+\\)"
      1 font-lock-type-face)
    ;; var_decl = "var" , ident , "=" , expr -- the declared variable name.
    '("\\_<var\\_>[ \t]+\\(\\sw+\\)"

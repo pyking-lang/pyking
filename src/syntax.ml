@@ -159,10 +159,12 @@ and param = Param of info * string * typ option * expr option * int
 and constructor = Constructor of info * string * field list * int
 (* Name(field, ...) -- one alternative of a datatype *)
 
-and field = Field of info * string option * typ * expr option * int
+and field = Field of info * string option * typ option * expr option * int
 (* Type / name: Type / name = default / name: Type = default -- a field
    of a constructor. A field written with a literal default and no type
-   has the literal's type. Desugar_args removes every default. *)
+   has the literal's type; one with any other default and no type has
+   None, and the type checker takes its type from the default.
+   Desugar_args removes every default. *)
 
 and loop_iter =
   | ForIn of info * string * expr * int (* for name in sequence *)
@@ -230,6 +232,10 @@ and stmt =
          system. *)
 
 (* --- the span and the symbol each node carries --- *)
+
+(** The label an argument written `..e` carries in a constructor's
+    argument list. Desugar_args removes every one. String *)
+let spread_label = ".."
 
 (** The source span of one expression. expr -> info *)
 let expr_info e =
@@ -830,6 +836,7 @@ and pprint_args cfg args =
        (fun (name, a) ->
          match name with
          | None -> pprint_expr cfg a 0
+         | Some n when n = spread_label -> ".." ^ pprint_expr cfg a 0
          | Some n -> n ^ " = " ^ pprint_expr cfg a 0)
        args)
 
@@ -1136,11 +1143,16 @@ and pprint_stmt_body cfg s level =
 and pprint_constructor cfg (Constructor (_, name, fields, _)) =
   if fields = [] then name
   else
-    let field (Field (_, label, type_, default, _)) =
+    let field (Field (_, label, type_, default, sym)) =
+      (* A field written without its type prints the one the checker
+         took from its default, where there is a tmap to say. *)
+      let type_ = match type_ with Some _ -> type_ | None -> node_type cfg sym None in
       let text =
-        match label with
-        | None -> pprint_type cfg type_
-        | Some n -> n ^ ": " ^ pprint_type cfg type_
+        match (label, type_) with
+        | None, Some t -> pprint_type cfg t
+        | Some n, Some t -> n ^ ": " ^ pprint_type cfg t
+        | Some n, None -> n
+        | None, None -> "_"
       in
       match default with
       | None -> text

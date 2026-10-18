@@ -1,34 +1,20 @@
-def step__default__n() -> Int:
-    1
-def step__default__by() -> Int:
-    10
 def step(n:Int, by:Int) -> Int:
     return n * by
-print(step(step__default__n(), step__default__by()))
-print(step(3, step__default__by()))
+print(step(1, 10))
+print(step(3, 10))
 print(step(3, 4))
-def repeat__default__times() -> Int:
-    3
 def repeat(text:String, times:Int) -> String:
     if times <= 0:
         return ''
     return text ++ repeat(text, times - 1)
-print(repeat('ab', repeat__default__times()))
+print(repeat('ab', 3))
 print(repeat('ab', 1))
-def describe__default__flag() -> Bool:
-    true
-def describe__default__name() -> String:
-    'pyk'
-def describe__default__size() -> Int:
-    2
-def describe__default__ratio() -> Float:
-    0.5
 def describe(flag:Bool, name:a, size:b, ratio:Float) -> Float:
     if flag:
         print(name)
         print(size)
         return ratio * 2.0
     return ratio
-print(describe(describe__default__flag(), describe__default__name(), describe__default__size(), describe__default__ratio()))
-print(describe(false, describe__default__name(), describe__default__size(), describe__default__ratio()))
+print(describe(true, 'pyk', 2, 0.5))
+print(describe(false, 'pyk', 2, 0.5))
 print(describe(true, 'x', 9, 1.5))

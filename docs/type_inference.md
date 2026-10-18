@@ -625,8 +625,10 @@ One immutable value threaded through the whole pass, like `env`.
 | `fresh` | the counter behind `?n` | `fresh_meta` |
 | `signatures` | a definition's symbol → the type a `def name : type` line gave it | `with_signature` |
 | `groups` | a definition's symbol → its block's `def`s | `declare_functions` |
+| `field_defaults` | the def holding a field's default → the metavariable standing for the field's type, and the field's name | `declare_datatypes` |
 
-The last two are **given** rather than worked out; the rest accumulate.
+`signatures`, `groups` and `field_defaults` are **given** rather than
+worked out; the rest accumulate.
 
 **Nothing in it is ever written to.** Every function handed a store
 returns one, because what it worked out is knowledge its caller needs. A
@@ -746,7 +748,8 @@ generalise : SFunctionDef -> TFunction -> {String} -> Store -> Type
 `zonk` the monotype, take the metavariables still unsolved, drop the
 ones in `outer`, name what is left `a`, `b`, … and wrap the result in
 one `TForall`. `free_metas(env, store)` computes `outer` by walking the
-types the environment binds.
+types the environment binds, and the type of every field still waiting
+for its default (§16a).
 
 ```
 verified : SFunctionDef -> Type -> {Int: Type} -> Store -> {Int: Type}?
@@ -770,6 +773,27 @@ verifying : ... -> Type
 `generalise` + `verified`, falling back to the zonked monotype. Two
 reasons it exists: it makes "a type this checker reports is one it
 enforces" true by construction, and its fallback is §9's mechanism.
+
+## 16a. A field's type from its default
+
+A field written `count = start()`, with no type, has its default's
+type. `declare_datatypes` gives it a fresh metavariable, which every use
+of the constructor then shares -- it is not a parameter of the
+datatype, so `constructor_use` does not replace it -- and records it in
+`field_defaults` under the name of the def holding the default
+(`Desugar_args.default_name`). When `check_stmt` reaches that def,
+where the desugaring wrote it, `field_default` types a call to it in the
+environment there and demands the field's metavariable be that type.
+The call is instantiated, so a default whose own type is a scheme
+(`[]`, `() -> [a]`) arrives with fresh metavariables, and anything left
+open in it is refused there: the type comes from the default alone,
+whatever the uses written before it asked for.
+
+Until then the metavariable belongs to the module, as a type an
+enclosing scope holds belongs to a nested `def`: `free_metas` counts it,
+so no definition worked out in between generalises over it. `zonk`
+reads a `TData` through, which is how the field's settled type reaches
+`tmap`, the module's signature and the backends.
 
 ## 17. Calls
 

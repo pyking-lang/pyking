@@ -1,0 +1,4 @@
+'tests/fail_typecheck_struct_update_several.pyk' 10:15-10:16 Name
+  error: '..' takes the fields it fills from a value built by the same
+  constructor, so it is written only for a datatype with one
+  constructor, and 'Square' is one of several

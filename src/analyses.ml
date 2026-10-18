@@ -705,7 +705,7 @@ and sym_constructor counter (Constructor (i, name, fields, s)) =
   (Constructor (i, name, fields, s), counter)
 
 and sym_field counter (Field (i, label, type_, default, s)) =
-  let type_, counter = sym_type counter type_ in
+  let type_, counter = map_option sym_type counter type_ in
   let default, counter = map_option sym_expr counter default in
   let s, counter = assign s counter in
   (Field (i, label, type_, default, s), counter)
@@ -908,7 +908,7 @@ and high_constructor (Constructor (_, _, fields, s)) =
   max s
     (high_list
        (fun (Field (_, _, type_, default, fs)) ->
-         max fs (max (high_type type_) (high_option high_expr default)))
+         max fs (max (high_option high_type type_) (high_option high_expr default)))
        fields)
 
 and high_stmt st =

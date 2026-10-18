@@ -1,0 +1,44 @@
+# Updating a struct: `..base` gives every field not written before it
+# from `base`, and the value it builds is a new one -- `base` is left as
+# it was.
+
+struct Point(x: Int, y: Int, z: Int = 0)
+
+
+p = Point(7, 10)
+p2 = Point(x = 5, ..p)
+print(p, p2)
+print(Point(1, ..p), Point(z = 3, x = 2, ..p), Point(..p))
+
+
+# The base may be any expression of the type. What is written before it
+# runs first, in the order it is written, and the base after it, once.
+def note(label: String, value: Int) -> Int:
+    print(label)
+    value
+
+
+def make(label: String) -> Point:
+    print(label)
+    Point(1, 2, 3)
+
+
+print(Point(y = note("y", 20), x = note("x", 10), ..make("base")))
+print(Point(note("x", 1), ..Point(note("inner", 4), 5)))
+
+
+# A datatype of one constructor is updated the same way.
+datatype Account:
+    Account(owner: String, balance: Int, currency: String = "SEK")
+
+
+a = Account("ada", 10)
+print(Account(balance = a.balance + 5, ..a))
+
+
+# A generic struct keeps its parameters through an update.
+struct Labelled(item: a, label: String)
+
+
+l = Labelled(3, "three")
+print(Labelled(label = "drei", ..l), Labelled(item = 4, ..l).item + 1)

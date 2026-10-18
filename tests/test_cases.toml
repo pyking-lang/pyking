@@ -1852,3 +1852,53 @@ excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py check
 
 [[cases]]
 file = "return_nested_if.pyk"
+
+[[cases]]
+file = "struct_basic.pyk"
+
+[[cases]]
+file = "struct_generic.pyk"
+
+[[cases]]
+file = "struct_update.pyk"
+
+[[cases]]
+file = "adt_default_expr.pyk"
+
+[[cases]]
+file = "typecheck_struct.pyk"
+also = ["pyking_rerun"]
+
+[[cases]]
+file = "module_struct.pyk"
+modules = ["module_struct_mod1.pyk"]
+
+[[cases]]
+file = "fail_typecheck_struct_update_several.pyk"
+
+[[cases]]
+file = "fail_typecheck_struct_update_last.pyk"
+
+[[cases]]
+file = "fail_typecheck_struct_update_function.pyk"
+
+[[cases]]
+file = "fail_typecheck_struct_update_nothing.pyk"
+
+[[cases]]
+file = "fail_typecheck_struct_update_unnamed.pyk"
+
+[[cases]]
+file = "fail_typecheck_struct_update_type.pyk"
+
+[[cases]]
+file = "fail_typecheck_struct_in_block.pyk"
+
+[[cases]]
+file = "fail_typecheck_struct_public_default.pyk"
+
+[[cases]]
+file = "fail_typecheck_struct_field_line.pyk"
+
+[[cases]]
+file = "struct_submodule.pyk"

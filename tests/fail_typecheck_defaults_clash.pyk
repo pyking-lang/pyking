@@ -7,7 +7,7 @@
 greet__default__who = 1
 
 
-def greet(who: Int = 2) -> Int:
+def greet(who: Int = 2 * 3) -> Int:
     return who
 
 

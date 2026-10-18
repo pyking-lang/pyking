@@ -1,0 +1,30 @@
+# A field's default may be any expression. With no type written, the
+# field takes the default's type. The default is evaluated at each
+# construction that leaves it out, in the scope the datatype is
+# declared in.
+
+def start() -> Int:
+    print("start")
+    100
+
+
+base = 10
+
+
+struct Counter(name: String, value = start(), step = base * 2, ratio = 1.5 * 2.0)
+
+
+base = 99
+
+c = Counter("a")
+print(c)
+print(Counter("b", 1))
+print(Counter("c", step = 3).step + base)
+
+
+datatype Shape:
+    Circle(radius = 1.0 + 1.0)
+    Square(side: Int = base)
+
+
+print(Circle(), Square(), Square(2))

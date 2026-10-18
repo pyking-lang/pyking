@@ -1,0 +1,12 @@
+# A module exporting a struct: its type and its constructor, with a
+# literal default and one written as an expression.
+
+public def origin_x() -> Int:
+    return 3
+
+
+public struct Point(x: Int = origin_x(), y = 4, label: String = "p")
+
+
+public def moved(p: Point, dx: Int) -> Point:
+    return Point(x = p.x + dx, ..p)

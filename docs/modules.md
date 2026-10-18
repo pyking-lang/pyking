@@ -161,6 +161,9 @@ call `mod.greet__default__who()`. `from mod import greet` has no module
 name to qualify, so the pass **adds the generated names to that import's
 own field list** — the tree holds `from mod import greet,
 greet__default__who` — and the call is a plain `greet__default__who()`.
+A default that is a literal generates no def: the pass records the
+literal itself with the function's parameters, and a call from another
+module is given it as a call in the module itself is.
 
 An **exported** function's defaulted parameter must carry a type
 annotation. Without one the generated def is unannotated, and

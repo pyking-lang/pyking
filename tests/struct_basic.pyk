@@ -1,0 +1,49 @@
+# Structs: a datatype of one constructor, named as its type is, written
+# on one line or with its fields on indented lines.
+
+struct Point(x: Int, y = 78)
+
+
+struct Size:
+    width: Int, height: Int
+    unit = "px"
+
+
+# Unnamed fields come first, as in a datatype.
+struct Pair(Int, Int)
+
+
+struct Empty
+
+
+p = Point(7, 10)
+print(p, p.x, p.y)
+print(Point(1), Point(y = 2, x = 3))
+
+s = Size(4, height = 5)
+print(s, s.width * s.height, s.unit)
+
+print(Pair(1, 2), Empty)
+
+
+# A struct is taken apart by a pattern like any constructor.
+def norm1(p: Point) -> Int:
+    match p:
+        case Point(x, y): x + y
+
+
+def describe(s: Size) -> String:
+    match s:
+        case Size(width = w, unit = "px"): "pixels, " ++ string(w) ++ " wide"
+        case Size(_, _, u): u
+
+
+print(norm1(p), describe(s), describe(Size(1, 1, "cm")))
+
+
+# Every field of the one constructor is a field of the type, so `.`
+# reads it from any value of it.
+def total(ps: Pair, q: Point) -> Int:
+    match ps:
+        case Pair(a, b): a + b + q.x
+print(total(Pair(1, 2), p))

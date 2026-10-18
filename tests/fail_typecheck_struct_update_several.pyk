@@ -1,0 +1,10 @@
+# `..` takes the fields it fills from a value built by the same
+# constructor, which only a datatype of one constructor guarantees.
+
+datatype Shape:
+    Circle(radius: Int)
+    Square(radius: Int)
+
+
+s = Circle(1)
+print(Square(..s))

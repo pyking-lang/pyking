@@ -15,6 +15,8 @@
       desugar signatures name stmts -- rewrites one module.
       external_module signatures name -- records a module written in
         another language, which the sugar may not reach into.
+      field_default_name constructor field -- the def holding one
+        field's default.
       generated_name name -- whether the pass made this name up. *)
 
 type signatures
@@ -32,6 +34,10 @@ val desugar :
     then use. Raises Analyses.Analysis_error where the sugar is written
     somewhere it cannot be resolved.
     signatures -> String -> [stmt] -> ([stmt], signatures) *)
+
+val field_default_name : string -> string -> string
+(** The name of the def holding one constructor field's default.
+    String -> String -> String *)
 
 val generated_name : string -> bool
 (** Whether this name is one the pass made up rather than one the

@@ -1,0 +1,8 @@
+# `..` fills a field by its name, so a field with none is given
+# before it.
+
+struct Tagged(String, value: Int)
+
+
+t = Tagged("t", 1)
+print(Tagged(value = 2, ..t))

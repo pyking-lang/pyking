@@ -371,7 +371,10 @@ let constructors_flattened dotted statement =
               params,
               List.map
                 (fun (Constructor (ci, c, fields, csym)) ->
-                  Constructor (ci, flat (String.concat "." (path @ [ c ])), fields, csym))
+                  (* A struct's constructor is its name, flattened with
+                     it before the second parse. *)
+                  if c = name then Constructor (ci, c, fields, csym)
+                  else Constructor (ci, flat (String.concat "." (path @ [ c ])), fields, csym))
                 constructors,
               sym,
               public )

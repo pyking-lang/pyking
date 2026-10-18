@@ -560,16 +560,68 @@ let datatype_of ctx info canonical args =
       (d, if List.length params = List.length args then List.combine params args else [])
   | None -> unsupported info (Printf.sprintf "the datatype %s is not one this module can see" canonical)
 
-(** A constructor's fields at an instance: each field's C name and type.
-    ctx -> info -> typ -> string -> [(string, typ)] *)
+(** The C member names of one constructor's fields: in a datatype of one
+    constructor, a named field by its own name, and otherwise `f<i>`.
+    bool -> [(String?, typ)] -> [string] *)
+let member_names sole fields =
+  let plain = List.mapi (fun i _ -> Printf.sprintf "f%d" i) fields in
+  if not sole then plain
+  else
+    let named =
+      List.mapi
+        (fun i (label, _) ->
+          match label with Some l -> c_ident l | None -> Printf.sprintf "f%d" i)
+        fields
+    in
+    if List.length (List.sort_uniq compare named) = List.length named then named
+    else plain
+
+(** Where a member of a constructor lives in its datatype's value: the
+    member itself in a struct of one constructor, under the union in a
+    tagged union. bool -> string -> string -> string *)
+let member_path sole cname member =
+  if sole then member else Printf.sprintf "u.%s.%s" (c_ident cname) member
+
+(** A constructor's fields at an instance: each field's path in the value
+    and its type. ctx -> info -> typ -> string -> [(string, typ)] *)
 let ctor_fields ctx info t name =
   match t with
   | TCon (_, canonical, args, _) -> (
       let Datatype (_, _, ctors), bound = datatype_of ctx info canonical args in
+      let sole = List.length ctors = 1 in
       match List.assoc_opt name ctors with
-      | Some fields -> List.mapi (fun i (_, ft) -> (Printf.sprintf "f%d" i, substitute bound ft)) fields
+      | Some fields ->
+          List.map2
+            (fun member (_, ft) -> (member_path sole name member, substitute bound ft))
+            (member_names sole fields) fields
       | None -> unsupported info (Printf.sprintf "no constructor %s" name))
   | _ -> unsupported info "a constructor of a value that is not a datatype"
+
+(** The named fields of a datatype of one constructor, each with its
+    path in the value; nothing for any other type. ctx -> info -> typ ->
+    [(string, string)] *)
+let sole_fields ctx info t =
+  match t with
+  | TCon (_, canonical, args, _) -> (
+      let Datatype (_, _, ctors), _ = datatype_of ctx info canonical args in
+      match ctors with
+      | [ (_, fields) ] ->
+          List.concat
+            (List.map2
+               (fun member (label, _) ->
+                 match label with Some l -> [ (l, member) ] | None -> [])
+               (member_names true fields) fields)
+      | _ -> [])
+  | _ -> []
+
+(** Whether a type is a datatype of one constructor, which C writes as a
+    plain struct. ctx -> info -> typ -> bool *)
+let sole_constructor ctx info t =
+  match t with
+  | TCon (_, canonical, args, _) ->
+      let Datatype (_, _, ctors), _ = datatype_of ctx info canonical args in
+      List.length ctors = 1
+  | _ -> false
 
 (** A constructor's tag: its position in its datatype. ctx -> info -> typ
     -> string -> int *)
@@ -655,16 +707,16 @@ let rec ctype ctx st info t =
                 heap, and C has no garbage collector to free one"
                (pprint_type default_config t));
         let Datatype (_, _, ctors), bound = datatype_of ctx info canonical args in
+        let sole = List.length ctors = 1 in
         let arms, st =
           List.fold_left
             (fun (out, st) (cname, fields) ->
               let fs, st =
-                List.fold_left
-                  (fun (out, st) (i, (_, ft)) ->
+                List.fold_left2
+                  (fun (out, st) member (_, ft) ->
                     let ct, st = ctype ctx st info (substitute bound ft) in
-                    (out @ [ (ct, Printf.sprintf "f%d" i) ], st))
-                  ([], st)
-                  (List.mapi (fun i f -> (i, f)) fields)
+                    (out @ [ (ct, member) ], st))
+                  ([], st) (member_names sole fields) fields
               in
               (out @ [ (cname, fs) ], st))
             ([], st) ctors
@@ -682,8 +734,16 @@ let rec ctype ctx st info t =
         in
         let members = if members = [] then [ "        int unused;" ] else members in
         let decl =
-          Printf.sprintf "typedef struct %s {\n    int tag;\n    union {\n%s\n    } u;\n} %s;" name
-            (String.concat "\n" members) name
+          match arms with
+          | [ (_, fs) ] ->
+              (* One constructor: a plain struct, its fields its members. *)
+              Printf.sprintf "typedef struct %s {\n%s\n} %s;" name
+                (if fs = [] then "    int unused;"
+                 else String.concat "\n" (List.map (fun (ct, n) -> "    " ^ declaration ct n ^ ";") fs))
+                name
+          | _ ->
+              Printf.sprintf "typedef struct %s {\n    int tag;\n    union {\n%s\n    } u;\n} %s;" name
+                (String.concat "\n" members) name
         in
         let st = { st with types = st.types @ [ (name, decl) ] } in
         let st =
@@ -691,10 +751,15 @@ let rec ctype ctx st info t =
             (fun st (tag, (cname, fs)) ->
               let maker_name = Printf.sprintf "pyk_mk_%s_%s" (code ctx.own info t) cname in
               let maker =
-                Printf.sprintf "static %s %s(%s)\n{\n    %s v;\n    v.tag = %d;\n%s\n    return v;\n}" name maker_name
+                let assignments =
+                  (if sole then if fs = [] then [ "v.unused = 0;" ] else []
+                   else [ Printf.sprintf "v.tag = %d;" tag ])
+                  @ List.map (fun (_, n) -> Printf.sprintf "v.%s = %s;" (member_path sole cname n) n) fs
+                in
+                Printf.sprintf "static %s %s(%s)\n{\n    %s v;\n%s\n    return v;\n}" name maker_name
                   (if fs = [] then "void" else String.concat ", " (List.map (fun (ct, n) -> declaration ct n) fs))
-                  name tag
-                  (String.concat "\n" (List.map (fun (_, n) -> Printf.sprintf "    v.u.%s.%s = %s;" (c_ident cname) n n) fs))
+                  name
+                  (String.concat "\n" (List.map (fun a -> "    " ^ a) assignments))
               in
               need_helper st maker_name maker)
             st
@@ -781,16 +846,16 @@ let rec shower ctx st info t =
       if List.mem_assoc name st.helpers then ((fun v -> Printf.sprintf "%s(%s)" name v), st)
       else
         let Datatype (_, _, ctors), bound = datatype_of ctx info canonical args in
+        let sole = List.length ctors = 1 in
         let arms, st =
           List.fold_left
             (fun (out, st) (tag, (cname, fields)) ->
               let parts, st =
-                List.fold_left
-                  (fun (out, st) (i, (_, ft)) ->
+                List.fold_left2
+                  (fun (out, st) member (_, ft) ->
                     let show, st = shower ctx st info (substitute bound ft) in
-                    (out @ [ show (Printf.sprintf "v.u.%s.f%d" (c_ident cname) i) ], st))
-                  ([], st)
-                  (List.mapi (fun i f -> (i, f)) fields)
+                    (out @ [ show ("v." ^ member_path sole cname member) ], st))
+                  ([], st) (member_names sole fields) fields
               in
               let arm =
                 if parts = [] then Printf.sprintf "    case %d: return \"%s\";" tag cname
@@ -808,10 +873,25 @@ let rec shower ctx st info t =
             ([], st)
             (List.mapi (fun i c -> (i, c)) ctors)
         in
-        let st = need_concat st in
+        let st = match ctors with [ (_, []) ] -> st | _ -> need_concat st in
         let text =
-          Printf.sprintf "static const char *%s(%s v)\n{\n    const char *out;\n    switch (v.tag) {\n%s\n    }\n    return \"\";\n}" name ct
-            (String.concat "\n" arms)
+          match (ctors, arms) with
+          | [ (cname, []) ], _ ->
+              Printf.sprintf "static const char *%s(%s v)\n{\n    (void)v;\n    return \"%s\";\n}" name ct cname
+          | [ _ ], [ arm ] ->
+              (* One constructor: its arm is the whole function, a level
+                 less indented and without the `case`. *)
+              let lines = List.tl (String.split_on_char '\n' arm) in
+              let lines =
+                List.map
+                  (fun l -> if String.length l >= 4 && String.sub l 0 4 = "    " then String.sub l 4 (String.length l - 4) else l)
+                  lines
+              in
+              Printf.sprintf "static const char *%s(%s v)\n{\n    const char *out;\n%s\n}" name ct
+                (String.concat "\n" lines)
+          | _ ->
+              Printf.sprintf "static const char *%s(%s v)\n{\n    const char *out;\n    switch (v.tag) {\n%s\n    }\n    return \"\";\n}" name ct
+                (String.concat "\n" arms)
         in
         ((fun v -> Printf.sprintf "%s(%s)" name v), need_helper st name text)
   | t ->
@@ -974,10 +1054,12 @@ let rec pattern ctx st p (s : cexpr) (t : typ) =
   | PConstructor (_, _, name, fields, _, _) ->
       let tag = ctor_tag ctx info t name in
       let declared = ctor_fields ctx info t name in
-      let test = binary p_eq "==" (atom (at p_atom s ^ ".tag")) (atom (string_of_int tag)) in
-      let places = List.map (fun (f, _) -> atom (Printf.sprintf "%s.u.%s.%s" (at p_atom s) (c_ident name) f)) declared in
+      let places = List.map (fun (path, _) -> atom (Printf.sprintf "%s.%s" (at p_atom s) path)) declared in
       let conds, binds, st = parts ctx st fields places (List.map snd declared) in
-      (test :: conds, binds, st)
+      if sole_constructor ctx info t then (conds, binds, st)
+      else
+        let test = binary p_eq "==" (atom (at p_atom s ^ ".tag")) (atom (string_of_int tag)) in
+        (test :: conds, binds, st)
   | PAs (_, inner, name, _) ->
       let conds, binds, st = pattern ctx st inner s t in
       (conds, binds @ [ (name, s, t) ], st)
@@ -1182,11 +1264,14 @@ and expr ctx st scope e =
       ( sequenced steps
           (atom (Printf.sprintf "pyk_mk_%s_%s(%s)" (code ctx.own info t) name (String.concat ", " (List.map (fun v -> v.text) values)))),
         st )
-  | EField (_, record, name, _) ->
+  | EField (_, record, name, _) -> (
       let rt = type_of ctx scope record in
       let v, st = expr ctx st scope record in
-      let accessor, st = field_accessor ctx st info rt name in
-      (atom (Printf.sprintf "%s(%s)" accessor v.text), st)
+      match List.assoc_opt name (sole_fields ctx info rt) with
+      | Some path -> (atom (Printf.sprintf "%s.%s" (at p_atom v) path), st)
+      | None ->
+          let accessor, st = field_accessor ctx st info rt name in
+          (atom (Printf.sprintf "%s(%s)" accessor v.text), st))
   | ELambda (_, params, body, _) -> lambda ctx st scope e params body
   | ELet (_, target, _, value, body, _) ->
       (* The value into a temporary by the comma operator -- a tuple's

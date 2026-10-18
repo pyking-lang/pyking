@@ -6,7 +6,7 @@
 # Every name here is a keyword in at least one target:
 #   class, lambda, pass, del, global, raise, yield          -- Python
 #   class, function, typeof, delete, new, instanceof, super -- JavaScript
-#   double, struct, unsigned, static, void, char, sizeof    -- C
+#   double, union, unsigned, static, void, char, sizeof     -- C
 #   static, final, abstract, synchronized, native           -- Java
 # and several are keywords in more than one at once.
 
@@ -33,11 +33,11 @@ print(combine(1, 2, 3))
 
 
 # Keywords as ordinary bindings and as mutable variables.
-struct = 10
+union = 10
 var unsigned = 20
 unsigned := unsigned + 1
 
-print(struct, unsigned)
+print(union, unsigned)
 
 
 # A keyword name rebound (a second `=` shadows the first), which the

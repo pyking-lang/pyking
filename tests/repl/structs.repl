@@ -1,0 +1,17 @@
+struct Point(x: Int, y = 78)
+p = Point(7, 10)
+p
+Point(x = 5, ..p)
+Point(1).y
+def start() -> Float:
+    1.5
+
+struct Config:
+    name: String
+    scale = start() * 2.0
+
+c = Config("c")
+c
+Config("d", ..c).scale
+Point(..3)
+:ls

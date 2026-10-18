@@ -131,7 +131,7 @@ let children n =
   | NConstructor (Constructor (_, _, fields, _)) ->
       List.map (fun f -> NFieldDecl f) fields
   | NFieldDecl (Field (_, _, type_, default, _)) ->
-      NType type_ :: option_of (fun e -> NExpr e) default
+      option_of (fun t -> NType t) type_ @ option_of (fun e -> NExpr e) default
   | NStmt s -> (
       match s with
       | SBreak _ | SContinue _ | SImport _ -> []

@@ -302,9 +302,19 @@ Around them:
 - **`parse_datatype`, `parse_constructor`, `parse_field`** — a
   `datatype` declaration, reached only from `parse_top_statement` and
   `parse_public`, so one inside a block is refused. A field written
-  `name = literal` gets the literal's type here (`literal_type`), and
+  `name = literal` gets the literal's type here (`literal_type`), one
+  written `name = expr` with any other default no type at all, and
   `check_fields` holds the fields to a call's rules: unnamed first,
-  every one after a default defaulted.
+  every one after a default defaulted. `parse_type_name`,
+  `parse_type_params` and `parse_fields` are shared with `struct`.
+- **`parse_struct`** — a `struct`, built straight into the `SDatatype`
+  of its one constructor, so nothing after the parser knows it was
+  written. `params_follow` tells a parenthesized list of type parameters
+  (followed by `:`) from one of fields, and `type_variables` collects
+  the one-line form's parameters from its fields.
+- **`parse_args`** — also reads a last `..expr`, kept as an argument
+  labelled `Syntax.spread_label`; `parse_call_tail` refuses one in a
+  call.
 - **`parse_construct`, `parse_type_application`** — a constructor in an
   expression, and a datatype in a type: an uppercase identifier, with
   its arguments where a `(` follows on its row. `parse_call_tail` reads
@@ -492,10 +502,12 @@ what the sugar means.
 ### Data structures
 
 - **`parameter`** — one parameter of a definition the pass has seen: its
-  name, and the name of the generated `def` holding its default, where
-  it has one.
+  name, and its default, where it has one: `Generated` with the name of
+  the generated `def` holding it, or `Literal` with the literal written
+  at each call.
 - **`meta`** — what a call needs to know about the definition it
-  reaches: its parameters, and whether the module exports it.
+  reaches: its parameters, whether the module exports it, and for a
+  constructor whether it is its datatype's only one (`sole`).
 - **`module_info`** — one module: its definitions, the set of other
   names its top level binds, and whether it is written in another
   language.
@@ -519,8 +531,14 @@ what the sugar means.
 - **`block` / `rewrite` / `expression`** — the walk: a block's `def`
   names are hoisted first, each definition's generated defs are emitted
   immediately before it, and every call is resolved against the scope.
+- **`inlined` / `default_of`** — whether a default is a literal written
+  at the call rather than a generated def.
+- **`constructed`** — one construction with its arguments in position
+  and labelled with their fields; **`updated`** — one written with
+  `..base`, its missing fields read from `base` by name.
 - **`ordered`** — the full positional argument list one call supplies,
-  filling each omitted parameter with a call to its default. Answers
+  filling each omitted parameter with its literal or a call to its
+  default. Answers
   nothing where the call says nothing the sugar has to act on, so an
   ordinary arity mistake is left to the type checker's own words.
 
@@ -708,7 +726,9 @@ scheme specifically).
   types, and each constructor's datatype. Filled once per module by
   `declare_datatypes`, before the first statement is checked, from the
   module's own `datatype`s and the `TData` entries of its imports'
-  sigmaps. A written annotation is read through `resolved`, which
+  sigmaps. A field with no type written is a metavariable, recorded in
+  **`field_defaults`** under its default's def, and **`field_default`**
+  settles it where `check_stmt` reaches that def. A written annotation is read through `resolved`, which
   replaces every datatype name with the canonical one and refuses one
   that is unknown or applied to the wrong number of types.
 - **`OPERATORS`** — node class → (spelling, list of signatures). A *list*
@@ -1714,6 +1734,9 @@ go, how a boolean is spelled -- not about meaning.
   taking what it captures, and a function value as a closure.
 - **`in_order` / `sequenced`** -- operands that can print, put in
   temporaries and ordered with the comma operator.
+- **`member_names` / `member_path` / `sole_fields`** -- where a
+  constructor's fields live: the members of a plain struct for a
+  datatype of one constructor, the union's otherwise.
 - **`pprint_c_program` / `pprint_c_header`** -- the translation unit,
   and the `.h` a module the program imports is included through.
 
@@ -1733,7 +1756,9 @@ patterns, and records with a pattern `switch`.
   for a list, the runtime's `T2`, ... for a tuple, a class per
   constructor, `java.util.function` for a function value.
 - **`jt`** -- a type as Java; **`pattern`**, **`match_stmt`** and
-  **`switch_stmt`** -- a `match` for each shape.
+  **`switch_stmt`** -- a `match` for each shape. **`sole_constructor`**
+  -- a datatype of one constructor, which is its record (or class) alone,
+  built with `new`.
 - **`lift`** -- a nested def as a static method taking what it captures;
   **`poly_wrap`** -- a function handed to a polymorphic parameter, as an
   object of the runtime's interface for it.
@@ -1782,6 +1807,8 @@ refused).
   loop the same way. `rec` is computed from the translated body, never
   assumed, since a needless one is a warning and the harness treats
   warnings as errors.
+- **`pprint`** — an `O*` expression as OCaml text; a `match` of one arm
+  with no guard is printed as `let`, since its pattern cannot fail.
 - **`regroup`** — the block's statements reordered so every group of
   `def`s that name each other is consecutive, which is what
   `let rec … and …` needs. Only `def`s move, and only down; a `def`

@@ -500,7 +500,10 @@ Beside the declaration goes one printer per datatype, `pyk_show_tree`,
 taking a printer per type parameter and then the value, and writing it
 as Pyking prints it; a print site hands it the printers for the types
 it was applied to. A field read is a `match` with one arm per
-constructor. A module the program imports declares its datatypes and
+constructor. A `match` of one arm with no guard is printed as `let`
+(`let Point (_, tmp1) = p in tmp1`), since every `match` is exhaustive
+and its one pattern cannot fail -- which is what a field read of a
+`struct` and its printer come to. A module the program imports declares its datatypes and
 their printers in its `.mli` too. A generated file that declares or
 matches a datatype opens with `[@@@warning "-fragile-match"]`: `_` over
 a datatype is how Pyking says "every other constructor", which OCaml

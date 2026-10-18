@@ -37,9 +37,7 @@ sum_: Int = loop acc: Int = 0 for i in range(4):
         return n * 10
     acc + add(add__default__n())
 print(sum_)
-def bumped__default__by() -> Int:
-    2
 def bumped(value:Int, by:Int) -> Int:
     return value + by
-print([bumped(v, bumped__default__by()) for v in [1, 2, 3]])
+print([bumped(v, 2) for v in [1, 2, 3]])
 print([bumped(v, 10) for v in [1, 2, 3]])

@@ -1,0 +1,14 @@
+def three() -> Float:
+    3.0
+datatype Point:
+    Point(x: Int, y: Int)
+datatype Pair(a, b):
+    Pair(first: a, second: b)
+def field__default__Scaled__factor() -> Float:
+    three() * 2.0
+datatype Scaled:
+    Scaled(factor: Float, name: String)
+p: Point = Point(x = 1, y = 2)
+q: Point = Point(x = 5, y = p.y)
+r: Pair(Bool, String) = let update__base: Pair(Int, String) = Pair(first = 1, second = 'one') in Pair(first = true, second = update__base.second)
+print(q, r, Scaled(factor = field__default__Scaled__factor(), name = 's'))

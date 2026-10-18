@@ -1,0 +1,2 @@
+'tests/fail_typecheck_struct_update_nothing.pyk' 7:20-7:21 Name error:
+  '..' has no field to fill: every field of 'Point' is given

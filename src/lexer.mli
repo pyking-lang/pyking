@@ -64,6 +64,7 @@ type token =
   | TokRBracket of info (* ']' *)
   | TokDef of info (* 'def' *)
   | TokDatatype of info (* 'datatype' (an algebraic data type) *)
+  | TokStruct of info (* 'struct' (a datatype of one constructor) *)
   | TokReturn of info (* 'return' *)
   | TokFor of info (* 'for' *)
   | TokIn of info (* 'in' *)

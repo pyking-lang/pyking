@@ -131,6 +131,10 @@ restriction of it, but these are genuinely new.
   nearest is a class per constructor; a datatype is one type, its
   constructors are its only values, and `match` takes them apart. See
   "Datatypes".
+- **Structs**: `struct Point(x: Int, y = 78)` is a datatype of one
+  constructor, and `Point(x = 5, ..p)` builds a copy of `p` with `x`
+  changed. Python's nearest is a frozen dataclass and
+  `dataclasses.replace`. See "Structs".
 - **Uppercase is for types and constructors**: every name a program
   binds starts with a lowercase letter or `_`, so a constant is
   `pi = 3.14` rather than Python's `PI = 3.14`, and an uppercase name is
@@ -247,6 +251,9 @@ Statements:
   positional, named or defaulted, and constructors applied with a
   call's rules; a named field is read with `.` (`p.x`) — Pyking
   extension (see "Datatypes")
+- **Structs** (`struct Point(x: Int, y = 78)`), datatypes of one
+  constructor, and updates (`Point(x = 5, ..p)`) — Pyking extension (see
+  "Structs")
 - Patterns of every kind may be combined with `|` (`case 1 | 2:`), bind
   the whole value as well with `as` (`case Node(l, r) as whole:`), and
   carry a guard (`case n if n > 0:`); every `match` matches every
@@ -261,7 +268,7 @@ Statements:
   what the indented form means
 - Imports (`import m`, `import m as n`, `from m import a, b as c`) and
   exports (`public` in front of a `def`, a `def` signature line, a
-  `datatype`, or an `=` binding) — Pyking extension; both belong to a module's top level,
+  `datatype`, a `struct`, or an `=` binding) — Pyking extension; both belong to a module's top level,
   and there is no `import *` (see "Modules")
 
 Structure:
@@ -303,6 +310,7 @@ top_statement = import_stmt
             | from_stmt
             | public_stmt
             | datatype_stmt
+            | struct_stmt
             | statement ;
 
 import_stmt = "import" , module_item , { "," , module_item } ;
@@ -312,7 +320,7 @@ from_stmt   = "from" , module_path , "import" , field_item , { "," , field_item 
 module_path = ident , { "." , ident } ;
 field_item  = ident , [ "as" , ident ] ;
 public_stmt = "public" , ( function_def | function_sig | datatype_stmt
-                          | assignment ) ;
+                          | struct_stmt | assignment ) ;
 
 (* A datatype belongs to a module's top level. Its name and every
    constructor's start with an uppercase letter; its parameters are type
@@ -325,12 +333,23 @@ datatype_stmt = "datatype" , [ sub_path , "." ] , upper_ident , [ "(" , type_var
 constructor_line = constructor , { "," , constructor } ;
 constructor = upper_ident , [ "(" , [ field , { "," , field } ] , ")" ] ;
 (* A field is a type alone (positional only), or named; a named field's
-   type may be left to a literal default. Unnamed fields come first, and
-   every field after one with a default has one too. *)
+   type may be left to its default. Unnamed fields come first, and every
+   field after one with a default has one too. *)
 field       = type
             | ident , ":" , type , [ "=" , expr ]
-            | ident , "=" , literal ;
+            | ident , "=" , expr ;
 upper_ident = ? an ident beginning with an uppercase letter ? ;
+
+(* A struct is a datatype of one constructor, named as the type is. Its
+   fields are in parentheses on its own line -- every type variable they
+   name is then a parameter -- or on indented lines under its ':', a
+   line holding one or more separated by commas, after the parameters
+   written in parentheses. With neither it has no fields. *)
+struct_stmt = "struct" , [ sub_path , "." ] , upper_ident ,
+              [ "(" , [ field , { "," , field } ] , ")"
+              | [ "(" , type_var , { "," , type_var } , ")" ] , ":" ,
+                INDENT , field_line , { field_line } , DEDENT ] ;
+field_line  = field , { "," , field } ;
 
 (* A block is indented under its header, or is the single expression
    written on the header's own line -- which the EBNF cannot say, since
@@ -496,11 +515,14 @@ atom        = ( float | int | string | bool | ident | list_lit | list_comp
 construct   = [ sub_path , "." ] , upper_ident , [ call_tail ] ;
 field_tail  = "." , ident ;
 (* Every named argument comes after every positional one; the named
-   ones may be written in any order. *)
+   ones may be written in any order. A constructor's arguments may end
+   in `..expr`, which gives every field not written before it. *)
 call_tail   = "(" , [ call_args ] , ")" ;
-call_args   = expr , { "," , expr } , { "," , named_arg }
-            | named_arg , { "," , named_arg } ;
+call_args   = expr , { "," , expr } , { "," , named_arg } , [ "," , update ]
+            | named_arg , { "," , named_arg } , [ "," , update ]
+            | update ;
 named_arg   = ident , "=" , expr ;
+update      = ".." , expr ;
 args        = expr , { "," , expr } ;
 
 list_lit    = "[" , [ args ] , "]" ;
@@ -828,9 +850,11 @@ Notes that don't fall out of the grammar alone:
   it is a parse error. Two constructors on one line are separated by a
   comma, and a line of them after the header's starts a line of its
   own. A field written
-  `name = default` with no type takes its default's type, so the
-  default must be a literal there; any other default needs the type
-  written, `name: Int = start()`.
+  `name = default` with no type takes its default's type (see
+  "Datatypes"). A `struct` is written at the top level too, and two
+  fields on one of its lines are separated by a comma.
+- `..expr` is written only as the last argument of a constructor, and
+  at most once; in a call to a `def` it is a parse error.
 - An uppercase identifier in an expression is a constructor. Every
   name a program binds -- with `=`, `var` or `def`, as a parameter, a
   loop variable, in a pattern, or as an import's alias -- starts with a
@@ -2905,17 +2929,27 @@ position, a string among them quoted: `Rect(2.0, 3.0)`.
 
 **A field** is a type alone, which makes it positional, or a name and a
 type, which may also be given by name. A named field may carry a
-default, and one whose default is a literal may leave its type to it:
+default, any expression, and may leave its type to it:
 
 ```pyking
+def opening() -> Int:
+    return 100
+
+
 datatype Account:
-    Account(String, balance: Int = 0, currency = "SEK")
+    Account(String, balance = opening(), currency = "SEK")
 
 
 print(Account("ada"))
 print(Account("grace", 10))
 print(Account("don", currency = "EUR"))
 ```
+
+A field with no type written has its default's type, and that default
+has to decide one: `items = []` is refused, since an empty list says
+nothing about what it holds. An exported datatype writes its fields'
+types down, a literal default's apart (see "What a module may
+export").
 
 A constructor is called with exactly the rules a `def` is (see "Default
 parameters" and "Named arguments"): positional arguments first, named
@@ -2990,6 +3024,86 @@ datatype named on a `from` line brings its constructors with it:
 `from shapes import Shape` makes `Circle` a constructor here. A public
 definition whose type names a datatype that is not public is refused,
 since a module holding such a value could not say its type.
+
+### Structs — Pyking extension
+
+`struct` declares a datatype of one constructor, named as the type is.
+It means exactly the `datatype` it stands for, which is why everything
+"Datatypes" says of fields, defaults, construction, patterns and
+modules holds of it:
+
+```pyking
+struct Point(x: Int, y = 78)
+
+# the same as
+#   datatype Point:
+#       Point(x: Int, y: Int = 78)
+
+p = Point(7, 10)
+print(p, Point(1), p.x + p.y)
+```
+
+Its fields are in parentheses after its name, or on indented lines under
+its `:`, a line holding one or more separated by commas. With neither,
+it has no fields:
+
+```pyking
+struct Size:
+    width: Int, height: Int
+    unit = "px"
+
+
+struct Pair(Int, Int)
+
+
+struct Empty
+
+
+print(Size(4, 5), Pair(1, 2), Empty)
+```
+
+**Type parameters** are written in parentheses before the `:` of the
+indented form. On one line, every type variable a field names is a
+parameter, in the order they first appear:
+
+```pyking
+struct Pair(a, b):
+    first: a
+    second: b
+
+
+struct Box(value: a, label = "box")
+
+
+print(Pair(1, "one"), Box(true).label)
+```
+
+A struct's value, like every value in Pyking, never changes: there is
+no assignment to a field. A changed copy is built instead.
+
+**`..base`** as the last argument of a constructor gives every field
+not written before it from `base`, a value of the same datatype, by
+name:
+
+```pyking
+struct Point(x: Int, y: Int, z: Int = 0)
+
+
+p = Point(7, 10)
+print(Point(x = 5, ..p))          # Point(5, 10, 0)
+print(Point(1, ..p))              # Point(1, 10, 0)
+```
+
+`Point(x = 5, ..p)` means `Point(x = 5, y = p.y, z = p.z)`: what is
+written before the `..` is evaluated first, in the order written, and
+`base` after it, once. Defaults play no part, since every field left
+out comes from `base`. A field an update can fill is one with a
+name, so an unnamed field is given before the `..`. `..` is written for
+any datatype of one constructor -- one of several might not be the
+constructor `base` was built by -- and is refused where it fills no
+field, and in a call to a `def`, which has no fields to fill. Where the
+datatype has parameters, the fields written may change them:
+`Pair(first = true, ..Pair(1, "one"))` is a `Pair(Bool, String)`.
 
 ### `if`/`match` statements as bound values
 
@@ -4060,6 +4174,14 @@ subject be its datatype, at parameters it leaves to be settled, and each
 field's pattern is checked against that field's type. A guard is
 checked in the environment its pattern binds, and must be a `Bool`.
 
+A field written with no type has its default's type, worked out from
+the default alone, where it is written: the field's uses agree with it
+or are refused, and a default whose type is still open -- `[]`, or a
+call answering a type variable -- is refused with a request to write the
+type. An update `C(f = e, ..base)` is checked as `C(f = e, g = base.g,
+...)`: `base` must have every field it fills, which is to say be a value
+of `C`'s datatype.
+
 ### Exhaustiveness
 
 **Every `match` matches every value of its subject's type**, whether
@@ -4454,6 +4576,10 @@ without annotations"). That works out what this module's own program
 needs, and it is not a promise to another one, so a call here does not
 stand in for the annotations: what crosses the boundary is what the
 source wrote down.
+
+A `public datatype` or `public struct` says its fields' types the same
+way: a field whose default is not a literal has its type written beside
+it (`value: Int = start()`).
 
 A written type is the type it always was, so an exported function is as
 general as its annotation says. `identity` here is exported as

@@ -2983,6 +2983,10 @@ let left_trim text =
   let i = start 0 in
   String.sub text i (length - i)
 
+(** Whether a text holds a word, separated from what is around it by
+    spaces. string -> string -> bool *)
+let contains_word text word = List.mem word (String.split_on_char ' ' text)
+
 (** e as OCaml source text, parenthesized if it binds looser than need.
     oexpr -> int -> int -> string *)
 let rec pprint e need level =
@@ -3043,6 +3047,16 @@ and pprint_bare e level =
       then
         (Printf.sprintf "%s(%s)" spelling inner, p_app)
       else (Printf.sprintf "%s%s" spelling inner, p_app)
+  | OMatch (subject, [ (p, None, b) ]) ->
+      (* One arm with no guard: every match is exhaustive, so its pattern
+         cannot fail, and a `let` says so. *)
+      let p =
+        if String.contains p '|' || contains_word p "as" then "(" ^ p ^ ")" else p
+      in
+      ( Printf.sprintf "let %s = %s in %s" p
+          (pprint subject (p_seq + 1) level)
+          (pprint b (p_seq + 1) level),
+        p_seq )
   | OMatch (subject, made) ->
       let pad = String.concat "" (List.init level (fun _ -> "  ")) in
       let head = Printf.sprintf "match %s with" (pprint subject (p_seq + 1) level) in

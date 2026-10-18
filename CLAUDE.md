@@ -140,7 +140,7 @@ guards" and "Exhaustiveness", is the language; this is where it lives.
   is parsed as `EQualified` and made an `EField` in `desugar_args.ml`,
   where `x` is a binding.
 - **Constructors take a call's rules**, in `desugar_args.ml`: a field is
-  a parameter, a default a generated `<Ctor>__default__<field>` def, and
+  a parameter, a default a generated `field__default__<Ctor>__<field>` def, and
   a named field pattern is put in position with `_` for the rest. After
   it every construction is positional, its arguments still carrying the
   field names (the interpreter and JavaScript keep fields by name).

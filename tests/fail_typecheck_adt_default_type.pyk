@@ -1,8 +1,8 @@
-# A field's type is written, or taken from a literal default: an
-# expression that is not a literal does not say what it is.
+# A field with no type written takes its default's type, and a default
+# whose type is still open -- an empty list of anything -- does not say
+# what it is.
 
-def start() -> Int:
-    return 1
+datatype Bag:
+    Bag(name: String, items = [])
 
-datatype Counter:
-    Counter(value = start())
+print(Bag("empty"))

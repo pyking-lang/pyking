@@ -212,7 +212,10 @@ type expected = No_function | Inferring | Declared of typ
     datatypes -- every datatype this module can see, by canonical name,
       with its parameters and its constructors' field types.
     constructors -- each constructor in scope, as the source spells it,
-      and the canonical name of the datatype it builds. *)
+      and the canonical name of the datatype it builds.
+    field_defaults -- each field written with no type, by the name of the
+      def holding its default: the metavariable standing for its type
+      until that def is reached, and the field's name. *)
 type store = {
   environments : env IntMap.t;
   instances : typ IntMap.t;
@@ -229,6 +232,7 @@ type store = {
   types : string SMap.t;
   datatypes : datatype SMap.t;
   constructors : string SMap.t;
+  field_defaults : (typ * string) SMap.t;
 }
 
 (** The store a program starts checking in, holding the signature of
@@ -250,6 +254,7 @@ let empty_store sigmaps =
     types = SMap.empty;
     datatypes = SMap.empty;
     constructors = SMap.empty;
+    field_defaults = SMap.empty;
   }
 
 (* The names a generalised variable is given, in order: a, b, ... z,
@@ -381,6 +386,19 @@ let rec zonk type_ store =
       TForall (info, List.map snd renamed, zonk body store, sym)
   | TCon (info, name, args, sym) ->
       TCon (info, name, List.map (fun a -> zonk a store) args, sym)
+  | TData (info, Datatype (name, params, constructors), sym) ->
+      (* A field written with no type is a metavariable its default
+         solves. *)
+      TData
+        ( info,
+          Datatype
+            ( name,
+              params,
+              List.map
+                (fun (cname, fields) ->
+                  (cname, List.map (fun (label, t) -> (label, zonk t store)) fields))
+                constructors ),
+          sym )
   | type_ -> type_
 
 (** The rigid variables named in a type, solutions not looked through.
@@ -1430,8 +1448,24 @@ let declare_datatypes stmts store =
           (fun (store, typed) (Constructor (_, cname, fields, csym)) ->
             let store, fields =
               List.fold_left
-                (fun (store, fields) (Field (_, label, type_, _, fsym)) ->
-                  let t = resolved ~params:(name, params) store type_ in
+                (fun (store, fields) (Field (fi, label, type_, _, fsym)) ->
+                  let t, store =
+                    match (type_, label) with
+                    | Some type_, _ -> (resolved ~params:(name, params) store type_, store)
+                    | None, Some field ->
+                        (* Its default decides it, where its def is
+                           written (`check_stmt`). *)
+                        let meta, store = fresh_meta fi store in
+                        ( meta,
+                          {
+                            store with
+                            field_defaults =
+                              SMap.add
+                                (Desugar_args.field_default_name cname field)
+                                (meta, field) store.field_defaults;
+                          } )
+                    | None, None -> (t_unknown fi, store)
+                  in
                   (record store fsym t, fields @ [ (label, t) ]))
                 (store, []) fields
             in
@@ -1989,12 +2023,22 @@ let one_type given name store =
     they belong to something enclosing it, which has already been given
     them by its own caller. env -> store -> StringSet.t *)
 let free_metas env store =
+  (* A field whose type its default has not decided yet belongs to the
+     whole module, as a name the environment binds does. *)
+  let fields =
+    SMap.fold
+      (fun _ (type_, _) found ->
+        List.fold_left
+          (fun found meta -> StringSet.add meta found)
+          found (metas_in type_ store))
+      store.field_defaults StringSet.empty
+  in
   SMap.fold
     (fun _ binding found ->
       List.fold_left
         (fun found meta -> StringSet.add meta found)
         found (metas_in binding.btype store))
-    env StringSet.empty
+    env fields
 
 (** The scheme a definition has: its worked-out type, with every
     metavariable the body left unsolved bound by one `all` at the top.
@@ -2662,7 +2706,34 @@ and check_stmt statement env return_type acc_type store =
            bound, by `declare_functions`, and the binding names the
            definition by symbol -- so recording the environment here is
            what every holder of that name sees. *)
-        (Some (unit_type info), env, with_environment store sym env)
+        let store = with_environment store sym env in
+        match SMap.find_opt name store.field_defaults with
+        | None -> (Some (unit_type info), env, store)
+        | Some (field_type, field) ->
+            (Some (unit_type info), env, field_default info name field_type field env store)
+
+(** The store in which the field whose default the def `name` holds has
+    that default's type. Raises Type_error where the default does not
+    decide a type of its own. info -> String -> typ -> String -> env ->
+    store -> store *)
+and field_default info name field_type field env store =
+  let call = ECall (info, EVar (info, name, 0), [], 0) in
+  let given, after = expr_type call env store in
+  let after =
+    { after with tmap = IntMap.remove 0 after.tmap; qmap = IntMap.remove 0 after.qmap }
+  in
+  let given = zonk given after in
+  if metas_in given after <> [] then
+    raise
+      (Type_error
+         ( info,
+           Printf.sprintf
+             "the default of the field '%s' does not decide its type (it is \
+              %s); write the type: '%s: T = ...'"
+             field (shown given after) field ));
+  demand given field_type info
+    (Printf.sprintf "the field '%s', used before its default is reached," field)
+    after
 
 (** One pass over a loop body: what it supplies -- the accumulator the
     next turn carries -- and the store. A `return` written in the body

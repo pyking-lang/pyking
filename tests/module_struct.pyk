@@ -1,0 +1,12 @@
+# A struct from another module: constructed with its defaults, updated
+# with `..`, and taken apart by a pattern.
+
+import module_struct_mod1 as m
+from module_struct_mod1 import Point
+
+
+p = m.Point()
+print(p, m.moved(p, 10))
+print(m.Point(y = 9, ..p), Point(1, ..p))
+match Point(label = "q"):
+    case Point(x, y, label): print(x + y, label)

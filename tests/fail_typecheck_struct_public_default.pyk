@@ -1,0 +1,8 @@
+# An exported struct writes its field types down, so a default that is
+# not a literal needs one beside it.
+
+def start() -> Int:
+    return 1
+
+
+public struct Counter(value = start())
