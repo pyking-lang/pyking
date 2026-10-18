@@ -127,6 +127,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   program compiled at the root of a checkout no longer replaces it.
   A `build/` that `pyk compile` did not make is refused with the error
   alone, without the usage text.
+- `pyk <file> -t web` and `--run` on a page serve it with `pyk serve`
+  and no `--port`: the first free port from 8000, or any free port when
+  8000..8019 are all taken (was: refused when 8000 was in use).
 - Named arguments may be written in any order: `box(depth = 6, width =
   4)`. They are evaluated in the order written, then the defaults of the
   parameters left out.

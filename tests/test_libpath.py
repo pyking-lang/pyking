@@ -326,6 +326,39 @@ def build_cases():
             server.terminate()
             server.wait()
 
+    def page_free_port(compiler, root):
+        (root / "hello.pyk").write_text('print("hello")\n')
+        held = []
+        for port in range(8000, 8020):
+            taken = socket.socket()
+            try:
+                taken.bind(("127.0.0.1", port))
+                taken.listen(1)
+                held.append(taken)
+            except OSError:
+                taken.close()
+        server = subprocess.Popen(compiler + ["hello.pyk", "-t", "web"], cwd=root,
+                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        try:
+            said = []
+            for _ in range(20):
+                line = server.stdout.readline()
+                said.append(line.rstrip())
+                if "http://" in line:
+                    link = line.strip()
+                    port = int(link.split(":")[2].split("/")[0])
+                    if "--port" in "\n".join(said) or not link.endswith("/hello.html"):
+                        return False, "\n".join(said)
+                    return not 8000 <= port < 8020, link
+                if not line:
+                    break
+            return False, "\n".join(said)
+        finally:
+            server.terminate()
+            server.wait()
+            for taken in held:
+                taken.close()
+
     return [
         ("build/: a binary beside it, the generated files in it", native),
         ("build/: a launcher, and -o naming it elsewhere", launcher),
@@ -334,6 +367,8 @@ def build_cases():
         ("build/: pyk <file> -t <target> runs it from there", run_target),
         ("build/: --no-build, and its Makefile", makefile),
         ("build/: pyk serve on a page links the page", page_link),
+        ("build/: pyk <file> -t web takes a free port when 8000.. are taken",
+         page_free_port),
     ]
 
 

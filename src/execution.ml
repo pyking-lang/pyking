@@ -37,12 +37,6 @@ let ocaml_compiler () =
 
 let pyking_target = "pyking"
 
-(* What `--run` serves a page on, the port `pyk serve` starts at.
-   The server refuses to start if it is taken, which is the right answer:
-   silently choosing another port would print an address for a server
-   somebody else is running. *)
-let web_port = "8000"
-
 (** The commands one target needs to turn its output into a running
     program: the ones run first, each of which must succeed; the program
     itself; where to run them; and a line to print before running, for a
@@ -88,7 +82,7 @@ let plan_for target path modules arguments =
        is what looking at the page needs. *)
     {
       build = [];
-      run = [ Sys.executable_name; "serve"; "--port"; web_port; path ];
+      run = [ Sys.executable_name; "serve"; path ];
       directory;
       note = None;
     }

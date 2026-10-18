@@ -2099,7 +2099,8 @@ anything else is `501`.
 ### Main functions
 
 - **`serve site title port explicit lines`** — listens on `port` when
-  `explicit`, else on the first free port of twenty from it, prints a
+  `explicit`, else on the first free port of twenty from it or, failing
+  that, any free port, prints a
   banner with the link, and serves until Ctrl+C. `SIGPIPE` is ignored,
   so a browser closing a connection mid-reply does not end it.
 - **`respond site path`** — what a `GET` answers: a computed answer, a

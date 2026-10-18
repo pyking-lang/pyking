@@ -236,6 +236,25 @@ def check_stage(check, compiler):
               result.returncode == 0 and (work / "build" / "page.html").exists()
               and (work / "build" / "pyking.js").exists(),
               result.stderr.strip())
+        # A program compiled where pyk itself is -- the root of a checkout
+        # -- gets a build/ of its own, which leaves what pyk ships alone.
+        shutil.copy2(work / "hello.pyk", tree / "hello.pyk")
+        try:
+            for target in ["web24", "iweb24", "python14"]:
+                result = run([pyk, "compile", "-t", target, "hello.pyk"], tree, env)
+                check(f"a {target} program compiled beside pyk builds",
+                      result.returncode == 0, result.stderr.strip())
+            check("and leaves share/ as it was",
+                  (tree / "share" / "pyking.js").exists()
+                  and (tree / "share" / "plugin" / "pyk_plugin.cmi").exists()
+                  and (tree / "share" / "help" / "index.json").exists())
+            result = run([pyk, "hello.pyk"], work, env)
+            check("and pyk still runs a program", result.stdout == HELLO_OUTPUT,
+                  result.stdout + result.stderr)
+        finally:
+            shutil.rmtree(tree / "build", ignore_errors=True)
+            for name in ["hello.pyk", "hello"]:
+                (tree / name).unlink(missing_ok=True)
 
         # Nothing on the PATH: the servers are pyk's own, and need no Python.
         (root / "empty").mkdir()

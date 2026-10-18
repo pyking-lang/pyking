@@ -237,7 +237,7 @@ let usage_full () =
      target's host uses, each printed before it runs:\n\n\
     \  python14         python3 prog.py\n\
     \  node24           node prog.js\n\
-    \  web24, iweb24    pyk serve --port 8000 prog.html (a page must be\n\
+    \  web24, iweb24    pyk serve prog.html (a page must be\n\
   \                   served; the link printed opens the page)\n\
     \  c89, c99, c23    cc -std=<standard> -o prog prog.c, then prog\n\
     \  java8, java17,   javac --release <version> prog.java, then java prog\n\
@@ -291,7 +291,8 @@ let usage_full () =
      `pyk serve <dir>` serves a directory's files as they are, such as a\n\
      page compiled for web24 or iweb24; `pyk serve <file>` serves the\n\
      file's directory and prints a link to the file. Without --port they start at 8000\n\
-     and take the first free port. They listen on 127.0.0.1, or on the\n\
+     and take the first free port, or any free port if 8000..8019 are\n\
+     all taken. They listen on 127.0.0.1, or on the\n\
      address $PYKING_WEB_HOST names (0.0.0.0 for every interface, as in a\n\
      container). --mode student hides an exercise's solution and\n\
      tests until a student asks for them, --mode teacher shows every\n\

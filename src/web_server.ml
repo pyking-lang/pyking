@@ -279,25 +279,30 @@ let address () =
 
 (** A socket listening on the address `address` answers: on port itself
     when it was asked for explicitly, else on the first free one of
-    twenty from it. int -> bool -> (Unix.file_descr * int, string) result *)
+    twenty from it, else on any free port the system picks.
+    int -> bool -> (Unix.file_descr * int, string) result *)
 let listen port explicit =
   let tries = if explicit then 1 else 20 in
+  let bound host p =
+    let socket = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
+    match
+      Unix.setsockopt socket Unix.SO_REUSEADDR true;
+      Unix.bind socket (Unix.ADDR_INET (host, p));
+      Unix.listen socket 64;
+      Unix.getsockname socket
+    with
+    | Unix.ADDR_INET (_, actual) -> Some (socket, actual)
+    | Unix.ADDR_UNIX _ -> Some (socket, p)
+    | exception Unix.Unix_error _ ->
+        Unix.close socket;
+        None
+  in
   let rec go host p =
-    if p >= port + tries then
-      Error
-        (if explicit then Printf.sprintf "serve: port %d is in use" port
-         else Printf.sprintf "serve: no free port in %d..%d" port (port + tries - 1))
+    if p < port + tries then
+      match bound host p with Some answer -> Ok answer | None -> go host (p + 1)
+    else if explicit then Error (Printf.sprintf "serve: port %d is in use" port)
     else
-      let socket = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
-      match
-        Unix.setsockopt socket Unix.SO_REUSEADDR true;
-        Unix.bind socket (Unix.ADDR_INET (host, p));
-        Unix.listen socket 64
-      with
-      | () -> Ok (socket, p)
-      | exception Unix.Unix_error _ ->
-          Unix.close socket;
-          go host (p + 1)
+      match bound host 0 with Some answer -> Ok answer | None -> Error "serve: no free port"
   in
   Result.bind (address ()) (fun host -> go host port)
 
