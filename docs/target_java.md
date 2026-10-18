@@ -176,7 +176,11 @@ name it has where it was bound: every local of a method family has a
 name of its own.
 
 A **`var` a closure captures** is a one-element array, `final int[]
-count = { 0 };`, so the closure and its owner write one cell.
+count = { 0 };`, so the closure and its owner write one cell. Java
+refuses to create an array of a generic type, so the cell of a `var`
+holding a list, a tuple or another generic type is made by
+`PykRuntime.cell(value)`, a `@SafeVarargs` method answering its
+argument array.
 
 A **loop whose body writes a closure** gives every turn its own final
 accumulator, read from the variable the loop carries, since a lambda

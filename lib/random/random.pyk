@@ -1,0 +1,206 @@
+## Random numbers: a Float between 0.0 and 1.0, a whole number in a
+## range, a pick from a list and a list shuffled.
+##
+## The numbers come from a generator written in Pyking, so a program
+## that calls `seed` first gets the same numbers on every target -- art
+## that comes out the same each time, and a game that can be replayed.
+## Without `seed` the generator starts from the clock.
+
+# The Pyking half of `random`, and the whole of it: Park and Miller's
+# minimal standard generator, x' = 16807 x mod (2^31 - 1), computed by
+# Schrage's method so that no product leaves 32 bits -- an Int holds at
+# least that, and past it overflow is undefined. The state is from 1 to
+# 2147483646.
+#
+# Pyking has no `!=` or `%`, so they are spelled out below.
+
+import time
+
+def modulus() -> Int: 2147483647
+
+
+# The state after `s`.
+def step(s: Int) -> Int:
+    hi = s / 127773
+    lo = s - hi * 127773
+    t = 16807 * lo - 2836 * hi
+    if t > 0 then t else t + modulus()
+
+
+# n as a state the generator can start from: from 1 to 2147483646, and
+# stepped a few times, since a small seed starts the generator slowly --
+# its first numbers would be close together.
+def start_from(n: Int) -> Int:
+    m = modulus() - 1
+    r = n - n / m * m
+    s = if r < 0 then r + m else r
+    step(step(step(step(s + 1))))
+
+
+var state = start_from(time.instant())
+
+
+# The next state, which is also the next number, from 1 to 2147483646.
+def advance() -> Int:
+    state := step(state)
+    state
+
+
+## Starts the generator again from `n`, so that what follows is the same
+## each time the program runs, on every target.
+##
+## # Parameters
+## - `n`: any whole number; two different ones start two different
+##   sequences.
+##
+## # Examples
+## ```pyking
+## import random
+## random.seed(42)
+## a = random.randint(1, 100)
+## random.seed(42)
+## print(random.randint(1, 100) == a)
+## ```
+## ```stdout
+## true
+## ```
+public def seed(n: Int) -> ():
+    state := start_from(n)
+
+
+## A random Float from 0.0 up to, but not including, 1.0.
+##
+## # Returns
+## The number.
+##
+## # Examples
+## ```pyking
+## import random
+## x = random.random()
+## print(x >= 0.0)
+## print(x < 1.0)
+## ```
+## ```stdout
+## true
+## true
+## ```
+public def random() -> Float:
+    float(advance() - 1) / 2147483646.0
+
+
+## A random whole number from `low` to `high`, both included.
+##
+## # Parameters
+## - `low`: the smallest it may be.
+## - `high`: the largest it may be; where it is below `low`, the answer is
+##   `low`.
+##
+## # Returns
+## The number.
+##
+## # Examples
+## ```pyking
+## import random
+## roll = random.randint(1, 6)
+## print(roll >= 1)
+## print(roll <= 6)
+## ```
+## ```stdout
+## true
+## true
+## ```
+public def randint(low: Int, high: Int) -> Int:
+    if high < low:
+        low
+    else:
+        span = high - low + 1
+        n = advance() - 1
+        low + (n - n / span * span)
+
+
+## A random Float from `low` up to, but not including, `high`.
+##
+## # Parameters
+## - `low`: the smallest it may be.
+## - `high`: what it stays below.
+##
+## # Returns
+## The number.
+##
+## # Examples
+## ```pyking
+## import random
+## x = random.uniform(-1.0, 1.0)
+## print(x >= -1.0)
+## print(x < 1.0)
+## ```
+## ```stdout
+## true
+## true
+## ```
+public def uniform(low: Float, high: Float) -> Float:
+    low + (high - low) * random()
+
+
+## One of the items, chosen at random. The list must not be empty.
+##
+## # Parameters
+## - `items`: what to choose from.
+##
+## # Returns
+## The item chosen.
+##
+## # Examples
+## ```pyking
+## import random
+## color = random.choice(["red", "green", "blue"])
+## print(len(color) > 2)
+## ```
+## ```stdout
+## true
+## ```
+public def choice(items: [a]) -> a:
+    nth(items, randint(0, len(items) - 1))
+
+
+# The item at position i, counting from 0. An empty list has none, and
+# asking it for one divides by its length, which is a runtime error.
+def nth(items: [a], i: Int) -> a:
+    match items:
+        case []:
+            nth(items, i / len(items))
+        case [first, ..rest]:
+            if i == 0 then first else nth(rest, i - 1)
+
+
+# Whether two positions differ: Pyking has no `!=`.
+def differ(i: Int, j: Int) -> Bool:
+    if i == j then false else true
+
+
+## The items in a random order: every order equally likely. The list
+## given is left as it was.
+##
+## # Parameters
+## - `items`: what to shuffle.
+##
+## # Returns
+## A new list holding the same items.
+##
+## # Examples
+## ```pyking
+## import random
+## deck = random.shuffle([1, 2, 3, 4, 5])
+## print(len(deck))
+## ```
+## ```stdout
+## 5
+## ```
+public def shuffle(items: [a]) -> [a]:
+    match items:
+        case []:
+            []
+        case _:
+            i = randint(0, len(items) - 1)
+            rest = [nth(items, j) for j in range(len(items)) if differ(i, j)]
+            [nth(items, i)] ++ shuffle(rest)

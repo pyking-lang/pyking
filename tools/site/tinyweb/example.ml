@@ -8,8 +8,8 @@ let () =
   let kick = Tinyweb.load_sample "kick1.wav" in
   let snare = Tinyweb.load_sample "snare1.wav" in
   let canvas = Tinyweb.canvas 400 200 in
-  Tinyweb.draw_circle canvas 100 50 30 "#ff0000";
-  Tinyweb.draw_circle canvas 100 50 20 "#000000";
+  Tinyweb.draw_shape canvas "circle" "100 50 30" "#ff0000" "" 1.0 1.0;
+  Tinyweb.draw_shape canvas "circle" "100 50 20" "#000000" "" 1.0 1.0;
   let presses = ref 0 in
   ignore (Tinyweb.make_button "Play kick" (fun () -> Tinyweb.play_sample kick 0.0 1.0 1.0));
   ignore

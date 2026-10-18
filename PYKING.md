@@ -1398,12 +1398,16 @@ total := total + 1
 print(total)
 ```
 
-**A mutable variable is `Int`, `Float` or `Bool`.** Those are the types
-mutation reaches so far; a `var` of any other type is refused:
+**A mutable variable may hold a value of any type**: a number, a
+String, a tuple, a list, a datatype's value or a function. What changes
+is which value the name holds; a list held by a `var` is still never
+changed in place, so updating one builds the new list and stores it:
 
-```
-'prog.pyk' 3:0-3:22 Type error: a mutable variable must be Int, Float or
-  Bool, but 'greeting' is String
+```pyking
+var balls = [(10, 20), (30, 40)]
+balls := [(x + 1, y) for (x, y) in balls]
+balls := balls ++ [(0, 0)]
+print(balls)
 ```
 
 Its type is its initializer's, decided once, and every `:=` must give
@@ -4230,8 +4234,8 @@ is:
 'prog.pyk' 14:16-14:23 Name error: unbound name 'missing'
 ```
 
-**Mutability is not a type.** A `var` is Int, Float or Bool, which the checker
-does say; *which* names may be written to is a separate question, and
+**Mutability is not a type.** A `var` may hold any type, and the checker
+says only that each `:=` gives the type its declaration fixed; *which* names may be written to is a separate question, and
 one a type cannot answer — the same `Int` is a `var` in one scope and an
 `=` binding in another. So a pass of its own applies the two rules under
 "Mutable variables": `:=` may only name a `var`, and nothing may shadow

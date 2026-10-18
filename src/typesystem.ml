@@ -1175,24 +1175,6 @@ let satisfies expected actual store =
           if accepts (zonk expected store) (zonk actual store) then Some store
           else None)
 
-(* --- what a mutable variable may be --- *)
-
-(** Refuses a `var` of a type mutation does not reach yet: Int and Bool
-    are the whole of it so far. A type nothing has decided passes, since
-    a `def` with no annotations is checked again at each call, where the
-    type is known. typ -> info -> string -> () *)
-let check_mutable type_ info name =
-  match type_ with
-  | TInt _ | TFloat _ | TBool _ | TUnknown _ -> ()
-  | _ when is_meta type_ -> ()
-  | _ ->
-      raise
-        (Type_error
-           ( info,
-             Printf.sprintf
-               "a mutable variable must be Int, Float or Bool, but '%s' is %s"
-               name (printed type_) ))
-
 (** Raises Type_error if an if yields one of two different unannotated
     functions (see docs/type_inference.md). typ option -> typ option ->
     info -> () *)
@@ -2440,7 +2422,6 @@ and check_stmt statement env return_type acc_type store =
          rather than a type. *)
       let var_type, store = check_expr e env store in
       let var_type = zonk var_type store in
-      check_mutable var_type info name;
       let store = record store sym var_type in
       (Some (unit_type info), bind env name var_type, store)
   | SMutate (info, name, e, sym) -> (

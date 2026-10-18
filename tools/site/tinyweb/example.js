@@ -10,8 +10,8 @@ const kick = tw.load_sample("kick1.wav");
 const snare = tw.load_sample("snare1.wav");
 
 const canvas = tw.canvas(400, 200);
-tw.draw_circle(canvas, 100, 50, 30, "#ff0000");
-tw.draw_circle(canvas, 100, 50, 20, "#000000");
+tw.draw_shape(canvas, "circle", "100 50 30", "#ff0000", "", 1.0, 1.0);
+tw.draw_shape(canvas, "circle", "100 50 20", "#000000", "", 1.0, 1.0);
 
 let presses = 0;
 

@@ -121,6 +121,9 @@ class FakeNode {
 const eventWords = (line) => {
   const found = /^(\w+)\s+("(?:[^"\\]|\\.)*")\s*(.*)$/.exec(line.trim());
   if (found === null) return line.trim().split(/\s+/);
+  // An `enter` carries its text as a second quoted string.
+  const text = /^"(?:[^"\\]|\\.)*"$/.exec(found[3]);
+  if (text !== null) return [found[1], JSON.parse(found[2]), JSON.parse(text[0])];
   const rest = found[3] === "" ? [] : found[3].split(/\s+/);
   return [found[1], JSON.parse(found[2]), ...rest];
 };
@@ -128,26 +131,110 @@ const eventWords = (line) => {
 let record = null;
 
 // A 2D context that writes down each call, with the state it was made
-// in, under the canvas's tinyweb id.
+// in, under the canvas's tinyweb id. `save` and `restore` keep a stack of
+// that state, as a real context does.
+const STATE_DEFAULTS = {
+  globalAlpha: 1, globalCompositeOperation: "source-over", shadowColor: "transparent",
+  shadowBlur: 0, shadowOffsetX: 0, shadowOffsetY: 0, textAlign: "start",
+  lineDashOffset: 0, dash: "", imageSmoothingEnabled: true,
+};
+
+// FNV-1a, 32 bits, of a bitmap's bytes: how a recording shows pixels.
+function digest(bytes) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < bytes.length; i++) h = Math.imul(h ^ bytes[i], 16777619) >>> 0;
+  return h.toString(16).padStart(8, "0");
+}
+
+// A gradient as a recording shows it: how it was made and its stops.
+class FakeGradient {
+  constructor(kind, args) {
+    this.kind = kind;
+    this.args = args;
+    this.stops = [];
+  }
+
+  addColorStop(at, color) {
+    this.stops.push(`${at} ${color}`);
+  }
+
+  toString() {
+    return `${this.kind}(${this.args.join(",")}|${this.stops.join("|")})`;
+  }
+}
+
+// Pixels, as a canvas holds them.
+class FakeImageData {
+  constructor(a, b, c) {
+    if (typeof a === "number") {
+      this.width = a;
+      this.height = b;
+      this.data = new Uint8ClampedArray(a * b * 4);
+    } else {
+      this.data = a;
+      this.width = b;
+      this.height = c === undefined ? a.length / 4 / b : c;
+    }
+  }
+
+  get tinywebPicture() {
+    return `pixels ${this.width}x${this.height} ${digest(this.data)}`;
+  }
+}
+
 function recordingContext(canvas) {
   const name = () => "canvas " + canvas.getAttribute("data-tinyweb-id");
-  const state = {};
+  let state = { ...STATE_DEFAULTS };
+  const saved = [];
+  // What a fill or a stroke is drawn with, beyond its color: only what
+  // differs from a fresh context, so an ordinary drawing reads as before.
+  const extras = () => Object.keys(STATE_DEFAULTS)
+    .filter((key) => state[key] !== STATE_DEFAULTS[key])
+    .map((key) => ` ${key}=${state[key]}`).join("");
   const call = (method) => (...args) => {
     const style = ["fill", "fillRect", "fillText"].includes(method)
       ? ` fill=${state.fillStyle}`
-      : ["stroke"].includes(method)
-        ? ` stroke=${state.strokeStyle} width=${state.lineWidth} cap=${state.lineCap}`
+      : ["stroke", "strokeText"].includes(method)
+        ? ` stroke=${state.strokeStyle} width=${state.lineWidth} cap=${state.lineCap}` +
+          ` join=${state.lineJoin}`
         : "";
-    const font = method === "fillText" ? ` font=${state.font} baseline=${state.textBaseline}` : "";
-    record.push(`${name()}: ${method}(${args.map((a) => JSON.stringify(a)).join(", ")})${style}${font}`);
+    const font = method === "fillText" || method === "strokeText"
+      ? ` font=${state.font} baseline=${state.textBaseline}` : "";
+    const drawn = ["fill", "fillRect", "fillText", "stroke", "strokeText", "drawImage", "clearRect"]
+      .includes(method) ? extras() : "";
+    const shown = args.map((a) => (a && a.tinywebPicture ? a.tinywebPicture
+      : a instanceof FakeNode ? `${a.tagName.toLowerCase()} ${a.width}x${a.height}`
+        : JSON.stringify(a)));
+    record.push(`${name()}: ${method}(${shown.join(", ")})${style}${font}${drawn}`);
   };
-  const context = {};
+  const context = {
+    setLineDash(pattern) {
+      state.dash = pattern.join(",");
+    },
+    measureText(text) {
+      const size = Number((/(\d+(?:\.\d+)?)px/.exec(state.font) || [0, 10])[1]);
+      return { width: text.length * size * 0.5 };
+    },
+    createLinearGradient: (...args) => new FakeGradient("linear", args),
+    createRadialGradient: (...args) => new FakeGradient("radial", args),
+    createConicGradient: (...args) => new FakeGradient("conic", args),
+    save() {
+      saved.push({ ...state });
+      record.push(`${name()}: save()`);
+    },
+    restore() {
+      if (saved.length > 0) state = saved.pop();
+      record.push(`${name()}: restore()`);
+    },
+  };
   for (const method of ["scale", "fillRect", "beginPath", "arc", "fill", "moveTo",
-    "lineTo", "stroke", "fillText"]) {
+    "lineTo", "stroke", "fillText", "rect", "ellipse", "arcTo", "quadraticCurveTo",
+    "closePath", "translate", "rotate", "setTransform", "drawImage", "bezierCurveTo",
+    "clearRect", "clip", "strokeText", "putImageData"]) {
     context[method] = call(method);
   }
-  for (const property of ["fillStyle", "strokeStyle", "lineWidth", "lineCap", "font",
-    "textBaseline"]) {
+  for (const property of ["fillStyle", "strokeStyle", "lineWidth", "lineCap", "lineJoin",
+    "font", "textBaseline", ...Object.keys(STATE_DEFAULTS)]) {
     Object.defineProperty(context, property, {
       get: () => state[property],
       set: (value) => { state[property] = value; },
@@ -163,7 +250,8 @@ function snapshot(root) {
     const parts = [node.tagName.toLowerCase()];
     for (const [k, v] of [...node.attributes.entries()].sort()) parts.push(`${k}=${v}`);
     if (node.className) parts.push(`class=${node.className}`);
-    for (const key of ["type", "min", "max", "value", "width", "height", "tabIndex"]) {
+    for (const key of ["type", "name", "min", "max", "value", "checked", "placeholder", "width",
+      "height", "tabIndex"]) {
       if (node[key] !== undefined) parts.push(`${key}=${node[key]}`);
     }
     const style = Object.entries(node.style).filter(([, v]) => v !== "" && v !== undefined)
@@ -193,6 +281,7 @@ export function install() {
     createElement: (tag) => new FakeNode(tag),
   };
   globalThis.window = windowListeners;
+  globalThis.ImageData = FakeImageData;
   globalThis.devicePixelRatio = 1;
   globalThis.requestAnimationFrame = (f) => {
     frames.push(f);
@@ -256,6 +345,16 @@ export function install() {
   }
 
   globalThis.AudioContext = FakeAudioContext;
+  // A picture loads where a library sample would be found: only beside
+  // the library, from tinyweb_assets/.
+  globalThis.Image = class {
+    set src(url) {
+      const text = String(url);
+      this.tinywebPicture = text.slice(text.lastIndexOf("/") + 1);
+      const found = text.startsWith("file:") && text.includes("/tinyweb_assets/");
+      setTimeout(() => (found ? this.onload?.() : this.onerror?.()), 0);
+    }
+  };
   globalThis.OfflineAudioContext = class {
     decodeAudioData(bytes) {
       return Promise.resolve({ sample: bytes.sample });
@@ -299,6 +398,11 @@ export function install() {
         pageBox()?.dispatch("keydown", { key: line.slice(4) });
         return true;
       }
+      if (line.startsWith("key_up ")) {
+        windowListeners.dispatch("keyup", { key: line.slice(7) });
+        pageBox()?.dispatch("keyup", { key: line.slice(7) });
+        return true;
+      }
       const words = eventWords(line);
       const target = element(words[1]);
       switch (words[0]) {
@@ -311,13 +415,47 @@ export function install() {
           if (target === null) return false;
           touch();
           target.value = words[2];
-          target.dispatch("input");
+          // A slider reports as it moves, a number field when it changes.
+          target.dispatch(target.type === "number" ? "change" : "input");
+          return true;
+        case "check":
+          if (target === null) return false;
+          touch();
+          target.checked = words[2] === "true";
+          target.dispatch("change");
+          return true;
+        case "pick":
+          if (target === null) return false;
+          touch();
+          target.checked = true;
+          target.dispatch("change");
+          return true;
+        case "choose":
+          if (target === null) return false;
+          touch();
+          target.value = words[2];
+          target.dispatch("change");
+          return true;
+        case "enter":
+          if (target === null) return false;
+          touch();
+          target.value = words[2];
+          target.dispatch("keydown", { key: "Enter" });
           return true;
         case "mouse":
           if (target === null) return false;
           touch();
           target.dispatch("click", { clientX: Number(words[2]), clientY: Number(words[3]) });
           return true;
+        case "press":
+        case "release":
+        case "move": {
+          if (target === null) return false;
+          const type = { press: "pointerdown", release: "pointerup", move: "pointermove" }[words[0]];
+          if (words[0] === "press") touch();
+          target.dispatch(type, { clientX: Number(words[2]), clientY: Number(words[3]), pointerId: 1 });
+          return true;
+        }
         case "frame": {
           clock.now = Number(words[1]) * 1000;
           const due = frames.splice(0, frames.length);

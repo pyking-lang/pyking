@@ -28,6 +28,16 @@
 /* macOS hides INADDR_LOOPBACK under _POSIX_C_SOURCE unless this is set. */
 #define _DARWIN_C_SOURCE
 
+/* A Pyking Bool is bool from c99 on, and int in c89, which has none. */
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
+#include <stdbool.h>
+#elif !defined(TINYWEB_BOOL)
+#define TINYWEB_BOOL
+typedef int bool;
+#define true 1
+#define false 0
+#endif
+
 #include <errno.h>
 #include <signal.h>
 #include <stdio.h>
@@ -49,14 +59,40 @@
 void tinyweb_web_init(int port);
 const char *tinyweb_canvas(int width, int height);
 void tinyweb_fill_canvas(const char *c, const char *color);
-void tinyweb_draw_circle(const char *c, int x, int y, int radius, const char *color);
-void tinyweb_draw_rect(const char *c, int x, int y, int width, int height, const char *color);
-void tinyweb_draw_line(const char *c, int x1, int y1, int x2, int y2, const char *color, int width);
-void tinyweb_draw_text(const char *c, int x, int y, const char *words, const char *color, int size);
+void tinyweb_draw_shape(const char *c, const char *kind, const char *numbers, const char *color,
+                        const char *outline, double width, double alpha);
+void tinyweb_draw_text(const char *c, double x, double y, const char *words, const char *color,
+                       int size, const char *font, const char *align, const char *baseline,
+                       bool bold, const char *outline, double outline_width, double alpha);
+void tinyweb_set_state(const char *c, const char *kind, const char *value, const char *numbers);
+void tinyweb_measure(const char *words, int size, const char *font, bool bold,
+                     void (*answer)(double));
+void tinyweb_watch_pointer(const char *c, const char *kind, void (*f)(int, int));
+int tinyweb_pointer(const char *c, const char *which);
+const char *tinyweb_load_image(const char *name);
+void tinyweb_draw_image(const char *c, const char *picture, int x, int y, int width, int height,
+                        double alpha);
+const char *tinyweb_bitmap(int width, int height);
+void tinyweb_set_pixel(const char *b, int x, int y, int color);
+int tinyweb_get_pixel(const char *b, int x, int y);
+void tinyweb_fill_bitmap(const char *b, int color);
+void tinyweb_draw_bitmap(const char *c, const char *b, int x, int y, double scale);
 const char *tinyweb_make_button(const char *title, void (*on_click)(void));
 const char *tinyweb_label(const char *text);
+const char *tinyweb_row(void);
+const char *tinyweb_column(void);
+void tinyweb_inside(const char *id);
+void tinyweb_outside(void);
 void tinyweb_set_label(const char *id, const char *text);
 const char *tinyweb_make_slider(int low, int high, int value, void (*on_change)(int));
+const char *tinyweb_make_checkbox(const char *title, bool checked, void (*on_change)(bool));
+const char *tinyweb_make_radio(const char *group, const char *title, bool chosen,
+                               void (*on_pick)(const char *));
+const char *tinyweb_make_choice(const char *options, int chosen, void (*on_change)(int));
+const char *tinyweb_make_text_input(const char *placeholder, void (*on_enter)(const char *));
+const char *tinyweb_make_number_input(int low, int high, int value, void (*on_change)(int));
+void tinyweb_set_checked(const char *id, bool checked);
+void tinyweb_set_value(const char *id, int value);
 void tinyweb_apply_style(const char *id, const char *kind, const char *property, const char *value);
 const char *tinyweb_load_sample(const char *name);
 void tinyweb_play_sample(const char *sample, double at, double volume, double rate);
@@ -66,6 +102,8 @@ double tinyweb_time(void);
 void tinyweb_on_frame(void (*draw)(double));
 void tinyweb_on_mouse(const char *c, void (*click)(int, int));
 void tinyweb_on_key(void (*pressed)(const char *));
+void tinyweb_on_key_up(void (*released)(const char *));
+bool tinyweb_key_down(const char *key);
 
 /* BEGIN tinyweb page */
 /* written by tools/tinyweb/embed_page.py from tinyweb_page.html and tinyweb_page.js; do not edit */
@@ -222,12 +260,16 @@ static const char *const tinyweb_page_js[] = {
     "const PROPERTIES = {\n",
     "  background: \"background\", color: \"color\", border: \"border\", radius: \"border-radius\",\n",
     "  font: \"font-family\", size: \"font-size\", padding: \"padding\", gap: \"gap\",\n",
-    "  accent: \"accent-color\", width: \"width\",\n",
+    "  accent: \"accent-color\", width: \"width\", height: \"height\", align: \"align-items\",\n",
+    "  weight: \"font-weight\",\n",
     "};\n",
+    "\n",
+    "// What an `align` a program names is in CSS.\n",
+    "const ALIGNMENTS = { left: \"flex-start\", center: \"center\", right: \"flex-end\" };\n",
     "\n",
     "// The place a kind's property goes. String -> String -> String\n",
     "function placeOf(kind, property) {\n",
-    "  if (kind === \"page\") return property === \"gap\" ? \"box\" : \"page\";\n",
+    "  if (kind === \"page\") return property === \"gap\" || property === \"align\" ? \"box\" : \"page\";\n",
     "  if (kind === \"slider\") return property === \"accent\" || property === \"width\" ? \"slider input\" : \"slider\";\n",
     "  return kind;\n",
     "}\n",
@@ -283,13 +325,19 @@ static const char *const tinyweb_page_js[] = {
     "// Carries out one style command: a theme, a property of every element\n",
     "// of a kind, or a property of the element `id` (kind \"element\").\n",
     "// Style -> Int -> String -> String -> String -> ()\n",
-    "function applyStyle(style, id, kind, property, value) {\n",
+    "function applyStyle(style, id, kind, property, given) {\n",
     "  if (kind === \"theme\") {\n",
-    "    setTheme(style, value);\n",
+    "    setTheme(style, given);\n",
     "    return;\n",
     "  }\n",
     "  const css = PROPERTIES[property];\n",
     "  if (!css) return;\n",
+    "  const value = property === \"align\" ? ALIGNMENTS[given] || \"flex-start\" : given;\n",
+    "  if (kind === \"page\" && property === \"align\") {\n",
+    "    // The box says where its elements stand on the element itself.\n",
+    "    style.box.style.setProperty(css, value);\n",
+    "    return;\n",
+    "  }\n",
     "  if (kind === \"element\") {\n",
     "    let element = style.elements.get(id);\n",
     "    if (!element) return;\n",
@@ -350,6 +398,446 @@ static const char *const tinyweb_page_js[] = {
     "function readerActive() {\n",
     "  return Boolean(globalThis.navigator?.userActivation?.hasBeenActive);\n",
     "}\n",
+    "// --- drawing (step 1) ---\n",
+    "\n",
+    "// A shape's numbers: the words tinyweb.pyk wrote, as numbers.\n",
+    "function numbersOf(text) {\n",
+    "  return text === \"\" ? [] : text.split(\" \").map(Number);\n",
+    "}\n",
+    "\n",
+    "// A rectangle with rounded corners, as a path. Context -> ... -> ()\n",
+    "function roundedRect(g, x, y, w, h, r) {\n",
+    "  const k = Math.max(0, Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2));\n",
+    "  g.moveTo(x + k, y);\n",
+    "  g.arcTo(x + w, y, x + w, y + h, k);\n",
+    "  g.arcTo(x + w, y + h, x, y + h, k);\n",
+    "  g.arcTo(x, y + h, x, y, k);\n",
+    "  g.arcTo(x, y, x + w, y, k);\n",
+    "  g.closePath();\n",
+    "}\n",
+    "\n",
+    "// The outline of one shape, added to the context's path. Whether a filled\n",
+    "// arc is a slice from its centre is `slice`'s.\n",
+    "// Context -> String -> [Float] -> Bool -> ()\n",
+    "function shapePath(g, kind, n, slice) {\n",
+    "  const degrees = Math.PI / 180;\n",
+    "  switch (kind) {\n",
+    "    case \"rect\":\n",
+    "      if (n[4] > 0) roundedRect(g, n[0], n[1], n[2], n[3], n[4]);\n",
+    "      else g.rect(n[0], n[1], n[2], n[3]);\n",
+    "      break;\n",
+    "    case \"circle\":\n",
+    "      g.arc(n[0], n[1], Math.max(0, n[2]), 0, 2 * Math.PI);\n",
+    "      break;\n",
+    "    case \"ellipse\":\n",
+    "      g.ellipse(n[0], n[1], Math.max(0, n[2]), Math.max(0, n[3]), 0, 0, 2 * Math.PI);\n",
+    "      break;\n",
+    "    case \"arc\":\n",
+    "      if (slice) g.moveTo(n[0], n[1]);\n",
+    "      g.arc(n[0], n[1], Math.max(0, n[2]), n[3] * degrees, n[4] * degrees);\n",
+    "      if (slice) g.closePath();\n",
+    "      break;\n",
+    "    case \"line\":\n",
+    "      g.moveTo(n[0], n[1]);\n",
+    "      g.lineTo(n[2], n[3]);\n",
+    "      break;\n",
+    "    case \"lines\":\n",
+    "      for (let i = 0; i + 3 < n.length; i += 4) {\n",
+    "        g.moveTo(n[i], n[i + 1]);\n",
+    "        g.lineTo(n[i + 2], n[i + 3]);\n",
+    "      }\n",
+    "      break;\n",
+    "    case \"curve\":\n",
+    "      g.moveTo(n[0], n[1]);\n",
+    "      g.quadraticCurveTo(n[2], n[3], n[4], n[5]);\n",
+    "      break;\n",
+    "    case \"bezier\":\n",
+    "      g.moveTo(n[0], n[1]);\n",
+    "      g.bezierCurveTo(n[2], n[3], n[4], n[5], n[6], n[7]);\n",
+    "      break;\n",
+    "    case \"polygon\":\n",
+    "    case \"path\":\n",
+    "      for (let i = 0; i + 1 < n.length; i += 2) {\n",
+    "        if (i === 0) g.moveTo(n[i], n[i + 1]);\n",
+    "        else g.lineTo(n[i], n[i + 1]);\n",
+    "      }\n",
+    "      if (kind === \"polygon\") g.closePath();\n",
+    "      break;\n",
+    "  }\n",
+    "}\n",
+    "\n",
+    "// The gradients a canvas has been given, by the text that describes\n",
+    "// them, so a frame drawing the same one again does not make it again.\n",
+    "const GRADIENTS_KEPT = 64;\n",
+    "\n",
+    "// What a color means on a context: a CSS color as it is, and a gradient\n",
+    "// tinyweb.pyk described -- \"linear-gradient(x1 y1 x2 y2); 0 red; 1 blue\",\n",
+    "// \"radial-gradient(x1 y1 r1 x2 y2 r2); ...\", \"conic-gradient(x y\n",
+    "// angle); ...\" -- as the gradient. Context -> Entry? -> String -> Paint\n",
+    "function paint(g, entry, color) {\n",
+    "  const open = color.indexOf(\"(\");\n",
+    "  if (open < 0 || !color.slice(0, open).endsWith(\"-gradient\")) return color;\n",
+    "  const close = color.indexOf(\")\", open);\n",
+    "  if (close < 0 || color.slice(close + 1, close + 2) !== \";\") return color;\n",
+    "  const kept = entry ? entry.gradients : null;\n",
+    "  if (kept && kept.has(color)) return kept.get(color);\n",
+    "  const kind = color.slice(0, open);\n",
+    "  const n = numbersOf(color.slice(open + 1, close).trim());\n",
+    "  let gradient;\n",
+    "  if (kind === \"linear-gradient\") gradient = g.createLinearGradient(n[0], n[1], n[2], n[3]);\n",
+    "  else if (kind === \"radial-gradient\")\n",
+    "    gradient = g.createRadialGradient(n[0], n[1], Math.max(0, n[2]), n[3], n[4], Math.max(0, n[5]));\n",
+    "  else if (kind === \"conic-gradient\" && typeof g.createConicGradient === \"function\")\n",
+    "    gradient = g.createConicGradient((n[2] * Math.PI) / 180, n[0], n[1]);\n",
+    "  else return \"#000000\";\n",
+    "  // A stop's color may itself hold brackets and commas, \"rgba(0, 0, 0, 0.5)\",\n",
+    "  // but never a semicolon.\n",
+    "  for (const stop of color.slice(close + 2).split(\";\")) {\n",
+    "    const text = stop.trim();\n",
+    "    const space = text.indexOf(\" \");\n",
+    "    if (space < 0) continue;\n",
+    "    const at = Math.min(1, Math.max(0, Number(text.slice(0, space))));\n",
+    "    try {\n",
+    "      gradient.addColorStop(at, text.slice(space + 1).trim());\n",
+    "    } catch (error) {\n",
+    "      // A stop whose color the browser does not read is left out.\n",
+    "    }\n",
+    "  }\n",
+    "  if (kept) {\n",
+    "    if (kept.size >= GRADIENTS_KEPT) kept.delete(kept.keys().next().value);\n",
+    "    kept.set(color, gradient);\n",
+    "  }\n",
+    "  return gradient;\n",
+    "}\n",
+    "\n",
+    "// Draws one shape: filled with `color` and outlined with `outline`, each\n",
+    "// unless it is \"\", at `alpha`, in the canvas's line style. The numbers\n",
+    "// are the kind's own (see tinyweb.pyk), as words or as an array;\n",
+    "// \"erase\" makes its rectangle transparent, and \"circles\" draws each\n",
+    "// circle on its own. Context -> Entry? -> String -> Numbers -> ... -> ()\n",
+    "function drawShape(g, entry, kind, numbers, color, outline, width, alpha) {\n",
+    "  const n = typeof numbers === \"string\" ? numbersOf(numbers) : numbers;\n",
+    "  if (kind === \"erase\") {\n",
+    "    g.clearRect(n[0], n[1], n[2], n[3]);\n",
+    "    return;\n",
+    "  }\n",
+    "  const before = g.globalAlpha;\n",
+    "  g.globalAlpha = before * alpha;\n",
+    "  if (kind === \"circles\") {\n",
+    "    // Each circle on its own, so where two overlap both show.\n",
+    "    if (color !== \"\") g.fillStyle = paint(g, entry, color);\n",
+    "    if (outline !== \"\") {\n",
+    "      g.strokeStyle = paint(g, entry, outline);\n",
+    "      g.lineWidth = width;\n",
+    "    }\n",
+    "    for (let i = 0; i + 2 < n.length; i += 3) {\n",
+    "      g.beginPath();\n",
+    "      g.arc(n[i], n[i + 1], Math.max(0, n[i + 2]), 0, 2 * Math.PI);\n",
+    "      if (color !== \"\") g.fill();\n",
+    "      if (outline !== \"\") g.stroke();\n",
+    "    }\n",
+    "    g.globalAlpha = before;\n",
+    "    return;\n",
+    "  }\n",
+    "  g.beginPath();\n",
+    "  shapePath(g, kind, n, color !== \"\");\n",
+    "  if (color !== \"\") {\n",
+    "    g.fillStyle = paint(g, entry, color);\n",
+    "    g.fill();\n",
+    "  }\n",
+    "  if (outline !== \"\") {\n",
+    "    g.strokeStyle = paint(g, entry, outline);\n",
+    "    g.lineWidth = width;\n",
+    "    g.stroke();\n",
+    "  }\n",
+    "  g.globalAlpha = before;\n",
+    "}\n",
+    "\n",
+    "// The font text is written in. Int -> String -> Bool -> String\n",
+    "function fontOf(size, font, bold) {\n",
+    "  return `${bold ? \"bold \" : \"\"}${size}px ${font === \"\" ? \"system-ui, sans-serif\" : font}`;\n",
+    "}\n",
+    "\n",
+    "// Writes text at (x, y): its left end there, its middle or its right end,\n",
+    "// as `align` says, and its top, middle, alphabetic baseline or bottom,\n",
+    "// as `baseline` says. An `outline` is drawn round the letters first.\n",
+    "// Context -> Entry? -> ... -> ()\n",
+    "function drawText(g, entry, x, y, words, color, size, font, align, baseline, bold, outline,\n",
+    "  outlineWidth, alpha) {\n",
+    "  const before = g.globalAlpha;\n",
+    "  g.globalAlpha = before * alpha;\n",
+    "  g.font = fontOf(size, font, bold);\n",
+    "  g.textBaseline = [\"top\", \"middle\", \"alphabetic\", \"bottom\"].includes(baseline) ? baseline : \"top\";\n",
+    "  g.textAlign = align === \"center\" || align === \"right\" ? align : \"left\";\n",
+    "  if (outline !== \"\") {\n",
+    "    g.strokeStyle = paint(g, entry, outline);\n",
+    "    g.lineWidth = outlineWidth;\n",
+    "    g.strokeText(words, x, y);\n",
+    "  }\n",
+    "  if (color !== \"\") {\n",
+    "    g.fillStyle = paint(g, entry, color);\n",
+    "    g.fillText(words, x, y);\n",
+    "  }\n",
+    "  g.globalAlpha = before;\n",
+    "}\n",
+    "\n",
+    "// How wide `words` is written in that font, in pixels.\n",
+    "// String -> Int -> String -> Bool -> Float\n",
+    "function textWidth(words, size, font, bold) {\n",
+    "  if (typeof document === \"undefined\") return 0;\n",
+    "  if (!textWidth.context) textWidth.context = document.createElement(\"canvas\").getContext(\"2d\");\n",
+    "  const g = textWidth.context;\n",
+    "  if (!g) return 0;\n",
+    "  g.font = fontOf(size, font, bold);\n",
+    "  return g.measureText(words).width;\n",
+    "}\n",
+    "\n",
+    "// The line style a canvas starts with: round ends and corners, no dashes.\n",
+    "// Context -> ()\n",
+    "function plainLines(g) {\n",
+    "  g.lineCap = \"round\";\n",
+    "  g.lineJoin = \"round\";\n",
+    "  if (typeof g.setLineDash === \"function\") g.setLineDash([]);\n",
+    "  g.lineDashOffset = 0;\n",
+    "}\n",
+    "\n",
+    "// Changes what the next drawing on a canvas is drawn with. `entry` keeps\n",
+    "// the canvas's pixel ratio and how many `push`es are open.\n",
+    "// Context -> Entry -> String -> String -> String -> ()\n",
+    "function canvasState(g, entry, kind, value, numbers) {\n",
+    "  const n = numbersOf(numbers);\n",
+    "  switch (kind) {\n",
+    "    case \"translate\":\n",
+    "      g.translate(n[0], n[1]);\n",
+    "      break;\n",
+    "    case \"rotate\":\n",
+    "      g.rotate((n[0] * Math.PI) / 180);\n",
+    "      break;\n",
+    "    case \"scale\":\n",
+    "      g.scale(n[0], n[1]);\n",
+    "      break;\n",
+    "    case \"push\":\n",
+    "      g.save();\n",
+    "      entry.depth += 1;\n",
+    "      break;\n",
+    "    case \"pop\":\n",
+    "      if (entry.depth > 0) {\n",
+    "        g.restore();\n",
+    "        entry.depth -= 1;\n",
+    "      }\n",
+    "      break;\n",
+    "    case \"reset\":\n",
+    "      g.setTransform(entry.ratio, 0, 0, entry.ratio, 0, 0);\n",
+    "      break;\n",
+    "    case \"shadow\":\n",
+    "      g.shadowColor = value === \"\" ? \"transparent\" : value;\n",
+    "      g.shadowBlur = value === \"\" ? 0 : n[0];\n",
+    "      g.shadowOffsetX = value === \"\" ? 0 : n[1];\n",
+    "      g.shadowOffsetY = value === \"\" ? 0 : n[2];\n",
+    "      break;\n",
+    "    case \"blend\":\n",
+    "      g.globalCompositeOperation = value === \"add\" ? \"lighter\" : \"source-over\";\n",
+    "      break;\n",
+    "    case \"line_style\": {\n",
+    "      // value: the ends and the corners; numbers: the dash offset, then\n",
+    "      // the lengths of the dashes and the gaps.\n",
+    "      const [cap, join] = value.split(\" \");\n",
+    "      g.lineCap = [\"butt\", \"round\", \"square\"].includes(cap) ? cap : \"round\";\n",
+    "      g.lineJoin = [\"miter\", \"round\", \"bevel\"].includes(join) ? join : \"round\";\n",
+    "      if (typeof g.setLineDash === \"function\") g.setLineDash(n.slice(1));\n",
+    "      g.lineDashOffset = n.length > 0 ? n[0] : 0;\n",
+    "      break;\n",
+    "    }\n",
+    "    case \"clip\":\n",
+    "      // value: the kind of shape the drawing is kept inside.\n",
+    "      g.beginPath();\n",
+    "      shapePath(g, value, n, false);\n",
+    "      g.clip();\n",
+    "      break;\n",
+    "  }\n",
+    "}\n",
+    "\n",
+    "// A canvas as it starts: every `push` closed, no transformation but the\n",
+    "// pixel ratio, no shadow, no blending, no clipping and plain lines. What\n",
+    "// `clear` begins with. Context -> Entry -> ()\n",
+    "function freshState(g, entry) {\n",
+    "  while (entry.depth > 0) {\n",
+    "    g.restore();\n",
+    "    entry.depth -= 1;\n",
+    "  }\n",
+    "  g.setTransform(entry.ratio, 0, 0, entry.ratio, 0, 0);\n",
+    "  g.globalAlpha = 1;\n",
+    "  g.shadowColor = \"transparent\";\n",
+    "  g.shadowBlur = 0;\n",
+    "  g.shadowOffsetX = 0;\n",
+    "  g.shadowOffsetY = 0;\n",
+    "  g.globalCompositeOperation = \"source-over\";\n",
+    "  plainLines(g);\n",
+    "}\n",
+    "\n",
+    "// Starts loading a picture: beside the page first, then among the ones\n",
+    "// tinyweb ships beside `base`. Answers what `drawPicture` draws once it\n",
+    "// has loaded. String -> String -> Picture\n",
+    "function loadPicture(name, base) {\n",
+    "  const picture = { element: null, ready: false, retried: false };\n",
+    "  if (typeof Image === \"undefined\") return picture;\n",
+    "  const element = new Image();\n",
+    "  picture.element = element;\n",
+    "  element.onload = () => {\n",
+    "    picture.ready = true;\n",
+    "  };\n",
+    "  element.onerror = () => {\n",
+    "    if (picture.retried) {\n",
+    "      console.error(`tinyweb: cannot load the picture ${name}`);\n",
+    "      return;\n",
+    "    }\n",
+    "    picture.retried = true;\n",
+    "    element.src = new URL(\"tinyweb_assets/\" + name, base).href;\n",
+    "  };\n",
+    "  element.src = new URL(name, document.baseURI).href;\n",
+    "  return picture;\n",
+    "}\n",
+    "\n",
+    "// Draws a picture that has loaded; one still loading is not drawn.\n",
+    "// Context -> Picture? -> ... -> ()\n",
+    "function drawPicture(g, picture, x, y, width, height, alpha) {\n",
+    "  if (!picture || !picture.ready) return;\n",
+    "  const before = g.globalAlpha;\n",
+    "  g.globalAlpha = before * alpha;\n",
+    "  g.drawImage(picture.element, x, y, width, height);\n",
+    "  g.globalAlpha = before;\n",
+    "}\n",
+    "\n",
+    "// Keeps the pointer's moves and its release coming to the canvas it went\n",
+    "// down on, wherever it goes. Element -> Event -> ()\n",
+    "function capture(element, event) {\n",
+    "  try {\n",
+    "    if (element.setPointerCapture) element.setPointerCapture(event.pointerId);\n",
+    "  } catch (error) {\n",
+    "    // A pointer the browser does not know of, as a test's is, is not held.\n",
+    "  }\n",
+    "}\n",
+    "\n",
+    "// --- bitmaps (step 5) ---\n",
+    "\n",
+    "// The bytes of a bitmap's rectangle as they arrive: a base64 string from\n",
+    "// a program on another host, or the bytes themselves. Data -> Uint8ClampedArray\n",
+    "function bitmapBytes(data) {\n",
+    "  if (typeof data !== \"string\") {\n",
+    "    return ArrayBuffer.isView(data)\n",
+    "      ? new Uint8ClampedArray(data.buffer, data.byteOffset, data.byteLength)\n",
+    "      : new Uint8ClampedArray(data);\n",
+    "  }\n",
+    "  const text = atob(data);\n",
+    "  const bytes = new Uint8ClampedArray(text.length);\n",
+    "  for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i);\n",
+    "  return bytes;\n",
+    "}\n",
+    "\n",
+    "// A bitmap as the page keeps it: a canvas of its own, its pixels.\n",
+    "// Int -> Int -> Surface\n",
+    "function bitmapSurface(width, height) {\n",
+    "  const element = document.createElement(\"canvas\");\n",
+    "  element.width = Math.max(1, width);\n",
+    "  element.height = Math.max(1, height);\n",
+    "  return { element, context: element.getContext(\"2d\"), width, height };\n",
+    "}\n",
+    "\n",
+    "// Puts the rectangle (rx, ry, rw, rh) of a bitmap's pixels on its\n",
+    "// surface. Surface -> Int -> Int -> Int -> Int -> Data -> ()\n",
+    "function updateSurface(surface, rx, ry, rw, rh, data) {\n",
+    "  if (rw <= 0 || rh <= 0) return;\n",
+    "  const bytes = bitmapBytes(data);\n",
+    "  if (bytes.length !== rw * rh * 4) return;\n",
+    "  surface.context.putImageData(new ImageData(bytes, rw, rh), rx, ry);\n",
+    "}\n",
+    "\n",
+    "// Draws a bitmap's surface with its top left corner at (x, y), each pixel\n",
+    "// `scale` pixels across: sharp squares when it grows, smooth when it\n",
+    "// shrinks. Context -> Surface -> Float -> Float -> Float -> ()\n",
+    "function drawSurface(g, surface, x, y, scale) {\n",
+    "  const smoothing = g.imageSmoothingEnabled;\n",
+    "  g.imageSmoothingEnabled = scale < 1;\n",
+    "  g.drawImage(surface.element, x, y, surface.width * scale, surface.height * scale);\n",
+    "  g.imageSmoothingEnabled = smoothing;\n",
+    "}\n",
+    "\n",
+    "// A box whose elements go side by side, wrapping where the page is too\n",
+    "// narrow for them, or one below another. String -> Bool -> Element\n",
+    "function rowElement(id, across = true) {\n",
+    "  const row = document.createElement(\"div\");\n",
+    "  row.className = across ? \"tinyweb-row\" : \"tinyweb-column\";\n",
+    "  row.setAttribute(\"data-tinyweb-id\", id);\n",
+    "  row.style.cssText = across\n",
+    "    ? \"display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px\"\n",
+    "    : \"display:flex;flex-direction:column;align-items:flex-start;gap:6px\";\n",
+    "  return row;\n",
+    "}\n",
+    "\n",
+    "// --- widgets (step 2) ---\n",
+    "\n",
+    "// A checkbox or a radio button with its title beside it: the row, and\n",
+    "// the input in it. String -> String -> String -> Bool -> (Element, Element)\n",
+    "function choiceRow(type, id, title, checked) {\n",
+    "  const row = document.createElement(\"label\");\n",
+    "  row.className = type === \"checkbox\" ? \"tinyweb-check\" : \"tinyweb-radio\";\n",
+    "  row.style.cssText = \"display:flex;align-items:center;gap:6px\";\n",
+    "  const input = document.createElement(\"input\");\n",
+    "  input.type = type;\n",
+    "  input.setAttribute(\"data-tinyweb-id\", id);\n",
+    "  input.checked = checked;\n",
+    "  const text = document.createElement(\"span\");\n",
+    "  text.textContent = title;\n",
+    "  row.append(input, text);\n",
+    "  return { row, input };\n",
+    "}\n",
+    "\n",
+    "// A dropdown of the options, one per line of `options`, the one at\n",
+    "// `chosen` chosen. String -> String -> Int -> Element\n",
+    "function choiceElement(id, options, chosen) {\n",
+    "  const select = document.createElement(\"select\");\n",
+    "  select.className = \"tinyweb-choice\";\n",
+    "  select.setAttribute(\"data-tinyweb-id\", id);\n",
+    "  options.split(\"\\n\").forEach((text, position) => {\n",
+    "    const option = document.createElement(\"option\");\n",
+    "    option.value = String(position);\n",
+    "    option.textContent = text;\n",
+    "    select.appendChild(option);\n",
+    "  });\n",
+    "  select.value = String(chosen);\n",
+    "  return select;\n",
+    "}\n",
+    "\n",
+    "// A line to type text into. String -> String -> Element\n",
+    "function textInputElement(id, placeholder) {\n",
+    "  const input = document.createElement(\"input\");\n",
+    "  input.type = \"text\";\n",
+    "  input.className = \"tinyweb-text\";\n",
+    "  input.setAttribute(\"data-tinyweb-id\", id);\n",
+    "  input.placeholder = placeholder;\n",
+    "  return input;\n",
+    "}\n",
+    "\n",
+    "// A field for a whole number from `low` to `high`. ... -> Element\n",
+    "function numberElement(id, low, high, value) {\n",
+    "  const input = document.createElement(\"input\");\n",
+    "  input.type = \"number\";\n",
+    "  input.className = \"tinyweb-number\";\n",
+    "  input.setAttribute(\"data-tinyweb-id\", id);\n",
+    "  input.min = String(low);\n",
+    "  input.max = String(high);\n",
+    "  input.value = String(value);\n",
+    "  return input;\n",
+    "}\n",
+    "\n",
+    "// Whether a key press is the reader typing into a field, which the page\n",
+    "// does not report as a key. Event -> Bool\n",
+    "function typedInField(event) {\n",
+    "  const target = event.target;\n",
+    "  return !!target && typeof target.tagName === \"string\"\n",
+    "    && (target.tagName === \"SELECT\"\n",
+    "      || (target.tagName === \"INPUT\" && (target.type === \"text\" || target.type === \"number\")));\n",
+    "}\n",
     "// END tinyweb style\n",
     "\n",
     "// Mounts a tinyweb page in `element` and answers {receive, freeze, close}:\n",
@@ -371,6 +859,19 @@ static const char *const tinyweb_page_js[] = {
     "  const canvases = new Map();\n",
     "  const labels = new Map();\n",
     "  const samples = new Map();\n",
+    "  const pictures = new Map();\n",
+    "  // What `set_checked` and `set_value` change, by identifier, and each\n",
+    "  // group of radio buttons.\n",
+    "  const checks = new Map();\n",
+    "  const values = new Map();\n",
+    "  const groups = new Map();\n",
+    "  const bitmaps = new Map();\n",
+    "  // Where an element made now goes: the page, or a row it was put inside.\n",
+    "  const rows = new Map();\n",
+    "  let parent = box;\n",
+    "  // The keys held down, reported again as released when the page loses\n",
+    "  // the focus.\n",
+    "  const heldKeys = new Set();\n",
     "  let start = now();\n",
     "  let audio = null;\n",
     "  let offset = 0;\n",
@@ -480,9 +981,29 @@ static const char *const tinyweb_page_js[] = {
     "      return;\n",
     "    }\n",
     "    startAudio();\n",
-    "    if (keysWanted) report({ ev: \"key\", key: event.key });\n",
+    "    if (!keysWanted || typedInField(event)) return;\n",
+    "    // Arrows and the space bar move the program's world, not the page.\n",
+    "    if (standalone && [\"ArrowUp\", \"ArrowDown\", \"ArrowLeft\", \"ArrowRight\", \" \"].includes(event.key)) {\n",
+    "      event.preventDefault?.();\n",
+    "    }\n",
+    "    heldKeys.add(event.key);\n",
+    "    report({ ev: \"key\", key: event.key });\n",
     "  }\n",
     "  keyTarget.addEventListener(\"keydown\", onKey);\n",
+    "\n",
+    "  function onKeyUp(event) {\n",
+    "    if (!keysWanted) return;\n",
+    "    if (heldKeys.delete(event.key)) report({ ev: \"key_up\", key: event.key });\n",
+    "  }\n",
+    "  keyTarget.addEventListener(\"keyup\", onKeyUp);\n",
+    "\n",
+    "  // A key released while the page did not have the focus is never\n",
+    "  // reported, so leaving the page lets go of every key.\n",
+    "  function onBlur() {\n",
+    "    for (const key of heldKeys) report({ ev: \"key_up\", key });\n",
+    "    heldKeys.clear();\n",
+    "  }\n",
+    "  window.addEventListener(\"blur\", onBlur);\n",
     "\n",
     "  function loadSample(name) {\n",
     "    const decoder = new OfflineAudioContext(1, 1, 44100);\n",
@@ -536,20 +1057,41 @@ static const char *const tinyweb_page_js[] = {
     "    element.style.background = \"#ffffff\";\n",
     "    const context = element.getContext(\"2d\");\n",
     "    context.scale(ratio, ratio);\n",
-    "    canvases.set(id, { element, context, width, height, mouse: false });\n",
+    "    plainLines(context);\n",
+    "    const entry = {\n",
+    "      element, context, width, height, mouse: false, pointer: false, ratio, depth: 0,\n",
+    "      gradients: new Map(),\n",
+    "    };\n",
+    "    canvases.set(id, entry);\n",
     "    remember(look, id, element);\n",
-    "    element.addEventListener(\"click\", (event) => {\n",
-    "      const entry = canvases.get(id);\n",
-    "      if (!entry.mouse) return;\n",
+    "    const where = (event) => {\n",
     "      const bounds = element.getBoundingClientRect();\n",
-    "      report({\n",
-    "        ev: \"mouse\",\n",
-    "        c: id,\n",
+    "      return {\n",
     "        x: Math.round(((event.clientX - bounds.left) * width) / bounds.width),\n",
     "        y: Math.round(((event.clientY - bounds.top) * height) / bounds.height),\n",
-    "      });\n",
+    "      };\n",
+    "    };\n",
+    "    element.addEventListener(\"click\", (event) => {\n",
+    "      if (entry.mouse) report({ ev: \"mouse\", c: id, ...where(event) });\n",
     "    });\n",
-    "    box.appendChild(element);\n",
+    "    // A browser reports a move at most once a frame already.\n",
+    "    element.addEventListener(\"pointerdown\", (event) => {\n",
+    "      if (!entry.pointer) return;\n",
+    "      capture(element, event);\n",
+    "      startAudio();\n",
+    "      report({ ev: \"press\", c: id, ...where(event) });\n",
+    "    });\n",
+    "    element.addEventListener(\"pointerup\", (event) => {\n",
+    "      if (entry.pointer) report({ ev: \"release\", c: id, ...where(event) });\n",
+    "    });\n",
+    "    element.addEventListener(\"pointermove\", (event) => {\n",
+    "      if (entry.pointer) report({ ev: \"move\", c: id, ...where(event) });\n",
+    "    });\n",
+    "    element.addEventListener(\"contextmenu\", (event) => {\n",
+    "      if (entry.pointer) event.preventDefault?.();\n",
+    "    });\n",
+    "    element.style.touchAction = \"none\";\n",
+    "    parent.appendChild(element);\n",
     "  }\n",
     "\n",
     "  function draw(c, paint) {\n",
@@ -564,42 +1106,123 @@ static const char *const tinyweb_page_js[] = {
     "        break;\n",
     "      case \"clear\":\n",
     "        draw(command.c, (g, entry) => {\n",
-    "          g.fillStyle = command.color;\n",
+    "          freshState(g, entry);\n",
+    "          g.fillStyle = paint(g, entry, command.color);\n",
     "          g.fillRect(0, 0, entry.width, entry.height);\n",
     "        });\n",
     "        break;\n",
-    "      case \"circle\":\n",
-    "        draw(command.c, (g) => {\n",
-    "          g.fillStyle = command.color;\n",
-    "          g.beginPath();\n",
-    "          g.arc(command.x, command.y, Math.max(0, command.radius), 0, 2 * Math.PI);\n",
-    "          g.fill();\n",
-    "        });\n",
-    "        break;\n",
-    "      case \"rect\":\n",
-    "        draw(command.c, (g) => {\n",
-    "          g.fillStyle = command.color;\n",
-    "          g.fillRect(command.x, command.y, command.width, command.height);\n",
-    "        });\n",
-    "        break;\n",
-    "      case \"line\":\n",
-    "        draw(command.c, (g) => {\n",
-    "          g.strokeStyle = command.color;\n",
-    "          g.lineWidth = command.width;\n",
-    "          g.lineCap = \"round\";\n",
-    "          g.beginPath();\n",
-    "          g.moveTo(command.x1, command.y1);\n",
-    "          g.lineTo(command.x2, command.y2);\n",
-    "          g.stroke();\n",
-    "        });\n",
+    "      case \"shape\":\n",
+    "        draw(command.c, (g, entry) => drawShape(g, entry, command.kind, command.numbers,\n",
+    "          command.color, command.outline, command.width, command.alpha));\n",
     "        break;\n",
     "      case \"text\":\n",
-    "        draw(command.c, (g) => {\n",
-    "          g.fillStyle = command.color;\n",
-    "          g.font = `${command.size}px system-ui, sans-serif`;\n",
-    "          g.textBaseline = \"top\";\n",
-    "          g.fillText(command.words, command.x, command.y);\n",
+    "        draw(command.c, (g, entry) => drawText(g, entry, command.x, command.y, command.words,\n",
+    "          command.color, command.size, command.font, command.align, command.baseline,\n",
+    "          command.bold, command.outline, command.outline_width, command.alpha));\n",
+    "        break;\n",
+    "      case \"measure\": {\n",
+    "        // Answered once the code that asked has finished, as any event is.\n",
+    "        const width = textWidth(command.words, command.size, command.font, command.bold);\n",
+    "        queueMicrotask(() => report({ ev: \"measured\", id: command.id, width }));\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"bitmap\": {\n",
+    "        let surface = bitmaps.get(command.id);\n",
+    "        if (!surface || surface.width !== command.width || surface.height !== command.height) {\n",
+    "          surface = bitmapSurface(command.width, command.height);\n",
+    "          bitmaps.set(command.id, surface);\n",
+    "        }\n",
+    "        const [rx, ry, rw, rh] = command.rect;\n",
+    "        updateSurface(surface, rx, ry, rw, rh, command.data);\n",
+    "        draw(command.c, (g) => drawSurface(g, surface, command.x, command.y, command.scale));\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"state\":\n",
+    "        draw(command.c, (g, entry) => canvasState(g, entry, command.kind, command.value,\n",
+    "          command.numbers));\n",
+    "        break;\n",
+    "      case \"image_load\":\n",
+    "        pictures.set(command.id, loadPicture(command.name, import.meta.url));\n",
+    "        break;\n",
+    "      case \"image\":\n",
+    "        draw(command.c, (g) => drawPicture(g, pictures.get(command.picture), command.x,\n",
+    "          command.y, command.width, command.height, command.alpha));\n",
+    "        break;\n",
+    "      case \"checkbox\": {\n",
+    "        const { row, input } = choiceRow(\"checkbox\", command.id, command.title, command.checked);\n",
+    "        input.addEventListener(\"change\", () => {\n",
+    "          startAudio();\n",
+    "          report({ ev: \"check\", id: command.id, checked: input.checked });\n",
     "        });\n",
+    "        checks.set(command.id, (on) => { input.checked = on; });\n",
+    "        remember(look, command.id, input);\n",
+    "        parent.appendChild(row);\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"radio\": {\n",
+    "        const members = groups.get(command.group) || [];\n",
+    "        groups.set(command.group, members);\n",
+    "        const first = members.length === 0;\n",
+    "        const { row, input } = choiceRow(\"radio\", command.id, command.title,\n",
+    "          command.chosen || first);\n",
+    "        input.name = `${look.name}:${command.group}`;\n",
+    "        const choose = () => {\n",
+    "          for (const other of members) other.checked = other === input;\n",
+    "        };\n",
+    "        if (command.chosen) choose();\n",
+    "        members.push(input);\n",
+    "        input.addEventListener(\"change\", () => {\n",
+    "          startAudio();\n",
+    "          choose();\n",
+    "          report({ ev: \"pick\", id: command.id });\n",
+    "        });\n",
+    "        checks.set(command.id, (on) => {\n",
+    "          if (on) choose();\n",
+    "          else input.checked = false;\n",
+    "        });\n",
+    "        remember(look, command.id, input);\n",
+    "        parent.appendChild(row);\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"choice\": {\n",
+    "        const select = choiceElement(command.id, command.options, command.chosen);\n",
+    "        select.addEventListener(\"change\", () => {\n",
+    "          startAudio();\n",
+    "          report({ ev: \"choose\", id: command.id, value: Number(select.value) });\n",
+    "        });\n",
+    "        values.set(command.id, (value) => { select.value = String(value); });\n",
+    "        remember(look, command.id, select);\n",
+    "        parent.appendChild(select);\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"text_input\": {\n",
+    "        const input = textInputElement(command.id, command.placeholder);\n",
+    "        input.addEventListener(\"keydown\", (event) => {\n",
+    "          if (event.key === \"Enter\") {\n",
+    "            startAudio();\n",
+    "            report({ ev: \"enter\", id: command.id, text: input.value });\n",
+    "          }\n",
+    "        });\n",
+    "        remember(look, command.id, input);\n",
+    "        parent.appendChild(input);\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"number\": {\n",
+    "        const input = numberElement(command.id, command.low, command.high, command.value);\n",
+    "        input.addEventListener(\"change\", () => {\n",
+    "          startAudio();\n",
+    "          report({ ev: \"slide\", id: command.id, value: Number(input.value) });\n",
+    "        });\n",
+    "        values.set(command.id, (value) => { input.value = String(value); });\n",
+    "        remember(look, command.id, input);\n",
+    "        parent.appendChild(input);\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"set_checked\":\n",
+    "        if (checks.has(command.id)) checks.get(command.id)(command.checked);\n",
+    "        break;\n",
+    "      case \"set_value\":\n",
+    "        if (values.has(command.id)) values.get(command.id)(command.value);\n",
     "        break;\n",
     "      case \"button\": {\n",
     "        const button = document.createElement(\"button\");\n",
@@ -610,7 +1233,7 @@ static const char *const tinyweb_page_js[] = {
     "          report({ ev: \"click\", id: command.id });\n",
     "        });\n",
     "        remember(look, command.id, button);\n",
-    "        box.appendChild(button);\n",
+    "        parent.appendChild(button);\n",
     "        break;\n",
     "      }\n",
     "      case \"label\": {\n",
@@ -620,11 +1243,29 @@ static const char *const tinyweb_page_js[] = {
     "        text.textContent = command.text;\n",
     "        labels.set(command.id, text);\n",
     "        remember(look, command.id, text);\n",
-    "        box.appendChild(text);\n",
+    "        parent.appendChild(text);\n",
     "        break;\n",
     "      }\n",
+    "      case \"row\":\n",
+    "      case \"column\": {\n",
+    "        const row = rowElement(command.id, command.op === \"row\");\n",
+    "        rows.set(command.id, row);\n",
+    "        remember(look, command.id, row);\n",
+    "        parent.appendChild(row);\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"inside\":\n",
+    "        parent = rows.get(command.id) || box;\n",
+    "        break;\n",
+    "      case \"outside\":\n",
+    "        parent = box;\n",
+    "        break;\n",
     "      case \"set_label\":\n",
+    "        // A label's text, or a button's title.\n",
     "        if (labels.has(command.id)) labels.get(command.id).textContent = command.text;\n",
+    "        else if (look.elements.get(command.id)?.tagName === \"BUTTON\") {\n",
+    "          look.elements.get(command.id).textContent = command.text;\n",
+    "        }\n",
     "        break;\n",
     "      case \"slider\": {\n",
     "        const row = document.createElement(\"label\");\n",
@@ -643,8 +1284,12 @@ static const char *const tinyweb_page_js[] = {
     "          report({ ev: \"slide\", id: command.id, value: Number(input.value) });\n",
     "        });\n",
     "        row.append(input, shown);\n",
+    "        values.set(command.id, (value) => {\n",
+    "          input.value = String(value);\n",
+    "          shown.textContent = input.value;\n",
+    "        });\n",
     "        remember(look, command.id, input);\n",
-    "        box.appendChild(row);\n",
+    "        parent.appendChild(row);\n",
     "        break;\n",
     "      }\n",
     "      case \"style\":\n",
@@ -681,6 +1326,11 @@ static const char *const tinyweb_page_js[] = {
     "        if (entry) entry.mouse = true;\n",
     "        break;\n",
     "      }\n",
+    "      case \"on_pointer\": {\n",
+    "        const entry = canvases.get(command.c);\n",
+    "        if (entry) entry.pointer = true;\n",
+    "        break;\n",
+    "      }\n",
     "      case \"on_key\":\n",
     "        keysWanted = true;\n",
     "        // Inside another page the keys go where the focus is, which is\n",
@@ -705,6 +1355,8 @@ static const char *const tinyweb_page_js[] = {
     "      splash.remove();\n",
     "    }\n",
     "    keyTarget.removeEventListener(\"keydown\", onKey);\n",
+    "    keyTarget.removeEventListener(\"keyup\", onKeyUp);\n",
+    "    window.removeEventListener(\"blur\", onBlur);\n",
     "    if (!standalone) element.removeEventListener(\"click\", takeFocus);\n",
     "    if (audio !== null) audio.close();\n",
     "  }\n",
@@ -838,17 +1490,59 @@ static size_t tw_client_count = 0;
 
 typedef struct { const char *id; void (*f)(void); } tw_button;
 typedef struct { const char *id; void (*f)(int); } tw_slider;
+typedef struct { const char *id; void (*f)(bool); } tw_check;
+typedef struct { const char *id; const char *title; void (*f)(const char *); } tw_radio;
+typedef struct { const char *id; void (*f)(const char *); } tw_text_field;
 typedef struct { const char *c; void (*f)(int, int); } tw_mouse;
 static tw_button *tw_buttons = NULL;
 static size_t tw_button_count = 0;
 static tw_slider *tw_sliders = NULL;
 static size_t tw_slider_count = 0;
+static tw_check *tw_checks = NULL;
+static size_t tw_check_count = 0;
+static tw_radio *tw_radios = NULL;
+static size_t tw_radio_count = 0;
+static tw_slider *tw_choices = NULL;
+static size_t tw_choice_count = 0;
+static tw_text_field *tw_text_fields = NULL;
+static size_t tw_text_field_count = 0;
 static void (**tw_frames)(double) = NULL;
 static size_t tw_frame_count = 0;
 static tw_mouse *tw_mice = NULL;
 static size_t tw_mouse_count = 0;
 static void (**tw_keys)(const char *) = NULL;
 static size_t tw_key_count = 0;
+static void (**tw_key_ups)(const char *) = NULL;
+static size_t tw_key_up_count = 0;
+/* The keys held down now, from the key events delivered so far. */
+static char **tw_down = NULL;
+static size_t tw_down_count = 0;
+static int tw_keys_on = 0;
+
+/* Each canvas's pointer, where it was last seen, and the functions
+   watching it, by kind. */
+typedef struct { const char *c; int x; int y; int down; } tw_pointer_seen;
+typedef struct { const char *c; char kind[8]; void (*f)(int, int); } tw_watcher;
+static tw_pointer_seen *tw_pointers = NULL;
+static size_t tw_pointer_count = 0;
+static tw_watcher *tw_watchers = NULL;
+static size_t tw_watcher_count = 0;
+
+typedef struct { const char *id; void (*f)(double); int answered; } tw_measure;
+static tw_measure *tw_measures = NULL;
+static size_t tw_measure_count = 0;
+
+/* A bitmap's pixels, four bytes each, and the rectangle that changed
+   since it was last shown. */
+typedef struct {
+    const char *id;
+    int width;
+    int height;
+    unsigned char *data;
+    int x1, y1, x2, y2;
+} tw_bitmap;
+static tw_bitmap *tw_bitmaps = NULL;
+static size_t tw_bitmap_count = 0;
 
 static void *tw_grow(void *array, size_t count, size_t size)
 {
@@ -1124,56 +1818,452 @@ void tinyweb_fill_canvas(const char *c, const char *color)
     tw_finish("clear", &json, &line, 2, c, 0, NULL, 1);
 }
 
-void tinyweb_draw_circle(const char *c, int x, int y, int radius, const char *color)
+/* A Bool field: `,"name":true` in the JSON, and the word in the line. */
+static void tw_field_bool(tw_text *json, tw_text *line, const char *name, bool value)
 {
-    tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
-    tw_puts(&line, "circle");
-    tw_field_string(&json, &line, "c", c, 0);
-    tw_field_int(&json, &line, "x", x);
-    tw_field_int(&json, &line, "y", y);
-    tw_field_int(&json, &line, "radius", radius);
-    tw_field_string(&json, &line, "color", color, 1);
-    tw_finish("circle", &json, &line, 1, c, 0, NULL, 1);
+    tw_puts(json, ",\"");
+    tw_puts(json, name);
+    tw_puts(json, "\":");
+    tw_puts(json, value ? "true" : "false");
+    tw_puts(line, value ? " true" : " false");
 }
 
-void tinyweb_draw_rect(const char *c, int x, int y, int width, int height, const char *color)
+void tinyweb_draw_shape(const char *c, const char *kind, const char *numbers, const char *color,
+                        const char *outline, double width, double alpha)
 {
     tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
-    tw_puts(&line, "rect");
+    tw_puts(&line, kind);
+    tw_field_json(&json, "kind", kind);
     tw_field_string(&json, &line, "c", c, 0);
-    tw_field_int(&json, &line, "x", x);
-    tw_field_int(&json, &line, "y", y);
-    tw_field_int(&json, &line, "width", width);
-    tw_field_int(&json, &line, "height", height);
-    tw_field_string(&json, &line, "color", color, 1);
-    tw_finish("rect", &json, &line, 1, c, 0, NULL, 1);
+    tw_field_string(&json, &line, "numbers", numbers, 1);
+    tw_field_string(&json, &line, "color", color, 0);
+    tw_field_string(&json, &line, "outline", outline, 0);
+    tw_field_float(&json, &line, "width", width);
+    tw_field_float(&json, &line, "alpha", alpha);
+    tw_finish("shape", &json, &line, 1, c, 0, NULL, 1);
 }
 
-void tinyweb_draw_line(const char *c, int x1, int y1, int x2, int y2, const char *color, int width)
-{
-    tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
-    tw_puts(&line, "line");
-    tw_field_string(&json, &line, "c", c, 0);
-    tw_field_int(&json, &line, "x1", x1);
-    tw_field_int(&json, &line, "y1", y1);
-    tw_field_int(&json, &line, "x2", x2);
-    tw_field_int(&json, &line, "y2", y2);
-    tw_field_string(&json, &line, "color", color, 1);
-    tw_field_int(&json, &line, "width", width);
-    tw_finish("line", &json, &line, 1, c, 0, NULL, 1);
-}
-
-void tinyweb_draw_text(const char *c, int x, int y, const char *words, const char *color, int size)
+void tinyweb_draw_text(const char *c, double x, double y, const char *words, const char *color,
+                       int size, const char *font, const char *align, const char *baseline,
+                       bool bold, const char *outline, double outline_width, double alpha)
 {
     tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
     tw_puts(&line, "text");
     tw_field_string(&json, &line, "c", c, 0);
-    tw_field_int(&json, &line, "x", x);
-    tw_field_int(&json, &line, "y", y);
-    tw_field_string(&json, &line, "color", color, 1);
+    tw_field_float(&json, &line, "x", x);
+    tw_field_float(&json, &line, "y", y);
+    tw_field_string(&json, &line, "color", color, 0);
     tw_field_int(&json, &line, "size", size);
+    tw_field_string(&json, &line, "font", font, 0);
+    tw_field_string(&json, &line, "align", align, 1);
+    tw_field_string(&json, &line, "baseline", baseline, 1);
+    tw_field_bool(&json, &line, "bold", bold);
+    tw_field_string(&json, &line, "outline", outline, 0);
+    tw_field_float(&json, &line, "outline_width", outline_width);
+    tw_field_float(&json, &line, "alpha", alpha);
     tw_field_string(&json, &line, "words", words, 0);
     tw_finish("text", &json, &line, 1, c, 0, NULL, 1);
+}
+
+void tinyweb_measure(const char *words, int size, const char *font, bool bold,
+                     void (*answer)(double))
+{
+    tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
+    const char *id;
+    tw_ready();
+    id = tw_fresh("measure");
+    tw_measures = (tw_measure *) tw_grow(tw_measures, tw_measure_count, sizeof(tw_measure));
+    tw_measures[tw_measure_count].id = id;
+    tw_measures[tw_measure_count].f = answer;
+    tw_measures[tw_measure_count].answered = 0;
+    tw_measure_count++;
+    tw_puts(&line, "measure");
+    tw_field_string(&json, &line, "id", id, 0);
+    tw_field_int(&json, &line, "size", size);
+    tw_field_string(&json, &line, "font", font, 0);
+    tw_field_bool(&json, &line, "bold", bold);
+    tw_field_string(&json, &line, "words", words, 0);
+    tw_finish("measure", &json, &line, 0, NULL, 0, NULL, 1);
+}
+
+/* The pointer of canvas `c` as last seen; NULL until something watches
+   it. */
+static tw_pointer_seen *tw_pointer_of(const char *c)
+{
+    size_t i;
+    for (i = 0; i < tw_pointer_count; i++) {
+        if (tw_same(tw_pointers[i].c, c)) return &tw_pointers[i];
+    }
+    return NULL;
+}
+
+void tinyweb_watch_pointer(const char *c, const char *kind, void (*f)(int, int))
+{
+    tw_ready();
+    if (tw_pointer_of(c) == NULL) {
+        tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
+        tw_pointers = (tw_pointer_seen *) tw_grow(tw_pointers, tw_pointer_count,
+                                                  sizeof(tw_pointer_seen));
+        tw_pointers[tw_pointer_count].c = tw_copy(c);
+        tw_pointers[tw_pointer_count].x = 0;
+        tw_pointers[tw_pointer_count].y = 0;
+        tw_pointers[tw_pointer_count].down = 0;
+        tw_pointer_count++;
+        tw_puts(&line, "on_pointer");
+        tw_field_string(&json, &line, "c", c, 0);
+        tw_finish("on_pointer", &json, &line, 0, NULL, 0, NULL, 1);
+    }
+    if (strcmp(kind, "press") == 0 || strcmp(kind, "release") == 0
+        || strcmp(kind, "move") == 0 || strcmp(kind, "drag") == 0) {
+        tw_watchers = (tw_watcher *) tw_grow(tw_watchers, tw_watcher_count, sizeof(tw_watcher));
+        tw_watchers[tw_watcher_count].c = tw_copy(c);
+        strcpy(tw_watchers[tw_watcher_count].kind, kind);
+        tw_watchers[tw_watcher_count].f = f;
+        tw_watcher_count++;
+    }
+}
+
+int tinyweb_pointer(const char *c, const char *which)
+{
+    tw_pointer_seen *seen;
+    tw_ready();
+    seen = tw_pointer_of(c);
+    if (seen == NULL) return 0;
+    if (strcmp(which, "x") == 0) return seen->x;
+    if (strcmp(which, "y") == 0) return seen->y;
+    return seen->down ? 1 : 0;
+}
+
+void tinyweb_set_state(const char *c, const char *kind, const char *value, const char *numbers)
+{
+    tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
+    tw_puts(&line, kind);
+    tw_field_json(&json, "kind", kind);
+    tw_field_string(&json, &line, "c", c, 0);
+    if (value[0] == '\0') tw_field_json(&json, "value", value);
+    else tw_field_string(&json, &line, "value", value, 0);
+    if (numbers[0] == '\0') tw_field_json(&json, "numbers", numbers);
+    else tw_field_string(&json, &line, "numbers", numbers, 1);
+    tw_finish("state", &json, &line, 1, c, 0, NULL, 1);
+}
+
+const char *tinyweb_load_image(const char *name)
+{
+    tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
+    const char *id;
+    tw_ready();
+    id = tw_fresh(name);
+    tw_puts(&line, "load_image");
+    tw_field_string(&json, &line, "id", id, 0);
+    tw_field_text(&json, &line, "name", name, id);
+    tw_finish("image_load", &json, &line, 0, NULL, 0, NULL, 1);
+    return id;
+}
+
+void tinyweb_draw_image(const char *c, const char *picture, int x, int y, int width, int height,
+                        double alpha)
+{
+    tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
+    tw_puts(&line, "image");
+    tw_field_string(&json, &line, "c", c, 0);
+    tw_field_string(&json, &line, "picture", picture, 0);
+    tw_field_int(&json, &line, "x", x);
+    tw_field_int(&json, &line, "y", y);
+    tw_field_int(&json, &line, "width", width);
+    tw_field_int(&json, &line, "height", height);
+    tw_field_float(&json, &line, "alpha", alpha);
+    tw_finish("image", &json, &line, 1, c, 0, NULL, 1);
+}
+
+/* --- bitmaps --- */
+
+static tw_bitmap *tw_bitmap_named(const char *b)
+{
+    size_t i;
+    for (i = tw_bitmap_count; i > 0; i--) {
+        if (tw_same(tw_bitmaps[i - 1].id, b)) return &tw_bitmaps[i - 1];
+    }
+    return NULL;
+}
+
+const char *tinyweb_bitmap(int width, int height)
+{
+    tw_bitmap *bitmap;
+    size_t i, count;
+    tw_ready();
+    if (width < 1) width = 1;
+    if (height < 1) height = 1;
+    tw_bitmaps = (tw_bitmap *) tw_grow(tw_bitmaps, tw_bitmap_count, sizeof(tw_bitmap));
+    bitmap = &tw_bitmaps[tw_bitmap_count++];
+    bitmap->id = tw_fresh("bitmap");
+    bitmap->width = width;
+    bitmap->height = height;
+    count = (size_t) width * (size_t) height * 4;
+    bitmap->data = (unsigned char *) malloc(count);
+    if (bitmap->data == NULL) abort();
+    for (i = 0; i < count; i += 4) {
+        bitmap->data[i] = 0;
+        bitmap->data[i + 1] = 0;
+        bitmap->data[i + 2] = 0;
+        bitmap->data[i + 3] = 255;
+    }
+    bitmap->x1 = 0;
+    bitmap->y1 = 0;
+    bitmap->x2 = width;
+    bitmap->y2 = height;
+    return bitmap->id;
+}
+
+void tinyweb_set_pixel(const char *b, int x, int y, int color)
+{
+    tw_bitmap *bitmap = tw_bitmap_named(b);
+    size_t at;
+    if (bitmap == NULL || x < 0 || y < 0 || x >= bitmap->width || y >= bitmap->height) return;
+    at = ((size_t) y * (size_t) bitmap->width + (size_t) x) * 4;
+    bitmap->data[at] = (unsigned char) ((color >> 16) & 255);
+    bitmap->data[at + 1] = (unsigned char) ((color >> 8) & 255);
+    bitmap->data[at + 2] = (unsigned char) (color & 255);
+    if (x < bitmap->x1) bitmap->x1 = x;
+    if (y < bitmap->y1) bitmap->y1 = y;
+    if (x + 1 > bitmap->x2) bitmap->x2 = x + 1;
+    if (y + 1 > bitmap->y2) bitmap->y2 = y + 1;
+}
+
+int tinyweb_get_pixel(const char *b, int x, int y)
+{
+    tw_bitmap *bitmap = tw_bitmap_named(b);
+    size_t at;
+    if (bitmap == NULL || x < 0 || y < 0 || x >= bitmap->width || y >= bitmap->height) return 0;
+    at = ((size_t) y * (size_t) bitmap->width + (size_t) x) * 4;
+    return (bitmap->data[at] << 16) | (bitmap->data[at + 1] << 8) | bitmap->data[at + 2];
+}
+
+void tinyweb_fill_bitmap(const char *b, int color)
+{
+    tw_bitmap *bitmap = tw_bitmap_named(b);
+    size_t i, count;
+    if (bitmap == NULL) return;
+    count = (size_t) bitmap->width * (size_t) bitmap->height * 4;
+    for (i = 0; i < count; i += 4) {
+        bitmap->data[i] = (unsigned char) ((color >> 16) & 255);
+        bitmap->data[i + 1] = (unsigned char) ((color >> 8) & 255);
+        bitmap->data[i + 2] = (unsigned char) (color & 255);
+        bitmap->data[i + 3] = 255;
+    }
+    bitmap->x1 = 0;
+    bitmap->y1 = 0;
+    bitmap->x2 = bitmap->width;
+    bitmap->y2 = bitmap->height;
+}
+
+/* Appends `length` bytes as base64. */
+static void tw_base64(tw_text *out, const unsigned char *bytes, size_t length)
+{
+    static const char digits[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    size_t i;
+    char four[4];
+    for (i = 0; i + 2 < length; i += 3) {
+        unsigned long n = ((unsigned long) bytes[i] << 16) | ((unsigned long) bytes[i + 1] << 8)
+                          | bytes[i + 2];
+        four[0] = digits[(n >> 18) & 63];
+        four[1] = digits[(n >> 12) & 63];
+        four[2] = digits[(n >> 6) & 63];
+        four[3] = digits[n & 63];
+        tw_add(out, four, 4);
+    }
+    if (length - i == 1) {
+        unsigned long n = (unsigned long) bytes[i] << 16;
+        four[0] = digits[(n >> 18) & 63];
+        four[1] = digits[(n >> 12) & 63];
+        four[2] = '=';
+        four[3] = '=';
+        tw_add(out, four, 4);
+    } else if (length - i == 2) {
+        unsigned long n = ((unsigned long) bytes[i] << 16) | ((unsigned long) bytes[i + 1] << 8);
+        four[0] = digits[(n >> 18) & 63];
+        four[1] = digits[(n >> 12) & 63];
+        four[2] = digits[(n >> 6) & 63];
+        four[3] = '=';
+        tw_add(out, four, 4);
+    }
+}
+
+void tinyweb_draw_bitmap(const char *c, const char *b, int x, int y, double scale)
+{
+    tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
+    tw_bitmap *bitmap = tw_bitmap_named(b);
+    int rx = 0, ry = 0, rw = 0, rh = 0, row;
+    unsigned char *rect;
+    unsigned long hash = 2166136261UL;
+    size_t i, size;
+    char digest[16];
+    if (bitmap == NULL) return;
+    if (bitmap->x2 > bitmap->x1 && bitmap->y2 > bitmap->y1) {
+        rx = bitmap->x1;
+        ry = bitmap->y1;
+        rw = bitmap->x2 - bitmap->x1;
+        rh = bitmap->y2 - bitmap->y1;
+    }
+    size = (size_t) rw * (size_t) rh * 4;
+    rect = (unsigned char *) malloc(size == 0 ? 1 : size);
+    if (rect == NULL) abort();
+    for (row = 0; row < rh; row++) {
+        memcpy(rect + (size_t) row * (size_t) rw * 4,
+               bitmap->data + (((size_t) (ry + row)) * (size_t) bitmap->width + (size_t) rx) * 4,
+               (size_t) rw * 4);
+    }
+    for (i = 0; i < size; i++) {
+        hash = ((hash ^ rect[i]) * 16777619UL) & 0xFFFFFFFFUL;
+    }
+    sprintf(digest, "%08lx", hash);
+    bitmap->x1 = bitmap->width;
+    bitmap->y1 = bitmap->height;
+    bitmap->x2 = 0;
+    bitmap->y2 = 0;
+    tw_puts(&line, "bitmap");
+    tw_field_string(&json, &line, "c", c, 0);
+    tw_field_string(&json, &line, "id", b, 0);
+    tw_field_int(&json, &line, "x", x);
+    tw_field_int(&json, &line, "y", y);
+    tw_field_float(&json, &line, "scale", scale);
+    tw_field_int(&json, &line, "width", bitmap->width);
+    tw_field_int(&json, &line, "height", bitmap->height);
+    tw_puts(&json, ",\"rect\":[");
+    tw_int(&json, rx);
+    tw_puts(&json, ",");
+    tw_int(&json, ry);
+    tw_puts(&json, ",");
+    tw_int(&json, rw);
+    tw_puts(&json, ",");
+    tw_int(&json, rh);
+    tw_puts(&json, "]");
+    tw_puts(&line, " ");
+    tw_int(&line, rx);
+    tw_puts(&line, " ");
+    tw_int(&line, ry);
+    tw_puts(&line, " ");
+    tw_int(&line, rw);
+    tw_puts(&line, " ");
+    tw_int(&line, rh);
+    tw_puts(&json, ",\"data\":\"");
+    tw_base64(&json, rect, size);
+    tw_puts(&json, "\"");
+    free(rect);
+    tw_field_string(&json, &line, "digest", digest, 1);
+    tw_finish("bitmap", &json, &line, 1, c, 0, NULL, 1);
+}
+
+const char *tinyweb_make_checkbox(const char *title, bool checked, void (*on_change)(bool))
+{
+    tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
+    const char *id;
+    tw_ready();
+    id = tw_fresh(title);
+    tw_checks = (tw_check *) tw_grow(tw_checks, tw_check_count, sizeof(tw_check));
+    tw_checks[tw_check_count].id = id;
+    tw_checks[tw_check_count].f = on_change;
+    tw_check_count++;
+    tw_puts(&line, "checkbox");
+    tw_field_string(&json, &line, "id", id, 0);
+    tw_field_text(&json, &line, "title", title, id);
+    tw_field_bool(&json, &line, "checked", checked);
+    tw_finish("checkbox", &json, &line, 0, NULL, 0, NULL, 1);
+    return id;
+}
+
+const char *tinyweb_make_radio(const char *group, const char *title, bool chosen,
+                               void (*on_pick)(const char *))
+{
+    tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
+    const char *id;
+    tw_ready();
+    id = tw_fresh(title);
+    tw_radios = (tw_radio *) tw_grow(tw_radios, tw_radio_count, sizeof(tw_radio));
+    tw_radios[tw_radio_count].id = id;
+    tw_radios[tw_radio_count].title = tw_copy(title);
+    tw_radios[tw_radio_count].f = on_pick;
+    tw_radio_count++;
+    tw_puts(&line, "radio");
+    tw_field_string(&json, &line, "id", id, 0);
+    tw_field_text(&json, &line, "title", title, id);
+    tw_field_string(&json, &line, "group", group, 0);
+    tw_field_bool(&json, &line, "chosen", chosen);
+    tw_finish("radio", &json, &line, 0, NULL, 0, NULL, 1);
+    return id;
+}
+
+const char *tinyweb_make_choice(const char *options, int chosen, void (*on_change)(int))
+{
+    tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
+    const char *id;
+    tw_ready();
+    id = tw_fresh("choice");
+    tw_choices = (tw_slider *) tw_grow(tw_choices, tw_choice_count, sizeof(tw_slider));
+    tw_choices[tw_choice_count].id = id;
+    tw_choices[tw_choice_count].f = on_change;
+    tw_choice_count++;
+    tw_puts(&line, "choice");
+    tw_field_string(&json, &line, "id", id, 0);
+    tw_field_int(&json, &line, "chosen", chosen);
+    tw_field_string(&json, &line, "options", options, 0);
+    tw_finish("choice", &json, &line, 0, NULL, 0, NULL, 1);
+    return id;
+}
+
+const char *tinyweb_make_text_input(const char *placeholder, void (*on_enter)(const char *))
+{
+    tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
+    const char *id;
+    tw_ready();
+    id = tw_fresh(placeholder[0] == '\0' ? "text" : placeholder);
+    tw_text_fields = (tw_text_field *) tw_grow(tw_text_fields, tw_text_field_count,
+                                               sizeof(tw_text_field));
+    tw_text_fields[tw_text_field_count].id = id;
+    tw_text_fields[tw_text_field_count].f = on_enter;
+    tw_text_field_count++;
+    tw_puts(&line, "text_input");
+    tw_field_string(&json, &line, "id", id, 0);
+    tw_field_text(&json, &line, "placeholder", placeholder, id);
+    tw_finish("text_input", &json, &line, 0, NULL, 0, NULL, 1);
+    return id;
+}
+
+const char *tinyweb_make_number_input(int low, int high, int value, void (*on_change)(int))
+{
+    tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
+    const char *id;
+    tw_ready();
+    id = tw_fresh("number");
+    tw_sliders = (tw_slider *) tw_grow(tw_sliders, tw_slider_count, sizeof(tw_slider));
+    tw_sliders[tw_slider_count].id = id;
+    tw_sliders[tw_slider_count].f = on_change;
+    tw_slider_count++;
+    tw_puts(&line, "number");
+    tw_field_string(&json, &line, "id", id, 0);
+    tw_field_int(&json, &line, "low", low);
+    tw_field_int(&json, &line, "high", high);
+    tw_field_int(&json, &line, "value", value);
+    tw_finish("number", &json, &line, 0, NULL, 0, NULL, 1);
+    return id;
+}
+
+void tinyweb_set_checked(const char *id, bool checked)
+{
+    tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
+    tw_puts(&line, "set_checked");
+    tw_field_string(&json, &line, "id", id, 0);
+    tw_field_bool(&json, &line, "checked", checked);
+    tw_finish("set_checked", &json, &line, 0, NULL, 1, id, 1);
+}
+
+void tinyweb_set_value(const char *id, int value)
+{
+    tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
+    tw_puts(&line, "set_value");
+    tw_field_string(&json, &line, "id", id, 0);
+    tw_field_int(&json, &line, "value", value);
+    tw_finish("set_value", &json, &line, 0, NULL, 1, id, 1);
 }
 
 const char *tinyweb_make_button(const char *title, void (*on_click)(void))
@@ -1204,6 +2294,44 @@ const char *tinyweb_label(const char *text)
     tw_field_text(&json, &line, "text", text, id);
     tw_finish("label", &json, &line, 0, NULL, 0, NULL, 1);
     return id;
+}
+
+const char *tinyweb_row(void)
+{
+    tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
+    const char *id;
+    tw_ready();
+    id = tw_fresh("row");
+    tw_puts(&line, "row");
+    tw_field_string(&json, &line, "id", id, 0);
+    tw_finish("row", &json, &line, 0, NULL, 0, NULL, 1);
+    return id;
+}
+
+const char *tinyweb_column(void)
+{
+    tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
+    const char *id;
+    tw_ready();
+    id = tw_fresh("column");
+    tw_puts(&line, "column");
+    tw_field_string(&json, &line, "id", id, 0);
+    tw_finish("column", &json, &line, 0, NULL, 0, NULL, 1);
+    return id;
+}
+
+void tinyweb_inside(const char *id)
+{
+    tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
+    tw_puts(&line, "inside");
+    tw_field_string(&json, &line, "id", id, 0);
+    tw_finish("inside", &json, &line, 0, NULL, 0, NULL, 1);
+}
+
+void tinyweb_outside(void)
+{
+    tw_ready();
+    tw_send("outside", "", "outside", 0, NULL, 0, NULL, 1);
 }
 
 void tinyweb_set_label(const char *id, const char *text)
@@ -1321,6 +2449,35 @@ void tinyweb_on_key(void (*pressed)(const char *))
     tw_send("on_key", "", "on_key", 0, NULL, 0, NULL, 1);
 }
 
+void tinyweb_on_key_up(void (*released)(const char *))
+{
+    tw_ready();
+    tw_key_ups = (void (**)(const char *)) tw_grow((void *) tw_key_ups, tw_key_up_count,
+                                                   sizeof(void (*)(const char *)));
+    tw_key_ups[tw_key_up_count++] = released;
+    tw_send("on_key", "", "on_key", 0, NULL, 0, NULL, 1);
+}
+
+/* Where `key` is among the keys held down, or -1. */
+static long tw_held(const char *key)
+{
+    size_t i;
+    for (i = 0; i < tw_down_count; i++) {
+        if (strcmp(tw_down[i], key) == 0) return (long) i;
+    }
+    return -1;
+}
+
+bool tinyweb_key_down(const char *key)
+{
+    tw_ready();
+    if (!tw_keys_on && tw_key_count == 0 && tw_key_up_count == 0) {
+        tw_keys_on = 1;
+        tw_send("on_key", "", "on_key", 0, NULL, 0, NULL, 1);
+    }
+    return tw_held(key) >= 0 ? true : false;
+}
+
 /* --- events --- */
 
 /* One event, as the page posts it or an events file lists it. */
@@ -1334,6 +2491,9 @@ typedef struct {
     int x;
     int y;
     char *key;
+    int checked;
+    char *text;
+    double width;
 } tw_event;
 
 static tw_event *tw_queue = NULL;
@@ -1354,6 +2514,24 @@ static void tw_deliver(const tw_event *event)
         for (i = 0; i < tw_slider_count; i++) {
             if (tw_same(tw_sliders[i].id, event->id)) tw_sliders[i].f(event->value);
         }
+    } else if (strcmp(event->ev, "check") == 0) {
+        for (i = 0; i < tw_check_count; i++) {
+            if (tw_same(tw_checks[i].id, event->id)) tw_checks[i].f(event->checked ? true : false);
+        }
+    } else if (strcmp(event->ev, "pick") == 0) {
+        for (i = 0; i < tw_radio_count; i++) {
+            if (tw_same(tw_radios[i].id, event->id)) tw_radios[i].f(tw_radios[i].title);
+        }
+    } else if (strcmp(event->ev, "choose") == 0) {
+        for (i = 0; i < tw_choice_count; i++) {
+            if (tw_same(tw_choices[i].id, event->id)) tw_choices[i].f(event->value);
+        }
+    } else if (strcmp(event->ev, "enter") == 0) {
+        for (i = 0; i < tw_text_field_count; i++) {
+            if (tw_same(tw_text_fields[i].id, event->id)) {
+                tw_text_fields[i].f(event->text == NULL ? "" : event->text);
+            }
+        }
     } else if (strcmp(event->ev, "frame") == 0) {
         for (i = 0; i < tw_frame_count; i++) tw_frames[i](tw_clock);
         tw_send("frame_done", "", "frame_done", 0, NULL, 0, NULL, 0);
@@ -1362,7 +2540,56 @@ static void tw_deliver(const tw_event *event)
             if (tw_same(tw_mice[i].c, event->c)) tw_mice[i].f(event->x, event->y);
         }
     } else if (strcmp(event->ev, "key") == 0) {
-        for (i = 0; i < tw_key_count; i++) tw_keys[i](event->key == NULL ? "" : event->key);
+        const char *key = event->key == NULL ? "" : event->key;
+        if (tw_held(key) < 0) {
+            tw_down = (char **) tw_grow((void *) tw_down, tw_down_count, sizeof(char *));
+            tw_down[tw_down_count++] = tw_copy(key);
+        }
+        for (i = 0; i < tw_key_count; i++) tw_keys[i](key);
+    } else if (strcmp(event->ev, "key_up") == 0) {
+        const char *key = event->key == NULL ? "" : event->key;
+        long at = tw_held(key);
+        if (at >= 0) {
+            free(tw_down[at]);
+            tw_down[at] = tw_down[tw_down_count - 1];
+            tw_down_count--;
+        }
+        for (i = 0; i < tw_key_up_count; i++) tw_key_ups[i](key);
+    } else if (strcmp(event->ev, "press") == 0 || strcmp(event->ev, "release") == 0
+               || strcmp(event->ev, "move") == 0) {
+        tw_pointer_seen *seen = tw_pointer_of(event->c);
+        if (seen != NULL) {
+            int x, y, drag;
+            seen->x = event->x;
+            seen->y = event->y;
+            if (strcmp(event->ev, "press") == 0) seen->down = 1;
+            else if (strcmp(event->ev, "release") == 0) seen->down = 0;
+            x = seen->x;
+            y = seen->y;
+            drag = strcmp(event->ev, "move") == 0 && seen->down;
+            for (i = 0; i < tw_watcher_count; i++) {
+                if (tw_same(tw_watchers[i].c, event->c)
+                    && strcmp(tw_watchers[i].kind, event->ev) == 0) {
+                    tw_watchers[i].f(x, y);
+                }
+            }
+            if (drag) {
+                for (i = 0; i < tw_watcher_count; i++) {
+                    if (tw_same(tw_watchers[i].c, event->c)
+                        && strcmp(tw_watchers[i].kind, "drag") == 0) {
+                        tw_watchers[i].f(x, y);
+                    }
+                }
+            }
+        }
+    } else if (strcmp(event->ev, "measured") == 0) {
+        for (i = 0; i < tw_measure_count; i++) {
+            if (!tw_measures[i].answered && tw_same(tw_measures[i].id, event->id)) {
+                tw_measures[i].answered = 1;
+                tw_measures[i].f(event->width);
+                break;
+            }
+        }
     }
 }
 
@@ -1437,14 +2664,19 @@ static tw_event tw_parse_event(const char *text)
                 strncpy(event.ev, value.text, sizeof event.ev - 1);
             } else if (key.text != NULL && (strcmp(key.text, "key") == 0
                                             || strcmp(key.text, "id") == 0
+                                            || strcmp(key.text, "text") == 0
                                             || strcmp(key.text, "c") == 0)) {
                 char *text = value.text == NULL ? tw_copy("") : value.text;
                 if (strcmp(key.text, "key") == 0) event.key = text;
                 else if (strcmp(key.text, "id") == 0) event.id = text;
+                else if (strcmp(key.text, "text") == 0) event.text = text;
                 else event.c = text;
                 value.text = NULL;
             }
             free(value.text);
+        } else if (key.text != NULL && strcmp(key.text, "checked") == 0) {
+            event.checked = strncmp(at, "true", 4) == 0;
+            while (*at != '\0' && *at != ',' && *at != '}') at++;
         } else {
             char *end;
             double number = strtod(at, &end);
@@ -1455,6 +2687,7 @@ static tw_event tw_parse_event(const char *text)
                 } else if (strcmp(key.text, "value") == 0) event.value = (int) number;
                 else if (strcmp(key.text, "x") == 0) event.x = (int) number;
                 else if (strcmp(key.text, "y") == 0) event.y = (int) number;
+                else if (strcmp(key.text, "width") == 0) event.width = number;
             }
             while (*at != '\0' && *at != ',' && *at != '}') at++;
         }
@@ -1479,6 +2712,11 @@ static int tw_parse_line(const char *line, tw_event *event)
         event->key = tw_copy(line + 4);
         return 1;
     }
+    if (strncmp(line, "key_up ", 7) == 0) {
+        strcpy(event->ev, "key_up");
+        event->key = tw_copy(line + 7);
+        return 1;
+    }
     while (*at == ' ') at++;
     length = strcspn(at, " ");
     if (length == 0 || length >= sizeof word) return 0;
@@ -1491,14 +2729,33 @@ static int tw_parse_line(const char *line, tw_event *event)
         wanted = 1;
     } else {
         tw_text id = { NULL, 0, 0 };
-        if (strcmp(word, "click") == 0) wanted = 0;
-        else if (strcmp(word, "slide") == 0) wanted = 1;
-        else if (strcmp(word, "mouse") == 0) wanted = 2;
+        if (strcmp(word, "click") == 0 || strcmp(word, "pick") == 0) wanted = 0;
+        else if (strcmp(word, "slide") == 0 || strcmp(word, "choose") == 0) wanted = 1;
+        else if (strcmp(word, "mouse") == 0 || strcmp(word, "press") == 0
+                 || strcmp(word, "release") == 0 || strcmp(word, "move") == 0) wanted = 2;
+        else if (strcmp(word, "measured") == 0) wanted = 1;
+        else if (strcmp(word, "check") == 0 || strcmp(word, "enter") == 0) wanted = -1;
         else return 0;
         if (*at != '"') return 0;
         at = tw_string(at + 1, &id);
         event->id = id.text == NULL ? tw_copy("") : id.text;
         event->c = event->id;
+        while (*at == ' ') at++;
+        if (strcmp(word, "check") == 0) {
+            if (strncmp(at, "true", 4) == 0) { event->checked = 1; at += 4; }
+            else if (strncmp(at, "false", 5) == 0) { event->checked = 0; at += 5; }
+            else return 0;
+            while (*at == ' ' || *at == '\r') at++;
+            return *at == '\0';
+        }
+        if (strcmp(word, "enter") == 0) {
+            tw_text typed = { NULL, 0, 0 };
+            if (*at != '"') return 0;
+            at = tw_string(at + 1, &typed);
+            event->text = typed.text == NULL ? tw_copy("") : typed.text;
+            while (*at == ' ' || *at == '\r') at++;
+            return *at == '\0';
+        }
     }
     /* The numbers, and nothing after them. */
     for (;;) {
@@ -1515,9 +2772,12 @@ static int tw_parse_line(const char *line, tw_event *event)
     if (strcmp(word, "frame") == 0) {
         event->has_t = 1;
         event->t = numbers[0];
-    } else if (strcmp(word, "slide") == 0) {
+    } else if (strcmp(word, "slide") == 0 || strcmp(word, "choose") == 0) {
         event->value = (int) numbers[0];
-    } else if (strcmp(word, "mouse") == 0) {
+    } else if (strcmp(word, "measured") == 0) {
+        event->width = numbers[0];
+    } else if (strcmp(word, "mouse") == 0 || strcmp(word, "press") == 0
+               || strcmp(word, "release") == 0 || strcmp(word, "move") == 0) {
         event->x = (int) numbers[0];
         event->y = (int) numbers[1];
     }
@@ -1773,6 +3033,9 @@ static void tw_after_program(void)
         return;
     }
     if (tw_listener < 0) return;
+    /* What the top level printed is out before the page is served, which
+       goes on until the program is stopped. */
+    fflush(stdout);
     tw_batching = 1;
     for (;;) {
         size_t i;

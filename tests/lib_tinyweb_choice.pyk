@@ -1,0 +1,14 @@
+# A dropdown, which takes its options as a list.
+
+import tinyweb as tw
+
+tw.web_init(0)
+names = ["ocean", "candy", "forest"]
+shown = tw.label("ocean")
+
+def changed(position: Int):
+    tw.set_label(shown, "chose " ++ string(position))
+
+menu = tw.choice(names, on_change = changed)
+tw.choice(["one"], 0)
+tw.set_value(menu, 2)

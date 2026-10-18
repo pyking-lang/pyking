@@ -44,15 +44,16 @@ from pathlib import Path
 
 DOC = "##"
 
-# A definition's name, which may carry a qualifier: `int::abs`.
-NAME = r"[A-Za-z_]\w*(?:::[A-Za-z_]\w*)?"
+# A definition's name, which may carry a qualifier, `int::abs`, and be in
+# a submodule, `colors.rgb`.
+NAME = r"(?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*(?:::[A-Za-z_]\w*)?"
 # `public def name : type` -- a signature, from either half.
 SIGNATURE = re.compile(rf"^public\s+def\s+({NAME})\s*:(?!:)")
 # `public def name(...)` -- a definition, or a declaration naming its
 # parameters.
 DEFINITION = re.compile(rf"^public\s+def\s+({NAME})\s*\(")
 # `public NAME: T = value` -- a value.
-VALUE = re.compile(r"^public\s+([A-Za-z_]\w*)\s*:")
+VALUE = re.compile(r"^public\s+((?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*)\s*:")
 # `def name : type`, public or not, in a declaration half: the form
 # lib/ no longer uses.
 UNNAMED = re.compile(rf"^(?:public\s+)?def\s+{NAME}\s*:(?!:)")
@@ -313,8 +314,15 @@ def read_module(directory):
                     files=[path.name for path in present], directory=directory)
     for path in present:
         module.items.extend(_items(path))
-    module.items.sort(key=lambda item: (item.kind != "value", item.name))
+    # The module's own names first, then each submodule's together.
+    module.items.sort(key=lambda item: (submodule(item.name), item.kind != "value", item.name))
     return module
+
+
+def submodule(name):
+    """The submodule a name is in, `colors` of `colors.rgb`, or "" for
+    one of the module's own. String -> String"""
+    return name.rsplit(".", 1)[0] if "." in name.split("::")[0] else ""
 
 
 def read_modules(lib):
@@ -471,7 +479,16 @@ def module_page(module):
         "",
         f"```pyking norun\nimport {module.name}\n```",
     ]
+    current = ""
     for item in module.items:
+        inside = submodule(item.name)
+        if inside != current:
+            current = inside
+            last = inside.split(".")[-1]
+            parts += ["", f"## The submodule {module.name}.{inside}", "",
+                      f"These are written `{inside}.name` inside the library, and reached "
+                      f"as `{last}.name` through:", "",
+                      f"```pyking norun\nimport {module.name}.{inside} as {last}\n```"]
         parts += ["", item_markdown(module, item)]
     return "\n".join(parts).rstrip() + "\n"
 

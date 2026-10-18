@@ -1,0 +1,5 @@
+check "Trails" false
+pick "time-based"
+enter "your name" "Ada"
+slide "number" 12
+check "Trails" true

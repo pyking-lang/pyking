@@ -63,7 +63,7 @@ MINIMUM_NODE = (22, 12)
 # What a browser fetches from lib/: a module's Pyking source, its
 # browser implementation, and the sounds a page plays (tinyweb's samples,
 # in tinyweb_assets/). The plugins and the other targets' files stay.
-LIB_SUFFIXES = (".pyk", ".js", ".wav", ".mp3", ".ogg")
+LIB_SUFFIXES = (".pyk", ".js", ".wav", ".mp3", ".ogg", ".png")
 
 
 def check_node():

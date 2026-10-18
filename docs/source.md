@@ -758,7 +758,7 @@ OCaml-style near the top of the file):
   `return` supplies the function's type, and a `break`/`continue`
   supplies nothing at all, since neither reaches the end of its block.
   `SVar` and `SMutate` supply unit: a
-  `var` is `Int` or `Bool` (**`check_mutable`**), and a `:=` must give
+  `var` has its initializer's type, whatever it is, and a `:=` must give
   the type the declaration fixed. Neither says anything about
   *mutability* — that is `analyses.analyze_mutability`'s.
 - **`check_turn(body, turn_env, tmap, return_type, accumulator, store)

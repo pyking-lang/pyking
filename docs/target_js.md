@@ -663,6 +663,12 @@ and one walker serves every shape, here it settles which of two
 representations a number is, and a string argument says that in one
 token.
 
+`pykFloatStr` takes its digits from JavaScript's own `String(x)`, which
+is the shortest that reads back as the same double, as Python's `repr`
+and every other backend's are, and lays them out as Pyking writes a
+Float: an exponent from `1e16` up and below `0.0001`, and `.0` on a
+whole number.
+
 `pykFloatStr` and `pykShaped` live in `pyk-runtime.js` beside
 `pykFormat` — `pykShaped` calls it for every non-Float position — and a
 module imports whichever of them it uses, the same way it imports

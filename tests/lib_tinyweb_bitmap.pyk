@@ -1,0 +1,33 @@
+# tinyweb's bitmaps: pixels set, read back and filled, shown at several
+# scales, with only what changed since the last showing sent each time.
+import tinyweb as tw
+
+tw.web_init(0)
+c = tw.canvas(160, 100)
+b = tw.bitmap(16, 10)
+print("a new bitmap is black:", tw.get_pixel(b, 3, 3))
+for y in range(10):
+    for x in range(16):
+        tw.set_pixel(b, x, y, tw.pixel_color(x * 16, y * 25, 128))
+tw.show_bitmap(c, b, scale = 10.0)
+orange = tw.pixel_color(255, 136, 0)
+print("orange is", orange, tw.red(orange), tw.green(orange), tw.blue(orange))
+print("clamped:", tw.pixel_color(300, -5, 70))
+tw.set_pixel(b, 4, 2, orange)
+tw.set_pixel(b, 7, 5, orange)
+tw.set_pixel(b, 40, 2, orange)
+print("pixel (4, 2):", tw.get_pixel(b, 4, 2), "outside:", tw.get_pixel(b, -1, 0))
+tw.show_bitmap(c, b, 0, 0, 10.0)
+tw.show_bitmap(c, b, 5, 5)
+small = tw.bitmap(4, 4)
+tw.fill_bitmap(small, tw.pixel_color(0, 0, 255))
+print("filled:", tw.blue(tw.get_pixel(small, 3, 3)))
+tw.show_bitmap(c, small, 120, 60, 0.5)
+
+
+def frame(t: Float):
+    tw.set_pixel(small, 1, 1, tw.pixel_color(int(t * 100.0), 0, 0))
+    tw.show_bitmap(c, small, 120, 60, 2.0)
+
+
+tw.on_frame(frame)

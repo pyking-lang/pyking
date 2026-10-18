@@ -9,7 +9,8 @@
 
    Nothing in Stdlib reads the clock as a calendar, so this file uses
    `Unix`, and the OCaml target links it (docs/target_ocaml.md,
-   "Linking unix"). Decomposition is UTC: `gmtime`, never `localtime`. *)
+   "Linking unix"). Decomposition is UTC: `gmtime`, and `localtime` only
+   for `local_now`. *)
 
 let instant () = Stdlib.int_of_float (Unix.time ())
 let parts t = Unix.gmtime (Stdlib.float_of_int t)
@@ -19,6 +20,16 @@ let parts t = Unix.gmtime (Stdlib.float_of_int t)
    1900; Pyking writes them as a reader does. *)
 let now () =
   let p = parts (instant ()) in
+  ( p.Unix.tm_year + 1900,
+    p.Unix.tm_mon + 1,
+    p.Unix.tm_mday,
+    p.Unix.tm_hour,
+    p.Unix.tm_min,
+    p.Unix.tm_sec )
+
+(* The same, in the computer's own time zone. *)
+let local_now () =
+  let p = Unix.localtime (Unix.time ()) in
   ( p.Unix.tm_year + 1900,
     p.Unix.tm_mon + 1,
     p.Unix.tm_mday,

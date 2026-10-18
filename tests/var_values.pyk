@@ -1,0 +1,58 @@
+# A `var` may hold a value of any type: a String, a tuple, a datatype
+# and a function here, at the top level, inside a function, and read and
+# written by functions that capture it.
+
+datatype Shape:
+    Circle(radius: Int)
+    Square(side: Int)
+
+def area(s: Shape) -> Int:
+    match s:
+        case Circle(r): 3 * r * r
+        case Square(a): a * a
+
+var greeting = "start"
+greeting := greeting ++ " and more"
+print(greeting)
+
+var point = (1, 2)
+def move(dx: Int, dy: Int):
+    (x, y) = point
+    point := (x + dx, y + dy)
+move(3, 4)
+move(-1, 0)
+print(point)
+
+var shape = Circle(2)
+print(area(shape))
+shape := Square(5)
+print(area(shape))
+
+def double(n: Int) -> Int:
+    n * 2
+
+def square(n: Int) -> Int:
+    n * n
+
+var step = double
+print(step(7))
+step := square
+print(step(7))
+
+def counter_text(n: Int) -> String:
+    var text = ""
+    for i in range(n):
+        text := text ++ string(i)
+    text
+
+print(counter_text(5))
+
+def tagged(words: String) -> String:
+    var label = "<"
+    def add(more: String):
+        label := label ++ more
+    add(words)
+    add(">")
+    label
+
+print(tagged("pyking"))

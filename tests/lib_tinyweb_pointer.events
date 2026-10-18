@@ -1,0 +1,15 @@
+move "canvas" 20 30
+press "canvas" 40 50
+move "canvas" 60 55
+move "canvas" 80 60
+release "canvas" 90 62
+move "canvas" 95 64
+move "canvas1" 10 10
+frame 0.5
+key ArrowLeft
+frame 0.6
+key ArrowRight
+key_up ArrowLeft
+frame 0.7
+key_up ArrowRight
+frame 0.8

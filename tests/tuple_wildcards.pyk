@@ -1,0 +1,11 @@
+# Two `_` in one tuple binding, at the top level and in a loop. `_` is
+# an ordinary name, and the last of the two is the one it names.
+def triple(i: Int) -> (Int, Int, Int):
+    (i, i * 10, i * 100)
+
+(_, middle, _) = triple(1)
+print(middle)
+print(_)
+for i in range(3):
+    (_, _, last) = triple(i)
+    print(last)

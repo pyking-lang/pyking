@@ -108,7 +108,10 @@ happened.
 
 Decomposition is **UTC** on every host. A local one would depend on the
 host's own zone database, which the targets disagree about, and a
-library that formatted differently per target would be no use.
+library that formatted differently per target would be no use. The one
+exception is `local_now`, which asks for the zone on purpose: a clock
+on a page shows the time where the reader is (graphics5's), and a
+program that wants that has no other way to it.
 
 A declared type has to be one the target can carry. A list is refused
 on C, which has no garbage collector to free one ([modules.md](modules.md),
@@ -301,12 +304,84 @@ something on the page has that name already: `"canvas"`, `"canvas1"`,
 (`data-tinyweb-id`) and in the log, which is what makes a log readable.
 
 **Commands and events.** Every function but `web_init` sends the page
-one *command*, a plain object such as `{op: "circle", c, x, y, radius,
-color}`, and the page answers with *events*, such as `{ev: "click",
-id}`, which call the functions the program handed over. A program that
+one *command*, a plain object such as `{op: "label", id, text}`, and
+the page answers with *events*, such as `{ev: "click", id}`, which call
+the functions the program handed over. A program that
 handed over a function keeps running after its top level ends, as long
 as the page does. Each event carries the page's clock (`t`) and whether
 audio has started, which is what `time()` answers from between events.
+
+**Drawing (step 1 of design/plan-tinyweb.md).** Every shape is one
+command, `{op: "shape", c, kind, numbers, color, outline, width,
+alpha}`: `kind` is rect, circle, ellipse, arc, line, lines, curve,
+bezier, polygon, path, erase or circles, and `numbers` its numbers --
+as words, which `tinyweb.pyk` writes, so one host function,
+`draw_shape`, serves every shape, or as an array, which `draw_pairs`,
+`draw_triples` and `draw_quads` send for a list of points, circles or
+segments. The array crosses the boundary as the list it is, so a flow
+field's 4000 segments are not written as words and read back; C cannot
+be handed a list and has none of the three. `width` is a Float. The
+log writes each number of an array, and every Float, with three places,
+rounded half to even on every host. `text` carries its position as
+Floats, a font, an alignment, a baseline, bold, an outline and alpha.
+`{op: "state", c, kind, value, numbers}` is translate, rotate, scale,
+push, pop, reset, shadow, blend, line_style (ends, corners and dashes)
+or clip (a shape the drawing is kept inside). A color may be a gradient,
+`"linear-gradient(x1 y1 x2 y2); 0.0 red; 1.0 blue"` and its radial and
+conic kin, which only the page reads: `paint` makes the gradient, and
+keeps the last 64 a canvas used. `measure` asks the page how wide a text
+is, and the page answers with a `measured` event once the code that
+asked has finished. `image_load` and `image` load and draw a picture,
+found as a sample is (beside the page, then in `tinyweb_assets/`, which
+ships `ball.png`, `star.png` and `tile.png`). `clear` starts its canvas
+afresh: every `push` closed, no transformation, shadow, blending,
+clipping or dashes, so what a late page is sent before a clear can be
+dropped. The drawing itself is the style block's `drawShape`,
+`drawText`, `canvasState`, `freshState`, `paint` and `loadPicture`, so
+the web24 page and the command page draw alike; a shape sets the alpha
+it draws at and puts it back, rather than saving and restoring the
+whole context. The colour helpers, `rgb`, `rgba`, `hsl`, `palette` and
+the gradients, are Pyking with no command, in the submodule
+`tinyweb.colors` (not `color`: `color` is a parameter name throughout
+the file, and a submodule's name is taken in its whole file). The
+submodule `tinyweb.smooth` holds the shapes again with Float
+coordinates and widths, for drawing between pixels, and `smooth.lines`
+and `smooth.circles` draw many in one command.
+
+**Widgets and input (part of step 2).** `checkbox`, `radio` (one call
+per button, grouped by name), `choice` (a dropdown, its options one per
+line in one string), `text_input` and `number_input` are a command
+each, built by the style block's `choiceRow`, `choiceElement`,
+`textInputElement` and `numberElement`; `set_checked` and `set_value`
+change one, and `set_label` a button's title as well as a label's text.
+A key typed into a text or number field is not reported as a key
+(`typedInField`). `on_press`, `on_release`, `on_move` and `on_drag` are
+one host function, `watch_pointer`, which sends `on_pointer` once per
+canvas; the page then reports `press`, `release` and `move` events,
+and each host calls a `drag` watcher for a move while the button is
+down and keeps where the pointer was last seen, which `mouse_x`,
+`mouse_y` and `mouse_down` read (`pointer`). `on_key_up` and
+`key_down` are the other half of the keyboard: the page reports
+`key_up`, and lets go of every key held when it loses the focus; each
+host keeps the keys held from the `key` and `key_up` events it
+delivers.
+
+**Bitmaps (part of step 5).** A bitmap is the program's own: each host
+keeps its pixels, four bytes each, and the rectangle that changed since
+it was last shown, so `set_pixel`, `get_pixel` and `fill_bitmap` send
+nothing. `show_bitmap` sends `{op: "bitmap", c, id, width, height, x,
+y, scale, rect, data}`: the changed rectangle's bytes, base64 from a
+host on the other side of a socket and the bytes themselves from one in
+the page. The page keeps each bitmap as a canvas of its own and draws
+it scaled, sharp above 1.0 and smooth below. The log writes the
+rectangle and an FNV-1a digest of its bytes. `pixel_color`, `red`,
+`green` and `blue` are Pyking.
+
+**Layout (part of step 5).** `row` and `column` add a box,
+`{op: "row", id}` or `{op: "column", id}`, and `inside` and `outside`
+say where the elements made next go -- the page keeps the box it is
+adding to. `page_style(align = ...)` sets where the page's elements
+stand across it, and `set_style` takes a `weight` and a `height`.
 
 **Where the page is.** A program starts with `web_init(port)`, and what
 that does depends on where it runs:
@@ -464,12 +539,17 @@ block, so the two draw the same one.
 | `fs` | yes | yes | not supported | not supported | yes | yes | yes | yes |
 | `io` | yes | yes | output only | output only | yes | yes | yes | yes |
 | `math` | yes | yes | yes | yes | yes | yes | yes | yes |
+| `random` | yes | yes | yes | yes | yes, but `choice` and `shuffle` take a list | yes | yes | yes |
 | `sys` | yes | yes | `exit` only | `exit` only | `exit` only | yes | yes | yes |
 | `time` | yes | yes | yes | yes | yes | yes | yes | yes |
 | `tinyweb` | yes | yes | yes | yes | yes | yes | yes | yes |
 
 "Not supported" and "output only" are the browser implementations above:
 the import compiles and a function the page cannot provide says so.
+
+`random` is written in Pyking alone, a Park--Miller generator kept in
+32 bits, so a seed gives the same numbers on every target; without one it
+starts from `time.instant()`.
 
 `tinyweb` draws and plays on a page, which every target has one way or
 another (above, "Where the page is"). It hands the page callbacks, which
@@ -583,9 +663,11 @@ A program using `tinyweb` is tested by what it sends its page, not by
 pixels. Two files beside it say so:
 
 - `<name>.events` -- what the page delivers once the top level has
-  ended, one event per line: `click "ID"`, `slide "ID" VALUE`,
-  `frame T`, `mouse "CANVAS" X Y` and `key NAME`, each element named by
-  its identifier as a JSON string.
+  ended, one event per line: `click "ID"`, `slide "ID" VALUE` (a
+  slider or a number field), `check "ID" true|false`, `pick "ID"` (a
+  radio button), `choose "ID" POSITION` (a dropdown), `enter "ID"
+  "TEXT"` (Enter in a text field), `frame T`, `mouse "CANVAS" X Y` and
+  `key NAME`, each element named by its identifier as a JSON string.
 - `<name>.page` -- every command the program sent, one per line, with
   each delivered event as a `> ` line where it happened. An identifier
   is a JSON string, and an element's text follows it only where the two
@@ -607,8 +689,9 @@ delivers the events `PYKING_TINYWEB_EVENTS` lists once the top level has
 ended; `web_init` then does nothing. The harness copies the `.events`
 file into each run's workdir, points both variables there, and compares
 the log with the `.page` file on every target the case lists. Every
-implementation writes the same lines -- strings as JSON, times to three
-decimals -- so one `.page` file holds for all of them.
+implementation writes the same lines -- strings as JSON, times and
+every other Float to three decimals, a number exactly halfway rounded to
+the even one -- so one `.page` file holds for all of them.
 `tests/lib_tinyweb_*.pyk` are the cases.
 
 **The same log while the page runs.** `pyk --tinyweb-log <file>` (and

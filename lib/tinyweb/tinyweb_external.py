@@ -23,6 +23,7 @@
 # handler; a `sys.exit` in one ends the program with its status.
 
 import atexit as _atexit
+import base64 as _base64
 import json as _json
 import os as _os
 import queue as _queue
@@ -42,9 +43,22 @@ _clock = 0.0
 _delivered = False
 _buttons = {}
 _sliders = {}
+_checks = {}
+_radios = {}
+_choices = {}
+_texts = {}
 _mice = {}
 _frames = []
 _keys = []
+_key_ups = []
+# The keys held down now, from the key events delivered so far.
+_down = set()
+_keys_on = False
+# Each canvas's pointer: the functions watching it, by kind, and where it
+# was last seen.
+_pointers = {}
+_measures = {}
+_bitmaps = {}
 _after = False
 _hub = None
 
@@ -66,6 +80,7 @@ def _log_line(command):
     op = command["op"]
     c = command.get
     q = lambda name: _quote(c(name))  # noqa: E731
+    flag = lambda name: "true" if c(name) else "false"  # noqa: E731
 
     def named(id_field, text_field):
         return q(id_field) + ("" if c(id_field) == c(text_field) else " " + q(text_field))
@@ -74,14 +89,38 @@ def _log_line(command):
         return f"canvas {q('id')} {c('width')} {c('height')}"
     if op == "clear":
         return f"clear {q('c')} {c('color')}"
-    if op == "circle":
-        return f"circle {q('c')} {c('x')} {c('y')} {c('radius')} {c('color')}"
-    if op == "rect":
-        return f"rect {q('c')} {c('x')} {c('y')} {c('width')} {c('height')} {c('color')}"
-    if op == "line":
-        return f"line {q('c')} {c('x1')} {c('y1')} {c('x2')} {c('y2')} {c('color')} {c('width')}"
+    if op == "shape":
+        numbers = c("numbers")
+        if not isinstance(numbers, str):
+            numbers = " ".join(_seconds(x) for x in numbers)
+        return (f"{c('kind')} {q('c')} {numbers} {q('color')} {q('outline')} "
+                f"{_seconds(c('width'))} {_seconds(c('alpha'))}")
     if op == "text":
-        return f"text {q('c')} {c('x')} {c('y')} {c('color')} {c('size')} {q('words')}"
+        return (f"text {q('c')} {_seconds(c('x'))} {_seconds(c('y'))} {q('color')} {c('size')} "
+                f"{q('font')} {c('align')} {c('baseline')} {flag('bold')} {q('outline')} "
+                f"{_seconds(c('outline_width'))} {_seconds(c('alpha'))} {q('words')}")
+    if op == "measure":
+        return f"measure {q('id')} {c('size')} {q('font')} {flag('bold')} {q('words')}"
+    if op == "on_pointer":
+        return f"on_pointer {q('c')}"
+    if op in ("row", "column", "inside"):
+        return f"{op} {q('id')}"
+    if op == "bitmap":
+        rx, ry, rw, rh = c("rect")
+        return (f"bitmap {q('c')} {q('id')} {c('x')} {c('y')} {_seconds(c('scale'))} "
+                f"{c('width')} {c('height')} {rx} {ry} {rw} {rh} {c('digest')}")
+    if op == "state":
+        words = [c("kind"), q("c")]
+        if c("value") != "":
+            words.append(q("value"))
+        if c("numbers") != "":
+            words.append(c("numbers"))
+        return " ".join(words)
+    if op == "image_load":
+        return f"load_image {named('id', 'name')}"
+    if op == "image":
+        return (f"image {q('c')} {q('picture')} {c('x')} {c('y')} {c('width')} {c('height')} "
+                f"{_seconds(c('alpha'))}")
     if op == "button":
         return f"button {named('id', 'title')}"
     if op == "label":
@@ -90,6 +129,20 @@ def _log_line(command):
         return f"set_label {q('id')} {q('text')}"
     if op == "slider":
         return f"slider {q('id')} {c('low')} {c('high')} {c('value')}"
+    if op == "checkbox":
+        return f"checkbox {named('id', 'title')} {flag('checked')}"
+    if op == "radio":
+        return f"radio {named('id', 'title')} {q('group')} {flag('chosen')}"
+    if op == "choice":
+        return f"choice {q('id')} {c('chosen')} {q('options')}"
+    if op == "text_input":
+        return f"text_input {named('id', 'placeholder')}"
+    if op == "number":
+        return f"number {q('id')} {c('low')} {c('high')} {c('value')}"
+    if op == "set_checked":
+        return f"set_checked {q('id')} {flag('checked')}"
+    if op == "set_value":
+        return f"set_value {q('id')} {c('value')}"
     if op == "load":
         return f"load {named('id', 'name')}"
     if op == "play":
@@ -175,23 +228,201 @@ def fill_canvas(c, color):
     _send({"op": "clear", "c": c, "color": color})
 
 
-def draw_circle(c, x, y, radius, color):
-    _send({"op": "circle", "c": c, "x": x, "y": y, "radius": radius, "color": color})
+def draw_shape(c, kind, numbers, color, outline, width, alpha):
+    _send({"op": "shape", "c": c, "kind": kind, "numbers": numbers, "color": color,
+           "outline": outline, "width": width, "alpha": alpha})
 
 
-def draw_rect(c, x, y, width, height, color):
-    _send({"op": "rect", "c": c, "x": x, "y": y, "width": width, "height": height,
-           "color": color})
+def draw_pairs(c, kind, items, color, outline, width, alpha):
+    draw_shape(c, kind, [float(x) for item in items for x in item], color, outline, width, alpha)
 
 
-def draw_line(c, x1, y1, x2, y2, color, width):
-    _send({"op": "line", "c": c, "x1": x1, "y1": y1, "x2": x2, "y2": y2,
-           "color": color, "width": width})
+def draw_triples(c, kind, items, color, outline, width, alpha):
+    draw_shape(c, kind, [float(x) for item in items for x in item], color, outline, width, alpha)
 
 
-def draw_text(c, x, y, words, color, size):
-    _send({"op": "text", "c": c, "x": x, "y": y, "color": color, "size": size,
-           "words": words})
+def draw_quads(c, kind, items, color, outline, width, alpha):
+    draw_shape(c, kind, [float(x) for item in items for x in item], color, outline, width, alpha)
+
+
+def draw_text(c, x, y, words, color, size, font, align, baseline, bold, outline, outline_width,
+              alpha):
+    _send({"op": "text", "c": c, "x": x, "y": y, "words": words, "color": color,
+           "size": size, "font": font, "align": align, "baseline": baseline, "bold": bold,
+           "outline": outline, "outline_width": outline_width, "alpha": alpha})
+
+
+def measure(words, size, font, bold, answer):
+    _ready()
+    id = _fresh("measure")
+    _measures[id] = answer
+    _send({"op": "measure", "id": id, "words": words, "size": size, "font": font, "bold": bold})
+
+
+def watch_pointer(c, kind, f):
+    _ready()
+    if c not in _pointers:
+        _pointers[c] = {"press": [], "release": [], "move": [], "drag": [],
+                        "x": 0, "y": 0, "down": False}
+        _send({"op": "on_pointer", "c": c})
+    if kind in ("press", "release", "move", "drag"):
+        _pointers[c][kind].append(f)
+
+
+def pointer(c, which):
+    _ready()
+    seen = _pointers.get(c)
+    if seen is None:
+        return 0
+    if which == "x":
+        return seen["x"]
+    if which == "y":
+        return seen["y"]
+    return 1 if seen["down"] else 0
+
+
+# --- bitmaps ---
+
+def _digest(data):
+    """FNV-1a, 32 bits, of the bytes: what the log says of a bitmap's
+    pixels."""
+    h = 2166136261
+    for b in data:
+        h = ((h ^ b) * 16777619) & 0xFFFFFFFF
+    return f"{h:08x}"
+
+
+class _Bitmap:
+    """A bitmap's pixels, four bytes each, and the rectangle that changed
+    since it was last shown."""
+
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+        self.data = bytearray(b"\x00\x00\x00\xff" * (width * height))
+        self.x1, self.y1, self.x2, self.y2 = 0, 0, width, height
+
+    def touch(self, x, y):
+        self.x1 = min(self.x1, x)
+        self.y1 = min(self.y1, y)
+        self.x2 = max(self.x2, x + 1)
+        self.y2 = max(self.y2, y + 1)
+
+
+def bitmap(width, height):
+    _ready()
+    id = _fresh("bitmap")
+    _bitmaps[id] = _Bitmap(max(1, width), max(1, height))
+    return id
+
+
+def set_pixel(b, x, y, color):
+    bm = _bitmaps.get(b)
+    if bm is None or not (0 <= x < bm.width and 0 <= y < bm.height):
+        return
+    at = (y * bm.width + x) * 4
+    bm.data[at] = (color >> 16) & 255
+    bm.data[at + 1] = (color >> 8) & 255
+    bm.data[at + 2] = color & 255
+    bm.touch(x, y)
+
+
+def get_pixel(b, x, y):
+    bm = _bitmaps.get(b)
+    if bm is None or not (0 <= x < bm.width and 0 <= y < bm.height):
+        return 0
+    at = (y * bm.width + x) * 4
+    return (bm.data[at] << 16) | (bm.data[at + 1] << 8) | bm.data[at + 2]
+
+
+def fill_bitmap(b, color):
+    bm = _bitmaps.get(b)
+    if bm is None:
+        return
+    bm.data[:] = bytes(((color >> 16) & 255, (color >> 8) & 255, color & 255, 255)) \
+        * (bm.width * bm.height)
+    bm.x1, bm.y1, bm.x2, bm.y2 = 0, 0, bm.width, bm.height
+
+
+def draw_bitmap(c, b, x, y, scale):
+    bm = _bitmaps.get(b)
+    if bm is None:
+        return
+    if bm.x2 > bm.x1 and bm.y2 > bm.y1:
+        rx, ry, rw, rh = bm.x1, bm.y1, bm.x2 - bm.x1, bm.y2 - bm.y1
+    else:
+        rx, ry, rw, rh = 0, 0, 0, 0
+    rows = [bytes(bm.data[((ry + r) * bm.width + rx) * 4:((ry + r) * bm.width + rx + rw) * 4])
+            for r in range(rh)]
+    data = b"".join(rows)
+    bm.x1, bm.y1, bm.x2, bm.y2 = bm.width, bm.height, 0, 0
+    _send({"op": "bitmap", "c": c, "id": b, "width": bm.width, "height": bm.height,
+           "x": x, "y": y, "scale": scale, "rect": [rx, ry, rw, rh],
+           "data": _base64.b64encode(data).decode("ascii"), "digest": _digest(data)})
+
+
+def set_state(c, kind, value, numbers):
+    _send({"op": "state", "c": c, "kind": kind, "value": value, "numbers": numbers})
+
+
+def load_image(name):
+    _ready()
+    id = _fresh(name)
+    _send({"op": "image_load", "id": id, "name": name})
+    return id
+
+
+def draw_image(c, picture, x, y, width, height, alpha):
+    _send({"op": "image", "c": c, "picture": picture, "x": x, "y": y, "width": width,
+           "height": height, "alpha": alpha})
+
+
+def make_checkbox(title, checked, on_change):
+    _ready()
+    id = _fresh(title)
+    _checks[id] = on_change
+    _send({"op": "checkbox", "id": id, "title": title, "checked": checked})
+    return id
+
+
+def make_radio(group, title, chosen, on_pick):
+    _ready()
+    id = _fresh(title)
+    _radios[id] = (title, on_pick)
+    _send({"op": "radio", "id": id, "group": group, "title": title, "chosen": chosen})
+    return id
+
+
+def make_choice(options, chosen, on_change):
+    _ready()
+    id = _fresh("choice")
+    _choices[id] = on_change
+    _send({"op": "choice", "id": id, "options": options, "chosen": chosen})
+    return id
+
+
+def make_text_input(placeholder, on_enter):
+    _ready()
+    id = _fresh(placeholder if placeholder != "" else "text")
+    _texts[id] = on_enter
+    _send({"op": "text_input", "id": id, "placeholder": placeholder})
+    return id
+
+
+def make_number_input(low, high, value, on_change):
+    _ready()
+    id = _fresh("number")
+    _sliders[id] = on_change
+    _send({"op": "number", "id": id, "low": low, "high": high, "value": value})
+    return id
+
+
+def set_checked(id, checked):
+    _send({"op": "set_checked", "id": id, "checked": checked})
+
+
+def set_value(id, value):
+    _send({"op": "set_value", "id": id, "value": value})
 
 
 def make_button(title, on_click):
@@ -207,6 +438,28 @@ def label(text):
     id = _fresh(text)
     _send({"op": "label", "id": id, "text": text})
     return id
+
+
+def row():
+    _ready()
+    id = _fresh("row")
+    _send({"op": "row", "id": id})
+    return id
+
+
+def column():
+    _ready()
+    id = _fresh("column")
+    _send({"op": "column", "id": id})
+    return id
+
+
+def inside(id):
+    _send({"op": "inside", "id": id})
+
+
+def outside():
+    _send({"op": "outside"})
 
 
 def set_label(id, text):
@@ -269,6 +522,21 @@ def on_key(pressed):
     _send({"op": "on_key"})
 
 
+def on_key_up(released):
+    _ready()
+    _key_ups.append(released)
+    _send({"op": "on_key"})
+
+
+def key_down(key):
+    global _keys_on
+    _ready()
+    if not _keys_on and not _keys and not _key_ups:
+        _keys_on = True
+        _send({"op": "on_key"})
+    return key in _down
+
+
 # --- events ---
 
 def _deliver(event):
@@ -286,6 +554,19 @@ def _deliver(event):
     elif kind == "slide":
         if event.get("id") in _sliders:
             _sliders[event["id"]](int(event["value"]))
+    elif kind == "check":
+        if event.get("id") in _checks:
+            _checks[event["id"]](event.get("checked") is True)
+    elif kind == "pick":
+        if event.get("id") in _radios:
+            title, on_pick = _radios[event["id"]]
+            on_pick(title)
+    elif kind == "choose":
+        if event.get("id") in _choices:
+            _choices[event["id"]](int(event["value"]))
+    elif kind == "enter":
+        if event.get("id") in _texts:
+            _texts[event["id"]](str(event.get("text", "")))
     elif kind == "frame":
         for draw in list(_frames):
             draw(_clock)
@@ -294,8 +575,29 @@ def _deliver(event):
         for click in list(_mice.get(event.get("c"), [])):
             click(int(event["x"]), int(event["y"]))
     elif kind == "key":
+        _down.add(str(event["key"]))
         for pressed in list(_keys):
             pressed(str(event["key"]))
+    elif kind == "key_up":
+        _down.discard(str(event["key"]))
+        for released in list(_key_ups):
+            released(str(event["key"]))
+    elif kind in ("press", "release", "move"):
+        seen = _pointers.get(event.get("c"))
+        if seen is not None:
+            seen["x"], seen["y"] = int(event["x"]), int(event["y"])
+            if kind == "press":
+                seen["down"] = True
+            elif kind == "release":
+                seen["down"] = False
+            kinds = [kind] + (["drag"] if kind == "move" and seen["down"] else [])
+            for k in kinds:
+                for f in list(seen[k]):
+                    f(seen["x"], seen["y"])
+    elif kind == "measured":
+        answer = _measures.pop(event.get("id"), None)
+        if answer is not None:
+            answer(float(event.get("width", 0)))
 
 
 def _parse_event(line):
@@ -303,23 +605,42 @@ def _parse_event(line):
     None."""
     if line.startswith("key "):
         return {"ev": "key", "key": line[4:]}
+    if line.startswith("key_up "):
+        return {"ev": "key_up", "key": line[7:]}
     words = line.split(None, 1)
     try:
         if words[0] == "frame" and len(words) == 2:
             return {"ev": "frame", "t": float(words[1])}
-        if words[0] not in ("click", "slide", "mouse") or len(words) < 2:
+        if words[0] not in ("click", "slide", "mouse", "check", "pick", "choose", "enter",
+                            "press", "release", "move", "measured") \
+                or len(words) < 2:
             return None
-        # The element is a quoted string, which may hold spaces.
+        # The element is a quoted string, which may hold spaces; so is the
+        # text an `enter` carries.
         id, end = _json.JSONDecoder().raw_decode(words[1].lstrip())
-        rest = words[1].lstrip()[end:].split()
+        after = words[1].lstrip()[end:].strip()
         if not isinstance(id, str):
             return None
+        if words[0] == "enter":
+            text, stop = _json.JSONDecoder().raw_decode(after)
+            if not isinstance(text, str) or after[stop:].strip() != "":
+                return None
+            return {"ev": "enter", "id": id, "text": text}
+        rest = after.split()
+        if words[0] == "check" and len(rest) == 1 and rest[0] in ("true", "false"):
+            return {"ev": "check", "id": id, "checked": rest[0] == "true"}
+        if words[0] == "pick" and len(rest) == 0:
+            return {"ev": "pick", "id": id}
+        if words[0] == "choose" and len(rest) == 1:
+            return {"ev": "choose", "id": id, "value": int(rest[0])}
         if words[0] == "click" and len(rest) == 0:
             return {"ev": "click", "id": id}
         if words[0] == "slide" and len(rest) == 1:
             return {"ev": "slide", "id": id, "value": int(rest[0])}
-        if words[0] == "mouse" and len(rest) == 2:
-            return {"ev": "mouse", "c": id, "x": int(rest[0]), "y": int(rest[1])}
+        if words[0] in ("mouse", "press", "release", "move") and len(rest) == 2:
+            return {"ev": words[0], "c": id, "x": int(rest[0]), "y": int(rest[1])}
+        if words[0] == "measured" and len(rest) == 1:
+            return {"ev": "measured", "id": id, "width": float(rest[0])}
     except ValueError:
         return None
     return None
@@ -435,11 +756,11 @@ def _kept(history, command):
     if op in ("frame_done", "event_done") or (op == "play" and _delivered):
         return history
     if op == "clear":
-        drawing = ("clear", "circle", "rect", "line", "text")
+        drawing = ("clear", "shape", "text", "state", "image", "bitmap")
         history = [h for h in history if not (h["op"] in drawing and h.get("c") == command["c"])]
-    elif op == "set_label":
+    elif op in ("set_label", "set_checked", "set_value"):
         history = [h for h in history
-                   if not (h["op"] == "set_label" and h["id"] == command["id"])]
+                   if not (h["op"] == op and h["id"] == command["id"])]
     return history + [command]
 
 
@@ -686,12 +1007,16 @@ _PAGE_JS = "".join([
     "const PROPERTIES = {\n",
     "  background: \"background\", color: \"color\", border: \"border\", radius: \"border-radius\",\n",
     "  font: \"font-family\", size: \"font-size\", padding: \"padding\", gap: \"gap\",\n",
-    "  accent: \"accent-color\", width: \"width\",\n",
+    "  accent: \"accent-color\", width: \"width\", height: \"height\", align: \"align-items\",\n",
+    "  weight: \"font-weight\",\n",
     "};\n",
+    "\n",
+    "// What an `align` a program names is in CSS.\n",
+    "const ALIGNMENTS = { left: \"flex-start\", center: \"center\", right: \"flex-end\" };\n",
     "\n",
     "// The place a kind's property goes. String -> String -> String\n",
     "function placeOf(kind, property) {\n",
-    "  if (kind === \"page\") return property === \"gap\" ? \"box\" : \"page\";\n",
+    "  if (kind === \"page\") return property === \"gap\" || property === \"align\" ? \"box\" : \"page\";\n",
     "  if (kind === \"slider\") return property === \"accent\" || property === \"width\" ? \"slider input\" : \"slider\";\n",
     "  return kind;\n",
     "}\n",
@@ -747,13 +1072,19 @@ _PAGE_JS = "".join([
     "// Carries out one style command: a theme, a property of every element\n",
     "// of a kind, or a property of the element `id` (kind \"element\").\n",
     "// Style -> Int -> String -> String -> String -> ()\n",
-    "function applyStyle(style, id, kind, property, value) {\n",
+    "function applyStyle(style, id, kind, property, given) {\n",
     "  if (kind === \"theme\") {\n",
-    "    setTheme(style, value);\n",
+    "    setTheme(style, given);\n",
     "    return;\n",
     "  }\n",
     "  const css = PROPERTIES[property];\n",
     "  if (!css) return;\n",
+    "  const value = property === \"align\" ? ALIGNMENTS[given] || \"flex-start\" : given;\n",
+    "  if (kind === \"page\" && property === \"align\") {\n",
+    "    // The box says where its elements stand on the element itself.\n",
+    "    style.box.style.setProperty(css, value);\n",
+    "    return;\n",
+    "  }\n",
     "  if (kind === \"element\") {\n",
     "    let element = style.elements.get(id);\n",
     "    if (!element) return;\n",
@@ -814,6 +1145,446 @@ _PAGE_JS = "".join([
     "function readerActive() {\n",
     "  return Boolean(globalThis.navigator?.userActivation?.hasBeenActive);\n",
     "}\n",
+    "// --- drawing (step 1) ---\n",
+    "\n",
+    "// A shape's numbers: the words tinyweb.pyk wrote, as numbers.\n",
+    "function numbersOf(text) {\n",
+    "  return text === \"\" ? [] : text.split(\" \").map(Number);\n",
+    "}\n",
+    "\n",
+    "// A rectangle with rounded corners, as a path. Context -> ... -> ()\n",
+    "function roundedRect(g, x, y, w, h, r) {\n",
+    "  const k = Math.max(0, Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2));\n",
+    "  g.moveTo(x + k, y);\n",
+    "  g.arcTo(x + w, y, x + w, y + h, k);\n",
+    "  g.arcTo(x + w, y + h, x, y + h, k);\n",
+    "  g.arcTo(x, y + h, x, y, k);\n",
+    "  g.arcTo(x, y, x + w, y, k);\n",
+    "  g.closePath();\n",
+    "}\n",
+    "\n",
+    "// The outline of one shape, added to the context's path. Whether a filled\n",
+    "// arc is a slice from its centre is `slice`'s.\n",
+    "// Context -> String -> [Float] -> Bool -> ()\n",
+    "function shapePath(g, kind, n, slice) {\n",
+    "  const degrees = Math.PI / 180;\n",
+    "  switch (kind) {\n",
+    "    case \"rect\":\n",
+    "      if (n[4] > 0) roundedRect(g, n[0], n[1], n[2], n[3], n[4]);\n",
+    "      else g.rect(n[0], n[1], n[2], n[3]);\n",
+    "      break;\n",
+    "    case \"circle\":\n",
+    "      g.arc(n[0], n[1], Math.max(0, n[2]), 0, 2 * Math.PI);\n",
+    "      break;\n",
+    "    case \"ellipse\":\n",
+    "      g.ellipse(n[0], n[1], Math.max(0, n[2]), Math.max(0, n[3]), 0, 0, 2 * Math.PI);\n",
+    "      break;\n",
+    "    case \"arc\":\n",
+    "      if (slice) g.moveTo(n[0], n[1]);\n",
+    "      g.arc(n[0], n[1], Math.max(0, n[2]), n[3] * degrees, n[4] * degrees);\n",
+    "      if (slice) g.closePath();\n",
+    "      break;\n",
+    "    case \"line\":\n",
+    "      g.moveTo(n[0], n[1]);\n",
+    "      g.lineTo(n[2], n[3]);\n",
+    "      break;\n",
+    "    case \"lines\":\n",
+    "      for (let i = 0; i + 3 < n.length; i += 4) {\n",
+    "        g.moveTo(n[i], n[i + 1]);\n",
+    "        g.lineTo(n[i + 2], n[i + 3]);\n",
+    "      }\n",
+    "      break;\n",
+    "    case \"curve\":\n",
+    "      g.moveTo(n[0], n[1]);\n",
+    "      g.quadraticCurveTo(n[2], n[3], n[4], n[5]);\n",
+    "      break;\n",
+    "    case \"bezier\":\n",
+    "      g.moveTo(n[0], n[1]);\n",
+    "      g.bezierCurveTo(n[2], n[3], n[4], n[5], n[6], n[7]);\n",
+    "      break;\n",
+    "    case \"polygon\":\n",
+    "    case \"path\":\n",
+    "      for (let i = 0; i + 1 < n.length; i += 2) {\n",
+    "        if (i === 0) g.moveTo(n[i], n[i + 1]);\n",
+    "        else g.lineTo(n[i], n[i + 1]);\n",
+    "      }\n",
+    "      if (kind === \"polygon\") g.closePath();\n",
+    "      break;\n",
+    "  }\n",
+    "}\n",
+    "\n",
+    "// The gradients a canvas has been given, by the text that describes\n",
+    "// them, so a frame drawing the same one again does not make it again.\n",
+    "const GRADIENTS_KEPT = 64;\n",
+    "\n",
+    "// What a color means on a context: a CSS color as it is, and a gradient\n",
+    "// tinyweb.pyk described -- \"linear-gradient(x1 y1 x2 y2); 0 red; 1 blue\",\n",
+    "// \"radial-gradient(x1 y1 r1 x2 y2 r2); ...\", \"conic-gradient(x y\n",
+    "// angle); ...\" -- as the gradient. Context -> Entry? -> String -> Paint\n",
+    "function paint(g, entry, color) {\n",
+    "  const open = color.indexOf(\"(\");\n",
+    "  if (open < 0 || !color.slice(0, open).endsWith(\"-gradient\")) return color;\n",
+    "  const close = color.indexOf(\")\", open);\n",
+    "  if (close < 0 || color.slice(close + 1, close + 2) !== \";\") return color;\n",
+    "  const kept = entry ? entry.gradients : null;\n",
+    "  if (kept && kept.has(color)) return kept.get(color);\n",
+    "  const kind = color.slice(0, open);\n",
+    "  const n = numbersOf(color.slice(open + 1, close).trim());\n",
+    "  let gradient;\n",
+    "  if (kind === \"linear-gradient\") gradient = g.createLinearGradient(n[0], n[1], n[2], n[3]);\n",
+    "  else if (kind === \"radial-gradient\")\n",
+    "    gradient = g.createRadialGradient(n[0], n[1], Math.max(0, n[2]), n[3], n[4], Math.max(0, n[5]));\n",
+    "  else if (kind === \"conic-gradient\" && typeof g.createConicGradient === \"function\")\n",
+    "    gradient = g.createConicGradient((n[2] * Math.PI) / 180, n[0], n[1]);\n",
+    "  else return \"#000000\";\n",
+    "  // A stop's color may itself hold brackets and commas, \"rgba(0, 0, 0, 0.5)\",\n",
+    "  // but never a semicolon.\n",
+    "  for (const stop of color.slice(close + 2).split(\";\")) {\n",
+    "    const text = stop.trim();\n",
+    "    const space = text.indexOf(\" \");\n",
+    "    if (space < 0) continue;\n",
+    "    const at = Math.min(1, Math.max(0, Number(text.slice(0, space))));\n",
+    "    try {\n",
+    "      gradient.addColorStop(at, text.slice(space + 1).trim());\n",
+    "    } catch (error) {\n",
+    "      // A stop whose color the browser does not read is left out.\n",
+    "    }\n",
+    "  }\n",
+    "  if (kept) {\n",
+    "    if (kept.size >= GRADIENTS_KEPT) kept.delete(kept.keys().next().value);\n",
+    "    kept.set(color, gradient);\n",
+    "  }\n",
+    "  return gradient;\n",
+    "}\n",
+    "\n",
+    "// Draws one shape: filled with `color` and outlined with `outline`, each\n",
+    "// unless it is \"\", at `alpha`, in the canvas's line style. The numbers\n",
+    "// are the kind's own (see tinyweb.pyk), as words or as an array;\n",
+    "// \"erase\" makes its rectangle transparent, and \"circles\" draws each\n",
+    "// circle on its own. Context -> Entry? -> String -> Numbers -> ... -> ()\n",
+    "function drawShape(g, entry, kind, numbers, color, outline, width, alpha) {\n",
+    "  const n = typeof numbers === \"string\" ? numbersOf(numbers) : numbers;\n",
+    "  if (kind === \"erase\") {\n",
+    "    g.clearRect(n[0], n[1], n[2], n[3]);\n",
+    "    return;\n",
+    "  }\n",
+    "  const before = g.globalAlpha;\n",
+    "  g.globalAlpha = before * alpha;\n",
+    "  if (kind === \"circles\") {\n",
+    "    // Each circle on its own, so where two overlap both show.\n",
+    "    if (color !== \"\") g.fillStyle = paint(g, entry, color);\n",
+    "    if (outline !== \"\") {\n",
+    "      g.strokeStyle = paint(g, entry, outline);\n",
+    "      g.lineWidth = width;\n",
+    "    }\n",
+    "    for (let i = 0; i + 2 < n.length; i += 3) {\n",
+    "      g.beginPath();\n",
+    "      g.arc(n[i], n[i + 1], Math.max(0, n[i + 2]), 0, 2 * Math.PI);\n",
+    "      if (color !== \"\") g.fill();\n",
+    "      if (outline !== \"\") g.stroke();\n",
+    "    }\n",
+    "    g.globalAlpha = before;\n",
+    "    return;\n",
+    "  }\n",
+    "  g.beginPath();\n",
+    "  shapePath(g, kind, n, color !== \"\");\n",
+    "  if (color !== \"\") {\n",
+    "    g.fillStyle = paint(g, entry, color);\n",
+    "    g.fill();\n",
+    "  }\n",
+    "  if (outline !== \"\") {\n",
+    "    g.strokeStyle = paint(g, entry, outline);\n",
+    "    g.lineWidth = width;\n",
+    "    g.stroke();\n",
+    "  }\n",
+    "  g.globalAlpha = before;\n",
+    "}\n",
+    "\n",
+    "// The font text is written in. Int -> String -> Bool -> String\n",
+    "function fontOf(size, font, bold) {\n",
+    "  return `${bold ? \"bold \" : \"\"}${size}px ${font === \"\" ? \"system-ui, sans-serif\" : font}`;\n",
+    "}\n",
+    "\n",
+    "// Writes text at (x, y): its left end there, its middle or its right end,\n",
+    "// as `align` says, and its top, middle, alphabetic baseline or bottom,\n",
+    "// as `baseline` says. An `outline` is drawn round the letters first.\n",
+    "// Context -> Entry? -> ... -> ()\n",
+    "function drawText(g, entry, x, y, words, color, size, font, align, baseline, bold, outline,\n",
+    "  outlineWidth, alpha) {\n",
+    "  const before = g.globalAlpha;\n",
+    "  g.globalAlpha = before * alpha;\n",
+    "  g.font = fontOf(size, font, bold);\n",
+    "  g.textBaseline = [\"top\", \"middle\", \"alphabetic\", \"bottom\"].includes(baseline) ? baseline : \"top\";\n",
+    "  g.textAlign = align === \"center\" || align === \"right\" ? align : \"left\";\n",
+    "  if (outline !== \"\") {\n",
+    "    g.strokeStyle = paint(g, entry, outline);\n",
+    "    g.lineWidth = outlineWidth;\n",
+    "    g.strokeText(words, x, y);\n",
+    "  }\n",
+    "  if (color !== \"\") {\n",
+    "    g.fillStyle = paint(g, entry, color);\n",
+    "    g.fillText(words, x, y);\n",
+    "  }\n",
+    "  g.globalAlpha = before;\n",
+    "}\n",
+    "\n",
+    "// How wide `words` is written in that font, in pixels.\n",
+    "// String -> Int -> String -> Bool -> Float\n",
+    "function textWidth(words, size, font, bold) {\n",
+    "  if (typeof document === \"undefined\") return 0;\n",
+    "  if (!textWidth.context) textWidth.context = document.createElement(\"canvas\").getContext(\"2d\");\n",
+    "  const g = textWidth.context;\n",
+    "  if (!g) return 0;\n",
+    "  g.font = fontOf(size, font, bold);\n",
+    "  return g.measureText(words).width;\n",
+    "}\n",
+    "\n",
+    "// The line style a canvas starts with: round ends and corners, no dashes.\n",
+    "// Context -> ()\n",
+    "function plainLines(g) {\n",
+    "  g.lineCap = \"round\";\n",
+    "  g.lineJoin = \"round\";\n",
+    "  if (typeof g.setLineDash === \"function\") g.setLineDash([]);\n",
+    "  g.lineDashOffset = 0;\n",
+    "}\n",
+    "\n",
+    "// Changes what the next drawing on a canvas is drawn with. `entry` keeps\n",
+    "// the canvas's pixel ratio and how many `push`es are open.\n",
+    "// Context -> Entry -> String -> String -> String -> ()\n",
+    "function canvasState(g, entry, kind, value, numbers) {\n",
+    "  const n = numbersOf(numbers);\n",
+    "  switch (kind) {\n",
+    "    case \"translate\":\n",
+    "      g.translate(n[0], n[1]);\n",
+    "      break;\n",
+    "    case \"rotate\":\n",
+    "      g.rotate((n[0] * Math.PI) / 180);\n",
+    "      break;\n",
+    "    case \"scale\":\n",
+    "      g.scale(n[0], n[1]);\n",
+    "      break;\n",
+    "    case \"push\":\n",
+    "      g.save();\n",
+    "      entry.depth += 1;\n",
+    "      break;\n",
+    "    case \"pop\":\n",
+    "      if (entry.depth > 0) {\n",
+    "        g.restore();\n",
+    "        entry.depth -= 1;\n",
+    "      }\n",
+    "      break;\n",
+    "    case \"reset\":\n",
+    "      g.setTransform(entry.ratio, 0, 0, entry.ratio, 0, 0);\n",
+    "      break;\n",
+    "    case \"shadow\":\n",
+    "      g.shadowColor = value === \"\" ? \"transparent\" : value;\n",
+    "      g.shadowBlur = value === \"\" ? 0 : n[0];\n",
+    "      g.shadowOffsetX = value === \"\" ? 0 : n[1];\n",
+    "      g.shadowOffsetY = value === \"\" ? 0 : n[2];\n",
+    "      break;\n",
+    "    case \"blend\":\n",
+    "      g.globalCompositeOperation = value === \"add\" ? \"lighter\" : \"source-over\";\n",
+    "      break;\n",
+    "    case \"line_style\": {\n",
+    "      // value: the ends and the corners; numbers: the dash offset, then\n",
+    "      // the lengths of the dashes and the gaps.\n",
+    "      const [cap, join] = value.split(\" \");\n",
+    "      g.lineCap = [\"butt\", \"round\", \"square\"].includes(cap) ? cap : \"round\";\n",
+    "      g.lineJoin = [\"miter\", \"round\", \"bevel\"].includes(join) ? join : \"round\";\n",
+    "      if (typeof g.setLineDash === \"function\") g.setLineDash(n.slice(1));\n",
+    "      g.lineDashOffset = n.length > 0 ? n[0] : 0;\n",
+    "      break;\n",
+    "    }\n",
+    "    case \"clip\":\n",
+    "      // value: the kind of shape the drawing is kept inside.\n",
+    "      g.beginPath();\n",
+    "      shapePath(g, value, n, false);\n",
+    "      g.clip();\n",
+    "      break;\n",
+    "  }\n",
+    "}\n",
+    "\n",
+    "// A canvas as it starts: every `push` closed, no transformation but the\n",
+    "// pixel ratio, no shadow, no blending, no clipping and plain lines. What\n",
+    "// `clear` begins with. Context -> Entry -> ()\n",
+    "function freshState(g, entry) {\n",
+    "  while (entry.depth > 0) {\n",
+    "    g.restore();\n",
+    "    entry.depth -= 1;\n",
+    "  }\n",
+    "  g.setTransform(entry.ratio, 0, 0, entry.ratio, 0, 0);\n",
+    "  g.globalAlpha = 1;\n",
+    "  g.shadowColor = \"transparent\";\n",
+    "  g.shadowBlur = 0;\n",
+    "  g.shadowOffsetX = 0;\n",
+    "  g.shadowOffsetY = 0;\n",
+    "  g.globalCompositeOperation = \"source-over\";\n",
+    "  plainLines(g);\n",
+    "}\n",
+    "\n",
+    "// Starts loading a picture: beside the page first, then among the ones\n",
+    "// tinyweb ships beside `base`. Answers what `drawPicture` draws once it\n",
+    "// has loaded. String -> String -> Picture\n",
+    "function loadPicture(name, base) {\n",
+    "  const picture = { element: null, ready: false, retried: false };\n",
+    "  if (typeof Image === \"undefined\") return picture;\n",
+    "  const element = new Image();\n",
+    "  picture.element = element;\n",
+    "  element.onload = () => {\n",
+    "    picture.ready = true;\n",
+    "  };\n",
+    "  element.onerror = () => {\n",
+    "    if (picture.retried) {\n",
+    "      console.error(`tinyweb: cannot load the picture ${name}`);\n",
+    "      return;\n",
+    "    }\n",
+    "    picture.retried = true;\n",
+    "    element.src = new URL(\"tinyweb_assets/\" + name, base).href;\n",
+    "  };\n",
+    "  element.src = new URL(name, document.baseURI).href;\n",
+    "  return picture;\n",
+    "}\n",
+    "\n",
+    "// Draws a picture that has loaded; one still loading is not drawn.\n",
+    "// Context -> Picture? -> ... -> ()\n",
+    "function drawPicture(g, picture, x, y, width, height, alpha) {\n",
+    "  if (!picture || !picture.ready) return;\n",
+    "  const before = g.globalAlpha;\n",
+    "  g.globalAlpha = before * alpha;\n",
+    "  g.drawImage(picture.element, x, y, width, height);\n",
+    "  g.globalAlpha = before;\n",
+    "}\n",
+    "\n",
+    "// Keeps the pointer's moves and its release coming to the canvas it went\n",
+    "// down on, wherever it goes. Element -> Event -> ()\n",
+    "function capture(element, event) {\n",
+    "  try {\n",
+    "    if (element.setPointerCapture) element.setPointerCapture(event.pointerId);\n",
+    "  } catch (error) {\n",
+    "    // A pointer the browser does not know of, as a test's is, is not held.\n",
+    "  }\n",
+    "}\n",
+    "\n",
+    "// --- bitmaps (step 5) ---\n",
+    "\n",
+    "// The bytes of a bitmap's rectangle as they arrive: a base64 string from\n",
+    "// a program on another host, or the bytes themselves. Data -> Uint8ClampedArray\n",
+    "function bitmapBytes(data) {\n",
+    "  if (typeof data !== \"string\") {\n",
+    "    return ArrayBuffer.isView(data)\n",
+    "      ? new Uint8ClampedArray(data.buffer, data.byteOffset, data.byteLength)\n",
+    "      : new Uint8ClampedArray(data);\n",
+    "  }\n",
+    "  const text = atob(data);\n",
+    "  const bytes = new Uint8ClampedArray(text.length);\n",
+    "  for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i);\n",
+    "  return bytes;\n",
+    "}\n",
+    "\n",
+    "// A bitmap as the page keeps it: a canvas of its own, its pixels.\n",
+    "// Int -> Int -> Surface\n",
+    "function bitmapSurface(width, height) {\n",
+    "  const element = document.createElement(\"canvas\");\n",
+    "  element.width = Math.max(1, width);\n",
+    "  element.height = Math.max(1, height);\n",
+    "  return { element, context: element.getContext(\"2d\"), width, height };\n",
+    "}\n",
+    "\n",
+    "// Puts the rectangle (rx, ry, rw, rh) of a bitmap's pixels on its\n",
+    "// surface. Surface -> Int -> Int -> Int -> Int -> Data -> ()\n",
+    "function updateSurface(surface, rx, ry, rw, rh, data) {\n",
+    "  if (rw <= 0 || rh <= 0) return;\n",
+    "  const bytes = bitmapBytes(data);\n",
+    "  if (bytes.length !== rw * rh * 4) return;\n",
+    "  surface.context.putImageData(new ImageData(bytes, rw, rh), rx, ry);\n",
+    "}\n",
+    "\n",
+    "// Draws a bitmap's surface with its top left corner at (x, y), each pixel\n",
+    "// `scale` pixels across: sharp squares when it grows, smooth when it\n",
+    "// shrinks. Context -> Surface -> Float -> Float -> Float -> ()\n",
+    "function drawSurface(g, surface, x, y, scale) {\n",
+    "  const smoothing = g.imageSmoothingEnabled;\n",
+    "  g.imageSmoothingEnabled = scale < 1;\n",
+    "  g.drawImage(surface.element, x, y, surface.width * scale, surface.height * scale);\n",
+    "  g.imageSmoothingEnabled = smoothing;\n",
+    "}\n",
+    "\n",
+    "// A box whose elements go side by side, wrapping where the page is too\n",
+    "// narrow for them, or one below another. String -> Bool -> Element\n",
+    "function rowElement(id, across = true) {\n",
+    "  const row = document.createElement(\"div\");\n",
+    "  row.className = across ? \"tinyweb-row\" : \"tinyweb-column\";\n",
+    "  row.setAttribute(\"data-tinyweb-id\", id);\n",
+    "  row.style.cssText = across\n",
+    "    ? \"display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px\"\n",
+    "    : \"display:flex;flex-direction:column;align-items:flex-start;gap:6px\";\n",
+    "  return row;\n",
+    "}\n",
+    "\n",
+    "// --- widgets (step 2) ---\n",
+    "\n",
+    "// A checkbox or a radio button with its title beside it: the row, and\n",
+    "// the input in it. String -> String -> String -> Bool -> (Element, Element)\n",
+    "function choiceRow(type, id, title, checked) {\n",
+    "  const row = document.createElement(\"label\");\n",
+    "  row.className = type === \"checkbox\" ? \"tinyweb-check\" : \"tinyweb-radio\";\n",
+    "  row.style.cssText = \"display:flex;align-items:center;gap:6px\";\n",
+    "  const input = document.createElement(\"input\");\n",
+    "  input.type = type;\n",
+    "  input.setAttribute(\"data-tinyweb-id\", id);\n",
+    "  input.checked = checked;\n",
+    "  const text = document.createElement(\"span\");\n",
+    "  text.textContent = title;\n",
+    "  row.append(input, text);\n",
+    "  return { row, input };\n",
+    "}\n",
+    "\n",
+    "// A dropdown of the options, one per line of `options`, the one at\n",
+    "// `chosen` chosen. String -> String -> Int -> Element\n",
+    "function choiceElement(id, options, chosen) {\n",
+    "  const select = document.createElement(\"select\");\n",
+    "  select.className = \"tinyweb-choice\";\n",
+    "  select.setAttribute(\"data-tinyweb-id\", id);\n",
+    "  options.split(\"\\n\").forEach((text, position) => {\n",
+    "    const option = document.createElement(\"option\");\n",
+    "    option.value = String(position);\n",
+    "    option.textContent = text;\n",
+    "    select.appendChild(option);\n",
+    "  });\n",
+    "  select.value = String(chosen);\n",
+    "  return select;\n",
+    "}\n",
+    "\n",
+    "// A line to type text into. String -> String -> Element\n",
+    "function textInputElement(id, placeholder) {\n",
+    "  const input = document.createElement(\"input\");\n",
+    "  input.type = \"text\";\n",
+    "  input.className = \"tinyweb-text\";\n",
+    "  input.setAttribute(\"data-tinyweb-id\", id);\n",
+    "  input.placeholder = placeholder;\n",
+    "  return input;\n",
+    "}\n",
+    "\n",
+    "// A field for a whole number from `low` to `high`. ... -> Element\n",
+    "function numberElement(id, low, high, value) {\n",
+    "  const input = document.createElement(\"input\");\n",
+    "  input.type = \"number\";\n",
+    "  input.className = \"tinyweb-number\";\n",
+    "  input.setAttribute(\"data-tinyweb-id\", id);\n",
+    "  input.min = String(low);\n",
+    "  input.max = String(high);\n",
+    "  input.value = String(value);\n",
+    "  return input;\n",
+    "}\n",
+    "\n",
+    "// Whether a key press is the reader typing into a field, which the page\n",
+    "// does not report as a key. Event -> Bool\n",
+    "function typedInField(event) {\n",
+    "  const target = event.target;\n",
+    "  return !!target && typeof target.tagName === \"string\"\n",
+    "    && (target.tagName === \"SELECT\"\n",
+    "      || (target.tagName === \"INPUT\" && (target.type === \"text\" || target.type === \"number\")));\n",
+    "}\n",
     "// END tinyweb style\n",
     "\n",
     "// Mounts a tinyweb page in `element` and answers {receive, freeze, close}:\n",
@@ -835,6 +1606,19 @@ _PAGE_JS = "".join([
     "  const canvases = new Map();\n",
     "  const labels = new Map();\n",
     "  const samples = new Map();\n",
+    "  const pictures = new Map();\n",
+    "  // What `set_checked` and `set_value` change, by identifier, and each\n",
+    "  // group of radio buttons.\n",
+    "  const checks = new Map();\n",
+    "  const values = new Map();\n",
+    "  const groups = new Map();\n",
+    "  const bitmaps = new Map();\n",
+    "  // Where an element made now goes: the page, or a row it was put inside.\n",
+    "  const rows = new Map();\n",
+    "  let parent = box;\n",
+    "  // The keys held down, reported again as released when the page loses\n",
+    "  // the focus.\n",
+    "  const heldKeys = new Set();\n",
     "  let start = now();\n",
     "  let audio = null;\n",
     "  let offset = 0;\n",
@@ -944,9 +1728,29 @@ _PAGE_JS = "".join([
     "      return;\n",
     "    }\n",
     "    startAudio();\n",
-    "    if (keysWanted) report({ ev: \"key\", key: event.key });\n",
+    "    if (!keysWanted || typedInField(event)) return;\n",
+    "    // Arrows and the space bar move the program's world, not the page.\n",
+    "    if (standalone && [\"ArrowUp\", \"ArrowDown\", \"ArrowLeft\", \"ArrowRight\", \" \"].includes(event.key)) {\n",
+    "      event.preventDefault?.();\n",
+    "    }\n",
+    "    heldKeys.add(event.key);\n",
+    "    report({ ev: \"key\", key: event.key });\n",
     "  }\n",
     "  keyTarget.addEventListener(\"keydown\", onKey);\n",
+    "\n",
+    "  function onKeyUp(event) {\n",
+    "    if (!keysWanted) return;\n",
+    "    if (heldKeys.delete(event.key)) report({ ev: \"key_up\", key: event.key });\n",
+    "  }\n",
+    "  keyTarget.addEventListener(\"keyup\", onKeyUp);\n",
+    "\n",
+    "  // A key released while the page did not have the focus is never\n",
+    "  // reported, so leaving the page lets go of every key.\n",
+    "  function onBlur() {\n",
+    "    for (const key of heldKeys) report({ ev: \"key_up\", key });\n",
+    "    heldKeys.clear();\n",
+    "  }\n",
+    "  window.addEventListener(\"blur\", onBlur);\n",
     "\n",
     "  function loadSample(name) {\n",
     "    const decoder = new OfflineAudioContext(1, 1, 44100);\n",
@@ -1000,20 +1804,41 @@ _PAGE_JS = "".join([
     "    element.style.background = \"#ffffff\";\n",
     "    const context = element.getContext(\"2d\");\n",
     "    context.scale(ratio, ratio);\n",
-    "    canvases.set(id, { element, context, width, height, mouse: false });\n",
+    "    plainLines(context);\n",
+    "    const entry = {\n",
+    "      element, context, width, height, mouse: false, pointer: false, ratio, depth: 0,\n",
+    "      gradients: new Map(),\n",
+    "    };\n",
+    "    canvases.set(id, entry);\n",
     "    remember(look, id, element);\n",
-    "    element.addEventListener(\"click\", (event) => {\n",
-    "      const entry = canvases.get(id);\n",
-    "      if (!entry.mouse) return;\n",
+    "    const where = (event) => {\n",
     "      const bounds = element.getBoundingClientRect();\n",
-    "      report({\n",
-    "        ev: \"mouse\",\n",
-    "        c: id,\n",
+    "      return {\n",
     "        x: Math.round(((event.clientX - bounds.left) * width) / bounds.width),\n",
     "        y: Math.round(((event.clientY - bounds.top) * height) / bounds.height),\n",
-    "      });\n",
+    "      };\n",
+    "    };\n",
+    "    element.addEventListener(\"click\", (event) => {\n",
+    "      if (entry.mouse) report({ ev: \"mouse\", c: id, ...where(event) });\n",
     "    });\n",
-    "    box.appendChild(element);\n",
+    "    // A browser reports a move at most once a frame already.\n",
+    "    element.addEventListener(\"pointerdown\", (event) => {\n",
+    "      if (!entry.pointer) return;\n",
+    "      capture(element, event);\n",
+    "      startAudio();\n",
+    "      report({ ev: \"press\", c: id, ...where(event) });\n",
+    "    });\n",
+    "    element.addEventListener(\"pointerup\", (event) => {\n",
+    "      if (entry.pointer) report({ ev: \"release\", c: id, ...where(event) });\n",
+    "    });\n",
+    "    element.addEventListener(\"pointermove\", (event) => {\n",
+    "      if (entry.pointer) report({ ev: \"move\", c: id, ...where(event) });\n",
+    "    });\n",
+    "    element.addEventListener(\"contextmenu\", (event) => {\n",
+    "      if (entry.pointer) event.preventDefault?.();\n",
+    "    });\n",
+    "    element.style.touchAction = \"none\";\n",
+    "    parent.appendChild(element);\n",
     "  }\n",
     "\n",
     "  function draw(c, paint) {\n",
@@ -1028,42 +1853,123 @@ _PAGE_JS = "".join([
     "        break;\n",
     "      case \"clear\":\n",
     "        draw(command.c, (g, entry) => {\n",
-    "          g.fillStyle = command.color;\n",
+    "          freshState(g, entry);\n",
+    "          g.fillStyle = paint(g, entry, command.color);\n",
     "          g.fillRect(0, 0, entry.width, entry.height);\n",
     "        });\n",
     "        break;\n",
-    "      case \"circle\":\n",
-    "        draw(command.c, (g) => {\n",
-    "          g.fillStyle = command.color;\n",
-    "          g.beginPath();\n",
-    "          g.arc(command.x, command.y, Math.max(0, command.radius), 0, 2 * Math.PI);\n",
-    "          g.fill();\n",
-    "        });\n",
-    "        break;\n",
-    "      case \"rect\":\n",
-    "        draw(command.c, (g) => {\n",
-    "          g.fillStyle = command.color;\n",
-    "          g.fillRect(command.x, command.y, command.width, command.height);\n",
-    "        });\n",
-    "        break;\n",
-    "      case \"line\":\n",
-    "        draw(command.c, (g) => {\n",
-    "          g.strokeStyle = command.color;\n",
-    "          g.lineWidth = command.width;\n",
-    "          g.lineCap = \"round\";\n",
-    "          g.beginPath();\n",
-    "          g.moveTo(command.x1, command.y1);\n",
-    "          g.lineTo(command.x2, command.y2);\n",
-    "          g.stroke();\n",
-    "        });\n",
+    "      case \"shape\":\n",
+    "        draw(command.c, (g, entry) => drawShape(g, entry, command.kind, command.numbers,\n",
+    "          command.color, command.outline, command.width, command.alpha));\n",
     "        break;\n",
     "      case \"text\":\n",
-    "        draw(command.c, (g) => {\n",
-    "          g.fillStyle = command.color;\n",
-    "          g.font = `${command.size}px system-ui, sans-serif`;\n",
-    "          g.textBaseline = \"top\";\n",
-    "          g.fillText(command.words, command.x, command.y);\n",
+    "        draw(command.c, (g, entry) => drawText(g, entry, command.x, command.y, command.words,\n",
+    "          command.color, command.size, command.font, command.align, command.baseline,\n",
+    "          command.bold, command.outline, command.outline_width, command.alpha));\n",
+    "        break;\n",
+    "      case \"measure\": {\n",
+    "        // Answered once the code that asked has finished, as any event is.\n",
+    "        const width = textWidth(command.words, command.size, command.font, command.bold);\n",
+    "        queueMicrotask(() => report({ ev: \"measured\", id: command.id, width }));\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"bitmap\": {\n",
+    "        let surface = bitmaps.get(command.id);\n",
+    "        if (!surface || surface.width !== command.width || surface.height !== command.height) {\n",
+    "          surface = bitmapSurface(command.width, command.height);\n",
+    "          bitmaps.set(command.id, surface);\n",
+    "        }\n",
+    "        const [rx, ry, rw, rh] = command.rect;\n",
+    "        updateSurface(surface, rx, ry, rw, rh, command.data);\n",
+    "        draw(command.c, (g) => drawSurface(g, surface, command.x, command.y, command.scale));\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"state\":\n",
+    "        draw(command.c, (g, entry) => canvasState(g, entry, command.kind, command.value,\n",
+    "          command.numbers));\n",
+    "        break;\n",
+    "      case \"image_load\":\n",
+    "        pictures.set(command.id, loadPicture(command.name, import.meta.url));\n",
+    "        break;\n",
+    "      case \"image\":\n",
+    "        draw(command.c, (g) => drawPicture(g, pictures.get(command.picture), command.x,\n",
+    "          command.y, command.width, command.height, command.alpha));\n",
+    "        break;\n",
+    "      case \"checkbox\": {\n",
+    "        const { row, input } = choiceRow(\"checkbox\", command.id, command.title, command.checked);\n",
+    "        input.addEventListener(\"change\", () => {\n",
+    "          startAudio();\n",
+    "          report({ ev: \"check\", id: command.id, checked: input.checked });\n",
     "        });\n",
+    "        checks.set(command.id, (on) => { input.checked = on; });\n",
+    "        remember(look, command.id, input);\n",
+    "        parent.appendChild(row);\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"radio\": {\n",
+    "        const members = groups.get(command.group) || [];\n",
+    "        groups.set(command.group, members);\n",
+    "        const first = members.length === 0;\n",
+    "        const { row, input } = choiceRow(\"radio\", command.id, command.title,\n",
+    "          command.chosen || first);\n",
+    "        input.name = `${look.name}:${command.group}`;\n",
+    "        const choose = () => {\n",
+    "          for (const other of members) other.checked = other === input;\n",
+    "        };\n",
+    "        if (command.chosen) choose();\n",
+    "        members.push(input);\n",
+    "        input.addEventListener(\"change\", () => {\n",
+    "          startAudio();\n",
+    "          choose();\n",
+    "          report({ ev: \"pick\", id: command.id });\n",
+    "        });\n",
+    "        checks.set(command.id, (on) => {\n",
+    "          if (on) choose();\n",
+    "          else input.checked = false;\n",
+    "        });\n",
+    "        remember(look, command.id, input);\n",
+    "        parent.appendChild(row);\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"choice\": {\n",
+    "        const select = choiceElement(command.id, command.options, command.chosen);\n",
+    "        select.addEventListener(\"change\", () => {\n",
+    "          startAudio();\n",
+    "          report({ ev: \"choose\", id: command.id, value: Number(select.value) });\n",
+    "        });\n",
+    "        values.set(command.id, (value) => { select.value = String(value); });\n",
+    "        remember(look, command.id, select);\n",
+    "        parent.appendChild(select);\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"text_input\": {\n",
+    "        const input = textInputElement(command.id, command.placeholder);\n",
+    "        input.addEventListener(\"keydown\", (event) => {\n",
+    "          if (event.key === \"Enter\") {\n",
+    "            startAudio();\n",
+    "            report({ ev: \"enter\", id: command.id, text: input.value });\n",
+    "          }\n",
+    "        });\n",
+    "        remember(look, command.id, input);\n",
+    "        parent.appendChild(input);\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"number\": {\n",
+    "        const input = numberElement(command.id, command.low, command.high, command.value);\n",
+    "        input.addEventListener(\"change\", () => {\n",
+    "          startAudio();\n",
+    "          report({ ev: \"slide\", id: command.id, value: Number(input.value) });\n",
+    "        });\n",
+    "        values.set(command.id, (value) => { input.value = String(value); });\n",
+    "        remember(look, command.id, input);\n",
+    "        parent.appendChild(input);\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"set_checked\":\n",
+    "        if (checks.has(command.id)) checks.get(command.id)(command.checked);\n",
+    "        break;\n",
+    "      case \"set_value\":\n",
+    "        if (values.has(command.id)) values.get(command.id)(command.value);\n",
     "        break;\n",
     "      case \"button\": {\n",
     "        const button = document.createElement(\"button\");\n",
@@ -1074,7 +1980,7 @@ _PAGE_JS = "".join([
     "          report({ ev: \"click\", id: command.id });\n",
     "        });\n",
     "        remember(look, command.id, button);\n",
-    "        box.appendChild(button);\n",
+    "        parent.appendChild(button);\n",
     "        break;\n",
     "      }\n",
     "      case \"label\": {\n",
@@ -1084,11 +1990,29 @@ _PAGE_JS = "".join([
     "        text.textContent = command.text;\n",
     "        labels.set(command.id, text);\n",
     "        remember(look, command.id, text);\n",
-    "        box.appendChild(text);\n",
+    "        parent.appendChild(text);\n",
     "        break;\n",
     "      }\n",
+    "      case \"row\":\n",
+    "      case \"column\": {\n",
+    "        const row = rowElement(command.id, command.op === \"row\");\n",
+    "        rows.set(command.id, row);\n",
+    "        remember(look, command.id, row);\n",
+    "        parent.appendChild(row);\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"inside\":\n",
+    "        parent = rows.get(command.id) || box;\n",
+    "        break;\n",
+    "      case \"outside\":\n",
+    "        parent = box;\n",
+    "        break;\n",
     "      case \"set_label\":\n",
+    "        // A label's text, or a button's title.\n",
     "        if (labels.has(command.id)) labels.get(command.id).textContent = command.text;\n",
+    "        else if (look.elements.get(command.id)?.tagName === \"BUTTON\") {\n",
+    "          look.elements.get(command.id).textContent = command.text;\n",
+    "        }\n",
     "        break;\n",
     "      case \"slider\": {\n",
     "        const row = document.createElement(\"label\");\n",
@@ -1107,8 +2031,12 @@ _PAGE_JS = "".join([
     "          report({ ev: \"slide\", id: command.id, value: Number(input.value) });\n",
     "        });\n",
     "        row.append(input, shown);\n",
+    "        values.set(command.id, (value) => {\n",
+    "          input.value = String(value);\n",
+    "          shown.textContent = input.value;\n",
+    "        });\n",
     "        remember(look, command.id, input);\n",
-    "        box.appendChild(row);\n",
+    "        parent.appendChild(row);\n",
     "        break;\n",
     "      }\n",
     "      case \"style\":\n",
@@ -1145,6 +2073,11 @@ _PAGE_JS = "".join([
     "        if (entry) entry.mouse = true;\n",
     "        break;\n",
     "      }\n",
+    "      case \"on_pointer\": {\n",
+    "        const entry = canvases.get(command.c);\n",
+    "        if (entry) entry.pointer = true;\n",
+    "        break;\n",
+    "      }\n",
     "      case \"on_key\":\n",
     "        keysWanted = true;\n",
     "        // Inside another page the keys go where the focus is, which is\n",
@@ -1169,6 +2102,8 @@ _PAGE_JS = "".join([
     "      splash.remove();\n",
     "    }\n",
     "    keyTarget.removeEventListener(\"keydown\", onKey);\n",
+    "    keyTarget.removeEventListener(\"keyup\", onKeyUp);\n",
+    "    window.removeEventListener(\"blur\", onBlur);\n",
     "    if (!standalone) element.removeEventListener(\"click\", takeFocus);\n",
     "    if (audio !== null) audio.close();\n",
     "  }\n",

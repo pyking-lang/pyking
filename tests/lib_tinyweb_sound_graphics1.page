@@ -1,8 +1,8 @@
 load "kick1.wav"
 load "snare1.wav"
 canvas "canvas" 400 200
-circle "canvas" 100 50 30 #ff0000
-circle "canvas" 100 50 20 #000000
+circle "canvas" 100 50 30 "#ff0000" "" 1.000 1.000
+circle "canvas" 100 50 20 "#000000" "" 1.000 1.000
 button "Play kick"
 button "Play snare"
 button "Does nothing"

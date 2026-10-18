@@ -687,7 +687,7 @@ The bootstrap is split into one module per compiler stage:
    wins** and an undecided `+ - * /` is therefore Int arithmetic. See
    `docs/type_inference.md`, "Two numeric types, no type classes".
    **`var` and `:=` are checked here**, and only
-   for *types*: a `var` is `Int`, `Float` or `Bool` (`check_mutable`), and a `:=`
+   for *types*: a `var` has its initializer's type, any type, and a `:=`
    must give the type the declaration fixed. Which names may be written
    to is not a type question — the same `Int` is a `var` in one scope and
    an `=` binding in another — so `analyses.analyze_mutability` answers
@@ -2347,7 +2347,13 @@ exact on every host, `lib_math_approx` what is not, printed to six
 decimals, and `lib_math_from` the overloads through a `from` line.
 
 A seventh covers **tinyweb**: `lib_tinyweb_*`, each with an `.events`
-file and a `.page` file -- `lib_tinyweb_splash*` and
+file and a `.page` file -- `lib_tinyweb_shapes`, `_polygons`,
+`_transform`, `_image`, `_widgets` and `_choice` for step 1 and the
+widgets, `_paint` and `_smooth` for drawing between pixels, gradients,
+dashes and clipping, `_pointer`, `_bitmap` and `_layout` for the
+mouse, the keyboard, bitmaps and rows, what takes a list split off so C
+runs the rest, and
+`lib_random_*` for the `random` library -- `lib_tinyweb_splash*` and
 `typecheck_tinyweb_splash_module` for the splash screen and the call the
 compiler adds -- run headless on every target but web24 --
 `PYKING_TINYWEB_LOG` and `PYKING_TINYWEB_EVENTS` are set for every run

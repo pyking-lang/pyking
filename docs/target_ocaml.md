@@ -412,8 +412,9 @@ let clamp n = if n < 0 then 0 else n * 2
 ```
 
 A `return` anywhere else has no OCaml spelling as a value — inside a
-loop whose value is wanted where it stands, or with unreachable
-statements after it — so control leaves by exception instead. The body
+loop whose value is wanted where it stands, inside an `if` run for what
+it does with statements after it, or with unreachable statements after
+it — so control leaves by exception instead. The body
 is translated a second time with an **escape** in scope: a cell for the
 value and a local exception for the control. The exception carries
 nothing, so OCaml needs no type written for it, and infers the cell's

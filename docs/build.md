@@ -115,7 +115,13 @@ entry-point module and one hand-written JavaScript stub.
   js_of_ocaml's `//Provides:` comments, which is all that is needed to
   put an OCaml function on the global object. No OCaml JS binding
   library is involved, which is what keeps the dependency list at
-  js_of_ocaml alone, and only for this directory.
+  js_of_ocaml alone, and only for this directory. An OCaml string
+  reaches JavaScript as bytes, one character each, so every text that
+  crosses is converted there: into OCaml as UTF-8 (a request, a source
+  file, an external module's answer) and out of it from UTF-8 (an
+  answer, a printed line), which is how the native `pyk` reads and
+  writes text. A string Pyking made that is not UTF-8 goes out as its
+  bytes.
 
 The pages ask the loaded bundle, through the worker's `words` request,
 for the target list, the keyword and builtin lists, and the JavaScript

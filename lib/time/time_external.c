@@ -1,7 +1,7 @@
 /* The C implementation of the names declared in time_external.pyk. The
    program that imports it declares these from the signatures, so there
    is no header to write here: a name is <module>_<field>. Every time is
-   UTC, as on every other target.
+   UTC, as on every other target, but `local_now`'s.
 
    A tuple crosses as the struct the compiler writes for it, so `now`
    answers that struct, declared here exactly as the program declares
@@ -23,6 +23,7 @@ typedef struct pyk_t_Tiiiiii_ {
 
 int time_instant(void);
 pyk_t_Tiiiiii_ time_now(void);
+pyk_t_Tiiiiii_ time_local_now(void);
 int time_year_of(int seconds);
 int time_month_of(int seconds);
 int time_day_of(int seconds);
@@ -44,6 +45,20 @@ static struct tm time_parts(int seconds)
 pyk_t_Tiiiiii_ time_now(void)
 {
     struct tm parts = time_parts(time_instant());
+    pyk_t_Tiiiiii_ out;
+    out.a0 = parts.tm_year + 1900;
+    out.a1 = parts.tm_mon + 1;
+    out.a2 = parts.tm_mday;
+    out.a3 = parts.tm_hour;
+    out.a4 = parts.tm_min;
+    out.a5 = parts.tm_sec;
+    return out;
+}
+
+pyk_t_Tiiiiii_ time_local_now(void)
+{
+    time_t t = time(NULL);
+    struct tm parts = *localtime(&t);
     pyk_t_Tiiiiii_ out;
     out.a0 = parts.tm_year + 1900;
     out.a1 = parts.tm_mon + 1;

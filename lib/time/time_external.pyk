@@ -53,6 +53,25 @@ public def instant() -> Int
 ## ```
 public def now() -> (Int, Int, Int, Int, Int, Int)
 
+## Reads the clock once and splits it into a date and a time of day, as
+## a clock on the wall shows it where the program runs: in the time zone
+## of the computer, or on a web page the reader's.
+##
+## # Returns
+## `(year, month, day, hour, minute, second)`, with the month 1 to 12 and
+## the day 1 to 31.
+##
+## # Examples
+## ```pyking
+## import time
+## (_, _, _, hour, minute, second) = time.local_now()
+## print(hour < 24, minute < 60, second < 61)
+## ```
+## ```stdout
+## true true true
+## ```
+public def local_now() -> (Int, Int, Int, Int, Int, Int)
+
 def year_of(seconds: Int) -> Int
 
 def month_of(seconds: Int) -> Int

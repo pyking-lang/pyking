@@ -1,2 +1,0 @@
-'tests/fail_typecheck_var_string.pyk' 10:0-10:22 Type error: a mutable
-  variable must be Int, Float or Bool, but 'greeting' is String

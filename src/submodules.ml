@@ -219,16 +219,24 @@ let rewrite own reached tokens =
     | (_, last) :: _ -> combine first last
     | [] -> first
   in
-  let rec go previous tokens =
+  (* The rows an import is written on, whose dotted names are a module's
+     path rather than a use of one. *)
+  let import_rows =
+    List.filter_map
+      (fun t -> match t with TokImport i | TokFrom i -> Some i.row1 | _ -> None)
+      tokens
+  in
+  (* Tail-recursive, with what is done kept reversed in `acc`: a
+     library's file is thousands of tokens, and the browser's stack is
+     small. *)
+  let rec go previous acc tokens =
     match tokens with
-    | [] -> []
+    | [] -> List.rev acc
     | (TokIdent (i, first) as t) :: rest -> (
         let after_dot = match previous with Some (TokDot _) -> true | _ -> false in
-        let on_import =
-          match previous with Some (TokImport _ | TokFrom _ | TokAs _ | TokComma _) -> true | _ -> false
-        in
+        let on_import = List.mem i.row1 import_rows in
         let parts, rest' = chain i rest in
-        if after_dot || on_import || parts = [] then t :: go (Some t) rest
+        if after_dot || on_import || parts = [] then go (Some t) (t :: acc) rest
         else
           match List.assoc_opt first reached with
           | Some (Space (module_name, table, publics, path)) -> (
@@ -237,7 +245,7 @@ let rewrite own reached tokens =
                   exported (span i parts k) module_name table publics dotted;
                   let local = String.concat "." (first :: List.map fst (List.filteri (fun j _ -> j < k) parts)) in
                   let joined = TokIdent (span i parts k, flat local) in
-                  joined :: go (Some joined) (rebuild (drop k parts) @ rest')
+                  go (Some joined) (joined :: acc) (rebuild (drop k parts) @ rest')
               | None ->
                   raise
                     (Error
@@ -250,7 +258,7 @@ let rewrite own reached tokens =
                   let first_part = snd (List.hd parts) in
                   let joined = TokIdent (span first_part parts k, flat dotted) in
                   let dot = match rest with dot :: _ -> dot | [] -> t in
-                  t :: dot :: joined :: go (Some joined) (rebuild (drop k parts) @ rest')
+                  go (Some joined) (joined :: dot :: t :: acc) (rebuild (drop k parts) @ rest')
               | None ->
                   (* A path into a submodule the module has, to a name it
                      does not: said here, in the program's own words. *)
@@ -269,22 +277,22 @@ let rewrite own reached tokens =
                              Printf.sprintf "the submodule '%s' of module '%s' has no '%s'"
                                path module_name (fst (List.nth parts k)) ))
                   | _ -> ());
-                  t :: go (Some t) rest)
+                  go (Some t) (t :: acc) rest)
           | None when List.mem first own_roots -> (
               match longest own [ first ] parts with
               | Some (k, dotted) ->
                   let joined = TokIdent (span i parts k, flat dotted) in
-                  joined :: go (Some joined) (rebuild (drop k parts) @ rest')
+                  go (Some joined) (joined :: acc) (rebuild (drop k parts) @ rest')
               | None ->
                   raise
                     (Error
                        ( span i parts 1,
                          Printf.sprintf "'%s.%s' is not defined: the submodule '%s' has no '%s'"
                            first (fst (List.hd parts)) first (fst (List.hd parts)) )))
-          | None -> t :: go (Some t) rest)
-    | t :: rest -> t :: go (Some t) rest
+          | None -> go (Some t) (t :: acc) rest)
+    | t :: rest -> go (Some t) (t :: acc) rest
   in
-  go None tokens
+  go None [] tokens
 
 (** The `from` fields taking every public member of the submodule `path`
     of a module, each named here under `alias` as it is there under

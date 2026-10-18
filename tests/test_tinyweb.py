@@ -48,6 +48,7 @@ Functions:
 
 import http.client
 import http.server
+import base64
 import json
 import os
 import queue
@@ -102,6 +103,21 @@ def page_cases():
     return cases
 
 
+def excluded(stem, target):
+    """Whether tests/test_cases.toml leaves `target` out for the case
+    `stem` -- C, for a program holding a list. Path -> String -> Bool"""
+    import tomllib
+    sys.path.insert(0, str(HERE))
+    import test_script
+    with open(HERE / "test_cases.toml", "rb") as f:
+        cases = tomllib.load(f)["cases"]
+    for case in cases:
+        if case["file"] == stem.name + ".pyk":
+            return any(target in test_script.selected_targets(key)
+                       for key in case.get("excluded", {}))
+    return False
+
+
 def segments(lines):
     """A .page file split where the events were delivered: the top
     level's commands, then each event with what it caused.
@@ -129,24 +145,53 @@ def log_line(command):
     two differ. {String: Value} -> String"""
     c = command.get
     q = lambda name: quote(c(name))  # noqa: E731
+    flag = lambda name: "true" if c(name) else "false"  # noqa: E731
     op = c("op")
     seconds = lambda x: f"{x:.3f}"  # noqa: E731
 
     def named(id_field, text_field):
         return q(id_field) + ("" if c(id_field) == c(text_field) else " " + q(text_field))
 
+    def state():
+        words = [c("kind"), q("c")]
+        if c("value") != "":
+            words.append(q("value"))
+        if c("numbers") != "":
+            words.append(c("numbers"))
+        return " ".join(words)
+
     lines = {
         "canvas": lambda: f"canvas {q('id')} {c('width')} {c('height')}",
         "clear": lambda: f"clear {q('c')} {c('color')}",
-        "circle": lambda: f"circle {q('c')} {c('x')} {c('y')} {c('radius')} {c('color')}",
-        "rect": lambda: f"rect {q('c')} {c('x')} {c('y')} {c('width')} {c('height')} {c('color')}",
-        "line": lambda: (f"line {q('c')} {c('x1')} {c('y1')} {c('x2')} {c('y2')} "
-                         f"{c('color')} {c('width')}"),
-        "text": lambda: f"text {q('c')} {c('x')} {c('y')} {c('color')} {c('size')} {q('words')}",
+        "shape": lambda: (f"{c('kind')} {q('c')} {c('numbers')} {q('color')} {q('outline')} "
+                          f"{seconds(c('width'))} {seconds(c('alpha'))}"),
+        "text": lambda: (f"text {q('c')} {seconds(c('x'))} {seconds(c('y'))} {q('color')} "
+                         f"{c('size')} {q('font')} {c('align')} {c('baseline')} {flag('bold')} "
+                         f"{q('outline')} {seconds(c('outline_width'))} {seconds(c('alpha'))} "
+                         f"{q('words')}"),
+        "measure": lambda: f"measure {q('id')} {c('size')} {q('font')} {flag('bold')} {q('words')}",
+        "on_pointer": lambda: f"on_pointer {q('c')}",
+        "row": lambda: f"row {q('id')}",
+        "column": lambda: f"column {q('id')}",
+        "inside": lambda: f"inside {q('id')}",
+        "bitmap": lambda: (f"bitmap {q('c')} {q('id')} {c('x')} {c('y')} {seconds(c('scale'))} "
+                           f"{c('width')} {c('height')} {' '.join(map(str, c('rect')))} "
+                           f"{digest(base64.b64decode(c('data')))}"),
+        "state": state,
+        "image_load": lambda: f"load_image {named('id', 'name')}",
+        "image": lambda: (f"image {q('c')} {q('picture')} {c('x')} {c('y')} {c('width')} "
+                          f"{c('height')} {seconds(c('alpha'))}"),
         "button": lambda: f"button {named('id', 'title')}",
         "label": lambda: f"label {named('id', 'text')}",
         "set_label": lambda: f"set_label {q('id')} {q('text')}",
         "slider": lambda: f"slider {q('id')} {c('low')} {c('high')} {c('value')}",
+        "checkbox": lambda: f"checkbox {named('id', 'title')} {flag('checked')}",
+        "radio": lambda: f"radio {named('id', 'title')} {q('group')} {flag('chosen')}",
+        "choice": lambda: f"choice {q('id')} {c('chosen')} {q('options')}",
+        "text_input": lambda: f"text_input {named('id', 'placeholder')}",
+        "number": lambda: f"number {q('id')} {c('low')} {c('high')} {c('value')}",
+        "set_checked": lambda: f"set_checked {q('id')} {flag('checked')}",
+        "set_value": lambda: f"set_value {q('id')} {c('value')}",
         "load": lambda: f"load {named('id', 'name')}",
         "play": lambda: (f"play {q('sample')} {seconds(c('at'))} {seconds(c('volume'))} "
                          f"{seconds(c('rate'))}"),
@@ -155,6 +200,15 @@ def log_line(command):
         "splash_text": lambda: f"splash_text {q('text')}",
     }
     return lines.get(op, lambda: op)()
+
+
+def digest(data):
+    """FNV-1a, 32 bits, of the bytes, as the log writes a bitmap's.
+    Bytes -> String"""
+    h = 2166136261
+    for b in data:
+        h = ((h ^ b) * 16777619) & 0xFFFFFFFF
+    return f"{h:08x}"
 
 
 def split_line(line):
@@ -169,6 +223,13 @@ def split_line(line):
     return first, id, rest[end:].split()
 
 
+# The first word of every line that draws on a canvas, which a `clear`
+# of that canvas makes invisible to a page connecting later.
+DRAWING = ("clear", "rect", "circle", "ellipse", "arc", "line", "lines", "curve", "bezier",
+           "polygon", "path", "erase", "text", "image", "bitmap", "translate", "rotate", "scale",
+           "push", "pop", "reset", "shadow", "blend", "line_style", "clip")
+
+
 def compacted(lines):
     """What a page connecting late is sent of these commands: nothing
     drawn on a canvas before it was cleared, no label text before it was
@@ -180,11 +241,10 @@ def compacted(lines):
         op, id, _ = split_line(line)
         if op == "clear":
             kept = [k for k in kept
-                    if not (split_line(k)[0] in ("clear", "circle", "rect", "line", "text")
-                            and split_line(k)[1] == id)]
-        if op == "set_label":
+                    if not (split_line(k)[0] in DRAWING and split_line(k)[1] == id)]
+        if op in ("set_label", "set_checked", "set_value"):
             kept = [k for k in kept
-                    if not (split_line(k)[0] == "set_label" and split_line(k)[1] == id)]
+                    if not (split_line(k)[0] == op and split_line(k)[1] == id)]
         kept.append(line)
     return kept
 
@@ -193,15 +253,28 @@ def event_of(line):
     """An events-file line as the JSON a page posts. String -> {String: Value}"""
     if line.startswith("key "):
         return {"ev": "key", "key": line[4:]}
+    if line.startswith("key_up "):
+        return {"ev": "key_up", "key": line[7:]}
     kind, id, words = split_line(line)
+    if kind == "enter":
+        text, _ = json.JSONDecoder().raw_decode(" ".join(words))
+        return {"ev": "enter", "id": id, "text": text}
+    if kind == "check":
+        return {"ev": "check", "id": id, "checked": words[0] == "true"}
+    if kind == "pick":
+        return {"ev": "pick", "id": id}
+    if kind == "choose":
+        return {"ev": "choose", "id": id, "value": int(words[0])}
     if kind == "click":
         return {"ev": "click", "id": id}
     if kind == "slide":
         return {"ev": "slide", "id": id, "value": int(words[0])}
     if kind == "frame":
         return {"ev": "frame", "t": float(words[0])}
-    if kind == "mouse":
-        return {"ev": "mouse", "c": id, "x": int(words[0]), "y": int(words[1])}
+    if kind in ("mouse", "press", "release", "move"):
+        return {"ev": kind, "c": id, "x": int(words[0]), "y": int(words[1])}
+    if kind == "measured":
+        return {"ev": "measured", "id": id, "width": float(words[0])}
     return {"ev": kind}
 
 
@@ -295,7 +368,7 @@ class Stream:
     def _read(self):
         try:
             while True:
-                line = self.response.fp.readline()
+                line = self.response.readline()
                 if not line:
                     break
                 text = line.decode("utf-8").rstrip("\r\n")
@@ -739,7 +812,8 @@ def main(argv):
         if only and only.startswith("served:"):
             targets = [only.split(":", 1)[1]]
         for case, target in sampled(
-                [(c, t) for c in page_cases() for t in targets], "served"):
+                [(c, t) for c in page_cases() for t in targets
+                 if not excluded(c[0], t)], "served"):
             name = f"{case[0].name}.pyk served on {target}"
             try:
                 problem = check_served(compiler, case, target)

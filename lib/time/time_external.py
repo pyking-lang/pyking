@@ -1,5 +1,5 @@
 # The Python implementation of the names declared in time_external.pyk.
-# Decomposition is UTC: `gmtime`, never `localtime`.
+# Decomposition is UTC: `gmtime`, and `localtime` only for `local_now`.
 
 import time as _time
 
@@ -14,6 +14,18 @@ def _parts(t):
 
 def now():
     parts = _time.gmtime(int(_time.time()))
+    return (
+        parts.tm_year,
+        parts.tm_mon,
+        parts.tm_mday,
+        parts.tm_hour,
+        parts.tm_min,
+        parts.tm_sec,
+    )
+
+
+def local_now():
+    parts = _time.localtime(int(_time.time()))
     return (
         parts.tm_year,
         parts.tm_mon,

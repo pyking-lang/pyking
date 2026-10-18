@@ -1,0 +1,11 @@
+canvas "canvas" 300 200
+clear "canvas" #111111
+circle "canvas" 50 50 30 "gold" "white" 3.000 1.000
+circle "canvas" 80 50 30 "rgba(0, 128, 255, 0.5)" "" 1.000 1.000
+rect "canvas" 120 20 60 40 8 "" "hsl(120, 100%, 50%)" 1.000 1.000
+ellipse "canvas" 220 40 50 20 "orchid" "" 1.000 0.750
+arc "canvas" 50 140 40 30.0 330.0 "yellow" "" 1.000 1.000
+arc "canvas" 150 140 40 180.0 360.0 "" "red" 4.000 1.000
+line "canvas" 200 100 290 190 "" "cyan" 2.000 1.000
+curve "canvas" 200 190 245 60 290 190 "" "white" 2.000 0.500
+text "canvas" 150.000 180.000 "white" 18 "serif" center top true "" 1.000 1.000 "Step 1"

@@ -183,15 +183,26 @@ def check_exports(compiler):
     compiles. String -> [(String, String?)]"""
     results = []
     for module in libdoc.read_modules(libdoc.LIB):
-        names = ", ".join(item.name for item in module.items)
-        with tempfile.TemporaryDirectory(prefix="pyk-site-") as directory:
-            program = Path(directory) / "probe.pyk"
-            program.write_text(f"from {module.name} import {names}\n")
-            ran = subprocess.run(
-                shlex.split(compiler) + ["compile", "-t", "pyking", "--stdout", str(program)],
-                capture_output=True, text=True, timeout=TIMEOUT)
+        # A submodule's names are taken from the submodule, one line each.
+        lines = {}
+        for item in module.items:
+            inside = libdoc.submodule(item.name)
+            path = module.name + ("." + inside if inside else "")
+            lines.setdefault(path, []).append(item.name[len(inside) + 1:] if inside else item.name)
+        # A probe per submodule, since two submodules may each have a name
+        # the other has too (`smooth.circle` and `circle`).
+        problems = []
+        for path, names in lines.items():
+            with tempfile.TemporaryDirectory(prefix="pyk-site-") as directory:
+                program = Path(directory) / "probe.pyk"
+                program.write_text(f"from {path} import {', '.join(names)}\n")
+                ran = subprocess.run(
+                    shlex.split(compiler) + ["compile", "-t", "pyking", "--stdout", str(program)],
+                    capture_output=True, text=True, timeout=TIMEOUT)
+            if ran.returncode != 0:
+                problems.append((ran.stderr or ran.stdout).strip())
         results.append((f"{module.name} exports what its page names",
-                        None if ran.returncode == 0 else (ran.stderr or ran.stdout).strip()))
+                        "\n".join(problems) if problems else None))
     return results
 
 

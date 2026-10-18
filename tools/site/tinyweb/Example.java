@@ -12,8 +12,8 @@ public final class Example {
         String kick = Tinyweb.load_sample("kick1.wav");
         String snare = Tinyweb.load_sample("snare1.wav");
         String canvas = Tinyweb.canvas(400, 200);
-        Tinyweb.draw_circle(canvas, 100, 50, 30, "#ff0000");
-        Tinyweb.draw_circle(canvas, 100, 50, 20, "#000000");
+        Tinyweb.draw_shape(canvas, "circle", "100 50 30", "#ff0000", "", 1.0, 1.0);
+        Tinyweb.draw_shape(canvas, "circle", "100 50 20", "#000000", "", 1.0, 1.0);
         Tinyweb.make_button("Play kick", () -> Tinyweb.play_sample(kick, 0.0, 1.0, 1.0));
         Tinyweb.make_button("Play snare", () -> {
             presses += 1;

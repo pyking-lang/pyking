@@ -38,6 +38,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -59,13 +60,91 @@ DESCRIPTIONS = {
               "number added where something on the page has that name already.",
     "fill_canvas": "Fills the whole canvas `c` with `color`, a CSS color such as "
                    "`\"#ff0000\"` or `\"red\"`.",
-    "draw_circle": "A filled circle on the canvas `c`, centred at (`x`, `y`).",
-    "draw_rect": "A filled rectangle on the canvas `c`, with its top left corner at "
-                 "(`x`, `y`).",
-    "draw_line": "A straight line on the canvas `c`, from (`x1`, `y1`) to (`x2`, `y2`), "
-                 "`width` pixels wide.",
-    "draw_text": "`words` written on the canvas `c`, with the top left corner of the "
-                 "text at (`x`, `y`), `size` pixels high.",
+    "draw_shape": "One shape on the canvas `c`. `kind` is \"rect\", \"circle\", "
+                  "\"ellipse\", \"arc\", \"line\", \"lines\", \"curve\", "
+                  "\"bezier\", \"polygon\", \"path\" or \"erase\", and `numbers` "
+                  "its numbers as words: x y width height radius for a rect, x y r for a "
+                  "circle, x y rx ry for an ellipse, x y r start end (degrees) for an arc, "
+                  "x1 y1 x2 y2 for a line, x1 y1 x2 y2 for each of many lines, x1 y1 cx cy "
+                  "x2 y2 for a curve, x1 y1 ax ay bx by x2 y2 for a bezier, x y x y ... "
+                  "for a polygon or a path, and x y width height for the rectangle "
+                  "`erase` makes transparent. It is filled with `color` and outlined "
+                  "with `outline`, `width` pixels thick, each unless it is \"\", at "
+                  "`alpha` from 0.0 to 1.0. A color may be a gradient: "
+                  "\"linear-gradient(x1 y1 x2 y2); 0.0 red; 1.0 blue\", "
+                  "\"radial-gradient(x1 y1 r1 x2 y2 r2); ...\" or "
+                  "\"conic-gradient(x y angle); ...\", each stop its place from 0.0 to "
+                  "1.0 and a CSS color.",
+    "draw_text": "`words` written on the canvas `c` at (`x`, `y`): its left end there, "
+                 "or with `align` \"center\" or \"right\" its middle or right end, "
+                 "and its top there, or with `baseline` \"middle\", \"alphabetic\" "
+                 "or \"bottom\" that part of it. `size` pixels high, in `font` (\"\" "
+                 "for the page's own), bold where `bold` is true, filled with `color` "
+                 "and outlined with `outline` `outline_width` pixels thick, each unless "
+                 "it is \"\", at `alpha`.",
+    "measure": "Asks the page how wide `words` is written `size` pixels high in "
+               "`font`, bold where `bold` is true, and calls `answer` with the width in "
+               "pixels once the page has said.",
+    "watch_pointer": "Calls `f` with where the pointer is on the canvas `c`, in pixels "
+                     "from its top left corner, each time it goes down there (`kind` "
+                     "\"press\"), comes up (\"release\"), moves over it (\"move\") "
+                     "or moves with the button held (\"drag\").",
+    "pointer": "Where the pointer was last seen on the canvas `c`: `which` \"x\" or "
+               "\"y\" for its position, \"down\" for 1 while its button is held and "
+               "0 otherwise. The canvas reports the pointer once `watch_pointer` has "
+               "been called for it.",
+    "on_key_up": "Calls `released` with the name of each key let go while the page has "
+                 "the focus. Leaving the page lets go of every key held.",
+    "key_down": "Whether the key named `key` is held down now.",
+    "bitmap": "A picture `width` by `height` pixels the program builds, all black, kept "
+              "by the program: setting a pixel sends nothing. Answers the string that "
+              "names it: \"bitmap\", with a number added where something on the page "
+              "has that name already.",
+    "set_pixel": "Sets the pixel (`x`, `y`) of the bitmap `b` to `color`, red times "
+                 "65536 plus green times 256 plus blue. A pixel outside it is left alone.",
+    "get_pixel": "The color of the pixel (`x`, `y`) of the bitmap `b`, as `set_pixel` "
+                 "takes one; 0 outside it.",
+    "fill_bitmap": "Sets every pixel of the bitmap `b` to `color`.",
+    "draw_bitmap": "Draws the bitmap `b` on the canvas `c`, its top left corner at "
+                   "(`x`, `y`), each pixel `scale` pixels across: sharp squares above "
+                   "1.0. What changed since it was last drawn is sent to the page.",
+    "draw_pairs": "Many shapes' numbers in one go, as a list rather than as words: "
+                  "`kind` \"polygon\" or \"path\" through the points (x, y) in "
+                  "`items`, drawn as `draw_shape` draws one. Not in C, which "
+                  "cannot be given a list.",
+    "draw_triples": "Many circles in one go: `kind` \"circles\", each (x, y, radius) "
+                    "in `items` filled and outlined on its own, as `draw_shape` draws "
+                    "one. Not in C, which cannot be given a list.",
+    "draw_quads": "Many separate lines in one go: `kind` \"lines\", each (x1, y1, x2, "
+                  "y2) in `items`, stroked together as one. Not in C, which cannot be "
+                  "given a list.",
+    "row": "A box placed below what the page already shows, whose elements go side "
+           "by side, wrapping where the page is too narrow. Answers the string that "
+           "names it to `inside`: \"row\", with a number added where something on "
+           "the page has that name already.",
+    "column": "A box whose elements go one below another, as the page's own do: "
+              "inside a row, it stands beside the row's other elements. Answers the "
+              "string that names it to `inside`.",
+    "inside": "Makes every element made after it go into the row or column `id`, "
+              "until `outside` or another `inside`.",
+    "outside": "Makes every element made after it go on the page again, below what is "
+               "there.",
+    "set_state": "Changes what the next drawing on the canvas `c` is drawn with. "
+                 "`kind` \"translate\", \"rotate\" or \"scale\" take their numbers "
+                 "(x y, degrees, sx sy) in `numbers`; \"push\" and \"pop\" save and "
+                 "restore the state; \"reset\" takes every transformation off; "
+                 "\"shadow\" takes a color in `value` (\"\" for none) and blur dx dy in "
+                 "`numbers`; \"blend\" takes \"normal\" or \"add\" in `value`; "
+                 "\"line_style\" takes how lines end and turn in `value` (\"round "
+                 "round\", \"butt miter\", ...) and the dash offset followed by the "
+                 "dash and gap lengths in `numbers`; \"clip\" keeps what is drawn "
+                 "after it inside a shape, its kind in `value` and its numbers as "
+                 "`draw_shape` takes them. `fill_canvas` starts the canvas afresh.",
+    "load_image": "Starts loading the picture `name`, looked for as a sample is, and "
+                  "answers the string that names it to `draw_image`.",
+    "draw_image": "Draws a loaded picture on the canvas `c`, its top left corner at "
+                  "(`x`, `y`), stretched to `width` by `height`, at `alpha`. One still "
+                  "loading is not drawn.",
     "make_button": "A button showing `title`, placed below what the page already "
                    "shows, which calls `on_click` each time it is pressed. Answers the "
                    "string that names it: `title`, with a number added where something "
@@ -73,12 +152,32 @@ DESCRIPTIONS = {
     "label": "A line of text, placed below what the page already shows. Answers the "
              "string that names it to `set_label`: `text`, with a number added where "
              "something on the page has that name already.",
-    "set_label": "Replaces the text of the label `id` with `text`.",
+    "set_label": "Replaces the text of the label `id`, or the title of the button "
+                 "`id`, with `text`.",
     "make_slider": "A slider from `low` to `high`, starting at `value`, placed below "
                    "what the page already shows, which calls `on_change` with each new "
                    "value it is moved to. Answers the string that names it: \"slider\", "
                    "with a number added where something on the page has that name "
                    "already.",
+    "make_checkbox": "A checkbox showing `title`, ticked where `checked` is true, which "
+                     "calls `on_change` with whether it is ticked each time the reader "
+                     "changes it. Answers the string that names it.",
+    "make_radio": "A radio button showing `title` in the group `group`: choosing one "
+                  "clears the others. The first of a group starts chosen unless one "
+                  "says `chosen`. Calls `on_pick` with `title` when the reader chooses "
+                  "it. Answers the string that names it.",
+    "make_choice": "A dropdown of `options`, one per line, the one at position `chosen` "
+                   "chosen, which calls `on_change` with the position the reader "
+                   "chooses. Answers the string that names it.",
+    "make_text_input": "A line to type text into, showing `placeholder` while empty, "
+                       "which calls `on_enter` with the text when Enter is pressed in "
+                       "it. Answers the string that names it.",
+    "make_number_input": "A field for a whole number from `low` to `high`, starting at "
+                         "`value`, which calls `on_change` with each new number. "
+                         "Answers the string that names it.",
+    "set_checked": "Ticks or clears the checkbox `id`, or chooses the radio button `id`.",
+    "set_value": "Moves the slider or number field `id` to `value`, or picks the "
+                 "dropdown choice at that position.",
     "apply_style": "Changes the page's look. With `kind` \"theme\", `value` names a "
                    "theme: \"light\" (the default), \"dark\", \"plain\", \"paper\" or "
                    "\"retro\". With `kind` \"page\", \"button\", \"label\", "
@@ -151,9 +250,12 @@ def _split(text):
 
 
 def parse_type(text):
-    """A declared type as a value: "Int", "Float", "String", "()", or
-    ("fn", [params], result). String -> Type"""
+    """A declared type as a value: "Int", "Float", "String", "()",
+    ("fn", [params], result), or ("list", [parts]) for a list of tuples.
+    String -> Type"""
     text = text.strip()
+    if text.startswith("[(") and text.endswith(")]"):
+        return ("list", [part.strip() for part in text[2:-2].split(",")])
     if text.startswith("(") and "->" in text:
         depth = 0
         for i, ch in enumerate(text):
@@ -198,42 +300,56 @@ def functions():
 
 # --- the languages ---
 
+def takes_list(f):
+    """Whether one of f's parameters is a list, which C cannot be given.
+    Function -> Bool"""
+    return any(isinstance(t, tuple) and t[0] == "list" for _, t in f.params)
+
+
 def py_type(t):
+    if isinstance(t, tuple) and t[0] == "list":
+        return f"list[tuple[{', '.join(py_type(p) for p in t[1])}]]"
     if isinstance(t, tuple):
         return f"Callable[[{', '.join(py_type(p) for p in t[1])}], None]"
-    return {"Int": "int", "Float": "float", "String": "str", "()": "None"}[t]
+    return {"Int": "int", "Float": "float", "String": "str", "Bool": "bool", "()": "None"}[t]
 
 
 def js_type(t):
+    if isinstance(t, tuple) and t[0] == "list":
+        return "number[][]"
     if isinstance(t, tuple):
         return f"({', '.join(js_type(p) for p in t[1])}) => void"
-    return {"Int": "number", "Float": "number", "String": "string", "()": "undefined"}[t]
+    return {"Int": "number", "Float": "number", "String": "string", "Bool": "boolean", "()": "undefined"}[t]
 
 
 def ml_type(t):
+    if isinstance(t, tuple) and t[0] == "list":
+        return "(" + " * ".join(ml_type(p) for p in t[1]) + ") list"
     if isinstance(t, tuple):
         params = t[1] or ["()"]
         return "(" + " -> ".join(ml_type(p) for p in params) + " -> " + ml_type(t[2]) + ")"
-    return {"Int": "int", "Float": "float", "String": "string", "()": "unit"}[t]
+    return {"Int": "int", "Float": "float", "String": "string", "Bool": "bool", "()": "unit"}[t]
 
 
 def c_declarator(t, name):
     if isinstance(t, tuple):
         params = ", ".join(c_declarator(p, "") .strip() for p in t[1]) or "void"
         return f"{c_declarator(t[2], '').strip()} (*{name})({params})"
-    base = {"Int": "int", "Float": "double", "String": "const char *", "()": "void"}[t]
+    base = {"Int": "int", "Float": "double", "String": "const char *", "Bool": "bool", "()": "void"}[t]
     return base + name if base.endswith("*") else (base + " " + name).rstrip()
 
 
 def java_type(t, boxed=False):
+    if isinstance(t, tuple) and t[0] == "list":
+        return "java.util.List<?>"
     if isinstance(t, tuple):
         params = [java_type(p, True) for p in t[1]]
         if not params:
             return "Runnable"
         return ("Consumer" if len(params) == 1 else "BiConsumer") + "<" + ", ".join(params) + ">"
     if boxed:
-        return {"Int": "Integer", "Float": "Double", "String": "String"}[t]
-    return {"Int": "int", "Float": "double", "String": "String", "()": "void"}[t]
+        return {"Int": "Integer", "Float": "Double", "String": "String", "Bool": "Boolean"}[t]
+    return {"Int": "int", "Float": "double", "String": "String", "Bool": "boolean", "()": "void"}[t]
 
 
 def signature(language, f):
@@ -272,8 +388,20 @@ def c_header():
         "",
         "#ifndef TINYWEB_H",
         "#define TINYWEB_H",
+        "",
+        "/* A Bool is bool from c99 on, and int in c89, which has none. */",
+        "#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L",
+        "#include <stdbool.h>",
+        "#elif !defined(TINYWEB_BOOL)",
+        "#define TINYWEB_BOOL",
+        "typedef int bool;",
+        "#define true 1",
+        "#define false 0",
+        "#endif",
     ]
     for f in functions():
+        if takes_list(f):
+            continue
         lines += ["", "/* " + _wrap(_plain(f.text), 70, "   ").lstrip() + " */",
                   signature("c", f)]
     lines += ["", "#endif", ""]
@@ -386,12 +514,25 @@ def cases():
     return [(p.stem, p) for p in sorted(TESTS.glob("lib_tinyweb_*.pyk"))]
 
 
+def excluded(name, language):
+    """Whether tests/test_cases.toml keeps the test `name` off `language`'s
+    target, as it does a test taking a list off C. String -> Language -> Bool"""
+    manifest = tomllib.loads((TESTS / "test_cases.toml").read_text())
+    for case in manifest.get("cases", []):
+        if case.get("file") == name + ".pyk":
+            keys = case.get("excluded", {})
+            return language.slug in keys or language.target in keys
+    return False
+
+
 def examples(compiler, language, directory):
     """Compiles every tinyweb test for `language` into a directory of its
     own under `directory`, as `pyk compile` writes it, less the samples.
     Answers [(name, the program's own file)]. -> [(String, Path)]"""
     out = []
     for name, source in cases():
+        if excluded(name, language):
+            continue
         target = directory / name
         target.mkdir(parents=True, exist_ok=True)
         main = "Program.java" if language.slug == "java" else "program" + {
@@ -467,6 +608,8 @@ def language_page(language, generated, base):
         "program ends with status 1.",
     ]
     for f in functions():
+        if language.slug == "c" and takes_list(f):
+            continue
         parts += ["", f"### `{f.name}`", "", _code(language.fence, signature(language.slug, f)),
                   "", f.text]
     parts += [
@@ -477,9 +620,11 @@ def language_page(language, generated, base):
         "all, which is how it is tested: with `PYKING_TINYWEB_LOG` set, every command "
         "the program would send its page is appended to that file as one line, and "
         "once the program's own code has finished the events "
-        "`PYKING_TINYWEB_EVENTS` lists -- `click ID`, `slide ID VALUE`, `frame T`, "
-        "`mouse ID X Y`, `key NAME`, one per line -- are delivered as if a reader had "
-        "caused them.",
+        "`PYKING_TINYWEB_EVENTS` lists -- `click ID`, `slide ID VALUE`, `check ID true`, "
+        "`pick ID`, `choose ID INDEX`, `enter ID TEXT`, `frame T`, `mouse ID X Y`, "
+        "`press ID X Y`, `move ID X Y`, `release ID X Y`, `key NAME`, `key_up NAME` and "
+        "`measured ID WIDTH`, one per line, each ID and TEXT a quoted string -- are "
+        "delivered as if a reader had caused them.",
         "",
         _code("sh", "PYKING_TINYWEB_LOG=page.log PYKING_TINYWEB_EVENTS=clicks.txt " +
               language.run[-1]),

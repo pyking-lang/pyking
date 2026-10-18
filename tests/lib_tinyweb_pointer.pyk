@@ -1,0 +1,50 @@
+# tinyweb's pointer and held keys: a press, a drag and a release on a
+# canvas, the pointer's last position and state read back, and keys held
+# down and let go.
+import tinyweb as tw
+
+tw.web_init(0)
+c = tw.canvas(200, 100)
+other = tw.canvas(50, 50)
+
+
+def pressed(x: Int, y: Int):
+    print("press at", x, y, "down", tw.mouse_down(c))
+    tw.circle(c, x, y, 4, "crimson")
+
+
+def dragged(x: Int, y: Int):
+    print("drag to", x, y)
+    tw.line(c, tw.mouse_x(c), tw.mouse_y(c), x, y, "black", 2)
+
+
+def moved(x: Int, y: Int):
+    print("move to", x, y, "down", tw.mouse_down(c))
+
+
+def released(x: Int, y: Int):
+    print("release at", x, y, "down", tw.mouse_down(c))
+
+
+tw.on_press(c, pressed)
+tw.on_drag(c, dragged)
+tw.on_move(c, moved)
+tw.on_release(c, released)
+tw.on_move(other, tw.ignore2)
+print("before any event", tw.mouse_x(c), tw.mouse_y(c), tw.mouse_down(c))
+
+
+def let_go(key: String):
+    print("let go of", key, "still held:", tw.key_down(key))
+
+
+tw.on_key_up(let_go)
+
+
+def frame(t: Float):
+    left = tw.key_down("ArrowLeft")
+    right = tw.key_down("ArrowRight")
+    print("frame", t, "left", left, "right", right)
+
+
+tw.on_frame(frame)

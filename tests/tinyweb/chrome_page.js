@@ -85,18 +85,47 @@
   // Each drawing call, with the state it is made in, under the canvas's
   // tinyweb id. The browser does the drawing too.
   const prototype = CanvasRenderingContext2D.prototype;
+  // What a fill or a stroke is drawn with beyond its color, where it
+  // differs from a fresh context's, so an ordinary drawing reads as before.
+  const STATE = ["globalAlpha", "globalCompositeOperation", "shadowColor", "shadowBlur",
+    "shadowOffsetX", "shadowOffsetY", "textAlign", "lineDashOffset", "imageSmoothingEnabled"];
+  let defaults = null;
+  const extras = (g) => {
+    if (defaults === null) {
+      const fresh = document.createElement("canvas").getContext("2d");
+      defaults = Object.fromEntries(STATE.map((key) => [key, fresh[key]]));
+    }
+    return STATE.filter((key) => g[key] !== defaults[key]).map((key) => ` ${key}=${g[key]}`).join("");
+  };
+  // FNV-1a, 32 bits, of a bitmap's bytes: how a recording shows pixels.
+  const digest = (bytes) => {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < bytes.length; i++) h = Math.imul(h ^ bytes[i], 16777619) >>> 0;
+    return h.toString(16).padStart(8, "0");
+  };
+  const shown = (a) => (a instanceof HTMLImageElement
+    ? a.src.slice(a.src.lastIndexOf("/") + 1)
+    : a instanceof ImageData ? `pixels ${a.width}x${a.height} ${digest(a.data)}`
+      : a instanceof HTMLCanvasElement ? `canvas ${a.width}x${a.height}`
+        : JSON.stringify(a));
   for (const method of ["scale", "fillRect", "beginPath", "arc", "fill", "moveTo",
-    "lineTo", "stroke", "fillText"]) {
+    "lineTo", "stroke", "fillText", "rect", "ellipse", "arcTo", "quadraticCurveTo",
+    "closePath", "translate", "rotate", "setTransform", "drawImage", "save", "restore",
+    "bezierCurveTo", "clearRect", "clip", "strokeText", "putImageData", "setLineDash"]) {
     const original = prototype[method];
     prototype[method] = function (...args) {
       const style = ["fill", "fillRect", "fillText"].includes(method)
         ? ` fill=${this.fillStyle}`
-        : method === "stroke"
-          ? ` stroke=${this.strokeStyle} width=${this.lineWidth} cap=${this.lineCap}`
+        : ["stroke", "strokeText"].includes(method)
+          ? ` stroke=${this.strokeStyle} width=${this.lineWidth} cap=${this.lineCap}` +
+            ` join=${this.lineJoin}`
           : "";
-      const font = method === "fillText" ? ` font=${this.font} baseline=${this.textBaseline}` : "";
+      const font = method === "fillText" || method === "strokeText"
+        ? ` font=${this.font} baseline=${this.textBaseline}` : "";
+      const drawn = ["fill", "fillRect", "fillText", "stroke", "strokeText", "drawImage",
+        "clearRect"].includes(method) ? extras(this) : "";
       record.push(`canvas ${this.canvas.getAttribute("data-tinyweb-id")}: ` +
-        `${method}(${args.map((a) => JSON.stringify(a)).join(", ")})${style}${font}`);
+        `${method}(${args.map(shown).join(", ")})${style}${font}${drawn}`);
       return original.apply(this, args);
     };
   }
@@ -108,7 +137,10 @@
       for (const name of [...node.getAttributeNames()].sort()) {
         parts.push(`${name}=${node.getAttribute(name)}`);
       }
-      if (node.tagName === "INPUT") parts.push(`value=${node.value}`);
+      if (node.tagName === "INPUT" || node.tagName === "SELECT") parts.push(`value=${node.value}`);
+      if (node.tagName === "INPUT" && (node.type === "checkbox" || node.type === "radio")) {
+        parts.push(`checked=${node.checked}`);
+      }
       if (node.tagName === "CANVAS") parts.push(`size=${node.width}x${node.height}`);
       if (node.children.length === 0 && node.textContent !== "") {
         parts.push(JSON.stringify(node.textContent));
@@ -126,6 +158,9 @@
   const eventWords = (line) => {
     const found = /^(\w+)\s+("(?:[^"\\]|\\.)*")\s*(.*)$/.exec(line.trim());
     if (found === null) return line.trim().split(/\s+/);
+    // An `enter` carries its text as a second quoted string.
+    const text = /^"(?:[^"\\]|\\.)*"$/.exec(found[3]);
+    if (text !== null) return [found[1], JSON.parse(found[2]), JSON.parse(text[0])];
     const rest = found[3] === "" ? [] : found[3].split(/\s+/);
     return [found[1], JSON.parse(found[2]), ...rest];
   };
@@ -159,6 +194,10 @@
       window.dispatchEvent(new KeyboardEvent("keydown", { key: line.slice(4), bubbles: true }));
       return true;
     }
+    if (line.startsWith("key_up ")) {
+      window.dispatchEvent(new KeyboardEvent("keyup", { key: line.slice(7), bubbles: true }));
+      return true;
+    }
     const words = eventWords(line);
     const target = element(words[1]);
     switch (words[0]) {
@@ -171,7 +210,33 @@
         if (target === null) return false;
         touch(target);
         target.value = words[2];
-        target.dispatchEvent(new Event("input", { bubbles: true }));
+        // A slider reports as it moves, a number field when it changes.
+        target.dispatchEvent(new Event(target.type === "number" ? "change" : "input",
+          { bubbles: true }));
+        return true;
+      case "check":
+        if (target === null) return false;
+        touch(target);
+        target.checked = words[2] === "true";
+        target.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+      case "pick":
+        if (target === null) return false;
+        touch(target);
+        target.checked = true;
+        target.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+      case "choose":
+        if (target === null) return false;
+        touch(target);
+        target.value = words[2];
+        target.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+      case "enter":
+        if (target === null) return false;
+        touch(target);
+        target.value = words[2];
+        target.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
         return true;
       case "mouse": {
         if (target === null) return false;
@@ -181,6 +246,22 @@
         const height = parseFloat(target.style.height);
         target.dispatchEvent(new MouseEvent("click", {
           bubbles: true,
+          clientX: bounds.left + (Number(words[2]) * bounds.width) / width,
+          clientY: bounds.top + (Number(words[3]) * bounds.height) / height,
+        }));
+        return true;
+      }
+      case "press":
+      case "release":
+      case "move": {
+        if (target === null) return false;
+        const bounds = target.getBoundingClientRect();
+        const width = parseFloat(target.style.width);
+        const height = parseFloat(target.style.height);
+        const type = { press: "pointerdown", release: "pointerup", move: "pointermove" }[words[0]];
+        target.dispatchEvent(new PointerEvent(type, {
+          bubbles: true,
+          pointerId: 1,
           clientX: bounds.left + (Number(words[2]) * bounds.width) / width,
           clientY: bounds.top + (Number(words[3]) * bounds.height) / height,
         }));

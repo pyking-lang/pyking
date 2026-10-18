@@ -1,0 +1,40 @@
+canvas "canvas" 200 200
+on_frame
+> frame 0.0
+clear "canvas" black
+push "canvas"
+translate "canvas" 100.0 100.0
+rotate "canvas" 0.0
+rect "canvas" -20 -20 40 40 0 "crimson" "" 1.000 1.000
+push "canvas"
+scale "canvas" 0.5 2.0
+circle "canvas" 60 0 10 "white" "" 1.000 1.000
+pop "canvas"
+pop "canvas"
+shadow "canvas" "white" 12 0 0
+circle "canvas" 30 30 10 "gold" "" 1.000 1.000
+shadow "canvas" 10 0 0
+blend "canvas" "add"
+circle "canvas" 160 160 20 "#800000" "" 1.000 1.000
+circle "canvas" 175 160 20 "#000080" "" 1.000 1.000
+blend "canvas" "normal"
+reset "canvas"
+> frame 0.5
+clear "canvas" black
+push "canvas"
+translate "canvas" 100.0 100.0
+rotate "canvas" 45.0
+rect "canvas" -20 -20 40 40 0 "crimson" "" 1.000 1.000
+push "canvas"
+scale "canvas" 0.5 2.0
+circle "canvas" 60 0 10 "white" "" 1.000 1.000
+pop "canvas"
+pop "canvas"
+shadow "canvas" "white" 12 0 0
+circle "canvas" 30 30 10 "gold" "" 1.000 1.000
+shadow "canvas" 10 0 0
+blend "canvas" "add"
+circle "canvas" 160 160 20 "#800000" "" 1.000 1.000
+circle "canvas" 175 160 20 "#000080" "" 1.000 1.000
+blend "canvas" "normal"
+reset "canvas"

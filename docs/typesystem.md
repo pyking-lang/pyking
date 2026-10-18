@@ -235,7 +235,7 @@ ran from the wording.
 
 **What `analyses.ml` still owns is mutability**, and it is a separate
 question rather than a leftover. This module does check `var` and `:=`
-for *types* — a `var` is `Int` or `Bool`, and a `:=` must give the type
+for *types* — a `var` has its initializer's type, and a `:=` must give the type
 the declaration fixed — but *which names may be written to* is not
 something a type can say: the same `Int` is a `var` in one scope and an
 `=` binding in another, so the answer is about the binding form. Hence

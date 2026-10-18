@@ -4,16 +4,16 @@ on_frame
 splash
 > frame 0.0
 clear "canvas" #111111
-circle "canvas" 0 50 10 #ffcc00
+circle "canvas" 0 50 10 "#ffcc00" "" 1.000 1.000
 play "kick1.wav" 0.500 1.000 1.000
 > frame 0.25
 clear "canvas" #111111
-circle "canvas" 25 50 10 #ffcc00
+circle "canvas" 25 50 10 "#ffcc00" "" 1.000 1.000
 > frame 0.5
 clear "canvas" #111111
-circle "canvas" 50 50 10 #ffcc00
+circle "canvas" 50 50 10 "#ffcc00" "" 1.000 1.000
 play "kick1.wav" 1.000 1.000 1.000
 > frame 1.25
 clear "canvas" #111111
-circle "canvas" 125 50 10 #ffcc00
+circle "canvas" 125 50 10 "#ffcc00" "" 1.000 1.000
 play "kick1.wav" 1.500 1.000 1.000

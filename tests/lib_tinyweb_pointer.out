@@ -1,0 +1,15 @@
+before any event 0 0 false
+move to 20 30 down false
+press at 40 50 down true
+move to 60 55 down true
+drag to 60 55
+move to 80 60 down true
+drag to 80 60
+release at 90 62 down false
+move to 95 64 down false
+frame 0.5 left false right false
+frame 0.6 left true right false
+let go of ArrowLeft still held: false
+frame 0.7 left false right true
+let go of ArrowRight still held: false
+frame 0.8 left false right false

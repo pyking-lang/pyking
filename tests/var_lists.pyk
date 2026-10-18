@@ -1,0 +1,26 @@
+# A `var` holding a list: built up a turn at a time, replaced by a map
+# of itself, and written by a function that captures it.
+
+var squares = []
+for i in range(5):
+    squares := squares ++ [i * i]
+print(squares)
+
+var particles = [(0, 0), (10, 5), (3, 7)]
+
+def step_all(dx: Int):
+    particles := [(x + dx, y + 1) for (x, y) in particles]
+
+step_all(2)
+step_all(1)
+print(particles)
+
+def collect(n: Int) -> [String]:
+    var words = []
+    def add(w: String):
+        words := words ++ [w]
+    for i in range(n):
+        add("w" ++ string(i))
+    words
+
+print(collect(3))

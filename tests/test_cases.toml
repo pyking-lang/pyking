@@ -813,9 +813,6 @@ file = "typecheck_var_scope.pyk"
 excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
-file = "fail_typecheck_var_string.pyk"
-
-[[cases]]
 file = "fail_typecheck_var_mutate_type.pyk"
 
 [[cases]]
@@ -1560,6 +1557,51 @@ excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py check
 # a sound the top level plays, turned off, and called at the end of a
 # program that plays only through a module of its own -- which is where
 # the compiler adds the call (docs/libraries.md, "The splash screen").
+# tinyweb's step 1 (design/plan-tinyweb.md): shapes with outlines and
+# transparency, text, transformations, pictures, shadows and blending,
+# the `colors` submodule, and the widgets of step 2. What takes a list is
+# a case of its own, so C runs the rest.
+[[cases]]
+file = "lib_tinyweb_shapes.pyk"
+libs = ["tinyweb"]
+excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
+
+[[cases]]
+file = "lib_tinyweb_polygons.pyk"
+libs = ["tinyweb"]
+excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser", c = "lists need a heap, and C has no garbage collector to free one" }
+
+[[cases]]
+file = "lib_tinyweb_transform.pyk"
+libs = ["tinyweb"]
+excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
+
+[[cases]]
+file = "lib_tinyweb_image.pyk"
+libs = ["tinyweb"]
+excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
+
+[[cases]]
+file = "lib_tinyweb_widgets.pyk"
+libs = ["tinyweb"]
+excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
+
+[[cases]]
+file = "lib_tinyweb_choice.pyk"
+libs = ["tinyweb"]
+excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser", c = "lists need a heap, and C has no garbage collector to free one" }
+
+# random: a generator written in Pyking, so a seed gives the same numbers
+# on every target.
+[[cases]]
+file = "lib_random_basic.pyk"
+libs = ["time", "random"]
+
+[[cases]]
+file = "lib_random_lists.pyk"
+libs = ["time", "random"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+
 [[cases]]
 file = "lib_tinyweb_splash.pyk"
 libs = ["tinyweb"]
@@ -1716,3 +1758,41 @@ file = "generic_instances.pyk"
 [[cases]]
 file = "module_generic.pyk"
 modules = ["module_generic_mod1.pyk"]
+
+[[cases]]
+file = "tuple_wildcards.pyk"
+
+[[cases]]
+file = "var_values.pyk"
+
+[[cases]]
+file = "var_lists.pyk"
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+
+[[cases]]
+file = "lib_tinyweb_pointer.pyk"
+libs = ["tinyweb"]
+excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
+
+[[cases]]
+file = "lib_tinyweb_bitmap.pyk"
+libs = ["tinyweb"]
+excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
+
+[[cases]]
+file = "lib_tinyweb_paint.pyk"
+libs = ["tinyweb"]
+excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
+
+[[cases]]
+file = "lib_tinyweb_smooth.pyk"
+libs = ["tinyweb"]
+excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser", c = "lists need a heap, and C has no garbage collector to free one" }
+
+[[cases]]
+file = "lib_tinyweb_layout.pyk"
+libs = ["tinyweb"]
+excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
+
+[[cases]]
+file = "return_nested_if.pyk"

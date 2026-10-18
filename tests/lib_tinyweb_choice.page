@@ -1,0 +1,6 @@
+label "ocean"
+choice "choice" 0 "ocean\ncandy\nforest"
+choice "choice1" 0 "one"
+set_value "choice" 2
+> choose "choice" 1
+set_label "ocean" "chose 1"

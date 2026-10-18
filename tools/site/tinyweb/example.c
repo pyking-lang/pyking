@@ -34,8 +34,8 @@ int main(void)
     kick = tinyweb_load_sample("kick1.wav");
     snare = tinyweb_load_sample("snare1.wav");
     canvas = tinyweb_canvas(400, 200);
-    tinyweb_draw_circle(canvas, 100, 50, 30, "#ff0000");
-    tinyweb_draw_circle(canvas, 100, 50, 20, "#000000");
+    tinyweb_draw_shape(canvas, "circle", "100 50 30", "#ff0000", "", 1.0, 1.0);
+    tinyweb_draw_shape(canvas, "circle", "100 50 20", "#000000", "", 1.0, 1.0);
     tinyweb_make_button("Play kick", play_kick);
     tinyweb_make_button("Play snare", play_snare);
     tinyweb_make_button("Does nothing", nothing);

@@ -1,0 +1,13 @@
+canvas "canvas" 200 100
+load_image "ball.png"
+load_image "star.png"
+load_image "ball.png1" "ball.png"
+on_frame
+> frame 0.0
+clear "canvas" #202040
+image "canvas" "ball.png" 0 20 40 40 1.000
+image "canvas" "star.png" 140 20 50 50 0.500
+> frame 0.25
+clear "canvas" #202040
+image "canvas" "ball.png" 25 20 40 40 1.000
+image "canvas" "star.png" 140 20 50 50 0.500

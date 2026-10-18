@@ -1,0 +1,23 @@
+# tinyweb's shapes that take lists of points, at positions between
+# pixels, and many lines drawn in one go.
+import tinyweb as tw
+import tinyweb.smooth as smooth
+
+tw.web_init(0)
+c = tw.canvas(200, 120)
+smooth.polygon(c, [(100.0, 10.5), (180.5, 90.5), (19.5, 90.5)], "orange", outline = "black", outline_width = 0.5)
+smooth.path(c, [(10.0, 110.0), (60.5, 20.5), (110.25, 70.0), (190.0, 10.0)], "teal", 2.5)
+rays = [(100.0, 60.0, 100.0 + 45.0 * float(i - i / 3 * 3), 5.0 * float(i)) for i in range(8)]
+smooth.lines(c, rays, "crimson", 0.8, alpha = 0.5)
+tw.lines(c, [(x, 0, x, 120) for x in range(0, 200, 40)], "#cccccc")
+tw.push(c)
+smooth.clip_polygon(c, [(100.0, 5.5), (190.5, 115.0), (9.5, 115.0)])
+tw.rect(c, 0, 60, 200, 60, "gold", alpha = 0.4)
+tw.pop(c)
+tw.push(c)
+tw.clip_polygon(c, [(0, 0), (60, 0), (0, 60)])
+tw.rect(c, 0, 0, 60, 60, "navy")
+tw.pop(c)
+many = [(float(i), 0.0, float(i) + 0.5, 120.0) for i in range(300)]
+smooth.lines(c, many, "black", 0.25, alpha = 0.1)
+print("drew", len(many), "lines in one go")

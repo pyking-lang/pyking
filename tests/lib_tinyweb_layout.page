@@ -1,0 +1,33 @@
+style "" page align "center"
+label "Layout"
+style "Layout" element size "28px"
+style "Layout" element weight "700"
+row "row"
+inside "row"
+button "one"
+button "two"
+outside
+canvas "canvas" 100 40
+row "row1"
+inside "row1"
+label "speed"
+slider "slider" 0 10 5
+inside "row"
+button "three"
+outside
+row "row2"
+inside "row2"
+column "column"
+inside "column"
+canvas "canvas1" 50 20
+style "canvas1" element width "100px"
+style "canvas1" element height "40px"
+label "stretched"
+inside "row2"
+column "column1"
+inside "column1"
+canvas "canvas2" 100 40
+label "as it is"
+outside
+label "the end"
+> click "one"

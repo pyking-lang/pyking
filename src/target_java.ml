@@ -1646,7 +1646,11 @@ and stmt ctx st scope s =
       let jname, st = fresh st name in
       if StringSet.mem name scope.cells then
         let st = note_local st jname (jt ctx t ^ "[]") in
-        ( [ JLine (Printf.sprintf "final %s[] %s = { %s };" (jt ctx t) jname v.text) ],
+        let created =
+          if String.contains (jt ctx t) '<' then Printf.sprintf "%s.cell(%s)" runtime_class v.text
+          else Printf.sprintf "{ %s }" v.text
+        in
+        ( [ JLine (Printf.sprintf "final %s[] %s = %s;" (jt ctx t) jname created) ],
           bind_value scope name { value = atom (jname ^ "[0]"); kind = BCell; btype = t; jname_ = jname },
           st )
       else
@@ -2738,6 +2742,11 @@ let runtime_source programs version =
         "";
         "    public static <T> java.util.List<T> single(T value) {";
         "        return java.util.Collections.singletonList(value);";
+        "    }";
+        "";
+        "    @SafeVarargs";
+        "    public static <T> T[] cell(T... value) {";
+        "        return value;";
         "    }";
         "";
         "    public static <T> java.util.List<T> empty() {";

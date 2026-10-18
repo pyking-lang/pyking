@@ -2,7 +2,9 @@
 
 A plan for what tinyweb could offer next, in five steps, each usable on
 its own, and two for later: sprites, and sessions with a storage
-library. Nothing here is built. The aim is the one tinyweb started with:
+library. Step 1 is built, and so are the widgets, the mouse and the
+keyboard of step 2 and the bitmaps, gradients and layout of step 5
+(marked below); the rest is not. The aim is the one tinyweb started with:
 an API a beginner can use from the first line, which still takes a
 program all the way to every example in `web_examples/` -- the canvas,
 animation, input, particles, physics, pixels, a complete game, samples,
@@ -18,8 +20,9 @@ right and this file is stale.
 | Area | Functions |
 |---|---|
 | Page | `web_init`, `theme`, `page_style` |
-| Canvas | `canvas`, `clear`, `circle`, `rect`, `line`, `text`, `canvas_style` |
-| Widgets | `button`, `label`, `set_label`, `slider`, `button_style`, `label_style`, `slider_style`, `set_style`, `set_colors` |
+| Canvas | `canvas`, `clear`, `circle`, `rect`, `ellipse`, `arc`, `polygon`, `path`, `line`, `curve`, `text`, `translate`, `rotate`, `scale`, `push`, `pop`, `reset`, `shadow`, `blend`, `load_image`, `image`, `canvas_style` (step 1) |
+| Colors | the submodule `tinyweb.colors`: `rgb`, `rgba`, `hsl`, `palette` (step 1) |
+| Widgets | `button`, `label`, `set_label`, `slider`, `checkbox`, `radio`, `choice`, `text_input`, `number_input`, `set_checked`, `set_value`, `button_style`, `label_style`, `slider_style`, `set_style`, `set_colors` |
 | Sound | `load_sample`, `play`, `play_file`, `time` |
 | Events | `on_frame`, `on_mouse` (a click on a canvas), `on_key` (a key pressed) |
 
@@ -162,9 +165,11 @@ static half of `graphics11`.
 | `curve(c, x1, y1, cx, cy, x2, y2, color, width)` | a quadratic Bézier curve |
 | `rect(..., radius)` | the existing `rect` gains rounded corners |
 
-Every filled shape gains `outline: String = ""` and `width: Int = 1`
-(no outline by default) and `alpha: Float = 1.0`. `color = ""` with an
-outline draws only the outline.
+Every filled shape gains `outline: String = ""` and `outline_width: Int
+= 1` (no outline by default) and `alpha: Float = 1.0`; built as
+`outline_width` rather than `width`, since `rect` has a `width` of its
+own. A line, a path and a curve keep `width` for how thick they are, and
+gain `alpha` too. `color = ""` with an outline draws only the outline.
 
 **Text**: `text(..., font, align, bold)`, with `align` one of `"left"`,
 `"center"` and `"right"`. Measuring text needs the page, so it is not
@@ -188,20 +193,59 @@ ships samples.
 
 **Colors**, Pyking functions with no command: `rgb(r, g, b)`,
 `rgba(r, g, b, a)`, `hsl(h, s, l)`, and a few named palettes as lists of
-strings for generative art.
+strings for generative art. Built in the submodule `tinyweb.colors` --
+`colors` rather than `color`, since `color` is a parameter name all
+through `tinyweb.pyk` and a submodule's name is taken in its whole file
+-- as `colors.palette(name)` with the palettes ocean, candy, forest,
+sunset and neon.
 
 **Shadows and blending**: `shadow(c, color, blur, dx, dy)` and
 `blend(c, mode)` with `"normal"` and `"add"` (additive light, for the
 particles of step 4 and the glow of `graphicsmusic`).
 
-Implementation: one command per call. A polygon's points cross as one
-string, `"x,y x,y ..."`, built by the Pyking half. Degrees rather than
-radians, since a beginner thinks in degrees, and `math` offers both.
+Implementation: one command per call, through three host functions
+rather than one per shape: `draw_shape` (every shape, its numbers as one
+string of words the Pyking half builds, so a polygon's points cross as
+`"x y x y ..."`), `draw_text` and `set_state` (the transformations,
+shadows and blending), with `load_image` and `draw_image`. `clear`
+starts its canvas afresh -- every `push` closed, no transformation,
+shadow or blending -- so drawing before it can be dropped for a late
+page. Degrees rather than radians, since a beginner thinks in degrees,
+and `math` offers both.
 
-Tests: `lib_tinyweb_shapes`, `lib_tinyweb_transform`, `lib_tinyweb_image`.
+**Built beyond this step, for the examples to look as they do in
+JavaScript and run as fast**:
+
+- `tinyweb.smooth`, a submodule holding the shapes again with Float
+  coordinates and widths, since a thin line at an angle or a slow orbit
+  snapped to whole pixels looks jagged; `smooth.lines` and
+  `smooth.circles` draw many in one command, their numbers crossing to
+  the host as a list (`draw_pairs`, `draw_triples`, `draw_quads`) rather
+  than as words, so a flow field's 4000 segments cost one stroke.
+- `lines`, `bezier` (cubic) and `erase` (a transparent rectangle).
+- `line_style(c, cap, join, dash, gap, offset, dash2, gap2)` and
+  `clip_rect`, `clip_circle` and `clip_polygon`, as state commands.
+- `text(..., baseline, outline, outline_width)`, and `measure_text(words,
+  answer, ...)` after all: the page answers with an event, as it answers
+  everything, so measuring needs no new kind of call.
+- Gradients, from step 5 below, in the submodule as
+  `colors.linear_gradient`, `colors.radial_gradient` and
+  `colors.conic_gradient`, each from a `start` to an `end` color, and
+  `colors.stop` to add one between -- no list, so C has them too.
+- A `var` may hold any type (PYKING.md, "Mutable variables"), so a
+  sketch keeps its particles or balls in a list from frame to frame.
+
+Tests: `lib_tinyweb_shapes`, `lib_tinyweb_polygons` (C left out: a
+list), `lib_tinyweb_transform`, `lib_tinyweb_image`, `lib_tinyweb_paint`,
+`lib_tinyweb_smooth` (C left out); and `random`'s `lib_random_basic` and
+`lib_random_lists`.
 
 Examples ported: graphics1 (hello canvas), graphics2 (stars, curves),
-graphics4 (a bouncing ball), graphics5 (solar system, analog clock).
+graphics3 (mini-p5), graphics4 (the animation loop), graphics5 (solar
+system, analog clock) and graphics11 (flow field, fractal tree, the
+Mandelbrot set at the screen's own resolution, from step 5's bitmaps),
+in `pyking-web-examples/`, which is kept out of this repository
+(`.gitignore`) and tested by its own script there.
 
 ---
 
@@ -221,12 +265,16 @@ small tool needs.
 | `mouse_x(c)`, `mouse_y(c)`, `mouse_down(c)` | the last reported position and state |
 
 The pointer events cover a mouse, a pen and a finger, so a phone works
-too.
+too. Built: the four are one host function, `watch_pointer`, the page
+reporting `press`, `release` and `move` events and each host keeping
+where the pointer is; `ignore2` is the function to hand over where only
+`mouse_x` and `mouse_y` are read. Test: `lib_tinyweb_pointer`.
 
 **The keyboard**: `on_key_up(f(key))` beside `on_key`, and
 `key_down(key) -> Bool`, the held-key state `graphics7` is built on,
 kept by tinyweb from both events. Arrow keys and the space bar stop
-scrolling the page while it has the focus.
+scrolling the page while it has the focus. Built as planned; leaving the
+page lets go of every key held.
 
 **Time**:
 
@@ -239,7 +287,10 @@ scrolling the page while it has the focus.
 `on_frame` stays the way to animate; these are for "in three seconds"
 and "once a second".
 
-**More widgets**, each named by an `Int` like the ones there are:
+**More widgets**, each named by a `String` like the ones there are --
+built, with `radio(group, title, chosen, on_pick)` beside them (one call
+per button; buttons sharing a group exclude each other), and
+`set_checked` and `set_value` to change one:
 
 | Function | What it does |
 |---|---|
@@ -441,6 +492,12 @@ bitmap goes to the page in one command when the program says so.
 | `pixel_color(r, g, b) -> Int` | a pixel's color from red, green and blue, 0 to 255 |
 | `red(color)`, `green(color)`, `blue(color)` | the parts of one, for filters |
 
+Built as planned, the hexadecimal literals aside (`pixel_color` makes
+a color meanwhile): each host keeps a bitmap's bytes and the rectangle
+that changed, `show_bitmap` sends that rectangle, and the log holds its
+digest. `scale` is a Float, so a bitmap twice the canvas's size shown at
+0.5 is as sharp as the screen. Test: `lib_tinyweb_bitmap`.
+
 A pixel's color is an `Int`, written in hexadecimal as `0xff8800`
 (orange) with the literals this plan adds to the language, rather than
 a CSS string, since a string per pixel would be slower to make and to
@@ -495,7 +552,10 @@ Beside bitmaps, for what is not a picture computed pixel by pixel:
 | `box_style(box, ...)` | like `set_style`, for a box |
 
 `inside`/`outside` rather than a `parent =` argument on every function
-keeps every existing call as it is.
+keeps every existing call as it is. Built: `row`, `column`, `inside`
+and `outside`, with `set_style` styling a box like any element and
+`page_style(align = ...)` centring the page; `panel` and `box_style`
+are not. Test: `lib_tinyweb_layout`.
 
 **Showing data**:
 

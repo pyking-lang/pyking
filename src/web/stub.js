@@ -8,15 +8,38 @@
 // only JavaScript the compiler itself needs, and it needs no OCaml
 // library to declare it.
 
+// Text crossing into OCaml is UTF-8 bytes, one character each, as the
+// native pyk reads a file; text crossing out is read back from them.
+// A string Pyking made that is not UTF-8 crosses out as its bytes.
+//Provides: pyk_utf8_of_text
+function pyk_utf8_of_text(text) {
+  try {
+    return unescape(encodeURIComponent(text));
+  } catch (error) {
+    return text;
+  }
+}
+
+//Provides: pyk_text_of_utf8
+function pyk_text_of_utf8(bytes) {
+  try {
+    return decodeURIComponent(escape(bytes));
+  } catch (error) {
+    return bytes;
+  }
+}
+
 //Provides: pyk_register0
+//Requires: pyk_text_of_utf8
 function pyk_register0(name, f) {
-  globalThis[name] = function () { return f(0); };
+  globalThis[name] = function () { return pyk_text_of_utf8(f(0)); };
   return 0;
 }
 
 //Provides: pyk_register1
+//Requires: pyk_utf8_of_text, pyk_text_of_utf8
 function pyk_register1(name, f) {
-  globalThis[name] = function (a) { return f(a); };
+  globalThis[name] = function (a) { return pyk_text_of_utf8(f(pyk_utf8_of_text(a))); };
   return 0;
 }
 
@@ -38,8 +61,11 @@ function pyk_register_utf8_0(name, f) {
 }
 
 //Provides: pyk_register3
+//Requires: pyk_utf8_of_text, pyk_text_of_utf8
 function pyk_register3(name, f) {
-  globalThis[name] = function (a, b, c) { return f(a, b, c); };
+  globalThis[name] = function (a, b, c) {
+    return pyk_text_of_utf8(f(pyk_utf8_of_text(a), pyk_utf8_of_text(b), pyk_utf8_of_text(c)));
+  };
   return 0;
 }
 
@@ -47,8 +73,9 @@ function pyk_register3(name, f) {
 // runs anything; until then, printed lines are dropped rather than lost
 // in a thrown exception.
 //Provides: pyk_emit
+//Requires: pyk_text_of_utf8
 function pyk_emit(line) {
-  (globalThis.pykOnPrint || function () {})(line);
+  (globalThis.pykOnPrint || function () {})(pyk_text_of_utf8(line));
   return 0;
 }
 
@@ -56,11 +83,12 @@ function pyk_emit(line) {
 // supplied one, and the console otherwise -- debug output is for whoever
 // is debugging, and the console is where they look.
 //Provides: pyk_debug
+//Requires: pyk_text_of_utf8
 function pyk_debug(line) {
   var sink = globalThis.pykOnDebug || function (text) {
     console.error(text.replace(/\n$/, ""));
   };
-  sink(line);
+  sink(pyk_text_of_utf8(line));
   return 0;
 }
 
@@ -69,8 +97,9 @@ function pyk_debug(line) {
 // program printed: `pykOnShow` where the page supplied one, and
 // `pykOnPrint` otherwise.
 //Provides: pyk_show
+//Requires: pyk_text_of_utf8
 function pyk_show(line) {
-  (globalThis.pykOnShow || globalThis.pykOnPrint || function () {})(line);
+  (globalThis.pykOnShow || globalThis.pykOnPrint || function () {})(pyk_text_of_utf8(line));
   return 0;
 }
 
@@ -78,9 +107,17 @@ function pyk_show(line) {
 // target: the page registers `pykExternal`, which answers what one of an
 // external module's exports is, or calls one of its functions. Values
 // cross as JSON, which is the one encoding both sides already have --
-// see docs/modules.md, "What may cross the boundary".
+// see docs/modules.md, "What may cross the boundary". The JSON is UTF-8
+// bytes on the OCaml side, so text with any character crosses whole.
 //Provides: pyk_external
+//Requires: pyk_external_text, pyk_utf8_of_text, pyk_text_of_utf8
 function pyk_external(module_, field, argsJson) {
+  return pyk_utf8_of_text(pyk_external_text(module_, field, pyk_text_of_utf8(argsJson)));
+}
+
+// pyk_external, with the JSON as JavaScript text both ways.
+//Provides: pyk_external_text
+function pyk_external_text(module_, field, argsJson) {
   var table = globalThis.pykExternals || {};
   var target = table[module_];
   if (!target) {
@@ -187,19 +224,19 @@ function pyk_encode(value) {
 // page has one: that is how a program run in the playground or a notebook
 // imports the standard library, fetched the first time it is named.
 //Provides: pyk_file_exists
-//Requires: pyk_source
+//Requires: pyk_source, pyk_text_of_utf8
 function pyk_file_exists(name) {
-  return pyk_source(name) === null ? "" : "1";
+  return pyk_source(pyk_text_of_utf8(name)) === null ? "" : "1";
 }
 
 //Provides: pyk_file_read
-//Requires: pyk_source
+//Requires: pyk_source, pyk_utf8_of_text, pyk_text_of_utf8
 function pyk_file_read(name) {
-  var text = pyk_source(name);
+  var text = pyk_source(pyk_text_of_utf8(name));
   if (text === null) {
     throw new Error("no source '" + name + "' was supplied");
   }
-  return text;
+  return pyk_utf8_of_text(text);
 }
 
 //Provides: pyk_source
@@ -216,7 +253,8 @@ function pyk_source(name) {
 // compiling for `web` ships beside the program -- or the empty string
 // where the page cannot supply one.
 //Provides: pyk_library_file
+//Requires: pyk_utf8_of_text
 function pyk_library_file(path) {
   var text = globalThis.pykLibraryFile ? globalThis.pykLibraryFile(path) : null;
-  return typeof text === "string" ? text : "";
+  return typeof text === "string" ? pyk_utf8_of_text(text) : "";
 }

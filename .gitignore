@@ -22,4 +22,5 @@ tools/site/build/
 tools/site/node_modules/
 web_examples/
 web_docs/
-tools/site/.astro/
+tools/site/.astro/pyking-web-examples/
+pyking-web-examples/

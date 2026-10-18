@@ -196,11 +196,36 @@ let value_of_json text =
           if i + 1 >= length then fail ()
           else
             let c = text.[i + 1] in
+            if c = 'u' then (
+              (* A character JSON wrote as \uXXXX: a control character,
+                 or half of a pair beyond the first 65536. *)
+              if i + 6 > length then fail ();
+              let code =
+                match int_of_string_opt ("0x" ^ String.sub text (i + 2) 4) with
+                | Some code -> code
+                | None -> fail ()
+              in
+              let code, next =
+                if code >= 0xD800 && code <= 0xDBFF && i + 12 <= length
+                   && String.sub text (i + 6) 2 = "\\u"
+                then
+                  match int_of_string_opt ("0x" ^ String.sub text (i + 8) 4) with
+                  | Some low when low >= 0xDC00 && low <= 0xDFFF ->
+                      (0x10000 + ((code - 0xD800) lsl 10) + (low - 0xDC00), i + 12)
+                  | _ -> (code, i + 6)
+                else (code, i + 6)
+              in
+              Buffer.add_utf_8_uchar out
+                (if Uchar.is_valid code then Uchar.of_int code else Uchar.rep);
+              string_at next out)
+            else
             let next =
               match c with
               | 'n' -> "\n"
               | 't' -> "\t"
               | 'r' -> "\r"
+              | 'b' -> "\b"
+              | 'f' -> "\012"
               | '"' -> "\""
               | '\\' -> "\\"
               | '/' -> "/"

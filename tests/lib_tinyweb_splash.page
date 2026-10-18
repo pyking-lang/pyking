@@ -3,7 +3,7 @@ canvas "canvas" 200 100
 clear "canvas" #202020
 load "kick1.wav"
 play "kick1.wav" 0.250 1.000 1.000
-circle "canvas" 100 50 30 #ffcc00
+circle "canvas" 100 50 30 "#ffcc00" "" 1.000 1.000
 button "Again"
 splash
 > click "Again"

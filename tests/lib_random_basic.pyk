@@ -1,0 +1,15 @@
+# The random library with a seed: the same numbers on every target.
+
+import random
+
+random.seed(2026)
+print(random.randint(1, 6))
+print(random.randint(1, 6))
+print(random.randint(-10, 10))
+print(random.randint(5, 5))
+print(random.randint(9, 1))
+print(random.random())
+print(random.uniform(10.0, 20.0))
+
+random.seed(2026)
+print(random.randint(1, 6))

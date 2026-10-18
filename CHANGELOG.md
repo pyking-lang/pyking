@@ -57,6 +57,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it says (`""` turns it off), and a program that can play a sound calls
   `splash()` at the end of its top level without writing it. The
   playground and the notebook never show it.
+- tinyweb draws more (step 1 of the plan): `ellipse`, `arc`, `polygon`,
+  `path` and `curve`; an outline, its width and transparency on every
+  shape, and rounded corners on `rect`; text with a font, an alignment
+  and bold; `translate`, `rotate`, `scale`, `push`, `pop` and `reset`;
+  pictures with `load_image` and `image` (`ball.png`, `star.png` and
+  `tile.png` ship with it); `shadow` and `blend`. Colors come from the
+  submodule `tinyweb.colors`: `rgb`, `rgba`, `hsl` and `palette`.
+- tinyweb widgets: `checkbox`, `radio`, `choice` (a dropdown),
+  `text_input` and `number_input`, with `set_checked` and `set_value`.
+- tinyweb draws between pixels: the submodule `tinyweb.smooth` holds the
+  shapes with Float coordinates and widths, and `smooth.lines` and
+  `smooth.circles` draw thousands in one command.
+- tinyweb: `lines`, `bezier`, `erase`, `line_style` (ends, corners and
+  dashes), `clip_rect`, `clip_circle` and `clip_polygon`; text with a
+  baseline and an outline, and `measure_text`; gradients,
+  `colors.linear_gradient`, `colors.radial_gradient` and
+  `colors.conic_gradient`, with `colors.stop`.
+- tinyweb's mouse and keyboard: `on_press`, `on_release`, `on_move`,
+  `on_drag`, `mouse_x`, `mouse_y`, `mouse_down`, `on_key_up` and
+  `key_down`.
+- tinyweb bitmaps: `bitmap`, `set_pixel`, `get_pixel`, `fill_bitmap`,
+  `show_bitmap`, `pixel_color`, `red`, `green` and `blue`.
+- tinyweb layout: `row`, `column`, `inside` and `outside`;
+  `page_style(align = ...)`, `set_style(weight = ..., height = ...)`,
+  and `set_label` changing a button's title.
+- `time.local_now()`: the date and the time of day where the program
+  runs.
+- A `random` library, written in Pyking: `random`, `randint`, `uniform`,
+  `choice`, `shuffle` and `seed`, the same numbers on every target for a
+  seed.
 - Submodules: a definition with a dotted name, `public def
   mymod.foo(x: Int) -> Int`, is `foo` in the submodule `mymod` of its
   file -- deeper ones too, `mymod.another.foo` -- for a `def`, an `=`
@@ -74,6 +104,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A `var` may hold a value of any type -- a String, a tuple, a list, a
+  datatype's value or a function -- not only an Int, a Float or a Bool.
 - tinyweb names a canvas, button, label, slider and sample by a String
   rather than an Int: its text -- a button's title, a label's text, a
   sample's file name -- or "canvas" or "slider", with a number added
@@ -105,6 +137,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one's variables unsolved. Both now read back in the definition's own
   variables, and a printed nested type still shows `?` where Pyking
   cannot write one.
+- On `ocaml5.5`, a tuple binding with two `_`, `(_, x, _) = t`, compiled
+  to OCaml binding `__` twice, which OCaml refuses.
+- On `ocaml5.5`, a `return` inside an `if` that was itself inside an
+  `if` with no `else`, with statements after it, did not leave the
+  function; and a public `def` with a parameter it did not read made a
+  warning.
+- On `node24` and `web24`, a Float whose shortest digits end exactly
+  halfway printed its last digit one higher (`168799237148104.63` for
+  `168799237148104.62`), and formatting a Float was slow.
+- In the browser -- iweb24, the playground, the notebook -- text with a
+  character beyond the first 256, an em dash say, was garbled on its
+  way into the interpreter and out of it.
+- tinyweb's log rounds a Float that is exactly halfway the same way on
+  every host.
+- A submodule's import is found by its row, so a qualified name after
+  a comma (`f(a, colors.rgb(...))`) is rewritten too, and the rewrite
+  no longer overflows the browser's stack on a long module.
 
 ## [0.1.3] - 2026-10-16
 

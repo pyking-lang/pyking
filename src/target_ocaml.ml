@@ -359,6 +359,27 @@ let rec pattern_text pattern =
   | OPatTuple parts ->
       Printf.sprintf "(%s)" (String.concat ", " (List.map pattern_text parts))
 
+(** pattern with every name it binds again further right replaced by
+    `_`, so the last binding of a name is the one kept.
+    opattern -> opattern *)
+let distinct pattern =
+  let rec go pattern later =
+    match pattern with
+    | OPatName name ->
+        if name <> "_" && StringSet.mem name later then (OPatName "_", later)
+        else (pattern, StringSet.add name later)
+    | OPatTuple parts ->
+        let parts, later =
+          List.fold_left
+            (fun (parts, later) part ->
+              let part, later = go part later in
+              (part :: parts, later))
+            ([], later) (List.rev parts)
+        in
+        (OPatTuple parts, later)
+  in
+  fst (go pattern StringSet.empty)
+
 (** pattern with every name nothing in used reads renamed _name.
     opattern -> StringSet.t -> opattern *)
 let rec pattern_polished pattern used =
@@ -366,8 +387,8 @@ let rec pattern_polished pattern used =
   | OPatTuple parts ->
       OPatTuple (List.map (fun part -> pattern_polished part used) parts)
   | OPatName name ->
-      if StringSet.mem name used || (String.length name > 0 && name.[0] = '_') then
-        pattern
+      if StringSet.mem name used then pattern
+      else if String.length name > 0 && name.[0] = '_' then OPatName "_"
       else OPatName ("_" ^ name)
 
 (** A bound name as OCaml should spell it: `_name` where the body never
@@ -376,7 +397,10 @@ let rec pattern_polished pattern used =
 let unread name used =
   match used with
   | None -> name
-  | Some used -> if StringSet.mem name used then name else "_" ^ name
+  | Some used ->
+      if StringSet.mem name used then name
+      else if String.length name > 0 && name.[0] = '_' then "_"
+      else "_" ^ name
 
 (* --- free variables of the generated OCaml ---
 
@@ -2177,8 +2201,11 @@ and last ctx acc statement where =
       let tail = where = Tail in
       match statement with
       | SExprStmt (_, e, _) when tail -> expr ctx acc e
-      | SReturn (_, e, _) -> expr ctx acc e
-      | SReturnStmt (_, stmt, _) -> value_stmt ctx acc stmt
+      | SReturn (_, e, _) when tail -> expr ctx acc e
+      | SReturnStmt (_, stmt, _) when tail -> value_stmt ctx acc stmt
+      (* Run for what it does, a block's last statement is not the
+         function's: a `return` there leaves the function early. *)
+      | SReturn _ | SReturnStmt _ -> escaping ctx acc statement
       | SIf (_, cond, then_body, else_body, _) -> (
           let o_cond, acc = expr ctx acc cond in
           match else_body with
@@ -2836,7 +2863,7 @@ let polish_items all keep interfaced =
                     not
                       (StringSet.is_empty
                          (StringSet.inter (StringSet.of_list (pattern_names b.bound)) keep))
-                  then b
+                  then polish_binding b
                   else rename_dead b (rest_of item b recursive) later interfaced)
                 bindings,
               recursive )
@@ -3126,7 +3153,7 @@ and pprint_binding binding keyword level =
   let pad = String.concat "" (List.init level (fun _ -> "  ")) in
   let head =
     String.concat " "
-      ((keyword :: pattern_text binding.bound
+      ((keyword :: pattern_text (distinct binding.bound)
         :: List.map pattern_text binding.params))
     ^ " ="
   in

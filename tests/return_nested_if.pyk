@@ -1,0 +1,27 @@
+# A `return` inside an `if` that is itself inside an `if` with no
+# `else`, with statements after the outer `if`: the `return` leaves the
+# function, and what follows runs only when it does not.
+
+var calls = 0
+
+
+def step(slow: Bool):
+    calls := calls + 1
+    if slow:
+        if calls - calls / 3 * 3 > 0:
+            return ()
+    print("work on call", calls)
+
+
+def first_big(limit: Int) -> Int:
+    for n in range(10):
+        if n > 2:
+            if n * n > limit:
+                return n
+    -1
+
+
+for i in range(7):
+    step(i > 2)
+print(first_big(20))
+print(first_big(1000))
