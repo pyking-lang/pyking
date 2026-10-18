@@ -174,13 +174,18 @@ function boot({ pykingURL, libURL: lib }) {
   libURL = lib ?? new URL("../lib/", pykingURL).href;
   if (loaded) return { stamp: self.pykStamp ?? null };
   status("loading compiler");
-  const manifest = JSON.parse(fetchTextSync(pykingURL + "manifest.json"));
-  self.importScripts(pykingURL + manifest.bundle);
+  // The manifest is never taken from a cache, and the bundle's URL names
+  // its stamp, so a cached copy of an older compiler is never loaded.
+  const manifest = JSON.parse(
+    fetchTextSync(pykingURL + "manifest.json?t=" + Date.now()));
+  const stamp = manifest.stamp ?? null;
+  self.importScripts(pykingURL + manifest.bundle +
+                     (stamp === null ? "" : "?v=" + encodeURIComponent(stamp)));
   if (typeof self.pykCompile !== "function") {
     throw new Error("the compiler bundle did not register pykCompile");
   }
   loaded = true;
-  self.pykStamp = manifest.stamp ?? null;
+  self.pykStamp = stamp;
   status("ready");
   // Which compiler this worker is running, so the page can tell when the
   // one on disk has moved on (PykingRuntime, `_checkStamp`).

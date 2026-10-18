@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [Unreleased]
+
+### Fixed
+
+- A page running the compiler (the playground, the notebook, the
+  website) no longer loads an older compiler from the browser's cache
+  after a new one is published: the manifest is always fetched afresh,
+  and the bundle is fetched under its stamp.
+
+
 ## [0.1.4] - 2026-10-18
 
 ### Added
