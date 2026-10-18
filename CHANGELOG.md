@@ -151,6 +151,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   way into the interpreter and out of it.
 - tinyweb's log rounds a Float that is exactly halfway the same way on
   every host.
+- On the C targets, clang (by default on a Mac) fused a multiply and an
+  add into one rounding, so a Float could differ from every other
+  target in its last digit; generated C now turns that off.
+- On `ocaml5.5`, a program using tinyweb failed to build in a directory
+  where a program importing `sys` had been compiled before: tinyweb's
+  implementation now names OCaml's own `Stdlib.Sys`.
 - A submodule's import is found by its row, so a qualified name after
   a comma (`f(a, colors.rgb(...))`) is rewritten too, and the rewrite
   no longer overflows the browser's stack on a long module.

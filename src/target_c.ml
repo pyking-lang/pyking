@@ -2645,6 +2645,24 @@ let signature f =
   in
   Printf.sprintf "%s(%s)" (declaration f.f_result f.f_name) params
 
+(** Whether `s` occurs in `text`. string -> string -> bool *)
+let contains_text s text =
+  let n = String.length s and m = String.length text in
+  let rec go i = i + n <= m && (String.sub text i n = s || go (i + 1)) in
+  go 0
+
+(** The lines that stop the C compiler fusing a multiply and an add into
+    one rounding, which every other host rounds twice. string -> [string] *)
+let no_contraction standard =
+  [
+    comment "Every multiply and add rounded on its own, as on every other target." standard;
+    "#if defined(__clang__)";
+    "#pragma STDC FP_CONTRACT OFF";
+    "#elif defined(__GNUC__)";
+    "#pragma GCC optimize (\"fp-contract=off\")";
+    "#endif";
+  ]
+
 (** The #include lines a file needs, from what it writes.
     cprogram -> string -> string -> [string] *)
 let headers (program : cprogram) standard text =
@@ -2739,5 +2757,6 @@ let pprint_c_program (program : cprogram) standard source =
           else Printf.sprintf "Target: %s. One translation unit of the program; compile it with the others." standard)
          standard;
      ]
-    @ (if found = [] then [] else "" :: found))
+    @ (if found = [] then [] else "" :: found)
+    @ if contains_text "double" body then "" :: no_contraction standard else [])
   ^ "\n" ^ body

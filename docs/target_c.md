@@ -194,6 +194,23 @@ was. `tests/evaluation_order.pyk` pins the straight-line cases down and
 `tests/evaluation_order_branches.pyk` the two conditional ones; one
 `.out` serves every target.
 
+## Floating-point contraction
+
+C lets a compiler fuse `a * b + c` into one fused multiply-add, rounded
+once where every other host rounds twice; clang does it by default on
+AArch64, so a Float can differ in its last digit. A file that uses
+`double` therefore starts with
+
+```c
+#if defined(__clang__)
+#pragma STDC FP_CONTRACT OFF
+#elif defined(__GNUC__)
+#pragma GCC optimize ("fp-contract=off")
+#endif
+```
+
+`tests/lib_random_basic.pyk` is the case that showed it.
+
 ## Modules
 
 C has one namespace for a whole program and no import at all, so a

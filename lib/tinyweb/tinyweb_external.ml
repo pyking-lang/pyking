@@ -26,15 +26,15 @@
    `hosted`, runs it itself. `descriptors` and `handle` are how the REPL
    serves the page while it waits for a line. *)
 
-let log_file = Sys.getenv_opt "PYKING_TINYWEB_LOG"
-let events_file = Sys.getenv_opt "PYKING_TINYWEB_EVENTS"
+let log_file = Stdlib.Sys.getenv_opt "PYKING_TINYWEB_LOG"
+let events_file = Stdlib.Sys.getenv_opt "PYKING_TINYWEB_EVENTS"
 
 (* Set by the interpreter's plugin, which runs `after_program` itself. *)
 let hosted = ref false
 
 (* Where a library sample is looked for, after beside the program. *)
 let assets =
-  ref [ Filename.concat (Filename.dirname Sys.executable_name) "tinyweb_assets" ]
+  ref [ Filename.concat (Filename.dirname Stdlib.Sys.executable_name) "tinyweb_assets" ]
 
 (* BEGIN tinyweb page *)
 (* written by tools/tinyweb/embed_page.py from tinyweb_page.html and tinyweb_page.js; do not edit *)
@@ -1437,7 +1437,7 @@ let log_line command =
 
 (* Whether the log is printed on standard error too, as the page runs:
    what `pyk --tinyweb-log` asks for. *)
-let trace = Sys.getenv_opt "PYKING_TINYWEB_TRACE" <> None
+let trace = Stdlib.Sys.getenv_opt "PYKING_TINYWEB_TRACE" <> None
 
 (* An event as the line an events file holds for it. *)
 let event_line event =
@@ -1569,13 +1569,13 @@ let static path =
   else
     let relative = String.concat Filename.dir_sep parts in
     let places =
-      Sys.getcwd ()
+      Stdlib.Sys.getcwd ()
       :: (if List.hd parts = "tinyweb_assets" then List.map Filename.dirname !assets else [])
     in
     List.find_map
       (fun place ->
         let candidate = Filename.concat place relative in
-        if Sys.file_exists candidate && not (Sys.is_directory candidate) then Some candidate
+        if Stdlib.Sys.file_exists candidate && not (Stdlib.Sys.is_directory candidate) then Some candidate
         else None)
       places
 
@@ -1859,7 +1859,7 @@ and deliver event =
    it is delivered. *)
 and deliver_file () =
   match events_file with
-  | Some path when Sys.file_exists path ->
+  | Some path when Stdlib.Sys.file_exists path ->
       let lines = String.split_on_char '\n' (read_file path) in
       List.iter
         (fun line ->
@@ -1949,7 +1949,7 @@ let web_init port =
         (Printf.sprintf
            "tinyweb: cannot serve the page on port %d: a port is a number from 0 to 65535"
            port);
-    Sys.set_signal Sys.sigpipe Sys.Signal_ignore;
+    Stdlib.Sys.set_signal Stdlib.Sys.sigpipe Stdlib.Sys.Signal_ignore;
     let server = Unix.socket ~cloexec:true Unix.PF_INET Unix.SOCK_STREAM 0 in
     Unix.setsockopt server Unix.SO_REUSEADDR true;
     (try Unix.bind server (Unix.ADDR_INET (Unix.inet_addr_loopback, port))
