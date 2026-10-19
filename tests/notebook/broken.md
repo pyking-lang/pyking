@@ -60,6 +60,26 @@ Some text that is not an alternative.
 - third
 ```
 
+```quiz points = 1 one_point_correct = true
+[] one
+[] two
+```
+
+```answer
+-> first
+-> second
+```
+
+```quiz one_point_correct = true
+* one
+* two
+```
+
+```answer
+-> first
+- second
+```
+
 ```quiz
 * only one
 ```

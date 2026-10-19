@@ -9,7 +9,7 @@ Markdown viewer too.
 ```sh
 pyk notebook PYKING-TUTORIAL.md          # serve it and print a link
 pyk notebook --port 9000 notes.md
-pyk notebook --mode teacher exam.md      # every solution, test and answer shown
+pyk notebook --mode teacher exam.md      # every solution, test, answer and problem shown
 pyk notebook --mode test exam.md         # check it, and serve nothing
 make notebook                            # at the repository root: the tutorial
 ```
@@ -22,6 +22,11 @@ the real compiler — `src/` compiled to JavaScript, `share/pyking.js` — into 
 worker and runs each cell with its interpreter. The server only hands out
 files, and is `pyk` itself (`src/web_tools.ml`), so nothing else has to
 be installed. Test mode alone needs node.
+
+`pyk notebook` watches the file it serves: when it changes, the page
+reloads, scrolled where it was. It fetches the file once a second and
+compares it with what it shows. Progress is kept over the reload, except
+for an item whose block was edited.
 
 ## Running cells
 
@@ -248,8 +253,9 @@ mode. A solved exercise turns green, with a check mark.
 
 ### Quizzes
 
-The question is the prose before a ```` ```quiz ```` block. Its
-alternatives start with `*` where one is to be chosen (radio buttons) and
+The question is the prose before a ```` ```quiz ```` block, or the
+text inside it before the first alternative, which is shown inside the
+quiz's box. Its alternatives start with `*` where one is to be chosen (radio buttons) and
 `[]` where any number may be (checkboxes); an alternative runs to the
 next, and may hold inline Markdown.
 
@@ -272,19 +278,50 @@ then what explains it, which may be left empty. A `*` quiz has exactly
 one `->`. `attempts`, `points` and `penalty` mean what they mean for an
 exercise.
 
-**Check** with a wrong answer uses an attempt and shows the explanation
+**Submit** with a wrong answer uses an attempt and shows the explanation
 of each wrong alternative chosen; for checkboxes it also says when a
 right one was left unchecked. When the attempts are used up the quiz is
 failed: with `available = true` the right answers are marked and every
 explanation shown, and otherwise it only says it was failed. The default
 is `false`.
 
+`one_point_correct = true` on a `[]` quiz gives one point for each right
+alternative checked, and none when more are checked than there are right
+answers; a wrong one checked within that number scores nothing. Its
+`points` must be the number of `->` entries, which test mode checks, and
+it has one attempt unless `attempts` says otherwise; the attempts left
+are not shown. The quiz states this rule under its question. A quiz that ends with some of its points
+is marked failed, with the points it gave.
+
+````markdown
+```quiz points = 2 one_point_correct = true
+Why can static type checking be useful?
+
+[] It enables duck typing in a general way.
+
+[] It may rule out errors already at compile time.
+
+[] It may make the execution performance better.
+```
+
+```answer
+-  False, duck typing is used in dynamic typing.
+-> True, it can avoid hard-to-detect runtime errors.
+-> True, some runtime checks are no longer needed.
+```
+````
+
 ### Who is reading
 
 `--mode student`, the default, shows what is described above: a
 solution only when asked for, a test only where it says `visible =
 true`, and no answers. `--mode teacher` shows every solution, test and
-answer, and grades the same way. Solutions and answers are in the page in
+answer, and grades the same way. It also runs what test mode checks
+(below), in the page's worker, and shows under each element -- the
+rules, each exercise, each quiz and each cell -- that it has no problems,
+in green, or its problems with their lines, in red. A block with a
+problem that belongs to none of them shows it where it stands, and a
+line at the top says how many problems the document has. Solutions and answers are in the page in
 both modes -- the browser checks the answers -- so a student who reads
 the page's source can find them.
 
@@ -296,12 +333,14 @@ points. An item whose block is edited starts again.
 
 `pyk notebook --mode test FILE.md` serves nothing. It reads the document
 with the page's own renderer and runs every program with the page's own
-compiler worker, under node (`check.js`), and prints `file:line: message`
+compiler worker, under node (`check.js`, over `assets/checks.js`, which
+teacher mode runs too), and prints `file:line: message`
 for each problem, and exits with 1 if there was one:
 
 - the blocks are in an order this section allows, with a valid header:
   a solution after its exercise, an answer after its quiz with as many
-  entries, one `->` for a `*` quiz, numbers where numbers belong, one
+  entries, one `->` for a `*` quiz, as many points as `->` entries for
+  a `one_point_correct` quiz, numbers where numbers belong, one
   rules block whose `max` is the sum of the points and is not less than
   `pass`;
 - every cell runs, and every `error` cell is refused; an exercise's
@@ -350,8 +389,10 @@ becomes), and `fontSize` (the editors', in pixels). Styles are scoped under
 a theme is a few overrides. The mounted object has `cells`, `run(index)`,
 `reset(index)`, `stop()`, `setTheme(choice)`, `results()` and `title`.
 
-Three options are about exercises and quizzes: `mode` (`"student"`, the
-default, or `"teacher"`), `storageKey` (where progress is kept; by default
+`watch: true` reloads the page when the document at `url` changes, as
+`pyk notebook` does. Three options are about exercises and quizzes:
+`mode` (`"student"`, the default, or `"teacher"`, which also runs test
+mode's checks), `storageKey` (where progress is kept; by default
 from `url`, or from the text given as `markdown`), and `onChange(results)`,
 called whenever an answer is checked. `results()` answers every exercise
 and quiz -- `{id, kind, number, state, points, maxPoints, attemptsLeft}`,
@@ -428,13 +469,14 @@ tools/notebook/
     markdown.js      Markdown to HTML, pure (ES module)
     exercises.js     what the exercise and quiz blocks mean, and the
                      grading; pure (ES module)
+    checks.js        what test mode checks, given how to run a program
     notebook.css     all styles, scoped under .pkn-notebook
 ```
 
 | URL | From |
 |---|---|
 | `/` | `assets/index.html` |
-| `/notebook.json` | the document the server was started with, and the mode |
+| `/notebook.json` | the document the server was started with, the mode, and `watch` |
 | `/notebook/…` | `assets/` |
 | `/doc/…` | the document's own directory; `?doc=other.md` opens another |
 | `/webrun/…`, `/vendor/…`, `/pyking/…` | shared with the playground; see `../webrun/README.md` |
@@ -453,5 +495,7 @@ its grading arithmetic, starts `pyk notebook` and `pyk playground` to fetch
 what their pages load, and runs test mode on `features.md` and
 `broken.md`. Where a Chromium is found and the editor is vendored,
 `tests/notebook/page.mjs` drives `features.md` in it, in both modes:
-exercises submitted, quizzes answered, a reload, and start over. The
+exercises submitted, quizzes answered, a reload, and start over; and in
+teacher mode the checks under each element, and the page reloading
+when its file is edited. The
 editors' keys are not covered.

@@ -148,13 +148,19 @@ let extended (more : Web_server.site) (site : Web_server.site) : Web_server.site
 (* --- the notebook --- *)
 
 (** What the notebook serves for one document in one mode: the page, its
-    scripts, the document's directory under doc/, and notebook.json.
+    scripts, the document's directory under doc/, and notebook.json,
+    which also tells the page to reload when the document changes.
     string -> string -> Web_server.site *)
 let notebook_site document mode =
   let assets = under [ "tools"; "notebook"; "assets" ] in
   let index = Filename.concat assets "index.html" in
   let config =
-    json_object [ ("document", json_string (Filename.basename document)); ("mode", json_string mode) ]
+    json_object
+      [
+        ("document", json_string (Filename.basename document));
+        ("mode", json_string mode);
+        ("watch", "true");
+      ]
     ^ "\n"
   in
   extended

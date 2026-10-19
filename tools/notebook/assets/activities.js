@@ -16,7 +16,7 @@
 //   results() -- every item's state and the totals, for an embedding page.
 
 import { escapeHTML } from "./markdown.js";
-import { checkQuiz, award, sameOutput, summary } from "./exercises.js";
+import { checkQuiz, award, quizAward, rightAnswers, sameOutput, summary } from "./exercises.js";
 
 /** How long one run of a submitted answer may take, in milliseconds. */
 const SUBMIT_TIMEOUT = 10000;
@@ -26,7 +26,9 @@ const STORE_PREFIX = "pyking-notebook.progress:";
 export class Activities {
   /** cells: the Cells the document's cells belong to; doc: what
    *  renderMarkdown answered; root: the element holding its HTML;
-   *  options: {mode, storageKey, summary, onChange, cellOffset}. */
+   *  options: {mode, storageKey, summary, onChange, cellOffset, checks}.
+   *  With `checks`, a teacher sees what test mode finds under each
+   *  element, once `showChecks` is given it. */
   constructor(cells, doc, root, options = {}) {
     this.cells = cells;
     this.doc = doc;
@@ -39,6 +41,9 @@ export class Activities {
     this.states = {};
     this.widgets = {};
     this.bars = [];
+    this.checks = this.teacher && !!options.checks;
+    this.reports = [];         // one per element checked: {element, checked}
+    this.reportOf = new Map(); // part index -> its element's report
     this.load();
     this.build(options.summary !== false);
   }
@@ -154,6 +159,7 @@ export class Activities {
         ? new ExerciseWidget(this, item, at, used) : new QuizWidget(this, item, at, used);
       this.widgets[item.id] = widget;
     }
+    if (this.checks) this.buildReports(at);
     // Whatever is left is an input block that filled in a cell, or one
     // exercises.js complained about: neither is shown.
     for (const part of parts) {
@@ -164,10 +170,99 @@ export class Activities {
       const top = this.bar();
       const bottom = this.bar();
       const rules = prose.querySelector(".pkn-rules");
-      if (rules) rules.after(top);
+      const below = rules?.nextElementSibling?.classList.contains("pkn-check")
+        ? rules.nextElementSibling : rules;
+      if (rules) below.after(top);
       else prose.prepend(top);
       prose.append(bottom);
     }
+    if (this.checks) {
+      const prose = this.root.querySelector(".pkn-prose") ?? this.root;
+      this.top = element("div", "pkn-check pkn-check-summary");
+      const bar = this.bars[0];
+      const rules = prose.querySelector(".pkn-rules");
+      if (bar) bar.after(this.top);
+      else if (rules) rules.after(this.top);
+      else prose.prepend(this.top);
+      this.showChecks(null);
+    }
+  }
+
+  // -- teacher checks ------------------------------------------------------
+
+  /** A report under every element test mode checks -- the rules, each
+   *  exercise, each quiz, each cell the document runs -- and one where a
+   *  block exercises.js complained about stands on its own.
+   *  (Part -> Element?) -> () */
+  buildReports(at) {
+    const { doc } = this;
+    const report = (anchor, indices, checked) => {
+      const r = { element: element("div", "pkn-check"), checked };
+      anchor.after(r.element);
+      for (const index of indices) this.reportOf.set(index, r);
+      this.reports.push(r);
+      return r;
+    };
+    const rules = this.root.querySelector(".pkn-rules");
+    if (rules) report(rules, [doc.parts.find((p) => p.kind === "rules").index], true);
+    const blocks = (tests) => tests.flatMap((test) =>
+      [test.input, test.output, test.error].filter(Boolean).map((block) => block.index));
+    const owned = new Set();
+    for (const item of this.notebook.items) {
+      const widget = this.widgets[item.id];
+      const indices = [item.part];
+      if (item.kind === "quiz") {
+        if (item.answerPart !== null) indices.push(item.answerPart);
+      } else {
+        if (item.cell !== null) owned.add(item.cell);
+        if (item.solution) {
+          owned.add(item.solution.cell);
+          indices.push(doc.cells[item.solution.cell].part);
+        }
+        indices.push(...blocks(item.tests));
+      }
+      report(widget.key?.isConnected ? widget.key : widget.box, indices, true);
+    }
+    for (const spec of doc.cells) {
+      if (owned.has(spec.index)) continue;
+      const examples = this.notebook.examples.filter((e) => e.cell === spec.index);
+      report(this.cell(spec.index).element,
+        [spec.part, ...examples.flatMap((e) => blocks(e.tests))], true);
+    }
+    const lines = new Set(this.notebook.problems.map((p) => p.line));
+    for (const part of doc.parts) {
+      if (this.reportOf.has(part.index) || !lines.has(part.line)) continue;
+      const anchor = at(part);
+      if (anchor) report(anchor, [part.index], false);
+    }
+  }
+
+  /** Shows what test mode found under each element, or that it is still
+   *  being checked where `problems` is null. [Problem]? -> () */
+  showChecks(problems) {
+    if (!this.checks) return;
+    const found = new Map(this.reports.map((r) => [r, []]));
+    const loose = [];
+    for (const problem of problems ?? []) {
+      const r = this.reportFor(problem.line);
+      if (r) found.get(r).push(problem);
+      else loose.push(problem);
+    }
+    for (const r of this.reports) {
+      const mine = found.get(r);
+      r.element.classList.toggle("pkn-hidden", !r.checked && problems !== null && !mine.length);
+      r.element.innerHTML = checkReport(problems === null ? null : mine, "");
+    }
+    this.top.innerHTML = checkReport(problems === null ? null : loose,
+      "Teacher check", problems?.length ?? 0);
+  }
+
+  /** The report a problem at this line belongs to: its block's, or the
+   *  one of the block it is inside. Int -> Report? */
+  reportFor(line) {
+    const parts = this.doc.parts.filter((p) => p.line <= line);
+    const part = parts.find((p) => p.line === line) ?? parts[parts.length - 1];
+    return part ? this.reportOf.get(part.index) ?? null : null;
   }
 
   rulesBox(rules) {
@@ -451,10 +546,11 @@ class QuizWidget {
         <span class="pkn-activity-title">Quiz ${item.number}</span>
         <span class="pkn-badges" data-r="badges"></span>
       </div>
-      <div class="pkn-quiz-hint">${item.multiple ? "Choose every right answer." : "Choose one answer."}</div>
+      ${item.question ? `<div class="pkn-quiz-question">${item.question}</div>` : ""}
+      <div class="pkn-quiz-hint">${quizRule(item)}</div>
       <div class="pkn-alternatives">${options}</div>
       <div class="pkn-activity-actions">
-        <button class="pkn-button pkn-primary" data-r="check">Check</button>
+        <button class="pkn-button pkn-primary" data-r="submit">Submit</button>
       </div>
       <div class="pkn-feedback pkn-hidden" data-r="feedback"></div>`;
     this.ui = {};
@@ -467,11 +563,14 @@ class QuizWidget {
         this.a.save();
       });
     }
-    this.ui.check.addEventListener("click", () => this.check());
+    this.ui.submit.addEventListener("click", () => this.submit());
     at(part)?.replaceWith(box);
     if (answerPart) {
       const key = at(answerPart);
-      if (this.a.teacher) key?.replaceWith(this.answerKey());
+      if (this.a.teacher) {
+        this.key = this.answerKey();
+        key?.replaceWith(this.key);
+      }
       else key?.remove();
     }
     this.box = box;
@@ -508,12 +607,12 @@ class QuizWidget {
     const s = this.a.states[item.id];
     const badges = [];
     if (item.points !== null) {
-      badges.push(badge(s.state === "solved"
+      badges.push(badge(s.state === "solved" || (s.state === "failed" && s.points > 0)
         ? `${formatNumber(s.points)} of ${formatNumber(item.points)} points`
         : `${formatNumber(item.points)} point${item.points === 1 ? "" : "s"}`));
       if (item.penalty) badges.push(badge(`−${formatNumber(item.penalty)} per wrong answer`));
     }
-    if (item.attempts !== null && s.state === "open") {
+    if (item.attempts !== null && !item.onePointCorrect && s.state === "open") {
       const left = item.attempts - s.used;
       badges.push(badge(`${left} attempt${left === 1 ? "" : "s"} left`, "pkn-badge-attempts"));
     }
@@ -522,7 +621,7 @@ class QuizWidget {
     this.box.dataset.state = s.state;
     const closed = s.state !== "open";
     for (const input of this.inputs) input.disabled = closed;
-    this.ui.check.disabled = closed;
+    this.ui.submit.disabled = closed;
     const reveal = s.state === "solved" || (s.state === "failed" && item.available) || this.a.teacher;
     for (const mark of this.box.querySelectorAll("[data-mark]")) {
       const answer = item.answers[Number(mark.dataset.mark)];
@@ -548,7 +647,7 @@ class QuizWidget {
     }
   }
 
-  check() {
+  submit() {
     const { item } = this;
     const s = this.a.states[item.id];
     if (s.state !== "open") return;
@@ -563,7 +662,7 @@ class QuizWidget {
     const verdict = checkQuiz(item, chosen);
     if (verdict.correct) {
       s.state = "solved";
-      s.points = award(item, s.failures);
+      s.points = quizAward(item, chosen, s.failures);
       s.explained = chosen;
       s.feedback = { kind: "good", html: `${ICON.check} Right${item.points !== null
         ? ` — ${formatNumber(s.points)} of ${formatNumber(item.points)} points` : ""}.` };
@@ -574,14 +673,18 @@ class QuizWidget {
       const lines = [];
       if (out) {
         s.state = "failed";
+        s.points = quizAward(item, chosen, s.failures - 1);
         s.explained = [];
+        if (s.points > 0) {
+          lines.push(`Partly right: ${formatNumber(s.points)} of ${formatNumber(item.points)} points.`);
+        }
         lines.push(item.available ? "Not right. The right answers are marked."
           : "Not right, and no attempts are left. The quiz is failed.");
       } else {
         s.explained = verdict.wrong;
         lines.push("Not right.");
         if (item.multiple && verdict.missed) lines.push("One or more right answers were not checked.");
-        if (item.attempts !== null) {
+        if (item.attempts !== null && !item.onePointCorrect) {
           const left = item.attempts - s.used;
           lines.push(`${left} attempt${left === 1 ? "" : "s"} left.`);
         }
@@ -594,6 +697,38 @@ class QuizWidget {
 }
 
 // ----------------------------------------------------------------- helpers
+
+/** A teacher check's text: checking where `problems` is null, else that
+ *  nothing was found or the problems with their lines. The summary at the
+ *  top is titled, and counts every problem in the document.
+ *  [Problem]? -> String -> Int -> String */
+function checkReport(problems, title, total = null) {
+  const lead = title ? `${title}: ` : "";
+  if (problems === null) {
+    return `<div class="pkn-check-busy">${lead}checking${title ? " the notebook" : ""}…</div>`;
+  }
+  const count = total ?? problems.length;
+  if (!count) {
+    return `<div class="pkn-check-good">${ICON.check}${lead}no problems found`
+      + `${title ? " in this notebook" : ""}.</div>`;
+  }
+  const rows = problems.map((p) => `<li><span class="pkn-check-line">line ${p.line}</span>`
+    + `<span class="pkn-check-message">${escapeHTML(p.message)}</span></li>`).join("");
+  return `<div class="pkn-check-bad">${ICON.cross}${lead}${count} problem${count === 1 ? "" : "s"}`
+    + `${title ? " found in this notebook" : " found"}${rows ? ":" : "."}</div>`
+    + (rows ? `<ul class="pkn-check-list">${rows}</ul>` : "");
+}
+
+/** What a quiz says a student is to do. Quiz -> String */
+function quizRule(item) {
+  if (!item.multiple) return "Choose one answer.";
+  if (!item.onePointCorrect) return "Choose every right answer.";
+  const n = rightAnswers(item);
+  const alternatives = `${n} alternative${n === 1 ? "" : "s"}`;
+  return `Choose every answer you believe is true. Note that in this case, exactly `
+    + `${alternatives} ${n === 1 ? "is" : "are"} correct. If you check more than ${alternatives}, `
+    + `you get zero points. Otherwise, you get 1 point for each correct answer.`;
+}
 
 function isVisible(block) {
   return block.attrs.visible === true || block.attrs.visible === "true";

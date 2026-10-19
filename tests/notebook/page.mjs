@@ -4,8 +4,9 @@
 // tests/notebook/features.md and runs this against it, once in student
 // mode and once in teacher mode.
 //
-// Usage: node page.mjs <chromium> <url> <student|teacher>
-// Writes {checks, failures} as JSON.
+// Usage: node page.mjs <chromium> <url> <student|teacher> [<document>]
+// Writes {checks, failures} as JSON. In teacher mode, <document> is the
+// file the server serves, which the driver edits to see the page reload.
 
 import fs from "node:fs";
 import os from "node:os";
@@ -13,7 +14,7 @@ import path from "node:path";
 
 import { connect, launch, progress } from "../chromium.mjs";
 
-const [browser, url, mode] = process.argv.slice(2);
+const [browser, url, mode, served] = process.argv.slice(2);
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), "pyk-notebook-"));
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -41,7 +42,7 @@ const HELPERS = `
   const answer = (n, chosen) => {
     const inputs = $$("input", quiz(n));
     for (const [k, input] of inputs.entries()) if (input.checked !== chosen.includes(k)) input.click();
-    $("[data-r=check]", quiz(n)).click();
+    $("[data-r=submit]", quiz(n)).click();
     return $("[data-r=feedback]", quiz(n)).innerText;
   };
   const checks = [];
@@ -53,10 +54,10 @@ const SOLUTION = JSON.stringify('import io\nimport sys\nline = io.read_line()\n'
 
 const STUDENT = [`(async () => { ${HELPERS}
   let r = nb.results();
-  check("five open items, worth 10 with 8 to pass",
-    r.total === 5 && r.solved === 0 && r.max === 10 && r.pass === 8, JSON.stringify(r));
-  check("the rules show max and pass", /10\\s*points/.test($(".pkn-rules").innerText)
-    && /pass at\\s*8/.test($(".pkn-rules").innerText), $(".pkn-rules")?.innerText);
+  check("six open items, worth 12 with 9 to pass",
+    r.total === 6 && r.solved === 0 && r.max === 12 && r.pass === 9, JSON.stringify(r));
+  check("the rules show max and pass", /12\\s*points/.test($(".pkn-rules").innerText)
+    && /pass at\\s*9/.test($(".pkn-rules").innerText), $(".pkn-rules")?.innerText);
   check("a progress bar at the top and at the end", $$(".pkn-progress").length === 2);
   check("the solution is hidden, and can be asked for",
     hidden($("[data-r=solution]", exercise(1))) && !hidden($("[data-r=show]", exercise(1))));
@@ -105,15 +106,24 @@ const STUDENT = [`(async () => { ${HELPERS}
     quiz(2).dataset.state === "failed" && said.includes("marked")
     && $$("[data-mark]", quiz(2)).filter((m) => m.innerHTML !== "").length === 3, said);
 
+  check("a quiz shows its question inside its box, then its rule",
+    $(".pkn-quiz-question", quiz(3))?.innerText.includes("static type checking")
+    && $(".pkn-quiz-hint", quiz(3)).innerText.includes("exactly 2 alternatives are correct"),
+    $(".pkn-quiz-hint", quiz(3))?.innerText);
+  said = answer(3, [1, 2]);
+  check("one point per right answer, in its one attempt",
+    quiz(3).dataset.state === "failed" && said.includes("1 of 2 points")
+    && $("[data-r=badges]", quiz(3)).innerText.includes("1 of 2 points"), said);
+
   r = nb.results();
-  check("the results: three solved, 7 points, not passed",
-    r.solved === 3 && r.points === 7 && r.passed === false && r.done === false, JSON.stringify(r));
-  check("the progress bar says so", $(".pkn-progress").innerText.includes("3 of 5 solved")
-    && $(".pkn-progress").innerText.includes("7 of 10"), $(".pkn-progress").innerText);
+  check("the results: three solved, 8 points, not passed",
+    r.solved === 3 && r.points === 8 && r.passed === false && r.done === false, JSON.stringify(r));
+  check("the progress bar says so", $(".pkn-progress").innerText.includes("3 of 6 solved")
+    && $(".pkn-progress").innerText.includes("8 of 12"), $(".pkn-progress").innerText);
   return checks;
 })()`, "reload", `(async () => { ${HELPERS}
   const r = nb.results();
-  check("progress is kept over a reload", r.solved === 3 && r.points === 7, JSON.stringify(r));
+  check("progress is kept over a reload", r.solved === 3 && r.points === 8, JSON.stringify(r));
   check("so is the code of an exercise",
     nb.cells.filter((c) => c.spec.attrs.exercise)[0].source().includes("read_line"));
   check("and a failed exercise stays closed", $("[data-r=submit]", exercise(3)).disabled);
@@ -132,9 +142,42 @@ const TEACHER = [`(async () => { ${HELPERS}
   check("even one that is not available", !hidden($("[data-r=solution]", exercise(3))));
   check("every test is shown", $$(".pkn-io", exercise(1)).length === 4,
     $$(".pkn-io", exercise(1)).length);
-  check("every quiz has its answer key", $$(".pkn-answer-key").length === 2);
+  check("every quiz has its answer key", $$(".pkn-answer-key").length === 3);
   check("hidden output under a cell is shown too",
     $$(".pkn-io").some((b) => b.innerText.includes("echo me")));
+  check("a quiz's button says Submit", $("[data-r=submit]", quiz(1))?.innerText === "Submit");
+  check("a one_point_correct quiz does not count its attempts",
+    !$("[data-r=badges]", quiz(3)).innerText.includes("attempt"),
+    $("[data-r=badges]", quiz(3)).innerText);
+
+  for (let i = 0; i < 1200 && nb.checked === undefined; i++) await new Promise((r) => setTimeout(r, 100));
+  const reports = $$(".pkn-check:not(.pkn-check-summary)");
+  check("the checks ran", nb.checked !== undefined && nb.checked.length === 0,
+    JSON.stringify(nb.checked));
+  check("a check under every exercise, quiz, cell and the rules",
+    reports.length === 6 + nb.cells.filter((c) => !c.spec.attrs.exercise && !c.spec.attrs.solution).length + 1,
+    reports.length);
+  check("each of them says no problems, in green",
+    reports.every((r) => $(".pkn-check-good", r)?.innerText.includes("no problems")),
+    reports.map((r) => r.innerText).join(" | "));
+  check("so does the line at the top",
+    $(".pkn-check-summary .pkn-check-good")?.innerText.includes("no problems found in this notebook"),
+    $(".pkn-check-summary")?.innerText);
+  check("a quiz's check is right below it and its answer key",
+    quiz(1).nextElementSibling?.classList.contains("pkn-answer-key")
+    && quiz(1).nextElementSibling.nextElementSibling?.classList.contains("pkn-check"));
+  return checks;
+})()`, "edit", `(async () => { ${HELPERS}
+  for (let i = 0; i < 1200 && nb.checked === undefined; i++) await new Promise((r) => setTimeout(r, 100));
+  const scroller = document.scrollingElement;
+  check("the page reloaded where it was scrolled to",
+    Math.abs(scroller.scrollTop - Number(sessionStorage.getItem("scrolled"))) < 5,
+    scroller.scrollTop + " " + sessionStorage.getItem("scrolled"));
+  const bad = $$(".pkn-check").filter((r) => $(".pkn-check-bad", r));
+  check("the edited file's problem is shown where it is, in red",
+    bad.length === 2 && bad.some((r) => r.innerText.includes("an answer block belongs right after its quiz"))
+    && bad.some((r) => r.classList.contains("pkn-check-summary") && r.innerText.includes("1 problem found")),
+    bad.map((r) => r.innerText).join(" | "));
   return checks;
 })()`];
 
@@ -176,6 +219,27 @@ try {
     progress(`${mode}: step ${k + 1}/${phases.length}${phase === "reload" ? ", reloading" : ""}`);
     if (phase === "reload") {
       await evaluate("location.reload(); true");
+      await ready();
+      continue;
+    }
+    if (phase === "edit") {
+      // The server was started on a copy: edit it, and the page reloads
+      // itself, scrolled where it was.
+      const at = await evaluate("window.notReloaded = true; document.scrollingElement.scrollTop = 400; "
+        + "sessionStorage.setItem('scrolled', String(document.scrollingElement.scrollTop)); "
+        + "document.scrollingElement.scrollTop");
+      fs.appendFileSync(served, "\n```answer\n-> lost\n```\n");
+      let reloaded = false;
+      for (let i = 0; i < 100 && !reloaded; i++) {
+        await sleep(100);
+        try {
+          reloaded = await evaluate("!window.notReloaded");
+        } catch {
+          /* reloading */
+        }
+      }
+      output.checks += 1;
+      if (!reloaded) output.failures.push(`${mode}: the page reloads when its file changes`);
       await ready();
       continue;
     }

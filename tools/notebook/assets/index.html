@@ -10,8 +10,9 @@
   would copy to embed one (see tools/notebook/README.md, "Embedding").
 
   `notebook.json` names the document the server was started with, served
-  from `doc/`, and the mode (student or teacher); `?doc=other.md` opens
-  another file beside it.
+  from `doc/`, the mode (student or teacher) and whether to reload the
+  page when the file changes; `?doc=other.md` opens another file beside
+  it.
 -->
 <style>
   html, body { margin: 0; min-height: 100%; background: #fbfbf9; }
@@ -33,6 +34,8 @@
     const app = await mountNotebook(host, {
       url: here.href,
       mode: config.mode ?? "student",
+      // `pyk notebook` says to reload the page when the file changes.
+      watch: !!config.watch,
       // A link to another Markdown file beside this one opens it here too.
       documentLink: (href) => {
         const target = new URL(href, here);

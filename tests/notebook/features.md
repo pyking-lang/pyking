@@ -54,7 +54,7 @@ print("not Pyking")
 
 ## Exercises and quizzes
 
-``` rules max = 10 pass = 8
+``` rules max = 12 pass = 9
 Solve all exercises and quizzes. An **exercise** is checked against its
 tests when it is submitted.
 ```
@@ -209,6 +209,32 @@ Which are true of bindings?
 -> A `var` is updated with `:=`.
 - A name bound with `=` never changes.
 ->
+```
+
+A quiz may hold its question, and give a point for each right answer:
+
+```quiz points = 2 one_point_correct = true
+Why can static type checking be useful?
+
+[] It enables duck typing in a general way.
+
+[] It may rule out errors already at compile time.
+
+[] Because it implies that runtime errors occur more frequently.
+
+[] It may make the execution performance better.
+
+[] It guarantees always that runtime errors are avoided, e.g.,
+   division by zero errors are always avoided statically in languages
+   such as C, Java, and OCaml.
+```
+
+```answer
+-  False, duck typing is used in dynamic typing
+-> True, compile time checking can avoid hard-to-detect runtime errors.
+-  False, ruling out errors statically can avoid runtime errors
+-> True, some compilers can avoid expensive runtime checks after static checking
+-  False, some errors are typically not detected statically, such as out-of-bound errors and division-by-zero errors.
 ```
 
 ## Lists

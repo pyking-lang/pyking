@@ -15,7 +15,8 @@
 //   Test -- {line, stdin, args, input, output, error}: one input and what
 //     it should print; `input`, `output` and `error` are the blocks.
 //   Quiz -- {kind: "quiz", id, number, key, line, part, answerPart,
-//     alternatives, multiple, answers, attempts, points, penalty, available}.
+//     question, alternatives, multiple, onePointCorrect, answers, attempts,
+//     points, penalty, available}.
 //   Example -- {cell, line, tests}: input and output under an ordinary cell.
 //   Problem -- {line, message}.
 //
@@ -24,6 +25,9 @@
 //   normalizeOutput(text) -- output as it is compared.
 //   sameOutput(a, b) -- whether two outputs count as the same.
 //   checkQuiz(quiz, chosen) -- what a quiz answer got right and wrong.
+//   rightAnswers(quiz) -- how many of a quiz's alternatives are right.
+//   quizAward(quiz, chosen, failures) -- the points a check that ends a
+//     quiz gives.
 //   award(item, failures) -- the points an item solved after failures gives.
 //   summary(notebook, states) -- solved, points and passing, for the page.
 
@@ -38,7 +42,7 @@ const KNOWN = {
   args: [],
   stdout: ["visible"],
   stderr: ["visible"],
-  quiz: ["attempts", "points", "penalty", "available"],
+  quiz: ["attempts", "points", "penalty", "available", "one_point_correct"],
   answer: [],
 };
 
@@ -230,9 +234,12 @@ function readExercise(part, cells, number_, problem) {
 }
 
 function readQuiz(part, number_, problem) {
-  if (part.stray) problem(part, "a quiz holds only its alternatives, each starting with * or []");
   if (part.mixed) problem(part, "a quiz's alternatives are all * (choose one) or all [] (choose any)");
   if (!part.alternatives.length) problem(part, "a quiz needs at least one alternative");
+  const onePointCorrect = flag(part, "one_point_correct", false, problem);
+  if (onePointCorrect && !part.multiple && !part.mixed && part.alternatives.length) {
+    problem(part, "one_point_correct is for a quiz whose alternatives are [] (choose any)");
+  }
   return {
     kind: "quiz",
     id: `quiz-${number_}`,
@@ -241,10 +248,14 @@ function readQuiz(part, number_, problem) {
     line: part.line,
     part: part.index,
     answerPart: null,
+    question: part.question ?? "",
     alternatives: part.alternatives,
     multiple: part.multiple,
+    onePointCorrect,
     answers: [],
-    attempts: count(part, "attempts", problem),
+    // One point per right answer is a score, so it is checked once
+    // unless the quiz says otherwise.
+    attempts: count(part, "attempts", problem) ?? (onePointCorrect ? 1 : null),
     points: number(part, "points", null, problem),
     penalty: number(part, "penalty", 0, problem) ?? 0,
     available: flag(part, "available", false, problem),
@@ -264,6 +275,10 @@ function readAnswer(quiz, part, problem) {
   const right = part.answers.filter((a) => a.correct).length;
   if (!quiz.multiple && right !== 1) {
     problem(part, `a quiz whose alternatives are * has one right answer (->), not ${right}`);
+  }
+  if (quiz.onePointCorrect && quiz.multiple && quiz.points !== right) {
+    problem(part, `with one_point_correct, points is the number of right answers (${right}), `
+      + `not ${quiz.points ?? "missing"}`);
   }
 }
 
@@ -295,7 +310,7 @@ function checkPoints(rules, items, problems) {
   const sum = items.reduce((total, item) => total + (item.points ?? 0), 0);
   if (rules.max !== null && sum !== rules.max) {
     problems.push({ line: rules.line,
-      message: `max is ${rules.max}, but the exercises and quizzes give ${sum} points` });
+      message: `max is ${rules.max}, but the exercises and quizzes give ${sum} point${sum === 1 ? "" : "s"}` });
   }
   if (rules.max !== null && rules.pass !== null && rules.pass > rules.max) {
     problems.push({ line: rules.line, message: `pass (${rules.pass}) is more than max (${rules.max})` });
@@ -374,6 +389,27 @@ export function checkQuiz(quiz, chosen) {
   const wrong = [...picked].filter((k) => !quiz.answers[k]?.correct).sort((a, b) => a - b);
   const missed = quiz.answers.some((answer, k) => answer.correct && !picked.has(k));
   return { correct: !missed && wrong.length === 0, missed, wrong };
+}
+
+/** How many of a quiz's alternatives are right. Quiz -> Int */
+export function rightAnswers(quiz) {
+  return quiz.answers.filter((answer) => answer.correct).length;
+}
+
+/** The points a check that ends a quiz gives, after `failures` failed
+ *  tries before it. With one_point_correct, one point per right answer
+ *  chosen, and none where more were chosen than there are right answers;
+ *  otherwise all the points when the answer is right and none when not.
+ *  Either way less the penalty for each earlier failure, never below 0.
+ *  Quiz -> [Int] -> Int -> Number */
+export function quizAward(quiz, chosen, failures) {
+  if (quiz.points === null) return 0;
+  const verdict = checkQuiz(quiz, chosen);
+  let score;
+  if (!quiz.onePointCorrect) score = verdict.correct ? quiz.points : 0;
+  else if (new Set(chosen).size > rightAnswers(quiz)) score = 0;
+  else score = new Set(chosen).size - verdict.wrong.length;
+  return Math.max(0, score - quiz.penalty * failures);
 }
 
 /** The points an item gives when solved after `failures` failed tries:

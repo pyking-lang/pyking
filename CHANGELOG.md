@@ -25,9 +25,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   written in; node22 writes ES2020 and node24 ES2024.
 - `pyk --help` explains what a version counts in each family; `pyk`
   alone lists the unversioned names only.
+- Notebook quizzes may hold their question, written before the first
+  alternative and shown inside the quiz's box.
+- `one_point_correct = true` on a checkbox quiz gives one point for
+  each right answer chosen, and none when more are chosen than there
+  are right answers; its `points` must be the number of right answers,
+  and it is submitted once unless `attempts` says otherwise, without
+  showing the attempts left.
+- `pyk notebook` reloads the page when its file changes, scrolled where
+  it was.
+- In teacher mode the notebook runs what `--mode test` checks and shows,
+  under the rules, each exercise, each quiz and each cell, that it has
+  no problems (green) or what they are (red), with a line at the top.
 
 ### Changed
 
+- A notebook quiz's button is Submit, and the rule under its question
+  is dark grey at the question's size.
 - An unversioned target name now means its family's default rather than
   its latest: `python` is `python12` (also the default target), `node`
   `node22`, `web` `web2020`, `iweb` `iweb2020`, `c` `c99`, `java`

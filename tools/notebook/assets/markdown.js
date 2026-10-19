@@ -711,28 +711,30 @@ export function inputLines(text) {
   return text === "" || text.endsWith("\n") ? text : text + "\n";
 }
 
-/** A quiz's alternatives: each starts a line with `*` (one may be
- *  chosen) or `[]` (any may be), and runs to the next. Text before the
- *  first, or the two markers mixed, is a problem exercises.js reports.
- *  String -> Context -> {alternatives, multiple, mixed, stray} */
+/** A quiz's question and alternatives: the question is the text before
+ *  the first alternative, and each alternative starts a line with `*`
+ *  (one may be chosen) or `[]` (any may be), and runs to the next. The
+ *  two markers mixed is a problem exercises.js reports.
+ *  String -> Context -> {question, alternatives, multiple, mixed} */
 function quizAlternatives(text, ctx) {
   const items = [];
-  let stray = false;
+  const question = [];
   for (const line of text.split("\n")) {
     const m = /^\s*(\*|\[\s*\])(?:\s+(.*)|\s*$)/.exec(line);
     if (m) items.push({ marker: m[1].startsWith("[") ? "[]" : "*", lines: [m[2] ?? ""] });
     else if (items.length) items[items.length - 1].lines.push(line);
-    else if (line.trim()) stray = true;
+    else question.push(line);
   }
   const markers = new Set(items.map((item) => item.marker));
+  const asked = question.join("\n").trim();
   return {
+    question: asked ? renderFragment(asked, ctx.opts) : "",
     alternatives: items.map((item) => {
       const body = item.lines.join("\n").trim();
       return { text: body, html: renderInlineFragment(body, ctx) };
     }),
     multiple: markers.has("[]") && !markers.has("*"),
     mixed: markers.size > 1,
-    stray,
   };
 }
 

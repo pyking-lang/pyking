@@ -158,12 +158,12 @@ check("the headings the contents list is made from",
 const nb = features.notebook;
 check("features.md has no notebook problems", nb.problems.length === 0,
       JSON.stringify(nb.problems));
-check("the rules: max 10, pass 8", nb.rules?.max === 10 && nb.rules?.pass === 8,
+check("the rules: max 12, pass 9", nb.rules?.max === 12 && nb.rules?.pass === 9,
       JSON.stringify(nb.rules));
-check("three exercises and two quizzes, in order",
-      nb.items.map((i) => i.id).join(" ") === "exercise-1 exercise-2 exercise-3 quiz-1 quiz-2",
+check("three exercises and three quizzes, in order",
+      nb.items.map((i) => i.id).join(" ") === "exercise-1 exercise-2 exercise-3 quiz-1 quiz-2 quiz-3",
       nb.items.map((i) => i.id).join(" "));
-const [ex1, ex2, ex3, quiz1, quiz2] = nb.items;
+const [ex1, ex2, ex3, quiz1, quiz2, quiz3] = nb.items;
 check("exercise 1: header, solution and three tests",
       ex1.attempts === 3 && ex1.points === 5 && ex1.stdin === "123\n" && ex1.args === "go for it"
       && ex1.solution?.available === true && ex1.tests.length === 3
@@ -185,6 +185,12 @@ check("quiz 2: any answers, from [], with an empty explanation",
       && quiz2.answers.map((a) => a.correct).join() === "true,false,true"
       && quiz2.answers[2].html === "" && quiz2.alternatives[0].html.includes("<code>var</code>"),
       JSON.stringify(quiz2).slice(0, 300));
+check("quiz 3: its question inside, one point per right answer, one attempt",
+      quiz3.multiple && quiz3.onePointCorrect && quiz3.points === 2 && quiz3.attempts === 1
+      && quiz3.question === "<p>Why can static type checking be useful?</p>"
+      && quiz3.alternatives.length === 5 && quiz3.alternatives[4].text.includes("OCaml")
+      && quiz3.answers.map((a) => a.correct).join() === "false,true,false,true,false",
+      JSON.stringify(quiz3).slice(0, 300));
 check("examples under ordinary cells: one shown, one with input and stderr",
       nb.examples.length === 2 && nb.examples[0].tests[0].output.text === "my out"
       && nb.examples[1].tests[0].stdin === "echo me\n" && nb.examples[1].tests[0].error !== null,
@@ -214,13 +220,23 @@ check("a quiz answer: right, wrong, and a right one missed",
       && JSON.stringify(grading.checkQuiz(boxes, [0, 1])) === '{"correct":false,"missed":true,"wrong":[1]}'
       && grading.checkQuiz(boxes, [2, 0]).correct,
       JSON.stringify(grading.checkQuiz(boxes, [0, 1])));
+const scored = { multiple: true, onePointCorrect: true, points: 2, penalty: 0,
+  answers: [{ correct: false }, { correct: true }, { correct: false }, { correct: true }] };
+check("one point per right answer, none for choosing more than there are",
+      grading.rightAnswers(scored) === 2
+      && grading.quizAward(scored, [1, 3], 0) === 2 && grading.quizAward(scored, [1], 0) === 1
+      && grading.quizAward(scored, [0, 1], 0) === 1 && grading.quizAward(scored, [0, 2], 0) === 0
+      && grading.quizAward(scored, [0, 1, 3], 0) === 0
+      && grading.quizAward({ ...scored, penalty: 1 }, [1, 3], 1) === 1
+      && grading.quizAward({ ...boxes, onePointCorrect: false, points: 2, penalty: 0 }, [0, 2], 0) === 2
+      && grading.quizAward({ ...boxes, onePointCorrect: false, points: 2, penalty: 0 }, [0], 0) === 0);
 check("points less the penalty for each failure, never below 0",
       grading.award({ points: 5, penalty: 2 }, 0) === 5 && grading.award({ points: 5, penalty: 2 }, 2) === 1
       && grading.award({ points: 5, penalty: 2 }, 3) === 0 && grading.award({ points: null, penalty: 0 }, 0) === 0);
 const totals = grading.summary(nb, { "exercise-1": { state: "solved", points: 5 },
   "quiz-1": { state: "solved", points: 2 }, "quiz-2": { state: "failed", points: 0 } });
 check("the totals: solved, points, and whether they pass",
-      totals.solved === 2 && totals.total === 5 && totals.points === 7 && totals.max === 10
+      totals.solved === 2 && totals.total === 6 && totals.points === 7 && totals.max === 12
       && totals.passed === false && totals.done === false, JSON.stringify(totals));
 
 // 2. The short cases.
@@ -517,8 +533,9 @@ def check_server(compiler):
     if process is not None:
         try:
             status, body = fetch(port, "/notebook.json")
-            check("notebook.json says teacher mode",
-                  status == 200 and json.loads(body).get("mode") == "teacher", body[:80])
+            check("notebook.json says teacher mode, and to watch the file",
+                  status == 200 and json.loads(body).get("mode") == "teacher"
+                  and json.loads(body).get("watch") is True, body[:80])
         finally:
             stop(process)
 
@@ -687,9 +704,14 @@ def check_page(compiler, chromium):
     page.mjs. [String] -> String -> (Int, [String])"""
     checks, failures = 0, []
     for mode in ("student", "teacher"):
+        # The teacher's page is served from a copy, which the driver edits.
+        copy = Path(tempfile.mkdtemp(prefix="pyk-notebook-")) if mode == "teacher" else None
+        if copy:
+            shutil.copytree(FIXTURES, copy, dirs_exist_ok=True)
+        document = copy / FEATURES.name if copy else FEATURES
         port = free_port()
         process, printed = start(
-            compiler, ["notebook", "--port", str(port), "--mode", mode, str(FEATURES)],
+            compiler, ["notebook", "--port", str(port), "--mode", mode, str(document)],
             dict(os.environ))
         if process is None:
             checks += 1
@@ -697,7 +719,8 @@ def check_page(compiler, chromium):
             continue
         try:
             ran = suite.run_with_progress(
-                ["node", str(PAGE_DRIVER), chromium, f"http://127.0.0.1:{port}/", mode],
+                ["node", str(PAGE_DRIVER), chromium, f"http://127.0.0.1:{port}/", mode,
+                 str(document)],
                 "the page in Chromium", STEP_TIMEOUT)
             try:
                 result = json.loads(ran.stdout)
@@ -708,6 +731,8 @@ def check_page(compiler, chromium):
             failures += result["failures"]
         finally:
             stop(process)
+            if copy:
+                shutil.rmtree(copy, ignore_errors=True)
     return checks, failures
 
 

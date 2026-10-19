@@ -358,10 +358,11 @@ let usage_full () =
      address $PYKING_WEB_HOST names (0.0.0.0 for every interface, as in a\n\
      container). --mode student hides an exercise's solution and\n\
      tests until a student asks for them, --mode teacher shows every\n\
-     block, and --mode test serves nothing: it runs every cell, exercise\n\
-     and solution under node, checks each against the stdout and stderr\n\
-     blocks after it, prints file:line: message for what is wrong, and\n\
-     exits with 1 if anything is.\n\n\
+     block and what test mode finds under each, and --mode test serves\n\
+     nothing: it runs every cell, exercise and solution under node,\n\
+     checks each against the stdout and stderr blocks after it, prints\n\
+     file:line: message for what is wrong, and exits with 1 if anything\n\
+     is. The notebook's page reloads when its file changes.\n\n\
      `pyk lsp` is the language server an editor starts: it reads and\n\
      writes the Language Server Protocol on standard input and output,\n\
      and reports errors, types on hover, definitions, an outline and\n\

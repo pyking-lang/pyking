@@ -38,6 +38,7 @@
 
 import { renderMarkdown, escapeHTML } from "./markdown.js";
 import { Activities } from "./activities.js";
+import { checkNotebook } from "./checks.js";
 
 const HERE = new URL(".", import.meta.url);
 
@@ -58,7 +59,13 @@ const DEFAULTS = {
   onChange: null,         // (results) -> (), whenever an answer is checked
   cellActions: [],        // [{label, title, run(source)}]: a button on each cell
   runtime: null,          // a PykingRuntime to share; default: one of its own
+  watch: false,           // reload the page when the document at url changes
 };
+
+// How often a watched document is fetched again, in milliseconds.
+const WATCH_INTERVAL = 1000;
+
+const SCROLL_KEY = "pyking-notebook.scroll:";
 
 const THEME_KEY = "pyking-notebook.theme";
 const THEMES = ["auto", "light", "dark"];
@@ -98,7 +105,44 @@ export async function mountNotebook(host, options = {}) {
 
   const notebook = new Notebook(host, doc, cfg, web, source);
   await notebook.init();
+  if (cfg.watch && cfg.url) watch(new URL(cfg.url, document.baseURI).href, source);
   return notebook;
+}
+
+/** Fetches the document every WATCH_INTERVAL and reloads the page when
+ *  its text has changed, at the place it was scrolled to.
+ *  String -> String -> () */
+function watch(url, source) {
+  const key = SCROLL_KEY + url;
+  const scroller = document.scrollingElement ?? document.documentElement;
+  let kept = null;
+  try {
+    kept = sessionStorage.getItem(key);
+    sessionStorage.removeItem(key);
+  } catch {
+    /* not kept; the page opens at its top */
+  }
+  if (kept !== null) requestAnimationFrame(() => { scroller.scrollTop = Number(kept); });
+  const poll = async () => {
+    let text = null;
+    try {
+      const response = await fetch(url, { cache: "no-store" });
+      if (response.ok) text = await response.text();
+    } catch {
+      /* the server is gone or busy: ask again later */
+    }
+    if (text !== null && text !== source) {
+      try {
+        sessionStorage.setItem(key, String(scroller.scrollTop));
+      } catch {
+        /* reloaded at the top */
+      }
+      location.reload();
+      return;
+    }
+    setTimeout(poll, WATCH_INTERVAL);
+  };
+  setTimeout(poll, WATCH_INTERVAL);
 }
 
 /** Makes every placeholder runnable, sharing one compiler worker and one
@@ -458,6 +502,17 @@ class Notebook extends Cells {
     if (this.doc.math) this.renderMath();
     await super.init();
     for (const pre of this.host.querySelectorAll("pre.pkn-code")) this.highlight(pre);
+    if (this.activities[0]?.checks) this.check();
+  }
+
+  /** Runs what test mode checks, in this page's worker, and shows each
+   *  problem under the element it is about. () -> Promise */
+  async check() {
+    const run = (source, name, stdin, args) =>
+      this.capture(source, { name, stdin, args: this.web.splitArguments(args ?? "") });
+    const { problems } = await checkNotebook(this.doc, run);
+    this.activities[0].showChecks(problems);
+    this.checked = problems;
   }
 
   themed() {
@@ -506,6 +561,7 @@ class Notebook extends Cells {
       storageKey: cfg.storageKey ?? (cfg.url ? new URL(cfg.url, document.baseURI).href
         : "text:" + textHash(this.source)),
       onChange: () => this.changed(),
+      checks: true,
     }));
     if (contents) this.followScrolling();
   }
